@@ -177,5 +177,58 @@ class TestMigration(Base):
         self.assertEqual(migrated["learning"], {"observations": [], "capabilities": []})
 
 
+class TestCreativeContracts(Base):
+    def state(self, scene, pose):
+        return {
+            "scene_id": scene, "location_id": "雨巷", "time_state": "夜雨", "lighting_id": "路灯冷光",
+            "soundscape_id": "雨声-远车", "characters": {"女主": {"costume_id": "女主-风衣-v1", "pose": pose}},
+            "camera": {"framing": "中景", "motion": "右移", "screen_direction": "左到右"},
+        }
+
+    def test_adaptation_continuity_and_sound_contracts(self):
+        adaptation = self.write("02-改编/改编映射.json", json.dumps({
+            "format": "vsc.adaptation-map/v1", "project_id": "雨夜计划",
+            "source_units": [{"id": "SRC-1", "locator": "ch01:p4", "fact_or_claim": "她未签收信", "narrative_function": "制造误读"}],
+            "episodes": [{"id": "EP-01", "logline": "假信带来追逐", "opening_hook": "雨夜假信", "exit_hook": "信封背面出现名字"}],
+            "screen_units": [{"id": "SC-1", "episode_id": "EP-01", "source_refs": ["SRC-1"], "scene_id": "雨巷追逐",
+                              "visible_action": "她攥住信封转身逃跑", "character_goal": "摆脱跟踪", "obstacle": "巷口被拦住",
+                              "turn": "发现信封背面有自己的名字", "audience_information": "跟踪者知道她的身份"}],
+        }, ensure_ascii=False))
+        self.assertIn("ADAPTATION: PASS", self.ok("adaptation", "validate", adaptation))
+        continuity = self.write("05-预演/连续性计划.json", json.dumps({
+            "format": "vsc.continuity-plan/v1", "project_id": "雨夜计划", "sequence_id": "EP01-SC01", "max_clip_ms": 8000,
+            "shots": [
+                {"id": "SH-01", "duration_ms": 6000, "reference_asset_ids": ["角色-女主-v1", "场景-雨巷-v1"], "handles": {"head_ms": 300, "tail_ms": 500},
+                 "entry_state": self.state("雨巷追逐", "起跑"), "exit_state": self.state("雨巷追逐", "奔跑中"),
+                 "bridge_to_next": {"strategy": "match_action", "purpose": "保持逃跑方向和紧张感", "match_fields": ["location_id", "characters.女主.costume_id", "characters.女主.pose", "camera.screen_direction"]}},
+                {"id": "SH-02", "duration_ms": 6000, "reference_asset_ids": ["角色-女主-v1", "场景-雨巷-v1"], "handles": {"head_ms": 500, "tail_ms": 300},
+                 "entry_state": self.state("雨巷追逐", "奔跑中"), "exit_state": self.state("雨巷追逐", "停下回望")},
+            ],
+        }, ensure_ascii=False))
+        self.assertIn("CONTINUITY: PASS", self.ok("continuity", "validate", continuity))
+        sound = self.write("07-后期/声音提示表.json", json.dumps({
+            "format": "vsc.sound-cue-sheet/v1", "project_id": "雨夜计划", "sequence_id": "EP01-SC01", "duration_ms": 12000,
+            "ambience_beds": [{"id": "AMB-01", "start_ms": 0, "end_ms": 12000, "soundscape_id": "雨声-远车", "usage_rights": "owned"}],
+            "music_cues": [{"id": "MUS-01", "start_ms": 0, "end_ms": 12000, "narrative_function": "追逐张力", "emotion": "焦灼", "intensity": 3,
+                              "entry": "低音渐入", "exit": "停在回望前", "usage_rights": "licensed", "stems": ["节奏", "低音"]}],
+            "boundaries": [{"id": "B-01", "from_shot": "SH-01", "to_shot": "SH-02", "at_ms": 6000, "strategy": "L_cut", "tail_ms": 400,
+                            "purpose": "让脚步声先带入下一镜", "ambience_bed_id": "AMB-01"}],
+        }, ensure_ascii=False))
+        self.assertIn("SOUND: PASS", self.ok("sound", "validate", sound))
+
+    def test_continuity_rejects_unmatched_boundary(self):
+        plan = self.write("05-预演/错位.json", json.dumps({
+            "format": "vsc.continuity-plan/v1", "project_id": "雨夜计划", "sequence_id": "EP01-SC01", "max_clip_ms": 8000,
+            "shots": [
+                {"id": "SH-01", "duration_ms": 6000, "reference_asset_ids": ["角色-女主-v1"], "handles": {"head_ms": 300, "tail_ms": 300},
+                 "entry_state": self.state("雨巷追逐", "起跑"), "exit_state": self.state("雨巷追逐", "向右跑"),
+                 "bridge_to_next": {"strategy": "match_action", "purpose": "保持动作", "match_fields": ["characters.女主.pose"]}},
+                {"id": "SH-02", "duration_ms": 6000, "reference_asset_ids": ["角色-女主-v1"], "handles": {"head_ms": 300, "tail_ms": 300},
+                 "entry_state": self.state("雨巷追逐", "向左跑"), "exit_state": self.state("雨巷追逐", "停下")},
+            ],
+        }, ensure_ascii=False))
+        self.assertIn("不一致", self.bad("continuity", "validate", plan))
+
+
 if __name__ == "__main__":
     unittest.main()
