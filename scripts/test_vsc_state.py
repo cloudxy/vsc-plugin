@@ -54,9 +54,10 @@ class Base(unittest.TestCase):
 class TestInitAndProfiles(Base):
     def test_layout_and_identity(self):
         state = json.loads((self.project / "vsc.json").read_text("utf-8"))
-        self.assertEqual((state["schema_version"], state["profile_id"]), (1, "vsc.narrative-base"))
+        self.assertEqual((state["schema_version"], state["profile_id"]), (2, "vsc.narrative-base"))
         self.assertTrue(state["project_id"].startswith("vsc-project-"))
-        for rel in ("00-委托/创作委托.md", "04-视听设计/镜头/镜头表.md", "09-台账/README.md"):
+        for rel in ("00-委托/创作委托.md", "04-视听设计/镜头/镜头表.md", "09-台账/README.md",
+                    "10-记忆/README.md", "11-学习/README.md", "12-评测/README.md"):
             self.assertTrue((self.project / rel).is_file(), rel)
         self.assertIn("brief", self.ok("next", self.project))
 
@@ -100,6 +101,80 @@ class TestHandoff(Base):
         self.assertIn("package-001", self.ok("source", "import", self.project, "--manifest", manifest))
         invalid = self.write("01-来源/not-handoff.json", "{}")
         self.assertIn("格式必须是", self.bad("handoff", "validate", invalid))
+
+
+class TestMemoryAndContext(Base):
+    def test_approved_curated_memory_and_ephemeral_parent_brief(self):
+        brief = self.artifact("vsc.creative_brief", "brief", "00-委托/brief.md")
+        output = self.ok("memory", "add", self.project, "--scope", "role", "--role", "director",
+                         "--kind", "lesson", "--source", brief, "--content", "追逐镜头先交代出口，再提高剪辑密度。")
+        memory_id = output.split()[1]
+        self.ok("memory", "decide", self.project, memory_id, "--status", "approved", "--by", "导演")
+        restricted = self.ok("memory", "add", self.project, "--scope", "project", "--kind", "fact",
+                             "--content", "仅授权剪辑师查看的联系信息。", "--sensitivity", "restricted").split()[1]
+        self.ok("memory", "decide", self.project, restricted, "--status", "approved", "--by", "制片")
+        output = self.ok("context", "build", self.project, "--role", "director", "--task", "设计追逐镜头",
+                         "--artifact", brief, "--parent-brief", "本轮用户希望镜头更紧张。")
+        self.assertIn("CT-0001", output)
+        packet = json.loads((self.project / "10-记忆/上下文/CT-0001.json").read_text("utf-8"))
+        self.assertEqual(packet["role"]["id"], "director")
+        self.assertEqual(packet["inputs"][0]["id"], brief)
+        self.assertEqual(packet["parent_brief"]["persistence"], "ephemeral_not_saved")
+        self.assertEqual([x["id"] for x in packet["approved_memories"]], [memory_id])
+        state = json.loads((self.project / "vsc.json").read_text("utf-8"))
+        self.assertNotIn("本轮用户希望镜头更紧张", json.dumps(state, ensure_ascii=False))
+
+
+class TestLearningLifecycle(Base):
+    def test_owned_material_can_be_evaluated_and_promoted(self):
+        source = self.write("01-来源/武打样片.mp4", "placeholder video")
+        self.ok("source", "add", self.project, "--kind", "video", "--file", source, "--rights", "owned")
+        evidence = self.write("11-学习/观察/打斗节拍.md", "每次动作前先建立方向线。")
+        output = self.ok("learn", "observe", self.project, "--kind", "action", "--source", "S-0001", "--file", evidence,
+                         "--content", "记录起势、交手、受击、停顿、反转五拍；保留方向线。")
+        observation = output.split()[1]
+        output = self.ok("capability", "propose", self.project, "--name", "五拍打斗节奏", "--kind", "action",
+                         "--observation", observation, "--method", "按五拍拆分镜头并为每拍写方向线。",
+                         "--limits", "仅用于已获授权项目；不复制人物身份或特定作品画面。", "--role", "director")
+        capability = output.split()[1]
+        self.ok("capability", "decide", self.project, capability, "--status", "pilot", "--by", "导演")
+        evaluation = self.artifact("vsc.learning_evaluation", "production", "12-评测/五拍打斗.md")
+        self.ok("capability", "evaluate", self.project, capability, "--result", "pass", "--evidence", evaluation,
+                "--by", "导演", "--note", "节奏、方向和人物连续性均可复核。")
+        self.ok("capability", "decide", self.project, capability, "--status", "approved", "--by", "导演")
+        self.assertIn("[approved]", self.ok("capability", "list", self.project, "--status", "approved"))
+        output = self.ok("context", "build", self.project, "--role", "director", "--task", "设计下一场动作戏")
+        self.assertIn("CT-0001", output)
+        packet = json.loads((self.project / "10-记忆/上下文/CT-0001.json").read_text("utf-8"))
+        self.assertEqual(packet["approved_capabilities"][0]["id"], capability)
+
+    def test_unknown_rights_cannot_enter_pilot(self):
+        source = self.write("01-来源/参考图.jpg", "placeholder image")
+        self.ok("source", "add", self.project, "--kind", "image", "--file", source)
+        evidence = self.write("11-学习/观察/构图.md", "中心构图")
+        observation = self.ok("learn", "observe", self.project, "--kind", "layout", "--source", "S-0001", "--file", evidence,
+                              "--content", "前景遮挡与中景人物形成层次。").split()[1]
+        capability = self.ok("capability", "propose", self.project, "--name", "层次构图", "--kind", "layout",
+                             "--observation", observation, "--method", "先定前中后景。", "--limits", "仅作研究。", "--role", "director").split()[1]
+        self.assertIn("不能进入试用", self.bad("capability", "decide", self.project, capability, "--status", "pilot", "--by", "导演"))
+
+
+class TestMigration(Base):
+    def test_schema_one_migrates_conservatively(self):
+        source = self.write("01-来源/小说.txt", "来源")
+        self.ok("source", "add", self.project, "--kind", "novel", "--file", source, "--rights", "owned")
+        path = self.project / "vsc.json"
+        state = json.loads(path.read_text("utf-8"))
+        state["schema_version"] = 1
+        state.pop("memories"); state.pop("contexts"); state.pop("learning")
+        state["sources"][0].pop("rights")
+        path.write_text(json.dumps(state, ensure_ascii=False), "utf-8")
+        self.assertIn("需要迁移", self.bad("status", self.project))
+        self.ok("migrate", self.project)
+        migrated = json.loads(path.read_text("utf-8"))
+        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(migrated["sources"][0]["rights"], "unknown")
+        self.assertEqual(migrated["learning"], {"observations": [], "capabilities": []})
 
 
 if __name__ == "__main__":
