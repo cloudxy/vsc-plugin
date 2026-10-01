@@ -37,6 +37,8 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 | 原文理解、改编契约、分集 | `/vsc-adapt` | story-analyst、adaptation-editor |
 | 场次、对白、节奏 | `/vsc-script` | screenwriter |
 | 镜头、运镜、转场、预演 | `/vsc-direct` | director、storyboard-artist |
+| 跨片段人物/场景/动作/声音连续性 | `/vsc-continuity` | continuity-supervisor、director、asset-director |
+| BGM、环境底、声音桥与 Cue | `/vsc-sound` | music-supervisor、editor、post-reviewer |
 | 人物、场景、动作、声音 | `/vsc-assets` | asset-director、performance-sound-director |
 | 图像、图生视频、音频候选 | `/vsc-produce` | generation-producer、continuity-reviewer |
 | 剪辑、BGM、音效、字幕、交付 | `/vsc-post` | editor、post-reviewer |
@@ -54,6 +56,13 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 6. 需要批准的内容先登记 `artifact add`，再 `artifact decide --status approved --by <责任人>`；所有版本保留，返工创建新产物，不覆写既有基线。
 7. `gate check` 只检查结构完整与批准状态；它不能自动替代创作判断。创作评审中给负责人推荐、理由与备选。
 8. 生成供应商是可替换适配器。没有已批准的镜头规格、资产绑定、预算与授权范围，不提交生成任务。
+
+## 改编、连续性与声音的不可跳过关口
+
+1. **小说先剧本化，再分镜。** 来源理解后建立改编契约与 `vsc.adaptation-map/v1`。每个 screen unit 要回指来源，并写可见行动、角色目标、阻力、转折和观众新增信息；不要把小说心理描写直接塞进台词或提示词。
+2. **每段 AI 视频是镜头单元。** 不管供应商当前允许 6 秒、8 秒还是更长，镜头必须有 `entry_state`、`exit_state`、稳定角色/场景 reference、head/tail 手柄和到下一镜的桥接策略。先用 `continuity validate` 检查状态契约，再人工看画面。
+3. **声音跨镜设计。** BGM、环境底、对白和 SFX 不跟随生成片段各自重启；先写 `vsc.sound-cue-sheet/v1`，按场景/情绪弧线在时间线上铺设。每个镜头边界明确 J/L cut、crossfade、声音桥或刻意静音，运行 `sound validate` 后再混音。
+4. **返工找最早根因。** 人脸/服装/场景漂移回到资产和 reference；动作/方向错位回到动作规格与镜头状态；节奏或情绪不成立回到剧本、预演和 Cue，而不是把转场或 BGM 当万能补丁。
 
 ## 记忆、上下文与持续学习
 

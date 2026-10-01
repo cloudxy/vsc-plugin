@@ -1,0 +1,33 @@
+{
+  "format": "vsc.adaptation-map/v1",
+  "project_id": "replace-with-project-id",
+  "source_units": [
+    {
+      "id": "SRC-001",
+      "locator": "chapter-01:paragraph-04",
+      "fact_or_claim": "写清原文事实、人物说法或明确的不确定项。",
+      "narrative_function": "它在原故事中制造什么信息、冲突或期待。"
+    }
+  ],
+  "episodes": [
+    {
+      "id": "EP-001",
+      "logline": "用人物、目标、阻碍和代价写一句可验证的集概念。",
+      "opening_hook": "开场几秒给观众的问题、反差或危险。",
+      "exit_hook": "集尾留下需要继续观看才能回答的问题或行动。"
+    }
+  ],
+  "screen_units": [
+    {
+      "id": "SC-001",
+      "episode_id": "EP-001",
+      "source_refs": ["SRC-001"],
+      "scene_id": "EP-001-SC-001",
+      "visible_action": "写观众能看见或听见的行动，不写纯心理描写。",
+      "character_goal": "角色此刻要达成什么。",
+      "obstacle": "谁或什么阻止他/她。",
+      "turn": "场景结尾发生的策略、关系或信息变化。",
+      "audience_information": "观众因这场而新知道什么。"
+    }
+  ]
+}
