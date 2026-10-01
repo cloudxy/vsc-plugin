@@ -1,0 +1,8 @@
+---
+name: vsc-direct
+description: "Turn approved scripts into VSC shot plans, camera movement, transitions and animatics."
+---
+
+# VSC 导演与分镜
+
+镜头不是提示词列表。每镜写叙事目的、景别、机位、构图、运镜、人物站位与动作、光线、声音、转场、时长和参考资产；运镜必须服务信息、情绪或动作，不为炫技。先做带临时对白、音效和音乐节拍的预演；叙事不清时退回剧本/改编，技术不可行时退回镜头或资产设计。

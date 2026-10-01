@@ -1,0 +1,17 @@
+{
+  "profile_id": "vsc.novel-serial",
+  "version": "1.0",
+  "label": "小说改编连续短剧",
+  "stages": [
+    {"id": "brief", "label": "创作委托", "required": ["vsc.creative_brief", "vsc.adaptation_contract"]},
+    {"id": "source", "label": "小说理解", "required": ["vsc.source_map", "vsc.story_bible"]},
+    {"id": "adaptation", "label": "分集改编", "required": ["vsc.adaptation_plan", "vsc.episode_beats"]},
+    {"id": "script", "label": "分集剧本", "required": ["vsc.screenplay"]},
+    {"id": "design", "label": "镜头与资产设计", "required": ["vsc.visual_bible", "vsc.asset_bible", "vsc.shot_plan", "vsc.sound_plan"]},
+    {"id": "animatic", "label": "带声预演", "required": ["vsc.animatic"]},
+    {"id": "production", "label": "镜头素材制作", "required": ["vsc.selected_takes"]},
+    {"id": "post", "label": "剪辑与混音", "required": ["vsc.timeline", "vsc.mix"]},
+    {"id": "delivery", "label": "审片与交付", "required": ["vsc.delivery_manifest"]}
+  ],
+  "policy": {"creative_decisions": "human", "technical_checks": "automatic", "external_publish": "not_enabled"}
+}
