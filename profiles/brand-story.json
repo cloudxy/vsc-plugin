@@ -1,0 +1,17 @@
+{
+  "profile_id": "vsc.brand-story",
+  "version": "1.0",
+  "label": "品牌叙事短视频",
+  "stages": [
+    {"id": "brief", "label": "创作委托", "required": ["vsc.creative_brief", "vsc.material_scope"]},
+    {"id": "source", "label": "产品事实与素材", "required": ["vsc.claims_map"]},
+    {"id": "adaptation", "label": "表达设计", "required": ["vsc.story_plan"]},
+    {"id": "script", "label": "脚本", "required": ["vsc.screenplay"]},
+    {"id": "design", "label": "视听与资产设计", "required": ["vsc.visual_bible", "vsc.asset_bible", "vsc.shot_plan", "vsc.sound_plan"]},
+    {"id": "animatic", "label": "分镜预演", "required": ["vsc.animatic"]},
+    {"id": "production", "label": "素材制作", "required": ["vsc.selected_takes"]},
+    {"id": "post", "label": "剪辑与后期", "required": ["vsc.timeline", "vsc.mix"]},
+    {"id": "delivery", "label": "审片与交付", "required": ["vsc.delivery_manifest"]}
+  ],
+  "policy": {"creative_decisions": "human", "technical_checks": "automatic", "external_publish": "not_enabled"}
+}
