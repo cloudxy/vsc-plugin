@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "vendor_is_local_only": true,
+    "allow_automatic_download": false,
+    "require_full_commit": true,
+    "require_license_evidence": true,
+    "require_human_approval": true,
+    "forbid_unreviewed_commercial_use": true
+  },
+  "sources": []
+}
