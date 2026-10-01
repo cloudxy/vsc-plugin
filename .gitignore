@@ -1,0 +1,8 @@
+# 本地下载的第三方 Skill、模型辅助工具、缓存和构建物不进入 VSC 源码仓库。
+/vendor/*
+!/vendor/README.md
+!/vendor/sources.lock.json
+
+__pycache__/
+*.py[cod]
+.DS_Store
