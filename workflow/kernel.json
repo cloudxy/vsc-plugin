@@ -104,6 +104,15 @@
       "roles": ["orchestrator"],
       "profile_stages": [],
       "contracts": []
+    },
+    {
+      "id": "architecture",
+      "command": "vsc-architecture",
+      "skill": "vsc-architecture",
+      "roles": ["orchestrator"],
+      "profile_stages": [],
+      "contracts": [],
+      "vendor_skill_stage": "architecture"
     }
   ]
 }

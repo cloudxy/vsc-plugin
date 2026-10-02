@@ -20,6 +20,36 @@ COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
 SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 USAGE_MODES = ("reference_only", "external_tool", "local_component", "external_service", "adapter_protocol")
 INTERFACES = ("none", "file", "cli", "http")
+UPDATE_MODES = ("candidate_review",)
+
+
+def validate_refresh_policy(data):
+    """Check the repository-wide candidate policy before any source is trusted.
+
+    Source records say how an individual upstream may be tracked.  The policy says
+    whether the updater is allowed to make it active.  Keeping that distinction
+    here prevents a malformed lock from quietly turning a review queue into an
+    auto-updater.
+    """
+    policy = data.get("policy")
+    refresh = policy.get("upstream_refresh") if isinstance(policy, dict) else None
+    if not isinstance(refresh, dict):
+        return "policy.upstream_refresh 必须是 object"
+    if refresh.get("mode") != "candidate_review":
+        return "policy.upstream_refresh.mode 必须为 candidate_review"
+    if refresh.get("scheduler") != "zcode-plugin-updater":
+        return "policy.upstream_refresh.scheduler 必须为 zcode-plugin-updater"
+    if refresh.get("automatic_adoption") is not False:
+        return "policy.upstream_refresh.automatic_adoption 必须为 false"
+    required = {"changed_referenced_skill", "new_skill", "deleted_referenced_skill"}
+    analyzed = refresh.get("analysis_required_for")
+    if not isinstance(analyzed, list) or any(not isinstance(item, str) for item in analyzed) or not required.issubset(analyzed):
+        return "policy.upstream_refresh.analysis_required_for 必须覆盖已引用变更、新增和已引用删除"
+    for key in ("candidate_retention_days", "max_candidate_snapshots_per_source"):
+        value = refresh.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            return f"policy.upstream_refresh.{key} 必须是正整数"
+    return ""
 
 
 def die(message):
@@ -34,8 +64,11 @@ def load_lock():
         die(f"缺锁定文件：{LOCK}")
     except json.JSONDecodeError as exc:
         die(f"锁定文件 JSON 损坏：{exc}")
-    if data.get("schema_version") != 3 or not isinstance(data.get("sources"), list):
-        die("sources.lock.json 必须是 schema_version 3 且含 sources 数组")
+    if data.get("schema_version") != 4 or not isinstance(data.get("sources"), list):
+        die("sources.lock.json 必须是 schema_version 4 且含 sources 数组")
+    policy_problem = validate_refresh_policy(data)
+    if policy_problem:
+        die(policy_problem)
     return data
 
 
@@ -72,6 +105,20 @@ def validate(source):
         for path in sparse_paths:
             if not isinstance(path, str) or not path or path.startswith("/") or ".." in Path(path).parts:
                 return "sparse_paths 只能包含相对、安全的仓库路径"
+    update = source.get("update")
+    if update is not None:
+        if not isinstance(update, dict) or update.get("mode") not in UPDATE_MODES:
+            return "update.mode 必须是 " + "/".join(UPDATE_MODES)
+        if update.get("track_ref") != "HEAD":
+            return "update.track_ref 当前必须为 HEAD"
+        if not isinstance(update.get("analysis_required"), bool) or not isinstance(update.get("automatic_adoption"), bool):
+            return "update.analysis_required 与 automatic_adoption 必须是布尔值"
+        if update["automatic_adoption"]:
+            return "当前 Vendor 策略不允许 automatic_adoption；必须先分析并显式采用候选版本"
+        if update.get("deleted_referenced_skill") != "retain_last_approved_snapshot":
+            return "update.deleted_referenced_skill 必须为 retain_last_approved_snapshot"
+        if update.get("new_skill") != "unrouted_pending_review":
+            return "update.new_skill 必须为 unrouted_pending_review"
     return ""
 
 

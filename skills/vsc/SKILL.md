@@ -52,6 +52,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 | 剪辑、BGM、音效、字幕、交付 | `/vsc-post` | editor、post-reviewer |
 | 可编辑预演、Composition、字幕与确定性渲染 | `/vsc-remotion` | remotion-composer、editor |
 | 素材观察、能力卡、试用与评测 | `/vsc-learn` | director、asset-director、post-reviewer |
+| VSC / Profile / 适配器架构审查 | `/vsc-architecture` | orchestrator（按需引入公开架构 Skill） |
 
 仍先读 `vsc.json`、相关已批准产物和所指镜头／场次；只补影响该环节的依赖，避免重做无关阶段。
 

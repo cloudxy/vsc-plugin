@@ -21,11 +21,22 @@ description: "Use when the user wants to assess, install, update, or schedule lo
 
 ## 下载后直接使用 Skill
 
-下载不是终点。安装完成后运行 `python3 scripts/vendor_skills.py --scan`，在本机生成 `vendor/skill-catalog.json`。当用户进入某个创作阶段，运行 `python3 scripts/vendor_skills.py --resolve adapt|script|direct|assets|produce|sound|post`：
+下载不是终点。安装完成后运行 `python3 scripts/vendor_skills.py --scan`，在本机生成 `vendor/skill-catalog.json`。当用户进入某个创作或维护阶段，运行 `python3 scripts/vendor_skills.py --resolve adapt|script|direct|assets|produce|sound|post|architecture`：
 
 1. 对 `guide` 条目，读取输出路径对应的**上游原始** `SKILL.md`，并直接采用其方法；不复制到 VSC 核心。
 2. 对 `runtime: ...` 条目，先检查所列 CLI、MCP、密钥或依赖；就绪后才调用它的原生能力。
 3. 将结果映射回 VSC 的改编、剧本、ShotPlan、资产、Cue、时间线等产物，不让上游 Skill 绕过 VSC 的批准、连续性或权属边界。
+
+## 每日候选更新：先分析，后采用
+
+ZCode 的 `plugin-updater` 可以每天下载各来源的**候选快照**并调用 `scripts/vendor_review.py`，把 JSON 与 Markdown 报告写入本机 `vendor/.reviews/`。出现候选时，ZCode 审查任务再阅读报告与必要 diff，并写一份不具采用权限的 `.assessment.md` 语义评估。两层都不覆盖当前已批准的 `vendor/<source>`、不改写 `sources.lock.json`、不自动新增路由，也不自动执行候选中的内容。
+
+- 已路由 Skill 有内容变化：报告标为 `changed_referenced_skill`，必须判断其方法、输入/输出、运行环境、权限与 VSC 契约是否仍兼容。
+- 新增 Skill：报告标为 `new_skill`，默认 `unrouted_pending_review`；只有人工显式把它接到 VSC 阶段并通过 `vsc_kernel.py doctor`，才能直接使用。
+- 已路由 Skill 被删除：报告要求“保留最后批准快照、替换路由或退役”三选一；当前活跃版本不会被定时任务静默删除。
+- 候选快照由更新中心按每来源最长 90 天、最多 3 份清理。它们用于审查和恢复，不进入 VSC Git。
+
+需把通过审查的候选投入使用时，先由责任人更新相应来源的固定 revision，再执行 `vendor_sync.py --install <来源>`；随后重新生成声明并运行 `vsc_kernel.py doctor`。不要把“上游有新提交”当作“已批准升级”。
 
 ## 锁定记录范例
 
