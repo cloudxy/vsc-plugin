@@ -56,6 +56,12 @@ ROUTES = {
         ("remotion", "packages/skills/skills/remotion-studio/SKILL.md", "runtime: Node.js, npm dependencies", "启动 Remotion Studio 预览并允许人工调整。"),
         ("remotion", "packages/skills/skills/remotion-render/SKILL.md", "runtime: Node.js, npm dependencies", "将已批准 Composition 导出为视频或静帧。"),
     ),
+    "architecture": (
+        ("mattpocock-skills", "skills/engineering/improve-codebase-architecture/SKILL.md", "guide", "发现模块深度、接缝、可测试性与 AI 可导航性的架构摩擦。"),
+        ("mattpocock-skills", "skills/engineering/codebase-design/SKILL.md", "guide", "提供模块、接口、深度、接缝、适配器、杠杆和局部性的共享词汇。"),
+        ("mattpocock-skills", "skills/productivity/grilling/SKILL.md", "guide", "在选定架构候选后澄清约束和设计取舍。"),
+        ("mattpocock-skills", "skills/engineering/domain-modeling/SKILL.md", "guide", "维护 VSC 术语表和 ADR，使架构决定可追溯。"),
+    ),
 }
 
 

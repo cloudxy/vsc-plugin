@@ -38,5 +38,6 @@ VSC 自身保持 MIT；它不要求所有外部工具也必须是 MIT。每个�
 - [vendor_sync.py](../scripts/vendor_sync.py) 默认没有动作；`--check` 和 `--plan` 不联网，用户显式执行 `--install [来源 id]`（或兼容的 `--sync`）才下载固定到 40 位 commit 的来源。大型来源可用可选的 `sparse_paths` 只检出需要直接使用的上游 Skill 路径。
 - [vendor_skills.py](../scripts/vendor_skills.py) 扫描已下载项目中的原始 `SKILL.md`，并按 VSC 创作阶段输出可立即采用的方法型 Skill 与需要环境的原生工具型 Skill；不复制上游内容，也不联网。
 - [vendor README](../vendor/README.md) 给出用户自行安装、更新和可选本机每日同步指引；插件不自行创建 cron，也不保管凭据。
+- [Vendor 候选更新](12-vendor-candidate-updates.md) 定义 ZCode 更新中心的“下载候选 → 分析 → 显式采用”闭环。候选保留不等于自动覆盖当前来源；新增、变更、删除的 Skill 都必须产出本机分析报告。
 
 安装是用户的本机动作，不由 VSC 自动触发。锁定记录是“本项目借用了什么”的公开声明，不替用户作商业发布、再分发、云端服务、训练/微调、声音/人物/素材权利或 copyleft 的法律判断；这些情形有疑问时应寻求适当的专业意见。

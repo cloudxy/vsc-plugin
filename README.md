@@ -2,7 +2,7 @@
 
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 预演 → 图像/视频/声音候选 → 剪辑 → 审片与交付**。
 
-当前版本：**v0.6.0**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；`workflow/` 现为阶段、角色与跨模块契约的单一事实来源，`doctor` 可阻止“文档已说、实际缺失”；可直接路由本机 Vendor 中已安装的上游 Skill，并将已批准的时间线编译为可编辑的 Remotion 预演/渲染项目；尚未接入任何真实的图像、图生视频或声音供应商，也不会自动训练模型。
+当前版本：**v0.8.0**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；`workflow/` 现为阶段、角色与跨模块契约的单一事实来源，`doctor` 可阻止“文档已说、实际缺失”；可直接路由本机 Vendor 中已安装的上游 Skill，并将已批准的时间线编译为可编辑的 Remotion 预演/渲染项目。新增的 Vendor 候选更新会每日分析新增、变更和删除的 Skill，绝不静默替换活跃版本；尚未接入任何真实的图像、图生视频或声音供应商，也不会自动训练模型。
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
 
@@ -44,6 +44,7 @@ VSC 的基本立场是：**意图先于生成，产物先于任务，人对创�
 | 图像、图生视频、音频候选 | `/vsc-produce` | 供应商中立的生成计划与 take 记录 |
 | 剪辑、BGM、音效、字幕、审片 | `/vsc-post` | Timeline、Mix、审片与交付 |
 | 可编辑预演与确定性导出 | `/vsc-remotion` | Composition、字幕与本地渲染计划 |
+| VSC / Profile / 适配器架构维护 | `/vsc-architecture` | 公开架构 Skill、术语表、ADR 与可视化审计 |
 | 从素材沉淀受控方法 | `/vsc-learn` | 观察、能力卡、试用、评测与晋升 |
 | 本地开源 Skill/工具 | `/vsc-vendor` | 来源审核、固定版本和本地同步 |
 
@@ -212,6 +213,7 @@ python3 scripts/vendor_sync.py --plan   # 不联网、不下载
 python3 scripts/vendor_sync.py --write-declaration  # 由来源锁定文件生成 vendor/THIRD_PARTY.md
 python3 scripts/vendor_sync.py --install inkos openwrite  # 用户按需安装指定来源
 python3 scripts/vendor_sync.py --install remotion  # 安装可选的本地时间线、预览与渲染 Skill
+python3 scripts/vendor_sync.py --install mattpocock-skills  # 安装公开的架构改进及其依赖 Skill
 python3 scripts/vendor_sync.py --install  # 用户安装全部已声明、固定到 40 位 commit 的来源
 python3 scripts/vendor_skills.py --scan  # 扫描已下载的上游 SKILL.md，写入本机目录
 python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接使用的 Skill
@@ -220,6 +222,10 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 不提交第三方源码只能降低再次分发的风险，**不等于获得商业使用权**。`sources.lock.json` 是机器可读的来源真相，`vendor/THIRD_PARTY.md` 是从它生成的公开声明；用户自行运行安装脚本。许可证、NOTICE、模型权重、声音、图像、数据集、商标和平台条款仍须逐项确认。详见 [第三方声明](vendor/THIRD_PARTY.md)、[Vendor 治理](docs/07-vendor-governance.md) 与 [Vendor 安装说明](vendor/README.md)。
 
 安装完成后，`vendor_skills.py` 会发现上游项目内的原始 `SKILL.md`；`/vsc-adapt`、`/vsc-script`、`/vsc-direct`、`/vsc-assets`、`/vsc-produce`、`/vsc-sound`、`/vsc-post` 分别按阶段路由并直接读取这些 Skill。方法型 Skill 可立即复用；需要 OpenWrite Bridge、ffmpeg、MCP、模型服务或 API 凭据的原生 Skill 会标记所需环境，只有环境实际就绪才执行。
+
+### Vendor 最新性不是自动采用
+
+每天由 ZCode 更新中心拉取来源的候选 revision，而不是直接覆盖正在使用的 `vendor/<source>`。每次候选变化均会生成本机 `vendor/.reviews/` 的结构报告；ZCode 审查任务再按必要 diff 写出“是否仍可引用／是否值得路由／删除如何处置”的语义评估。已引用 Skill 的变化要做兼容性审查；新增 Skill 默认不路由；删除的已引用 Skill 要决定保留最后批准快照、替换或退役。候选快照按每来源 90 天、最多 3 份保留。通过审查后，责任人再显式修改固定 revision 并重新安装；这样既能持续发现最新能力，也不会让一次上游删除或不兼容改动破坏 VSC。
 
 ## 当前边界与路线
 
@@ -246,6 +252,7 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 | [09 生产连续性与声音](docs/09-production-continuity-and-sound.md) | 剧本化、跨 AI 片段状态契约、BGM/环境声与时间线策略 |
 | [10 Remotion 集成](docs/10-remotion-integration.md) | VSC 时间线到可编辑预演和确定性渲染的本机接口 |
 | [11 架构重构](docs/11-architecture-refactor.md) | 结构问题、可执行内核和扩展规则 |
+| [12 Vendor 候选更新](docs/12-vendor-candidate-updates.md) | 每日候选、Skill 分析、采用与快照保留 |
 | [工作流内核](workflow/README.md) | 单一事实来源、稳定查询/校验接口与扩展方式 |
 | [架构决策 ADR](docs/adr/README.md) | 影响长期结构的可追溯决定 |
 
@@ -254,6 +261,7 @@ python3 -B scripts/test_vsc_state.py
 python3 -B scripts/test_vsc_kernel.py
 python3 -B scripts/test_vendor_sync.py
 python3 -B scripts/test_vendor_skills.py
+python3 -B scripts/test_vendor_review.py
 python3 -B scripts/test_remotion_plan.py
 ```
 

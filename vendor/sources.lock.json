@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "policy": {
     "core_license": "MIT",
     "vendor_is_local_only": true,
@@ -9,7 +9,15 @@
     "require_full_commit": true,
     "require_license_evidence": true,
     "allow_any_declared_open_source_license": true,
-    "allow_locally_vendored_open_source_components": true
+    "allow_locally_vendored_open_source_components": true,
+    "upstream_refresh": {
+      "mode": "candidate_review",
+      "scheduler": "zcode-plugin-updater",
+      "automatic_adoption": false,
+      "analysis_required_for": ["changed_referenced_skill", "new_skill", "deleted_referenced_skill"],
+      "candidate_retention_days": 90,
+      "max_candidate_snapshots_per_source": 3
+    }
   },
   "sources": [
     {
@@ -84,6 +92,20 @@
       "redistribution": "local_only",
       "sparse_paths": [".agents/skills", "packages/skills/skills"],
       "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "mattpocock-skills",
+      "type": "git",
+      "url": "https://github.com/mattpocock/skills.git",
+      "revision": "d81f3a183412e71a5b1e84ca21bc1a35eea03a60",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/mattpocock/skills/blob/d81f3a183412e71a5b1e84ca21bc1a35eea03a60/LICENSE",
+      "purpose": "本地直接使用架构改进、代码库设计、澄清与领域建模 Skill，维护 VSC 及其业务扩展。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "sparse_paths": ["LICENSE", "skills/engineering/improve-codebase-architecture", "skills/engineering/codebase-design", "skills/productivity/grilling", "skills/engineering/domain-modeling"],
+      "update": {"mode": "candidate_review", "track_ref": "HEAD", "analysis_required": true, "automatic_adoption": false, "deleted_referenced_skill": "retain_last_approved_snapshot", "new_skill": "unrouted_pending_review"},
+      "usage": {"mode": "local_component", "interface": "file", "modified": false}
     }
   ]
 }

@@ -28,6 +28,19 @@ def declared_source(**changes):
     return source
 
 
+def refresh_policy(**changes):
+    policy = {
+        "mode": "candidate_review",
+        "scheduler": "zcode-plugin-updater",
+        "automatic_adoption": False,
+        "analysis_required_for": ["changed_referenced_skill", "new_skill", "deleted_referenced_skill"],
+        "candidate_retention_days": 90,
+        "max_candidate_snapshots_per_source": 3,
+    }
+    policy.update(changes)
+    return policy
+
+
 class TestValidation(unittest.TestCase):
     def test_declared_pinned_source_is_valid_without_approval_field(self):
         self.assertEqual(SYNC.validate(declared_source()), "")
@@ -42,7 +55,7 @@ class TestValidation(unittest.TestCase):
             vendor = root / "vendor"
             vendor.mkdir()
             lock = vendor / "sources.lock.json"
-            lock.write_text(json.dumps({"schema_version": 3, "sources": [declared_source()]}, ensure_ascii=False), "utf-8")
+            lock.write_text(json.dumps({"schema_version": 4, "policy": {"upstream_refresh": refresh_policy()}, "sources": [declared_source()]}, ensure_ascii=False), "utf-8")
             old_lock, old_vendor = SYNC.LOCK, SYNC.VENDOR
             try:
                 SYNC.LOCK, SYNC.VENDOR = lock, vendor
@@ -56,6 +69,11 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(SYNC.validate(declared_source(
             license_spdx="Apache-2.0", usage={"mode": "local_component", "interface": "cli", "modified": False}
         )), "")
+
+    def test_candidate_policy_requires_review_and_bounded_retention(self):
+        self.assertEqual(SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy()}}), "")
+        self.assertIn("automatic_adoption", SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy(automatic_adoption=True)}}))
+        self.assertIn("正整数", SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy(candidate_retention_days=0)}}))
         self.assertEqual(SYNC.validate(declared_source(
             license_spdx="AGPL-3.0-only", usage={"mode": "local_component", "interface": "cli", "modified": True}
         )), "")

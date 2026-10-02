@@ -10,6 +10,7 @@
 | [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) | 本地使用 Agent harness、任务图、记忆与观察方法的实现和参考材料。 | MIT | `learn-claude-code` |
 | [openmontage](https://github.com/calesthio/OpenMontage) | 本地调用镜头编排、制作管线、供应商选择与渲染质量检查能力。 | AGPL-3.0-only | `openmontage` |
 | [remotion](https://github.com/remotion-dev/remotion) | 本地使用 Composition、Player、字幕、时间线和 Renderer，为 VSC 的剪辑预演与确定性成片渲染提供可选实现。 | LicenseRef-Remotion | `remotion` |
+| [mattpocock-skills](https://github.com/mattpocock/skills) | 本地直接使用架构改进、代码库设计、澄清与领域建模 Skill，维护 VSC 及其业务扩展。 | MIT | `mattpocock-skills` |
 
 来源 URL、固定 commit、许可证证据与本地调用模式见 [sources.lock.json](sources.lock.json)。用户可自行执行：
 

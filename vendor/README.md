@@ -58,3 +58,9 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
 ## 说明
 
 SPDX 标识用于机器可读地记录已核验的许可证，不是法律意见。GitHub 也明确指出，未声明许可证的代码默认受版权法保护；如有商业化、再分发、SaaS、模型权重、声音或素材权利问题，应由具资格的专业人士判断。[GitHub 许可证说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) · [SPDX 许可证信息](https://spdx.dev/learn/handling-license-info/)
+
+## 每日候选更新
+
+ZCode 更新中心可按 `sources.lock.json` 的 schema 4 策略每天下载上游 HEAD 的候选快照，保留每来源最多 3 份、最长 90 天。它只把 JSON 和 Markdown 分析写到被忽略的 `vendor/.reviews/`，不覆盖正在使用的 `vendor/<source>`，不改写固定 revision，也不自动新增路由。
+
+当候选中的 `SKILL.md` 新增、修改或删除时，先阅读报告并作出明确决定；通过后再更新锁定 revision 并运行 `vendor_sync.py --install <source>`。详细流程见 [Vendor 候选更新](../docs/12-vendor-candidate-updates.md)。

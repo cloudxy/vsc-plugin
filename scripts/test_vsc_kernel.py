@@ -21,7 +21,7 @@ class TestWorkflowKernel(unittest.TestCase):
     def test_doctor_proves_declared_surface_exists(self):
         result = run("doctor")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("stages=12", result.stdout)
+        self.assertIn("stages=13", result.stdout)
         self.assertIn("roles=12", result.stdout)
 
     def test_route_is_the_single_machine_readable_dispatch(self):
