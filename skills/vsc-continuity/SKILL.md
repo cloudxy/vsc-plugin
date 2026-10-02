@@ -19,7 +19,7 @@ description: "Use when VSC needs to preserve character, scene, action, camera, l
 将 JSON 计划保存为 `vsc.continuity-plan/v1`，运行：
 
 ```bash
-python3 scripts/vsc_state.py continuity validate ./05-预演/连续性计划.json
+python3 scripts/vsc_kernel.py contract validate vsc.continuity-plan/v1 ./05-预演/连续性计划.json
 ```
 
 结构通过不代表画面已通过。必须人工核对：人物身份、服装/道具、左右方向、动作接点、镜头运动、空间地理、天气/光色、帧率/画幅、环境底与对白进出；失败应退回角色资产、场景资产、ShotPlan 或生成 take 的最早根因。

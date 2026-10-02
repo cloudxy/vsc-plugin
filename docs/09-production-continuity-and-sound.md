@@ -44,7 +44,7 @@ VSC 的改编链为：
 这并不禁止新增，而是拒绝无来源、无代价的偷偷新增：新增信息须在改编契约中留下决定与理由。用以下命令阻止“有漂亮梗概、没有可拍场景”的假完成：
 
 ```bash
-python3 scripts/vsc_state.py adaptation validate ./02-改编/改编映射.json
+python3 scripts/vsc_kernel.py contract validate vsc.adaptation-map/v1 ./02-改编/改编映射.json
 ```
 
 ## 二、跨片段连续性：把片段边界当成契约
@@ -75,7 +75,7 @@ entry_state  →  [本镜行动 / 镜头目的]  →  exit_state
 例如，“女主向右奔跑”出镜后，下一镜的入点若使用 `match_action`，应显式匹配地点、服装、道具、姿势和屏幕方向。VSC 的校验器不会看懂成片，但会发现计划已经自相矛盾：
 
 ```bash
-python3 scripts/vsc_state.py continuity validate ./05-预演/连续性计划.json
+python3 scripts/vsc_kernel.py contract validate vsc.continuity-plan/v1 ./05-预演/连续性计划.json
 ```
 
 ### 2.3 桥接不是只有溶解
@@ -116,7 +116,7 @@ J cut 让下一场声音先于画面出现，适合预示地点、人物或危�
 校验命令：
 
 ```bash
-python3 scripts/vsc_state.py sound validate ./07-后期/声音提示表.json
+python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./07-后期/声音提示表.json
 ```
 
 它要求每个声音边界有目的；非刻意静音时有环境底覆盖；J/L/crossfade 写了必要时长；音乐和环境素材声明 `owned`、`licensed` 或 `project_generated`。它不能替代音乐著作权、录音制品权、表演者权或供应商条款审查。

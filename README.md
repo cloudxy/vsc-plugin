@@ -2,7 +2,7 @@
 
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 预演 → 图像/视频/声音候选 → 剪辑 → 审片与交付**。
 
-当前版本：**v0.5.0**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；可直接路由本机 Vendor 中已安装的上游 Skill，并将已批准的时间线编译为可编辑的 Remotion 预演/渲染项目；尚未接入任何真实的图像、图生视频或声音供应商，也不会自动训练模型。
+当前版本：**v0.6.0**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；`workflow/` 现为阶段、角色与跨模块契约的单一事实来源，`doctor` 可阻止“文档已说、实际缺失”；可直接路由本机 Vendor 中已安装的上游 Skill，并将已批准的时间线编译为可编辑的 Remotion 预演/渲染项目；尚未接入任何真实的图像、图生视频或声音供应商，也不会自动训练模型。
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
 
@@ -43,6 +43,7 @@ VSC 的基本立场是：**意图先于生成，产物先于任务，人对创�
 | 人物、动作、声音、场景 | `/vsc-assets` | AssetBible、参考资产与连续性约束 |
 | 图像、图生视频、音频候选 | `/vsc-produce` | 供应商中立的生成计划与 take 记录 |
 | 剪辑、BGM、音效、字幕、审片 | `/vsc-post` | Timeline、Mix、审片与交付 |
+| 可编辑预演与确定性导出 | `/vsc-remotion` | Composition、字幕与本地渲染计划 |
 | 从素材沉淀受控方法 | `/vsc-learn` | 观察、能力卡、试用、评测与晋升 |
 | 本地开源 Skill/工具 | `/vsc-vendor` | 来源审核、固定版本和本地同步 |
 
@@ -73,6 +74,9 @@ flowchart LR
 VSC 的状态机只依赖 Python 标准库：
 
 ```bash
+# 先确认每一个命令、Skill、角色、Profile、模板和校验器都真实存在
+python3 scripts/vsc_kernel.py doctor
+
 # 查看可选业务 Profile
 python3 scripts/vsc_state.py profile list
 
@@ -112,20 +116,20 @@ python3 scripts/vsc_state.py gate check ./projects/雨夜来信 script
 
 ```bash
 # 阻止“有梗概、没有可拍场景”的改编假完成
-python3 scripts/vsc_state.py adaptation validate ./projects/雨夜来信/02-改编/改编映射.json
+python3 scripts/vsc_kernel.py contract validate vsc.adaptation-map/v1 ./projects/雨夜来信/02-改编/改编映射.json
 
 # 阻止前一段出点与后一段入点在动作、服装、方向、场景等关键字段上自相矛盾
-python3 scripts/vsc_state.py continuity validate ./projects/雨夜来信/05-预演/连续性计划.json
+python3 scripts/vsc_kernel.py contract validate vsc.continuity-plan/v1 ./projects/雨夜来信/05-预演/连续性计划.json
 
 # 检查 BGM/环境底的跨镜覆盖和 J/L cut、crossfade 等声音桥参数
-python3 scripts/vsc_state.py sound validate ./projects/雨夜来信/07-后期/声音提示表.json
+python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./projects/雨夜来信/07-后期/声音提示表.json
 ```
 
 可从 [改编映射模板](templates/adaptation-map.json)、[连续性计划模板](templates/continuity-plan.json) 和 [声音提示表模板](templates/sound-cue-sheet.json) 复制开始。每段 AI 视频都需绑定角色/场景参考资产、入点状态、出点状态及剪辑手柄。BGM、环境底、对白和音效则按场景与情绪弧线跨镜铺在时间线上；它们不会随每个 6–8 秒片段重新开始。完整方法、JSON 协议和公开资料依据见 [生产连续性与声音](docs/09-production-continuity-and-sound.md)。
 
 ## 角色记忆、上下文与学习能力
 
-每个 VSC 角色都有固定的身份、工作人格、权限与记忆边界。例如故事分析师证据优先、导演避免无目的炫技、生成制作人严格区分候选与成片。它们是版本化角色定义，**不能**被素材、角色台词或当前对话自动重写。
+每个 VSC 角色都有固定的身份、工作人格、权限与记忆边界。例如故事分析师证据优先、导演避免无目的炫技、生成制作人严格区分候选与成片。它们只在 [`workflow/roles.json`](workflow/roles.json) 中定义，`agents/` 是宿主入口；角色定义**不能**被素材、角色台词或当前对话自动重写。
 
 子角色不接收主智能体的整段聊天记录，而接收一个最小、可审计的任务上下文包：已批准产物、项目/角色的已批准记忆、适用的已批准能力卡，以及只在本次任务存在的会话摘要。这样既能继承当前对话的关键决定，也避免将密钥、无关信息或提示注入传播给每个子角色。
 
@@ -205,6 +209,7 @@ VSC 核心自身保持 MIT；这不妨碍直接使用 AGPL、Apache、MIT 等其
 ```bash
 python3 scripts/vendor_sync.py --check  # 不联网、不下载
 python3 scripts/vendor_sync.py --plan   # 不联网、不下载
+python3 scripts/vendor_sync.py --write-declaration  # 由来源锁定文件生成 vendor/THIRD_PARTY.md
 python3 scripts/vendor_sync.py --install inkos openwrite  # 用户按需安装指定来源
 python3 scripts/vendor_sync.py --install remotion  # 安装可选的本地时间线、预览与渲染 Skill
 python3 scripts/vendor_sync.py --install  # 用户安装全部已声明、固定到 40 位 commit 的来源
@@ -212,13 +217,13 @@ python3 scripts/vendor_skills.py --scan  # 扫描已下载的上游 SKILL.md，�
 python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接使用的 Skill
 ```
 
-不提交第三方源码只能降低再次分发的风险，**不等于获得商业使用权**。来源清单只是“VSC 借用了什么”的公开声明；用户自行运行安装脚本。许可证、NOTICE、模型权重、声音、图像、数据集、商标和平台条款仍须逐项确认。详见 [第三方声明](THIRD_PARTY.md)、[Vendor 治理](docs/07-vendor-governance.md) 与 [Vendor 安装说明](vendor/README.md)。
+不提交第三方源码只能降低再次分发的风险，**不等于获得商业使用权**。`sources.lock.json` 是机器可读的来源真相，`vendor/THIRD_PARTY.md` 是从它生成的公开声明；用户自行运行安装脚本。许可证、NOTICE、模型权重、声音、图像、数据集、商标和平台条款仍须逐项确认。详见 [第三方声明](vendor/THIRD_PARTY.md)、[Vendor 治理](docs/07-vendor-governance.md) 与 [Vendor 安装说明](vendor/README.md)。
 
 安装完成后，`vendor_skills.py` 会发现上游项目内的原始 `SKILL.md`；`/vsc-adapt`、`/vsc-script`、`/vsc-direct`、`/vsc-assets`、`/vsc-produce`、`/vsc-sound`、`/vsc-post` 分别按阶段路由并直接读取这些 Skill。方法型 Skill 可立即复用；需要 OpenWrite Bridge、ffmpeg、MCP、模型服务或 API 凭据的原生 Skill 会标记所需环境，只有环境实际就绪才执行。
 
 ## 当前边界与路线
 
-**已经实现**：总编排器与熟手命令、十一类角色的身份/人格/权限边界、三种 Profile、项目状态机、来源交接协议、产物/依赖/审批/Gate、记忆审批、最小上下文包、受控能力卡与评测晋升、改编映射/连续性计划/声音提示表协议及校验、Vendor 治理、MIT 许可证和自动化自测。
+**已经实现**：总编排器与熟手命令、十二类角色的身份/人格/权限边界、三种 Profile、项目状态机、来源交接协议、产物/依赖/审批/Gate、记忆审批、最小上下文包、受控能力卡与评测晋升、改编映射/连续性计划/声音提示表协议及校验、Vendor 治理、MIT 许可证和自动化自测。`workflow/` 将阶段—命令—Skill—角色—Profile—契约收敛为可检查内核；`vsc_kernel.py doctor` 检测物理入口、模板与路由的缺失或漂移。
 
 **本机可选后期层**：安装 Remotion Vendor 后，可用 `/vsc-remotion` 将选定镜头、声音与字幕编译为 `vsc.remotion-render-plan/v1`，生成可编辑的本地 Composition 脚手架，在 Studio 审看后按明确指令导出。它不替代 AI 素材生成或 VSC 的连续性/声音创作判断。
 
@@ -240,9 +245,13 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 | [08 记忆与能力学习](docs/08-memory-and-capability-learning.md) | 角色身份、任务上下文、素材观察、能力卡、评测与安全边界 |
 | [09 生产连续性与声音](docs/09-production-continuity-and-sound.md) | 剧本化、跨 AI 片段状态契约、BGM/环境声与时间线策略 |
 | [10 Remotion 集成](docs/10-remotion-integration.md) | VSC 时间线到可编辑预演和确定性渲染的本机接口 |
+| [11 架构重构](docs/11-architecture-refactor.md) | 结构问题、可执行内核和扩展规则 |
+| [工作流内核](workflow/README.md) | 单一事实来源、稳定查询/校验接口与扩展方式 |
+| [架构决策 ADR](docs/adr/README.md) | 影响长期结构的可追溯决定 |
 
 ```bash
 python3 -B scripts/test_vsc_state.py
+python3 -B scripts/test_vsc_kernel.py
 python3 -B scripts/test_vendor_sync.py
 python3 -B scripts/test_vendor_skills.py
 python3 -B scripts/test_remotion_plan.py

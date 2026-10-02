@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "vendor" / "sources.lock.json"
 VENDOR = ROOT / "vendor"
+DECLARATION = VENDOR / "THIRD_PARTY.md"
 COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
 SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 USAGE_MODES = ("reference_only", "external_tool", "local_component", "external_service", "adapter_protocol")
@@ -131,6 +132,45 @@ def select_sources(sources, source_ids):
     return [by_id[source_id] for source_id in source_ids]
 
 
+def declaration_markdown(data):
+    """Render the tracked human declaration from the authoritative source lock."""
+    lines = [
+        "# VSC 第三方开源项目声明",
+        "",
+        "此文件由 `vendor/sources.lock.json` 生成；不要手工维护项目列表。VSC 源码与文档采用 MIT。本项目也可在用户本机的 `vendor/` 目录直接使用下列开源项目；它们的源码、模型、依赖与资产**不随 VSC Git 仓库提交或再分发**，并继续受各自许可证约束。",
+        "",
+        "| 项目 | 用途 | 上游许可证 | 安装 id |",
+        "| --- | --- | --- | --- |",
+    ]
+    for source in data["sources"]:
+        project = source["id"]
+        url = source["url"].removesuffix(".git")
+        purpose = source["purpose"].replace("|", "\\|")
+        lines.append(f"| [{project}]({url}) | {purpose} | {source['license_spdx']} | `{project}` |")
+    lines.extend([
+        "",
+        "来源 URL、固定 commit、许可证证据与本地调用模式见 [sources.lock.json](sources.lock.json)。用户可自行执行：",
+        "",
+        "```bash",
+        "python3 scripts/vendor_sync.py --install inkos openwrite",
+        "```",
+        "",
+        "这份清单是 VSC 对“借用了哪些开源项目”的公开声明，不改变上游许可证，也不构成对商业使用、再分发、模型权重、声音、图像或数据权利的额外授权。",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def write_declaration(data, path=None):
+    path = path or DECLARATION
+    path.write_text(declaration_markdown(data), "utf-8")
+    try:
+        label = path.relative_to(ROOT)
+    except ValueError:
+        label = path
+    print(f"DECLARATION: {label} 已从 sources.lock.json 生成")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -138,6 +178,7 @@ def main():
     mode.add_argument("--plan", action="store_true", help="显示会同步什么，不联网、不下载")
     mode.add_argument("--install", action="store_true", help="安装指定来源；没有名称时安装全部已声明来源")
     mode.add_argument("--sync", action="store_true", help="--install 的兼容别名")
+    mode.add_argument("--write-declaration", action="store_true", help="从锁定文件更新已跟踪的 vendor/THIRD_PARTY.md，不联网、不下载")
     parser.add_argument("source_ids", nargs="*", metavar="SOURCE", help="要安装的来源 id，仅与 --install/--sync 一起使用")
     args = parser.parse_args()
     sources = load_lock()["sources"]
@@ -155,6 +196,9 @@ def main():
             sparse = f"  sparse={','.join(source['sparse_paths'])}" if source.get("sparse_paths") else ""
             print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}{sparse}  {source['purpose']}")
         print(f"PLAN: {len(sources)} 个来源；未联网、未下载")
+        return
+    if args.write_declaration:
+        write_declaration(load_lock())
         return
     if args.source_ids and not (args.install or args.sync):
         die("SOURCE 只能与 --install 或 --sync 一起使用")

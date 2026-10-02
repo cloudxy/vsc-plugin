@@ -77,6 +77,21 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("未联网、未下载", result.stdout)
 
+    def test_declaration_is_derived_from_the_machine_lock(self):
+        data = {"sources": [declared_source(id="sample-source", purpose="测试用途")]}
+        rendered = SYNC.declaration_markdown(data)
+        self.assertIn("[sample-source](https://example.invalid/sample)", rendered)
+        self.assertIn("`sample-source`", rendered)
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "THIRD_PARTY.md"
+            old_declaration = SYNC.DECLARATION
+            try:
+                SYNC.DECLARATION = target
+                SYNC.write_declaration(data)
+                self.assertEqual(target.read_text("utf-8"), rendered)
+            finally:
+                SYNC.DECLARATION = old_declaration
+
 
 if __name__ == "__main__":
     unittest.main()

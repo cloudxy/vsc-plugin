@@ -32,8 +32,9 @@ VSC 自身保持 MIT；它不要求所有外部工具也必须是 MIT。每个�
 
 ## 实现
 
-- [.gitignore](../.gitignore) 忽略 `/vendor/*`，只放行 `vendor/README.md` 与 `vendor/sources.lock.json`。
-- [sources.lock.json](../vendor/sources.lock.json) 是可提交的第三方声明；schema 3 记录来源、固定版本、许可证、用途与使用模式，不把它当作许可证批准书。
+- [.gitignore](../.gitignore) 忽略 `/vendor/*`，只放行 `vendor/README.md`、`vendor/sources.lock.json` 与 `vendor/THIRD_PARTY.md`。
+- [sources.lock.json](../vendor/sources.lock.json) 是可提交的机器可读来源真相；schema 3 记录来源、固定版本、许可证、用途与使用模式，不把它当作许可证批准书。
+- [THIRD_PARTY.md](../vendor/THIRD_PARTY.md) 是从锁定文件生成的人工声明。每次改锁定文件后运行 `python3 scripts/vendor_sync.py --write-declaration`；该操作不联网、不下载。
 - [vendor_sync.py](../scripts/vendor_sync.py) 默认没有动作；`--check` 和 `--plan` 不联网，用户显式执行 `--install [来源 id]`（或兼容的 `--sync`）才下载固定到 40 位 commit 的来源。大型来源可用可选的 `sparse_paths` 只检出需要直接使用的上游 Skill 路径。
 - [vendor_skills.py](../scripts/vendor_skills.py) 扫描已下载项目中的原始 `SKILL.md`，并按 VSC 创作阶段输出可立即采用的方法型 Skill 与需要环境的原生工具型 Skill；不复制上游内容，也不联网。
 - [vendor README](../vendor/README.md) 给出用户自行安装、更新和可选本机每日同步指引；插件不自行创建 cron，也不保管凭据。

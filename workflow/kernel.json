@@ -1,0 +1,109 @@
+{
+  "format": "vsc.workflow-kernel/v1",
+  "version": "1.0",
+  "stages": [
+    {
+      "id": "orchestrate",
+      "command": "vsc",
+      "skill": "vsc",
+      "roles": ["orchestrator"],
+      "profile_stages": ["brief", "source", "delivery"],
+      "contracts": ["creative-handoff/v1", "vsc.role-context/v1"]
+    },
+    {
+      "id": "adapt",
+      "command": "vsc-adapt",
+      "skill": "vsc-adapt",
+      "roles": ["story-analyst", "adaptation-editor"],
+      "profile_stages": ["source", "adaptation"],
+      "contracts": ["vsc.adaptation-map/v1"],
+      "vendor_skill_stage": "adapt"
+    },
+    {
+      "id": "script",
+      "command": "vsc-script",
+      "skill": "vsc-script",
+      "roles": ["screenwriter"],
+      "profile_stages": ["script"],
+      "contracts": [],
+      "vendor_skill_stage": "script"
+    },
+    {
+      "id": "direct",
+      "command": "vsc-direct",
+      "skill": "vsc-direct",
+      "roles": ["director"],
+      "profile_stages": ["design", "animatic"],
+      "contracts": ["vsc.continuity-plan/v1"],
+      "vendor_skill_stage": "direct"
+    },
+    {
+      "id": "assets",
+      "command": "vsc-assets",
+      "skill": "vsc-assets",
+      "roles": ["asset-director"],
+      "profile_stages": ["design"],
+      "contracts": [],
+      "vendor_skill_stage": "assets"
+    },
+    {
+      "id": "produce",
+      "command": "vsc-produce",
+      "skill": "vsc-produce",
+      "roles": ["generation-producer", "continuity-supervisor"],
+      "profile_stages": ["production"],
+      "contracts": ["vsc.continuity-plan/v1"],
+      "vendor_skill_stage": "produce"
+    },
+    {
+      "id": "continuity",
+      "command": "vsc-continuity",
+      "skill": "vsc-continuity",
+      "roles": ["continuity-supervisor", "director", "asset-director"],
+      "profile_stages": ["design", "animatic", "production"],
+      "contracts": ["vsc.continuity-plan/v1"]
+    },
+    {
+      "id": "sound",
+      "command": "vsc-sound",
+      "skill": "vsc-sound",
+      "roles": ["music-supervisor", "editor", "post-reviewer"],
+      "profile_stages": ["design", "post"],
+      "contracts": ["vsc.sound-cue-sheet/v1"],
+      "vendor_skill_stage": "sound"
+    },
+    {
+      "id": "post",
+      "command": "vsc-post",
+      "skill": "vsc-post",
+      "roles": ["editor", "post-reviewer"],
+      "profile_stages": ["post", "delivery"],
+      "contracts": ["vsc.sound-cue-sheet/v1"],
+      "vendor_skill_stage": "post"
+    },
+    {
+      "id": "remotion",
+      "command": "vsc-remotion",
+      "skill": "vsc-remotion",
+      "roles": ["remotion-composer", "editor"],
+      "profile_stages": ["post", "delivery"],
+      "contracts": ["vsc.remotion-render-plan/v1"]
+    },
+    {
+      "id": "learn",
+      "command": "vsc-learn",
+      "skill": "vsc-learn",
+      "roles": ["director", "asset-director", "post-reviewer"],
+      "profile_stages": [],
+      "contracts": []
+    },
+    {
+      "id": "vendor",
+      "command": "vsc-vendor",
+      "skill": "vsc-vendor",
+      "roles": ["orchestrator"],
+      "profile_stages": [],
+      "contracts": []
+    }
+  ]
+}

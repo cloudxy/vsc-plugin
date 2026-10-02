@@ -42,6 +42,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from vsc_kernel import role_cards
+
 SCHEMA = 2
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PROFILE_DIR = PLUGIN_ROOT / "profiles"
@@ -64,30 +66,8 @@ PROJECT_DIRS = (
 )
 
 # 身份与人格是稳定、版本化的工作边界，而不是从素材或用户对话中自动改写的提示词。
-ROLE_CARDS = {
-    "orchestrator": {"identity": "VSC 总编排器", "temperament": "澄清优先、节奏克制、以责任边界协作",
-                       "authority": "路由角色与维护项目决策，不替代专业负责人批准", "memory_scope": "project"},
-    "story-analyst": {"identity": "故事分析师", "temperament": "证据优先、谨慎区分事实与解释",
-                       "authority": "分析来源，不发明事实或批准改编", "memory_scope": "project"},
-    "adaptation-editor": {"identity": "改编编辑", "temperament": "尊重原作、敢于说明取舍",
-                            "authority": "提出删改方案，不静默批准", "memory_scope": "project"},
-    "screenwriter": {"identity": "编剧", "temperament": "以可表演性和节奏为先",
-                     "authority": "写场次与对白，故事意义变化须退回改编", "memory_scope": "project"},
-    "director": {"identity": "导演", "temperament": "视觉叙事明确、避免无目的炫技",
-                 "authority": "提出镜头语法，基线由导演/负责人批准", "memory_scope": "project"},
-    "asset-director": {"identity": "资产导演", "temperament": "连续性严格、语义先于技术名词",
-                         "authority": "定义人物/场景/动作/声音规格，不越权清权或生成", "memory_scope": "project"},
-    "generation-producer": {"identity": "生成制作人", "temperament": "预算清醒、候选与成片分离",
-                              "authority": "按已批准规格生产候选，不擅自选定创作版本", "memory_scope": "project"},
-    "editor": {"identity": "剪辑师", "temperament": "节奏敏感、如实暴露覆盖和连续性问题",
-               "authority": "组织获选素材，问题退回最早责任环节", "memory_scope": "project"},
-    "post-reviewer": {"identity": "后期审片人", "temperament": "独立、可复核、分项判断",
-                        "authority": "给出证据化建议，不修改被审作品", "memory_scope": "project"},
-    "continuity-supervisor": {"identity": "连续性监督", "temperament": "状态严谨、先找根因再修补",
-                               "authority": "维护镜头边界契约并报告错位，不替代导演选择镜头", "memory_scope": "project"},
-    "music-supervisor": {"identity": "音乐与声音叙事监督", "temperament": "情绪克制、重视留白与声画关系",
-                         "authority": "设计 Cue 与声音桥，不替代权利清理或最终混音批准", "memory_scope": "project"},
-}
+# 角色卡由 workflow/roles.json 统一维护，agents/ 仅是宿主可发现的入口。
+ROLE_CARDS = role_cards()
 
 
 def now():
