@@ -1,6 +1,6 @@
 # 02 · VSC 通用架构
 
-版本：0.2。本文中的通用对象和语义仍是架构设计；v0.2 已以 `scripts/vsc_state.py`、`profiles/` 和 VSC 命令/角色实现最小可运行骨架，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [01 研究](01-foundations-and-research.md)，升级落地见 [06](06-vsc-v0.2-upgrade.md)。
+版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/vsc_kernel.py`、`scripts/vsc_state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [01 研究](01-foundations-and-research.md)，早期升级记录见 [06](06-vsc-v0.2-upgrade.md)，长期结构决定见 [ADR-0001](adr/0001-workflow-kernel.md)。
 
 ## 1. 架构目标与边界
 
@@ -22,6 +22,21 @@ VSC 要支持：从素材到成片；从个人到团队；从人工到受控自�
 | 执行底座 | 真正保存、调度和完成任务 | 数据库、媒体存储、人工任务、工具适配、任务队列 | 可替换部署与供应商实现 |
 
 逻辑层不等于微服务。初版推荐模块化单体，模块边界按职责分开；只有并发、团队或部署需要明确时再拆服务。
+
+## 2.1 当前可执行结构
+
+```text
+workflow/                 声明内核：阶段、角色、跨模块契约（唯一事实来源）
+scripts/vsc_kernel.py     查询路由、统一契约校验、doctor 自检
+scripts/vsc_state.py      项目状态、审批、Gate、记忆和学习的实现
+profiles/                 可复制的业务阶段与 Gate 定义
+commands/ skills/ agents/ 宿主入口；只引用内核，不维护第二份路由或角色卡
+templates/                契约的可复制起点
+adapters/                 可替换生成实现的边界说明
+vendor/                   用户本机组件；锁定来源与生成的人类声明可提交，源码不可提交
+```
+
+调用关系是 `宿主入口 → workflow 内核 → 状态/契约实现 → 项目或可替换适配器`。这不是把所有东西塞进一个“工作流服务”：内核只公开路由和契约接缝，状态机与供应商实现留在各自模块中。运行 `python3 scripts/vsc_kernel.py doctor` 可验证内核声明的文件和 Profile 阶段都真实存在。
 
 ## 3. 通用内核处理的对象
 

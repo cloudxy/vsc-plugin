@@ -32,7 +32,7 @@ python3 scripts/vendor_skills.py --resolve post
 `vsc.remotion-render-plan/v1` 是 VSC 与 Remotion 的边界。它定义 Composition 的画幅、帧率、时长，以及视频、图片、音频、字幕和文字片段的开始帧、时长与来源。视觉片段必须回指 `source_shot_id`，以避免剪辑阶段脱离 VSC 连续性计划。
 
 ```bash
-python3 scripts/remotion_plan.py validate templates/remotion-render-plan.json
+python3 scripts/vsc_kernel.py contract validate vsc.remotion-render-plan/v1 templates/remotion-render-plan.json
 python3 scripts/remotion_plan.py scaffold templates/remotion-render-plan.json /tmp/vsc-remotion-example
 ```
 

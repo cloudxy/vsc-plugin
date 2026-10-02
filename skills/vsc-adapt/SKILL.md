@@ -9,4 +9,10 @@ description: "Adapt source material into an auditable VSC story basis, adaptatio
 
 先运行 `python3 scripts/vendor_skills.py --resolve adapt`。直接读取其中已安装且标为 `guide` 的 InkOS 原始 Skill，采用其剧本化/故事审查方法；若 OpenWrite bridge 已实际配置，可按其 `runtime` Skill 调用原生评审。无论借用何种 Skill，改编结果仍必须满足以下 VSC 追溯与批准契约。
 
-每个剧本化场景必须写回 `source_refs`，并把小说叙述外化为：可见行动、角色即时目标、阻力、转折和观众新增信息；每集还要有开场钩子与结束钩子。新增内容必须在改编契约中登记，不可用空引用掩盖。交付进入 `01-来源/` 与 `02-改编/`，登记为 artifact，运行 `python3 scripts/vsc_state.py adaptation validate <改编映射.json>` 后等待创作负责人批准。
+每个剧本化场景必须写回 `source_refs`，并把小说叙述外化为：可见行动、角色即时目标、阻力、转折和观众新增信息；每集还要有开场钩子与结束钩子。新增内容必须在改编契约中登记，不可用空引用掩盖。交付进入 `01-来源/` 与 `02-改编/`，登记为 artifact，并运行：
+
+```bash
+python3 scripts/vsc_kernel.py contract validate vsc.adaptation-map/v1 <改编映射.json>
+```
+
+随后等待创作负责人批准。

@@ -8,10 +8,13 @@ import argparse
 import json
 from pathlib import Path
 
+from vsc_kernel import vendor_skill_stages
+
 ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / "vendor"
 CATALOG = VENDOR / "skill-catalog.json"
-STAGES = ("adapt", "script", "direct", "assets", "produce", "sound", "post")
+# 创作阶段名称由 workflow/kernel.json 定义；Vendor 只维护各阶段的上游 Skill 映射。
+STAGES = vendor_skill_stages()
 
 # This is a small, explicit route table. It references upstream files in vendor/, never copies them.
 ROUTES = {

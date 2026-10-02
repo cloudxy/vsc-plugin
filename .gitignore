@@ -2,6 +2,7 @@
 /vendor/*
 !/vendor/README.md
 !/vendor/sources.lock.json
+!/vendor/THIRD_PARTY.md
 
 __pycache__/
 *.py[cod]

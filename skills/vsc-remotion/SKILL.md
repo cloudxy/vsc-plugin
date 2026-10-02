@@ -24,7 +24,7 @@ description: "Compile selected VSC takes, sound and captions into an editable lo
 3. 将计划保存为 `vsc.remotion-render-plan/v1`，使用 `templates/remotion-render-plan.json` 为起点，并运行：
 
 ```bash
-python3 scripts/remotion_plan.py validate ./07-后期/remotion-render-plan.json
+python3 scripts/vsc_kernel.py contract validate vsc.remotion-render-plan/v1 ./07-后期/remotion-render-plan.json
 ```
 
 4. 通过校验后，生成一个**本地** Remotion 项目；脚手架不安装 npm 依赖、不复制 Remotion 源码：

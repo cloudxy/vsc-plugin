@@ -5,7 +5,7 @@ description: "Use when the user wants to assess, install, update, or schedule lo
 
 # VSC Vendor 管理
 
-第三方 Skill 和工具可作为本地 `vendor/` 缓存或完整组件管理；VSC 源码仓库只提交 `vendor/README.md`、`vendor/sources.lock.json`、安装指引与第三方声明，绝不提交下载目录本身。VSC 核心保持 MIT，但可直接使用 MIT、Apache-2.0、AGPL-3.0 等其他许可证的开源工具与完整本地组件。根目录 MIT 只覆盖 VSC 自研部分，不能把上游代码、Skill 正文或模型资产伪装成 MIT。
+第三方 Skill 和工具可作为本地 `vendor/` 缓存或完整组件管理；VSC 源码仓库只提交 `vendor/README.md`、机器可读的 `vendor/sources.lock.json` 及从它生成的 `vendor/THIRD_PARTY.md`，绝不提交下载目录本身。VSC 核心保持 MIT，但可直接使用 MIT、Apache-2.0、AGPL-3.0 等其他许可证的开源工具与完整本地组件。根目录 MIT 只覆盖 VSC 自研部分，不能把上游代码、Skill 正文或模型资产伪装成 MIT。
 
 ## 先说清边界
 
@@ -15,7 +15,7 @@ description: "Use when the user wants to assess, install, update, or schedule lo
 
 1. 先收集来源 URL、完整 commit、LICENSE 原文/链接、SPDX 标识、用途、是否携带模型权重/素材、作者或组织、NOTICE 和上游依赖。
 2. 说明许可证义务与不确定项；不要把 SPDX ID 当法律结论。没有明确许可证时按受版权保护处理。
-3. 在 `vendor/sources.lock.json` 声明来源。必须固定到 40 位 commit，并写 `usage.mode`（reference_only/external_tool/local_component/external_service/adapter_protocol）、接口、是否修改、责任人和 `redistribution=local_only`。`local_component` 表示直接在本地使用完整上游项目，而不是仅作参考。
+3. 在 `vendor/sources.lock.json` 声明来源。必须固定到 40 位 commit，并写 `usage.mode`（reference_only/external_tool/local_component/external_service/adapter_protocol）、接口、是否修改、责任人和 `redistribution=local_only`。`local_component` 表示直接在本地使用完整上游项目，而不是仅作参考。再运行 `python3 scripts/vendor_sync.py --write-declaration` 生成供人阅读的 `vendor/THIRD_PARTY.md`。
 4. 先运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`。它们不联网、不下载。
 5. 只有用户明确执行 `python3 scripts/vendor_sync.py --install [来源 id]`（或兼容的 `--sync`）才下载；脚本不会自动安装或配置全局 cron。
 
@@ -40,7 +40,7 @@ description: "Use when the user wants to assess, install, update, or schedule lo
   "purpose": "仅本地辅助分镜草稿，不进入交付物",
   "owner": "项目责任人",
   "redistribution": "local_only",
-  "review": {"status": "approved", "by": "责任人", "at": "YYYY-MM-DD"}
+  "usage": {"mode": "local_component", "interface": "cli", "modified": false}
 }
 ```
 

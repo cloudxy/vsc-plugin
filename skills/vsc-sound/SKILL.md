@@ -20,7 +20,7 @@ description: "Use when VSC needs scene-aware BGM, ambience, dialogue space, soun
 将计划保存为 `vsc.sound-cue-sheet/v1`，运行：
 
 ```bash
-python3 scripts/vsc_state.py sound validate ./07-后期/声音提示表.json
+python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./07-后期/声音提示表.json
 ```
 
 音频生成或延长不应承担对白真伪、音乐版权或场景连续性的全部责任。将对白、BGM、环境声和 SFX 分轨保存；每个音频资产都写使用权、版本、时码和最终选择人。
