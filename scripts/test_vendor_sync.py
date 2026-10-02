@@ -60,6 +60,11 @@ class TestValidation(unittest.TestCase):
             license_spdx="AGPL-3.0-only", usage={"mode": "local_component", "interface": "cli", "modified": True}
         )), "")
 
+    def test_sparse_paths_must_be_safe_relative_paths(self):
+        self.assertEqual(SYNC.validate(declared_source(sparse_paths=[".agents/skills", "docs"])), "")
+        self.assertIn("sparse_paths", SYNC.validate(declared_source(sparse_paths=[])))
+        self.assertIn("sparse_paths", SYNC.validate(declared_source(sparse_paths=["../outside"])))
+
     def test_select_sources_only_uses_user_named_entries(self):
         first, second = declared_source(id="first"), declared_source(id="second")
         self.assertEqual(SYNC.select_sources([first, second], ["second"]), [second])

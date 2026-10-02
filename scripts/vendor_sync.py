@@ -64,6 +64,13 @@ def validate(source):
         return "reference_only 只能使用 interface=none"
     if usage["mode"] != "reference_only" and usage["interface"] == "none":
         return "可执行/交接来源必须声明 file、cli 或 http interface"
+    sparse_paths = source.get("sparse_paths")
+    if sparse_paths is not None:
+        if not isinstance(sparse_paths, list) or not sparse_paths:
+            return "sparse_paths 必须是非空数组"
+        for path in sparse_paths:
+            if not isinstance(path, str) or not path or path.startswith("/") or ".." in Path(path).parts:
+                return "sparse_paths 只能包含相对、安全的仓库路径"
     return ""
 
 
@@ -83,6 +90,7 @@ def call(*args):
 
 def sync(source):
     destination = target(source)
+    sparse_paths = source.get("sparse_paths")
     if destination.exists() and not (destination / ".git").is_dir():
         die(f"拒绝覆盖非 Git 目录：{destination}")
     if destination.exists():
@@ -93,8 +101,17 @@ def sync(source):
             die(f"拒绝覆盖 {source['id']} 的本地未提交修改")
         if subprocess.run(["git", "-C", str(destination), "diff", "--cached", "--quiet"]).returncode:
             die(f"拒绝覆盖 {source['id']} 的暂存修改")
+        if sparse_paths:
+            call("git", "-C", str(destination), "sparse-checkout", "set", "--no-cone", *sparse_paths)
     else:
-        call("git", "clone", "--no-checkout", source["url"], str(destination))
+        clone_args = ["git", "clone", "--no-checkout"]
+        if sparse_paths:
+            clone_args.append("--filter=blob:none")
+        clone_args.extend([source["url"], str(destination)])
+        call(*clone_args)
+        if sparse_paths:
+            call("git", "-C", str(destination), "sparse-checkout", "init", "--no-cone")
+            call("git", "-C", str(destination), "sparse-checkout", "set", "--no-cone", *sparse_paths)
     call("git", "-C", str(destination), "fetch", "--depth", "1", "origin", source["revision"])
     call("git", "-C", str(destination), "cat-file", "-e", source["revision"] + "^{commit}")
     call("git", "-C", str(destination), "checkout", "--detach", source["revision"])
@@ -135,7 +152,8 @@ def main():
     if args.plan:
         for source in sources:
             usage = source["usage"]
-            print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}  {source['purpose']}")
+            sparse = f"  sparse={','.join(source['sparse_paths'])}" if source.get("sparse_paths") else ""
+            print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}{sparse}  {source['purpose']}")
         print(f"PLAN: {len(sources)} 个来源；未联网、未下载")
         return
     if args.source_ids and not (args.install or args.sync):

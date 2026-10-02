@@ -9,6 +9,7 @@ VSC 源码与文档采用 MIT。本项目也可在用户本机的 `vendor/` 目�
 | [JEV Ultrafast](https://github.com/browser-use/jev-ultrafast) | 受约束浏览与公开资料研究 | MIT | `jev-ultrafast` |
 | [learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) | Agent harness、任务图、记忆与观察方法 | MIT | `learn-claude-code` |
 | [OpenMontage](https://github.com/calesthio/OpenMontage) | 镜头编排、制作管线与渲染检查 | AGPL-3.0 | `openmontage` |
+| [Remotion](https://github.com/remotion-dev/remotion) | Composition、帧级时间线、字幕、Studio 预演与确定性渲染 | 见上游许可 | `remotion` |
 
 来源 URL、固定 commit、许可证证据与本地调用模式见 [vendor/sources.lock.json](vendor/sources.lock.json)。用户可自行执行：
 

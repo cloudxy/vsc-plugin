@@ -71,6 +71,19 @@
       "owner": "VSC 用户本机",
       "redistribution": "local_only",
       "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "remotion",
+      "type": "git",
+      "url": "https://github.com/remotion-dev/remotion.git",
+      "revision": "c320056a980972de109ef27a40bede9660a46931",
+      "license_spdx": "LicenseRef-Remotion",
+      "license_evidence": "https://github.com/remotion-dev/remotion/blob/c320056a980972de109ef27a40bede9660a46931/LICENSE.md",
+      "purpose": "本地使用 Composition、Player、字幕、时间线和 Renderer，为 VSC 的剪辑预演与确定性成片渲染提供可选实现。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "sparse_paths": [".agents/skills", "packages/skills/skills"],
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
     }
   ]
 }

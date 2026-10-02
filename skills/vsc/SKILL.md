@@ -46,6 +46,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 | 人物、场景、动作、声音 | `/vsc-assets` | asset-director、performance-sound-director |
 | 图像、图生视频、音频候选 | `/vsc-produce` | generation-producer、continuity-reviewer |
 | 剪辑、BGM、音效、字幕、交付 | `/vsc-post` | editor、post-reviewer |
+| 可编辑预演、Composition、字幕与确定性渲染 | `/vsc-remotion` | remotion-composer、editor |
 | 素材观察、能力卡、试用与评测 | `/vsc-learn` | director、asset-director、post-reviewer |
 
 仍先读 `vsc.json`、相关已批准产物和所指镜头／场次；只补影响该环节的依赖，避免重做无关阶段。

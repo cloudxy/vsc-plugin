@@ -1,6 +1,6 @@
 {
   "name": "vsc-workflow",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "description": "VSC（Video Short Create）：独立的短剧与短视频创作工作流。以总编排器、版本化产物、可替换 Profile、角色协作、受控记忆与能力学习、改编/连续性/声音契约和人工创作决策，组织从小说或原创素材到剧本、镜头、资产、图像、视频、声音、剪辑与交付的过程。它不绑定任何生成供应商，也不嵌入其他插件。",
   "description_i18n": {
     "en": "VSC (Video Short Create): an independent short-drama and short-video creation workflow. A director-orchestrator, versioned artifacts, replaceable profiles, role collaboration, governed memory and capability learning, adaptation/continuity/sound contracts, and human creative decisions organize work from source material to scripts, shots, assets, images, video, sound, editorial and delivery. It is provider-neutral and does not embed other plugins.",
