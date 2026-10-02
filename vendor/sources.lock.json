@@ -1,16 +1,76 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "policy": {
     "core_license": "MIT",
     "vendor_is_local_only": true,
     "allow_automatic_download": false,
+    "user_invoked_install_only": true,
+    "sources_are_declarations_not_approvals": true,
     "require_full_commit": true,
     "require_license_evidence": true,
-    "require_human_approval": true,
-    "forbid_unreviewed_commercial_use": true,
-    "allow_separately_licensed_external_tools": true,
-    "allow_locally_vendored_open_source_components": true,
-    "require_component_license_boundary_for_core_inclusion": true
+    "allow_any_declared_open_source_license": true,
+    "allow_locally_vendored_open_source_components": true
   },
-  "sources": []
+  "sources": [
+    {
+      "id": "inkos",
+      "type": "git",
+      "url": "https://github.com/Narcooo/inkos.git",
+      "revision": "8fc2ae57080b9821257dee3e37cc677e2b6f389a",
+      "license_spdx": "AGPL-3.0-only",
+      "license_evidence": "https://github.com/Narcooo/inkos/blob/8fc2ae57080b9821257dee3e37cc677e2b6f389a/LICENSE",
+      "purpose": "本地调用其 Agent harness、工作区与记忆/Skill 组织能力，辅助 VSC 角色协作设计。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "openwrite",
+      "type": "git",
+      "url": "https://github.com/LiPu-jpg/Openwrite.git",
+      "revision": "024e09d751457a02fcda628f1d94bad5aff03425",
+      "license_spdx": "Apache-2.0",
+      "license_evidence": "https://github.com/LiPu-jpg/Openwrite/blob/024e09d751457a02fcda628f1d94bad5aff03425/LICENSE",
+      "purpose": "本地调用小说创作、审阅与修订能力，为 VSC 改编与剧本化阶段提供可选组件。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "jev-ultrafast",
+      "type": "git",
+      "url": "https://github.com/browser-use/jev-ultrafast.git",
+      "revision": "1231850a0bf1a0c0341fe408ef1668dbbfdfac46",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/browser-use/jev-ultrafast/blob/1231850a0bf1a0c0341fe408ef1668dbbfdfac46/LICENSE",
+      "purpose": "本地调用受约束浏览/研究代理能力，辅助公开创作资料与工具调研。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "learn-claude-code",
+      "type": "git",
+      "url": "https://github.com/shareAI-lab/learn-claude-code.git",
+      "revision": "ce8f9f186058939da54c9d6fead78dfb5d0fd6c3",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/shareAI-lab/learn-claude-code/blob/ce8f9f186058939da54c9d6fead78dfb5d0fd6c3/LICENSE",
+      "purpose": "本地使用 Agent harness、任务图、记忆与观察方法的实现和参考材料。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {"mode": "local_component", "interface": "file", "modified": false}
+    },
+    {
+      "id": "openmontage",
+      "type": "git",
+      "url": "https://github.com/calesthio/OpenMontage.git",
+      "revision": "08e2151fa02de28a5d6a312b3d575692bf147ad7",
+      "license_spdx": "AGPL-3.0-only",
+      "license_evidence": "https://github.com/calesthio/OpenMontage/blob/08e2151fa02de28a5d6a312b3d575692bf147ad7/LICENSE",
+      "purpose": "本地调用镜头编排、制作管线、供应商选择与渲染质量检查能力。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    }
+  ]
 }

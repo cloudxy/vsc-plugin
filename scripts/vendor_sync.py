@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""审计式同步 VSC 本地 vendor 缓存。
+"""安装用户主动选择的 VSC 本地 Vendor 组件。
 
-默认只校验或列计划，绝不下载。--sync 只同步 sources.lock.json 中已获批准、固定到 40 位 Git
-commit、带 SPDX 标识和许可证证据的 git 来源。每个来源都要声明是仅供参考、独立工具、完整本地组件
-还是独立服务；vendor 内容应被 .gitignore 排除。若将上游代码纳入 VSC 发布模块，必须另行划定其
-许可证边界，不能把第三方代码冒充为 MIT。此脚本不是法律意见。
+默认只校验或列计划，绝不下载。用户明确执行 --install/--sync 后，才从 sources.lock.json 中固定到
+40 位 Git commit、带来源与许可证声明的记录下载完整上游项目。VSC 不以 MIT 作为来源准入条件：
+本地 vendor 可使用 AGPL、Apache、MIT 等项目，且内容不提交到本仓库。此脚本不是法律意见。
 """
 import argparse
 import json
@@ -20,7 +19,6 @@ COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
 SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 USAGE_MODES = ("reference_only", "external_tool", "local_component", "external_service", "adapter_protocol")
 INTERFACES = ("none", "file", "cli", "http")
-AGPL_LICENSES = ("AGPL-3.0-only", "AGPL-3.0-or-later")
 
 
 def die(message):
@@ -35,13 +33,13 @@ def load_lock():
         die(f"缺锁定文件：{LOCK}")
     except json.JSONDecodeError as exc:
         die(f"锁定文件 JSON 损坏：{exc}")
-    if data.get("schema_version") != 2 or not isinstance(data.get("sources"), list):
-        die("sources.lock.json 必须是 schema_version 2 且含 sources 数组")
+    if data.get("schema_version") != 3 or not isinstance(data.get("sources"), list):
+        die("sources.lock.json 必须是 schema_version 3 且含 sources 数组")
     return data
 
 
 def validate(source):
-    required = ("id", "type", "url", "revision", "license_spdx", "license_evidence", "purpose", "owner", "usage", "review")
+    required = ("id", "type", "url", "revision", "license_spdx", "license_evidence", "purpose", "owner", "usage")
     missing = [key for key in required if not source.get(key)]
     if missing:
         return "缺字段：" + "、".join(missing)
@@ -51,12 +49,8 @@ def validate(source):
         return "id 只能包含字母、数字、点、下划线和连字符，且不得以符号开头"
     if not COMMIT.fullmatch(source["revision"]):
         return "revision 必须是 40 位 Git commit，不接受 branch、tag 或浮动版本"
-    if source["review"].get("status") != "approved":
-        return "review.status 必须为 approved"
-    if not source["review"].get("by") or not source["review"].get("at"):
-        return "approved 来源必须记录 review.by 与 review.at"
-    if source.get("redistribution") not in (None, "local_only"):
-        return "redistribution 只能省略或为 local_only；vendor 不提供再分发通道"
+    if source.get("redistribution") != "local_only":
+        return "redistribution 必须为 local_only；vendor 不提供再分发通道"
     usage = source["usage"]
     if not isinstance(usage, dict):
         return "usage 必须是 object"
@@ -70,9 +64,6 @@ def validate(source):
         return "reference_only 只能使用 interface=none"
     if usage["mode"] != "reference_only" and usage["interface"] == "none":
         return "可执行/交接来源必须声明 file、cli 或 http interface"
-    if usage["mode"] == "external_service" and source["license_spdx"] in AGPL_LICENSES and usage["modified"]:
-        if not usage.get("network_source_offer"):
-            return "修改后的 AGPL 外部服务必须记录 usage.network_source_offer；先完成网络源码义务评估"
     return ""
 
 
@@ -113,12 +104,24 @@ def sync(source):
     print(f"SYNCED {source['id']} @ {actual}")
 
 
+def select_sources(sources, source_ids):
+    if not source_ids:
+        return sources
+    by_id = {source["id"]: source for source in sources}
+    missing = [source_id for source_id in source_ids if source_id not in by_id]
+    if missing:
+        die("未声明的来源：" + "、".join(missing))
+    return [by_id[source_id] for source_id in source_ids]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="只校验锁定文件，不联网、不下载")
     mode.add_argument("--plan", action="store_true", help="显示会同步什么，不联网、不下载")
-    mode.add_argument("--sync", action="store_true", help="同步已批准且固定版本的来源")
+    mode.add_argument("--install", action="store_true", help="安装指定来源；没有名称时安装全部已声明来源")
+    mode.add_argument("--sync", action="store_true", help="--install 的兼容别名")
+    parser.add_argument("source_ids", nargs="*", metavar="SOURCE", help="要安装的来源 id，仅与 --install/--sync 一起使用")
     args = parser.parse_args()
     sources = load_lock()["sources"]
     bad = [(source.get("id", "<未命名>"), validate(source)) for source in sources if validate(source)]
@@ -135,7 +138,10 @@ def main():
             print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}  {source['purpose']}")
         print(f"PLAN: {len(sources)} 个来源；未联网、未下载")
         return
-    for source in sources:
+    if args.source_ids and not (args.install or args.sync):
+        die("SOURCE 只能与 --install 或 --sync 一起使用")
+    selected = select_sources(sources, args.source_ids)
+    for source in selected:
         sync(source)
 
 

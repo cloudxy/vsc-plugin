@@ -1,30 +1,30 @@
 # 本地 Vendor 缓存：不提交到 Git
 
-此目录可存放经审核后下载的开源 Skill、工具和其依赖。除本说明和 `sources.lock.json` 外，所有内容均被 `.gitignore` 排除，不能 `git add -f`。
+此目录可存放用户按需下载的开源 Skill、工具和其依赖。除本说明和 `sources.lock.json` 外，所有内容均被 `.gitignore` 排除，不能 `git add -f`。
 
-VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。MIT、Apache-2.0、AGPL-3.0 等经核验项目都可进入本目录并由 VSC 使用。关键在于把使用方式登记清楚：`reference_only`（只学习方法）、`external_tool`（本机独立 CLI/应用）、`local_component`（完整项目下载到本目录后直接调用其原生能力）、`external_service`（独立部署的服务）或 `adapter_protocol`（仅通过文件/CLI/HTTP 交接）。
+VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。MIT、Apache-2.0、AGPL-3.0 等项目都可进入本目录并由 VSC 使用。关键在于把使用方式登记清楚：`reference_only`（只学习方法）、`external_tool`（本机独立 CLI/应用）、`local_component`（完整项目下载到本目录后直接调用其原生能力）、`external_service`（独立部署的服务）或 `adapter_protocol`（仅通过文件/CLI/HTTP 交接）。
 
 完整上游项目仍保留自己的 `LICENSE`、NOTICE 和修改记录；根目录的 MIT 只覆盖 VSC 自研部分。`vendor/` 默认不随 VSC Git 仓库发布，因此可以直接使用这些组件而不把它们伪装成 MIT。若将来要把第三方源码复制、融合或随发行包再分发，必须为该组件保留相应许可证边界和履约材料；AGPL 融合模块不能被标为“仅 MIT”。
 
-这能避免把第三方源码再次分发到 VSC 仓库，但**不等于自动获得商业使用、修改、分发、模型权重或素材使用的权利**。每个来源必须在下载前完成许可与用途审核；许可证不明、仅研究用途、非商业、限制竞争、限制模型训练或要求额外署名/NOTICE 的项目，均不得自动同步。
+这能避免把第三方源码再次分发到 VSC 仓库，但**不等于自动获得商业使用、修改、分发、模型权重或素材使用的权利**。`sources.lock.json` 是本项目对借用来源的声明，安装脚本不代替许可证本身，也不替用户作法律判断。
 
 ## 安装流程
 
-1. 在 `sources.lock.json` 新增候选来源：仓库 URL、40 位 commit、许可证 SPDX 标识、许可证证据、使用用途、责任人、`usage.mode`、接口和审批结论。
-2. 由项目责任人和需要时的法务/版权负责人确认该用途可行；将 `review.status` 设为 `approved`。
-3. 先运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
-4. 人工运行 `python3 scripts/vendor_sync.py --sync`，或在已批准的本机计划任务中运行同一命令。
-5. 每次更新 revision、许可证或用途时重新审核；使用需要保留 NOTICE 的依赖时，按其许可证生成交付物 NOTICE。
+1. 查看 `sources.lock.json` 中项目声明：仓库 URL、40 位 commit、许可证 SPDX 标识、许可证证据、用途、责任人与 `usage.mode`。
+2. 运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
+3. 按自己需要安装一个或多个来源：`python3 scripts/vendor_sync.py --install inkos openwrite`。
+4. 不指定来源即安装声明中的全部：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。
+5. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
 
 ## 本机每日同步（可选）
 
-不要把密钥、Cookie 或付费供应商凭据放入此任务。管理员确认后，可在本机 crontab 中加入：
+不要把密钥、Cookie 或付费供应商凭据放入此任务。用户若自己需要每日更新，可在本机 crontab 中加入：
 
 ```cron
 15 3 * * * cd /absolute/path/to/vsc-workflow && /usr/bin/python3 scripts/vendor_sync.py --sync >> vendor/sync.log 2>&1
 ```
 
-同步前脚本只接受固定 commit，拒绝分支、tag 和无许可证/无审批来源；网络或校验失败不会改写已有已固定版本。若将**修改后的 AGPL** 项目作为网络服务运行，锁定记录还必须写明网络源码提供义务的评估/入口。`vendor/sync.log` 同样不应提交。
+安装脚本只接受固定 commit，拒绝分支、tag 和无许可证声明来源；网络或校验失败不会改写已有已固定版本。它只在用户执行 `--install` 或 `--sync` 时联网；`vendor/sync.log` 同样不应提交。
 
 ## 使用方式示例
 
@@ -43,12 +43,11 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
     "mode": "local_component",
     "interface": "cli",
     "modified": false
-  },
-  "review": {"status": "approved", "by": "责任人", "at": "YYYY-MM-DD"}
+  }
 }
 ```
 
-如果把同一项目修改后作为对外网络服务，`mode` 改为 `external_service`，并针对 AGPL 等强 copyleft 许可证补充 `network_source_offer` 和专业审查结论。这个字段是合规台账，不是自动法律豁免。
+如果把同一项目修改后作为对外网络服务，`mode` 改为 `external_service`，并按上游许可证处理相应的源码、NOTICE 或其他义务；Vendor 清单本身不会给出豁免。
 
 ## 说明
 
