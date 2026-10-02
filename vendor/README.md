@@ -14,7 +14,8 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
 2. 运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
 3. 按自己需要安装一个或多个来源：`python3 scripts/vendor_sync.py --install inkos openwrite`。
 4. 不指定来源即安装声明中的全部：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。
-5. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
+5. 运行 `python3 scripts/vendor_skills.py --scan`，将已经下载的原始 `SKILL.md` 建成本机目录；用 `--resolve adapt|script|direct|assets|produce|sound|post` 查看 VSC 在某阶段会直接使用哪些 Skill。
+6. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
 
 ## 本机每日同步（可选）
 
@@ -25,6 +26,8 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
 ```
 
 安装脚本只接受固定 commit，拒绝分支、tag 和无许可证声明来源；网络或校验失败不会改写已有已固定版本。它只在用户执行 `--install` 或 `--sync` 时联网；`vendor/sync.log` 同样不应提交。
+
+`vendor_skills.py` 不联网、不复制上游文件。它直接指向下载目录里的原始 `SKILL.md`：标为 `guide` 的 Skill 可立即按其方法使用；标为 `runtime: ...` 的 Skill 则需要先满足所列 CLI、MCP、依赖或凭据。
 
 ## 使用方式示例
 

@@ -2,7 +2,7 @@
 
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 预演 → 图像/视频/声音候选 → 剪辑 → 审片与交付**。
 
-当前版本：**v0.4.3**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；尚未接入任何真实的图像、图生视频、声音或剪辑供应商，也不会自动训练模型。
+当前版本：**v0.4.4**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约，并可直接路由本机 Vendor 中已安装的上游 Skill；尚未接入任何真实的图像、图生视频、声音或剪辑供应商，也不会自动训练模型。
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
 
@@ -207,9 +207,13 @@ python3 scripts/vendor_sync.py --check  # 不联网、不下载
 python3 scripts/vendor_sync.py --plan   # 不联网、不下载
 python3 scripts/vendor_sync.py --install inkos openwrite  # 用户按需安装指定来源
 python3 scripts/vendor_sync.py --install  # 用户安装全部已声明、固定到 40 位 commit 的来源
+python3 scripts/vendor_skills.py --scan  # 扫描已下载的上游 SKILL.md，写入本机目录
+python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接使用的 Skill
 ```
 
 不提交第三方源码只能降低再次分发的风险，**不等于获得商业使用权**。来源清单只是“VSC 借用了什么”的公开声明；用户自行运行安装脚本。许可证、NOTICE、模型权重、声音、图像、数据集、商标和平台条款仍须逐项确认。详见 [第三方声明](THIRD_PARTY.md)、[Vendor 治理](docs/07-vendor-governance.md) 与 [Vendor 安装说明](vendor/README.md)。
+
+安装完成后，`vendor_skills.py` 会发现上游项目内的原始 `SKILL.md`；`/vsc-adapt`、`/vsc-script`、`/vsc-direct`、`/vsc-assets`、`/vsc-produce`、`/vsc-sound`、`/vsc-post` 分别按阶段路由并直接读取这些 Skill。方法型 Skill 可立即复用；需要 OpenWrite Bridge、ffmpeg、MCP、模型服务或 API 凭据的原生 Skill 会标记所需环境，只有环境实际就绪才执行。
 
 ## 当前边界与路线
 
@@ -236,6 +240,7 @@ python3 scripts/vendor_sync.py --install  # 用户安装全部已声明、固定
 ```bash
 python3 -B scripts/test_vsc_state.py
 python3 -B scripts/test_vendor_sync.py
+python3 -B scripts/test_vendor_skills.py
 ```
 
 ## 许可证
