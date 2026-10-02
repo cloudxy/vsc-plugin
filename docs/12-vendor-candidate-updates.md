@@ -41,7 +41,7 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 /bin/bash /Users/xuyun/.zcode/plugin-updater/scripts/vsc-vendor-maintenance.sh
 ```
 
-执行后仅在输出含 `CANDIDATE` 时，读取本次生成的 `vendor/.reviews/<source>-<revision>.md`、对应 JSON 和候选/基线快照中必要的原始 `SKILL.md`。将语义评估写为同名 `.assessment.md`：已路由 Skill 是否仍可引用、每个新增 Skill 是否值得路由及理由、每个已删除引用应保留/替换/退役的建议、所需运行环境与测试。它不得编辑 `vendor/<source>`、`sources.lock.json`、VSC 路由、角色或命令，也不得执行候选中的脚本。
+执行后查看本次日志段落；仅在其中含 `CANDIDATE` 时，读取本次生成的 `vendor/.reviews/<source>-<revision>.md`、对应 JSON 和候选/基线快照中必要的原始 `SKILL.md`。将语义评估写为同名 `.assessment.md`：已路由 Skill 是否仍可引用、每个新增 Skill 是否值得路由及理由、每个已删除引用应保留/替换/退役的建议、所需运行环境与测试。它不得编辑 `vendor/<source>`、`sources.lock.json`、VSC 路由、角色或命令，也不得执行候选中的脚本。
 
 这让自动化完成“发现和分析”，但不越权完成“采用”。若 ZCode 当前没有电脑使用权限，可先手动执行该入口；任务配置内容和入口不依赖系统 crontab。
 
