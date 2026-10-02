@@ -52,6 +52,12 @@ class TestValidation(unittest.TestCase):
 
     def test_usage_mode_and_agpl_network_review_are_enforced(self):
         self.assertIn("usage.mode", SYNC.validate(approved_source(usage={"mode": "embedded", "interface": "cli", "modified": False})))
+        self.assertEqual(SYNC.validate(approved_source(
+            license_spdx="Apache-2.0", usage={"mode": "local_component", "interface": "cli", "modified": False}
+        )), "")
+        self.assertEqual(SYNC.validate(approved_source(
+            license_spdx="AGPL-3.0-only", usage={"mode": "local_component", "interface": "cli", "modified": True}
+        )), "")
         agpl = approved_source(license_spdx="AGPL-3.0-only", usage={"mode": "external_service", "interface": "http", "modified": True})
         self.assertIn("network_source_offer", SYNC.validate(agpl))
         agpl["usage"]["network_source_offer"] = "https://example.invalid/source-offer"

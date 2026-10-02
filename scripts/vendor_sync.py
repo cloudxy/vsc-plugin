@@ -2,8 +2,9 @@
 """审计式同步 VSC 本地 vendor 缓存。
 
 默认只校验或列计划，绝不下载。--sync 只同步 sources.lock.json 中已获批准、固定到 40 位 Git
-commit、带 SPDX 标识和许可证证据的 git 来源。每个来源都要声明是仅供参考、独立工具还是独立服务；
-vendor 内容应被 .gitignore 排除，不能复制进 MIT 核心。此脚本不是法律意见。
+commit、带 SPDX 标识和许可证证据的 git 来源。每个来源都要声明是仅供参考、独立工具、完整本地组件
+还是独立服务；vendor 内容应被 .gitignore 排除。若将上游代码纳入 VSC 发布模块，必须另行划定其
+许可证边界，不能把第三方代码冒充为 MIT。此脚本不是法律意见。
 """
 import argparse
 import json
@@ -17,7 +18,7 @@ LOCK = ROOT / "vendor" / "sources.lock.json"
 VENDOR = ROOT / "vendor"
 COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
 SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
-USAGE_MODES = ("reference_only", "external_tool", "external_service", "adapter_protocol")
+USAGE_MODES = ("reference_only", "external_tool", "local_component", "external_service", "adapter_protocol")
 INTERFACES = ("none", "file", "cli", "http")
 AGPL_LICENSES = ("AGPL-3.0-only", "AGPL-3.0-or-later")
 
