@@ -2,7 +2,9 @@
 
 此目录可存放经审核后下载的开源 Skill、工具和其依赖。除本说明和 `sources.lock.json` 外，所有内容均被 `.gitignore` 排除，不能 `git add -f`。
 
-VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。关键在于把使用方式登记清楚：`reference_only`（只学习方法）、`external_tool`（本机独立 CLI/应用）、`external_service`（独立部署的服务）或 `adapter_protocol`（仅通过文件/CLI/HTTP 交接）。第三方代码不会被复制进 VSC 核心或随 VSC 发布。
+VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。MIT、Apache-2.0、AGPL-3.0 等经核验项目都可进入本目录并由 VSC 使用。关键在于把使用方式登记清楚：`reference_only`（只学习方法）、`external_tool`（本机独立 CLI/应用）、`local_component`（完整项目下载到本目录后直接调用其原生能力）、`external_service`（独立部署的服务）或 `adapter_protocol`（仅通过文件/CLI/HTTP 交接）。
+
+完整上游项目仍保留自己的 `LICENSE`、NOTICE 和修改记录；根目录的 MIT 只覆盖 VSC 自研部分。`vendor/` 默认不随 VSC Git 仓库发布，因此可以直接使用这些组件而不把它们伪装成 MIT。若将来要把第三方源码复制、融合或随发行包再分发，必须为该组件保留相应许可证边界和履约材料；AGPL 融合模块不能被标为“仅 MIT”。
 
 这能避免把第三方源码再次分发到 VSC 仓库，但**不等于自动获得商业使用、修改、分发、模型权重或素材使用的权利**。每个来源必须在下载前完成许可与用途审核；许可证不明、仅研究用途、非商业、限制竞争、限制模型训练或要求额外署名/NOTICE 的项目，均不得自动同步。
 
@@ -34,12 +36,12 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
   "revision": "40位完整commit",
   "license_spdx": "AGPL-3.0-only",
   "license_evidence": "https://host.example/org/runner/blob/<commit>/LICENSE",
-  "purpose": "独立运行的视频生产工具；VSC 只读取其导出的交接文件",
+  "purpose": "完整本地视频生产组件；VSC 直接调用其原生 CLI，并读取交接文件",
   "owner": "制作负责人",
   "redistribution": "local_only",
   "usage": {
-    "mode": "external_tool",
-    "interface": "file",
+    "mode": "local_component",
+    "interface": "cli",
     "modified": false
   },
   "review": {"status": "approved", "by": "责任人", "at": "YYYY-MM-DD"}

@@ -9,7 +9,8 @@
     "require_human_approval": true,
     "forbid_unreviewed_commercial_use": true,
     "allow_separately_licensed_external_tools": true,
-    "forbid_vendor_code_in_core_without_separate_review": true
+    "allow_locally_vendored_open_source_components": true,
+    "require_component_license_boundary_for_core_inclusion": true
   },
   "sources": []
 }
