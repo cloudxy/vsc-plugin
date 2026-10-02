@@ -47,6 +47,11 @@ ROUTES = {
         ("openmontage", ".agents/skills/video-edit/SKILL.md", "runtime: ffmpeg", "剪切、拼接、转码、替换音轨与导出。"),
         ("openmontage", ".agents/skills/ffmpeg/SKILL.md", "runtime: ffmpeg", "使用 ffmpeg/ffprobe 做媒体检查和处理。"),
         ("openmontage", ".agents/skills/video-understand/SKILL.md", "runtime: provider credentials/tools", "复核候选片段与成片。"),
+        ("remotion", "packages/skills/skills/remotion-best-practices/SKILL.md", "guide", "路由 Composition、预览、渲染与字幕的 Remotion 官方方法。"),
+        ("remotion", "packages/skills/skills/remotion-markup/SKILL.md", "guide", "以帧驱动的 React 时间线、媒体、动画和可编辑场景。"),
+        ("remotion", "packages/skills/skills/remotion-captions/SKILL.md", "guide", "字幕 JSON、转写、显示与导出。"),
+        ("remotion", "packages/skills/skills/remotion-studio/SKILL.md", "runtime: Node.js, npm dependencies", "启动 Remotion Studio 预览并允许人工调整。"),
+        ("remotion", "packages/skills/skills/remotion-render/SKILL.md", "runtime: Node.js, npm dependencies", "将已批准 Composition 导出为视频或静帧。"),
     ),
 }
 

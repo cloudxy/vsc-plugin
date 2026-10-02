@@ -1,0 +1,44 @@
+{
+  "format": "vsc.remotion-render-plan/v1",
+  "project_id": "雨夜来信",
+  "composition": {
+    "id": "ep-001-sc-001",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "duration_in_frames": 360
+  },
+  "segments": [
+    {
+      "id": "SH-001",
+      "kind": "video",
+      "source": "takes/SH-001.mp4",
+      "source_shot_id": "SH-001",
+      "from_frame": 0,
+      "duration_in_frames": 180,
+      "fade_in_frames": 8
+    },
+    {
+      "id": "SH-002",
+      "kind": "video",
+      "source": "takes/SH-002.mp4",
+      "source_shot_id": "SH-002",
+      "from_frame": 180,
+      "duration_in_frames": 180
+    },
+    {
+      "id": "BGM-001",
+      "kind": "audio",
+      "source": "audio/rain-pad.mp3",
+      "from_frame": 0,
+      "duration_in_frames": 360
+    },
+    {
+      "id": "CAP-001",
+      "kind": "caption",
+      "text": "门外是谁？",
+      "from_frame": 225,
+      "duration_in_frames": 60
+    }
+  ]
+}

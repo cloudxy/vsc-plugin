@@ -2,7 +2,7 @@
 
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 预演 → 图像/视频/声音候选 → 剪辑 → 审片与交付**。
 
-当前版本：**v0.4.4**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约，并可直接路由本机 Vendor 中已安装的上游 Skill；尚未接入任何真实的图像、图生视频、声音或剪辑供应商，也不会自动训练模型。
+当前版本：**v0.5.0**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；可直接路由本机 Vendor 中已安装的上游 Skill，并将已批准的时间线编译为可编辑的 Remotion 预演/渲染项目；尚未接入任何真实的图像、图生视频或声音供应商，也不会自动训练模型。
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
 
@@ -206,6 +206,7 @@ VSC 核心自身保持 MIT；这不妨碍直接使用 AGPL、Apache、MIT 等其
 python3 scripts/vendor_sync.py --check  # 不联网、不下载
 python3 scripts/vendor_sync.py --plan   # 不联网、不下载
 python3 scripts/vendor_sync.py --install inkos openwrite  # 用户按需安装指定来源
+python3 scripts/vendor_sync.py --install remotion  # 安装可选的本地时间线、预览与渲染 Skill
 python3 scripts/vendor_sync.py --install  # 用户安装全部已声明、固定到 40 位 commit 的来源
 python3 scripts/vendor_skills.py --scan  # 扫描已下载的上游 SKILL.md，写入本机目录
 python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接使用的 Skill
@@ -217,7 +218,9 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 
 ## 当前边界与路线
 
-**已经实现**：总编排器与熟手命令、十类角色的身份/人格/权限边界、三种 Profile、项目状态机、来源交接协议、产物/依赖/审批/Gate、记忆审批、最小上下文包、受控能力卡与评测晋升、改编映射/连续性计划/声音提示表协议及校验、Vendor 治理、MIT 许可证和自动化自测。
+**已经实现**：总编排器与熟手命令、十一类角色的身份/人格/权限边界、三种 Profile、项目状态机、来源交接协议、产物/依赖/审批/Gate、记忆审批、最小上下文包、受控能力卡与评测晋升、改编映射/连续性计划/声音提示表协议及校验、Vendor 治理、MIT 许可证和自动化自测。
+
+**本机可选后期层**：安装 Remotion Vendor 后，可用 `/vsc-remotion` 将选定镜头、声音与字幕编译为 `vsc.remotion-render-plan/v1`，生成可编辑的本地 Composition 脚手架，在 Studio 审看后按明确指令导出。它不替代 AI 素材生成或 VSC 的连续性/声音创作判断。
 
 **尚未实现**：真实图像/视频/语音供应商适配器、媒体存储、任务队列、成本账本、自动连续性检测、可视化时间线、真实观众实验与发布集成，以及真实模型训练/微调。它们必须在具体账户、地区、预算、数据/人格/声音授权和真实样片验证后接入，不应由架构文档假装完成。
 
@@ -236,11 +239,13 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 | [07 Vendor 治理](docs/07-vendor-governance.md) | 本地开源 Skill/工具的审核、锁定和同步 |
 | [08 记忆与能力学习](docs/08-memory-and-capability-learning.md) | 角色身份、任务上下文、素材观察、能力卡、评测与安全边界 |
 | [09 生产连续性与声音](docs/09-production-continuity-and-sound.md) | 剧本化、跨 AI 片段状态契约、BGM/环境声与时间线策略 |
+| [10 Remotion 集成](docs/10-remotion-integration.md) | VSC 时间线到可编辑预演和确定性渲染的本机接口 |
 
 ```bash
 python3 -B scripts/test_vsc_state.py
 python3 -B scripts/test_vendor_sync.py
 python3 -B scripts/test_vendor_skills.py
+python3 -B scripts/test_remotion_plan.py
 ```
 
 ## 许可证

@@ -10,3 +10,5 @@ description: "Edit VSC takes into a timeline with sound, music, subtitles, revie
 先运行 `python3 scripts/vendor_skills.py --resolve post`。若本机具备 `ffmpeg`，直接读取并执行已安装的 OpenMontage `video-edit`/`ffmpeg` Skill；视频理解 Skill 仅在其供应商环境就绪后调用。所有上游命令仍以 VSC 已批准的时间线、文件路径和输出规格为准。
 
 BGM 和环境底按场景/情绪段落跨镜铺设，不按每个生成视频重启。与 `/vsc-sound` 共同维护 `vsc.sound-cue-sheet/v1`，为每个边界写 J/L cut、crossfade、声音桥或刻意静音，并在导出前运行 `sound validate`。
+
+需要把已批准时间线做成可编辑预演或确定性成片时，交给 `/vsc-remotion`。它直接复用本机 Remotion 官方 Skill，并将 VSC 时间线编译为可校验的 `vsc.remotion-render-plan/v1`；不要在本技能中绕过预览与人工导出决定。
