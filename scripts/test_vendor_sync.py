@@ -20,6 +20,7 @@ def approved_source(**changes):
         "id": "sample-skill", "type": "git", "url": "https://example.invalid/sample.git",
         "revision": "a" * 40, "license_spdx": "MIT", "license_evidence": "LICENSE",
         "purpose": "本地辅助技能评估", "owner": "维护者", "redistribution": "local_only",
+        "usage": {"mode": "external_tool", "interface": "cli", "modified": False},
         "review": {"status": "approved", "by": "责任人", "at": "2026-10-01"},
     }
     source.update(changes)
@@ -40,7 +41,7 @@ class TestValidation(unittest.TestCase):
             vendor = root / "vendor"
             vendor.mkdir()
             lock = vendor / "sources.lock.json"
-            lock.write_text(json.dumps({"schema_version": 1, "sources": [approved_source()]}, ensure_ascii=False), "utf-8")
+            lock.write_text(json.dumps({"schema_version": 2, "sources": [approved_source()]}, ensure_ascii=False), "utf-8")
             old_lock, old_vendor = SYNC.LOCK, SYNC.VENDOR
             try:
                 SYNC.LOCK, SYNC.VENDOR = lock, vendor
@@ -48,6 +49,13 @@ class TestValidation(unittest.TestCase):
                 self.assertFalse((vendor / "sample-skill").exists())
             finally:
                 SYNC.LOCK, SYNC.VENDOR = old_lock, old_vendor
+
+    def test_usage_mode_and_agpl_network_review_are_enforced(self):
+        self.assertIn("usage.mode", SYNC.validate(approved_source(usage={"mode": "embedded", "interface": "cli", "modified": False})))
+        agpl = approved_source(license_spdx="AGPL-3.0-only", usage={"mode": "external_service", "interface": "http", "modified": True})
+        self.assertIn("network_source_offer", SYNC.validate(agpl))
+        agpl["usage"]["network_source_offer"] = "https://example.invalid/source-offer"
+        self.assertEqual(SYNC.validate(agpl), "")
 
     def test_repository_lock_passes_without_network(self):
         result = subprocess.run([sys.executable, "-B", str(SYNC_PATH), "--check"], capture_output=True, text=True)
