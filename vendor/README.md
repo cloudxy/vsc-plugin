@@ -2,11 +2,13 @@
 
 此目录可存放经审核后下载的开源 Skill、工具和其依赖。除本说明和 `sources.lock.json` 外，所有内容均被 `.gitignore` 排除，不能 `git add -f`。
 
+VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。关键在于把使用方式登记清楚：`reference_only`（只学习方法）、`external_tool`（本机独立 CLI/应用）、`external_service`（独立部署的服务）或 `adapter_protocol`（仅通过文件/CLI/HTTP 交接）。第三方代码不会被复制进 VSC 核心或随 VSC 发布。
+
 这能避免把第三方源码再次分发到 VSC 仓库，但**不等于自动获得商业使用、修改、分发、模型权重或素材使用的权利**。每个来源必须在下载前完成许可与用途审核；许可证不明、仅研究用途、非商业、限制竞争、限制模型训练或要求额外署名/NOTICE 的项目，均不得自动同步。
 
 ## 安装流程
 
-1. 在 `sources.lock.json` 新增候选来源：仓库 URL、40 位 commit、许可证 SPDX 标识、许可证证据、使用用途、责任人和审批结论。
+1. 在 `sources.lock.json` 新增候选来源：仓库 URL、40 位 commit、许可证 SPDX 标识、许可证证据、使用用途、责任人、`usage.mode`、接口和审批结论。
 2. 由项目责任人和需要时的法务/版权负责人确认该用途可行；将 `review.status` 设为 `approved`。
 3. 先运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
 4. 人工运行 `python3 scripts/vendor_sync.py --sync`，或在已批准的本机计划任务中运行同一命令。
@@ -20,7 +22,31 @@
 15 3 * * * cd /absolute/path/to/vsc-workflow && /usr/bin/python3 scripts/vendor_sync.py --sync >> vendor/sync.log 2>&1
 ```
 
-同步前脚本只接受固定 commit，拒绝分支、tag 和无许可证/无审批来源；网络或校验失败不会改写已有已固定版本。`vendor/sync.log` 同样不应提交。
+同步前脚本只接受固定 commit，拒绝分支、tag 和无许可证/无审批来源；网络或校验失败不会改写已有已固定版本。若将**修改后的 AGPL** 项目作为网络服务运行，锁定记录还必须写明网络源码提供义务的评估/入口。`vendor/sync.log` 同样不应提交。
+
+## 使用方式示例
+
+```json
+{
+  "id": "external-video-runner",
+  "type": "git",
+  "url": "https://host.example/org/runner.git",
+  "revision": "40位完整commit",
+  "license_spdx": "AGPL-3.0-only",
+  "license_evidence": "https://host.example/org/runner/blob/<commit>/LICENSE",
+  "purpose": "独立运行的视频生产工具；VSC 只读取其导出的交接文件",
+  "owner": "制作负责人",
+  "redistribution": "local_only",
+  "usage": {
+    "mode": "external_tool",
+    "interface": "file",
+    "modified": false
+  },
+  "review": {"status": "approved", "by": "责任人", "at": "YYYY-MM-DD"}
+}
+```
+
+如果把同一项目修改后作为对外网络服务，`mode` 改为 `external_service`，并针对 AGPL 等强 copyleft 许可证补充 `network_source_offer` 和专业审查结论。这个字段是合规台账，不是自动法律豁免。
 
 ## 说明
 

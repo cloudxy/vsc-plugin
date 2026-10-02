@@ -2,7 +2,8 @@
 """审计式同步 VSC 本地 vendor 缓存。
 
 默认只校验或列计划，绝不下载。--sync 只同步 sources.lock.json 中已获批准、固定到 40 位 Git
-commit、带 SPDX 标识和许可证证据的 git 来源。vendor 内容应被 .gitignore 排除；此脚本不是法律意见。
+commit、带 SPDX 标识和许可证证据的 git 来源。每个来源都要声明是仅供参考、独立工具还是独立服务；
+vendor 内容应被 .gitignore 排除，不能复制进 MIT 核心。此脚本不是法律意见。
 """
 import argparse
 import json
@@ -16,6 +17,9 @@ LOCK = ROOT / "vendor" / "sources.lock.json"
 VENDOR = ROOT / "vendor"
 COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
 SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
+USAGE_MODES = ("reference_only", "external_tool", "external_service", "adapter_protocol")
+INTERFACES = ("none", "file", "cli", "http")
+AGPL_LICENSES = ("AGPL-3.0-only", "AGPL-3.0-or-later")
 
 
 def die(message):
@@ -30,13 +34,13 @@ def load_lock():
         die(f"缺锁定文件：{LOCK}")
     except json.JSONDecodeError as exc:
         die(f"锁定文件 JSON 损坏：{exc}")
-    if data.get("schema_version") != 1 or not isinstance(data.get("sources"), list):
-        die("sources.lock.json 必须是 schema_version 1 且含 sources 数组")
+    if data.get("schema_version") != 2 or not isinstance(data.get("sources"), list):
+        die("sources.lock.json 必须是 schema_version 2 且含 sources 数组")
     return data
 
 
 def validate(source):
-    required = ("id", "type", "url", "revision", "license_spdx", "license_evidence", "purpose", "owner", "review")
+    required = ("id", "type", "url", "revision", "license_spdx", "license_evidence", "purpose", "owner", "usage", "review")
     missing = [key for key in required if not source.get(key)]
     if missing:
         return "缺字段：" + "、".join(missing)
@@ -52,6 +56,22 @@ def validate(source):
         return "approved 来源必须记录 review.by 与 review.at"
     if source.get("redistribution") not in (None, "local_only"):
         return "redistribution 只能省略或为 local_only；vendor 不提供再分发通道"
+    usage = source["usage"]
+    if not isinstance(usage, dict):
+        return "usage 必须是 object"
+    if usage.get("mode") not in USAGE_MODES:
+        return "usage.mode 必须是 " + "/".join(USAGE_MODES)
+    if usage.get("interface") not in INTERFACES:
+        return "usage.interface 必须是 " + "/".join(INTERFACES)
+    if not isinstance(usage.get("modified"), bool):
+        return "usage.modified 必须是布尔值"
+    if usage["mode"] == "reference_only" and usage["interface"] != "none":
+        return "reference_only 只能使用 interface=none"
+    if usage["mode"] != "reference_only" and usage["interface"] == "none":
+        return "可执行/交接来源必须声明 file、cli 或 http interface"
+    if usage["mode"] == "external_service" and source["license_spdx"] in AGPL_LICENSES and usage["modified"]:
+        if not usage.get("network_source_offer"):
+            return "修改后的 AGPL 外部服务必须记录 usage.network_source_offer；先完成网络源码义务评估"
     return ""
 
 
@@ -110,7 +130,8 @@ def main():
         return
     if args.plan:
         for source in sources:
-            print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {source['purpose']}")
+            usage = source["usage"]
+            print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}  {source['purpose']}")
         print(f"PLAN: {len(sources)} 个来源；未联网、未下载")
         return
     for source in sources:
