@@ -29,12 +29,16 @@ description: "Use when the user wants to assess, install, update, or schedule lo
 
 ## 每日候选更新：先分析，后采用
 
-ZCode 的 `plugin-updater` 可以每天下载各来源的**候选快照**并调用 `scripts/vendor_review.py`，把 JSON 与 Markdown 报告写入本机 `vendor/.reviews/`。出现候选时，ZCode 审查任务再阅读报告与必要 diff，并写一份不具采用权限的 `.assessment.md` 语义评估。两层都不覆盖当前已批准的 `vendor/<source>`、不改写 `sources.lock.json`、不自动新增路由，也不自动执行候选中的内容。
+ZCode 的 `plugin-updater` 只负责定时调用项目 `scripts/vsc-vendor-maintenance.sh`；项目 `vendor_watch.py` 保存各来源的完整 **Skill 资源包候选**并调用 `vendor_review.py`，把 JSON 与 Markdown 报告写入本机 `vendor/.reviews/`。资源包包含 Skill 子目录、递归显式本地引用、根 LICENSE/NOTICE 与依赖声明。出现候选时，ZCode 审查任务再阅读报告与必要资源 diff，并写一份不具采用权限的 `.assessment.md` 语义评估。两层都不覆盖当前已批准的 `vendor/<source>`、不改写 `sources.lock.json`、不自动新增路由，也不自动执行候选中的内容。
 
-- 已路由 Skill 有内容变化：报告标为 `changed_referenced_skill`，必须判断其方法、输入/输出、运行环境、权限与 VSC 契约是否仍兼容。
+- 已路由 Skill 的正文或支持资源、许可证、依赖声明有变化：报告标为 `changed_referenced_skill`，必须判断其方法、输入/输出、运行环境、权限与 VSC 契约是否仍兼容。不要只读 `SKILL.md` diff。
 - 新增 Skill：报告标为 `new_skill`，默认 `unrouted_pending_review`；只有人工显式把它接到 VSC 阶段并通过 `vsc_kernel.py doctor`，才能直接使用。
 - 已路由 Skill 被删除：报告要求“保留最后批准快照、替换路由或退役”三选一；当前活跃版本不会被定时任务静默删除。
-- 候选快照由更新中心按每来源最长 90 天、最多 3 份清理。它们用于审查和恢复，不进入 VSC Git。
+- 候选资源包由项目维护模块按每来源最长 90 天、最多 3 份清理（基线也计入）。它们用于恢复 Skill 文件，不等于完整仓库或已安装运行环境备份，不进入 VSC Git。
+- 下载状态与分析状态独立；`failed`、未完成或报告丢失必须重试。正文相对引用缺失、绝对文件输入、符号链接／特殊文件或单文件超限时，逐 Skill 报告不可用，被拒资源不读取／物化；不能把此类候选说成完整可执行备份。资源总量超限或完整性不一致时任务失败关闭，不自动降级成只比较正文。
+- 代码围栏示例、站点根相对 URL 和 `/skill` 命令不当作源资源；运行时配置／输出目录仅记录前置条件，未读取、未打包、未验证就绪。不要把真实缺失的正文资源当成例子忽略，也不要跟随链接补下载。
+
+本机调用：`bash scripts/vsc-vendor-maintenance.sh [--source ID] [--updater-root /path/to/plugin-updater]`。旧中央脚本需按 `docs/12-vendor-candidate-updates.md` 显式迁移；不能把项目代码已更新当作中央定时入口已经部署。
 
 需把通过审查的候选投入使用时，先由责任人更新相应来源的固定 revision，再执行 `vendor_sync.py --install <来源>`；随后重新生成声明并运行 `vsc_kernel.py doctor`。不要把“上游有新提交”当作“已批准升级”。
 

@@ -1,11 +1,11 @@
 ---
 name: vsc-remotion
-description: "Compile selected VSC takes, sound and captions into an editable local Remotion composition for preview and deterministic rendering."
+description: "Prepare editable local Remotion compositions from selected VSC takes, with frame trims, sound envelopes, real media checks and evidence-bound human review; does not generate AI takes."
 ---
 
 # VSC Remotion 合成与渲染
 
-你是 VSC 的 Remotion 合成负责人，不是小说改编者或图生视频供应商。把已批准的 VSC 时间线、选中 take、声音提示和字幕，编译为可编辑的本地 Remotion 项目；保持镜头来源、声音使用权、时间码和最终决定可追溯。
+你是 VSC 的 Remotion 合成负责人，不是小说改编者或图生视频供应商。依据已批准的 VSC 时间线、选中 take、声音提示和字幕编写渲染计划，再生成可编辑的本地 Remotion 项目；保持镜头来源、声音使用权、时间码和最终决定可追溯。当前脚本生成脚手架，不自动从任意时间线推导剪辑决定。
 
 ## 直接复用官方 Skill
 
@@ -33,10 +33,17 @@ python3 scripts/vsc_kernel.py contract validate vsc.remotion-render-plan/v1 ./07
 python3 scripts/remotion_plan.py scaffold ./07-后期/remotion-render-plan.json ./07-后期/remotion
 ```
 
-5. 将计划引用的素材按相同相对路径放入 `remotion/public/`。用户决定后才在该目录运行 `npm install`、`npm run studio` 和渲染命令。
+5. 将计划引用的素材按相同相对路径放入 `remotion/public/`。用户决定后才在该目录运行 `npm install`、`npm run typecheck`、`npm run studio` 和渲染命令。脚手架已生成不等于依赖已安装或成片已验证。
 
 ## 连续性与声音不可丢失
 
-- AI 视频片段的切点仍以 VSC `entry_state`/`exit_state`、首尾手柄和 `bridge_to_next` 为准；Remotion 只把已经决定的剪切、叠化和声音桥落到帧级时间线。
+- AI 视频片段的切点仍以 VSC `entry_state`/`exit_state`、首尾手柄和 `bridge_to_next` 为准。使用 `source_in_frame`、`handle_in_frames`、`handle_out_frames` 保留真实源余量；handle 不自动插入转场。叠化要显式重叠视觉片段并设置淡变。
 - BGM/环境底跨镜铺设，不按每条 6–8 秒片段重启；字幕按对白时间码覆盖，不替代对白授权或声线设计。
+- 使用 `volume`、`audio_fade_in_frames`/`audio_fade_out_frames` 与片段内 `volume_keyframes` 表达混音。对白区间的压低由 Cue Sheet/负责人决定；脚本不自动判断情绪或对白可懂度。独立对白替换视频原声时显式 `muted`。
 - Studio 中的人工改动视为新候选版本，回写或登记到 VSC 时间线后才可成为交付基线。
+
+## 真媒体证据与人工审片
+
+运行 `python3 scripts/media_qa.py check <plan> <public-dir> --render <final.mp4> --output <new-report.json>`，检查真实源范围和成片元数据；未安装 ffprobe 应说明依赖并停在未验证状态。使用 `templates/sample-review.json` 绑定报告 hash，填写五类具名审片与时间码证据，再运行 `python3 scripts/media_qa.py review <review.json>`。媒体、计划变更后必须重新检查。故障适配器仅测试失败路径，不能作为真实制作证据。
+
+进行媒体检查或样片审查时读取 [专业证据链](../../docs/14-production-evidence.md)，其中包含字段语义、适配器、审片标准和验证边界。技术检查不替代人物、情绪、剧情、声音的人工判断。将通过的报告登记为 `vsc.media_qa`、具名审片登记为 `vsc.sample_review`；delivery Gate 需要后者批准，连续剧按集检查。

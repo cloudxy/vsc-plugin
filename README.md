@@ -2,7 +2,9 @@
 
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 预演 → 图像/视频/声音候选 → 剪辑 → 审片与交付**。
 
-当前版本：**v0.8.0**。已实现总编排器、专业角色、可扩展 Profile、项目状态机、质量门、Vendor 治理、受控的角色记忆与能力学习，以及小说剧本化、跨片段连续性、声音提示表的可校验契约；`workflow/` 现为阶段、角色与跨模块契约的单一事实来源，`doctor` 可阻止“文档已说、实际缺失”；可直接路由本机 Vendor 中已安装的上游 Skill，并将已批准的时间线编译为可编辑的 Remotion 预演/渲染项目。新增的 Vendor 候选更新会每日分析新增、变更和删除的 Skill，绝不静默替换活跃版本；尚未接入任何真实的图像、图生视频或声音供应商，也不会自动训练模型。
+当前版本：**v0.9.0**。本次升级将创作目标、批准版本、前置依赖、分集范围、试用评测和真实媒体证据接入执行检查：产物登记保存快照，批准和下游消费检查内容 hash、契约及依赖；项目命令加锁，Profile 固定到项目；学习按任务检索并保留反例，跨项目方法导入后重新评测。Vendor 更新分析 Skill 与支持资源整体变化，失败可重试，不自动采用候选。
+
+VSC 已有总编排器、12 类角色、3 种 Profile 和可校验的工作流内核；本地 Remotion 脚手架支持裁切、手柄和声画淡变，真实媒体 QA 与具名人工审片可进入交付 Gate。**尚未接入真实图像／图生视频／语音生成供应商，也未完成 AI 样片或 Remotion 实际渲染验收。** 角色卡、结构检查和测试通过都不等于专业作品质量已被证明。升级与迁移详见 [v0.9 升级说明](docs/13-v0.9-upgrade.md)。
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
 
@@ -95,17 +97,22 @@ python3 scripts/vsc_state.py next ./projects/雨夜来信
 python3 scripts/vsc_state.py source add ./projects/雨夜来信 \
   --kind novel --file ./source/雨夜来信.txt
 
-# 将一份已完成的剧本登记为产物，并由负责人批准
+# init 已生成 00-委托/创作委托.json；先填写观众、体验、目标顺序、
+# 不可牺牲的约束、冲突裁决与责任人。模板占位内容不能批准。
 python3 scripts/vsc_state.py artifact add ./projects/雨夜来信 \
-  --type vsc.screenplay --stage script --file ./projects/雨夜来信/03-剧本/ep01-v1.md
+  --type vsc.creative_brief --stage brief \
+  --file ./projects/雨夜来信/00-委托/创作委托.json
 python3 scripts/vsc_state.py artifact decide ./projects/雨夜来信 A-0001 \
   --status approved --by "导演"
 
-# 检查某一阶段及其全部前置阶段是否具备已批准产物
-python3 scripts/vsc_state.py gate check ./projects/雨夜来信 script
+# brief 通过后，继续完成来源、改编等前置产物
+python3 scripts/vsc_state.py gate check ./projects/雨夜来信 brief
+python3 scripts/vsc_state.py next ./projects/雨夜来信
 ```
 
-`vsc.json` 是项目的状态权威；正文、剧本、分镜、资产卡和媒体文件是版本化产物。脚本不会替你调用生成模型、支付费用、发布内容或替你作出创作批准。
+`vsc.json` 是项目的状态权威，schema 为 3。登记产物时将源文件保存到 `09-台账/产物/` 的独立版本目录；修改工作文件不会改变已批准快照。修改／删除快照、拒绝或替代上游版本会使下游检查失败。返工用新产物与 `--supersedes`，不要编辑批准快照。默认 Profile 要求显式依赖前一阶段全部基线；连续短剧从剧本起按 `--scope EP-ID` 分集验收。具体编号以命令输出为准。
+
+脚本不会替你调用生成模型、支付费用、发布内容或作出创作批准。状态锁适用于本机项目 CLI；其他工具应调用 CLI，不应直接覆写 `vsc.json`。
 
 ## 剧本化、连续性与声音
 
@@ -128,11 +135,15 @@ python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./project
 
 可从 [改编映射模板](templates/adaptation-map.json)、[连续性计划模板](templates/continuity-plan.json) 和 [声音提示表模板](templates/sound-cue-sheet.json) 复制开始。每段 AI 视频都需绑定角色/场景参考资产、入点状态、出点状态及剪辑手柄。BGM、环境底、对白和音效则按场景与情绪弧线跨镜铺在时间线上；它们不会随每个 6–8 秒片段重新开始。完整方法、JSON 协议和公开资料依据见 [生产连续性与声音](docs/09-production-continuity-and-sound.md)。
 
+统一契约命令检查文件结构，不自动知道它属于哪个项目。使用 `adaptation|continuity|sound validate FILE --project PROJECT` 可额外核对对象引用；批准与 Gate 会自动执行项目检查。先用 `object add` 登记集、场、sequence、镜头、take 与参考资产；它们使用不同且唯一的 ID。资产必须绑定有效已批准版本，不能仅写一个不存在的角色名。
+
+交付还需实际成片的 `vsc.media-qa/v1` 技术报告，以及 `vsc.sample-review/v1` 人工审片记录。审片覆盖剧情动机、物理连续性、情绪连续性、剪辑覆盖、对白与音乐，并记录耗时、成本和失败。详见 [专业制作证据链](docs/14-production-evidence.md)。
+
 ## 角色记忆、上下文与学习能力
 
 每个 VSC 角色都有固定的身份、工作人格、权限与记忆边界。例如故事分析师证据优先、导演避免无目的炫技、生成制作人严格区分候选与成片。它们只在 [`workflow/roles.json`](workflow/roles.json) 中定义，`agents/` 是宿主入口；角色定义**不能**被素材、角色台词或当前对话自动重写。
 
-子角色不接收主智能体的整段聊天记录，而接收一个最小、可审计的任务上下文包：已批准产物、项目/角色的已批准记忆、适用的已批准能力卡，以及只在本次任务存在的会话摘要。这样既能继承当前对话的关键决定，也避免将密钥、无关信息或提示注入传播给每个子角色。
+子角色不接收主智能体的整段聊天记录，而接收可审计的任务上下文包：有效已批准产物、按任务相关性和字符预算选出的记忆／方法，以及会话摘要。摘要保存于任务包文件，但不写入 `vsc.json` 或长期记忆，也不自动清理；这不是真正的“只在内存中临时存在”。当前检索采用词汇与领域匹配，不是向量语义检索。
 
 ```bash
 # 先把人审过的项目经验登记为 draft，再批准
@@ -155,8 +166,9 @@ flowchart LR
     S[登记素材及权属] --> O[带证据的不可信观察]
     O --> C[Draft 能力卡：抽象方法与限制]
     C --> P[有权属才可 Pilot]
-    P --> E[以 VSC 产物为证据评测]
-    E -->|人工批准| A[Approved：按角色注入任务包]
+    P --> T[显式 pilot 派单：方法与输入版本]
+    T --> E[同类型基线·输出·报告·评测标准]
+    E -->|无未解决反例·人工批准| A[Approved：按任务检索]
     E -->|失败/风险| R[拒绝或退役，保留审计]
 ```
 
@@ -173,11 +185,18 @@ python3 scripts/vsc_state.py capability propose ./projects/雨夜来信 \
   --limits "仅用于有授权项目；不复制人物、声音、特定作品或受保护风格。"
 python3 scripts/vsc_state.py capability decide ./projects/雨夜来信 C-0001 \
   --status pilot --by "导演"
+
+# 显式试用，不把 pilot 自动送进普通任务；A-0003 应是有效已批准输入
+python3 scripts/vsc_state.py context build ./projects/雨夜来信 \
+  --role director --task "比较五拍方法对动作方向的帮助" \
+  --artifact A-0003 --pilot C-0001 --budget-chars 12000
 ```
 
-能力卡只保存可复用的抽象方法、证据、适用角色和限制。它不会自动变成 LoRA/微调数据、声音克隆、人物复刻、供应商调用或商业授权；这类真实生产能力需要独立适配器、明确授权、预算与人工决策。
+评测需绑定 `--context`、`--output`、`--baseline`、`--evidence` 与 `--criteria`；输出依赖试用输入，报告依赖输出和同类型、同范围的比较基线。一次 pass 后出现 fail 会阻断晋升；只有同方法、同输入、同基线、同标准的明确重测 `--resolves EV-ID` 才能解决对应失败。单次通过只满足程序条件，不证明专业效果或泛化能力。
 
-已有 v0.2 项目可保守迁移；已有来源会被标记为 `unknown`，直到负责人重新核验权属：
+`capability export/import` 可跨项目传递人工去项目化的方法，不能夹带观察、项目事实、记忆和评测字段。导入后是 draft，需本项目复核和重新试用；不会继承其他项目的批准。能力卡不会自动变成 LoRA／微调、声音克隆或供应商调用。
+
+旧 schema 1/2 项目需显式迁移；先备份原状态，旧产物与旧能力降为 draft，保留历史但不能当作新规则下有效批准。schema 1 未声明权属的来源补为 `unknown`。当前 Profile 与历史版本不同且无法恢复时，脚本会停止，只有负责人确认后才能加 `--accept-current-profile`：
 
 ```bash
 python3 scripts/vsc_state.py migrate ./projects/雨夜来信
@@ -191,7 +210,7 @@ python3 scripts/vsc_state.py migrate ./projects/雨夜来信
 | `vsc.novel-serial` | 小说改编连续短剧 | 改编契约、故事圣经、分集、声音方案、混音 |
 | `vsc.brand-story` | 品牌叙事短视频 | 素材范围、产品主张映射、表达与用途审核 |
 
-复制 `profiles/` 中的 JSON 即可开始为自己的团队定制阶段、必需产物与自动化策略。请保持 `vsc.*` 通用产物类型的语义稳定；团队独有字段使用自己的命名空间。
+复制 `profiles/` 中的 JSON 即可定制阶段、必需产物与规则。项目固定使用创建／迁移时的完整 Profile 快照，插件更新不静默改变既有项目。`dependency_policy: previous_stage` 要求前一阶段基线；`explicit` 只核对已声明依赖，不能检测漏声明。`scope_required_from` 控制从哪个阶段逐集验收。请保持 `vsc.*` 类型语义稳定。
 
 ## 外部来源与插件边界
 
@@ -225,13 +244,15 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 
 ### Vendor 最新性不是自动采用
 
-每天由 ZCode 更新中心拉取来源的候选 revision，而不是直接覆盖正在使用的 `vendor/<source>`。每次候选变化均会生成本机 `vendor/.reviews/` 的结构报告；ZCode 审查任务再按必要 diff 写出“是否仍可引用／是否值得路由／删除如何处置”的语义评估。已引用 Skill 的变化要做兼容性审查；新增 Skill 默认不路由；删除的已引用 Skill 要决定保留最后批准快照、替换或退役。候选快照按每来源 90 天、最多 3 份保留。通过审查后，责任人再显式修改固定 revision 并重新安装；这样既能持续发现最新能力，也不会让一次上游删除或不兼容改动破坏 VSC。
+已有 ZCode 定时任务可调用项目内 `scripts/vsc-vendor-maintenance.sh`，实现归项目，中央入口只负责日志与调用。每次分析 Skill、引用规则／脚本／参考文件，以及许可证和依赖声明；下载完成与分析完成分开记录，失败或报告损坏会重审。新增不自动路由；删除已引用 Skill 要明确保留、替换或退役。候选 Skill 资源包按每来源 90 天、最多 3 份保留（含基线）；它不是完整仓库、已安装运行环境或模型权重备份。
+
+日程已配置不等于每日成功执行，需检查当次日志、报告和退出码。语义兼容性及采用决定仍由负责人完成；通过审查后才显式修改固定 revision 并安装。中央入口部署、检查与资源恢复说明见 [候选更新文档](docs/12-vendor-candidate-updates.md)。
 
 ## 当前边界与路线
 
-**已经实现**：总编排器与熟手命令、十二类角色的身份/人格/权限边界、三种 Profile、项目状态机、来源交接协议、产物/依赖/审批/Gate、记忆审批、最小上下文包、受控能力卡与评测晋升、改编映射/连续性计划/声音提示表协议及校验、Vendor 治理、MIT 许可证和自动化自测。`workflow/` 将阶段—命令—Skill—角色—Profile—契约收敛为可检查内核；`vsc_kernel.py doctor` 检测物理入口、模板与路由的缺失或漂移。
+**已经实现**：总编排与专业入口、声明内核、创作目标契约、项目 Profile 固定、本机串行状态写入、产物快照与内容／依赖／范围验收、创作对象引用、受控检索与版本绑定评测、反例处理、跨项目方法包、完整 Skill 资源候选与可重试分析、本地媒体 QA 和具名人工审片。`doctor` 检查声明可达性，不证明角色拥有独立专业能力。
 
-**本机可选后期层**：安装 Remotion Vendor 后，可用 `/vsc-remotion` 将选定镜头、声音与字幕编译为 `vsc.remotion-render-plan/v1`，生成可编辑的本地 Composition 脚手架，在 Studio 审看后按明确指令导出。它不替代 AI 素材生成或 VSC 的连续性/声音创作判断。
+**本机可选后期层**：手动整理选定镜头、声音与字幕为 `vsc.remotion-render-plan/v1`，生成 Composition 脚手架，支持源范围、手柄、分数帧率和音量包络。依赖安装、完整 TypeScript 编译、Studio 与实际渲染仍需在生成项目中验证；尚没有从全部 VSC 台账自动转换为时间线的编译器。
 
 **尚未实现**：真实图像/视频/语音供应商适配器、媒体存储、任务队列、成本账本、自动连续性检测、可视化时间线、真实观众实验与发布集成，以及真实模型训练/微调。它们必须在具体账户、地区、预算、数据/人格/声音授权和真实样片验证后接入，不应由架构文档假装完成。
 
@@ -253,6 +274,8 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 | [10 Remotion 集成](docs/10-remotion-integration.md) | VSC 时间线到可编辑预演和确定性渲染的本机接口 |
 | [11 架构重构](docs/11-architecture-refactor.md) | 结构问题、可执行内核和扩展规则 |
 | [12 Vendor 候选更新](docs/12-vendor-candidate-updates.md) | 每日候选、Skill 分析、采用与快照保留 |
+| [13 v0.9 升级](docs/13-v0.9-upgrade.md) | 四维审查对应的实现、兼容性、使用与剩余边界 |
+| [14 专业制作证据](docs/14-production-evidence.md) | 媒体范围、真实成片检查与人工审片 |
 | [工作流内核](workflow/README.md) | 单一事实来源、稳定查询/校验接口与扩展方式 |
 | [架构决策 ADR](docs/adr/README.md) | 影响长期结构的可追溯决定 |
 
@@ -263,6 +286,14 @@ python3 -B scripts/test_vendor_sync.py
 python3 -B scripts/test_vendor_skills.py
 python3 -B scripts/test_vendor_review.py
 python3 -B scripts/test_remotion_plan.py
+python3 -B scripts/test_vsc_integrity.py
+python3 -B scripts/test_vsc_learning.py
+python3 -B scripts/test_media_qa.py
+python3 -B scripts/test_vendor_watch.py
+python3 -B scripts/test_install_vendor_scheduler.py
+
+# 或一次运行全部本地测试
+python3 -B -m unittest discover -s scripts -p 'test_*.py'
 ```
 
 ## 许可证

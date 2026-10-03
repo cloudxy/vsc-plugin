@@ -16,7 +16,11 @@
       "source_shot_id": "SH-001",
       "from_frame": 0,
       "duration_in_frames": 180,
-      "fade_in_frames": 8
+      "source_in_frame": 12,
+      "source_duration_in_frames": 210,
+      "handle_in_frames": 12,
+      "handle_out_frames": 18,
+      "muted": true
     },
     {
       "id": "SH-002",
@@ -24,14 +28,29 @@
       "source": "takes/SH-002.mp4",
       "source_shot_id": "SH-002",
       "from_frame": 180,
-      "duration_in_frames": 180
+      "duration_in_frames": 180,
+      "source_in_frame": 12,
+      "source_duration_in_frames": 210,
+      "handle_in_frames": 12,
+      "handle_out_frames": 18,
+      "muted": true
     },
     {
       "id": "BGM-001",
       "kind": "audio",
       "source": "audio/rain-pad.mp3",
       "from_frame": 0,
-      "duration_in_frames": 360
+      "duration_in_frames": 360,
+      "volume": 0.35,
+      "audio_fade_in_frames": 15,
+      "audio_fade_out_frames": 30,
+      "volume_keyframes": [
+        {"frame": 0, "volume": 1},
+        {"frame": 210, "volume": 1},
+        {"frame": 225, "volume": 0.3},
+        {"frame": 285, "volume": 0.3},
+        {"frame": 300, "volume": 1}
+      ]
     },
     {
       "id": "CAP-001",

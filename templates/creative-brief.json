@@ -1,0 +1,12 @@
+{
+  "format": "vsc.creative-brief/v1",
+  "audience": "请替换为目标观众",
+  "desired_experience": "请替换为希望观众理解与感受到什么",
+  "objectives": [
+    {"id": "story", "goal": "观众能理解人物为何做出关键选择", "success_evidence": "试看片后请观众复述人物目标与转折原因"},
+    {"id": "cost", "goal": "在项目预算内完成", "success_evidence": "实际生成与返工成本不超过负责人确认的预算"}
+  ],
+  "nonnegotiables": [],
+  "conflict_policy": "目标按数组顺序排列；牺牲高优先目标前交由 decision_owner 决定，记录理由和备选",
+  "decision_owner": "请替换为创作责任人"
+}

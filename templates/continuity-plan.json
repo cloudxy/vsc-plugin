@@ -1,7 +1,7 @@
 {
   "format": "vsc.continuity-plan/v1",
   "project_id": "replace-with-project-id",
-  "sequence_id": "EP-001-SC-001",
+  "sequence_id": "SEQ-001",
   "max_clip_ms": 8000,
   "shots": [
     {

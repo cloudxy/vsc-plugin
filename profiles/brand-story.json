@@ -1,6 +1,7 @@
 {
   "profile_id": "vsc.brand-story",
-  "version": "1.0",
+  "version": "1.1",
+  "dependency_policy": "previous_stage",
   "label": "品牌叙事短视频",
   "stages": [
     {"id": "brief", "label": "创作委托", "required": ["vsc.creative_brief", "vsc.material_scope"]},
@@ -11,7 +12,7 @@
     {"id": "animatic", "label": "分镜预演", "required": ["vsc.animatic"]},
     {"id": "production", "label": "素材制作", "required": ["vsc.selected_takes"]},
     {"id": "post", "label": "剪辑与后期", "required": ["vsc.timeline", "vsc.mix"]},
-    {"id": "delivery", "label": "审片与交付", "required": ["vsc.delivery_manifest"]}
+    {"id": "delivery", "label": "审片与交付", "required": ["vsc.delivery_manifest", "vsc.sample_review"]}
   ],
   "policy": {"creative_decisions": "human", "technical_checks": "automatic", "external_publish": "not_enabled"}
 }

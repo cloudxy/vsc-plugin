@@ -43,7 +43,13 @@ class Base(unittest.TestCase):
         return path
 
     def artifact(self, kind, stage, rel, depends=None):
-        path = self.write(rel)
+        content = "内容"
+        if kind == "vsc.creative_brief":
+            content = json.dumps({"format": "vsc.creative-brief/v1", "audience": "剧情短片观众",
+                                  "desired_experience": "理解人物选择", "decision_owner": "导演",
+                                  "objectives": [{"id": "story", "goal": "人物动机清楚", "success_evidence": "试看片能复述原因"}],
+                                  "nonnegotiables": [], "conflict_policy": "导演审阅目标冲突并记录决定"}, ensure_ascii=False)
+        path = self.write(rel, content)
         output = self.ok("artifact", "add", self.project, "--type", kind, "--stage", stage, "--file", path,
                          *sum((["--depends", value] for value in (depends or [])), []))
         artifact_id = output.split()[1]
@@ -54,7 +60,7 @@ class Base(unittest.TestCase):
 class TestInitAndProfiles(Base):
     def test_layout_and_identity(self):
         state = json.loads((self.project / "vsc.json").read_text("utf-8"))
-        self.assertEqual((state["schema_version"], state["profile_id"]), (2, "vsc.narrative-base"))
+        self.assertEqual((state["schema_version"], state["profile_id"]), (3, "vsc.narrative-base"))
         self.assertTrue(state["project_id"].startswith("vsc-project-"))
         for rel in ("00-委托/创作委托.md", "04-视听设计/镜头/镜头表.md", "09-台账/README.md",
                     "10-记忆/README.md", "11-学习/README.md", "12-评测/README.md"):
@@ -70,12 +76,12 @@ class TestInitAndProfiles(Base):
 class TestArtifactsAndGates(Base):
     def test_gate_requires_source_and_approved_artifacts(self):
         self.assertIn("vsc.creative_brief", self.bad("gate", "check", self.project, "brief"))
-        self.artifact("vsc.creative_brief", "brief", "00-委托/创作委托-v1.md")
+        brief = self.artifact("vsc.creative_brief", "brief", "00-委托/创作委托-v1.md")
         self.ok("gate", "check", self.project, "brief")
         self.assertIn("尚未登记来源", self.bad("gate", "check", self.project, "source"))
         novel = self.write("01-来源/原著.txt", "雨夜里，她没有签收那封信。")
         self.ok("source", "add", self.project, "--kind", "novel", "--file", novel)
-        source_map = self.artifact("vsc.source_map", "source", "01-来源/来源映射.md")
+        source_map = self.artifact("vsc.source_map", "source", "01-来源/来源映射.md", [brief])
         self.ok("gate", "check", self.project, "source")
         self.assertIn("改编设计", self.ok("status", self.project))
         self.assertIn("A-0002", source_map)
@@ -119,7 +125,7 @@ class TestMemoryAndContext(Base):
         packet = json.loads((self.project / "10-记忆/上下文/CT-0001.json").read_text("utf-8"))
         self.assertEqual(packet["role"]["id"], "director")
         self.assertEqual(packet["inputs"][0]["id"], brief)
-        self.assertEqual(packet["parent_brief"]["persistence"], "ephemeral_not_saved")
+        self.assertEqual(packet["parent_brief"]["persistence"], "context_file_only_not_long_term_memory")
         self.assertEqual([x["id"] for x in packet["approved_memories"]], [memory_id])
         state = json.loads((self.project / "vsc.json").read_text("utf-8"))
         self.assertNotIn("本轮用户希望镜头更紧张", json.dumps(state, ensure_ascii=False))
@@ -138,14 +144,21 @@ class TestLearningLifecycle(Base):
                          "--limits", "仅用于已获授权项目；不复制人物身份或特定作品画面。", "--role", "director")
         capability = output.split()[1]
         self.ok("capability", "decide", self.project, capability, "--status", "pilot", "--by", "导演")
-        evaluation = self.artifact("vsc.learning_evaluation", "production", "12-评测/五拍打斗.md")
+        input_id = self.artifact("vsc.creative_brief", "brief", "00-委托/动作委托.json")
+        context = self.ok("context", "build", self.project, "--role", "director", "--task", "受控试用五拍打斗",
+                          "--artifact", input_id, "--pilot", capability).split()[1]
+        baseline = self.artifact("vsc.learning_sample", "production", "12-评测/基线.md", [input_id])
+        candidate = self.artifact("vsc.learning_sample", "production", "12-评测/候选.md", [input_id])
+        evaluation = self.artifact("vsc.learning_evaluation", "production", "12-评测/五拍打斗.md", [baseline, candidate])
         self.ok("capability", "evaluate", self.project, capability, "--result", "pass", "--evidence", evaluation,
+                "--context", context, "--baseline", baseline, "--output", candidate,
+                "--criteria", "节奏方向清晰、衔接稳定且优于同输入基线",
                 "--by", "导演", "--note", "节奏、方向和人物连续性均可复核。")
         self.ok("capability", "decide", self.project, capability, "--status", "approved", "--by", "导演")
         self.assertIn("[approved]", self.ok("capability", "list", self.project, "--status", "approved"))
         output = self.ok("context", "build", self.project, "--role", "director", "--task", "设计下一场动作戏")
-        self.assertIn("CT-0001", output)
-        packet = json.loads((self.project / "10-记忆/上下文/CT-0001.json").read_text("utf-8"))
+        self.assertIn("CT-0002", output)
+        packet = json.loads((self.project / "10-记忆/上下文/CT-0002.json").read_text("utf-8"))
         self.assertEqual(packet["approved_capabilities"][0]["id"], capability)
 
     def test_unknown_rights_cannot_enter_pilot(self):
@@ -172,7 +185,7 @@ class TestMigration(Base):
         self.assertIn("需要迁移", self.bad("status", self.project))
         self.ok("migrate", self.project)
         migrated = json.loads(path.read_text("utf-8"))
-        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(migrated["schema_version"], 3)
         self.assertEqual(migrated["sources"][0]["rights"], "unknown")
         self.assertEqual(migrated["learning"], {"observations": [], "capabilities": []})
 
