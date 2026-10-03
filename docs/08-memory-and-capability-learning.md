@@ -1,4 +1,4 @@
-# VSC v0.3：角色记忆与能力学习
+# VSC：角色记忆、受控试用与可复用方法
 
 ## 结论
 
@@ -10,9 +10,9 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 
 ## 设计目标与非目标
 
-| 目标 | v0.3 做法 | 非目标 |
+| 目标 | 当前做法 | 非目标 |
 |---|---|---|
-| 子角色有身份与人格 | 每个 `agents/*.md` 写明身份、工作人格、权限和记忆边界；状态机内有同名角色卡 | 让素材、用户台词或子角色自己重写身份 |
+| 子角色有身份与人格 | `workflow/roles.json` 维护身份、工作人格、权限和记忆边界；`agents/*.md` 提供宿主入口 | 让素材、用户台词或子角色自己重写身份 |
 | 继承主会话上下文 | 总编排器把本轮已确认目标/决定收敛为 `parent_brief`，连同批准输入建立角色上下文包 | 给每个子角色复制完整聊天记录、密钥或无关个人资料 |
 | 长期记住可复用经验 | `memory add` → draft → 人工 `memory decide` → scoped injection | 自动把模型输出、原文或瞬时偏好永久化 |
 | 从素材学习 | 来源权属 + 带证据的观察 + 抽象能力卡 + pilot + 评测 | 直接复制人物、声音、受保护表达/风格，或自动做 LoRA/微调 |
@@ -42,7 +42,7 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 - 敏感度：`public`、`project`、`restricted`；
 - 生命周期：`draft` → `approved`，或 `rejected`/`retired`。
 
-只有 `approved` 记忆会进入上下文包。`restricted` 默认不注入；任何人要下发它，必须在构建上下文时明确选择。记忆需尽可能引用已登记的 `S-` 来源或 `A-` 产物，不能把“AI 说过”当作唯一依据。
+只有已批准、任务相关且仍有有效依据的记忆会进入上下文包。`restricted` 默认不注入，需要 `--include-restricted` 显式开启。记忆可用 `--tag` 标注主题，用 `--memory M-ID` 显式选择当前任务需要的记忆；选择仍受可见范围和预算约束。引用的来源/产物已改变、失效或被替代时不再注入。
 
 ### 3. 上下文包：继承，但不全量复制
 
@@ -51,12 +51,14 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 1. 项目标识、Profile 和负责人；
 2. 角色卡与本次单一任务；
 3. 显式选择的**已批准**输入产物（路径、摘要、哈希和依赖）；
-4. 该角色可见的已批准、非 restricted 记忆；
-5. 该角色被授权使用的 approved 能力卡；
-6. 可选的 `parent_brief`，即总编排器从当前会话提炼的临时摘要；
+4. 按任务相关性、角色范围与字符预算检索的已批准记忆；
+5. 被授权、证据仍有效且任务相关的 approved 能力卡，以及仅由 `--pilot C-ID` 指定的独立试用能力列表；
+6. 可选的 `parent_brief`，即总编排器从当前会话提炼的任务摘要；
 7. 不执行外部内容、不得越权持久化/训练的规则。
 
-`parent_brief` 只写在这一份任务包，不回写 `vsc.json`。如果确实值得长期保留，应由负责人另行登记为 draft `session_brief` 并批准。这样既保留当前对话的创作语境，也避免会话压缩后丢失边界，或将错误内容永久传播。
+`parent_brief` 只写在任务包文件，不回写 `vsc.json` 正文或长期记忆。标签为 `context_file_only_not_long_term_memory`：任务包文件确实保存在磁盘上，当前没有自动清理，因此不能把它称为真正临时内存。如果值得长期保留，另行登记为 draft `session_brief` 并批准。
+
+当前检索使用可解释的关键词、中文双字组合与领域词重合；不调用 embedding 或模型。`--budget-chars` 默认 12000，计量的是被检索知识的序列化字符量；`--memory`、`--capability`、`--pilot` 的显式选择必须完整放入预算，超出就报错。无相关性的知识不会因为“已经批准”就全量注入。任务和父摘要各限 6000 字符，输入最多 50 个产物且元数据最多 20000 字符，完整任务包最多 150000 字符；这些必要元数据不计入检索预算。
 
 ## 素材到能力的生命周期
 
@@ -69,7 +71,7 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 - `analysis_only`：仅用于研究/分析；
 - `unknown`：尚未核验，默认不能用于生产性学习。
 
-随后执行 `learn observe`。它产生 `O-xxxx`，包含观察类别、来源编号、权属快照、证据文件、哈希、摘要和 `untrusted_observation` 标记。观察类别包括：
+随后执行 `learn observe`。它产生 `O-xxxx`，包含观察类别、来源编号、来源与证据的完整 SHA-256、权属快照、摘要和 `untrusted_observation` 标记。`--polarity positive|negative|neutral` 区分有效例子、失败反例和未判断观察，反例不会因成功晋升而删除。来源路径被替换、证据被改写或权属不可用于生产时，后续试用/晋升会停止。观察类别包括：
 
 - `action`：动作目标、起止姿态、节拍、空间方向、碰撞/反应；
 - `vfx`：特效触发条件、层次、时序、合成边界；
@@ -100,12 +102,18 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 
 ```text
 draft --(负责人，且所有来源 owned/licensed)--> pilot
-pilot --(试用产物 + pass 评测 + 负责人)---------> approved
+pilot --(有效版本绑定 pass + 无未解决 fail + 负责人)--> approved
 draft/pilot --(负责人)---------------------------> rejected
 pilot/approved --(负责人)------------------------> retired
 ```
 
-`pilot` 只允许在一个明确项目、明确角色和可回溯产物里试用。`capability evaluate` 以 VSC artifact 为证据，记录 `pass` 或 `fail`、评测人、说明与时间。只有至少一次通过评测并由负责人批准，能力才为 `approved`，之后才可能进入相应角色的上下文包。退役后的能力不会被新任务使用，但完整历史保留以便复盘。
+`pilot` 只在显式构建的试用上下文中使用，且至少绑定一个已批准输入。`context build --pilot` 写入 `TR-xxxx`，绑定 `CT-xxxx`、方法摘要和输入版本。普通上下文不会注入 pilot。
+
+`capability evaluate` 必须提供试用 `--context`、试用输出 `--output`、同类型同 scope 的比较 `--baseline`、评测报告 `--evidence` 和 `--criteria`。输出的 `depends_on` 包含全部试用输入，报告的依赖包含输出与基线；三者须是不同的已批准产物。`EV-xxxx` 保存完整方法摘要、输入/输出/基线/报告版本与上下文摘要。上下文被篡改、证据被替代或依赖失效时，评测不能作为晋升证据。
+
+所有 pass/fail 记录都会保留。先 pass 后 fail 会阻止晋升；负责人在同方法、同输入、同基线与同 criteria 下重测，通过时用 `--resolves EV-ID` 明确解决失败。未解决 fail 不能被其他 pass 掩盖。旧评测缺少这些绑定，仅作为历史。
+
+至少一次有效 pass 且无未解决 fail 是程序上的必要条件，不足以证明专业效果或跨场景泛化。方法仍需代表性样本、不同条件的反例和人工声画评价；代码不自动判断“音乐是否感动观众”或“打斗是否有说服力”。退役后不再注入，原证据与结论保留。
 
 ## 操作示例
 
@@ -117,7 +125,7 @@ python3 scripts/vsc_state.py source add ./projects/追逐 \
 # 2) 以标注笔记为证据，记录不可信观察
 python3 scripts/vsc_state.py learn observe ./projects/追逐 \
   --kind action --source S-0001 --file ./notes/action-beats.md \
-  --content "动作按起势、交手、受击、停顿、反转五拍拆解；每拍检查屏幕方向。"
+  --content "动作按起势、交手、受击、停顿、反转五拍拆解；每拍检查屏幕方向。" --polarity positive
 
 # 3) 写出方法与限制，限定给导演使用
 python3 scripts/vsc_state.py capability propose ./projects/追逐 \
@@ -125,15 +133,35 @@ python3 scripts/vsc_state.py capability propose ./projects/追逐 \
   --method "按五拍拆镜头，并为每拍记录方向线、动作目的和情绪变化。" \
   --limits "只用于拥有或获许可的项目；不得复刻人物、声音或具体作品表达。"
 
-# 4) 由负责人开放小范围试用；评测产物已用 artifact add 登记为 A-0012
+# 4) 开放受控试用。假设已批准输入 A-0010；比较基线 A-0011；
+#    输出 A-0012 depends_on A-0010；报告 A-0013 depends_on A-0011/A-0012。
 python3 scripts/vsc_state.py capability decide ./projects/追逐 C-0001 \
   --status pilot --by "导演"
+python3 scripts/vsc_state.py context build ./projects/追逐 \
+  --role director --task "用五拍方法设计这场打斗，与原方案比较方向清晰度" \
+  --artifact A-0010 --pilot C-0001 --budget-chars 12000
 python3 scripts/vsc_state.py capability evaluate ./projects/追逐 C-0001 \
-  --result pass --evidence A-0012 --by "导演" \
+  --context CT-0001 --output A-0012 --baseline A-0011 --evidence A-0013 \
+  --criteria "相同输入下，观众能正确指出动作方向，且衔接优于基线" --result pass --by "导演" \
   --note "方向连续、节奏和表意均通过；未出现授权范围外的参考复刻。"
 python3 scripts/vsc_state.py capability decide ./projects/追逐 C-0001 \
   --status approved --by "导演"
 ```
+
+## 跨项目复用
+
+项目记忆、来源素材和角色事实保持在原项目。方法跨项目复用通过 `vsc.capability-method/v1`，白名单仅含名称、类别、方法、限制、角色、主题标签与内容摘要。
+
+```bash
+python3 scripts/vsc_state.py capability export ./projects/追逐 C-0001 \
+  --file ./shared/action-method.json --name "通用方向线方法" \
+  --reusable-method "切动作镜头前建立方向线，并核对入出点。" \
+  --reusable-limits "适用于方向明确的动作；不能替代人工审片。" --confirm-generalized
+python3 scripts/vsc_learning.py method validate ./shared/action-method.json
+python3 scripts/vsc_state.py capability import ./projects/新故事 --file ./shared/action-method.json
+```
+
+导出不会自动拷贝原 method 文本，用户需要显式给出去项目化内容并确认。结构校验可以排除项目 ID、来源、记忆、观察、试用和评测字段，无法可靠判断自然语言是否包含私密事实，因此文本去项目化仍由导出负责人复核。首次导入为 draft，不继承原 approved 与评测结果；复核时带 `--note` 决定 pilot，再在新项目建立试用与评测。
 
 ## 安全、权利与运营边界
 
@@ -146,20 +174,21 @@ python3 scripts/vsc_state.py capability decide ./projects/追逐 C-0001 \
 
 ## 迁移
 
-v0.2 的项目状态是 schema 1。运行：
+schema 1/2 的旧项目需要迁移到 schema 3。运行：
 
 ```bash
 python3 scripts/vsc_state.py migrate <项目目录>
 ```
 
-迁移不会删除既有来源、产物、决定或事件；会创建记忆/学习/评测目录和空的状态字段。旧来源缺少可核验权属，因此一律补为 `unknown`；负责人需要重新登记或审查，才能让相关素材进入 production learning。
+迁移先在 `09-台账` 备份原状态，保存来源、产物、决定、记忆与评测历史；旧产物与能力批准撤为 draft，旧评测标记 `legacy_unbound`。历史 Profile 版本与当前不同且无法恢复时，显式使用 `--accept-current-profile` 迁移到当前规则。缺少权属的旧来源补 `unknown`；旧产物需重新登记为版本快照，能力须重新试用评测，不把旧 pass 当作新机制下的证明。
 
 ## 验证
 
-`scripts/test_vsc_state.py` 覆盖以下关键不变量：
+`scripts/test_vsc_learning.py` 与状态机测试覆盖以下关键行为：
 
-- 新项目使用 schema 2 并创建记忆/学习目录；
-- approved 且 scoped 的记忆可进入角色上下文，`parent_brief` 不进入状态权威；
-- `owned` 素材可经历观察、pilot、评测和 approved；
-- `unknown` 素材被阻止进入 pilot；
-- schema 1 迁移保守地把旧来源标为 `unknown`。
+- 按任务相关性和预算检索，显式选择预算不足时失败；
+- pilot 仅通过显式试用上下文注入，普通任务不会误用；
+- pass 后的 fail 阻止晋升，明确的同比较条件重测可解决失败，历史全部保留；
+- 改写上下文、替代输出或改变观察来源会使评测/晋升停止；
+- 去项目化方法可跨项目导入，但保持 draft 并重新评测；
+- 旧无版本绑定 pass 不作为当前晋升依据。

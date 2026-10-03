@@ -1,0 +1,15 @@
+{
+  "format": "vsc.sample-review/v1",
+  "project_id": "雨夜来信",
+  "reviewer": "",
+  "technical_report": "media-qa-001.json",
+  "technical_report_sha256": "",
+  "assessments": {
+    "story_and_motivation": {"result": "not_checked", "evidence": ""},
+    "physical_continuity": {"result": "not_checked", "evidence": ""},
+    "emotional_continuity": {"result": "not_checked", "evidence": ""},
+    "edit_coverage": {"result": "not_checked", "evidence": ""},
+    "dialogue_and_music": {"result": "not_checked", "evidence": ""}
+  },
+  "run": {"elapsed_seconds": null, "cost_amount": null, "currency": "CNY", "failures": []}
+}

@@ -18,15 +18,19 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
 6. 运行 `python3 scripts/vendor_skills.py --scan`，将已经下载的原始 `SKILL.md` 建成本机目录；用 `--resolve adapt|script|direct|assets|produce|sound|post` 查看 VSC 在某阶段会直接使用哪些 Skill。
 7. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
 
-## 本机每日同步（可选）
+## 本机候选维护（可选）
 
-不要把密钥、Cookie 或付费供应商凭据放入此任务。用户若自己需要每日更新，可在本机 crontab 中加入：
+`vendor_sync.py --sync` 只同步已经固定的 commit，不负责发现最新 Skill。发现新能力请显式执行项目自己的候选入口，或由用户在 ZCode 中配置每日任务：
 
-```cron
-15 3 * * * cd /absolute/path/to/vsc-workflow && /usr/bin/python3 scripts/vendor_sync.py --sync >> vendor/sync.log 2>&1
+```bash
+bash scripts/vsc-vendor-maintenance.sh --source mattpocock-skills
+# 已使用 ZCode 更新中心时，可以继续把缓存与快照放在更新中心：
+bash scripts/vsc-vendor-maintenance.sh --updater-root /absolute/path/to/plugin-updater
 ```
 
-安装脚本只接受固定 commit，拒绝分支、tag 和无许可证声明来源；网络或校验失败不会改写已有已固定版本。它只在用户执行 `--install` 或 `--sync` 时联网；`vendor/sync.log` 同样不应提交。
+不要把密钥、Cookie 或付费供应商凭据放入此任务。项目不自动创建定时任务。候选入口只在显式执行时联网，下载上游 HEAD 和固定基线到独立缓存，绝不执行候选脚本、修改活跃 Vendor、锁定 revision 或路由。无 `--updater-root` 时，维护数据放在被忽略的 `vendor/.maintenance/`。
+
+安装脚本仍只接受固定 commit；网络或校验失败不会改写已有固定版本。只有用户执行 `--install` 或 `--sync` 才安装活跃版本。
 
 `vendor_skills.py` 不联网、不复制上游文件。它直接指向下载目录里的原始 `SKILL.md`：标为 `guide` 的 Skill 可立即按其方法使用；标为 `runtime: ...` 的 Skill 则需要先满足所列 CLI、MCP、依赖或凭据。
 
@@ -61,6 +65,10 @@ SPDX 标识用于机器可读地记录已核验的许可证，不是法律意见
 
 ## 每日候选更新
 
-ZCode 更新中心可按 `sources.lock.json` 的 schema 4 策略每天下载上游 HEAD 的候选快照，保留每来源最多 3 份、最长 90 天。它只把 JSON 和 Markdown 分析写到被忽略的 `vendor/.reviews/`，不覆盖正在使用的 `vendor/<source>`，不改写固定 revision，也不自动新增路由。
+ZCode 更新中心可薄调用项目维护入口，按 `sources.lock.json` 的 schema 4 策略每天下载上游 HEAD 的候选资源包，保留每来源最多 3 份、最长 90 天（比较基线也计入数量）。资源包包含 Skill 目录、递归显式本地引用、根许可证与依赖声明，并保存逐文件散列和执行权限以供完整性验证和恢复；它不是整个仓库、安装好的运行环境或模型权重备份。
 
-当候选中的 `SKILL.md` 新增、修改或删除时，先阅读报告并作出明确决定；通过后再更新锁定 revision 并运行 `vendor_sync.py --install <source>`。详细流程见 [Vendor 候选更新](../docs/12-vendor-candidate-updates.md)。
+它只把 JSON 和 Markdown 分析写到被忽略的 `vendor/.reviews/`。下载完成与分析完成分别保存状态；分析失败或报告丢失后，再次运行会重试，不能因为“已有候选”而跳过分析。旧的仅 `SKILL.md` 快照会重建为 v2，不能冒充完整备份。
+
+Markdown 代码围栏中的示例和站点根相对 URL（如 `/docs/...`、`/v1/...`）不当作本机资源依赖。运行时配置、输出目录只记录外部前置条件，不读取、不打包、不声称已就绪。正文相对资源缺失、本机绝对输入、符号链接或单文件超限会逐 Skill 标记不可用；被拒绝的资源仅保留元信息，候选不能冒充该 Skill 的完整备份。其他可用 Skill 仍可形成分析；整体文件数／字节数超限则任务失败。
+
+当 Skill 的正文、规则、脚本、参考、资产、许可证或依赖声明新增、修改或删除时，先阅读报告并作出明确决定；新增 Skill 默认不路由，已路由 Skill 被删除时保留当前活跃版本，显式决定保留/替换/退役。通过后再更新锁定 revision 并运行 `vendor_sync.py --install <source>`。详细流程及旧中央入口迁移见 [Vendor 候选更新](../docs/12-vendor-candidate-updates.md)。

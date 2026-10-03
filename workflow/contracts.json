@@ -1,7 +1,34 @@
 {
   "format": "vsc.contract-catalog/v1",
-  "version": "1.0",
+  "version": "1.2",
   "contracts": [
+    {
+      "format": "vsc.creative-brief/v1",
+      "owner": "创作委托",
+      "artifact_types": ["vsc.creative_brief"],
+      "template": "templates/creative-brief.json",
+      "validator": {"script": "scripts/vsc_artifacts.py", "arguments": ["brief"]}
+    },
+    {
+      "format": "vsc.capability-method/v1",
+      "owner": "可复用方法",
+      "template": null,
+      "validator": {"script": "scripts/vsc_learning.py", "arguments": ["method", "validate"]}
+    },
+    {
+      "format": "vsc.media-qa/v1",
+      "owner": "媒体技术检查",
+      "artifact_types": ["vsc.media_qa"],
+      "template": null,
+      "validator": {"script": "scripts/media_qa.py", "arguments": ["validate-report"]}
+    },
+    {
+      "format": "vsc.sample-review/v1",
+      "owner": "人工审片",
+      "artifact_types": ["vsc.sample_review"],
+      "template": "templates/sample-review.json",
+      "validator": {"script": "scripts/media_qa.py", "arguments": ["review"]}
+    },
     {
       "format": "creative-handoff/v1",
       "owner": "外部来源交接",
@@ -16,24 +43,28 @@
     },
     {
       "format": "vsc.adaptation-map/v1",
+      "artifact_types": ["vsc.adaptation_plan"],
       "owner": "改编阶段",
       "template": "templates/adaptation-map.json",
       "validator": {"script": "scripts/vsc_state.py", "arguments": ["adaptation", "validate"]}
     },
     {
       "format": "vsc.continuity-plan/v1",
+      "artifact_types": ["vsc.shot_plan", "vsc.continuity_plan"],
       "owner": "连续性阶段",
       "template": "templates/continuity-plan.json",
       "validator": {"script": "scripts/vsc_state.py", "arguments": ["continuity", "validate"]}
     },
     {
       "format": "vsc.sound-cue-sheet/v1",
+      "artifact_types": ["vsc.sound_plan", "vsc.sound_cue_sheet"],
       "owner": "声音阶段",
       "template": "templates/sound-cue-sheet.json",
       "validator": {"script": "scripts/vsc_state.py", "arguments": ["sound", "validate"]}
     },
     {
       "format": "vsc.remotion-render-plan/v1",
+      "artifact_types": ["vsc.remotion_render_plan"],
       "owner": "Remotion 编排阶段",
       "template": "templates/remotion-render-plan.json",
       "validator": {"script": "scripts/remotion_plan.py", "arguments": ["validate"]}

@@ -198,7 +198,15 @@ def doctor_problems():
     for agent in sorted(known_agents - actual_agents):
         problems.append(f"角色目录缺少 agent：{agent}")
 
+    artifact_formats = {}
     for format_id, contract in contracts.items():
+        for kind in contract.get("artifact_types", []):
+            if not isinstance(kind, str) or not kind.startswith("vsc."):
+                problems.append(f"contract {format_id}.artifact_types 必须是 vsc.* 类型")
+            elif kind in artifact_formats:
+                problems.append(f"产物 {kind} 有多个契约：{artifact_formats[kind]} / {format_id}")
+            else:
+                artifact_formats[kind] = format_id
         template = contract.get("template")
         if template is not None:
             try:
@@ -235,6 +243,10 @@ def doctor_problems():
         except json.JSONDecodeError as exc:
             problems.append(f"Profile JSON 损坏：{path.relative_to(ROOT)}：{exc}")
             continue
+        if profile.get("scope_required_from") and profile["scope_required_from"] not in [x.get("id") for x in profile.get("stages", [])]:
+            problems.append(f"Profile {path.name} scope_required_from 不属于阶段")
+        if profile.get("dependency_policy") not in (None, "explicit", "previous_stage"):
+            problems.append(f"Profile {path.name} dependency_policy 必须是 explicit 或 previous_stage")
         for item in profile.get("stages", []):
             profile_stage = item.get("id") if isinstance(item, dict) else None
             if not profile_stage:
