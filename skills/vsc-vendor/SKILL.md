@@ -1,6 +1,6 @@
 ---
 name: vsc-vendor
-description: "Use when the user wants to assess, install, update, or schedule local third-party open-source skills/tools for VSC without committing them to Git."
+description: "Use when the user wants to assess, install, manually check updates, or review local third-party open-source skills/tools for VSC without committing them to Git."
 ---
 
 # VSC Vendor 管理
@@ -27,18 +27,18 @@ description: "Use when the user wants to assess, install, update, or schedule lo
 2. 对 `runtime: ...` 条目，先检查所列 CLI、MCP、密钥或依赖；就绪后才调用它的原生能力。
 3. 将结果映射回 VSC 的改编、剧本、ShotPlan、资产、Cue、时间线等产物，不让上游 Skill 绕过 VSC 的批准、连续性或权属边界。
 
-## 每日候选更新：先分析，后采用
+## 手动候选更新：先分析，后采用
 
-ZCode 的 `plugin-updater` 只负责定时调用项目 `scripts/vsc-vendor-maintenance.sh`；项目 `vendor_watch.py` 保存各来源的完整 **Skill 资源包候选**并调用 `vendor_review.py`，把 JSON 与 Markdown 报告写入本机 `vendor/.reviews/`。资源包包含 Skill 子目录、递归显式本地引用、根 LICENSE/NOTICE 与依赖声明。出现候选时，ZCode 审查任务再阅读报告与必要资源 diff，并写一份不具采用权限的 `.assessment.md` 语义评估。两层都不覆盖当前已批准的 `vendor/<source>`、不改写 `sources.lock.json`、不自动新增路由，也不自动执行候选中的内容。
+用户按需运行 `scripts/vsc-vendor-maintenance.sh`，不依赖 ZCode 定时任务。`--plan` 只预览，不联网或写入；不加此参数则执行一次并退出。项目 `vendor_watch.py` 保存各来源的完整 **Skill 资源包候选**并调用 `vendor_review.py`，把 JSON 与 Markdown 报告写入本机 `vendor/.reviews/`。资源包包含 Skill 子目录、递归显式本地引用、根 LICENSE/NOTICE 与依赖声明。脚本不自动调用模型；用户要求语义审查时，由本 Skill 阅读指定报告与必要资源 diff，写同名 `.assessment.md`，说明已引用 Skill 是否兼容、新增 Skill 是否值得路由、删除引用的处置建议以及环境与测试要求。评估没有采用权限；不覆盖已批准的 `vendor/<source>`，不改写 `sources.lock.json`，不新增路由或执行候选内容。
 
 - 已路由 Skill 的正文或支持资源、许可证、依赖声明有变化：报告标为 `changed_referenced_skill`，必须判断其方法、输入/输出、运行环境、权限与 VSC 契约是否仍兼容。不要只读 `SKILL.md` diff。
 - 新增 Skill：报告标为 `new_skill`，默认 `unrouted_pending_review`；只有人工显式把它接到 VSC 阶段并通过 `vsc_kernel.py doctor`，才能直接使用。
-- 已路由 Skill 被删除：报告要求“保留最后批准快照、替换路由或退役”三选一；当前活跃版本不会被定时任务静默删除。
-- 候选资源包由项目维护模块按每来源最长 90 天、最多 3 份清理（基线也计入）。它们用于恢复 Skill 文件，不等于完整仓库或已安装运行环境备份，不进入 VSC Git。
+- 已路由 Skill 被删除：报告要求“保留最后批准快照、替换路由或退役”三选一；候选维护不会静默删除当前活跃版本。
+- 每次执行时按每来源 90 天、最多 3 份清理候选资源包（基线也计入）；不运行脚本就不后台清理，过期文件在下次运行时处理。它们用于恢复 Skill 文件，不等于完整仓库或已安装运行环境备份，不进入 VSC Git。
 - 下载状态与分析状态独立；`failed`、未完成或报告丢失必须重试。正文相对引用缺失、绝对文件输入、符号链接／特殊文件或单文件超限时，逐 Skill 报告不可用，被拒资源不读取／物化；不能把此类候选说成完整可执行备份。资源总量超限或完整性不一致时任务失败关闭，不自动降级成只比较正文。
 - 代码围栏示例、站点根相对 URL 和 `/skill` 命令不当作源资源；运行时配置／输出目录仅记录前置条件，未读取、未打包、未验证就绪。不要把真实缺失的正文资源当成例子忽略，也不要跟随链接补下载。
 
-本机调用：`bash scripts/vsc-vendor-maintenance.sh [--source ID] [--updater-root /path/to/plugin-updater]`。旧中央脚本需按 `docs/12-vendor-candidate-updates.md` 显式迁移；不能把项目代码已更新当作中央定时入口已经部署。
+本机调用：`bash scripts/vsc-vendor-maintenance.sh [--plan] [--source ID] [--maintenance-root /path/to/data]`。默认数据在 `vendor/.maintenance/`，`--updater-root` 是旧参数兼容别名。核对本次退出码及报告，失败不得报告成功。仅变更项目文件不会删除已存在的宿主任务；不创建或恢复定时任务。旧缓存复用及手动审查流程见 `docs/12-vendor-candidate-updates.md`。
 
 需把通过审查的候选投入使用时，先由责任人更新相应来源的固定 revision，再执行 `vendor_sync.py --install <来源>`；随后重新生成声明并运行 `vsc_kernel.py doctor`。不要把“上游有新提交”当作“已批准升级”。
 

@@ -37,8 +37,8 @@ def validate_refresh_policy(data):
         return "policy.upstream_refresh 必须是 object"
     if refresh.get("mode") != "candidate_review":
         return "policy.upstream_refresh.mode 必须为 candidate_review"
-    if refresh.get("scheduler") != "zcode-plugin-updater":
-        return "policy.upstream_refresh.scheduler 必须为 zcode-plugin-updater"
+    if refresh.get("scheduler") != "manual":
+        return "policy.upstream_refresh.scheduler 必须为 manual（用户按需运行脚本）"
     if refresh.get("automatic_adoption") is not False:
         return "policy.upstream_refresh.automatic_adoption 必须为 false"
     required = {"changed_referenced_skill", "new_skill", "deleted_referenced_skill"}

@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 import vendor_watch as WATCH
+from test_vendor_sync import refresh_policy
 
 HERE = Path(__file__).resolve().parent
 
@@ -177,6 +178,66 @@ class TestVendorWatch(unittest.TestCase):
         (folder / "link").symlink_to(self.root / "outside")
         with self.assertRaises(WATCH.WatchError):
             WATCH.safe_child(folder, "link", "file")
+
+    def write_lock(self):
+        write(self.plugin, "vendor/sources.lock.json", json.dumps({
+            "schema_version": 4, "policy": {"upstream_refresh": refresh_policy()},
+            "sources": [self.source],
+        }))
+
+    def cli(self, *args, env=None):
+        return subprocess.run(["/bin/bash", str(HERE / "vsc-vendor-maintenance.sh"),
+                               "--plugin", str(self.plugin), *args], cwd=self.root,
+                              env=env, text=True, capture_output=True)
+
+    def test_manual_plan_never_invokes_git_or_creates_maintenance_data(self):
+        self.write_lock()
+        stub = self.root / "bin/git"
+        write(self.root, "bin/git", f'#!/bin/sh\ntouch "{self.root}/git-called"\nexit 74\n')
+        stub.chmod(0o755)
+        before = (self.plugin / "vendor/sources.lock.json").read_bytes()
+        result = self.cli("--plan", "--source", "local-test",
+                          env={**os.environ, "PATH": f"{stub.parent}:{os.environ['PATH']}"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"mode": "manual"', result.stdout)
+        self.assertIn('"local-test"', result.stdout)
+        self.assertFalse((self.root / "git-called").exists())
+        self.assertFalse((self.plugin / "vendor/.maintenance").exists())
+        self.assertFalse((self.plugin / "vendor/.reviews").exists())
+        self.assertEqual(before, (self.plugin / "vendor/sources.lock.json").read_bytes())
+
+    def test_manual_cli_runs_once_without_central_updater(self):
+        self.write_lock()
+        before = (self.plugin / "vendor/sources.lock.json").read_bytes()
+        first = self.cli("--source", "local-test")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("CANDIDATE local-test", first.stdout)
+        snapshots = self.plugin / "vendor/.maintenance/backups/vsc-vendor-candidates/local-test"
+        self.assertEqual(len(list(snapshots.iterdir())), 2)
+        self.assertTrue(list((self.plugin / "vendor/.reviews").glob("*.json")))
+        second = self.cli("--source", "local-test")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("UNCHANGED-CANDIDATE", second.stdout)
+        self.assertEqual(before, (self.plugin / "vendor/sources.lock.json").read_bytes())
+        self.assertEqual((self.plugin / "vendor/local-test/keep.txt").read_text(), "active untouched")
+        self.assertFalse(self.updater.exists())
+
+    def test_manual_root_supports_legacy_updater_root_alias(self):
+        self.write_lock()
+        result = self.cli("--plan", "--maintenance-root", str(self.updater))
+        legacy = self.cli("--plan", "--updater-root", str(self.updater))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        self.assertEqual(result.stdout, legacy.stdout)
+        self.assertIn(str(self.updater.resolve()), result.stdout)
+        self.assertFalse(self.updater.exists())
+
+    def test_manual_unknown_source_fails_before_writes(self):
+        self.write_lock()
+        result = self.cli("--source", "not-declared")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("未声明来源", result.stderr)
+        self.assertFalse((self.plugin / "vendor/.maintenance").exists())
 
 
 if __name__ == "__main__":
