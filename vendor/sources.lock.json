@@ -12,7 +12,7 @@
     "allow_locally_vendored_open_source_components": true,
     "upstream_refresh": {
       "mode": "candidate_review",
-      "scheduler": "zcode-plugin-updater",
+      "scheduler": "manual",
       "automatic_adoption": false,
       "analysis_required_for": ["changed_referenced_skill", "new_skill", "deleted_referenced_skill"],
       "candidate_retention_days": 90,

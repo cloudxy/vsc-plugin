@@ -5,9 +5,9 @@
 VSC 要持续发现开源项目的新能力，但“上游最新”不能直接等同于“VSC 当前可安全、可用地采用”。因此更新分成两个状态：
 
 ```text
-当前已批准 Vendor ──不被定时任务覆盖──→ VSC 直接使用
+当前已批准 Vendor ──不被候选脚本覆盖──→ VSC 直接使用
              │
-             └── 每日拉取 HEAD → 候选快照 → Skill 差异分析 → 人工决定 → 显式固定新 revision → 重新安装
+             └── 手动拉取 HEAD → 候选快照 → Skill 差异分析 → 人工决定 → 显式固定新 revision → 重新安装
 ```
 
 这保留了可复现的当前版本，并让新增、变化和删除都可审计。
@@ -17,12 +17,12 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 | 模块 | 职责 |
 | --- | --- |
 | `vendor/sources.lock.json` | 来源、当前固定 revision、许可证和候选更新策略；schema 4。 |
-| ZCode `plugin-updater` | 每日薄调用项目维护入口并保留日志；不再独立维护另一份生命周期实现。 |
+| `scripts/vsc-vendor-maintenance.sh` | 用户按需运行的单次入口，透传退出码；不创建定时任务或常驻后台。`--plan` 不联网、不写入。 |
 | `scripts/vendor_watch.py` | 下载固定基线和 HEAD 候选，保存完整 Skill 资源包及分析状态、校验完整性、按每来源 90 天/3 份清理。 |
 | `scripts/vendor_bundle.py` | 共用资源包模块：Skill 子树、递归本地引用及根许可证/依赖声明；拒绝越界、符号链接与超限。 |
 | `scripts/vendor_review.py` | 对比 Skill 资源包而非仅正文，输出机器 JSON 与人读 Markdown；不更新任何活跃内容。 |
 | `vendor/.reviews/` | 本机报告目录，不进入 Git。 |
-| ZCode 审查任务 | 仅在出现候选时阅读结构报告与必要 diff，补充“可否继续引用/是否值得新增路由/删除处置”的语义评估；没有采用权限。 |
+| 手动调用 `/vsc-vendor` | 根据用户指定报告与必要 diff，补充“可否继续引用/是否值得新增路由/删除处置”的语义评估；没有采用权限。 |
 | 责任人 | 判断语义/兼容性、决定是否采用候选、是否新增路由、是否保留删除 Skill。 |
 
 ## 三种变化
@@ -35,7 +35,7 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 
 每条 Skill 变化同时列出具体资源变化。正文没变但 `rules.md`、脚本、参考、资产、LICENSE、NOTICE 或依赖声明变化时，也必须审查。报告格式升级为 `vsc.vendor-skill-analysis/v2`，原 `change_count`、变化分类与路由处置字段保留；`before_sha256`/`after_sha256` 现在是资源包散列，详细文件证据见 `resources`/`bundles`。
 
-`vendor_review.py` 不会声称能仅凭文件散列判断创作方法是否合理。它准确报告结构变化和当前路由影响，并把语义判断留给负责审查的人或受控的 ZCode 分析任务。
+`vendor_review.py` 不会声称能仅凭文件散列判断创作方法是否合理。它准确报告结构变化和当前路由影响，并把语义判断留给负责审查的人或用户手动调用的 `/vsc-vendor`。脚本不自动启动模型。
 
 ## 资源包、失败恢复与保留边界
 
@@ -45,50 +45,31 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 
 下载资源包与分析分别存储：`.vsc-candidate.json` 表示已保存，`.analysis.json` 表示 `pending` / `failed` / `completed`。分析失败或报告被删除后，再次执行会复用完整候选并重试；只有报告存在且分析格式、当前基线匹配时，才输出 `UNCHANGED-CANDIDATE`。资源被篡改会拒绝复用。旧 v1 单正文快照不用于分析，维护时重建 v2。
 
-90 天与最多 3 份两个条件同时执行，按来源计算，基线也计入；过期或超额快照清理不影响活跃 `vendor/<source>`。保留策略不允许设置超过此上限。被上游删除的已路由 Skill 仍留在活跃批准版本中，不因候选清理而退役。
+每次维护运行时执行 90 天与最多 3 份两个清理条件，按来源计算，基线也计入；过期或超额快照清理不影响活跃 `vendor/<source>`。不运行脚本时没有后台清理，文件可能超过 90 天，下一次运行时才处理。保留策略不允许设置超过此上限。被上游删除的已路由 Skill 仍留在活跃批准版本中，不因候选清理而退役。
 
-## ZCode 每日任务
+## 手动执行脚本
 
-在 ZCode 自动化中创建一个名为“VSC Vendor 候选审查”的每日任务，cron 为 `45 9 * * *`（避开 09:30 的插件同步）。工作目录为 VSC 插件根目录，任务先且只先执行：
-
-```bash
-/bin/bash /absolute/path/to/vsc-workflow/scripts/vsc-vendor-maintenance.sh --updater-root /absolute/path/to/plugin-updater
-```
-
-执行后检查退出码与本次输出/日志段落；退出码非零时记录失败，不报告成功。仅在本次含 `CANDIDATE` 时，读取本次生成的 `vendor/.reviews/<source>-<revision>.md`、对应 JSON 和候选/基线快照中必要的原始 Skill 与支持资源。将语义评估写为同名 `.assessment.md`：已路由 Skill 是否仍可引用、每个新增 Skill 是否值得路由及理由、每个已删除引用应保留/替换/退役的建议、所需运行环境与测试。它不得编辑 `vendor/<source>`、`sources.lock.json`、VSC 路由、角色或命令，也不得执行候选中的脚本。
-
-这让自动化完成“发现和分析”，但不越权完成“采用”。项目不自动创建或修改 ZCode 任务。无 `--updater-root` 时使用本机 `vendor/.maintenance/`；`--source ID` 可只检查一个来源。
-
-## 旧中央入口迁移（显式部署）
-
-项目代码已升级，不等于 `~/.zcode/plugin-updater/scripts/` 中旧副本已升级。旧 worker 只保留 `SKILL.md`，旧 shell 还会丢失失败退出码；两者都不应继续承担生命周期实现。先备份中央入口，再让它们薄调用项目脚本（或把 ZCode 任务入口改为上述项目路径），不要复制第三方 Skill 内容到核心。
-
-项目提供只处理这两个现有中央文件的显式部署器：
+策略为 `scheduler: manual`。不创建 ZCode 自动化、cron 或 launchd 任务。在 VSC 插件根目录执行：
 
 ```bash
-# 默认列计划，不写入；--check 表示需要部署时以非零退出。
-python3 -B scripts/install_vendor_scheduler.py --updater-root /absolute/path/to/plugin-updater
-python3 -B scripts/install_vendor_scheduler.py --check --updater-root /absolute/path/to/plugin-updater
-# 仅经用户授权后运行：先备份两个原入口及散列/权限，语法检查后原子替换。
-python3 -B scripts/install_vendor_scheduler.py --apply --updater-root /absolute/path/to/plugin-updater
+# 只验证配置并预览来源、数据目录和保留策略；不联网、不写入、不清理
+bash scripts/vsc-vendor-maintenance.sh --plan
+# 一次检查全部来源，或只检查一个来源
+bash scripts/vsc-vendor-maintenance.sh
+bash scripts/vsc-vendor-maintenance.sh --source mattpocock-skills
+# 复用原中央维护目录中的已有缓存与候选；不会启动调度
+bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plugin-updater
 ```
 
-它保留中央日志库及 `logs/vsc-vendor-maintenance-YYYYMMDD.log` 路径，返回真实退出码；不修改 ZCode 任务数据库、添加 cron 或执行候选更新。备份在 `backups/vsc-vendor-entrypoints/<timestamp>/`，`manifest.json` 指明两个原目标、SHA-256 与权限；恢复时经授权将这两个原文件放回记录的目标即可。无变更的重复 `--apply` 不产生额外备份。部署目录必须是现有绝对路径且名为 `plugin-updater`，拒绝符号链接与非普通目标文件。
+执行后检查退出码与本次输出；退出码非零时记录失败，不报告成功。结构报告在 `vendor/.reviews/<source>-<revision>.md` 和对应 JSON 中。需要语义评估时手动调用 `/vsc-vendor 审查候选报告 <报告路径>`，读取报告及候选/基线中必要的原始 Skill 与支持资源，将评估写为同名 `.assessment.md`：已路由 Skill 是否仍可引用、每个新增 Skill 是否值得路由及理由、每个已删除引用应保留/替换/退役的建议、所需运行环境与测试。它不得编辑 `vendor/<source>`、`sources.lock.json`、VSC 路由、角色或命令，也不得执行候选中的脚本。
 
-中央 shell 如需要保留现有日志库，应把业务命令改为：
+脚本完成“发现和结构分析”，但不越权完成“采用”。`UNCHANGED-CANDIDATE` 仅表示结构报告无需重建，不表示已有人完成语义评估；用户仍可指定已有报告审查。无 `--maintenance-root` 时使用本机 `vendor/.maintenance/`；旧参数 `--updater-root` 为兼容别名，`--source ID` 可重复指定来源。脚本路径不依赖当前工作目录，也可用绝对路径从任意目录执行。
 
-```bash
-if /bin/bash "$PLUGIN/scripts/vsc-vendor-maintenance.sh" --plugin "$PLUGIN" --updater-root "$BASE" "$@" >> "$LOG" 2>&1; then
-    log "VSC Vendor 候选维护成功"
-    exit 0
-else
-    vsc_exit_status=$?
-    log "VSC Vendor 候选维护失败 exit=$vsc_exit_status"
-    exit "$vsc_exit_status"
-fi
-```
+## 旧中央入口与任务迁移
 
-不能在 `fi` 后再读取 `$?`。中央 worker 若需要兼容现有参数，只负责将 `--plugin`、`--updater-root`、`--source` 转交项目 `scripts/vendor_watch.py`，并原样返回进程退出码。修改中央文件或任务属于本机配置变更，需显式授权；项目测试只使用临时本地 Git，不进行真实下载或外部部署。
+项目不再提供中央定时入口部署器。已有的 `~/.zcode/plugin-updater/scripts/vsc-vendor-maintenance.sh` 与 `vsc-vendor-watch.py` 若是转发项目脚本的薄入口，可保留为手动兼容命令；文件存在不代表有定时任务。推荐直接调用项目入口。
+
+改项目代码不能替代删除宿主任务。已有安装应在用户授权下移除 ZCode 中指向 VSC 工作区或 VSC 维护入口的任务；核对系统 crontab／launchd 是否存在同类任务，不动其他插件任务。保留历史运行记录、审查报告、已安装 Vendor 和可复用缓存；无需为这次模式切换重新下载来源。候选快照恢复与显式采用仍遵守上述完整性与审批边界。
 
 ## 采用流程
 

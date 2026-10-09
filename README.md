@@ -244,9 +244,17 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 
 ### Vendor 最新性不是自动采用
 
-已有 ZCode 定时任务可调用项目内 `scripts/vsc-vendor-maintenance.sh`，实现归项目，中央入口只负责日志与调用。每次分析 Skill、引用规则／脚本／参考文件，以及许可证和依赖声明；下载完成与分析完成分开记录，失败或报告损坏会重审。新增不自动路由；删除已引用 Skill 要明确保留、替换或退役。候选 Skill 资源包按每来源 90 天、最多 3 份保留（含基线）；它不是完整仓库、已安装运行环境或模型权重备份。
+VSC 候选维护改为用户按需运行脚本，`sources.lock.json` 的 `scheduler` 为 `manual`，不依赖 ZCode 定时任务、cron 或后台常驻服务：
 
-日程已配置不等于每日成功执行，需检查当次日志、报告和退出码。语义兼容性及采用决定仍由负责人完成；通过审查后才显式修改固定 revision 并安装。中央入口部署、检查与资源恢复说明见 [候选更新文档](docs/12-vendor-candidate-updates.md)。
+```bash
+bash scripts/vsc-vendor-maintenance.sh --plan  # 只预览，不联网、不写入
+bash scripts/vsc-vendor-maintenance.sh         # 执行一次全部来源候选分析，不采用
+bash scripts/vsc-vendor-maintenance.sh --source mattpocock-skills  # 只检查指定来源
+```
+
+每次执行分析 Skill、引用规则／脚本／参考文件，以及许可证和依赖声明；下载完成与分析完成分开记录，失败或报告损坏会重审。新增不自动路由；删除已引用 Skill 要明确保留、替换或退役。候选资源包在执行时按每来源 90 天、最多 3 份清理（含基线）；不运行脚本时不会后台清理，因此文件可能超过 90 天，下一次执行时才处理。它不是完整仓库、已安装运行环境或模型权重备份。
+
+检查当次输出、报告和退出码；脚本只做结构分析，不自动调用模型。需要语义评估时手动调用 `/vsc-vendor` 阅读报告与 diff，由负责人决定是否采用，通过后才显式修改固定 revision 并安装。缓存路径、旧中央入口兼容和资源恢复说明见 [候选更新文档](docs/12-vendor-candidate-updates.md)。
 
 ## 当前边界与路线
 
@@ -273,7 +281,7 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 | [09 生产连续性与声音](docs/09-production-continuity-and-sound.md) | 剧本化、跨 AI 片段状态契约、BGM/环境声与时间线策略 |
 | [10 Remotion 集成](docs/10-remotion-integration.md) | VSC 时间线到可编辑预演和确定性渲染的本机接口 |
 | [11 架构重构](docs/11-architecture-refactor.md) | 结构问题、可执行内核和扩展规则 |
-| [12 Vendor 候选更新](docs/12-vendor-candidate-updates.md) | 每日候选、Skill 分析、采用与快照保留 |
+| [12 Vendor 候选更新](docs/12-vendor-candidate-updates.md) | 手动候选脚本、Skill 分析、采用与快照保留 |
 | [13 v0.9 升级](docs/13-v0.9-upgrade.md) | 四维审查对应的实现、兼容性、使用与剩余边界 |
 | [14 专业制作证据](docs/14-production-evidence.md) | 媒体范围、真实成片检查与人工审片 |
 | [工作流内核](workflow/README.md) | 单一事实来源、稳定查询/校验接口与扩展方式 |
@@ -290,7 +298,6 @@ python3 -B scripts/test_vsc_integrity.py
 python3 -B scripts/test_vsc_learning.py
 python3 -B scripts/test_media_qa.py
 python3 -B scripts/test_vendor_watch.py
-python3 -B scripts/test_install_vendor_scheduler.py
 
 # 或一次运行全部本地测试
 python3 -B -m unittest discover -s scripts -p 'test_*.py'

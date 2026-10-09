@@ -31,7 +31,7 @@ def declared_source(**changes):
 def refresh_policy(**changes):
     policy = {
         "mode": "candidate_review",
-        "scheduler": "zcode-plugin-updater",
+        "scheduler": "manual",
         "automatic_adoption": False,
         "analysis_required_for": ["changed_referenced_skill", "new_skill", "deleted_referenced_skill"],
         "candidate_retention_days": 90,
@@ -73,6 +73,7 @@ class TestValidation(unittest.TestCase):
     def test_candidate_policy_requires_review_and_bounded_retention(self):
         self.assertEqual(SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy()}}), "")
         self.assertIn("automatic_adoption", SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy(automatic_adoption=True)}}))
+        self.assertIn("scheduler", SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy(scheduler="zcode-plugin-updater")}}))
         self.assertIn("正整数", SYNC.validate_refresh_policy({"policy": {"upstream_refresh": refresh_policy(candidate_retention_days=0)}}))
         self.assertEqual(SYNC.validate(declared_source(
             license_spdx="AGPL-3.0-only", usage={"mode": "local_component", "interface": "cli", "modified": True}

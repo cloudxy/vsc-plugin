@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Explicit candidate maintenance: fetch, retain recoverable Skill bundles, analyze; never adopt.
 
-The scheduler only invokes this project-owned module. Download and analysis have separate durable
+Run once on demand; no scheduler or background service is installed. Download and analysis have separate durable
 states: an already downloaded revision with failed/missing analysis is retried on the next invocation.
 No checkout, install, hooks or candidate scripts are executed. Git can fetch only on explicit invocation.
 """
@@ -284,17 +284,25 @@ def process(plugin, updater, source, days, maximum, review_fn=vendor_review.anal
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plugin", default=str(Path(__file__).resolve().parent.parent))
-    parser.add_argument("--updater-root", help="本机维护缓存根目录；默认 vendor/.maintenance")
+    parser.add_argument("--maintenance-root", "--updater-root", dest="maintenance_root",
+                        help="本机维护缓存根目录；默认 vendor/.maintenance；--updater-root 为兼容别名")
     parser.add_argument("--source", action="append", dest="source_ids")
+    parser.add_argument("--plan", action="store_true", help="只验证并显示本次维护计划；不联网、不写入、不清理")
     args = parser.parse_args()
     plugin = Path(args.plugin).resolve()
-    updater = Path(args.updater_root).resolve() if args.updater_root else plugin / "vendor" / ".maintenance"
+    updater = Path(args.maintenance_root).resolve() if args.maintenance_root else plugin / "vendor" / ".maintenance"
     sources, days, maximum = read_source_lock(plugin)
     if args.source_ids:
         unknown = set(args.source_ids) - {source["id"] for source in sources}
         if unknown:
             raise WatchError("未声明来源：" + ", ".join(sorted(unknown)))
         sources = [source for source in sources if source["id"] in args.source_ids]
+    if args.plan:
+        print(json.dumps({"mode": "manual", "sources": [source["id"] for source in sources],
+                          "maintenance_root": str(updater), "reports": str(plugin / "vendor" / ".reviews"),
+                          "candidate_retention_days": days, "max_candidate_snapshots_per_source": maximum,
+                          "automatic_adoption": False}, ensure_ascii=False, indent=2))
+        return
     updater.mkdir(parents=True, exist_ok=True)
     lock_path = updater / ".vsc-vendor-watch.lock"
     if lock_path.is_symlink():
