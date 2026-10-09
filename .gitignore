@@ -7,3 +7,16 @@
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# 作品目录为本地创作数据，不进入 VSC 源码仓库。
+/projects/
+
+# ZCode 本地索引排除配置。
+/.zcodeignore
+
+# ZCode video-agent-kit 插件的本机运行状态。
+/.video_agent/
+
+# 编辑器与客户端的个人本机配置。
+/.idea/
+/.claude/settings.local.json
