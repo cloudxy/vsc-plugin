@@ -1,0 +1,1 @@
+../../agents/adaptation-editor.md
