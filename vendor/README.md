@@ -14,9 +14,18 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
 2. 修改已审核锁定记录后，运行 `python3 scripts/vendor_sync.py --write-declaration` 更新提交到 Git 的 `THIRD_PARTY.md`；这不联网、不下载。
 3. 运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
 4. 按自己需要安装一个或多个来源：`python3 scripts/vendor_sync.py --install inkos openwrite`。
-5. 不指定来源即安装声明中的全部：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。
+5. 不指定来源即安装全部默认来源：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。标为 `"install": "explicit"` 的来源不在其中，必须写明 id 才会安装，见下文。
 6. 运行 `python3 scripts/vendor_skills.py --scan`，将已经下载的原始 `SKILL.md` 建成本机目录；用 `--resolve adapt|script|direct|assets|produce|sound|post` 查看 VSC 在某阶段会直接使用哪些 Skill。
 7. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
+
+## 需显式安装的来源与商用授权
+
+有些上游项目除了开源代码，还附带字体、音乐等不在其开源许可之内的资源。这类资源单独声明为 `"install": "explicit"` 的来源，并必须写 `notice` 说明权利状况：
+
+- 默认的 `--install` 不会下载它们；只有用户写明来源 id（如 `python3 scripts/vendor_sync.py --install moneyprinterturbo-assets`）才会安装。
+- 是否下载、是否使用，由用户自行决定。本地评估不等于获得授权：用于商业作品或对外发布前，必须向各版权方取得商用授权。
+- 本地 CI 不要求安装它们；一旦安装，仍核对固定版本。
+- `THIRD_PARTY.md` 会单列这些来源及其 `notice`。
 
 ## 本机候选维护（可选）
 
@@ -73,4 +82,4 @@ SPDX 标识用于机器可读地记录已核验的许可证，不是法律意见
 
 Markdown 代码围栏中的示例和站点根相对 URL（如 `/docs/...`、`/v1/...`）不当作本机资源依赖。运行时配置、输出目录只记录外部前置条件，不读取、不打包、不声称已就绪。正文相对资源缺失、本机绝对输入、符号链接或单文件超限会逐 Skill 标记不可用；被拒绝的资源仅保留元信息，候选不能冒充该 Skill 的完整备份。其他可用 Skill 仍可形成分析；整体文件数／字节数超限则任务失败。
 
-当 Skill 的正文、规则、脚本、参考、资产、许可证或依赖声明新增、修改或删除时，先阅读报告并作出明确决定；新增 Skill 默认不路由，已路由 Skill 被删除时保留当前活跃版本，显式决定保留/替换/退役。需要语义评估时手动调用 `/vsc-vendor`，脚本不会自动启动模型。通过后再更新锁定 revision 并运行 `vendor_sync.py --install <source>`。详细流程及旧中央入口兼容见 [Vendor 候选更新](../docs/12-vendor-candidate-updates.md)。
+当 Skill 的正文、规则、脚本、参考、资产、许可证或依赖声明新增、修改或删除时，先阅读报告并作出明确决定；新增 Skill 默认不路由，已路由 Skill 被删除时保留当前活跃版本，显式决定保留/替换/退役。需要语义评估时手动调用 `/vsc-vendor`，脚本不会自动启动模型。通过后再更新锁定 revision 并运行 `vendor_sync.py --install <source>`。详细流程及旧中央入口兼容见 [Vendor 候选更新](../docs/governance/vendor-updates.md)。

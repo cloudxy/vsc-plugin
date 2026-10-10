@@ -21,6 +21,8 @@ SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 USAGE_MODES = ("reference_only", "external_tool", "local_component", "external_service", "adapter_protocol")
 INTERFACES = ("none", "file", "cli", "http")
 UPDATE_MODES = ("candidate_review",)
+# explicit：不随无参数的 --install 下载，必须写明来源 id；用于用户需自行判断权利的资产。
+INSTALL_MODES = ("default", "explicit")
 
 
 def validate_refresh_policy(data):
@@ -98,6 +100,11 @@ def validate(source):
         return "reference_only 只能使用 interface=none"
     if usage["mode"] != "reference_only" and usage["interface"] == "none":
         return "可执行/交接来源必须声明 file、cli 或 http interface"
+    install = source.get("install", "default")
+    if install not in INSTALL_MODES:
+        return "install 必须是 " + "/".join(INSTALL_MODES)
+    if install == "explicit" and not (isinstance(source.get("notice"), str) and source["notice"].strip()):
+        return "install=explicit 的来源必须写 notice，说明权利状况与用户需自行决定的事项"
     sparse_paths = source.get("sparse_paths")
     if sparse_paths is not None:
         if not isinstance(sparse_paths, list) or not sparse_paths:
@@ -169,9 +176,33 @@ def sync(source):
     print(f"SYNCED {source['id']} @ {actual}")
 
 
+def installed_problem(source, vendor_root=VENDOR):
+    """本机检出与锁定 revision 一致时返回空字符串，否则返回原因与修复命令。"""
+    path = vendor_root / source["id"]
+    if not path.is_dir():
+        return f"{source['id']} 未安装：python3 -B scripts/vendor_sync.py --install {source['id']}"
+    head = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], text=True, capture_output=True)
+    actual = head.stdout.strip().lower()
+    if head.returncode or actual != source["revision"].lower():
+        return f"{source['id']} 本机版本 {actual[:12] or '未知'} 与锁定 {source['revision'][:12]} 不一致"
+    return ""
+
+
+def locked_source(source_id):
+    """读取锁定声明中的一个来源；适配器据此确认上游按固定版本安装。"""
+    for source in load_lock()["sources"]:
+        if source["id"] == source_id:
+            return source
+    die(f"sources.lock.json 未声明来源：{source_id}")
+
+
+def is_explicit(source):
+    return source.get("install", "default") == "explicit"
+
+
 def select_sources(sources, source_ids):
     if not source_ids:
-        return sources
+        return [source for source in sources if not is_explicit(source)]
     by_id = {source["id"]: source for source in sources}
     missing = [source_id for source_id in source_ids if source_id not in by_id]
     if missing:
@@ -193,7 +224,18 @@ def declaration_markdown(data):
         project = source["id"]
         url = source["url"].removesuffix(".git")
         purpose = source["purpose"].replace("|", "\\|")
-        lines.append(f"| [{project}]({url}) | {purpose} | {source['license_spdx']} | `{project}` |")
+        marker = "（需显式安装）" if is_explicit(source) else ""
+        lines.append(f"| [{project}]({url}) | {purpose} | {source['license_spdx']} | `{project}`{marker} |")
+    explicit = [source for source in data["sources"] if is_explicit(source)]
+    if explicit:
+        lines.extend([
+            "",
+            "## 需显式安装的来源",
+            "",
+            "以下来源不随 `--install` 默认下载，必须写明来源 id 才会安装。是否下载、是否使用，由用户自行决定：",
+            "",
+        ])
+        lines.extend(f"- `{source['id']}`：{source['notice']}" for source in explicit)
     lines.extend([
         "",
         "来源 URL、固定 commit、许可证证据与本地调用模式见 [sources.lock.json](sources.lock.json)。用户可自行执行：",
@@ -223,7 +265,7 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="只校验锁定文件，不联网、不下载")
     mode.add_argument("--plan", action="store_true", help="显示会同步什么，不联网、不下载")
-    mode.add_argument("--install", action="store_true", help="安装指定来源；没有名称时安装全部已声明来源")
+    mode.add_argument("--install", action="store_true", help="安装指定来源；没有名称时安装全部默认来源（不含 install=explicit）")
     mode.add_argument("--sync", action="store_true", help="--install 的兼容别名")
     mode.add_argument("--write-declaration", action="store_true", help="从锁定文件更新已跟踪的 vendor/THIRD_PARTY.md，不联网、不下载")
     parser.add_argument("source_ids", nargs="*", metavar="SOURCE", help="要安装的来源 id，仅与 --install/--sync 一起使用")
@@ -241,7 +283,8 @@ def main():
         for source in sources:
             usage = source["usage"]
             sparse = f"  sparse={','.join(source['sparse_paths'])}" if source.get("sparse_paths") else ""
-            print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}{sparse}  {source['purpose']}")
+            explicit = "  [需显式安装]" if is_explicit(source) else ""
+            print(f"PLAN {source['id']} @ {source['revision']}  {source['license_spdx']}  {usage['mode']}/{usage['interface']}{sparse}{explicit}  {source['purpose']}")
         print(f"PLAN: {len(sources)} 个来源；未联网、未下载")
         return
     if args.write_declaration:

@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import vendor_skills
+from vendor_sync import installed_problem
 from vsc_kernel import doctor_problems
 
 HERE = Path(__file__).resolve().parent
@@ -54,18 +55,14 @@ def check_tests():
 
 
 def installed_problems(sources, vendor_root=VENDOR):
-    """每个锁定来源都须在本机安装，且检出版本与锁定 revision 一致。"""
+    """默认来源须在本机安装；需显式安装的来源由用户决定装不装，装了才核对版本。"""
     problems = []
     for source in sources:
-        source_id, revision = source["id"], source["revision"].lower()
-        path = vendor_root / source_id
-        if not path.is_dir():
-            problems.append(f"{source_id} 未安装：python3 -B scripts/vendor_sync.py --install {source_id}")
+        if not (vendor_root / source["id"]).is_dir() and source.get("install", "default") == "explicit":
             continue
-        head = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], text=True, capture_output=True)
-        actual = head.stdout.strip().lower()
-        if head.returncode or actual != revision:
-            problems.append(f"{source_id} 本机版本 {actual[:12] or '未知'} 与锁定 {revision[:12]} 不一致")
+        problem = installed_problem(source, vendor_root)
+        if problem:
+            problems.append(problem)
     return problems
 
 
@@ -137,11 +134,11 @@ def check_tracked():
 
 
 def link_problems(paths, root=ROOT):
-    """宿主入口里的软链接按原文件位置解析，因此跳过；vendor 内容不属于本仓库文档。"""
+    """宿主入口里的软链接按原文件位置解析，因此跳过；只检查 Git 跟踪的文档，vendor 下仅有 VSC 自己的说明被跟踪。"""
     problems, checked = [], 0
     for path in paths:
         source = root / path
-        if not path.endswith(".md") or path.startswith("vendor/") or source.is_symlink() or not source.is_file():
+        if not path.endswith(".md") or source.is_symlink() or not source.is_file():
             continue
         checked += 1
         for target in LINK.findall(source.read_text("utf-8")):

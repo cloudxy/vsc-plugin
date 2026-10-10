@@ -41,6 +41,24 @@ def refresh_policy(**changes):
     return policy
 
 
+class TestExplicitInstall(unittest.TestCase):
+    def test_explicit_source_requires_notice_and_is_skipped_by_default(self):
+        explicit = declared_source(id="assets", install="explicit")
+        self.assertIn("notice", SYNC.validate(explicit))
+        explicit["notice"] = "商用前须向版权方取得授权"
+        self.assertEqual(SYNC.validate(explicit), "")
+        self.assertIn("install", SYNC.validate(declared_source(install="always")))
+        sources = [declared_source(), explicit]
+        self.assertEqual([source["id"] for source in SYNC.select_sources(sources, [])], ["sample-skill"])
+        self.assertEqual([source["id"] for source in SYNC.select_sources(sources, ["assets"])], ["assets"])
+
+    def test_declaration_lists_explicit_sources_with_notice(self):
+        data = {"sources": [declared_source(), declared_source(id="assets", install="explicit", notice="商用前须向版权方取得授权")]}
+        text = SYNC.declaration_markdown(data)
+        self.assertIn("`assets`（需显式安装）", text)
+        self.assertIn("- `assets`：商用前须向版权方取得授权", text)
+
+
 class TestValidation(unittest.TestCase):
     def test_declared_pinned_source_is_valid_without_approval_field(self):
         self.assertEqual(SYNC.validate(declared_source()), "")
