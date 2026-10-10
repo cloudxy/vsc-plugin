@@ -1,0 +1,20 @@
+{
+  "format": "vsc.hosts/v1",
+  "version": "1.0",
+  "entries": [
+    {"id": "agents-skills", "path": ".agents/skills", "source": "skills", "format": "link"},
+    {"id": "agents-agents", "path": ".agents/agents", "source": "agents", "format": "link"},
+    {"id": "claude-skills", "path": ".claude/skills", "source": "skills", "format": "link"},
+    {"id": "claude-agents", "path": ".claude/agents", "source": "agents", "format": "link"},
+    {"id": "grok-skills", "path": ".grok/skills", "source": "skills", "format": "link"},
+    {"id": "codex-agents", "path": ".codex/agents", "source": "agents", "format": "codex-toml"},
+    {"id": "plugin-commands", "path": "commands", "source": "stages", "format": "plugin-command"}
+  ],
+  "hosts": [
+    {"id": "codex", "label": "Codex", "instructions": "AGENTS.md", "invoke": "$vsc、$vsc-script", "entries": ["agents-skills", "codex-agents"]},
+    {"id": "claude-code", "label": "Claude Code", "instructions": "CLAUDE.md", "invoke": "/vsc、/vsc-script", "entries": ["claude-skills", "claude-agents"]},
+    {"id": "grok-build", "label": "Grok Build", "instructions": "AGENTS.md", "invoke": "/vsc、/vsc-script", "entries": ["grok-skills", "claude-agents"], "note": "首次使用须在客户端信任工作区；角色经 Claude 兼容读取 .claude/agents"},
+    {"id": "kimi-code", "label": "Kimi Code", "instructions": "AGENTS.md", "invoke": "/skill:vsc", "entries": ["agents-skills", "agents-agents"]},
+    {"id": "zcode", "label": "ZCode", "instructions": "AGENTS.md", "invoke": "用 VSC……", "entries": ["plugin-commands"], "note": ".zcode-plugin/plugin.json 直接读取 skills/、agents/ 与 commands/"}
+  ]
+}

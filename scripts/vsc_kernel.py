@@ -253,6 +253,10 @@ def doctor_problems():
                 problems.append(f"{path.relative_to(ROOT)} 含无 id 的阶段")
             elif profile_stage not in covered_profile_stages:
                 problems.append(f"{path.relative_to(ROOT)} 的阶段 {profile_stage} 没有内核路由")
+
+    # 宿主入口也是物理入口；延迟导入，因为 vsc_hosts 不依赖内核查询接口。
+    from vsc_hosts import entry_problems
+    problems.extend(entry_problems())
     return problems
 
 
@@ -267,7 +271,8 @@ def command_doctor(_args):
         for problem in problems:
             print(f"  - {problem}")
         raise SystemExit(1)
-    print(f"WORKFLOW DOCTOR: PASS  stages={len(stages())} roles={len(role_cards())} contracts={len(contract_catalog())}")
+    from vsc_hosts import load_hosts
+    print(f"WORKFLOW DOCTOR: PASS  stages={len(stages())} roles={len(role_cards())} contracts={len(contract_catalog())} hosts={len(load_hosts()[0])}")
 
 
 def command_route(args):

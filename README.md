@@ -299,6 +299,7 @@ python3 -B tests/test_vsc_learning.py
 python3 -B tests/test_media_qa.py
 python3 -B tests/test_vendor_watch.py
 python3 -B tests/test_vsc_local_ci.py
+python3 -B tests/test_vsc_hosts.py
 python3 -B tests/test_vsc_pre_commit.py
 
 # 或一次运行全部本地测试
