@@ -3,6 +3,7 @@
   "version": "1.1",
   "dependency_policy": "previous_stage",
   "label": "通用叙事短视频",
+  "use_case": "原创剧情短片、一般叙事短视频",
   "stages": [
     {"id": "brief", "label": "创作委托", "required": ["vsc.creative_brief"]},
     {"id": "source", "label": "素材理解", "required": ["vsc.source_map"]},

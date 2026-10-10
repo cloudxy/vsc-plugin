@@ -134,11 +134,7 @@ python3 scripts/vsc_state.py migrate ./projects/雨夜来信
 
 ## 可扩展 Profile
 
-| Profile | 默认用途 | 重点质量门 |
-|---|---|---|
-| `vsc.narrative-base` | 原创剧情短片、一般叙事短视频 | 创作委托、来源理解、预演、时间线 |
-| `vsc.novel-serial` | 小说改编连续短剧 | 改编契约、故事圣经、分集、声音方案、混音 |
-| `vsc.brand-story` | 品牌叙事短视频 | 素材范围、产品主张映射、表达与用途审核 |
+`python3 -B scripts/vsc_state.py profile list` 列出各 Profile 的用途，`profile show <id>` 列出各阶段的必需产物（即质量门）。
 
 复制 `profiles/` 中的 JSON 即可定制阶段、必需产物与规则。项目固定使用创建／迁移时的完整 Profile 快照，插件更新不静默改变既有项目。`dependency_policy: previous_stage` 要求前一阶段基线；`explicit` 只核对已声明依赖，不能检测漏声明。`scope_required_from` 控制从哪个阶段逐集验收。请保持 `vsc.*` 类型语义稳定。
 

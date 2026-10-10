@@ -2,24 +2,7 @@
 
 VSC 的第一条可运行专业验证切片是：计划校验 → 源媒体范围检查 → 导出成片检查 → 具名人工审片 → 登记证据。它不生成模型素材，不凭 JSON 推断人物或情绪一致，也不把脚手架生成当作渲染成功。
 
-## 帧级编排
-
-`vsc.remotion-render-plan/v1` 保持旧字段兼容，新增可选字段：
-
-| 字段 | 语义 |
-| --- | --- |
-| `composition.fps` | 正数，或 `{ "numerator": 30000, "denominator": 1001 }`；时间码都按 Composition 帧率解释 |
-| `source_in_frame` | video/audio 源裁切入点，默认 0 |
-| `handle_in_frames` / `handle_out_frames` | 入点前、出点后的预留素材；只检查，不自动插入转场 |
-| `source_duration_in_frames` | 可选声明源时长；实际范围仍由 ffprobe 检查 |
-| `fade_in_frames` / `fade_out_frames` | 视觉淡入/淡出；显式重叠片段可做叠化，不重叠则淡到黑 |
-| `muted` / `volume` | 视频原声或独立音轨的静音与基础音量，volume 为 0..1 |
-| `audio_fade_in_frames` / `audio_fade_out_frames` | 音频淡入/淡出，独立于画面淡变 |
-| `volume_keyframes` | `[{"frame":0,"volume":1}, ...]`，按片段本地帧线性插值，可为对白设置 BGM 压低区间 |
-
-音量为基础音量 × 关键帧包络 × 音频淡变。未静音的视频保留原声；独立对白与原声并存时需明确混音，不能自动假定应丢弃原声。跨镜头 BGM 使用一条连续音轨；这里不自动分析对白、不自动决定 ducking。
-
-脚手架包含同版 `@remotion/cli`、`@remotion/media`、`remotion` 及 `typecheck` 命令。它不安装依赖。`npm run typecheck`、Studio 回看和真正导出仍需在用户的生成目录中执行。
+时间线计划的字段语义见 [Remotion 计划](../design/remotion.md#帧级字段)。
 
 ## 真实本地适配器与故障适配器
 

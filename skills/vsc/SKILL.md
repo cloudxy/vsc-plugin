@@ -15,7 +15,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 ## 已安装 Vendor Skill 的直接复用
 
-当本机 `vendor/` 已安装上游项目时，VSC 可以直接阅读并使用其中已有的 Skill，而不是重新发明其方法。进入具体创作阶段前，运行 `python3 scripts/vendor_skills.py --resolve <stage>`：对标为 `guide` 的条目，读取输出路径指向的原始 `SKILL.md`，将其方法与 VSC 产物契约合并执行；对标为 `runtime: ...` 的条目，只在所需 CLI、MCP、凭据或依赖实际就绪后调用其原生工具。上游 Skill 不得覆盖 VSC 的来源边界、人工批准、权属或连续性要求。
+本机 `vendor/` 已安装的上游 Skill 可直接复用，进入具体阶段前按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析。上游 Skill 不得覆盖 VSC 的来源边界、人工批准、权属或连续性要求。
 
 ## 三条工作哲学
 
@@ -33,7 +33,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 1. 先识别已有来源、目标受众／平台、想做连续剧还是单条、时长画幅、创作负责人和硬约束。
 2. 缺信息时**不要扔问卷**：基于已有内容给出一项推荐与 1–2 个明确备选，并每轮只收敛一个会改变后续工作的决定。
-3. 推荐 Profile：小说连续短剧 → `vsc.novel-serial`；原创剧情短片 → `vsc.narrative-base`；产品/品牌叙事 → `vsc.brand-story`。
+3. 按用途推荐 Profile：`python3 -B scripts/vsc_state.py profile list` 列出各 Profile 的 `use_case`。
 4. 通过 `vsc_state.py init` 建项目；解释下一关要产生什么、为何需要它、由谁决定。
 5. 根据阶段安排专业角色，回收成果后登记为 artifact；未批准产物不能偷偷流入下一关。
 
@@ -41,19 +41,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 用户明确说“重写第 4 集”“设计第 12 镜运镜”“只调女主声线”“补一条转场”时，不重复做需求访谈：
 
-| 用户目标 | 直达命令／技能 | 主要角色 |
-|---|---|---|
-| 原文理解、改编契约、分集 | `/vsc-adapt` | story-analyst、adaptation-editor |
-| 场次、对白、节奏 | `/vsc-script` | screenwriter |
-| 镜头、运镜、转场、预演 | `/vsc-direct` | director |
-| 跨片段人物/场景/动作/声音连续性 | `/vsc-continuity` | continuity-supervisor、director、asset-director |
-| BGM、环境底、声音桥与 Cue | `/vsc-sound` | music-supervisor、editor、post-reviewer |
-| 人物、场景、动作、声音 | `/vsc-assets` | asset-director |
-| 图像、图生视频、音频候选 | `/vsc-produce` | generation-producer、continuity-supervisor |
-| 剪辑、BGM、音效、字幕、交付 | `/vsc-post` | editor、post-reviewer |
-| 可编辑预演、Composition、字幕与确定性渲染 | `/vsc-remotion` | remotion-composer、editor |
-| 素材观察、能力卡、试用与评测 | `/vsc-learn` | director、asset-director、post-reviewer |
-| VSC / Profile / 适配器架构审查 | `/vsc-architecture` | orchestrator（按需引入公开架构 Skill） |
+直达命令、route 与主要角色以内核为准：`python3 -B scripts/vsc_kernel.py routes`（工作流根目录 `AGENTS.md` 的路由表由它生成）。
 
 仍先读 `vsc.json`、相关已批准产物和所指镜头／场次；只补影响该环节的依赖，避免重做无关阶段。
 
