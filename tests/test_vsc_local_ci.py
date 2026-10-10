@@ -75,6 +75,8 @@ class TestVendor(unittest.TestCase):
             self.assertIn("--install absent", missing[0])
             optional = LOCAL_CI.installed_problems([{"id": "absent", "revision": revision, "install": "explicit"}], vendor)
             self.assertEqual(optional, [])
+            ported = LOCAL_CI.installed_problems([{"id": "absent", "revision": revision, "usage": {"mode": "ported"}}], vendor)
+            self.assertEqual(ported, [])
 
     def test_routed_skill_missing_from_vendor_is_reported(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""jianying_export.py 自测。映射与导出流程不依赖剪映；本机装有 NarratoAI 时，另跑一次真实写入。
+"""jianying_export.py 自测。映射不依赖外部工具；真实写入需要 ffmpeg/ffprobe。
 
 运行：python3 tests/test_jianying_export.py
 """
@@ -9,9 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
-
-from _paths import ROOT
+from _paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
 import jianying_export as JY
 
 
@@ -64,47 +62,21 @@ class MappingTest(MediaFixture):
         with self.assertRaises(JY.ExportError):
             JY.draft_payload(bad, self.root)
 
-    def test_srt_time(self):
-        self.assertEqual(JY.srt_time(3725.5), "01:02:05,500")
 
-
-class ExportFlowTest(MediaFixture):
-    def setUp(self):
-        super().setUp()
-        (self.root / "vsc.json").write_text("{}", "utf-8")
-        self.plan_path = self.root / "plan.json"
-        self.plan_path.write_text(json.dumps(plan(), ensure_ascii=False), "utf-8")
-        self.drafts = self.root / "drafts"
-        self.drafts.mkdir()
-        (self.drafts / "root_meta_info.json").write_text('{"all_draft_store": []}', "utf-8")
-        patches = [mock.patch.object(JY, "installed_problem", return_value=""),
-                   mock.patch.object(JY, "locked_source", return_value={"revision": "b" * 40}),
-                   mock.patch.object(JY.shutil, "which", return_value="/usr/bin/uv")]
-        for patcher in patches:
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
+class DryRunTest(MediaFixture):
     def test_dry_run_writes_nothing(self):
-        output, record = JY.export(self.plan_path, self.root, drafts_root=self.drafts, dry_run=True)
+        (self.root / "vsc.json").write_text("{}", "utf-8")
+        plan_path = self.root / "plan.json"
+        plan_path.write_text(json.dumps(plan(), ensure_ascii=False), "utf-8")
+        output, record = JY.export(plan_path, self.root, drafts_root=self.root / "drafts", dry_run=True)
         self.assertIsNone(output)
         self.assertEqual(record["summary"], {"video": 2, "video_tracks": 2, "audio_tracks": 1, "captions": 1})
         self.assertFalse((self.root / "07-后期").exists())
 
-    def test_export_backs_up_root_meta_and_records_the_draft(self):
-        def run(command, **kwargs):
-            payload = json.loads(Path(command[-1]).read_text("utf-8"))
-            self.assertTrue(Path(payload["srt"]).read_text("utf-8").startswith("1\n00:00:01,000 --> 00:00:02,000\n门外是谁？"))
-            return subprocess.CompletedProcess(command, 0, stdout='{"draft_path": "/drafts/VSC-sample", "folder": "VSC-sample"}\n', stderr="")
-        output, record = JY.export(self.plan_path, self.root, drafts_root=self.drafts, run=run)
-        self.assertEqual(record["draft"]["folder"], "VSC-sample")
-        self.assertTrue((output / "root_meta_info.json.backup").is_file())
-        self.assertEqual(json.loads((output / "导出记录.json").read_text("utf-8"))["adapter"]["revision"], "b" * 40)
 
-
-@unittest.skipUnless(shutil.which("uv") and shutil.which("ffmpeg") and (ROOT / "vendor/narratoai/.venv").is_dir(),
-                     "真实写入需要 uv、ffmpeg 与已建好环境的 vendor/narratoai")
-class RealWriterTest(unittest.TestCase):
-    def test_real_narratoai_writer_builds_multitrack_draft(self):
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "真实写入需要 ffmpeg 与 ffprobe")
+class RealExportTest(unittest.TestCase):
+    def test_multitrack_draft_is_written_with_backup_and_record(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "vsc.json").write_text("{}", "utf-8")
@@ -115,18 +87,21 @@ class RealWriterTest(unittest.TestCase):
             subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", str(root / "audio/bgm.wav")], check=True, timeout=60)
             value = plan()
             value["segments"] = [segment for segment in value["segments"] if segment["kind"] != "image"]
-            value["composition"]["duration_in_frames"] = 90
             plan_path = root / "plan.json"
             plan_path.write_text(json.dumps(value, ensure_ascii=False), "utf-8")
             drafts = root / "drafts"
             drafts.mkdir()
+            (drafts / "root_meta_info.json").write_text('{"all_draft_store": [], "draft_ids": 0, "root_path": ""}', "utf-8")
             output, record = JY.export(plan_path, root, drafts_root=drafts, name="VSC-real")
             draft = json.loads((Path(record["draft"]["draft_path"]) / "draft_info.json").read_text("utf-8"))
             self.assertEqual([track["type"] for track in draft["tracks"]], ["video", "video", "audio", "text"])
             self.assertEqual(draft["canvas_config"]["width"], 320)
             self.assertEqual(draft["duration"], 3_000_000)
+            self.assertTrue((output / "root_meta_info.json.backup").is_file())
+            self.assertTrue(Path(record["draft"]["draft_path"], "assets/audio/bgm.wav").is_file())
             meta = json.loads((drafts / "root_meta_info.json").read_text("utf-8"))
             self.assertEqual([item["draft_name"] for item in meta["all_draft_store"]], ["VSC-real"])
+            self.assertEqual(len(record["dropped"]), 2)
 
 
 if __name__ == "__main__":

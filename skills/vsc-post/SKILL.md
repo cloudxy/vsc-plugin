@@ -11,8 +11,10 @@ description: "Edit VSC takes into a timeline with sound, music, subtitles, revie
 
 BGM 和环境底按场景/情绪段落跨镜铺设，不按每个生成视频重启。与 `/vsc-sound` 共同维护 `vsc.sound-cue-sheet/v1`，为每个边界写 J/L cut、crossfade、声音桥或刻意静音，并在导出前运行 `sound validate`。
 
-剪辑师需要在剪映中精剪时，运行 `python3 -B scripts/jianying_export.py export <vsc.remotion-render-plan/v1 计划> --project <项目> [--media-root <素材根目录>]`，可先加 `--dry-run` 查看映射。它用本机 NarratoAI 的剪映草稿构件写出多轨草稿（视频、分轨音频、字幕），写入前备份剪映的 `root_meta_info.json`，导出记录列出淡入淡出、音量关键帧等未迁移项。剪映草稿是非官方公开格式，导出后须在剪映中打开核验。
+后期工具（用法与边界见各自的 `--help`）：
 
-交付前用 `python3 -B scripts/media_qa.py check <计划> <素材根> --render <成片> --output <报告> --loudness-target <平台规范 LUFS>` 测量并核对综合响度与真峰值；目标值由发布平台规范决定，不填时只测量不判定。
+- 剪辑师要在剪映中精剪：`scripts/jianying_export.py` 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿，并列出无法迁移的项。
+- 出带字幕的版本：`scripts/subtitle_burn.py` 把已批准的 SRT 烧进视频，默认字体 Noto Sans SC。
+- 交付前核对响度：`scripts/media_qa.py check` 的 `--loudness-target` 按发布平台规范填写。
 
 需要把已批准时间线做成可编辑预演或确定性成片时，交给 `/vsc-remotion`。它直接复用本机 Remotion 官方 Skill，并将 VSC 时间线编译为可校验的 `vsc.remotion-render-plan/v1`；不要在本技能中绕过预览与人工导出决定。

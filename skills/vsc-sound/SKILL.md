@@ -23,6 +23,6 @@ description: "Use when VSC needs scene-aware BGM, ambience, dialogue space, soun
 python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./07-后期/声音提示表.json
 ```
 
-预演需要临时对白时，把已批准剧本的台词写成 `[{"id": "DX-01", "text": "台词", "voice": "可选音色"}]`，运行 `python3 -B scripts/mpt_adapter.py voice <项目> --lines 台词.json --artifact <剧本产物 ID>`。它调用本机 MoneyPrinterTurbo 生成逐条配音与逐词字幕，写入 `05-预演/临时配音/<运行时间>/` 并附生成记录。Edge-TTS 声音的商业授权未经核验，只能用于预演；正式对白须使用有授权的配音或演员录音。
+预演需要临时对白时，用 `scripts/temp_voice.py` 为已批准剧本的台词生成临时配音与字幕；输入格式、输出位置和用途限制见其 `--help`。正式对白须使用有授权的配音或演员录音。
 
 音频生成或延长不应承担对白真伪、音乐版权或场景连续性的全部责任。将对白、BGM、环境声和 SFX 分轨保存；每个音频资产都写使用权、版本、时码和最终选择人。

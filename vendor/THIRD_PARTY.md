@@ -11,10 +11,10 @@
 | [openmontage](https://github.com/calesthio/OpenMontage) | 本地调用镜头编排、制作管线、供应商选择与渲染质量检查能力。 | AGPL-3.0-only | `openmontage` |
 | [remotion](https://github.com/remotion-dev/remotion) | 本地使用 Composition、Player、字幕、时间线和 Renderer，为 VSC 的剪辑预演与确定性成片渲染提供可选实现。 | LicenseRef-Remotion | `remotion` |
 | [mattpocock-skills](https://github.com/mattpocock/skills) | 本地直接使用架构改进、代码库设计、澄清与领域建模 Skill，维护 VSC 及其业务扩展。 | MIT | `mattpocock-skills` |
-| [moneyprinterturbo](https://github.com/harry0703/MoneyPrinterTurbo) | 本地调用其 CLI：为已批准剧本生成预演临时配音与逐词字幕、烧录字幕；其一键成片 Skill 仅在用户显式选择时使用。附带的字体与 BGM 不在此来源中，见需显式安装的 moneyprinterturbo-assets；VSC 适配器默认使用 noto-sans-sc 字体。 | MIT | `moneyprinterturbo` |
-| [moneyprinterturbo-assets](https://github.com/harry0703/MoneyPrinterTurbo) | MoneyPrinterTurbo 附带的字幕字体与背景音乐，供用户在本机评估效果；由 scripts/mpt_adapter.py 链接进 MoneyPrinterTurbo 的 resource 目录。 | NOASSERTION | `moneyprinterturbo-assets`（需显式安装） |
-| [narratoai](https://github.com/linyqh/NarratoAI) | 本地调用其剪映草稿构件，由 VSC 适配器把已批准时间线写成可在剪映中继续精剪的草稿；不使用其云端版、赞助链接或自动解说流程。 | MIT | `narratoai` |
-| [noto-sans-sc](https://github.com/notofonts/noto-cjk) | OFL 授权的简体中文字体，替代 MoneyPrinterTurbo 默认的华文黑体，用于字幕烧录与交付物。 | OFL-1.1 | `noto-sans-sc` |
+| [moneyprinterturbo](https://github.com/harry0703/MoneyPrinterTurbo) | 学习来源：scripts/subtitles.py 移植了其断句、逐词字幕聚合与换行逻辑；本地目录只供对照。 | MIT | `moneyprinterturbo` |
+| [moneyprinterturbo-assets](https://github.com/harry0703/MoneyPrinterTurbo) | MoneyPrinterTurbo 附带的字幕字体与背景音乐，供用户在本机评估效果；字幕烧录或混音时由用户显式指定文件路径使用。 | NOASSERTION | `moneyprinterturbo-assets`（需显式安装） |
+| [narratoai](https://github.com/linyqh/NarratoAI) | 学习来源：scripts/jianying_draft.py 移植了其剪映草稿构件；本地目录只供对照。 | MIT | `narratoai` |
+| [noto-sans-sc](https://github.com/notofonts/noto-cjk) | OFL 授权的简体中文字体，scripts/subtitle_burn.py 的默认字幕字体。 | OFL-1.1 | `noto-sans-sc` |
 
 ## 需显式安装的来源
 

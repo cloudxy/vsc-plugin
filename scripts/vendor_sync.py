@@ -18,7 +18,9 @@ VENDOR = ROOT / "vendor"
 DECLARATION = VENDOR / "THIRD_PARTY.md"
 COMMIT = re.compile(r"[0-9a-f]{40}\Z", re.I)
 SAFE_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
-USAGE_MODES = ("reference_only", "external_tool", "local_component", "external_service", "adapter_protocol")
+USAGE_MODES = ("reference_only", "ported", "external_tool", "local_component", "external_service", "adapter_protocol")
+# 只供学习或代码已移植进 VSC 的来源：VSC 运行时不调用，本机可不安装。
+NON_RUNTIME_MODES = ("reference_only", "ported")
 INTERFACES = ("none", "file", "cli", "http")
 UPDATE_MODES = ("candidate_review",)
 # explicit：不随无参数的 --install 下载，必须写明来源 id；用于用户需自行判断权利的资产。
@@ -96,9 +98,9 @@ def validate(source):
         return "usage.interface 必须是 " + "/".join(INTERFACES)
     if not isinstance(usage.get("modified"), bool):
         return "usage.modified 必须是布尔值"
-    if usage["mode"] == "reference_only" and usage["interface"] != "none":
-        return "reference_only 只能使用 interface=none"
-    if usage["mode"] != "reference_only" and usage["interface"] == "none":
+    if usage["mode"] in NON_RUNTIME_MODES and usage["interface"] != "none":
+        return f"{usage['mode']} 只能使用 interface=none"
+    if usage["mode"] not in NON_RUNTIME_MODES and usage["interface"] == "none":
         return "可执行/交接来源必须声明 file、cli 或 http interface"
     install = source.get("install", "default")
     if install not in INSTALL_MODES:
