@@ -19,25 +19,12 @@ git config core.hooksPath .githooks
 
 修改技能、角色卡的 name/description 或 `workflow/kernel.json` 的阶段入口后，运行 `python3 -B scripts/vsc_hosts.py sync` 重新生成各客户端入口；未同步时 doctor 失败。见 [AI 客户端接入](workspace-setup.md)。
 
-## 单独运行测试
+## 运行测试
+
+测试都在 `tests/`，一次运行全部：
 
 ```bash
-python3 -B tests/test_vsc_state.py
-python3 -B tests/test_vsc_kernel.py
-python3 -B tests/test_vendor_sync.py
-python3 -B tests/test_vendor_skills.py
-python3 -B tests/test_vendor_review.py
-python3 -B tests/test_remotion_plan.py
-python3 -B tests/test_vsc_integrity.py
-python3 -B tests/test_vsc_learning.py
-python3 -B tests/test_media_qa.py
-python3 -B tests/test_vendor_watch.py
-python3 -B tests/test_vsc_local_ci.py
-python3 -B tests/test_vsc_hosts.py
-python3 -B tests/test_vsc_pre_commit.py
-python3 -B tests/test_mpt_adapter.py
-python3 -B tests/test_jianying_export.py
-
-# 或一次运行全部本地测试
 python3 -B -m unittest discover -s tests -p 'test_*.py'
 ```
+
+单个文件可直接运行，如 `python3 -B tests/test_vsc_state.py`。

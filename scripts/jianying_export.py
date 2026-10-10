@@ -4,7 +4,7 @@
   export PLAN --project PROJECT [--media-root DIR] [--name NAME] [--drafts-root DIR] [--dry-run]
 
 计划中 source 相对 --media-root 解析（默认是计划文件所在目录）。视频按起始帧放在视频轨（重叠时另起一轨），
-每个音频片段单独一条音频轨，caption/text 写成字幕轨。剪映草稿构件来自本机固定版本的 NarratoAI，素材会复制进草稿。
+每个音频片段单独一条音频轨，caption/text 写成字幕轨，素材复制进草稿。草稿构件见 jianying_draft.py。
 
 剪映草稿是非官方公开的格式，可能随剪映版本失效；导出后须在剪映中打开核验。淡入淡出、音量关键帧和图片片段
 无法迁移，逐条写入导出记录，交由剪辑师在剪映中重做。写入前备份剪映的 root_meta_info.json。本脚本不批准产物。
@@ -13,31 +13,23 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 import shutil
-import subprocess
+import time
+import uuid
 from pathlib import Path
 
+import jianying_draft as jd
 import remotion_plan
-from vendor_sync import VENDOR, installed_problem, locked_source
+import subtitles
 
-ROOT = Path(__file__).resolve().parent.parent
-SOURCE_ID = "narratoai"
-WRITER = Path(__file__).resolve().parent / "jianying_writer.py"
 DEFAULT_DRAFTS_ROOT = Path.home() / "Movies" / "JianyingPro" / "User Data" / "Projects" / "com.lveditor.draft"
 FADE_KEYS = ("fade_in_frames", "fade_out_frames", "audio_fade_in_frames", "audio_fade_out_frames")
-FORMAT_NOTE = "剪映草稿为非官方公开格式（NarratoAI 明文草稿构件），可能随剪映版本失效；须在剪映中打开核验。"
+FORMAT_NOTE = "剪映草稿为非官方公开格式，可能随剪映版本失效；须在剪映中打开核验。"
 
 
 class ExportError(RuntimeError):
     """计划、素材或上游环境不满足导出条件。"""
-
-
-def srt_time(seconds):
-    millis = round(seconds * 1000)
-    hours, millis = divmod(millis, 3_600_000)
-    minutes, millis = divmod(millis, 60_000)
-    secs, millis = divmod(millis, 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
 def draft_payload(plan, media_root):
@@ -90,31 +82,61 @@ def draft_payload(plan, media_root):
     return payload, captions, dropped
 
 
-def write_srt(captions, path):
-    blocks = [f"{index}\n{srt_time(begin)} --> {srt_time(end)}\n{text}\n" for index, (begin, end, text) in enumerate(captions, 1)]
-    path.write_text("\n".join(blocks), "utf-8")
-
-
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def run_writer(payload_path, vendor_root=VENDOR, run=subprocess.run):
-    narrato = vendor_root / SOURCE_ID
-    uv = shutil.which("uv")
-    if not uv:
-        raise ExportError("需要 uv：https://docs.astral.sh/uv/")
-    result = run([uv, "run", "--frozen", "--directory", str(narrato), "python", str(WRITER), str(payload_path)],
-                 capture_output=True, text=True, timeout=600)
-    if result.returncode:
-        raise ExportError(f"剪映写入失败（exit {result.returncode}）：{(result.stderr or result.stdout).strip()[-500:]}")
-    for line in reversed(result.stdout.splitlines()):
-        if line.startswith("{"):
-            return json.loads(line)
-    raise ExportError("剪映写入器没有输出结果")
+def build_draft(payload):
+    """在剪映草稿根目录写入多轨草稿，返回 {"draft_path", "folder"}。"""
+    root, name = payload["drafts_root"], payload["name"]
+    folder, draft_path = jd._create_unique_draft_path(root, name)
+    os.makedirs(draft_path, exist_ok=False)
+    for relative in jd.DRAFT_PACKAGE_DIRECTORIES:
+        os.makedirs(os.path.join(draft_path, *relative.split("/")), exist_ok=True)
+    draft_id = uuid.uuid4().hex
+    draft = jd._create_draft_template(draft_id, name, root, payload["width"], payload["height"])
+    used, copied, durations, metadata, materials = set(), {}, {}, {}, {}
+
+    video_tracks = []
+    for item in payload["video"]:
+        material = materials.get(item["path"])
+        if material is None:
+            duration_us, width, height = jd._get_video_metadata_ffprobe(item["path"], metadata)
+            relative = jd._register_asset(item["path"], draft_path, "assets/video", f"video_{len(materials) + 1}.mp4", used, copied)
+            material = jd._create_video_material(relative, duration_us, width, height)
+            draft["materials"]["videos"].append(material)
+            materials[item["path"]] = material
+        while len(video_tracks) <= item["track"]:
+            video_tracks.append(jd._create_track("video", f"视频轨道{len(video_tracks) + 1}"))
+        video_tracks[item["track"]]["segments"].append(jd._create_video_segment(
+            material["id"], item["source_start_us"], item["duration_us"], item["start_us"], item["volume"]))
+
+    audio_tracks = []
+    for item in payload["audio"]:
+        duration_us = jd._seconds_to_microseconds(jd._get_cached_media_duration(item["path"], durations))
+        extension = os.path.splitext(item["path"])[1] or ".wav"
+        relative = jd._register_asset(item["path"], draft_path, "assets/audio", f"audio_{len(audio_tracks) + 1}{extension}", used, copied)
+        material = jd._create_audio_material(relative, duration_us)
+        draft["materials"]["audios"].append(material)
+        segment = jd._create_audio_segment(material["id"], item["duration_us"], item["start_us"], item["volume"])
+        segment["source_timerange"]["start"] = item["source_start_us"]
+        track = jd._create_track("audio", item["id"])
+        track["segments"].append(segment)
+        audio_tracks.append(track)
+
+    draft["tracks"] = video_tracks + audio_tracks
+    end_us = max(item["start_us"] + item["duration_us"] for item in payload["video"] + payload["audio"])
+    if payload.get("srt"):
+        end_us = max(end_us, jd._add_subtitle_track_from_srt(draft, payload["srt"], jd.SubtitleStyle()))
+    draft["canvas_config"]["width"], draft["canvas_config"]["height"] = payload["width"], payload["height"]
+    draft["duration"] = end_us
+    draft["update_time"] = int(time.time() * jd.MICROSECONDS)
+    asset_size = sum(os.path.getsize(path) for path in copied if os.path.exists(path))
+    jd._write_plaintext_draft_files(root, draft_path, name, draft_id, draft, asset_size)
+    return {"draft_path": draft_path, "folder": folder}
 
 
-def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_DRAFTS_ROOT, dry_run=False, vendor_root=VENDOR, run=subprocess.run):
+def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_DRAFTS_ROOT, dry_run=False):
     plan_path, project = Path(plan_path).resolve(), Path(project).resolve()
     if not (project / "vsc.json").is_file():
         raise ExportError(f"不是 VSC 项目：{project}")
@@ -130,9 +152,6 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
                "audio_tracks": len(payload["audio"]), "captions": len(captions)}
     if dry_run:
         return None, {"summary": summary, "dropped": dropped}
-    problem = installed_problem(locked_source(SOURCE_ID), vendor_root)
-    if problem:
-        raise ExportError(problem)
     drafts_root = Path(drafts_root)
     if not drafts_root.is_dir():
         raise ExportError(f"剪映草稿目录不存在：{drafts_root}（用 --drafts-root 指定）")
@@ -144,16 +163,16 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
     subtitle = None
     if captions:
         subtitle = output / "字幕.srt"
-        write_srt(captions, subtitle)
+        subtitle.write_text(subtitles.to_srt(captions), "utf-8")
     payload_path = output / "草稿输入.json"
     payload.update(name=name, drafts_root=str(drafts_root), srt=str(subtitle) if subtitle else None)
     payload_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", "utf-8")
-    result = run_writer(payload_path, vendor_root, run)
+    result = build_draft(payload)
     record = {
         "kind": "剪映草稿导出",
         "note": FORMAT_NOTE,
         "plan": {"path": str(plan_path), "sha256": sha256(plan_path), "composition": plan["composition"]["id"]},
-        "adapter": {"source": SOURCE_ID, "revision": locked_source(SOURCE_ID)["revision"]},
+        "builder": "scripts/jianying_draft.py",
         "draft": result,
         "summary": summary,
         "dropped": dropped,

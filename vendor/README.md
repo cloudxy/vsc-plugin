@@ -2,7 +2,7 @@
 
 此目录可存放用户按需下载的开源 Skill、工具和其依赖。除本说明、`sources.lock.json` 和由其生成的 `THIRD_PARTY.md` 外，所有内容均被 `.gitignore` 排除，不能 `git add -f`。
 
-VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。MIT、Apache-2.0、AGPL-3.0 等项目都可进入本目录并由 VSC 使用。关键在于把使用方式登记清楚：`reference_only`（只学习方法）、`external_tool`（本机独立 CLI/应用）、`local_component`（完整项目下载到本目录后直接调用其原生能力）、`external_service`（独立部署的服务）或 `adapter_protocol`（仅通过文件/CLI/HTTP 交接）。
+VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。MIT、Apache-2.0、AGPL-3.0 等项目都可进入本目录并由 VSC 使用。关键在于把使用方式登记清楚，可选的 `usage.mode` 见 [Vendor 治理](../docs/governance/vendor-governance.md)。
 
 完整上游项目仍保留自己的 `LICENSE`、NOTICE 和修改记录；根目录的 MIT 只覆盖 VSC 自研部分。`vendor/` 默认不随 VSC Git 仓库发布，因此可以直接使用这些组件而不把它们伪装成 MIT。若将来要把第三方源码复制、融合或随发行包再分发，必须为该组件保留相应许可证边界和履约材料；AGPL 融合模块不能被标为“仅 MIT”。
 

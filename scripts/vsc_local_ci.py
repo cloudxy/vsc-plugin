@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import vendor_skills
-from vendor_sync import installed_problem
+from vendor_sync import NON_RUNTIME_MODES, installed_problem
 from vsc_kernel import doctor_problems
 
 HERE = Path(__file__).resolve().parent
@@ -55,10 +55,11 @@ def check_tests():
 
 
 def installed_problems(sources, vendor_root=VENDOR):
-    """默认来源须在本机安装；需显式安装的来源由用户决定装不装，装了才核对版本。"""
+    """运行时来源须在本机安装；需显式安装或不在运行时调用的来源可以不装，装了才核对版本。"""
     problems = []
     for source in sources:
-        if not (vendor_root / source["id"]).is_dir() and source.get("install", "default") == "explicit":
+        optional = source.get("install", "default") == "explicit" or source.get("usage", {}).get("mode") in NON_RUNTIME_MODES
+        if optional and not (vendor_root / source["id"]).is_dir():
             continue
         problem = installed_problem(source, vendor_root)
         if problem:

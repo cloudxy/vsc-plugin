@@ -52,6 +52,11 @@ class TestExplicitInstall(unittest.TestCase):
         self.assertEqual([source["id"] for source in SYNC.select_sources(sources, [])], ["sample-skill"])
         self.assertEqual([source["id"] for source in SYNC.select_sources(sources, ["assets"])], ["assets"])
 
+    def test_ported_and_reference_sources_have_no_runtime_interface(self):
+        ported = declared_source(usage={"mode": "ported", "interface": "none", "modified": False})
+        self.assertEqual(SYNC.validate(ported), "")
+        self.assertIn("interface=none", SYNC.validate(declared_source(usage={"mode": "ported", "interface": "cli", "modified": False})))
+
     def test_declaration_lists_explicit_sources_with_notice(self):
         data = {"sources": [declared_source(), declared_source(id="assets", install="explicit", notice="商用前须向版权方取得授权")]}
         text = SYNC.declaration_markdown(data)

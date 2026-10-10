@@ -10,12 +10,16 @@ VSC 核心不含任何图像、视频、音频或模型供应商 SDK。适配器
 
 这两个实现是媒体检查适配器，不是图生视频或语音生成供应商。没有付费模型 SDK、生成调用或自动审美评分。运行方式、真实样片审查与测试边界见 [专业制作证据链](../governance/production-evidence.md)。
 
-## 已实现的本机工具适配器
+## 已实现的本机制作工具
 
-| 适配器 | 上游（vendor） | 做什么 | 边界 |
-|---|---|---|---|
-| `scripts/mpt_adapter.py voice` | moneyprinterturbo | 为已批准台词逐条生成预演临时配音与逐词字幕，并写生成记录 | Edge-TTS 声音的商业授权未经核验，只能用于预演；不调用大模型，不登记或批准产物 |
-| `scripts/mpt_adapter.py prepare` | moneyprinterturbo、noto-sans-sc、moneyprinterturbo-assets（可选） | 链接字幕字体与 BGM，默认字体设为 OFL 的 Noto Sans SC | 附带资源以 `assets-` 前缀标出，权利说明见 [第三方声明](../../vendor/THIRD_PARTY.md) |
-| `scripts/jianying_export.py export` | narratoai | 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿 | 剪映草稿是非官方公开格式；已在 macOS 剪映专业版 10.3.0 实测可打开、字幕可见（2026-10-10）。淡入淡出、音量关键帧与图片片段不迁移并逐条记录 |
+用法、输出与边界见各脚本的 `--help`；移植代码的来源与许可证写在被移植文件的文件头。
 
-`vsc.remotion-render-plan/v1` 因此有两个导出适配器：Remotion 与剪映。生成记录目前是各适配器写在输出目录里的 JSON，还不是内核契约。
+| 工具 | 做什么 |
+|---|---|
+| [`scripts/temp_voice.py`](../../scripts/temp_voice.py) | 为已批准台词生成预演临时配音与整句／逐词字幕，并写生成记录 |
+| [`scripts/subtitle_burn.py`](../../scripts/subtitle_burn.py) | 把已批准的 SRT 烧进视频 |
+| [`scripts/jianying_export.py`](../../scripts/jianying_export.py) | 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿 |
+
+剪映草稿是非官方公开格式。2026-10-10 的核验：同一输入下，VSC 移植的构件与 NarratoAI 上游输出逐文件一致（忽略随机 ID、时间与路径）；该草稿在 macOS 剪映专业版 10.3.0 中可打开、字幕可见。
+
+`vsc.remotion-render-plan/v1` 因此有两个导出：Remotion 与剪映。生成记录目前是各工具写在输出目录里的 JSON，还不是内核契约。
