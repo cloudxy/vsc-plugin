@@ -1,0 +1,4 @@
+#!/bin/sh
+# 每次提交先同步 origin/main。启用：git config core.hooksPath .githooks
+root="$(git rev-parse --show-toplevel)" || exit 1
+exec python3 -B "$root/scripts/vsc_pre_commit.py"

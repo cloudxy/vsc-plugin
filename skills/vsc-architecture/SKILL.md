@@ -25,5 +25,5 @@ VSC 通过本机作品（`projects/`）发现问题，再改进 VSC 本身。ven
 1. 定位：写明作品、阶段、产物 ID 与现象，以及负责的规则、Skill、契约或脚本。修复退回最早的责任环节，不在作品里绕过规则。
 2. 修改：直接在 `main` 上修改，不建分支或 PR。只改工作流源码（`skills/`、`agents/`、`commands/`、`workflow/`、`profiles/`、`adapters/`、`templates/`、`scripts/`、`docs/` 等）；作品、vendor 源码与本机配置不进仓库。行为变化须补测试。
 3. 验证：运行 `python3 -B scripts/vsc_local_ci.py`，doctor、全部测试、vendor 版本与路由、作品可读性、跟踪文件须全部通过。再用暴露问题的作品重跑对应阶段，确认问题消失；无法重跑时如实说明。
-4. 提交：提交说明沿用 `feat:`/`fix:`/`refactor:`/`docs:`/`chore:`，正文写现象、根因与验证。仓库公开：提交说明和文件中不写作品原文、人物、素材或其他受限内容，按 `capability export` 的去项目化标准描述。
+4. 提交：启用 `.githooks` 后，`pre-commit` 每次获取 `origin/main`；需要更新时保存本地修改、合并并恢复暂存状态，然后中止本次提交，检查后重新执行 CI 与提交。获取、合并或恢复失败时不得绕过钩子。提交说明沿用 `feat:`/`fix:`/`refactor:`/`docs:`/`chore:`，正文写现象、根因与验证。仓库公开：提交说明和文件中不写作品原文、人物、素材或其他受限内容，按 `capability export` 的去项目化标准描述。
 5. 推送：`git push origin main`。已启用 `.githooks/pre-push` 时推送会再跑一次本地 CI，失败即中止。行为、契约或 schema 变化时同步更新 README 版本与升级说明。
