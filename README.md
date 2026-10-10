@@ -288,20 +288,21 @@ bash scripts/vsc-vendor-maintenance.sh --source mattpocock-skills  # 只检查�
 | [架构决策 ADR](docs/adr/README.md) | 影响长期结构的可追溯决定 |
 
 ```bash
-python3 -B scripts/test_vsc_state.py
-python3 -B scripts/test_vsc_kernel.py
-python3 -B scripts/test_vendor_sync.py
-python3 -B scripts/test_vendor_skills.py
-python3 -B scripts/test_vendor_review.py
-python3 -B scripts/test_remotion_plan.py
-python3 -B scripts/test_vsc_integrity.py
-python3 -B scripts/test_vsc_learning.py
-python3 -B scripts/test_media_qa.py
-python3 -B scripts/test_vendor_watch.py
-python3 -B scripts/test_vsc_local_ci.py
+python3 -B tests/test_vsc_state.py
+python3 -B tests/test_vsc_kernel.py
+python3 -B tests/test_vendor_sync.py
+python3 -B tests/test_vendor_skills.py
+python3 -B tests/test_vendor_review.py
+python3 -B tests/test_remotion_plan.py
+python3 -B tests/test_vsc_integrity.py
+python3 -B tests/test_vsc_learning.py
+python3 -B tests/test_media_qa.py
+python3 -B tests/test_vendor_watch.py
+python3 -B tests/test_vsc_local_ci.py
+python3 -B tests/test_vsc_pre_commit.py
 
 # 或一次运行全部本地测试
-python3 -B -m unittest discover -s scripts -p 'test_*.py'
+python3 -B -m unittest discover -s tests -p 'test_*.py'
 ```
 
 维护 VSC 时直接提交并推送 `main`。vendor 与作品只在本机，验证也只在本地：推送前运行本地 CI，依次检查 doctor、全部测试、vendor 版本与路由、`projects/` 中作品可读性，以及 Git 跟踪文件不含作品、vendor 源码或本机配置。流程见 [vsc-architecture](skills/vsc-architecture/SKILL.md)。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vendor_sync.py 自测。运行：python3 scripts/test_vendor_sync.py"""
+"""vendor_sync.py 自测。运行：python3 tests/test_vendor_sync.py"""
 import importlib.util
 import contextlib
 import io
@@ -10,8 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-SYNC_PATH = HERE / "vendor_sync.py"
+from _paths import SCRIPTS
+SYNC_PATH = SCRIPTS / "vendor_sync.py"
 SPEC = importlib.util.spec_from_file_location("vendor_sync", SYNC_PATH)
 SYNC = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SYNC)

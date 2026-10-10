@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vsc_local_ci.py 自测。运行：python3 scripts/test_vsc_local_ci.py"""
+"""vsc_local_ci.py 自测。运行：python3 tests/test_vsc_local_ci.py"""
 import importlib.util
 import json
 import subprocess
@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-SCRIPT = HERE / "vsc_local_ci.py"
+from _paths import SCRIPTS
+SCRIPT = SCRIPTS / "vsc_local_ci.py"
 SPEC = importlib.util.spec_from_file_location("vsc_local_ci", SCRIPT)
 LOCAL_CI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(LOCAL_CI)
@@ -68,7 +68,7 @@ class TestProjects(unittest.TestCase):
     def test_readable_project_passes_and_unreadable_project_fails(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            subprocess.run([sys.executable, "-B", str(HERE / "vsc_state.py"), "init", str(root / "可读"), "--title", "可读"], check=True, capture_output=True)
+            subprocess.run([sys.executable, "-B", str(SCRIPTS / "vsc_state.py"), "init", str(root / "可读"), "--title", "可读"], check=True, capture_output=True)
             projects, problems = LOCAL_CI.project_problems(root)
             self.assertEqual((len(projects), problems), (1, []))
             broken = root / "旧版"

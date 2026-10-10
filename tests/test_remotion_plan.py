@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""remotion_plan.py 自测。运行：python3 scripts/test_remotion_plan.py"""
+"""remotion_plan.py 自测。运行：python3 tests/test_remotion_plan.py"""
 import importlib.util
 import json
 import shutil
@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location("remotion_plan", HERE / "remotion_plan.py")
+from _paths import SCRIPTS
+SPEC = importlib.util.spec_from_file_location("remotion_plan", SCRIPTS / "remotion_plan.py")
 REMOTION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(REMOTION)
 

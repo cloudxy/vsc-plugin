@@ -4,7 +4,7 @@
 vendor/ 与 projects/ 只存在于维护者本机，线上环境无法复现，因此 VSC 不使用线上 CI。依次检查：
 
   doctor    工作流内核与物理入口
-  tests     scripts/test_*.py 全部测试
+  tests     tests/test_*.py 全部测试
   vendor    锁定文件、已安装版本与各阶段路由的上游 Skill
   projects  projects/ 中每个作品仍能被当前状态机读取
   tracked   Git 跟踪文件不含作品、vendor 源码或本机配置
@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 VENDOR = ROOT / "vendor"
 PROJECTS = ROOT / "projects"
+TESTS = ROOT / "tests"
 # 与 .gitignore 保持一致：vendor/ 只跟踪这三份声明，其余为本机内容。
 TRACKED_VENDOR = {"vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"}
 LOCAL_ONLY = (".claude/settings.local.json", ".zcodeignore", ".video_agent/", ".idea/")
@@ -43,7 +44,7 @@ def check_doctor():
 
 
 def check_tests():
-    result = run(sys.executable, "-B", "-m", "unittest", "discover", "-s", str(HERE), "-p", "test_*.py")
+    result = run(sys.executable, "-B", "-m", "unittest", "discover", "-s", str(TESTS), "-p", "test_*.py")
     summary = next((line for line in result.stderr.splitlines() if line.startswith("Ran ")), "")
     return summary, tail(result) if result.returncode else []
 
