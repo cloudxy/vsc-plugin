@@ -22,9 +22,9 @@
 | Claude Code | `CLAUDE.md` 导入 `AGENTS.md`；`.claude/skills/`、`.claude/agents/` | 自然语言或 `/vsc`、`/vsc-script` 等 | 个人权限设置写在 `.claude/settings.local.json`，已被 Git 忽略 |
 | Grok Build | `AGENTS.md`；技能 `.grok/skills/`；角色经 Claude 兼容读取 `.claude/agents/` | 自然语言或 `/vsc`、`/vsc-script` 等 | 首次打开需在客户端接受工作区信任，未信任时不加载项目技能与 `AGENTS.md`；用 `grok inspect` 检查 |
 | Kimi Code | `AGENTS.md`；技能 `.agents/skills/`；角色 `.agents/agents/` | 自然语言或 `/skill:vsc` | 与 Codex 共用 `.agents/skills/` |
-| ZCode | Workspace 根目录 `AGENTS.md`；`.zcode-plugin/plugin.json` | 直接说“用 VSC……”；Agent 按入口读取技能、内核与角色 | 工作区指令入口不等于插件菜单命令，见下文 |
+| ZCode | Workspace 根目录 `AGENTS.md`；`.zcode-plugin/plugin.json`；`marketplace.json` | 工作区可直接说“用 VSC……”；要出现在插件面板，先添加本地市场并安装 | 工作区指令入口不等于已安装插件，见下文 |
 
-ZCode 的工作区规则入口可以驱动完整本地工作流，但不等于在插件管理界面安装、启用了该目录。需要插件菜单形式时，在 ZCode 中将本目录作为本地插件导入并核验其内容。
+ZCode 的工作区规则入口可以驱动完整本地工作流，但不等于插件管理界面已经安装、启用了该目录。要让 `vsc-workflow` 出现在插件面板：在 ZCode 中进入“设置 → 插件 → 创建 → 添加插件市场”，选择本目录（其中的 `marketplace.json` 会声明本插件），然后在“个人”市场中安装并启用 `vsc-workflow`。修改插件后回到市场源面板刷新，再检查版本和组件。
 
 宿主入口只是发现层，规范正文只在 `skills/`、`agents/` 与 `workflow/` 维护：软链接随原文件更新，Codex 角色 TOML 与 ZCode 命令由来源生成。加载技能时按 `AGENTS.md` 指引读取原始路径，避免从宿主发现目录误解析相对参考文件。新增、删除或改名技能、角色，修改角色卡的 name/description，或修改 `kernel.json` 的阶段入口后，运行 `python3 -B scripts/vsc_hosts.py sync`；未同步的入口会使 doctor 失败。新增宿主时，在 `workflow/hosts.json` 声明它读取的入口，再运行 sync。
 
@@ -36,10 +36,11 @@ Windows 上克隆前需开启开发者模式，并设置 `git config --global co
 python3 -B scripts/vsc_kernel.py doctor
 python3 -B scripts/vsc_state.py profile list
 python3 -B scripts/vsc_hosts.py list
+python3 -m json.tool marketplace.json >/dev/null
 grok inspect
 ```
 
-`doctor` 应输出 `PASS`，它同时核对每个宿主入口与来源一致；`list` 显示每个客户端能发现的说明文件、技能、角色与命令。
+`doctor` 应输出 `PASS`，它同时核对每个宿主入口与来源一致；`list` 显示每个客户端能发现的说明文件、技能、角色与命令。ZCode 插件面板还需要单独完成本地市场的添加与插件安装，仓库内的 `plugin.json` 不会自动修改 ZCode 的市场或已安装插件索引。
 
 现有会话未必重新扫描技能和项目说明；克隆或更新入口后请在本目录开始新会话。客户端若要求工作区信任，请在其界面完成。网页聊天或无法访问本机文件的云端会话不会因这些本地文件而自动接入。
 

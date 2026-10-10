@@ -1,0 +1,14 @@
+{
+  "name": "vsc-workflow-market",
+  "description": "VSC 短剧与短视频创作工作流的本地 ZCode 插件市场。",
+  "plugins": [
+    {
+      "name": "vsc-workflow",
+      "source": "./",
+      "version": "0.9.0",
+      "description": "VSC（Video Short Create）：独立的短剧与短视频创作工作流。",
+      "category": "creative-production",
+      "tags": ["short-drama", "short-video", "screenplay", "storyboard", "ai-video"]
+    }
+  ]
+}
