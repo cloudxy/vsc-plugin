@@ -14,18 +14,13 @@ VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项�
 2. 修改已审核锁定记录后，运行 `python3 scripts/vendor_sync.py --write-declaration` 更新提交到 Git 的 `THIRD_PARTY.md`；这不联网、不下载。
 3. 运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
 4. 按自己需要安装一个或多个来源：`python3 scripts/vendor_sync.py --install inkos openwrite`。
-5. 不指定来源即安装全部默认来源：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。标为 `"install": "explicit"` 的来源不在其中，必须写明 id 才会安装，见下文。
+5. 不指定来源即安装全部默认来源：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。`"install": "explicit"` 的来源见下文。
 6. 运行 `python3 scripts/vendor_skills.py --scan`，将已经下载的原始 `SKILL.md` 建成本机目录；用 `--resolve adapt|script|direct|assets|produce|sound|post` 查看 VSC 在某阶段会直接使用哪些 Skill。
 7. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
 
-## 需显式安装的来源与商用授权
+## 需显式安装的来源
 
-有些上游项目除了开源代码，还附带字体、音乐等不在其开源许可之内的资源。这类资源单独声明为 `"install": "explicit"` 的来源，并必须写 `notice` 说明权利状况：
-
-- 默认的 `--install` 不会下载它们；只有用户写明来源 id（如 `python3 scripts/vendor_sync.py --install moneyprinterturbo-assets`）才会安装。
-- 是否下载、是否使用，由用户自行决定。本地评估不等于获得授权：用于商业作品或对外发布前，必须向各版权方取得商用授权。
-- 本地 CI 不要求安装它们；一旦安装，仍核对固定版本。
-- `THIRD_PARTY.md` 会单列这些来源及其 `notice`。
+附带字体、音乐等不在其开源许可之内的资源，单独声明为 `"install": "explicit"` 的来源，并在 `notice` 写明权利状况（`THIRD_PARTY.md` 由此生成）。默认的 `--install` 不下载它们，必须写明来源 id 才会安装；本地 CI 不要求安装，装了仍核对固定版本。
 
 ## 本机候选维护（可选）
 

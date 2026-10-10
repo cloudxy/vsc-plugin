@@ -16,4 +16,4 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 1. **VSC 受控模式（默认）**：经过创作委托、剧本、镜头、资产与人工批准，产物可追溯、可进入交付。
 2. **MoneyPrinterTurbo 一键成片**：由主题自动写稿、找素材、配音、加字幕与 BGM，直接出片；不经过 VSC 的任何关卡，成片只能作为候选或参考，不能直接登记为已批准交付物。
 
-用户选择第 2 种后：先运行 `python3 -B scripts/mpt_adapter.py prepare`，再阅读 `vendor/moneyprinterturbo/docs/skill/SKILL.md` 并运行其辅助脚本，必须加 `--root <工作流根目录>/vendor/moneyprinterturbo`，使用 VSC 固定版本，而不是另行下载上游 main。该 Skill 要求“不征求确认”；在 VSC 中，用户选择此模式即为确认，但开始前仍要让用户决定字体与 BGM：默认字体是 OFL 的 Noto Sans SC；若用户安装了 `moneyprinterturbo-assets`，带 `assets-` 前缀的字体与 BGM 商用前须取得授权，未取得授权时用 `--bgm-type none` 或用户自有授权音乐。付费素材源的 `--confirm-*-charge` 只能在用户明确同意后添加。
+用户选择第 2 种后：先运行 `python3 -B scripts/mpt_adapter.py prepare`，再阅读 `vendor/moneyprinterturbo/docs/skill/SKILL.md` 并运行其辅助脚本，必须加 `--root <工作流根目录>/vendor/moneyprinterturbo`，使用 VSC 固定版本，而不是另行下载上游 main。该 Skill 要求“不征求确认”；在 VSC 中，用户选择此模式即为确认，但开始前仍要让用户决定字体与 BGM：默认字体是 Noto Sans SC；带 `assets-` 前缀的字体与 BGM 先请用户阅读 `vendor/THIRD_PARTY.md` 中的须知再决定。付费素材源的 `--confirm-*-charge` 只能在用户明确同意后添加。
