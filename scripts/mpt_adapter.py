@@ -5,8 +5,8 @@
   voice PROJECT --lines LINES.json [--voice V] [--rate R] [--artifact A-ID]
                                              为已批准剧本的台词生成预演临时配音与逐词字幕
 
-prepare 总是链接 OFL 授权的 noto-sans-sc；只有用户显式安装了 moneyprinterturbo-assets，才同时链接其附带的
-商业字体与无授权说明的 BGM，并提示商用前须取得授权。
+prepare 总是链接 noto-sans-sc；只有用户显式安装了 moneyprinterturbo-assets，才同时链接其附带资源，
+并打印该来源在 sources.lock.json 中的 notice。
 
 voice 的 LINES.json 是数组：[{"id": "DX-01", "text": "台词", "voice": "可选", "rate": 可选}]。每条台词单独生成，
 写入 PROJECT/05-预演/临时配音/<运行时间>/：<id>.mp3、<id>.srt 与 生成记录.json。临时配音只用于预演：Edge-TTS
@@ -34,7 +34,6 @@ DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural-Female"
 DEFAULT_FONT = "NotoSansSC-Bold.otf"
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 TEMP_USE = "仅限预演临时音轨，不得进入交付物：Edge-TTS 调用微软在线朗读服务，声音的商业使用授权未经核验。"
-ASSET_NOTICE = "微软雅黑、华文黑体等商业字体与无授权说明的 BGM 仅供本机评估；用于商业作品或对外发布前，须向版权方取得商用授权。"
 
 
 class AdapterError(RuntimeError):
@@ -232,7 +231,7 @@ def main():
             summary = prepare()
             print(f"MPT RESOURCES: 字体 {len(summary['fonts'])} 款，BGM {summary['songs']} 首；VSC 默认字体 {summary['default_font']}（OFL）")
             if summary["assets_installed"]:
-                print("注意：" + ASSET_NOTICE)
+                print("注意：" + locked_source(ASSETS_ID)["notice"])
             return
         output, record = generate_voice(args.project, args.lines, args.voice, args.rate, args.artifact)
         print(f"TEMP VOICE: {len(record['outputs'])} 条完成，{len(record['errors'])} 条失败 → {output}")

@@ -15,7 +15,7 @@ VSC 核心不含任何图像、视频、音频或模型供应商 SDK。适配器
 | 适配器 | 上游（vendor） | 做什么 | 边界 |
 |---|---|---|---|
 | `scripts/mpt_adapter.py voice` | moneyprinterturbo | 为已批准台词逐条生成预演临时配音与逐词字幕，并写生成记录 | Edge-TTS 声音的商业授权未经核验，只能用于预演；不调用大模型，不登记或批准产物 |
-| `scripts/mpt_adapter.py prepare` | moneyprinterturbo、noto-sans-sc、moneyprinterturbo-assets（可选） | 链接字幕字体与 BGM，默认字体设为 OFL 的 Noto Sans SC | 附带的商业字体与 BGM 以 `assets-` 前缀标出，商用前须取得授权 |
-| `scripts/jianying_export.py export` | narratoai | 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿 | 剪映草稿是非官方公开格式；淡入淡出、音量关键帧与图片片段不迁移并逐条记录 |
+| `scripts/mpt_adapter.py prepare` | moneyprinterturbo、noto-sans-sc、moneyprinterturbo-assets（可选） | 链接字幕字体与 BGM，默认字体设为 OFL 的 Noto Sans SC | 附带资源以 `assets-` 前缀标出，权利说明见 [第三方声明](../../vendor/THIRD_PARTY.md) |
+| `scripts/jianying_export.py export` | narratoai | 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿 | 剪映草稿是非官方公开格式；已在 macOS 剪映专业版 10.3.0 实测可打开、字幕可见（2026-10-10）。淡入淡出、音量关键帧与图片片段不迁移并逐条记录 |
 
 `vsc.remotion-render-plan/v1` 因此有两个导出适配器：Remotion 与剪映。生成记录目前是各适配器写在输出目录里的 JSON，还不是内核契约。
