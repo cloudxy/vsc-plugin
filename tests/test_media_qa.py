@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from _paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
 import media_qa as QA
 
 

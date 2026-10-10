@@ -184,7 +184,7 @@ python3 scripts/vsc_state.py migrate <项目目录>
 
 ## 验证
 
-`scripts/test_vsc_learning.py` 与状态机测试覆盖以下关键行为：
+`tests/test_vsc_learning.py` 与状态机测试覆盖以下关键行为：
 
 - 按任务相关性和预算检索，显式选择预算不足时失败；
 - pilot 仅通过显式试用上下文注入，普通任务不会误用；

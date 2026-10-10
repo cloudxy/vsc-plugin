@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vsc_kernel.py 自测。运行：python3 scripts/test_vsc_kernel.py"""
+"""vsc_kernel.py 自测。运行：python3 tests/test_vsc_kernel.py"""
 import json
 import subprocess
 import sys
@@ -7,10 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-KERNEL = HERE / "vsc_kernel.py"
-STATE = HERE / "vsc_state.py"
+from _paths import ROOT, SCRIPTS
+KERNEL = SCRIPTS / "vsc_kernel.py"
+STATE = SCRIPTS / "vsc_state.py"
 
 
 def run(*args):

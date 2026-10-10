@@ -7,10 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from _paths import SCRIPTS
 import vsc_learning as learning
 
 
-STATE = Path(__file__).with_name("vsc_state.py")
+STATE = SCRIPTS / "vsc_state.py"
 
 
 class TestRetrieval(unittest.TestCase):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vendor_review.py 自测。运行：python3 scripts/test_vendor_review.py"""
+"""vendor_review.py 自测。运行：python3 tests/test_vendor_review.py"""
 import importlib.util
 import json
 import tempfile
@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-HERE = Path(__file__).resolve().parent
-SPEC = importlib.util.spec_from_file_location("vendor_review", HERE / "vendor_review.py")
+from _paths import SCRIPTS
+SPEC = importlib.util.spec_from_file_location("vendor_review", SCRIPTS / "vendor_review.py")
 REVIEW = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(REVIEW)
 

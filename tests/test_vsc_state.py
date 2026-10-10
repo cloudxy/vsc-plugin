@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VSC 状态机自测。运行：python3 scripts/test_vsc_state.py"""
+"""VSC 状态机自测。运行：python3 tests/test_vsc_state.py"""
 import json
 import subprocess
 import sys
@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-STATE = str(HERE / "vsc_state.py")
+from _paths import SCRIPTS
+STATE = str(SCRIPTS / "vsc_state.py")
 
 
 def run(*args):

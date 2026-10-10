@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""vendor_skills.py 自测。运行：python3 scripts/test_vendor_skills.py"""
+"""vendor_skills.py 自测。运行：python3 tests/test_vendor_skills.py"""
 import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-SCRIPT = HERE / "vendor_skills.py"
+from _paths import SCRIPTS
+SCRIPT = SCRIPTS / "vendor_skills.py"
 SPEC = importlib.util.spec_from_file_location("vendor_skills", SCRIPT)
 VENDOR_SKILLS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VENDOR_SKILLS)
