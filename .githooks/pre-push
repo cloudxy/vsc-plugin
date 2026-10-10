@@ -1,0 +1,8 @@
+#!/bin/sh
+# VSC 本地 CI：推送前在本机检查要推送的提交。启用：git config core.hooksPath .githooks
+root="$(git rev-parse --show-toplevel)" || exit 1
+if [ -n "$(git -C "$root" status --porcelain)" ]; then
+    echo "VSC pre-push：工作区有未提交改动，本地 CI 结果不能代表要推送的提交；先提交或 git stash 后再推送。" >&2
+    exit 1
+fi
+exec python3 -B "$root/scripts/vsc_local_ci.py"

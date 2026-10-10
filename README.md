@@ -298,9 +298,19 @@ python3 -B scripts/test_vsc_integrity.py
 python3 -B scripts/test_vsc_learning.py
 python3 -B scripts/test_media_qa.py
 python3 -B scripts/test_vendor_watch.py
+python3 -B scripts/test_vsc_local_ci.py
 
 # 或一次运行全部本地测试
 python3 -B -m unittest discover -s scripts -p 'test_*.py'
+```
+
+维护 VSC 时直接提交并推送 `main`。vendor 与作品只在本机，验证也只在本地：推送前运行本地 CI，依次检查 doctor、全部测试、vendor 版本与路由、`projects/` 中作品可读性，以及 Git 跟踪文件不含作品、vendor 源码或本机配置。流程见 [vsc-architecture](skills/vsc-architecture/SKILL.md)。
+
+```bash
+python3 -B scripts/vsc_local_ci.py
+
+# 每个克隆启用一次：之后 git push 前自动运行本地 CI（工作区须已提交）
+git config core.hooksPath .githooks
 ```
 
 ## 许可证
