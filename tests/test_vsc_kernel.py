@@ -22,6 +22,7 @@ class TestWorkflowKernel(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stages=13", result.stdout)
         self.assertIn("roles=12", result.stdout)
+        self.assertIn("hosts=5", result.stdout)
 
     def test_route_is_the_single_machine_readable_dispatch(self):
         result = run("route", "produce", "--json")

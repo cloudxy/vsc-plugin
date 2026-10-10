@@ -30,8 +30,10 @@ workflow/                 声明内核：阶段、角色、跨模块契约（唯
 scripts/vsc_kernel.py     查询路由、统一契约校验、doctor 自检
 scripts/vsc_state.py      项目状态、审批、Gate、记忆和学习的实现
 profiles/                 可复制的业务阶段与 Gate 定义
-commands/ skills/ agents/ 宿主入口；只引用内核，不维护第二份路由或角色卡
+skills/ agents/           方法与角色正文；只引用内核，不维护第二份路由或角色卡
+.agents/ .claude/ 等      宿主入口：由 workflow/hosts.json 声明、scripts/vsc_hosts.py 生成
 templates/                契约的可复制起点
+tests/                    scripts/ 中 CLI 的自测
 adapters/                 可替换生成实现的边界说明
 vendor/                   用户本机组件；锁定来源与生成的人类声明可提交，源码不可提交
 ```
