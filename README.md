@@ -309,9 +309,13 @@ python3 -B -m unittest discover -s scripts -p 'test_*.py'
 ```bash
 python3 -B scripts/vsc_local_ci.py
 
-# 每个克隆启用一次：之后 git push 前自动运行本地 CI（工作区须已提交）
+# 每个克隆启用一次：启用提交前同步与推送前本地 CI
 git config core.hooksPath .githooks
 ```
+
+每次普通 `git commit` 前，钩子都会获取 `origin/main`。当前分支已包含最新 main 时直接提交；需要更新时，先保存暂存、未暂存及未跟踪文件，合并 main，再恢复修改及暂存状态。忽略的作品、vendor 源码与本机配置不进入 stash，也不允许被合并覆盖。由于合并会推进 HEAD，本次提交会中止；检查 `git diff --cached` 并重跑本地 CI 后重新执行 `git commit`。有更新时不自动处理 `git commit -a/--only` 等临时索引提交，请先 `git add` 再普通提交。
+
+获取失败、合并冲突或恢复修改失败都会阻止提交。合并失败时，原有修改保留在钩子输出的 stash 中：先解决或中止合并，再按提示 `git stash apply --index <stash-id>` 恢复。若恢复时发生冲突，先检查 `git status`，不要直接重复 apply。不要用 `--no-verify` 或关闭 hooks 绕过同步。推送前仍运行本地 CI，且工作区须已提交。
 
 ## 许可证
 
