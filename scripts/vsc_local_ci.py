@@ -8,11 +8,14 @@ vendor/ 与 projects/ 只存在于维护者本机，线上环境无法复现，�
   vendor    锁定文件、已安装版本与各阶段路由的上游 Skill
   projects  projects/ 中每个作品仍能被当前状态机读取
   tracked   Git 跟踪文件不含作品、vendor 源码或本机配置
+  links     Markdown 中的相对链接都指向存在的文件
 
 只读：不联网、不下载、不写作品状态。全部通过时退出码为 0。
 """
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +31,7 @@ TESTS = ROOT / "tests"
 # 与 .gitignore 保持一致：vendor/ 只跟踪这三份声明，其余为本机内容。
 TRACKED_VENDOR = {"vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"}
 LOCAL_ONLY = (".claude/settings.local.json", ".zcodeignore", ".video_agent/", ".idea/")
+LINK = re.compile(r"\]\(([^)\s]+)")
 
 
 def run(*args):
@@ -117,12 +121,42 @@ def tracked_problems(paths):
     return problems
 
 
-def check_tracked():
+def tracked_paths():
     result = run("git", "ls-files", "-z")
     if result.returncode:
-        return "", tail(result)
-    paths = [path for path in result.stdout.split("\0") if path]
+        raise RuntimeError("\n".join(tail(result)))
+    return [path for path in result.stdout.split("\0") if path]
+
+
+def check_tracked():
+    try:
+        paths = tracked_paths()
+    except RuntimeError as exc:
+        return "", [str(exc)]
     return f"{len(paths)} 个跟踪文件", tracked_problems(paths)
+
+
+def link_problems(paths, root=ROOT):
+    """宿主入口里的软链接按原文件位置解析，因此跳过；vendor 内容不属于本仓库文档。"""
+    problems, checked = [], 0
+    for path in paths:
+        source = root / path
+        if not path.endswith(".md") or path.startswith("vendor/") or source.is_symlink() or not source.is_file():
+            continue
+        checked += 1
+        for target in LINK.findall(source.read_text("utf-8")):
+            relative = target.split("#", 1)[0]
+            if relative and not re.match(r"[a-z][a-z0-9+.-]*:", relative) and not (source.parent / relative).exists():
+                problems.append(f"{path} 链接不存在：{target}")
+    return checked, problems
+
+
+def check_links():
+    try:
+        checked, problems = link_problems(tracked_paths())
+    except RuntimeError as exc:
+        return "", [str(exc)]
+    return f"{checked} 个文档", problems
 
 
 CHECKS = (
@@ -131,6 +165,7 @@ CHECKS = (
     ("vendor", check_vendor),
     ("projects", check_projects),
     ("tracked", check_tracked),
+    ("links", check_links),
 )
 
 

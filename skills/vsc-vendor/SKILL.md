@@ -38,7 +38,7 @@ description: "Use when the user wants to assess, install, manually check updates
 - 下载状态与分析状态独立；`failed`、未完成或报告丢失必须重试。正文相对引用缺失、绝对文件输入、符号链接／特殊文件或单文件超限时，逐 Skill 报告不可用，被拒资源不读取／物化；不能把此类候选说成完整可执行备份。资源总量超限或完整性不一致时任务失败关闭，不自动降级成只比较正文。
 - 代码围栏示例、站点根相对 URL 和 `/skill` 命令不当作源资源；运行时配置／输出目录仅记录前置条件，未读取、未打包、未验证就绪。不要把真实缺失的正文资源当成例子忽略，也不要跟随链接补下载。
 
-本机调用：`bash scripts/vsc-vendor-maintenance.sh [--plan] [--source ID] [--maintenance-root /path/to/data]`。默认数据在 `vendor/.maintenance/`，`--updater-root` 是旧参数兼容别名。核对本次退出码及报告，失败不得报告成功。仅变更项目文件不会删除已存在的宿主任务；不创建或恢复定时任务。旧缓存复用及手动审查流程见 `docs/12-vendor-candidate-updates.md`。
+本机调用：`bash scripts/vsc-vendor-maintenance.sh [--plan] [--source ID] [--maintenance-root /path/to/data]`。默认数据在 `vendor/.maintenance/`，`--updater-root` 是旧参数兼容别名。核对本次退出码及报告，失败不得报告成功。仅变更项目文件不会删除已存在的宿主任务；不创建或恢复定时任务。旧缓存复用及手动审查流程见 `docs/governance/vendor-updates.md`。
 
 需把通过审查的候选投入使用时，先由责任人更新相应来源的固定 revision，再执行 `vendor_sync.py --install <来源>`；随后重新生成声明并运行 `vsc_kernel.py doctor`。不要把“上游有新提交”当作“已批准升级”。
 

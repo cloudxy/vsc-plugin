@@ -2,6 +2,7 @@
 """vsc_local_ci.py 自测。运行：python3 tests/test_vsc_local_ci.py"""
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,22 @@ class TestTracked(unittest.TestCase):
         self.assertEqual(len(problems), 5)
         self.assertIn("作品数据", problems[0])
         self.assertIn("vendor 源码", problems[1])
+
+
+class TestLinks(unittest.TestCase):
+    def test_relative_links_must_resolve_and_symlinked_entries_are_skipped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "docs/guide").mkdir(parents=True)
+            (root / "docs/guide/cli.md").write_text("[ok](../README.md#x) [web](https://example.com) [bad](../missing.md)", "utf-8")
+            (root / "docs/README.md").write_text("# 文档", "utf-8")
+            (root / "agents").mkdir()
+            (root / "agents/role.md").write_text("[卡](../docs/README.md)", "utf-8")
+            (root / ".agents").mkdir()
+            os.symlink("../agents/role.md", root / ".agents/role.md")
+            checked, problems = LOCAL_CI.link_problems(["docs/guide/cli.md", "docs/README.md", "agents/role.md", ".agents/role.md", "vendor/x.md"], root)
+            self.assertEqual(checked, 3)
+            self.assertEqual(problems, ["docs/guide/cli.md 链接不存在：../missing.md"])
 
 
 class TestVendor(unittest.TestCase):

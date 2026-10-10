@@ -1,6 +1,6 @@
-# 02 · VSC 通用架构
+# VSC 通用架构
 
-版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/vsc_kernel.py`、`scripts/vsc_state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [01 研究](01-foundations-and-research.md)，早期升级记录见 [06](06-vsc-v0.2-upgrade.md)，长期结构决定见 [ADR-0001](adr/0001-workflow-kernel.md)。
+版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/vsc_kernel.py`、`scripts/vsc_state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [01 研究](../research/foundations.md)，早期升级记录见 [06](../releases/v0.2.md)，长期结构决定见 [ADR-0001](../adr/0001-workflow-kernel.md)。
 
 ## 1. 架构目标与边界
 
@@ -235,7 +235,7 @@ stateDiagram-v2
 
 “因依赖变化需要复核”作为独立的 validity／impact 记录，不直接把历史 `accepted` 改成 `rejected`。这能保留“它当时在什么前提下通过”的事实。
 
-业务模板决定哪些内容自动放行，哪些由谁审看。自动化级别与批准范围进入项目快照，默认设置在 [04](04-profiles-example-and-validation.md) 中给出。
+业务模板决定哪些内容自动放行，哪些由谁审看。自动化级别与批准范围进入项目快照，默认设置在 [04](../design/profiles-and-validation.md) 中给出。
 
 ## 10. 异常恢复、幂等与预算
 
