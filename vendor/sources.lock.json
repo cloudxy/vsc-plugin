@@ -106,6 +106,60 @@
       "sparse_paths": ["LICENSE", "skills/engineering/improve-codebase-architecture", "skills/engineering/codebase-design", "skills/productivity/grilling", "skills/engineering/domain-modeling"],
       "update": {"mode": "candidate_review", "track_ref": "HEAD", "analysis_required": true, "automatic_adoption": false, "deleted_referenced_skill": "retain_last_approved_snapshot", "new_skill": "unrouted_pending_review"},
       "usage": {"mode": "local_component", "interface": "file", "modified": false}
+    },
+    {
+      "id": "moneyprinterturbo",
+      "type": "git",
+      "url": "https://github.com/harry0703/MoneyPrinterTurbo.git",
+      "revision": "7c80ca0b14407966a4fa3cc5bfc428868b186f5f",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/harry0703/MoneyPrinterTurbo/blob/7c80ca0b14407966a4fa3cc5bfc428868b186f5f/LICENSE",
+      "purpose": "本地调用其 CLI：为已批准剧本生成预演临时配音与逐词字幕、烧录字幕；其一键成片 Skill 仅在用户显式选择时使用。附带的字体与 BGM 不在此来源中，见需显式安装的 moneyprinterturbo-assets；VSC 适配器默认使用 noto-sans-sc 字体。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "sparse_paths": [".python-version", "LICENSE", "README.md", "app", "cli.py", "main.py", "config.example.toml", "pyproject.toml", "requirements.txt", "uv.lock", "docs/skill", "docs/voice-list.txt", "resource/public", "webui", "webui.sh"],
+      "update": {"mode": "candidate_review", "track_ref": "HEAD", "analysis_required": true, "automatic_adoption": false, "deleted_referenced_skill": "retain_last_approved_snapshot", "new_skill": "unrouted_pending_review"},
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "moneyprinterturbo-assets",
+      "type": "git",
+      "url": "https://github.com/harry0703/MoneyPrinterTurbo.git",
+      "revision": "7c80ca0b14407966a4fa3cc5bfc428868b186f5f",
+      "license_spdx": "NOASSERTION",
+      "license_evidence": "https://github.com/harry0703/MoneyPrinterTurbo/tree/7c80ca0b14407966a4fa3cc5bfc428868b186f5f/resource",
+      "purpose": "MoneyPrinterTurbo 附带的字幕字体与背景音乐，供用户在本机评估效果；由 scripts/mpt_adapter.py 链接进 MoneyPrinterTurbo 的 resource 目录。",
+      "notice": "含微软雅黑（Microsoft）、华文黑体（华文/Apple）等商业字体，以及 29 首没有任何授权说明的背景音乐。MoneyPrinterTurbo 的 MIT 许可只覆盖其代码，不覆盖这些字体和音乐，VSC 的 MIT 也不授予它们的任何权利。用于商业作品或对外发布前，必须向各版权方取得商用授权；是否下载、是否使用，由用户自行决定。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "install": "explicit",
+      "sparse_paths": ["resource/fonts", "resource/songs"],
+      "usage": {"mode": "local_component", "interface": "file", "modified": false}
+    },
+    {
+      "id": "narratoai",
+      "type": "git",
+      "url": "https://github.com/linyqh/NarratoAI.git",
+      "revision": "9fa69e022d4add41205ee385207561df8796b3f1",
+      "license_spdx": "MIT",
+      "license_evidence": "https://github.com/linyqh/NarratoAI/blob/9fa69e022d4add41205ee385207561df8796b3f1/LICENSE",
+      "purpose": "本地调用其剪映草稿构件，由 VSC 适配器把已批准时间线写成可在剪映中继续精剪的草稿；不使用其云端版、赞助链接或自动解说流程。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {"mode": "local_component", "interface": "cli", "modified": false}
+    },
+    {
+      "id": "noto-sans-sc",
+      "type": "git",
+      "url": "https://github.com/notofonts/noto-cjk.git",
+      "revision": "f8d157532fbfaeda587e826d4cd5b21a49186f7c",
+      "license_spdx": "OFL-1.1",
+      "license_evidence": "https://github.com/notofonts/noto-cjk/blob/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE",
+      "purpose": "OFL 授权的简体中文字体，替代 MoneyPrinterTurbo 默认的华文黑体，用于字幕烧录与交付物。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "sparse_paths": ["Sans/LICENSE", "Sans/SubsetOTF/SC/NotoSansSC-Regular.otf", "Sans/SubsetOTF/SC/NotoSansSC-Bold.otf"],
+      "usage": {"mode": "local_component", "interface": "file", "modified": false}
     }
   ]
 }

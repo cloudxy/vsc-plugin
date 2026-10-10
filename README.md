@@ -112,3 +112,5 @@ python3 -B scripts/vsc_state.py next ./projects/雨夜来信
 ## 许可证
 
 VSC 自身代码和文档采用 [MIT License](LICENSE)。`vendor/` 中第三方代码、Skill、工具、模型权重、素材或数据集不因 VSC 使用 MIT 而改变其各自许可证或使用限制。
+
+**商用授权提示**：部分第三方来源附带的字体、音乐等资源不在其开源许可之内。例如 `moneyprinterturbo-assets` 含微软雅黑、华文黑体等商业字体和 29 首没有授权说明的背景音乐，它们不随本仓库发布，也不随默认安装下载；是否下载、是否使用由用户自行决定，用于商业作品或对外发布前必须向版权方取得商用授权。VSC 的适配器默认使用 OFL 授权的 Noto Sans SC。各来源的权利说明见 [第三方声明](vendor/THIRD_PARTY.md)。

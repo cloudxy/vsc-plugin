@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check local source ranges/render metadata and bind a human sample review to evidence.
+"""Check local source ranges/render metadata and loudness, and bind a human sample review to evidence.
 
 No model calls, generation, media modification, or automatic aesthetic approval.
 """
@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -38,10 +39,29 @@ class LocalProbeAdapter:
     name = "local-ffprobe/v1"
     simulated = False
 
-    def __init__(self, executable="ffprobe", timeout=30, runner=None):
+    def __init__(self, executable="ffprobe", timeout=30, runner=None, ffmpeg="ffmpeg"):
         self.executable = executable
         self.timeout = timeout
         self.runner = runner or subprocess.run
+        self.ffmpeg = ffmpeg
+
+    def loudness(self, path):
+        """Read-only EBU R128 measurement via ffmpeg loudnorm analysis: LUFS, dBTP and LU."""
+        command = [self.ffmpeg, "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-"]
+        try:
+            result = self.runner(command, capture_output=True, text=True, timeout=max(self.timeout, 120), check=False)
+        except FileNotFoundError as exc:
+            raise ProbeFailure("missing_tool", "响度测量需要 ffmpeg，没有退化为假通过") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ProbeFailure("timeout", "响度测量超时") from exc
+        match = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", result.stderr or "")
+        if result.returncode or not match:
+            raise ProbeFailure("loudness_error", (result.stderr or "").strip()[-500:] or f"ffmpeg exit={result.returncode}")
+        data = json.loads(match.group(0))
+        values = {"integrated_lufs": finite(data.get("input_i")), "true_peak_dbtp": finite(data.get("input_tp")), "range_lu": finite(data.get("input_lra"))}
+        if values["integrated_lufs"] is None:
+            raise ProbeFailure("loudness_error", "无法测得综合响度（可能是静音）")
+        return values
 
     def probe(self, path):
         try:
@@ -93,6 +113,14 @@ class FaultProbeAdapter(LocalProbeAdapter):
         super().__init__(runner=runner)
 
 
+def finite(value):
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
 def number(value):
     if isinstance(value, bool):
         return None
@@ -129,7 +157,7 @@ def gaps(segments, duration):
     return missing
 
 
-def check_plan(plan_path, media_root, adapter, render=None):
+def check_plan(plan_path, media_root, adapter, render=None, loudness_target=None):
     initial_hash = sha256(plan_path)
     plan = load_plan(plan_path)
     if sha256(plan_path) != initial_hash:
@@ -197,6 +225,19 @@ def check_plan(plan_path, media_root, adapter, render=None):
                 if any(s["kind"] == "audio" for s in plan["segments"]):
                     raise ProbeFailure("missing_audio", "计划含独立音轨，成片缺少 audio stream")
                 report["warnings"].append("成片没有音轨，请确认是否刻意静音")
+            if any(s.get("codec_type") == "audio" for s in metadata["streams"]):
+                measured = adapter.loudness(Path(render))
+                rendered["loudness"] = measured
+                if loudness_target:
+                    report["loudness_target"] = loudness_target
+                    deviation = abs(measured["integrated_lufs"] - loudness_target["integrated_lufs"])
+                    if deviation > loudness_target["tolerance_lu"]:
+                        raise ProbeFailure("render_loudness_out_of_range", f"综合响度 {measured['integrated_lufs']} LUFS 偏离目标 {loudness_target['integrated_lufs']}±{loudness_target['tolerance_lu']} LU")
+                    peak = measured["true_peak_dbtp"]
+                    if peak is not None and peak > loudness_target["true_peak_max_dbtp"]:
+                        raise ProbeFailure("render_true_peak_exceeded", f"真峰值 {peak} dBTP 超过上限 {loudness_target['true_peak_max_dbtp']} dBTP")
+            elif loudness_target:
+                raise ProbeFailure("missing_audio", "指定了响度目标，但成片没有音轨")
         except ProbeFailure as exc:
             rendered.update(status="failed", error_code=exc.code, error=str(exc))
             report["errors"].append(f"render: {exc.code}: {exc}")
@@ -290,6 +331,9 @@ def main():
     check.add_argument("--adapter", choices=("local", "fault"), default="local")
     check.add_argument("--fault", choices=("timeout", "missing_tool", "invalid_metadata", "probe_error"), default="timeout")
     check.add_argument("--ffprobe", default="ffprobe")
+    check.add_argument("--loudness-target", type=float, help="成片综合响度目标（LUFS），按发布平台规范填写；不填则只测量不判定")
+    check.add_argument("--loudness-tolerance", type=float, default=1.0, help="允许偏离目标的 LU（默认 1.0）")
+    check.add_argument("--true-peak-max", type=float, default=-1.0, help="真峰值上限 dBTP（默认 -1.0）")
     review = commands.add_parser("review", help="校验人工审片记录及未变更的真实媒体证据")
     review.add_argument("review")
     report_parser = commands.add_parser("validate-report", help="复检真实成片报告，用于契约校验/批准")
@@ -305,7 +349,12 @@ def main():
             print("REVIEW COMPLETE: 具名人工判断及媒体版本已绑定；不是自动审美判断" if args.command == "review" else "MEDIA QA VALID: 已重新检查真实计划、素材与成片")
             return 0
         adapter = LocalProbeAdapter(executable=args.ffprobe) if args.adapter == "local" else FaultProbeAdapter(args.fault)
-        report = check_plan(args.plan, args.media_root, adapter, args.render)
+        target = None
+        if args.loudness_target is not None:
+            if not args.render:
+                raise ValueError("--loudness-target 需要同时给出 --render")
+            target = {"integrated_lufs": args.loudness_target, "tolerance_lu": args.loudness_tolerance, "true_peak_max_dbtp": args.true_peak_max}
+        report = check_plan(args.plan, args.media_root, adapter, args.render, target)
         output = Path(args.output)
         if output.exists():
             raise ValueError(f"拒绝覆盖已有技术报告：{output}，请指定新的版本路径")

@@ -30,7 +30,7 @@ class TestTracked(unittest.TestCase):
 
     def test_project_data_vendor_source_and_local_files_are_rejected(self):
         problems = LOCAL_CI.tracked_problems([
-            "projects/放下/vsc.json",
+            "projects/示例作品/vsc.json",
             "vendor/inkos/README.md",
             ".claude/settings.local.json",
             "docs/.DS_Store",
@@ -52,7 +52,7 @@ class TestLinks(unittest.TestCase):
             (root / "agents/role.md").write_text("[卡](../docs/README.md)", "utf-8")
             (root / ".agents").mkdir()
             os.symlink("../agents/role.md", root / ".agents/role.md")
-            checked, problems = LOCAL_CI.link_problems(["docs/guide/cli.md", "docs/README.md", "agents/role.md", ".agents/role.md", "vendor/x.md"], root)
+            checked, problems = LOCAL_CI.link_problems(["docs/guide/cli.md", "docs/README.md", "agents/role.md", ".agents/role.md"], root)
             self.assertEqual(checked, 3)
             self.assertEqual(problems, ["docs/guide/cli.md 链接不存在：../missing.md"])
 
@@ -73,6 +73,8 @@ class TestVendor(unittest.TestCase):
             self.assertIn("不一致", stale[0])
             missing = LOCAL_CI.installed_problems([{"id": "absent", "revision": revision}], vendor)
             self.assertIn("--install absent", missing[0])
+            optional = LOCAL_CI.installed_problems([{"id": "absent", "revision": revision, "install": "explicit"}], vendor)
+            self.assertEqual(optional, [])
 
     def test_routed_skill_missing_from_vendor_is_reported(self):
         with tempfile.TemporaryDirectory() as temp:

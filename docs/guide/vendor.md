@@ -13,7 +13,7 @@ python3 scripts/vendor_sync.py --write-declaration  # 由来源锁定文件生�
 python3 scripts/vendor_sync.py --install inkos openwrite  # 用户按需安装指定来源
 python3 scripts/vendor_sync.py --install remotion  # 安装可选的本地时间线、预览与渲染 Skill
 python3 scripts/vendor_sync.py --install mattpocock-skills  # 安装公开的架构改进及其依赖 Skill
-python3 scripts/vendor_sync.py --install  # 用户安装全部已声明、固定到 40 位 commit 的来源
+python3 scripts/vendor_sync.py --install  # 用户安装全部默认来源（固定到 40 位 commit；不含需显式安装的来源）
 python3 scripts/vendor_skills.py --scan  # 扫描已下载的上游 SKILL.md，写入本机目录
 python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接使用的 Skill
 ```
@@ -21,6 +21,23 @@ python3 scripts/vendor_skills.py --resolve adapt  # 查看改编阶段可直接�
 不提交第三方源码只能降低再次分发的风险，**不等于获得商业使用权**。`sources.lock.json` 是机器可读的来源真相，`vendor/THIRD_PARTY.md` 是从它生成的公开声明；用户自行运行安装脚本。许可证、NOTICE、模型权重、声音、图像、数据集、商标和平台条款仍须逐项确认。详见 [第三方声明](../../vendor/THIRD_PARTY.md)、[Vendor 治理](../governance/vendor-governance.md) 与 [Vendor 安装说明](../../vendor/README.md)。
 
 安装完成后，`vendor_skills.py` 会发现上游项目内的原始 `SKILL.md`；`/vsc-adapt`、`/vsc-script`、`/vsc-direct`、`/vsc-assets`、`/vsc-produce`、`/vsc-sound`、`/vsc-post` 分别按阶段路由并直接读取这些 Skill。方法型 Skill 可立即复用；需要 OpenWrite Bridge、ffmpeg、MCP、模型服务或 API 凭据的原生 Skill 会标记所需环境，只有环境实际就绪才执行。
+
+## 短视频工具：MoneyPrinterTurbo、NarratoAI 与字体
+
+- `moneyprinterturbo`（MIT）：`python3 -B scripts/mpt_adapter.py voice` 为已批准台词生成预演临时配音与逐词字幕；它的一键成片 Skill 只在用户于 `/vsc-produce` 中显式选择时使用。
+- `narratoai`（MIT）：`python3 -B scripts/jianying_export.py export` 借用它的剪映草稿构件，把已批准时间线写成剪映草稿。
+- `noto-sans-sc`（OFL-1.1）：适配器默认的字幕字体。
+- `moneyprinterturbo-assets`（需显式安装）：MoneyPrinterTurbo 附带的微软雅黑、华文黑体等商业字体与 29 首无授权说明的 BGM，仅供本机评估。安装后由 `mpt_adapter.py prepare` 以 `assets-` 前缀链接进 MoneyPrinterTurbo，便于辨认；商用前必须向版权方取得授权，是否下载、使用由用户自行决定。
+
+安装与准备：
+
+```bash
+python3 -B scripts/vendor_sync.py --install moneyprinterturbo narratoai noto-sans-sc
+python3 -B scripts/vendor_sync.py --install moneyprinterturbo-assets   # 可选，需自行判断授权
+uv sync --frozen --directory vendor/moneyprinterturbo
+uv sync --frozen --directory vendor/narratoai
+python3 -B scripts/mpt_adapter.py prepare
+```
 
 ## Vendor 最新性不是自动采用
 

@@ -94,6 +94,17 @@ class LocalMediaTests(unittest.TestCase):
         self.assertEqual({s["codec_type"] for s in metadata["streams"]}, {"audio", "video"})
         self.assertAlmostEqual(metadata["duration_seconds"], 1, places=2)
 
+    def test_render_loudness_is_measured_and_checked_against_target(self):
+        loudness = self.report()["render"]["loudness"]
+        self.assertLess(loudness["integrated_lufs"], 0)
+        self.assertIsNotNone(loudness["true_peak_dbtp"])
+        near = {"integrated_lufs": loudness["integrated_lufs"], "tolerance_lu": 1.0, "true_peak_max_dbtp": 0.0}
+        self.assertEqual(QA.check_plan(self.plan_path, self.root, QA.LocalProbeAdapter(), self.media, near)["status"], "passed")
+        far = dict(near, integrated_lufs=loudness["integrated_lufs"] - 20)
+        report = QA.check_plan(self.plan_path, self.root, QA.LocalProbeAdapter(), self.media, far)
+        self.assertEqual(report["render"]["error_code"], "render_loudness_out_of_range")
+        self.assertFalse(report["eligible_for_review"])
+
     def test_source_range_overflow_is_detected_from_actual_media(self):
         value = plan()
         value["segments"][0]["source_in_frame"] = 15

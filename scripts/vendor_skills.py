@@ -40,6 +40,7 @@ ROUTES = {
         ("openmontage", ".agents/skills/create-video/SKILL.md", "runtime: HeyGen MCP or HEYGEN_API_KEY", "调用文本到视频的上游生成工作流。"),
         ("openmontage", ".agents/skills/kling-official/SKILL.md", "runtime: Kling credentials/tools", "调用 Kling 相关视频生成工作流。"),
         ("openmontage", ".agents/skills/video-understand/SKILL.md", "runtime: provider credentials/tools", "分析生成候选与素材视频。"),
+        ("moneyprinterturbo", "docs/skill/SKILL.md", "runtime: uv; user-selected quick mode", "用户显式选择的一键成片模式：由主题直接出片，跳过 VSC 批准链，成片只作候选或参考。"),
     ),
     "sound": (
         ("openmontage", ".agents/skills/music-to-video/SKILL.md", "runtime: HyperFrames, Python audio dependencies", "按音乐节拍组织画面与剪辑。"),
