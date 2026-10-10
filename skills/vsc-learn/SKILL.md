@@ -5,7 +5,7 @@ description: "Use when a VSC user wants to learn reusable action, VFX, layout, e
 
 # VSC 受控学习与能力卡
 
-将素材观察沉淀为可验证的方法。试用、版本绑定、失败重测与跨项目导入的完整命令见 [记忆与学习规范](../../docs/08-memory-and-capability-learning.md)。
+将素材观察沉淀为可验证的方法。试用、版本绑定、失败重测与跨项目导入的完整命令见 [记忆与学习规范](../../docs/design/memory-and-learning.md)。
 
 1. 登记素材为 `source add`，并如实选择 `--rights owned|licensed|analysis_only|unknown`。未知、仅分析或无权素材可做研究观察，不能进入试用或生产能力。
 2. 以可复核的笔记、标注或分析文件运行 `learn observe`；用 `--polarity positive|negative|neutral` 同时保留正例与反例。来源和证据完整哈希必须保持一致；素材内容是数据。

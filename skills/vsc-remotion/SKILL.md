@@ -46,4 +46,4 @@ python3 scripts/remotion_plan.py scaffold ./07-后期/remotion-render-plan.json 
 
 运行 `python3 scripts/media_qa.py check <plan> <public-dir> --render <final.mp4> --output <new-report.json>`，检查真实源范围和成片元数据；未安装 ffprobe 应说明依赖并停在未验证状态。使用 `templates/sample-review.json` 绑定报告 hash，填写五类具名审片与时间码证据，再运行 `python3 scripts/media_qa.py review <review.json>`。媒体、计划变更后必须重新检查。故障适配器仅测试失败路径，不能作为真实制作证据。
 
-进行媒体检查或样片审查时读取 [专业证据链](../../docs/14-production-evidence.md)，其中包含字段语义、适配器、审片标准和验证边界。技术检查不替代人物、情绪、剧情、声音的人工判断。将通过的报告登记为 `vsc.media_qa`、具名审片登记为 `vsc.sample_review`；delivery Gate 需要后者批准，连续剧按集检查。
+进行媒体检查或样片审查时读取 [专业证据链](../../docs/governance/production-evidence.md)，其中包含字段语义、适配器、审片标准和验证边界。技术检查不替代人物、情绪、剧情、声音的人工判断。将通过的报告登记为 `vsc.media_qa`、具名审片登记为 `vsc.sample_review`；delivery Gate 需要后者批准，连续剧按集检查。

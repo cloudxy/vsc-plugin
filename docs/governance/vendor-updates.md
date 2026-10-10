@@ -1,4 +1,4 @@
-# 12 · Vendor 候选更新与 Skill 生命周期
+# Vendor 候选更新与 Skill 生命周期
 
 ## 目标
 
