@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""提交前获取 origin/main；需要合并时保存本地修改，合并并要求重新提交。"""
+"""提交前获取 origin/main；需要合并时保存本地修改，合并并要求重新提交。行为说明见 docs/guide/maintenance.md。"""
 import os
 from pathlib import Path
 import subprocess

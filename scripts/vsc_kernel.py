@@ -256,7 +256,9 @@ def doctor_problems():
 
     # 宿主入口也是物理入口；延迟导入，因为 vsc_hosts 不依赖内核查询接口。
     from vsc_hosts import entry_problems
+    from vsc_views import view_problems
     problems.extend(entry_problems())
+    problems.extend(view_problems())
     return problems
 
 

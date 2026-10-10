@@ -1306,10 +1306,10 @@ def cmd_profile(args):
     catalog = profile_catalog()
     if args.action == "list":
         for profile_id, profile in catalog.items():
-            print(f"{profile_id}  {profile.get('label', '')}  v{profile.get('version', '')}")
+            print(f"{profile_id}  {profile.get('label', '')}  v{profile.get('version', '')}  用途：{profile.get('use_case', '-')}")
         return
     profile = profile_for(args.profile_id)
-    print(f"{profile['profile_id']} · {profile['label']} · v{profile.get('version', '')}")
+    print(f"{profile['profile_id']} · {profile['label']} · v{profile.get('version', '')} · 用途：{profile.get('use_case', '-')}")
     for stage in profile["stages"]:
         print(f"  {stage['id']} {stage['label']}：{'、'.join(stage.get('required', []))}")
 

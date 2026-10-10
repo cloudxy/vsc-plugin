@@ -1,48 +1,17 @@
-# 本地 Vendor 缓存：不提交到 Git
+# 本地 Vendor：不提交到 Git
 
-此目录可存放用户按需下载的开源 Skill、工具和其依赖。除本说明、`sources.lock.json` 和由其生成的 `THIRD_PARTY.md` 外，所有内容均被 `.gitignore` 排除，不能 `git add -f`。
+此目录存放用户按需下载的第三方 Skill、工具和依赖。除本说明、`sources.lock.json` 和由它生成的 `THIRD_PARTY.md` 外，所有内容都被 `.gitignore` 排除，不能 `git add -f`。为什么这样做、各 `usage.mode` 的含义与许可证边界，见 [Vendor 治理](../docs/governance/vendor-governance.md)；各来源的用途、许可证与须知见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-VSC 核心采用 MIT，**但这不禁止直接使用其他许可证的开源项目**。MIT、Apache-2.0、AGPL-3.0 等项目都可进入本目录并由 VSC 使用。关键在于把使用方式登记清楚，可选的 `usage.mode` 见 [Vendor 治理](../docs/governance/vendor-governance.md)。
+## 声明与安装
 
-完整上游项目仍保留自己的 `LICENSE`、NOTICE 和修改记录；根目录的 MIT 只覆盖 VSC 自研部分。`vendor/` 默认不随 VSC Git 仓库发布，因此可以直接使用这些组件而不把它们伪装成 MIT。若将来要把第三方源码复制、融合或随发行包再分发，必须为该组件保留相应许可证边界和履约材料；AGPL 融合模块不能被标为“仅 MIT”。
+1. 在 `sources.lock.json` 声明来源（字段见下）。改完运行 `python3 scripts/vendor_sync.py --write-declaration` 重新生成 `THIRD_PARTY.md`；不联网。
+2. `python3 scripts/vendor_sync.py --check` 与 `--plan`：校验并预览；不联网、不下载。
+3. `python3 scripts/vendor_sync.py --install <来源 id …>`：按固定 commit 安装；不写 id 时安装全部默认来源（`--sync` 为兼容别名）。
+4. `python3 scripts/vendor_skills.py --scan`：为已下载的上游 `SKILL.md` 建本机目录；各阶段如何使用见 [vsc-vendor](../skills/vsc-vendor/SKILL.md#下载后直接使用-skill)。
 
-这能避免把第三方源码再次分发到 VSC 仓库，但**不等于自动获得商业使用、修改、分发、模型权重或素材使用的权利**。`sources.lock.json` 是机器可读的来源真相；`THIRD_PARTY.md` 从它生成，供人阅读。安装脚本不代替许可证本身，也不替用户作法律判断。
+上游有新版本时不会自动采用，候选分析与采用流程见 [Vendor 候选更新](../docs/governance/vendor-updates.md)。
 
-## 安装流程
-
-1. 查看 `sources.lock.json` 中项目声明：仓库 URL、40 位 commit、许可证 SPDX 标识、许可证证据、用途、责任人与 `usage.mode`。
-2. 修改已审核锁定记录后，运行 `python3 scripts/vendor_sync.py --write-declaration` 更新提交到 Git 的 `THIRD_PARTY.md`；这不联网、不下载。
-3. 运行 `python3 scripts/vendor_sync.py --check` 与 `--plan`；它们不下载内容。
-4. 按自己需要安装一个或多个来源：`python3 scripts/vendor_sync.py --install inkos openwrite`。
-5. 不指定来源即安装全部默认来源：`python3 scripts/vendor_sync.py --install`；`--sync` 是兼容别名。`"install": "explicit"` 的来源见下文。
-6. 运行 `python3 scripts/vendor_skills.py --scan`，将已经下载的原始 `SKILL.md` 建成本机目录；用 `--resolve adapt|script|direct|assets|produce|sound|post` 查看 VSC 在某阶段会直接使用哪些 Skill。
-7. 用户决定是否更新或修改本地组件；需要保留 NOTICE 的交付物应按上游许可证处理。
-
-## 需显式安装的来源
-
-附带字体、音乐等不在其开源许可之内的资源，单独声明为 `"install": "explicit"` 的来源，并在 `notice` 写明权利状况（`THIRD_PARTY.md` 由此生成）。默认的 `--install` 不下载它们，必须写明来源 id 才会安装；本地 CI 不要求安装，装了仍核对固定版本。
-
-## 本机候选维护（可选）
-
-`vendor_sync.py --sync` 只同步已经固定的 commit，不负责发现最新 Skill。发现新能力请手动运行项目自己的单次候选脚本，不配置 ZCode 每日任务：
-
-```bash
-bash scripts/vsc-vendor-maintenance.sh --plan  # 不联网、不写入
-bash scripts/vsc-vendor-maintenance.sh  # 检查全部声明来源，执行一次即退出
-bash scripts/vsc-vendor-maintenance.sh --source mattpocock-skills
-# 已有维护数据时可复用原目录；这不启用任何调度：
-bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plugin-updater
-```
-
-不要把密钥、Cookie 或付费供应商凭据放入脚本。策略为 `scheduler: manual`，项目不创建定时任务。候选入口只在显式执行时联网，下载上游 HEAD 和固定基线到独立缓存，绝不执行候选脚本、修改活跃 Vendor、锁定 revision 或路由。无 `--maintenance-root` 时，维护数据放在被忽略的 `vendor/.maintenance/`；旧参数 `--updater-root` 保留为兼容别名。
-
-安装脚本仍只接受固定 commit；网络或校验失败不会改写已有固定版本。只有用户执行 `--install` 或 `--sync` 才安装活跃版本。
-
-`vendor_skills.py` 不联网、不复制上游文件。它直接指向下载目录里的原始 `SKILL.md`：标为 `guide` 的 Skill 可立即按其方法使用；标为 `runtime: ...` 的 Skill 则需要先满足所列 CLI、MCP、依赖或凭据。
-
-大型仓库可以在来源声明中写 `sparse_paths`。安装器会固定同一 commit、只检出这些路径，适合先直接复用上游 Skill 而不下载不相关的源码和构建产物；需要完整源码时，用户可自行完整克隆到另一目录。
-
-## 使用方式示例
+## 锁定记录字段
 
 ```json
 {
@@ -63,18 +32,8 @@ bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plug
 }
 ```
 
-如果把同一项目修改后作为对外网络服务，`mode` 改为 `external_service`，并按上游许可证处理相应的源码、NOTICE 或其他义务；Vendor 清单本身不会给出豁免。
-
-## 说明
-
-SPDX 标识用于机器可读地记录已核验的许可证，不是法律意见。GitHub 也明确指出，未声明许可证的代码默认受版权法保护；如有商业化、再分发、SaaS、模型权重、声音或素材权利问题，应由具资格的专业人士判断。[GitHub 许可证说明](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) · [SPDX 许可证信息](https://spdx.dev/learn/handling-license-info/)
-
-## 按需候选更新
-
-手动入口按 `sources.lock.json` 的 schema 4 策略下载上游 HEAD 的候选资源包，每次执行时按每来源最多 3 份、90 天清理（比较基线也计入数量）。不运行就不会自动检查上游或清理过期文件；下一次执行时才清理。资源包包含 Skill 目录、递归显式本地引用、根许可证与依赖声明，并保存逐文件散列和执行权限以供完整性验证和恢复；它不是整个仓库、安装好的运行环境或模型权重备份。
-
-它只把 JSON 和 Markdown 分析写到被忽略的 `vendor/.reviews/`。下载完成与分析完成分别保存状态；分析失败或报告丢失后，再次运行会重试，不能因为“已有候选”而跳过分析。旧的仅 `SKILL.md` 快照会重建为 v2，不能冒充完整备份。
-
-Markdown 代码围栏中的示例和站点根相对 URL（如 `/docs/...`、`/v1/...`）不当作本机资源依赖。运行时配置、输出目录只记录外部前置条件，不读取、不打包、不声称已就绪。正文相对资源缺失、本机绝对输入、符号链接或单文件超限会逐 Skill 标记不可用；被拒绝的资源仅保留元信息，候选不能冒充该 Skill 的完整备份。其他可用 Skill 仍可形成分析；整体文件数／字节数超限则任务失败。
-
-当 Skill 的正文、规则、脚本、参考、资产、许可证或依赖声明新增、修改或删除时，先阅读报告并作出明确决定；新增 Skill 默认不路由，已路由 Skill 被删除时保留当前活跃版本，显式决定保留/替换/退役。需要语义评估时手动调用 `/vsc-vendor`，脚本不会自动启动模型。通过后再更新锁定 revision 并运行 `vendor_sync.py --install <source>`。详细流程及旧中央入口兼容见 [Vendor 候选更新](../docs/governance/vendor-updates.md)。
+- `revision` 必须是 40 位 commit；`redistribution` 固定为 `local_only`。
+- `sparse_paths`：只检出列出的路径，适合大型仓库。
+- `install: "explicit"`：附带字体、音乐等不在开源许可之内的资源时使用，并在 `notice` 写明权利状况；默认的 `--install` 不下载它，本地 CI 不要求安装，装了仍核对固定版本。
+- `usage.mode` 为 `reference_only` 或 `ported` 时，VSC 运行时不调用该来源，本地 CI 不要求安装。
+- `update`：候选更新策略，见 Vendor 候选更新。

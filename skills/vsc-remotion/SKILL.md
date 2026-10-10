@@ -9,7 +9,7 @@ description: "Prepare editable local Remotion compositions from selected VSC tak
 
 ## 直接复用官方 Skill
 
-先运行 `python3 scripts/vendor_skills.py --resolve post`。依次读取已安装的 Remotion 原始 `SKILL.md`：
+按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `post` 阶段，其中 Remotion 官方 Skill 依次这样用：
 
 1. `remotion-best-practices`：按任务进一步选择官方方法；保留用户对 Composition 的手工修改。
 2. `remotion-markup`：只用帧驱动的时间、媒体与动画写法，不用不会可靠渲染的 CSS animation/transition。
@@ -37,9 +37,9 @@ python3 scripts/remotion_plan.py scaffold ./07-后期/remotion-render-plan.json 
 
 ## 连续性与声音不可丢失
 
-- AI 视频片段的切点仍以 VSC `entry_state`/`exit_state`、首尾手柄和 `bridge_to_next` 为准。使用 `source_in_frame`、`handle_in_frames`、`handle_out_frames` 保留真实源余量；handle 不自动插入转场。叠化要显式重叠视觉片段并设置淡变。
+- AI 视频片段的切点仍以 VSC `entry_state`/`exit_state`、首尾手柄和 `bridge_to_next` 为准；帧级字段语义见 [Remotion 计划](../../docs/design/remotion.md#帧级字段)。
 - BGM/环境底跨镜铺设，不按每条 6–8 秒片段重启；字幕按对白时间码覆盖，不替代对白授权或声线设计。
-- 使用 `volume`、`audio_fade_in_frames`/`audio_fade_out_frames` 与片段内 `volume_keyframes` 表达混音。对白区间的压低由 Cue Sheet/负责人决定；脚本不自动判断情绪或对白可懂度。独立对白替换视频原声时显式 `muted`。
+- 对白区间的压低由 Cue Sheet/负责人决定；脚本不自动判断情绪或对白可懂度。独立对白替换视频原声时显式 `muted`。
 - Studio 中的人工改动视为新候选版本，回写或登记到 VSC 时间线后才可成为交付基线。
 
 ## 真媒体证据与人工审片

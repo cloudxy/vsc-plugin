@@ -4,6 +4,7 @@
   "dependency_policy": "previous_stage",
   "scope_required_from": "script",
   "label": "小说改编连续短剧",
+  "use_case": "小说改编连续短剧",
   "stages": [
     {"id": "brief", "label": "创作委托", "required": ["vsc.creative_brief", "vsc.adaptation_contract"]},
     {"id": "source", "label": "小说理解", "required": ["vsc.source_map", "vsc.story_bible"]},

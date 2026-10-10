@@ -295,7 +295,7 @@ def scaffold(plan, destination):
     (destination / "src" / "timing.ts").write_text(TIMING_TS, "utf-8")
     (destination / "tsconfig.json").write_text(json.dumps({"compilerOptions": {"target": "ES2022", "lib": ["DOM", "ES2022"], "jsx": "react-jsx", "module": "ESNext", "moduleResolution": "Bundler", "strict": True, "skipLibCheck": True, "noEmit": True}, "include": ["src"]}, indent=2) + "\n", "utf-8")
     (destination / "public" / "README.md").write_text("将计划中 source 指向的媒体按相同相对路径放入此目录。例如 takes/SH-001.mp4 对应 public/takes/SH-001.mp4。\n", "utf-8")
-    (destination / "README.md").write_text("# VSC Remotion 项目\n\n1. 将选定 take、音频和其他素材放到 `public/`。\n2. `npm install`\n3. `npm run typecheck`，再 `npm run studio` 预览并由负责人确认。\n4. `npm run render -- <composition-id> out/final.mp4` 导出。\n\nsource_in_frame/handle 与音量关键帧使用 Composition 帧率；关键帧是片段内时间。handle 只保留/校验余量，不自动插入转场。叠化需在计划中显式重叠视觉片段并设置淡入/淡出。视频原声默认保留，独立对白音轨时须显式 muted。\n\n脚手架生成不代表已安装、通过类型检查、成功渲染或人工审片。此项目由 VSC 计划生成；上游 Remotion Skill 在 vendor/remotion 中单独保留。\n", "utf-8")
+    (destination / "README.md").write_text("# VSC Remotion 项目\n\n1. 将选定 take、音频和其他素材放到 `public/`。\n2. `npm install`\n3. `npm run typecheck`，再 `npm run studio` 预览并由负责人确认。\n4. `npm run render -- <composition-id> out/final.mp4` 导出。\n\n计划字段的语义见 VSC 仓库 docs/design/remotion.md 的「帧级字段」。\n\n脚手架生成不代表已安装、通过类型检查、成功渲染或人工审片。此项目由 VSC 计划生成；上游 Remotion Skill 在 vendor/remotion 中单独保留。\n", "utf-8")
 
 
 def main():

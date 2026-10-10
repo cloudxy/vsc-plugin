@@ -8,7 +8,7 @@
 |---|---|
 | [AI 客户端接入](guide/workspace-setup.md) | Codex、Claude Code、Grok Build、Kimi Code、ZCode 的入口与验证 |
 | [命令行使用](guide/cli.md) | 新建项目、登记与批准、契约校验、记忆与学习、Profile、外部交接 |
-| [本地 Vendor](guide/vendor.md) | 第三方 Skill/工具的安装、路由与候选维护 |
+| [本地 Vendor](../vendor/README.md) | 第三方 Skill/工具的声明、安装与锁定字段 |
 | [维护与本地验证](guide/maintenance.md) | 本地 CI、提交与推送钩子、宿主入口同步、测试 |
 
 ## design · 创作方法

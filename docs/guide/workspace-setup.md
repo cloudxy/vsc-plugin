@@ -1,6 +1,6 @@
 # 本工作区的 AI 客户端接入
 
-本仓库自带 AI 客户端接入层：根目录的 `AGENTS.md`、`CLAUDE.md`，以及由 `workflow/hosts.json` 声明、`scripts/vsc_hosts.py` 生成的宿主入口（`.agents/`、`.claude/`、`.grok/`、`.codex/` 与 `commands/`）。克隆后在客户端打开仓库根目录即可使用，无需另外安装。
+本仓库自带 AI 客户端接入层：根目录的 `AGENTS.md`、`CLAUDE.md`，以及由 `workflow/hosts.json` 声明、`scripts/vsc_hosts.py` 生成的宿主入口（见下表）。克隆后在客户端打开仓库根目录即可使用，无需另外安装。
 
 ## 开始使用
 
@@ -16,13 +16,17 @@
 
 ## 客户端入口
 
-| 客户端 | 工作区配置 | 使用方式 | 注意事项 |
-|---|---|---|---|
-| Codex | `AGENTS.md`；技能 `.agents/skills/`；12 个角色 `.codex/agents/*.toml` | 自然语言或 `$vsc`、`$vsc-script` 等 | 角色 TOML 由角色卡生成，正文仍以 `agents/` 为准 |
-| Claude Code | `CLAUDE.md` 导入 `AGENTS.md`；`.claude/skills/`、`.claude/agents/` | 自然语言或 `/vsc`、`/vsc-script` 等 | 个人权限设置写在 `.claude/settings.local.json`，已被 Git 忽略 |
-| Grok Build | `AGENTS.md`；技能 `.grok/skills/`；角色经 Claude 兼容读取 `.claude/agents/` | 自然语言或 `/vsc`、`/vsc-script` 等 | 首次打开需在客户端接受工作区信任，未信任时不加载项目技能与 `AGENTS.md`；用 `grok inspect` 检查 |
-| Kimi Code | `AGENTS.md`；技能 `.agents/skills/`；角色 `.agents/agents/` | 自然语言或 `/skill:vsc` | 与 Codex 共用 `.agents/skills/` |
-| ZCode | Workspace 根目录 `AGENTS.md`；`.zcode-plugin/plugin.json`；`marketplace.json` | 工作区可直接说“用 VSC……”；要出现在插件面板，先添加本地市场并安装 | 工作区指令入口不等于已安装插件，见下文 |
+下表由 `workflow/hosts.json` 生成：
+
+<!-- vsc:view hosts -->
+| 客户端 | 工作区说明 | 发现入口 | 调用 | 注意 |
+|---|---|---|---|---|
+| Codex | `AGENTS.md` | 技能 `.agents/skills/`（13 个，软链接）；角色 `.codex/agents/`（12 个，Codex TOML） | $vsc、$vsc-script |  |
+| Claude Code | `CLAUDE.md` | 技能 `.claude/skills/`（13 个，软链接）；角色 `.claude/agents/`（12 个，软链接） | /vsc、/vsc-script | 个人权限设置写在 .claude/settings.local.json，已被 Git 忽略 |
+| Grok Build | `AGENTS.md` | 技能 `.grok/skills/`（13 个，软链接）；角色 `.claude/agents/`（12 个，软链接） | /vsc、/vsc-script | 首次使用须在客户端信任工作区；角色经 Claude 兼容读取 .claude/agents |
+| Kimi Code | `AGENTS.md` | 技能 `.agents/skills/`（13 个，软链接）；角色 `.agents/agents/`（12 个，软链接） | /skill:vsc |  |
+| ZCode | `AGENTS.md` | 命令 `commands/`（13 个，插件命令） | 用 VSC…… | 工作区指令可直接驱动工作流；要出现在插件面板，须先添加本地市场 marketplace.json 并安装，见下文 |
+<!-- /vsc:view -->
 
 ZCode 的工作区规则入口可以驱动完整本地工作流，但不等于插件管理界面已经安装、启用了该目录。要让 `vsc-workflow` 出现在插件面板：在 ZCode 中进入“设置 → 插件 → 创建 → 添加插件市场”，选择本目录（其中的 `marketplace.json` 会声明本插件），然后在“个人”市场中安装并启用 `vsc-workflow`。修改插件后回到市场源面板刷新，再检查版本和组件。
 

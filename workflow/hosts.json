@@ -12,9 +12,9 @@
   ],
   "hosts": [
     {"id": "codex", "label": "Codex", "instructions": "AGENTS.md", "invoke": "$vsc、$vsc-script", "entries": ["agents-skills", "codex-agents"]},
-    {"id": "claude-code", "label": "Claude Code", "instructions": "CLAUDE.md", "invoke": "/vsc、/vsc-script", "entries": ["claude-skills", "claude-agents"]},
+    {"id": "claude-code", "label": "Claude Code", "instructions": "CLAUDE.md", "invoke": "/vsc、/vsc-script", "entries": ["claude-skills", "claude-agents"], "note": "个人权限设置写在 .claude/settings.local.json，已被 Git 忽略"},
     {"id": "grok-build", "label": "Grok Build", "instructions": "AGENTS.md", "invoke": "/vsc、/vsc-script", "entries": ["grok-skills", "claude-agents"], "note": "首次使用须在客户端信任工作区；角色经 Claude 兼容读取 .claude/agents"},
     {"id": "kimi-code", "label": "Kimi Code", "instructions": "AGENTS.md", "invoke": "/skill:vsc", "entries": ["agents-skills", "agents-agents"]},
-    {"id": "zcode", "label": "ZCode", "instructions": "AGENTS.md", "invoke": "用 VSC……", "entries": ["plugin-commands"], "note": ".zcode-plugin/plugin.json 直接读取 skills/、agents/ 与 commands/"}
+    {"id": "zcode", "label": "ZCode", "instructions": "AGENTS.md", "invoke": "用 VSC……", "entries": ["plugin-commands"], "note": "工作区指令可直接驱动工作流；要出现在插件面板，须先添加本地市场 marketplace.json 并安装，见下文"}
   ]
 }

@@ -80,12 +80,3 @@ bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plug
 5. 执行 `python3 scripts/vendor_sync.py --write-declaration`、`python3 scripts/vsc_kernel.py doctor` 和相关测试；再决定是否提交 VSC 配置变更。
 
 任何候选分析失败、下载失败或未完成审查时，当前 active Vendor 保持不变。
-
-## 架构 Skill 的直接使用
-
-`mattpocock-skills` 是 MIT 来源，VSC 稀疏安装四个互相配合的原始 Skill：`improve-codebase-architecture`、`codebase-design`、`grilling` 与 `domain-modeling`。使用 `/vsc-architecture` 时，先解析本机 Vendor 路由，再按上游方法读取它们；VSC 的 `GLOSSARY.md` 和 ADR 仍是本项目的领域真相。
-
-```bash
-python3 scripts/vendor_sync.py --install mattpocock-skills
-python3 scripts/vendor_skills.py --resolve architecture
-```

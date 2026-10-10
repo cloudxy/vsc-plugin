@@ -8,6 +8,7 @@
       "skill": "vsc",
       "entry": {
         "mode": "auto",
+        "summary": "总编排、创建、进度",
         "description": "VSC 总编排入口：从小说、原创故事或品牌资料到剧本、镜头、资产、图像、视频、声音、剪辑与交付；支持改编、连续性、声音契约及受控学习；为新手引导，为熟手路由到专用能力。",
         "argument_hint": "[一句话需求 | 新建项目 | 改编 | 剧本 | 分镜 | 连续性 | 声音/BGM | 资产 | 生成 | 剪辑 | Remotion 预演/导出 | 审片 | 学习 | 状态]"
       },
@@ -21,6 +22,7 @@
       "skill": "vsc-adapt",
       "entry": {
         "mode": "adapt",
+        "summary": "小说理解、改编、分集",
         "description": "VSC 改编：从可追溯来源建立故事底稿、改编契约、分集与改编决定。",
         "argument_hint": "[来源或项目 | 改编要求 | 第N集]"
       },
@@ -35,6 +37,7 @@
       "skill": "vsc-script",
       "entry": {
         "mode": "script",
+        "summary": "剧本、场次、对白",
         "description": "VSC 剧本：将已批准的改编方案写成可表演、可拍摄、可听的分集剧本。",
         "argument_hint": "[项目 | 第N集 | 某场]"
       },
@@ -49,6 +52,7 @@
       "skill": "vsc-direct",
       "entry": {
         "mode": "direct",
+        "summary": "分镜、运镜、预演",
         "description": "VSC 导演与分镜：镜头表、景别、机位、运镜、转场、预演与创作评审。",
         "argument_hint": "[项目 | 第N集 | 某场 | 某镜]"
       },
@@ -63,6 +67,7 @@
       "skill": "vsc-assets",
       "entry": {
         "mode": "assets",
+        "summary": "人物、场景、参考资产",
         "description": "VSC 资产：人物、动作、声音、场景、道具与风格资产的语义设计和参考资产计划。",
         "argument_hint": "[项目 | 人物/场景/动作/声音]"
       },
@@ -77,6 +82,7 @@
       "skill": "vsc-produce",
       "entry": {
         "mode": "produce",
+        "summary": "图像、视频、声音候选",
         "description": "VSC 制作：按已批准镜头和资产计划组织图像、图生视频、声音候选与连续性复核；不擅自选择创作版本。",
         "argument_hint": "[项目 | 第N集 | 某镜 | 生成计划]"
       },
@@ -91,6 +97,7 @@
       "skill": "vsc-continuity",
       "entry": {
         "mode": "continuity",
+        "summary": "跨镜连续性、转场",
         "description": "VSC 连续性：为 6–30 秒 AI 视频片段建立出入点状态、参考资产、手柄、桥接策略和逐镜返工路由。",
         "argument_hint": "[项目 | 第N集 | 场次 | 两个片段 | 连续性计划]"
       },
@@ -104,6 +111,7 @@
       "skill": "vsc-sound",
       "entry": {
         "mode": "sound",
+        "summary": "BGM、环境声、声音桥",
         "description": "VSC 声音叙事：根据场景、人物目标与情绪节拍设计 BGM、环境底、对白空间、声音桥与混音提示。",
         "argument_hint": "[项目 | 第N集 | 场次 | BGM | 环境声 | 声音提示表]"
       },
@@ -118,6 +126,7 @@
       "skill": "vsc-post",
       "entry": {
         "mode": "post",
+        "summary": "剪辑、混音、审片、交付",
         "description": "VSC 后期：剪辑时间线、转场、对白、音乐、音效、字幕、混音、审片与交付。",
         "argument_hint": "[项目 | 第N集 | 时间线 | 审片]"
       },
@@ -132,6 +141,7 @@
       "skill": "vsc-remotion",
       "entry": {
         "mode": "remotion",
+        "summary": "Remotion 预演与导出",
         "description": "VSC Remotion：将已批准的镜头、声音与字幕编译为可编辑预览和确定性渲染项目。",
         "argument_hint": "[项目 | 第N集 | 时间线 | Remotion 预演 | 导出计划]"
       },
@@ -145,6 +155,7 @@
       "skill": "vsc-learn",
       "entry": {
         "mode": "learning",
+        "summary": "方法学习、能力卡与评测",
         "description": "VSC 学习：把有权属的图像、视频、音频或文本素材，经观察、试用与评测沉淀为受控能力卡；不自动训练模型或复制风格。",
         "argument_hint": "[项目 | 素材 | 动作/特效/构图/情绪/对白/声音/剪辑 | 能力评测]"
       },
@@ -158,6 +169,7 @@
       "skill": "vsc-vendor",
       "entry": {
         "mode": "vendor",
+        "summary": "第三方技能管理",
         "description": "VSC Vendor：安装、扫描并直接复用本地开源 Skill/工具；第三方源码不进入 Git 仓库。",
         "argument_hint": "[安装来源 | 扫描 Skill | 使用某阶段 Skill | 更新计划]"
       },
@@ -171,6 +183,7 @@
       "skill": "vsc-architecture",
       "entry": {
         "mode": "architecture",
+        "summary": "工作流架构维护",
         "description": "VSC 架构维护：使用已批准的公开架构 Skill 审查 VSC 或业务扩展的模块深度、接缝和可验证性。",
         "argument_hint": "[VSC 核心 | Profile | 适配器 | 业务扩展 | 架构审计]"
       },
