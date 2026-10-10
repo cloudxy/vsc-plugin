@@ -26,6 +26,7 @@
 | 文档 | 内容 |
 |---|---|
 | [通用架构](architecture/reference-architecture.md) | 产物、活动、决策、策略、版本、事件与可扩展内核 |
+| [生成适配器边界](architecture/generation-adapters.md) | 供应商中立的生成接缝、每次生成需记录的字段与已实现的媒体检查适配器 |
 | [内核重构](architecture/kernel-refactor.md) | v0.6 从分散声明到可验证内核：结构问题与扩展规则 |
 | [工作流内核](../workflow/README.md) | 单一事实来源、稳定查询/校验接口与扩展方式 |
 | [ADR](adr/README.md) | 影响长期结构的可追溯决定 |

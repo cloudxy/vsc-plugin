@@ -103,7 +103,7 @@ python3 -B scripts/vsc_state.py next ./projects/雨夜来信
 |---|---|
 | 在 AI 客户端或命令行中使用 VSC | [AI 客户端接入](docs/guide/workspace-setup.md) · [命令行使用](docs/guide/cli.md) · [本地 Vendor](docs/guide/vendor.md) |
 | 理解创作方法 | [创作体系](docs/design/creative-production.md) · [连续性与声音](docs/design/continuity-and-sound.md) · [记忆与学习](docs/design/memory-and-learning.md) · [Profile 与验证](docs/design/profiles-and-validation.md) · [Remotion](docs/design/remotion.md) |
-| 理解架构 | [通用架构](docs/architecture/reference-architecture.md) · [工作流内核](workflow/README.md) · [ADR](docs/adr/README.md) |
+| 理解架构 | [通用架构](docs/architecture/reference-architecture.md) · [生成适配器边界](docs/architecture/generation-adapters.md) · [工作流内核](workflow/README.md) · [ADR](docs/adr/README.md) |
 | 了解治理与证据要求 | [Vendor 治理](docs/governance/vendor-governance.md) · [专业制作证据](docs/governance/production-evidence.md) |
 | 维护 VSC | [维护与本地验证](docs/guide/maintenance.md) · [vsc-architecture](skills/vsc-architecture/SKILL.md) |
 
