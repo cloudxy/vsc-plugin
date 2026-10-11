@@ -4,11 +4,14 @@
   bible validate FILE [--project DIR]          校验资产库；给出项目目录时核对参考素材与声音文件的 SHA-256
   state validate FILE [--bible FILE]           校验状态时间线；给出资产库时核对实体、变体与地点
   state at FILE SHOT [--bible FILE]            输出某镜头入点与出点的推导状态（JSON）
-  anchors SHOT --bible FILE --state FILE [--text]
-                                               输出该镜头的锚点包（JSON，含 sha256）；--text 输出可改写为提示词的文字
+  anchors SHOT --bible FILE --state FILE [--text] [--moment entry|exit]
+                                               输出该镜头的锚点包（JSON，含 sha256）；--text 输出可改写为提示词的文字，
+                                               加 --moment 时只写入点或出点的完整状态，用于生成首帧、尾帧
   record validate FILE                         校验一份生成记录的结构
   check --bible FILE --state FILE [--continuity PLAN] [--record FILE ...] [--project DIR]
-                                               交叉检查；连续性计划须与时间线一致，生成记录须绑定当前锚点
+                                               交叉检查；连续性计划须与时间线一致，生成记录须绑定当前锚点。
+                                               同时给出资产图、关键帧与视频的记录时，沿“资产图 → 关键帧 → 视频”追溯
+                                               身份锚定，并核对相邻镜头视频的交界帧是同一张图
 
 资产库为人物、道具、物体、地点等实体登记不可变特征、命名变体、参考素材、生成锚点，以及人物音色与物体声音，
 并给出全片统一的字幕样式。状态时间线为每场戏写基线状态，每个镜头只写该镜内发生的变化：任一镜头的入点状态
@@ -17,6 +20,11 @@
 锚点包是某个镜头生成时必须遵守的全部身份与状态：在场实体的不可变特征、变体、位置、手持物、参考素材与生成锚点，
 地点与环境，以及本镜内的变化。生成记录用 anchors_sha256 绑定所用锚点包；资产库或时间线之后改动了该镜头的锚点，
 交叉检查会指出该 take 已过期。
+
+画面按“资产图 → 关键帧 → 视频”三段生成，生成记录相应写明：
+- 资产图：purpose=asset，不写 shot_id；生成后应登记为资产库中对应实体的参考素材。
+- 关键帧：图像记录写 shot_id 和 inputs.moment（entry/exit）。以上一张关键帧为底图编辑或参考时，写 inputs.base_frame（use=edit/reference），身份沿它逐级上溯到资产图。
+- 视频：inputs.first_frame 和 inputs.last_frame 写两帧的 SHA；同场相邻两镜，前一镜的尾帧与后一镜的首帧必须是同一张图。
 """
 import argparse
 import copy
@@ -30,7 +38,9 @@ BIBLE_FORMAT = "vsc.asset-bible/v1"
 STATE_FORMAT = "vsc.scene-state/v1"
 RECORD_FORMAT = "vsc.generation-record/v1"
 RECORD_KINDS = ("video", "image", "audio")
-PURPOSES = ("candidate", "animatic_temp")
+PURPOSES = ("candidate", "animatic_temp", "asset")
+MOMENTS = ("entry", "exit")
+BASE_USES = ("reference", "edit")
 STATUSES = ("succeeded", "partial", "failed")
 FRAME_SOURCES = ("reference", "previous_exit", "generated")
 KINDS = ("character", "prop", "object", "location", "creature", "vehicle")
@@ -358,8 +368,12 @@ def pack_sha256(pack):
     return hashlib.sha256(json.dumps(pack, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def anchor_text(pack):
-    """把锚点包写成可改写为供应商提示词的中文段落：逐镜写出入点状态与本镜变化，而不是全片共用一段描述。"""
+def anchor_text(pack, moment=None):
+    """把锚点包写成可改写为供应商提示词的中文段落：逐镜写出入点状态与本镜变化，而不是全片共用一段描述。
+
+    moment 为 entry 或 exit 时只写该时刻的完整状态（用于生成首帧、尾帧），不写本镜变化。
+    """
+    state_moment = moment or "entry"
     names = {entity_id: info.get("name", entity_id) for entity_id, info in pack["entities"].items()}
 
     def named(items):
@@ -372,13 +386,14 @@ def anchor_text(pack):
         return "；".join(part for part in (appearance, f"不可改变：{identity}" if identity else "") if part)
 
     location = pack["location"]
-    lines = [f"镜头 {pack['shot']}（{pack['scene']}）。地点：{location.get('name', location['id'])}，"
-             f"{describe(location)}；{'、'.join(str(v) for v in pack['environment']['entry'].values())}。"]
+    label = {"entry": "入点", "exit": "出点"}.get(moment, "")
+    lines = [f"镜头 {pack['shot']}{label}（{pack['scene']}）。地点：{location.get('name', location['id'])}，"
+             f"{describe(location)}；{'、'.join(str(v) for v in pack['environment'][state_moment].values())}。"]
     order = {kind: rank for rank, kind in enumerate(("character", "creature", "vehicle", "prop", "object"))}
     for entity_id, info in sorted(pack["entities"].items(), key=lambda item: (order.get(item[1].get("kind"), 9), item[0])):
         if info.get("kind") == "location":
             continue
-        entry = info.get("entry")
+        entry = info.get(state_moment)
         if entry is None:
             continue
         parts = [f"{names[entity_id]}：{describe(info)}"]
@@ -389,6 +404,8 @@ def anchor_text(pack):
         if entry.get("holding"):
             parts.append("手持" + named(entry["holding"]))
         lines.append("；".join(parts) + "。")
+    if moment:
+        return "\n".join(lines)
     moves = []
     for entity_id, change in pack["changes"].get("entities", {}).items():
         name = names.get(entity_id, entity_id)
@@ -420,12 +437,22 @@ def record_errors(record):
         errors.append(f"kind 必须是 {'/'.join(RECORD_KINDS)}")
     if purpose not in PURPOSES:
         errors.append(f"purpose 必须是 {'/'.join(PURPOSES)}")
-    if kind in ("video", "image") and not text(record.get("shot_id")):
-        errors.append("画面生成必须写 shot_id")
+    if purpose == "asset" and kind != "image":
+        errors.append("资产生成（purpose=asset）只能是图像")
+    elif kind in ("video", "image") and purpose != "asset" and not text(record.get("shot_id")):
+        errors.append("镜头画面生成必须写 shot_id")
     inputs = record.get("inputs")
     if not isinstance(inputs, dict):
         errors.append("inputs 必须是对象")
         inputs = {}
+    if kind == "image" and inputs.get("moment") is not None and inputs["moment"] not in MOMENTS:
+        errors.append(f"inputs.moment 必须是 {'/'.join(MOMENTS)}")
+    if inputs.get("base_frame") is not None:
+        if kind != "image":
+            errors.append("只有图像记录可以写 inputs.base_frame")
+        _media_errors(inputs["base_frame"], "inputs.base_frame", errors)
+        if isinstance(inputs["base_frame"], dict) and inputs["base_frame"].get("use") not in BASE_USES:
+            errors.append(f"inputs.base_frame.use 必须是 {'/'.join(BASE_USES)}")
     if inputs.get("anchors_sha256") is not None and not (isinstance(inputs["anchors_sha256"], str) and SHA256.fullmatch(inputs["anchors_sha256"])):
         errors.append("inputs.anchors_sha256 必须是 64 位小写十六进制或 null")
     if not (isinstance(inputs.get("references", []), list) and all(isinstance(x, str) and SHA256.fullmatch(x) for x in inputs.get("references", []))):
@@ -476,14 +503,34 @@ def record_errors(record):
     return errors
 
 
-def record_problems(record, bible, state, project=None):
-    """生成记录与当前资产库、时间线的交叉检查；返回 (问题, 提醒)。"""
+def identity_references(record, keyframes, seen=()):
+    """一张画面实际承载的参考素材：自身 references，加上它所基于的关键帧（逐级上溯）承载的参考素材。"""
+    inputs = record.get("inputs", {})
+    used = set(inputs.get("references", []))
+    base = (inputs.get("base_frame") or {}).get("sha256")
+    if base in keyframes and base not in seen:
+        used |= identity_references(keyframes[base], keyframes, (*seen, base))
+    return used
+
+
+def record_problems(record, bible, state, project=None, keyframes=None):
+    """生成记录与当前资产库、时间线的交叉检查；返回 (问题, 提醒)。
+
+    keyframes 是 {输出 SHA-256: 关键帧图像记录}。关键帧的身份来自它用到的资产图以及它所基于的上一张关键帧；
+    视频首尾帧能追溯到这样的关键帧时，身份算作由图像锚定。
+    """
     problems, warnings = [], []
+    keyframes = keyframes or {}
     if record.get("project_id") != bible.get("project_id"):
         problems.append("生成记录与资产库的 project_id 不一致")
     index, inputs = entity_index(bible), record.get("inputs", {})
     label = record.get("shot_id") or record.get("kind")
-    if record.get("kind") in ("video", "image"):
+    if record.get("purpose") == "asset":
+        registered = {ref["sha256"] for entity in bible.get("entities", []) for ref in entity.get("references", [])}
+        for output in record.get("outputs", []):
+            if output.get("sha256") not in registered:
+                warnings.append(f"资产图 {output.get('id')} 尚未登记为资产库中任何实体的参考素材")
+    elif record.get("kind") in ("video", "image"):
         try:
             pack = anchor_pack(bible, state, record["shot_id"])
         except ValueError as exc:
@@ -494,15 +541,31 @@ def record_problems(record, bible, state, project=None):
             problems.append(f"{label}：生成后资产库或时间线改动了本镜锚点，take 可能已过期，需复核或重生成")
         allowed = {ref["sha256"]: entity_id for entity_id, info in pack["entities"].items() for ref in info.get("references", [])}
         allowed.update({ref["sha256"]: pack["location"]["id"] for ref in pack["location"].get("references", [])})
-        used = set(inputs.get("references", []))
-        for sha in sorted(used - set(allowed)):
+        for sha in sorted(set(inputs.get("references", [])) - set(allowed)):
             problems.append(f"{label}：参考素材 {sha[:12]} 不属于本镜在场的实体或地点")
+        used = identity_references(record, keyframes)
+        base = inputs.get("base_frame")
+        if base and keyframes and base["sha256"] not in keyframes:
+            warnings.append(f"{label}：基础帧 {base['path']} 追溯不到关键帧记录")
+        if record.get("kind") == "video":
+            for key in ("first_frame", "last_frame"):
+                source = keyframes.get((inputs.get(key) or {}).get("sha256"))
+                if inputs.get(key) and source is None and keyframes:
+                    warnings.append(f"{label}：{key} {inputs[key]['path']} 追溯不到关键帧记录，无法确认它用资产图锚定")
+                elif source is not None:
+                    used |= identity_references(source, keyframes)
         for entity_id, info in pack["entities"].items():
             if info.get("kind") in ("character", "creature") and not used & {ref["sha256"] for ref in info.get("references", [])}:
-                warnings.append(f"{label}：{entity_id} 没有使用任何参考素材，身份只靠文字锚定")
+                warnings.append(f"{label}：{entity_id} 没有使用任何参考素材或由资产图生成的关键帧，身份只靠文字锚定")
         frame = inputs.get("first_frame") or {}
         if frame.get("from") == "previous_exit" and frame.get("shot") != pack["previous_shot"]:
             problems.append(f"{label}：首帧取自 {frame.get('shot')} 的出点，但上一镜是 {pack['previous_shot']}")
+        first = keyframes.get(frame.get("sha256"))
+        if first is not None and moment_of(first) not in ((record["shot_id"], "entry"), (pack["previous_shot"], "exit")):
+            problems.append(f"{label}：首帧对应的关键帧既不是本镜入点也不是上一镜出点（{' '.join(map(str, moment_of(first)))}）")
+        last = keyframes.get((inputs.get("last_frame") or {}).get("sha256"))
+        if last is not None and moment_of(last) != (record["shot_id"], "exit"):
+            problems.append(f"{label}：尾帧对应的关键帧不是本镜出点（{' '.join(map(str, moment_of(last)))}）")
     for output in record.get("outputs", []):
         speaker = output.get("entity")
         binding = index.get(speaker, {}).get("voice") if speaker else None
@@ -510,7 +573,7 @@ def record_problems(record, bible, state, project=None):
             problems.append(f"{label}：{output['id']} 的音色 {output['voice']} 与资产库中 {speaker} 的绑定 {binding['voice']} 不一致")
     if project:
         items = [(f"{label} 输出 {output.get('id')}", output) for output in record.get("outputs", [])]
-        items += [(f"{label} {key}", inputs[key]) for key in ("first_frame", "last_frame") if inputs.get(key)]
+        items += [(f"{label} {key}", inputs[key]) for key in ("first_frame", "last_frame", "base_frame") if inputs.get(key)]
         for name, item in items:
             path = Path(project) / item["path"]
             if not path.is_file():
@@ -518,6 +581,27 @@ def record_problems(record, bible, state, project=None):
             elif hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
                 problems.append(f"{name} 文件内容与记录的 SHA-256 不一致：{item['path']}")
     return problems, warnings
+
+
+def moment_of(record):
+    return record.get("shot_id"), record.get("inputs", {}).get("moment")
+
+
+def chain_problems(records, state):
+    """同场相邻镜头的视频：后一镜首帧必须与前一镜尾帧是同一张图。"""
+    videos = {record["shot_id"]: record for record in records if record.get("kind") == "video" and record.get("status") != "failed"}
+    problems = []
+    for scene in state["scenes"]:
+        order = [shot["id"] for shot in scene["shots"]]
+        for previous, current in zip(order, order[1:]):
+            if previous in videos and current in videos:
+                tail = (videos[previous].get("inputs", {}).get("last_frame") or {}).get("sha256")
+                head = (videos[current].get("inputs", {}).get("first_frame") or {}).get("sha256")
+                if not tail or not head:
+                    problems.append(f"{previous}→{current}：缺首帧或尾帧，交界无法核对")
+                elif tail != head:
+                    problems.append(f"{previous}→{current}：后一镜首帧与前一镜尾帧不是同一张图")
+    return problems
 
 
 # ---------- 交叉检查：连续性计划 ----------
@@ -573,6 +657,7 @@ def main():
     command.add_argument("--bible", required=True)
     command.add_argument("--state", required=True)
     command.add_argument("--text", action="store_true")
+    command.add_argument("--moment", choices=("entry", "exit"), help="只写入点或出点时刻的状态（用于首帧、尾帧）")
     record = commands.add_parser("record").add_subparsers(dest="action", required=True)
     command = record.add_parser("validate")
     command.add_argument("file")
@@ -589,7 +674,7 @@ def main():
             problems = bible_errors(bible_data) or state_errors(data, bible_data)
             if not problems:
                 pack = anchor_pack(bible_data, data, args.shot)
-                print(anchor_text(pack) if args.text else json.dumps({"sha256": pack_sha256(pack), "pack": pack}, ensure_ascii=False, indent=2))
+                print(anchor_text(pack, args.moment) if args.text else json.dumps({"sha256": pack_sha256(pack), "pack": pack}, ensure_ascii=False, indent=2))
                 return
             label = ""
         elif args.command == "record":
@@ -623,11 +708,15 @@ def main():
             if not problems and args.continuity:
                 plan = json.loads(Path(args.continuity).read_text("utf-8"))
                 problems, warnings = continuity_problems(plan, derive(data), bible_data)
-            for path in args.record if not problems else []:
-                record_data = load(path, RECORD_FORMAT)
-                found, notes = (record_errors(record_data), []) if record_errors(record_data) else record_problems(record_data, bible_data, data, args.project)
+            records = [(path, load(path, RECORD_FORMAT)) for path in (args.record if not problems else [])]
+            keyframes = {output["sha256"]: record for _, record in records
+                         if record.get("kind") == "image" and record.get("purpose") == "candidate" for output in record.get("outputs", [])}
+            for path, record_data in records:
+                found, notes = (record_errors(record_data), []) if record_errors(record_data) else record_problems(record_data, bible_data, data, args.project, keyframes)
                 problems += [f"{Path(path).name}：{item}" for item in found]
                 warnings += [f"{Path(path).name}：{item}" for item in notes]
+            if records and not problems:
+                problems += chain_problems([record for _, record in records], data)
             for warning in warnings:
                 print(f"WARN {warning}")
             label = "资产库与状态时间线"
