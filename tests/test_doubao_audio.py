@@ -83,8 +83,10 @@ class AudioTests(unittest.TestCase):
         os.environ.clear()
         os.environ["HUO_SHAN_API_KEY"] = "ark-only"
         self.assertTrue(audio.generate(self.args())["dry_run"])
-        with self.assertRaisesRegex(audio.AudioError, "DOUBAO_MEDIAKIT_API_KEY"):
+        with self.assertRaisesRegex(audio.AudioError, "DOUBAO_MEDIAKIT_API_KEY") as error:
             audio.generate(self.args("--execute"))
+        self.assertIn("~/.zshenv", str(error.exception))
+        self.assertIn("source ~/.zshenv", str(error.exception))
         self.remote.assert_not_called()
         self.assertFalse((self.project / "06-素材/声音/BGM-01-任务.json").exists())
         self.replies({"success": True, "task_id": TASK_ID}, completed())

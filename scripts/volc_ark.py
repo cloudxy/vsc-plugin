@@ -83,7 +83,8 @@ def sha256(path):
 def api_key():
     key = os.environ.get("HUO_SHAN_API_KEY") or os.environ.get("ARK_API_KEY")
     if not key:
-        raise ArkError("缺少 HUO_SHAN_API_KEY 或 ARK_API_KEY")
+        raise ArkError("缺少 HUO_SHAN_API_KEY 或 ARK_API_KEY；请先检查 ~/.zshenv 中的对应 export 配置，"
+                       "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量")
     return key
 
 

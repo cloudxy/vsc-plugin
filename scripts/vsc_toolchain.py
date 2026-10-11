@@ -197,7 +197,10 @@ def readiness(project, library=None):
         tools.append({"id": identifier, "label": label, "script": "scripts/" + script,
             "implemented": (ROOT / "scripts" / script).is_file(), "configured": bool(present) if names else True,
             "configuration": {"status": "present" if present else "pending" if names else "not_required",
-                              "any_env_names": list(names), "present_env_names": present},
+                              "any_env_names": list(names), "present_env_names": present,
+                              "missing_hint": ("当前进程未读取到凭证；请先到 ~/.zshenv 查找对应 export 配置，"
+                                  "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量。"
+                                  if names and not present else None)},
             "permission_verification": "not_probed", "verified_candidates": {"count": len(records), "records": records},
             "verified_visual_reports": {"count": len(visual), "reports": visual}, "human_review": "pending"})
     for name in ("ffmpeg", "ffprobe"):
@@ -242,6 +245,8 @@ def main(argv=None):
             print(f"{tool['id']}: implemented={tool['implemented']} configured={tool['configured']} "
                   f"configuration={config['status']} env={names} present_env={present} "
                   f"verified_candidates={count} visual_reports={visual} human_review=pending")
+            if config.get("missing_hint"):
+                print(f"  {names}：{config['missing_hint']}")
         for kind, values in report.get("library", {}).get("kinds", {}).items():
             print(f"素材 {kind}: media={values['media_count']} specification={values['specification_count']} other={values['other_count']}")
         for error in report["errors"]:

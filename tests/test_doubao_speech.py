@@ -100,8 +100,10 @@ class SpeechTests(unittest.TestCase):
         self.assertTrue(speech.synthesize(self.args())["dry_run"])
         os.environ.clear()
         os.environ["HUO_SHAN_API_KEY"] = "ark-only"
-        with self.assertRaisesRegex(speech.SpeechError, "DOUBAO_SPEECH_API_KEY"):
+        with self.assertRaisesRegex(speech.SpeechError, "DOUBAO_SPEECH_API_KEY") as error:
             speech.synthesize(self.args("--execute"))
+        self.assertIn("~/.zshenv", str(error.exception))
+        self.assertIn("source ~/.zshenv", str(error.exception))
         self.remote.assert_not_called()
         self.assertFalse((self.project / "06-素材/声音/VOICE-01-任务.json").exists())
 
