@@ -82,6 +82,13 @@
       "artifact_types": ["vsc.scene_state"],
       "template": "templates/scene-state.json",
       "validator": {"script": "scripts/consistency.py", "arguments": ["state", "validate"]}
+    },
+    {
+      "format": "vsc.generation-record/v1",
+      "owner": "制作阶段",
+      "artifact_types": ["vsc.generation_record"],
+      "template": "templates/generation-record.json",
+      "validator": {"script": "scripts/consistency.py", "arguments": ["record", "validate"]}
     }
   ]
 }

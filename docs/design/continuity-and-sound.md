@@ -78,7 +78,7 @@ entry_state  →  [本镜行动 / 镜头目的]  →  exit_state
 python3 scripts/vsc_kernel.py contract validate vsc.continuity-plan/v1 ./05-预演/连续性计划.json
 ```
 
-`match_fields` 只约束相邻两镜。同场不相邻的镜头、隔几集回到同一地点，靠的是状态时间线（`vsc.scene-state/v1`）：每场只写一份基线和逐镜变化，出入点状态由累积推导，不会各写各的；时间线里的实体与变体又必须存在于资产库（`vsc.asset-bible/v1`）。三者的交叉核对见 `scripts/consistency.py check`。
+`match_fields` 只约束相邻两镜。同场不相邻的镜头、隔几集回到同一地点，靠的是状态时间线（`vsc.scene-state/v1`）：每场只写一份基线和逐镜变化，出入点状态由累积推导，不会各写各的；时间线里的实体与变体又必须存在于资产库（`vsc.asset-bible/v1`）。生成时再按镜头推导锚点包，生成记录用其哈希绑定；锚点之后被改动，对应 take 会被标为过期。交叉核对见 `scripts/consistency.py check`。
 
 ### 2.3 桥接不是只有溶解
 
