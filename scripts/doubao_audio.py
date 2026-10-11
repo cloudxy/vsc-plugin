@@ -41,7 +41,9 @@ def api_key(env_name):
         raise AudioError("--key-env 只接受环境变量名，不接受密钥字面值")
     key = os.environ.get(env_name, "").strip()
     if not key:
-        raise AudioError(f"缺少 MediaKit 凭证环境变量 {env_name}；不自动回退到方舟密钥")
+        raise AudioError(f"缺少 MediaKit 凭证环境变量 {env_name}；请先检查 ~/.zshenv 中的对应 export 配置，"
+                         "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量；"
+                         "不自动回退到方舟密钥")
     if any(ord(char) < 32 for char in key):
         raise AudioError("MediaKit 凭证含非法控制字符")
     return key

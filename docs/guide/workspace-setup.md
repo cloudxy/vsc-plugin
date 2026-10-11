@@ -34,6 +34,29 @@ ZCode 的工作区规则入口可以驱动完整本地工作流，但不等于�
 
 Windows 上克隆前需开启开发者模式，并设置 `git config --global core.symlinks true`；否则入口链接会被检出为内含目标路径的普通文本文件，客户端无法发现技能。
 
+## 本机密钥的位置与加载
+
+本工作区的本机约定是把自动化所需的密钥及相关变量集中到 `~/.zshenv`，权限为 `600`；`~/.zshrc` 只保留终端设置和配置位置指引。这里记录路径和变量名，不记录密钥值。
+
+| 调用方 | 需要查找的变量 |
+| --- | --- |
+| 方舟图像／视频／视觉检查 | `HUO_SHAN_API_KEY` 或 `ARK_API_KEY` |
+| 豆包语音 | `DOUBAO_SPEECH_API_KEY`，或显式 `--key-env` 指定的变量 |
+| MediaKit Seed-Audio | `DOUBAO_MEDIAKIT_API_KEY`，或显式 `--key-env` 指定的变量 |
+| GitHub、OSS 等其他本机工具 | `GITHUB_PERSONAL_ACCESS_TOKEN`、`OSS_ACCESS_KEY`、`OSS_SECRET_KEY` 等对应变量 |
+
+当前进程读取不到时，提示用户先到 `~/.zshenv` 寻找对应的 `export` 配置。在启动工具的 zsh 中执行：
+
+```zsh
+source ~/.zshenv
+# 只确认存在性，不打印变量值
+[[ -n ${DOUBAO_SPEECH_API_KEY:-} ]] && print '已加载' || print '未加载，请检查 ~/.zshenv'
+```
+
+然后从这个 shell 重新启动工具。已经运行的进程不会因此更新自身环境；其他 shell、图形应用和任务调度器也需要显式传入对应变量。`.zshenv` 的默认加载规则见 [zsh 官方说明](https://zsh.sourceforge.io/Doc/Release/Files.html)。
+
+生成适配器仍只读取进程环境，缺少时会给出位置和加载提醒，不自行读取或执行 shell 文件。工具链就绪诊断在文本及 JSON 输出中提供缺钥指引，不把配置提醒当作权限验证，也不改变退出码。不要用 `cat ~/.zshenv`、打印变量值或整份环境输出来排查。已经读取到密钥但收到 401 时，另行核对凭证和服务权限。
+
 ## 验证
 
 ```bash

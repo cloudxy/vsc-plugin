@@ -37,6 +37,15 @@ class ContentTest(unittest.TestCase):
 
 
 class InputTest(unittest.TestCase):
+    def test_missing_key_points_to_configuration_without_loading_or_network(self):
+        with mock.patch.dict(A.os.environ, {}, clear=True), \
+                mock.patch.object(A.Path, "read_text", side_effect=AssertionError("must not read shell config")), \
+                mock.patch.object(A.urllib.request, "urlopen") as remote:
+            with self.assertRaisesRegex(A.ArkError, "HUO_SHAN_API_KEY.*~/.zshenv") as error:
+                A.call("/images/generations", {"prompt": "offline"})
+            self.assertIn("source ~/.zshenv", str(error.exception))
+            remote.assert_not_called()
+
     def test_media_type_is_sniffed_from_content(self):
         with tempfile.TemporaryDirectory() as temp:
             fake = Path(temp) / "看似.png"

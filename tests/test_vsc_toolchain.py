@@ -73,6 +73,7 @@ class ToolchainTest(unittest.TestCase):
             self.assertTrue(tool["configured"])
             self.assertEqual(tool["verified_candidates"]["count"], 0)
             self.assertEqual(tool["permission_verification"], "not_probed")
+            self.assertIsNone(tool["configuration"]["missing_hint"])
             self.assertEqual(tool["human_review"], "pending")
         self.assertFalse(report["network_probed"])
         self.assertFalse(report["approval_granted"])
@@ -87,6 +88,7 @@ class ToolchainTest(unittest.TestCase):
             self.assertFalse(tool["configured"])
             self.assertEqual(tool["configuration"]["status"], "pending")
             self.assertEqual(tool["configuration"]["present_env_names"], [])
+            self.assertIn("source ~/.zshenv", tool["configuration"]["missing_hint"])
         for identifier in ("procedural_audio", "queue", "recipes", "craft", "sequence", "ffmpeg", "ffprobe"):
             self.assertIn(identifier, self.tools(report))
         self.assertEqual(report["errors"], [])
@@ -97,6 +99,7 @@ class ToolchainTest(unittest.TestCase):
         self.assertIn("HUO_SHAN_API_KEY|ARK_API_KEY", out)
         self.assertIn("DOUBAO_SPEECH_API_KEY", out)
         self.assertIn("DOUBAO_MEDIAKIT_API_KEY", out)
+        self.assertIn("~/.zshenv", out)
 
     def test_actual_same_project_schema_success_and_sha_evidence_counts(self):
         for index, (provider, kind, tool) in enumerate((
