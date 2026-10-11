@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """VSC 字幕烧录：把已批准的 SRT 烧进视频，生成带字幕的版本。
 
-  burn VIDEO SRT --output OUT [--font FONT] [--font-size N] [--color C] [--stroke-color C] [--stroke-width N]
-                              [--position bottom|top|center|custom] [--custom-position P]
+  burn VIDEO SRT --output OUT [--bible ASSET-BIBLE.json] [--font FONT] [--font-size N] [--color C] [--stroke-color C]
+                              [--stroke-width N] [--position bottom|top|center|custom] [--custom-position P]
                               [--background C] [--rounded]
 
-默认字体是 noto-sans-sc 的 NotoSansSC-Bold.otf；--font 可指定任何本机字体文件，字体的使用权由用户负责。
+样式依次取自：命令行参数 > 资产库的 subtitle_style（--bible）> 默认值。资产库中的相对字体路径按工作流根目录解析。
+默认字体是 noto-sans-sc 的 NotoSansSC-Bold.otf；也可指定任何本机字体文件，字体的使用权由用户负责。
 本机 ffmpeg 不一定带 libass，因此每条字幕先由 Pillow 按字体实际宽度换行并画成透明图，再用 ffmpeg 按时间段叠加；
 位置与换行规则见 subtitles.py。Pillow 由 uv 在独立进程中按 PILLOW 固定的版本运行，VSC 自身代码只用标准库。
 音轨原样复制，视频以 H.264 重新编码。
@@ -18,17 +19,43 @@ import sys
 import tempfile
 from pathlib import Path
 
+import consistency
 import subtitles
-from vendor_sync import VENDOR, installed_problem, locked_source
+from vendor_sync import ROOT, VENDOR, installed_problem, locked_source
 
 PILLOW = "pillow==11.3.0"
 FONT_SOURCE = "noto-sans-sc"
 DEFAULT_FONT = VENDOR / FONT_SOURCE / "Sans" / "SubsetOTF" / "SC" / "NotoSansSC-Bold.otf"
-POSITIONS = ("bottom", "top", "center", "custom")
+POSITIONS = consistency.POSITIONS
+DEFAULT_STYLE = {"font": None, "font_size": 60, "color": "#FFFFFF", "stroke_color": "#000000", "stroke_width": 1.5,
+                 "position": "bottom", "custom_position": 70.0, "background": None, "rounded": False}
 
 
 class BurnError(RuntimeError):
     """输入无效或运行环境未就绪。"""
+
+
+def resolve_style(bible_path=None, overrides=None):
+    """默认值 ← 资产库 subtitle_style ← 显式参数；返回 (样式, 来源)。"""
+    style, source = dict(DEFAULT_STYLE), "default"
+    if bible_path:
+        try:
+            bible = consistency.load(bible_path, consistency.BIBLE_FORMAT)
+        except ValueError as exc:
+            raise BurnError(str(exc)) from exc
+        problems = consistency.bible_errors(bible)
+        if problems:
+            raise BurnError("资产库无效：" + "；".join(problems))
+        if bible.get("subtitle_style"):
+            style.update(bible["subtitle_style"])
+            if style.get("font") and not Path(style["font"]).is_absolute():
+                style["font"] = str(ROOT / style["font"])
+            source = "bible"
+    explicit = {key: value for key, value in (overrides or {}).items() if value is not None}
+    if explicit:
+        style.update(explicit)
+        source = f"{source}+args"
+    return style, source
 
 
 def probe_size(video):
@@ -148,24 +175,26 @@ def main():
     command.add_argument("video")
     command.add_argument("srt")
     command.add_argument("--output", required=True)
-    command.add_argument("--font", help="字体文件，默认 NotoSansSC-Bold.otf")
-    command.add_argument("--font-size", type=int, default=60)
-    command.add_argument("--color", default="#FFFFFF")
-    command.add_argument("--stroke-color", default="#000000")
-    command.add_argument("--stroke-width", type=float, default=1.5)
-    command.add_argument("--position", default="bottom", choices=POSITIONS)
-    command.add_argument("--custom-position", type=float, default=70.0, help="position=custom 时距顶部的百分比")
-    command.add_argument("--background", help="字幕底色，如 #000000；不填则无底")
-    command.add_argument("--rounded", action="store_true", help="半透明圆角底")
+    command.add_argument("--bible", help="vsc.asset-bible/v1 资产库，取其 subtitle_style")
+    command.add_argument("--font", help="字体文件")
+    command.add_argument("--font-size", type=int)
+    command.add_argument("--color")
+    command.add_argument("--stroke-color")
+    command.add_argument("--stroke-width", type=float)
+    command.add_argument("--position", choices=POSITIONS)
+    command.add_argument("--custom-position", type=float, help="position=custom 时距顶部的百分比")
+    command.add_argument("--background", help="字幕底色，如 #000000")
+    command.add_argument("--rounded", action="store_true", default=None, help="半透明圆角底")
     args = parser.parse_args()
-    style = {"font": args.font, "font_size": args.font_size, "color": args.color, "stroke_color": args.stroke_color,
-             "stroke_width": args.stroke_width, "position": args.position, "custom_position": args.custom_position,
-             "background": args.background, "rounded": args.rounded}
+    overrides = {"font": args.font, "font_size": args.font_size, "color": args.color, "stroke_color": args.stroke_color,
+                 "stroke_width": args.stroke_width, "position": args.position, "custom_position": args.custom_position,
+                 "background": args.background, "rounded": args.rounded}
     try:
+        style, source = resolve_style(args.bible, overrides)
         result = burn(args.video, args.srt, args.output, style)
     except BurnError as exc:
         raise SystemExit(f"错误：{exc}")
-    print(f"SUBTITLES BURNED: {result['cues']} 条，字体 {Path(result['font']).name} → {result['output']}")
+    print(f"SUBTITLES BURNED: {result['cues']} 条，字体 {Path(result['font']).name}，样式来源 {source} → {result['output']}")
 
 
 if __name__ == "__main__":

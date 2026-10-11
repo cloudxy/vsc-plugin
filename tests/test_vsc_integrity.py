@@ -308,8 +308,10 @@ class Integrity(unittest.TestCase):
                              {"id": "V2", "kind": "video", "source": "fixture.mp4", "source_shot_id": "SH-002",
                               "from_frame": 12, "duration_in_frames": 12, "source_in_frame": 12, "muted": True},
                              {"id": "A1", "kind": "audio", "source": "fixture.mp4", "from_frame": 0, "duration_in_frames": 24}]}
+        bible = json.loads((ROOT / "templates" / "asset-bible.json").read_text("utf-8"))
+        bible["project_id"] = self.state()["project_id"]
         content = {"vsc.creative_brief": self.brief(), "vsc.adaptation_plan": mapping,
-                   "vsc.shot_plan": continuity, "vsc.timeline": plan}
+                   "vsc.shot_plan": continuity, "vsc.asset_bible": bible, "vsc.timeline": plan}
         previous, timeline = [], None
         for stage in self.state()["profile_snapshot"]["stages"]:
             if stage["id"] == "delivery":

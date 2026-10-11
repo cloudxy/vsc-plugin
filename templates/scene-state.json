@@ -1,0 +1,43 @@
+{
+  "format": "vsc.scene-state/v1",
+  "project_id": "replace-with-project-id",
+  "scenes": [
+    {
+      "id": "EP-001-SC-001",
+      "location_id": "场景-客厅-v1",
+      "baseline": {
+        "time": "夜-室内",
+        "lighting": "暖台灯-v1",
+        "weather": "雨",
+        "entities": {
+          "主角": {
+            "variant": "主角-风衣-v1",
+            "position": "沙发边",
+            "holding": [
+              "信封"
+            ]
+          },
+          "信封": {
+            "position": "主角右手"
+          }
+        }
+      },
+      "shots": [
+        {
+          "id": "SH-001",
+          "changes": {}
+        },
+        {
+          "id": "SH-002",
+          "changes": {
+            "entities": {
+              "信封": {
+                "variant": "信封-已拆"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

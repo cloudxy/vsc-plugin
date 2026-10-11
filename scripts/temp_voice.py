@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """VSC 预演临时配音：为已批准剧本的台词生成配音与字幕。
 
-  generate PROJECT --lines LINES.json [--voice V] [--rate R] [--word-level] [--artifact A-ID]
+  generate PROJECT --lines LINES.json [--bible ASSET-BIBLE.json] [--voice V] [--rate R] [--word-level] [--artifact A-ID]
 
-LINES.json 是数组：[{"id": "DX-01", "text": "台词", "voice": "可选", "rate": 可选}]。每条台词单独生成，写入
+LINES.json 是数组：[{"id": "DX-01", "text": "台词", "speaker": "人物 ID", "voice": "可选", "rate": 可选}]。音色依次取自：
+台词自身的 voice；给出 --bible 时 speaker 在资产库中的音色绑定；--voice 默认值。每条台词单独生成，写入
 PROJECT/05-预演/临时配音/<运行时间>/：<id>.mp3、<id>.srt 与 生成记录.json。字幕默认按剧本标点聚合成整句，
 --word-level 输出逐词字幕；整句对不上时自动退回逐词。
 
@@ -21,6 +22,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import consistency
 import subtitles
 
 EDGE_TTS = "edge-tts==7.2.7"
@@ -49,8 +51,38 @@ def load_lines(path):
             raise VoiceError(f"第 {index + 1} 项 id 必须唯一，且只含字母、数字、点、下划线和连字符")
         if not isinstance(text, str) or not text.strip():
             raise VoiceError(f"{line_id} 缺少台词 text")
+        if "speaker" in line and not (isinstance(line["speaker"], str) and line["speaker"].strip()):
+            raise VoiceError(f"{line_id} 的 speaker 必须是人物 ID")
         seen.add(line_id)
     return lines
+
+
+def load_bible(path):
+    try:
+        bible = consistency.load(path, consistency.BIBLE_FORMAT)
+    except ValueError as exc:
+        raise VoiceError(str(exc)) from exc
+    problems = consistency.bible_errors(bible)
+    if problems:
+        raise VoiceError("资产库无效：" + "；".join(problems))
+    return bible
+
+
+def pick_voice(line, bible, voice, rate):
+    """返回 (音色, 语速, 来源)：台词自身 > 资产库中 speaker 的绑定 > 默认值。"""
+    if line.get("voice"):
+        return line["voice"], line.get("rate") or rate, "line"
+    speaker = line.get("speaker")
+    if speaker:
+        if bible is None:
+            raise VoiceError(f"{line['id']} 指定了 speaker，需要用 --bible 给出资产库")
+        binding = consistency.entity_index(bible).get(speaker, {}).get("voice")
+        if not binding:
+            raise VoiceError(f"{line['id']} 的 speaker {speaker} 在资产库中没有音色绑定")
+        if binding["engine"] != "edge-tts":
+            raise VoiceError(f"{speaker} 的音色引擎是 {binding['engine']}，本工具只支持 edge-tts")
+        return binding["voice"], line.get("rate") or binding.get("rate", rate), "bible"
+    return voice, line.get("rate") or rate, "default"
 
 
 def edge_voice(name):
@@ -103,17 +135,20 @@ def synthesize(job_path, run=subprocess.run):
         raise VoiceError(f"edge-tts 进程失败（exit {result.returncode}）：{(result.stderr or result.stdout).strip()[-500:]}")
 
 
-def generate(project, lines_path, voice=DEFAULT_VOICE, rate=1.0, word_level=False, artifact=None, run=subprocess.run):
+def generate(project, lines_path, voice=DEFAULT_VOICE, rate=1.0, word_level=False, artifact=None, bible_path=None, run=subprocess.run):
     project = Path(project).resolve()
     if not (project / "vsc.json").is_file():
         raise VoiceError(f"不是 VSC 项目：{project}")
     lines = load_lines(lines_path)
+    bible = load_bible(bible_path) if bible_path else None
+    picks = {line["id"]: pick_voice(line, bible, voice, rate) for line in lines}
     output = project / "05-预演" / "临时配音" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     output.mkdir(parents=True, exist_ok=False)
     started = now()
-    job = {"lines": [{"id": line["id"], "text": line["text"], "voice": edge_voice(line.get("voice") or voice),
-                      "rate": subtitles.rate_to_percent(line.get("rate") or rate), "audio": str(output / f"{line['id']}.mp3")}
+    job = {"lines": [{"id": line["id"], "text": line["text"], "voice": edge_voice(picks[line["id"]][0]),
+                      "rate": subtitles.rate_to_percent(picks[line["id"]][1]), "audio": str(output / f"{line['id']}.mp3")}
                      for line in lines]}
+    speakers = {line["id"]: line.get("speaker") for line in lines}
     with tempfile.TemporaryDirectory() as temp:
         job_path = Path(temp) / "job.json"
         job_path.write_text(json.dumps(job, ensure_ascii=False), "utf-8")
@@ -130,7 +165,8 @@ def generate(project, lines_path, voice=DEFAULT_VOICE, rate=1.0, word_level=Fals
         subtitle = output / f"{item['id']}.srt"
         subtitle.write_text(subtitles.to_srt(grouped or cues), "utf-8")
         outputs.append({
-            "id": item["id"], "text": item["text"], "voice": item["voice"], "rate": item["rate"],
+            "id": item["id"], "text": item["text"], "speaker": speakers[item["id"]], "voice": item["voice"], "rate": item["rate"],
+            "voice_source": picks[item["id"]][2],
             "subtitle_mode": "sentence" if grouped else "word",
             "audio": str(Path(item["audio"]).relative_to(project)), "subtitle": str(subtitle.relative_to(project)),
             "duration_seconds": round(cues[-1][1], 3),
@@ -140,7 +176,8 @@ def generate(project, lines_path, voice=DEFAULT_VOICE, rate=1.0, word_level=Fals
         "kind": "预演临时配音",
         "use": TEMP_USE,
         "engine": EDGE_TTS,
-        "inputs": {"lines": str(Path(lines_path).resolve()), "lines_sha256": sha256(lines_path), "artifact": artifact},
+        "inputs": {"lines": str(Path(lines_path).resolve()), "lines_sha256": sha256(lines_path), "artifact": artifact,
+                   "bible": str(Path(bible_path).resolve()) if bible_path else None, "bible_sha256": sha256(bible_path) if bible_path else None},
         "budget": {"provider": "edge-tts", "billable": False},
         "started_at": started,
         "finished_at": now(),
@@ -161,13 +198,14 @@ def main():
     command = commands.add_parser("generate", help="生成预演临时配音与字幕")
     command.add_argument("project")
     command.add_argument("--lines", required=True, help="台词 JSON 数组")
+    command.add_argument("--bible", help="vsc.asset-bible/v1 资产库，按台词的 speaker 取音色")
     command.add_argument("--voice", default=DEFAULT_VOICE, help=f"默认音色（默认 {DEFAULT_VOICE}）")
     command.add_argument("--rate", type=float, default=1.0, help="语速倍率（默认 1.0）")
     command.add_argument("--word-level", action="store_true", help="输出逐词字幕")
     command.add_argument("--artifact", help="台词所依据的已批准剧本产物 ID")
     args = parser.parse_args()
     try:
-        output, record = generate(args.project, args.lines, args.voice, args.rate, args.word_level, args.artifact)
+        output, record = generate(args.project, args.lines, args.voice, args.rate, args.word_level, args.artifact, args.bible)
     except VoiceError as exc:
         raise SystemExit(f"错误：{exc}")
     print(f"TEMP VOICE: {len(record['outputs'])} 条完成，{len(record['errors'])} 条失败 → {output}")

@@ -14,7 +14,7 @@ BGM 和环境底按场景/情绪段落跨镜铺设，不按每个生成视频重
 后期工具（用法与边界见各自的 `--help`）：
 
 - 剪辑师要在剪映中精剪：`scripts/jianying_export.py` 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿，并列出无法迁移的项。
-- 出带字幕的版本：`scripts/subtitle_burn.py` 把已批准的 SRT 烧进视频，默认字体 Noto Sans SC。
+- 出带字幕的版本：`scripts/subtitle_burn.py` 把已批准的 SRT 烧进视频；加 `--bible` 使用资产库的全片字幕样式。
 - 交付前核对响度：`scripts/media_qa.py check` 的 `--loudness-target` 按发布平台规范填写。
 
 需要把已批准时间线做成可编辑预演或确定性成片时，交给 `/vsc-remotion`。它直接复用本机 Remotion 官方 Skill，并将 VSC 时间线编译为可校验的 `vsc.remotion-render-plan/v1`；不要在本技能中绕过预览与人工导出决定。
