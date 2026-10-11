@@ -1,0 +1,83 @@
+{
+  "format": "vsc.asset-bible/v1",
+  "project_id": "replace-with-project-id",
+  "entities": [
+    {
+      "id": "主角",
+      "kind": "character",
+      "name": "主角",
+      "identity": [
+        "三十岁左右",
+        "短发",
+        "左眉有浅疤"
+      ],
+      "variants": {
+        "default": "灰色毛衣、牛仔裤",
+        "主角-风衣-v1": "深色及膝风衣，领口微湿"
+      },
+      "references": [
+        {
+          "path": "06-素材/参考/主角-正面.png",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "view": "正面"
+        }
+      ],
+      "generation": {
+        "prompt": "三十岁左右的短发女性，左眉浅疤，神情克制"
+      },
+      "voice": {
+        "engine": "edge-tts",
+        "voice": "zh-CN-XiaoxiaoNeural",
+        "rate": 1.0,
+        "rights": "temp_only"
+      }
+    },
+    {
+      "id": "场景-客厅-v1",
+      "kind": "location",
+      "name": "雨夜客厅",
+      "identity": [
+        "老式公寓客厅",
+        "门在画面右侧",
+        "沙发背靠左墙"
+      ],
+      "variants": {
+        "default": "暖色台灯为唯一光源"
+      },
+      "references": [
+        {
+          "path": "06-素材/参考/客厅-全景.png",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "信封",
+      "kind": "prop",
+      "name": "旧信封",
+      "identity": [
+        "牛皮纸",
+        "无邮戳"
+      ],
+      "variants": {
+        "default": "封口完好",
+        "信封-已拆": "封口撕开，信纸露出一角"
+      },
+      "sound": {
+        "path": "06-素材/声音/信封-撕开.wav",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "rights": "owned"
+      }
+    }
+  ],
+  "subtitle_style": {
+    "font": "vendor/noto-sans-sc/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf",
+    "font_size": 60,
+    "color": "#FFFFFF",
+    "stroke_color": "#000000",
+    "stroke_width": 1.5,
+    "position": "bottom",
+    "background": null,
+    "rounded": false
+  }
+}

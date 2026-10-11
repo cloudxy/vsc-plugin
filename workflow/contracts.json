@@ -68,6 +68,20 @@
       "owner": "Remotion 编排阶段",
       "template": "templates/remotion-render-plan.json",
       "validator": {"script": "scripts/remotion_plan.py", "arguments": ["validate"]}
+    },
+    {
+      "format": "vsc.asset-bible/v1",
+      "owner": "资产阶段",
+      "artifact_types": ["vsc.asset_bible"],
+      "template": "templates/asset-bible.json",
+      "validator": {"script": "scripts/consistency.py", "arguments": ["bible", "validate"]}
+    },
+    {
+      "format": "vsc.scene-state/v1",
+      "owner": "连续性阶段",
+      "artifact_types": ["vsc.scene_state"],
+      "template": "templates/scene-state.json",
+      "validator": {"script": "scripts/consistency.py", "arguments": ["state", "validate"]}
     }
   ]
 }

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from _paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
+from _paths import ROOT as TV_ROOT
 import temp_voice as TV
 
 
@@ -80,6 +80,24 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual([item["id"] for item in record["outputs"]], ["DX-01"])
         self.assertEqual(record["errors"], [{"id": "DX-02", "error": "ConnectionError: offline"}])
         self.assertFalse((output / "DX-02.mp3").exists())
+
+    def test_speaker_voice_comes_from_the_asset_bible(self):
+        bible = Path(self.temp.name) / "bible.json"
+        bible.write_text((TV_ROOT / "templates/asset-bible.json").read_text("utf-8"), "utf-8")
+        self.lines.write_text(json.dumps([{"id": "DX-01", "text": "一句。", "speaker": "主角"}], ensure_ascii=False), "utf-8")
+        _, record = TV.generate(self.project, self.lines, bible_path=bible, run=self.fake_worker({"DX-01": [[0.0, 0.5, "一句"]]}))
+        output = record["outputs"][0]
+        self.assertEqual((output["speaker"], output["voice"], output["voice_source"]), ("主角", "zh-CN-XiaoxiaoNeural", "bible"))
+        self.assertIsNotNone(record["inputs"]["bible_sha256"])
+
+    def test_speaker_without_bible_or_binding_is_rejected(self):
+        self.lines.write_text(json.dumps([{"id": "DX-01", "text": "一句。", "speaker": "信封"}], ensure_ascii=False), "utf-8")
+        with self.assertRaises(TV.VoiceError):
+            TV.generate(self.project, self.lines, run=self.fake_worker({}))
+        bible = Path(self.temp.name) / "bible.json"
+        bible.write_text((TV_ROOT / "templates/asset-bible.json").read_text("utf-8"), "utf-8")
+        with self.assertRaises(TV.VoiceError):
+            TV.generate(self.project, self.lines, bible_path=bible, run=self.fake_worker({}))
 
     def test_non_project_directory_is_rejected(self):
         with self.assertRaises(TV.VoiceError):

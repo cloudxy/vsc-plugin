@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from _paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
+from _paths import ROOT
 import subtitle_burn as SB
 
 STYLE = {"font": None, "font_size": 24, "color": "#FFFFFF", "stroke_color": "#000000", "stroke_width": 1.5,
@@ -30,6 +30,17 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("[0:v][1:v]overlay=x=10:y=20:enable='between(t,0.200,1.000)'[v1]", graph)
         self.assertIn("[v1][2:v]overlay=x=5:y=6:enable='between(t,2.000,3.500)'[v2]", graph)
         self.assertEqual(command[command.index("-map") + 1], "[v2]")
+
+
+class StyleTest(unittest.TestCase):
+    def test_arguments_override_bible_which_overrides_defaults(self):
+        bible = ROOT / "templates/asset-bible.json"
+        style, source = SB.resolve_style(bible, {"font_size": 48, "color": None})
+        self.assertEqual(source, "bible+args")
+        self.assertEqual(style["font_size"], 48)
+        self.assertEqual(style["stroke_color"], "#000000")
+        self.assertEqual(Path(style["font"]), ROOT / "vendor/noto-sans-sc/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf")
+        self.assertEqual(SB.resolve_style()[1], "default")
 
 
 class InputTest(unittest.TestCase):
