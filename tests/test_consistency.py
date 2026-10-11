@@ -142,6 +142,14 @@ class AnchorTest(unittest.TestCase):
         self.assertIn("主角：三十岁左右的短发女性，左眉浅疤，神情克制；不可改变：三十岁左右、短发、左眉有浅疤", text)
         self.assertIn("地点：雨夜客厅，不可改变：老式公寓客厅、门在画面右侧、沙发背靠左墙", text)
 
+    def test_moment_text_describes_one_state_without_changes(self):
+        pack = C.anchor_pack(BIBLE, STATE, "SH-002")
+        exit_text = C.anchor_text(pack, "exit")
+        self.assertIn("镜头 SH-002出点", exit_text)
+        self.assertIn("封口撕开，信纸露出一角", exit_text)
+        self.assertNotIn("本镜变化", exit_text)
+        self.assertIn("封口完好", C.anchor_text(pack, "entry"))
+
     def test_sha_changes_only_when_this_shot_is_affected(self):
         base = C.pack_sha256(C.anchor_pack(BIBLE, STATE, "SH-002"))
         unrelated = bible()
@@ -196,6 +204,72 @@ class RecordTest(unittest.TestCase):
         self.assertTrue(any("计费任务" in error for error in errors))
         self.assertTrue(any("不能被选为交付候选" in error for error in errors))
         self.assertTrue(any("shot_id" in error for error in errors))
+
+
+class KeyframeChainTest(unittest.TestCase):
+    """资产图 → 关键帧 → 视频：身份沿链路追溯，相邻镜头共用交界帧。"""
+    HERO = BIBLE["entities"][0]["references"][0]["sha256"]
+
+    @staticmethod
+    def image(sha, shot, moment, references=(), base=None, purpose="candidate"):
+        inputs = {"anchors_sha256": None, "moment": moment, "references": list(references), "prompt": "p"}
+        if base:
+            inputs["base_frame"] = {"path": f"{base}.png", "sha256": base, "use": "edit"}
+        return {"format": C.RECORD_FORMAT, "project_id": BIBLE["project_id"], "kind": "image", "purpose": purpose, "shot_id": shot,
+                "inputs": inputs, "engine": {"provider": "p", "model": "m"}, "budget": {"billable": False},
+                "submitted_at": "t0", "finished_at": "t1", "status": "succeeded", "errors": [], "selection": None,
+                "outputs": [{"id": sha[:4], "path": f"{sha[:4]}.png", "sha256": sha}]}
+
+    @staticmethod
+    def video(shot, first, last):
+        record = copy.deepcopy(RECORD)
+        record["shot_id"] = shot
+        record["inputs"].update(anchors_sha256=C.pack_sha256(C.anchor_pack(BIBLE, STATE, shot)), references=[],
+                                first_frame={"path": "a.png", "sha256": first, "from": "generated"},
+                                last_frame={"path": "b.png", "sha256": last, "from": "generated"})
+        return record
+
+    def test_identity_is_carried_by_asset_anchored_keyframes(self):
+        entry, exit_ = "a" * 64, "b" * 64
+        # 出点帧只以入点帧为底图编辑，身份经入点帧追溯到资产图。
+        keyframes = {entry: self.image(entry, "SH-001", "exit", [self.HERO]), exit_: self.image(exit_, "SH-002", "exit", base=entry)}
+        video = self.video("SH-002", entry, exit_)
+        self.assertEqual(C.record_errors(keyframes[exit_]), [])
+        problems, warnings = C.record_problems(video, BIBLE, STATE, keyframes=keyframes)
+        self.assertEqual((problems, warnings), ([], []))
+        self.assertTrue(any("只靠文字锚定" in warning for warning in C.record_problems(video, BIBLE, STATE)[1]))
+        _, warnings = C.record_problems(video, BIBLE, STATE, keyframes={entry: keyframes[entry]})
+        self.assertTrue(any("追溯不到关键帧记录" in warning for warning in warnings))
+
+    def test_frames_must_be_this_shots_boundaries(self):
+        early, late = "c" * 64, "d" * 64
+        keyframes = {early: self.image(early, "SH-002", "exit", [self.HERO]), late: self.image(late, "SH-001", "exit", [self.HERO])}
+        problems, _ = C.record_problems(self.video("SH-002", early, late), BIBLE, STATE, keyframes=keyframes)
+        self.assertTrue(any("首帧对应的关键帧" in problem for problem in problems))
+        self.assertTrue(any("尾帧对应的关键帧不是本镜出点" in problem for problem in problems))
+
+    def test_adjacent_videos_share_the_boundary_frame(self):
+        first, second = self.video("SH-001", "1" * 64, "2" * 64), self.video("SH-002", "2" * 64, "3" * 64)
+        self.assertEqual(C.chain_problems([first, second], STATE), [])
+        second["inputs"]["first_frame"]["sha256"] = "4" * 64
+        self.assertIn("不是同一张图", C.chain_problems([first, second], STATE)[0])
+
+    def test_asset_images_need_no_shot_and_must_be_registered(self):
+        asset = self.image("e" * 64, None, None, purpose="asset")
+        asset["inputs"].pop("moment")
+        self.assertEqual(C.record_errors(asset), [])
+        self.assertTrue(any("尚未登记" in warning for warning in C.record_problems(asset, BIBLE, STATE)[1]))
+        asset["outputs"][0]["sha256"] = self.HERO
+        self.assertEqual(C.record_problems(asset, BIBLE, STATE), ([], []))
+        asset["kind"] = "video"
+        self.assertTrue(any("只能是图像" in error for error in C.record_errors(asset)))
+
+    def test_moment_and_base_frame_are_validated(self):
+        image = self.image("f" * 64, "SH-001", "middle", base="a" * 64)
+        image["inputs"]["base_frame"]["use"] = "copy"
+        errors = C.record_errors(image)
+        self.assertTrue(any("inputs.moment" in error for error in errors))
+        self.assertTrue(any("base_frame.use" in error for error in errors))
 
 
 class KernelTest(unittest.TestCase):
