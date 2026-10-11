@@ -360,9 +360,15 @@ def pack_sha256(pack):
 
 def anchor_text(pack):
     """把锚点包写成可改写为供应商提示词的中文段落：逐镜写出入点状态与本镜变化，而不是全片共用一段描述。"""
+    names = {entity_id: info.get("name", entity_id) for entity_id, info in pack["entities"].items()}
+
+    def named(items):
+        return "、".join(names.get(item, item) for item in items)
+
     location = pack["location"]
+    setting = location.get("generation", {}).get("prompt") or "、".join(location.get("identity", []))
     lines = [f"镜头 {pack['shot']}（{pack['scene']}）。地点：{location.get('name', location['id'])}，"
-             f"{'、'.join(location.get('identity', []))}；{'、'.join(str(v) for v in pack['environment']['entry'].values())}。"]
+             f"{setting}；{'、'.join(str(v) for v in pack['environment']['entry'].values())}。"]
     order = {kind: rank for rank, kind in enumerate(("character", "creature", "vehicle", "prop", "object"))}
     for entity_id, info in sorted(pack["entities"].items(), key=lambda item: (order.get(item[1].get("kind"), 9), item[0])):
         if info.get("kind") == "location":
@@ -370,20 +376,31 @@ def anchor_text(pack):
         entry = info.get("entry")
         if entry is None:
             continue
-        parts = [f"{info.get('name', entity_id)}：{'、'.join(info.get('identity', []))}"]
+        appearance = info.get("generation", {}).get("prompt") or "、".join(info.get("identity", []))
+        parts = [f"{names[entity_id]}：{appearance}"]
         if entry.get("variant_description"):
             parts.append(entry["variant_description"])
         if entry.get("position"):
             parts.append(f"位于{entry['position']}")
         if entry.get("holding"):
-            parts.append("手持" + "、".join(entry["holding"]))
+            parts.append("手持" + named(entry["holding"]))
         lines.append("；".join(parts) + "。")
     moves = []
     for entity_id, change in pack["changes"].get("entities", {}).items():
+        name = names.get(entity_id, entity_id)
         if change.get("exit"):
-            moves.append(f"{entity_id} 离开画面")
-        else:
-            moves.append(f"{entity_id} → " + "，".join(f"{key}={value if not isinstance(value, list) else '、'.join(value) or '空'}" for key, value in change.items()))
+            moves.append(f"{name}离开画面")
+            continue
+        entered = pack["entities"].get(entity_id, {}).get("entry") is None
+        steps = []
+        if "position" in change:
+            steps.append(f"{'出现在' if entered else '移到'}{change['position']}")
+        if "holding" in change:
+            steps.append(f"改为手持{named(change['holding'])}" if change["holding"] else "放下手中之物")
+        if "variant" in change:
+            exit_state = pack["entities"].get(entity_id, {}).get("exit", {})
+            steps.append(f"变为{exit_state.get('variant_description') or change['variant']}")
+        moves.append(name + "，".join(steps))
     lines.append("本镜变化：" + ("；".join(moves) if moves else "无") + "。")
     return "\n".join(lines)
 
