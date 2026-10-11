@@ -365,10 +365,15 @@ def anchor_text(pack):
     def named(items):
         return "、".join(names.get(item, item) for item in items)
 
+    def describe(info):
+        # 外观描述可写得更生动，但不可变特征每一镜都必须出现，不能被外观描述替换掉。
+        appearance = info.get("generation", {}).get("prompt")
+        identity = "、".join(info.get("identity", []))
+        return "；".join(part for part in (appearance, f"不可改变：{identity}" if identity else "") if part)
+
     location = pack["location"]
-    setting = location.get("generation", {}).get("prompt") or "、".join(location.get("identity", []))
     lines = [f"镜头 {pack['shot']}（{pack['scene']}）。地点：{location.get('name', location['id'])}，"
-             f"{setting}；{'、'.join(str(v) for v in pack['environment']['entry'].values())}。"]
+             f"{describe(location)}；{'、'.join(str(v) for v in pack['environment']['entry'].values())}。"]
     order = {kind: rank for rank, kind in enumerate(("character", "creature", "vehicle", "prop", "object"))}
     for entity_id, info in sorted(pack["entities"].items(), key=lambda item: (order.get(item[1].get("kind"), 9), item[0])):
         if info.get("kind") == "location":
@@ -376,8 +381,7 @@ def anchor_text(pack):
         entry = info.get("entry")
         if entry is None:
             continue
-        appearance = info.get("generation", {}).get("prompt") or "、".join(info.get("identity", []))
-        parts = [f"{names[entity_id]}：{appearance}"]
+        parts = [f"{names[entity_id]}：{describe(info)}"]
         if entry.get("variant_description"):
             parts.append(entry["variant_description"])
         if entry.get("position"):
