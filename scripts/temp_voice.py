@@ -5,7 +5,7 @@
 
 LINES.json 是数组：[{"id": "DX-01", "text": "台词", "speaker": "人物 ID", "voice": "可选", "rate": 可选}]。音色依次取自：
 台词自身的 voice；给出 --bible 时 speaker 在资产库中的音色绑定；--voice 默认值。每条台词单独生成，写入
-PROJECT/05-预演/临时配音/<运行时间>/：<id>.mp3、<id>.srt 与 生成记录.json。字幕默认按剧本标点聚合成整句，
+PROJECT/05-预演/临时配音/<运行时间>/：<id>.mp3、<id>.srt 与 生成记录.json（vsc.generation-record/v1，purpose=animatic_temp）。字幕默认按剧本标点聚合成整句，
 --word-level 输出逐词字幕；整句对不上时自动退回逐词。
 
 声音来自 edge-tts（LGPL-3.0 库，调用微软在线朗读服务）。它由 uv 在独立进程中按 EDGE_TTS 固定的版本运行，
@@ -165,22 +165,24 @@ def generate(project, lines_path, voice=DEFAULT_VOICE, rate=1.0, word_level=Fals
         subtitle = output / f"{item['id']}.srt"
         subtitle.write_text(subtitles.to_srt(grouped or cues), "utf-8")
         outputs.append({
-            "id": item["id"], "text": item["text"], "speaker": speakers[item["id"]], "voice": item["voice"], "rate": item["rate"],
-            "voice_source": picks[item["id"]][2],
-            "subtitle_mode": "sentence" if grouped else "word",
-            "audio": str(Path(item["audio"]).relative_to(project)), "subtitle": str(subtitle.relative_to(project)),
-            "duration_seconds": round(cues[-1][1], 3),
-            "sha256": {"audio": sha256(item["audio"]), "subtitle": sha256(subtitle)},
+            "id": item["id"], "path": str(Path(item["audio"]).relative_to(project)), "sha256": sha256(item["audio"]),
+            "entity": speakers[item["id"]], "text": item["text"], "voice": item["voice"], "rate": item["rate"],
+            "voice_source": picks[item["id"]][2], "duration_ms": round(cues[-1][1] * 1000),
+            "subtitle": {"path": str(subtitle.relative_to(project)), "sha256": sha256(subtitle), "mode": "sentence" if grouped else "word"},
         })
     record = {
-        "kind": "预演临时配音",
+        "format": consistency.RECORD_FORMAT,
+        "project_id": json.loads((project / "vsc.json").read_text("utf-8")).get("project_id"),
+        "kind": "audio",
+        "purpose": "animatic_temp",
         "use": TEMP_USE,
-        "engine": EDGE_TTS,
         "inputs": {"lines": str(Path(lines_path).resolve()), "lines_sha256": sha256(lines_path), "artifact": artifact,
-                   "bible": str(Path(bible_path).resolve()) if bible_path else None, "bible_sha256": sha256(bible_path) if bible_path else None},
-        "budget": {"provider": "edge-tts", "billable": False},
-        "started_at": started,
+                   "asset_bible": {"path": str(Path(bible_path).resolve()), "sha256": sha256(bible_path)} if bible_path else None},
+        "engine": {"provider": "edge-tts", "model": "微软在线朗读", "version": EDGE_TTS.split("==", 1)[1]},
+        "budget": {"billable": False},
+        "submitted_at": started,
         "finished_at": now(),
+        "status": "failed" if not outputs else "partial" if errors else "succeeded",
         "outputs": outputs,
         "errors": errors,
         "selection": None,

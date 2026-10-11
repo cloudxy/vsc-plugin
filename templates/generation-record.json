@@ -1,0 +1,49 @@
+{
+  "format": "vsc.generation-record/v1",
+  "project_id": "replace-with-project-id",
+  "kind": "video",
+  "purpose": "candidate",
+  "shot_id": "SH-002",
+  "inputs": {
+    "anchors_sha256": "92d91f636cc20a48cb64fe6c4230b5918aa6bad0ef44f4f22140e187f114c32e",
+    "references": [
+      "0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "first_frame": {
+      "path": "06-素材/帧/SH-001-exit.png",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "from": "previous_exit",
+      "shot": "SH-001"
+    },
+    "prompt": "由 consistency.py anchors SH-002 --text 改写",
+    "negative_prompt": "不改变脸部、发型、服装或道具数量"
+  },
+  "engine": {
+    "provider": "example-provider",
+    "model": "example-i2v",
+    "version": "2026-01",
+    "seed": 12345,
+    "params": {
+      "duration_s": 6,
+      "ratio": "9:16"
+    }
+  },
+  "budget": {
+    "billable": true,
+    "currency": "CNY",
+    "estimated": 1.0
+  },
+  "submitted_at": "2026-01-01T20:00:00+08:00",
+  "finished_at": "2026-01-01T20:02:00+08:00",
+  "status": "succeeded",
+  "outputs": [
+    {
+      "id": "SH-002-T01",
+      "path": "06-素材/takes/SH-002-T01.mp4",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "duration_ms": 6000
+    }
+  ],
+  "errors": [],
+  "selection": null
+}
