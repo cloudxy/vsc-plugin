@@ -1,6 +1,6 @@
 # 素材复用、创作方法与章节衔接
 
-制作前先查已有内容。跨作品素材存在本机 `library/`，作品身份与状态仍由项目资产库、状态时间线和 `vsc.json` 管理；公开创作方法存在 [`knowledge/craft.json`](../../knowledge/craft.json)。检索直接读取这些来源，不维护第二份内容索引。
+制作前先查已有内容。跨作品素材存在本机 `library/`，原创制作规格存在 [`knowledge/asset-recipes.json`](../../knowledge/asset-recipes.json)，公开创作方法存在 [`knowledge/craft.json`](../../knowledge/craft.json)。作品身份与状态仍由项目资产库、状态时间线和 `vsc.json` 管理。统一检索直接读取四类来源：`library`、`recipes`、`craft`、`projects`，不维护第二份内容索引。
 
 ## 素材库
 
@@ -9,12 +9,7 @@
 ```bash
 python3 -B scripts/vsc_library.py kinds
 python3 -B scripts/vsc_library.py search "雨夜" --kind location
-python3 -B scripts/vsc_library.py show motion-handover-01
-
-# 收入自己编写的动作规格；文件可省略，使用 attributes 保存规格。
-python3 -B scripts/vsc_library.py add --kind motion --id handover-01 \
-  --name "递物五拍" --summary "准备、伸手、接触、转移、收手" \
-  --rights owned --attr 'beats=["准备","伸手","接触","转移","收手"]'
+python3 -B scripts/vsc_library.py search "纸张" --kind sfx
 
 # 从成功的本项目生成记录收入原始输出；多个输出必须指定 --output。
 python3 -B scripts/vsc_library.py promote --project projects/雨夜来信 \
@@ -30,7 +25,39 @@ python3 -B scripts/vsc_library.py check
 
 每条素材用稳定 ID、SHA-256、权属、标签、生成来源和复用记录定位。`promote` 不自动认定商用许可。`use` 校验后复制原始字节，同目录保存 `来源.json`；方舟原始链接及期限随文件保留，供适配器复用。平台的人脸信任规则见[生成适配器](../architecture/generation-adapters.md#豆包适配器)。复制过的作品文件若已修改，复用命令拒绝覆盖，需使用新 ID。并发写入使用素材库锁和项目锁，JSON 原子替换；发生跨文件写入异常后，应先运行 `check` 核对再重试。
 
-人物、地点等素材可登记为资产库实体；人声条目绑定既有人物音色，字幕样式条目绑定全片字幕样式。动作、音乐等其他素材可复制使用，不冒充人物实体。使用方法不继承另一个项目的创作批准；生成的语音也不自动成为稳定角色声线。
+已选媒体中的人物、地点等素材可登记为资产库实体；已选人声条目绑定既有人物音色，已定字幕样式可绑定全片样式。动作、音乐等其他素材可复制使用，不冒充人物实体。`asset_type=specification` 或 `is_media=false` 的制作规格不能用 `use --bible` 直接绑定；不带 `--bible` 时可将规格清单带入项目供设计参考，不会产生媒体文件。使用方法不继承另一个项目的创作批准；生成的语音也不自动成为稳定角色声线。
+
+## 20 类原创制作规格
+
+原生包有 20 条规格，覆盖上文全部 20 类，逐条给出固定项、可变项、输入、制作步骤、验收要求与待制作输出。动作和打斗明确安全拍点、起止姿态、镜头与时长；人声使用固定 speaker 占位，供应商与音色 ID 留空；环境声、拟音、配乐说明循环、对白避让、进出点与权利确认。完整清单、安装及版本规则见[原生制作规格包](asset-recipes.md)。
+
+```bash
+python3 -B scripts/vsc_recipes.py list
+python3 -B scripts/vsc_recipes.py show AR-motion-pass-object
+python3 -B scripts/vsc_search.py "递物" --in recipes
+python3 -B scripts/vsc_recipes.py validate
+# 可选：收入本机素材库；不会生成媒体或批准项目。
+python3 -B scripts/vsc_recipes.py install --all
+```
+
+规格安装保留 `asset_type=specification`、`is_media=false`、`requires_human_selection=true` 和 `rights_scope=specification_only`。`owned` 只覆盖原创规格文字，不是人物肖像、音色、音乐或字体文件的许可。检索找到规格后，先由人选择并填写本项目参数，再进入资产设计、生成候选与审阅；不能把规格中的 `deliverables` 当作已经存在的素材。
+
+## 声音来源与跨项目复用
+
+声音按实际用途收入 `voice`、`ambience`、`sfx` 或 `music`。`promote` 从成功或部分成功的本项目生成记录选择一个真实输出，核对项目编号、文件与 SHA，保存原项目、记录路径、provider、model、prompt 和生成时间；有原始 URL、有效期时随文件保留。部分成功记录只证明所选输出存在，不表示整次任务全部成功。自录或外部许可素材用 `add` 写清 `--rights`、`--license`、`--source` 与可核验的文件，商用范围须按实际凭证填写。
+
+```bash
+# 例中项目、文件、输出与人物 ID 均须换成实际值。
+python3 -B scripts/vsc_library.py promote --project projects/雨夜来信 \
+  --record projects/雨夜来信/06-素材/声音/对白-生成记录.json --output 对白 \
+  --kind voice --id voice-01 --name "已选角色声源" --summary "本地填写声音与表演范围" --role sample
+python3 -B scripts/vsc_library.py use voice-01 --project projects/雨夜来信 \
+  --bible projects/雨夜来信/04-视听设计/资产库.json --entity CH-001
+```
+
+人声音频 promote 会从记录提取实际 `engine`、`voice`、`resource_id`、`model`；显式传入的属性若与来源冲突会拒绝。`use --bible --entity` 将这些绑定写入目标人物；项目应保持固定 speaker 映射，不能因换台词或情绪更换身份音色。来源中缺失的 ID 不得自行编造，音色描述也不能充当 provider ID。生成服务条款、声音使用范围及商用状态仍需核实；`promote` 默认不确认商用、不会把样本变成声音克隆许可。
+
+环境底复用时保持空间、声像和循环接缝；拟音对齐接触拍点；配乐重核调性、节拍、对白避让及进出点。规格要求分轨不代表候选已分轨，生成的完整音频也不能自动称为 loop。程序合成、语音与 SeedAudio 的来源以各自记录为准，不能统称为同一豆包服务。可用 `python3 -B scripts/vsc_toolchain.py --project projects/雨夜来信 --json` 只读区分脚本实现、配置存在性和本项目有效候选；配置或 SHA 通过不等于权限验证、试听通过或人工批准。
 
 ## 公开创作方法与快速查找
 
@@ -39,13 +66,15 @@ python3 -B scripts/vsc_craft.py search "眼神" --stage direct
 python3 -B scripts/vsc_craft.py show eyeline-match
 python3 -B scripts/vsc_craft.py validate
 python3 -B scripts/vsc_search.py "声音桥" --in all
+python3 -B scripts/vsc_search.py "对白" --in craft
+python3 -B scripts/vsc_search.py "打斗" --in recipes --json
 python3 -B scripts/vsc_search.py "SH-001" --in projects --project projects/雨夜来信
 python3 -B scripts/vsc_search.py "递物" --in library --json
 ```
 
-方法条目的 `source_basis` 是简要概念依据；`principle`、`steps` 和 `pitfalls` 是 VSC 的应用建议。来源标题、机构、链接和核查日期只保存在方法库的 `sources`，条目通过 ID 引用。初始资料来自耶鲁电影分析教材、哥伦比亚电影语言词汇表及 BFI 文章；库中只保存自行概括与应用，不收录影片素材或文章全文。公开方法是可查阅的建议；项目内受控能力卡的试用、评测和批准仍按 [记忆与学习](../design/memory-and-learning.md) 执行，不自动装入已批准角色上下文。
+方法库现有 **34 条方法卡、14 个来源**，涉及镜头、场面调度、表演、剪接、声音、对白与短片写作。方法条目的 `source_basis` 是简要概念依据；`principle`、`steps` 和 `pitfalls` 是 VSC 的应用建议。来源标题、机构、链接和核查日期只保存在方法库的 `sources`，条目通过 ID 引用。资料包括耶鲁电影分析教材、哥伦比亚电影语言词汇表、BFI、BBC 及情绪感知研究；库中只保存自行概括与应用，不收录影片素材或文章全文。公开方法是可查阅的建议；项目内受控能力卡的试用、评测和批准仍按 [记忆与学习](../design/memory-and-learning.md) 执行，不自动装入已批准角色上下文。
 
-统一检索按名称、ID、标签、摘要和正文加权，支持中文相邻双字匹配，多个查询词须同时命中；不是向量检索。返回来源路径与短摘录。项目检索覆盖创作对象、登记产物的范围／依赖／状态及工作文本；默认排除原始来源、批准快照、上下文和构建缓存。它不验证产物批准是否仍有效，继续任务须运行 `vsc_state.py status`、`next` 并读取有效基线。
+统一检索按名称、ID、标签、摘要和正文加权，支持中文相邻双字匹配，多个查询词须同时命中；不是向量检索。结果标注来源域、路径与短摘录；`recipes` 摘要标明“制作规格（非媒体）”，尚未安装也可检索。`--catalog` 指定 craft 方法库文件；自定义规格包用 `vsc_recipes.py --catalog` 检索。项目检索覆盖创作对象、登记产物的范围／依赖／状态及工作文本；默认排除原始来源、批准快照、上下文和构建缓存。它不验证产物批准是否仍有效，继续任务须运行 `vsc_state.py status`、`next` 并读取有效基线。
 
 ## 集、场衔接
 

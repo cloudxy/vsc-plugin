@@ -21,6 +21,8 @@ python3 scripts/vsc_kernel.py route adapt
 
 # 通过统一接口校验跨阶段产物；底层实现可替换
 python3 scripts/vsc_kernel.py contract validate vsc.continuity-plan/v1 ./连续性计划.json
+# 声明 requires_project 的生产批次必须提供真实项目，仅执行本地预检
+python3 scripts/vsc_kernel.py contract validate vsc.production-batch/v1 ./批次.json --project ./projects/作品名
 ```
 
 ## 如何扩展

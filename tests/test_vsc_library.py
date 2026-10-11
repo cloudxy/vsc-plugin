@@ -91,6 +91,17 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("授权未核验", err)
 
+    def test_specification_can_be_reused_but_cannot_bind_as_media(self):
+        self.cli("add", "--kind", "voice", "--id", "spec", "--name", "声音规格", "--summary", "待选择实际音色", "--rights", "owned",
+                 "--attr", "asset_type=specification", "--attr", "is_media=false")
+        original = self.bible.read_bytes()
+        code, _, err = self.cli("use", "spec", "--project", str(self.project), "--bible", str(self.bible), "--entity", BIBLE["entities"][0]["id"])
+        self.assertEqual(code, 1)
+        self.assertIn("制作规格", err)
+        self.assertEqual(self.bible.read_bytes(), original)
+        self.assertFalse((self.project / L.COPY_DIR / "spec").exists())
+        self.assertEqual(self.cli("use", "spec", "--project", str(self.project))[0], 0)
+
     def test_voice_binds_to_the_character(self):
         speaker = BIBLE["entities"][0]["id"]
         self.cli("add", "--kind", "voice", "--id", "沉稳男声", "--name", "沉稳中低音男声", "--summary", "成熟男性温暖沉稳",
@@ -126,6 +137,26 @@ class LibraryTest(unittest.TestCase):
         errors = L.item_errors(item, kinds, rights)
         self.assertTrue(any("license" in error for error in errors))
         self.assertTrue(any("没有文件" in error for error in errors))
+
+    def test_promoted_voice_preserves_binding_across_projects(self):
+        target = self.project / "voice.wav"
+        target.write_bytes(b"audio")
+        record = {"format": C.RECORD_FORMAT, "project_id": BIBLE["project_id"], "kind": "audio", "purpose": "asset",
+                  "inputs": {"text": "测试声音"}, "engine": {"provider": "doubao_speech", "model": "seed-tts-2.0-standard", "params": {"resource_id": "seed-tts-2.0"}},
+                  "budget": {"billable": True, "usage": {"characters": 4}}, "submitted_at": "t0", "finished_at": "t1", "status": "succeeded",
+                  "outputs": [{"id": "sample", "path": "voice.wav", "sha256": L.sha256(target), "voice": "public-voice"}], "selection": None}
+        path = self.project / "voice-生成记录.json"
+        path.write_text(json.dumps(record), "utf-8")
+        argv = ["promote", "--project", str(self.project), "--record", str(path), "--kind", "voice", "--id", "public-voice",
+                "--name", "测试声线", "--summary", "固定音色测试"]
+        self.assertEqual(self.cli(*argv)[0], 0)
+        code, _, err = self.cli("use", "public-voice", "--project", str(self.project), "--bible", str(self.bible), "--entity", BIBLE["entities"][0]["id"])
+        self.assertEqual(code, 0, err)
+        voice = C.entity_index(json.loads(self.bible.read_text("utf-8")))[BIBLE["entities"][0]["id"]]["voice"]
+        self.assertEqual((voice["engine"], voice["voice"], voice["resource_id"], voice["rights"]), ("doubao_speech", "public-voice", "seed-tts-2.0", "unknown"))
+        conflict = ["wrong" if x == "public-voice" else x for x in argv]
+        self.assertEqual(self.cli(*conflict, "--attr", "voice=another")[0], 1)
+        self.assertFalse((self.library / "voice/wrong").exists())
 
     def test_use_rejects_malformed_entry_before_copy(self):
         self.add_monk()

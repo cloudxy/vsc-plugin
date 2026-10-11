@@ -14,6 +14,14 @@ import vsc_search as S
 
 
 class CraftTest(unittest.TestCase):
+    def test_recipes_are_searchable_before_install_and_marked_as_specs(self):
+        items = S.entries("recipes")
+        self.assertEqual(len(items), 20)
+        found = S.rank(items, "递物", S.entry_fields)
+        self.assertTrue(found)
+        self.assertEqual(found[0][1]["domain"], "recipes")
+        self.assertIn("非媒体", found[0][1]["summary"])
+
     def test_catalog_sources_and_topics(self):
         data = C.load()
         self.assertGreaterEqual(len(data["cards"]), 20)

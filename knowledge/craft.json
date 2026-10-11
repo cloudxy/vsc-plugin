@@ -1,6 +1,6 @@
 {
   "format": "vsc.craft-catalog/v1",
-  "version": "1.0",
+  "version": "1.1",
   "description": "公开电影教育资料的简要概念依据，加上 VSC 自编的制作应用。链接供阅读原文；不收录原文全文、影片画面或音频，不代表项目方法已批准。",
   "sources": [
     {
@@ -78,6 +78,27 @@
       "title": "All that mise en scène allows: Douglas Sirk’s expressive use of gesture",
       "publisher": "BFI / Sight and Sound",
       "url": "https://www.bfi.org.uk/sight-and-sound/features/all-that-mise-en-scene-allows-douglas-sirks-expressive-use-gesture",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "emotion-context",
+      "title": "Context in Emotion Perception (2011)",
+      "publisher": "Barrett, Mesquita & Gendron / Current Directions in Psychological Science",
+      "url": "https://www.affective-science.org/pubs/2011/CD_face_in_context_2011.pdf",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "bbc-dialogue",
+      "title": "How to write good dialogue",
+      "publisher": "BBC Maestro",
+      "url": "https://www.bbcmaestro.com/blog/how-to-write-good-dialogue",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "bfi-short-script",
+      "title": "Writing tips from the top",
+      "publisher": "BFI NETWORK / Jessica Jones",
+      "url": "https://www.bfi.org.uk/features/writing-tips-from-top",
       "checked_at": "2026-10-11"
     }
   ],
@@ -917,6 +938,185 @@
       ],
       "sources": [
         "columbia-stage"
+      ]
+    },
+    {
+      "id": "emotion-in-context",
+      "category": "表演",
+      "name": "用情境赋予表情意义",
+      "tags": [
+        "心理",
+        "眼神",
+        "外貌",
+        "情境"
+      ],
+      "stages": [
+        "script",
+        "direct",
+        "produce"
+      ],
+      "source_basis": "情绪知觉受到场景、声音、身体及文化语境影响。",
+      "principle": "给眼神安排目标、前因和后果，再审查观众能否读懂。",
+      "steps": [
+        "先写角色此刻知道什么、想掩饰什么",
+        "把视线目标与身体动作一起写入镜头",
+        "对照无声画面和完整声画的人审理解"
+      ],
+      "pitfalls": [
+        "不凭面相判断性格或善恶",
+        "同一表情没有唯一心理含义"
+      ],
+      "sources": [
+        "emotion-context"
+      ]
+    },
+    {
+      "id": "gesture-context-check",
+      "category": "表演",
+      "name": "表情、身体与声音互相校准",
+      "tags": [
+        "身体语言",
+        "动作语言",
+        "心理语言",
+        "表演"
+      ],
+      "stages": [
+        "direct",
+        "produce",
+        "post"
+      ],
+      "source_basis": "身体姿态、声音和社会情境参与表情意义的理解。",
+      "principle": "把演员的可见行为写成可观察的节拍，不把心理标签当动作。",
+      "steps": [
+        "将紧张拆成呼吸、停顿或握力等本场行为选择",
+        "记录动作开始、对象、结束和持续时间",
+        "逐镜听看是否矛盾，矛盾若有叙事目的则写明"
+      ],
+      "pitfalls": [
+        "不把微表情当测谎证据",
+        "避免套用跨文化固定动作字典"
+      ],
+      "sources": [
+        "emotion-context"
+      ]
+    },
+    {
+      "id": "dialogue-subtext",
+      "category": "对白",
+      "name": "对白的表层话题与暗中目标",
+      "tags": [
+        "潜台词",
+        "语言艺术",
+        "对白",
+        "目标"
+      ],
+      "stages": [
+        "script",
+        "sound"
+      ],
+      "source_basis": "对白写作需要考虑说话者的语境和潜台词。",
+      "principle": "让一句话同时改变关系或行动，不只解释已有信息。",
+      "steps": [
+        "逐轮标明说者想从对方获得什么",
+        "把不能直说的内容留给停顿、动作或回避",
+        "朗读检查角色措辞与语速，删去重复说明"
+      ],
+      "pitfalls": [
+        "隐晦不等于无信息",
+        "不要让所有角色使用同一套修辞"
+      ],
+      "sources": [
+        "bbc-dialogue"
+      ]
+    },
+    {
+      "id": "dialogue-environment",
+      "category": "对白",
+      "name": "环境改变说话方式",
+      "tags": [
+        "语言",
+        "环境",
+        "语速",
+        "声音"
+      ],
+      "stages": [
+        "script",
+        "direct",
+        "sound"
+      ],
+      "source_basis": "说话地点和天气会影响对白的内容与表达方式。",
+      "principle": "将环境压力写入可表演动作和收音设计。",
+      "steps": [
+        "先明确噪声、距离和是否怕被听见",
+        "依据距离设计音量、气口和轮次",
+        "在声音提示表给对白留空间，再试听可懂度"
+      ],
+      "pitfalls": [
+        "不要用提高音量代替所有情绪",
+        "字幕不能补救全部听不清的对白"
+      ],
+      "sources": [
+        "bbc-dialogue"
+      ]
+    },
+    {
+      "id": "short-film-focus",
+      "category": "叙事",
+      "name": "短片集中一个核心变化",
+      "tags": [
+        "短视频",
+        "短剧",
+        "主题",
+        "人物弧光"
+      ],
+      "stages": [
+        "adapt",
+        "script"
+      ],
+      "source_basis": "短片剧本需控制表达负担，并明确主人公的情绪发展。",
+      "principle": "用一条可见的选择变化组织有限时长。",
+      "steps": [
+        "写下开场选择与结尾选择的区别",
+        "每场标注促成改变的新信息或代价",
+        "删除不推动核心变化的支线后再做预演"
+      ],
+      "pitfalls": [
+        "把多主题塞进短时长容易失焦",
+        "人物变化需由行动支撑"
+      ],
+      "sources": [
+        "bfi-short-script"
+      ]
+    },
+    {
+      "id": "episode-causal-handoff",
+      "category": "叙事",
+      "name": "把章节尾因接到下一章开果",
+      "tags": [
+        "章节",
+        "分集",
+        "衔接",
+        "因果",
+        "钩子"
+      ],
+      "stages": [
+        "adapt",
+        "script",
+        "direct"
+      ],
+      "source_basis": "短片编剧建议关照主角旅程及其情绪步骤。",
+      "principle": "VSC将此建议应用为跨集因果检查：尾部留下的问题必须在后续产生影响。",
+      "steps": [
+        "尾集记录未解决行动、知情差和代价",
+        "下一集开头指明承接、延迟或有理由的省略",
+        "在sequence-links的narrative字段写明carry与receive并由人审"
+      ],
+      "pitfalls": [
+        "不能用重复上一集字幕代替推进",
+        "结构字段非空不证明叙事有效"
+      ],
+      "sources": [
+        "bfi-short-script"
       ]
     }
   ],

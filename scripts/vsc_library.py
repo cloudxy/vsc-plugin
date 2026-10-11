@@ -257,6 +257,17 @@ def promote(args):
     output = outputs[0]
     folder, item = new_item(args, kinds, rights)
     engine = record.get("engine", {})
+    if item["kind"] == "voice" and record["kind"] == "audio":
+        params = engine.get("params", {})
+        inferred = {"engine": engine["provider"], "voice": output.get("voice") or params.get("speaker"),
+                    "resource_id": params.get("resource_id"), "model": engine["model"]}
+        for key, value in inferred.items():
+            if value is None:
+                continue
+            if key in item["attributes"] and item["attributes"][key] != value:
+                raise LibraryError(f"人声音色 {key} 与生成来源不一致")
+            item["attributes"][key] = value
+        item["attributes"].setdefault("rights", "unknown")
     item["rights"] = {"status": "generated", "license": f"{engine.get('provider')} 服务条款", "commercial_use": None, "source": None}
     try:
         shown = str(record_path.resolve().relative_to(project.resolve()))
@@ -366,6 +377,8 @@ def bind(args, item, kinds, copies, write=True):
     bible_path = Path(args.bible)
     bible = consistency.load(bible_path, consistency.BIBLE_FORMAT)
     attributes = item.get("attributes", {})
+    if attributes.get("asset_type") == "specification" or attributes.get("is_media") is False:
+        raise LibraryError("制作规格不是已生成媒体或人物音色，不能直接绑定资产库；请先依据规格制作并选择素材")
     if item["kind"] == "subtitle_style":
         bible["subtitle_style"] = attributes
     else:
@@ -376,7 +389,7 @@ def bind(args, item, kinds, copies, write=True):
         if item["kind"] == "voice":
             if entity is None:
                 raise LibraryError(f"资产库中没有人物 {args.entity}，无法绑定音色")
-            entity["voice"] = {key: attributes[key] for key in ("engine", "voice", "rate", "rights") if key in attributes}
+            entity["voice"] = {key: attributes[key] for key in ("engine", "voice", "rate", "rights", "resource_id", "model") if key in attributes}
             entity["voice"]["library"] = item["id"]
         else:
             expected = kinds[item["kind"]].get("bible_kind")

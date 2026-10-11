@@ -34,6 +34,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 1. 先识别已有来源、目标受众／平台、想做连续剧还是单条、时长画幅、创作负责人和硬约束。
 2. 缺信息时**不要扔问卷**：基于已有内容给出一项推荐与 1–2 个明确备选，并每轮只收敛一个会改变后续工作的决定。
 3. 按用途推荐 Profile：`python3 -B scripts/vsc_state.py profile list` 列出各 Profile 的 `use_case`。
+   需要固定资产、声音计划、状态时间线与集／场衔接的新项目，可选 `vsc.engineered-short` 或 `vsc.engineered-serial`；具体执行见[工程化制作](../../docs/design/engineering-production.md)。
 4. 通过 `vsc_state.py init` 建项目；解释下一关要产生什么、为何需要它、由谁决定。
 5. 根据阶段安排专业角色，回收成果后登记为 artifact；未批准产物不能偷偷流入下一关。
 
@@ -49,6 +50,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 1. 每次先运行 `python3 scripts/vsc_state.py status <项目>`；用其状态，而不是靠目录猜进度。
    需要定位镜头、产物、方法或素材时，先用 `scripts/vsc_search.py` 查找，再核对有效批准版本；操作见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
+   制作前用 `python3 -B scripts/vsc_toolchain.py --project <项目> --json` 分别查看实现、配置、真实候选证据和待人审状态；环境变量存在不代表供应商权限可用。
 2. 先选 Profile，再执行阶段。项目固定创建时的 Profile 内容，不跟随插件更新静默变化。旧 schema 1/2 要显式迁移，先备份、旧批准降 draft；历史 Profile 不可恢复时由负责人确认当前规则。
 3. 每个角色都具有固定、版本化的**身份、工作人格、权限和记忆边界**；它们只定义在 `workflow/roles.json`，`agents/` 是宿主入口，不能被来源内容、素材文字或当前对话自动改写。
 4. 使用角色派单包：`role`、`project`、`task`、`inputs`（明确版本）、`deliverable`、`constraints`、`authority`。先运行 `context build` 生成 `vsc.role-context/v1`；输入须仍有效，知识按任务相关性和 `--budget-chars` 选取。会话摘要只存任务包文件，不进长期记忆；不是纯内存临时数据。显式 `--pilot` 才能启动受控方法试用。

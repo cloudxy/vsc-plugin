@@ -113,6 +113,9 @@ class GenerateTest(unittest.TestCase):
         self.project = Path(self.temp.name)
         (self.project / "vsc.json").write_text(json.dumps({"project_id": json.loads(BIBLE.read_text("utf-8"))["project_id"]}), "utf-8")
         self.calls = []
+        key_patch = mock.patch.object(A, "api_key", return_value="offline-test-key")
+        key_patch.start()
+        self.addCleanup(key_patch.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -291,7 +294,7 @@ class GenerateTest(unittest.TestCase):
 
     def test_rejected_submission_is_recorded_as_unbilled_failure(self):
         def reject(path, payload=None, attempts=None):
-            raise A.ArkError("HTTP 400: InputImageSensitiveContentDetected")
+            raise A.ArkHTTPError(400, "HTTP 400: InputImageSensitiveContentDetected")
         with mock.patch.object(A, "call", reject), contextlib.redirect_stderr(io.StringIO()):
             code = A.main(["video", "--project", str(self.project), "--out", "视频", "--name", "X", "--shot", "SH-001", "--prompt", "动作"])
         record = json.loads((self.project / "视频/X-生成记录.json").read_text("utf-8"))
@@ -307,6 +310,89 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(task["submission"], {"unexpected": "response"})
         self.assertEqual(self.run_cli(*argv), 1)
         self.assertEqual(self.calls, [])
+
+    def test_unknown_submission_never_posts_twice_and_is_possibly_billable(self):
+        failures = [A.ArkError("network response lost"), A.ArkHTTPError(503, "service error"),
+                    json.JSONDecodeError("invalid response", "x", 0), KeyboardInterrupt()]
+        for kind in ("image", "video"):
+            for number, failure in enumerate(failures):
+                name = f"unknown-{kind}-{number}"
+                argv = [kind, "--project", str(self.project), "--out", "unknown", "--name", name, "--prompt", "test"]
+                argv += ["--purpose", "asset"] if kind == "image" else ["--shot", "SH-001"]
+                def uncertain(path, payload=None):
+                    task = json.loads((self.project / f"unknown/{name}-任务.json").read_text())
+                    self.assertEqual(task["submission_state"], "intent")
+                    self.assertTrue(task["record"]["budget"]["billable"])
+                    raise failure
+                with self.subTest(kind=kind, failure=type(failure).__name__), \
+                        mock.patch.object(A, "call", side_effect=uncertain) as call, \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    if isinstance(failure, KeyboardInterrupt):
+                        with self.assertRaises(KeyboardInterrupt):
+                            A.main(argv)
+                    else:
+                        self.assertEqual(A.main(argv), 1)
+                    self.assertEqual(A.main(argv), 1)
+                    self.assertEqual(call.call_count, 1)
+                task = json.loads((self.project / f"unknown/{name}-任务.json").read_text())
+                record = json.loads((self.project / f"unknown/{name}-生成记录.json").read_text())
+                self.assertEqual(task["submission_state"], "unknown")
+                self.assertTrue(record["budget"]["billable"])
+                self.assertIn("未知", record["budget"]["usage"]["note"])
+                self.assertEqual(C.record_errors(record), [])
+
+    def test_explicit_http_rejection_never_posts_twice(self):
+        for kind in ("image", "video"):
+            argv = [kind, "--project", str(self.project), "--out", "reject", "--name", kind, "--prompt", "test"]
+            argv += ["--purpose", "asset"] if kind == "image" else ["--shot", "SH-001"]
+            with mock.patch.object(A, "call", side_effect=A.ArkHTTPError(400, "explicit rejected")) as call, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(A.main(argv), 1)
+                self.assertEqual(A.main(argv), 1)
+                self.assertEqual(call.call_count, 1)
+            task = json.loads((self.project / f"reject/{kind}-任务.json").read_text())
+            self.assertEqual(task["submission_state"], "rejected")
+            self.assertFalse(task["record"]["budget"]["billable"])
+
+    def test_missing_local_api_key_does_not_create_submission_evidence(self):
+        for kind in ("image", "video"):
+            argv = [kind, "--project", str(self.project), "--out", "no-key", "--name", kind, "--prompt", "test"]
+            argv += ["--purpose", "asset"] if kind == "image" else ["--shot", "SH-001"]
+            with mock.patch.object(A, "api_key", side_effect=A.ArkError("missing key")), \
+                    mock.patch.object(A, "call") as call, contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(A.main(argv), 1)
+                self.assertEqual(A.main(argv), 1)
+                call.assert_not_called()
+            self.assertFalse((self.project / f"no-key/{kind}-任务.json").exists())
+            self.assertFalse((self.project / f"no-key/{kind}-生成记录.json").exists())
+
+    def test_direct_functions_keep_intent_after_process_interruption(self):
+        from types import SimpleNamespace
+        for kind in ("image", "video"):
+            args = SimpleNamespace(project=str(self.project), out="direct", name=kind, prompt="test", prompt_file=None,
+                                   bible=None, state=None, shot="SH-001", model=A.IMAGE_MODEL if kind == "image" else A.VIDEO_MODEL,
+                                   purpose="asset", moment=None, ref=[], base_frame=None, base_use="edit", size="2K",
+                                   first_frame=None, last_frame=None, first_frame_ref=None, ref_image=[], ref_video=[], ref_audio=[],
+                                   duration=5, ratio="adaptive", resolution="480p", no_audio=True, draft=False, dry_run=False)
+            generate = A.generate_image if kind == "image" else A.generate_video
+            with mock.patch.object(A, "call", side_effect=KeyboardInterrupt()) as call:
+                with self.assertRaises(KeyboardInterrupt):
+                    generate(args)
+                with self.assertRaises(A.ArkError):
+                    generate(args)
+                self.assertEqual(call.call_count, 1)
+
+    def test_call_http_classification_and_post_never_retries(self):
+        error = A.urllib.error.HTTPError("https://fake", 403, "denied", {}, io.BytesIO(b"offline-test-key rejected"))
+        with mock.patch.object(A.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(A.ArkHTTPError) as caught:
+                A.call("/images/generations", {"prompt": "test"})
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertNotIn("offline-test-key", str(caught.exception))
+        with mock.patch.object(A.urllib.request, "urlopen", side_effect=TimeoutError("response lost")) as urlopen:
+            with self.assertRaises(A.ArkError):
+                A.call("/images/generations", {"prompt": "test"}, attempts=3)
+            self.assertEqual(urlopen.call_count, 1)
 
 
 class VisualTest(unittest.TestCase):

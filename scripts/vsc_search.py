@@ -103,6 +103,11 @@ def entries(domain="all", project=None, library=None, catalog=None):
         for card in vsc_craft.load(catalog or vsc_craft.CATALOG)["cards"]:
             result.append({"domain": "craft", "id": card["id"], "name": card["name"], "path": str(catalog or vsc_craft.CATALOG),
                            "summary": card["principle"], "detail": flatten(card), "tags": card["tags"]})
+    if domain in ("all", "recipes"):
+        import vsc_recipes
+        for recipe in vsc_recipes.load()["recipes"]:
+            result.append({"domain": "recipes", "id": recipe["id"], "name": recipe["name"], "path": str(vsc_recipes.CATALOG),
+                           "summary": "制作规格（非媒体）：" + recipe["summary"], "detail": flatten(recipe), "tags": recipe["tags"]})
     if domain in ("all", "library"):
         import vsc_library
         kinds, rights = vsc_library.taxonomy()
@@ -126,7 +131,7 @@ def entry_fields(item):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="在素材库、公开创作方法与作品内容中快速查找；只读，不持久化索引。")
     parser.add_argument("query", nargs="*")
-    parser.add_argument("--in", dest="domain", choices=("all", "library", "craft", "projects"), default="all")
+    parser.add_argument("--in", dest="domain", choices=("all", "library", "craft", "recipes", "projects"), default="all")
     parser.add_argument("--project")
     parser.add_argument("--library")
     parser.add_argument("--catalog")

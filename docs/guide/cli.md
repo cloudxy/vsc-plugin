@@ -67,7 +67,7 @@ python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./project
 
 可从 [改编映射模板](../../templates/adaptation-map.json)、[连续性计划模板](../../templates/continuity-plan.json) 和 [声音提示表模板](../../templates/sound-cue-sheet.json) 复制开始。每段 AI 视频都需绑定角色/场景参考资产、入点状态、出点状态及剪辑手柄。BGM、环境底、对白和音效则按场景与情绪弧线跨镜铺在时间线上；它们不会随每个 6–8 秒片段重新开始。完整方法、JSON 协议和公开资料依据见 [生产连续性与声音](../design/continuity-and-sound.md)。
 
-统一契约命令检查文件结构，不自动知道它属于哪个项目。使用 `adaptation|continuity|sound validate FILE --project PROJECT` 可额外核对对象引用；批准与 Gate 会自动执行项目检查。先用 `object add` 登记集、场、sequence、镜头、take 与参考资产；它们使用不同且唯一的 ID。资产必须绑定有效已批准版本，不能仅写一个不存在的角色名。
+多数统一契约命令只检查文件结构，不自动知道它属于哪个项目。生产批次的校验必须显式传入项目：`python3 -B scripts/vsc_kernel.py contract validate vsc.production-batch/v1 BATCH.json --project PROJECT`；该校验执行本地预检，不发远程请求。制作规格库可用 `contract validate vsc.asset-recipes/v1 knowledge/asset-recipes.json` 校验。使用 `adaptation|continuity|sound validate FILE --project PROJECT` 可额外核对对象引用；批准与 Gate 会自动执行项目检查。先用 `object add` 登记集、场、sequence、镜头、take 与参考资产；它们使用不同且唯一的 ID。资产必须绑定有效已批准版本，不能仅写一个不存在的角色名。
 
 交付还需实际成片的 `vsc.media-qa/v1` 技术报告，以及 `vsc.sample-review/v1` 人工审片记录。审片覆盖剧情动机、物理连续性、情绪连续性、剪辑覆盖、对白与音乐，并记录耗时、成本和失败。详见 [专业制作证据链](../governance/production-evidence.md)。
 

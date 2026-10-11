@@ -67,6 +67,17 @@ class TestInitAndProfiles(Base):
             self.assertTrue((self.project / rel).is_file(), rel)
         self.assertIn("brief", self.ok("next", self.project))
 
+    def test_engineered_profiles_require_sound_state_and_handoffs_without_changing_existing_project(self):
+        old = (self.project / "vsc.json").read_bytes()
+        for profile in ("vsc.engineered-short", "vsc.engineered-serial"):
+            project = Path(self.temp.name) / profile
+            self.ok("init", project, "--title", "工程化测试", "--profile", profile)
+            self.ok("object", "add", project, "--kind", "episode", "--id", "EP-01")
+            output = self.bad("gate", "check", project, "design")
+            for artifact in ("vsc.sound_plan", "vsc.scene_state", "vsc.sequence_links"):
+                self.assertIn(artifact, output)
+        self.assertEqual((self.project / "vsc.json").read_bytes(), old)
+
     def test_unknown_profile_rejected(self):
         project = Path(self.temp.name) / "坏项目"
         self.assertIn("未知 Profile", self.bad("init", project, "--title", "坏项目", "--profile", "vsc.unknown"))

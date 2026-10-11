@@ -17,6 +17,7 @@ VSC 核心不依赖模型供应商 SDK。需要上游项目的能力时，把它
 | 工具 | 做什么 |
 |---|---|
 | [`scripts/temp_voice.py`](../../scripts/temp_voice.py) | 为已批准台词生成预演临时配音与整句／逐词字幕，并写生成记录 |
+| [`scripts/procedural_audio.py`](../../scripts/procedural_audio.py) | 离线合成原创环境底、拟音与简约配乐，固定 seed 可复现，输出声音资产候选 |
 | [`scripts/subtitle_burn.py`](../../scripts/subtitle_burn.py) | 把已批准的 SRT 烧进视频 |
 | [`scripts/jianying_export.py`](../../scripts/jianying_export.py) | 把 `vsc.remotion-render-plan/v1` 写成剪映多轨草稿 |
 
@@ -40,27 +41,68 @@ VSC 核心不依赖模型供应商 SDK。需要上游项目的能力时，把它
 
 ```bash
 # 一次生成规范资产图；模型需已在账号开通。
-python3 -B scripts/volc_ark.py image --project projects/雨夜来信 \
+python3 -B scripts/volc_ark.py image --project projects/示例作品 \
   --out 06-素材/资产 --name character-01 --purpose asset --prompt-file ./人物提示.txt
 
 # 提交前检查请求。去掉 --dry-run 才调用付费视频生成。
-python3 -B scripts/volc_ark.py video --project projects/雨夜来信 \
+python3 -B scripts/volc_ark.py video --project projects/示例作品 \
   --out 06-素材/视频 --name SH-001-T1 --shot SH-001 \
-  --bible projects/雨夜来信/04-视听设计/资产库.json \
-  --state projects/雨夜来信/05-预演/状态时间线.json \
-  --prompt-file ./动作提示.txt --ref-image projects/雨夜来信/06-素材/资产/character-01.png \
+  --bible projects/示例作品/04-视听设计/资产库.json \
+  --state projects/示例作品/05-预演/状态时间线.json \
+  --prompt-file ./动作提示.txt --ref-image projects/示例作品/06-素材/资产/character-01.png \
   --resolution 480p --draft --dry-run
 
-python3 -B scripts/volc_ark.py inspect --project projects/雨夜来信 \
-  --media projects/雨夜来信/06-素材/视频/SH-001-T1.mp4 \
-  --bible projects/雨夜来信/04-视听设计/资产库.json \
-  --state projects/雨夜来信/05-预演/状态时间线.json --shot SH-001
+python3 -B scripts/volc_ark.py inspect --project projects/示例作品 \
+  --media projects/示例作品/06-素材/视频/SH-001-T1.mp4 \
+  --bible projects/示例作品/04-视听设计/资产库.json \
+  --state projects/示例作品/05-预演/状态时间线.json --shot SH-001
 ```
 
 `image --purpose candidate` 生成关键帧前须给出镜头、时刻、资产库及时间线。`video --first-frame` 是首帧约束模式，不能混用参考素材；`--first-frame-ref` 是全模态模式中把图片1作为起始画面的文字要求，属于参考，不能声称平台硬约束首帧。视频返回尾帧登记为 `outputs[].role=last_frame`，可原样传给下一镜；一致性检查优先采用实际返回帧，画面接点仍须审阅。
 
 方舟官方[肖像素材指南](https://docs.volcengine.com/docs/ark/seedance-portrait-asset-guide?lang=zh)说明：平台信任同账号近 30 天内指定 Seedance 视频及对应尾帧、Seedream 5.0 lite/pro 纯文生图的含人脸原始产物；改动、转码、跨账号或过期不能据此获得信任。参考生图产物不能自动沿用纯文生图的信任。具体型号范围由脚本 `TRUSTED` 声明，平台最终判定优先。原始下载链接的有效期和人脸信任期限是两回事；记录期限不能保证原始 URL 始终可访问。可信素材库的 `asset://` 引用须在账号内另行建立，不会因本地复制自动创建。
 
-每次生成保留输入快照、请求摘要、远程任务／响应、原始链接、用量和输出 SHA。同名命令只有请求完全一致才可续接，下载失败保留已计费用量；不同输入须用新 take 名称。无法核实的旧任务，以及引用链接过期后请求编码变化的任务，会停止并说明原因，不把旧结果绑定到新输入。音轨存在只证明有声音，联合生成不等于可复用的稳定角色声线；专用 TTS／音乐生成尚未接入。
+每次生成保留输入快照、请求摘要、远程任务／响应、原始链接、用量和输出 SHA。同名命令只有请求完全一致才可续接，下载失败保留已计费用量；不同输入须用新 take 名称。无法核实的旧任务，以及引用链接过期后请求编码变化的任务，会停止并说明原因，不把旧结果绑定到新输入。音轨存在只证明有声音，联合生成不等于可复用的稳定角色声线；专用声音适配器见下文，须分别验证权限与结果。
 
 视觉检查按锚点逐项给出 `pass/fail/unsure` 和可见依据，保存 `vsc.visual-check/v1`。视频默认抽首、中、尾三帧，因此不是逐帧动作或口型验证；报告必须 `advisory=true`，完整清单通过也不能代替人审。
+
+## 声音适配器与当前状态
+
+以下工具已经实现；脚本存在、离线测试通过、凭证存在、线上成功和人工审听是不同证据。
+
+| 工具 | 能力与凭证 | 2026-10-11 验证状态 |
+|---|---|---|
+| [`doubao_speech.py`](../../scripts/doubao_speech.py) | 豆包语音合成 2.0，固定 `speaker`、情绪 context、已有合法复刻音色合成；默认只读 `DOUBAO_SPEECH_API_KEY` | 离线协议及真实本地媒体检查通过。音色列表探测与普通合成返回 HTTP 401；专属 Agent Plan 合成返回 45000010／底层 AuthenticationError 401。均未取得成功 TTS 音频；不能报告当前账号语音可用。 |
+| [`doubao_audio.py`](../../scripts/doubao_audio.py) | 经 MediaKit 调用 Seed-Audio 1.0，异步生成音乐／环境／音效候选；默认只读 `DOUBAO_MEDIAKIT_API_KEY` | 离线协议、续接与真实本地媒体检查通过。当前有效 MediaKit key 未配置，尚无线上的成功音频与效果证据。 |
+| [`procedural_audio.py`](../../scripts/procedural_audio.py) | 标准库离线原创合成，无凭证、无外部采样；wind/rain/cloth/footsteps/ceramic/bell/music_pad | 可离线生产声音候选。它是本地程序合成，不是豆包模型结果；仍须试听、按场景选择和混音。 |
+
+语音普通服务默认 `--service speech`；方舟 Agent Plan 专属凭证显式传 `--service agent-plan`，端点随请求绑定，不自动猜测或回退。两个远程声音工具默认 dry run，显式 `--execute` 才可能付费。`--max-chars` 限文本或提示词字符数，不能当作人民币费用或生成时长上限。Seed-Audio 的“约十秒”“无对白”只属于提示词要求；工具不保证精确时长，也不自动分轨或分离人声。TTS 的相同 `speaker` 只能绑定供应商音色 ID，不能代替跨镜声线、情绪、口型与表演审听。
+
+官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)允许给方舟／IAM key 扩展其他云产品权限。语音或 MediaKit 适配器可用 `--key-env HUO_SHAN_API_KEY` 显式选择现有环境变量，但不会自动 fallback；具备方舟图像／视频权限不证明语音或 MediaKit 权限。当前语音 401 不应绕过，也不能外推为所有账号或接口都不支持。
+
+```bash
+# 只核对请求；不需要 key、不提交生成。
+python3 -B scripts/doubao_speech.py synthesize --project projects/示例作品 \
+  --name VOICE-01 --text '你好，今天还好吗？' --speaker zh_female_vv_uranus_bigtts \
+  --context '温柔、克制地说话。' --max-chars 20 --dry-run
+python3 -B scripts/doubao_audio.py generate --project projects/示例作品 \
+  --name BGM-01 --asset-kind music --prompt '克制的钢琴，约十秒，无对白。' \
+  --max-chars 100 --max-polls 30 --dry-run
+
+# 本地生成声音候选；不联网。
+python3 -B scripts/procedural_audio.py --project projects/示例作品 \
+  --name ambience-wind-01 --preset wind --duration 10 --seed 0
+```
+
+声音均写 `kind=audio`、`purpose=asset` 的 `vsc.generation-record/v1`。TTS 保存请求、分块摘要、用量与原音频 SHA；Seed-Audio 保存任务 ID、提交／查询响应及用量，可续查原任务，已缓存完成响应可本地重验。未知提交不自动重新生成，坏媒体不报成功。详细用法与限制见[豆包语音](doubao-speech.md)、[Seed-Audio](doubao-audio.md)。人工确认后用 `vsc_library.py promote/use` 复用；voice 条目保留供应商、音色、资源与模型，声音权属须独立核验。
+
+## 只读就绪诊断与批次入口
+
+```bash
+python3 -B scripts/vsc_toolchain.py --project projects/示例作品 --json
+python3 -B scripts/vsc_production.py plan projects/示例作品/production-batch.json --project projects/示例作品
+```
+
+`vsc_toolchain.py` 分别报告实现、默认环境变量配置、当前作品中 schema 与媒体 SHA 有效的候选、素材库媒体／规格数量及待人工审阅状态。它只读、无网络探测，`permission_verification=not_probed`；`configured=true` 不验证账号权限、额度或供应商可用性，候选统计也不做解码或审美批准。显式 `--key-env` 的其他变量不被默认配置检测自动推定可用。
+
+`vsc_production.py` 的有界串行队列当前只支持方舟 `image/video`，按依赖顺序绑定资产、关键帧与视频尾帧；声音工具仍使用各自独立入口。先 `validate/plan` 审阅输入 SHA、任务数和图像／视频秒数上界，再 `run --execute --plan-hash <hash>`；不带 `--execute` 只给出计划。plan hash 绑定请求，不是创作批准。预算不是精确金额，未知提交不重提，失败不继续下游。完整入口、模板与恢复规则见[批量生产](../guide/production-batch.md)。
