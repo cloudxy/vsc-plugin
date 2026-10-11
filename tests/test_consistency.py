@@ -205,6 +205,20 @@ class RecordTest(unittest.TestCase):
         self.assertTrue(any("不能被选为交付候选" in error for error in errors))
         self.assertTrue(any("shot_id" in error for error in errors))
 
+    def test_audio_asset_checks_voice_provider_and_resource(self):
+        value = bible()
+        value["entities"][0]["voice"] = {"engine": "doubao_speech", "voice": "sample-voice", "rights": "unknown", "resource_id": "seed-tts-2.0"}
+        record = self.record()
+        record.update(kind="audio", purpose="asset", shot_id=None,
+                      engine={"provider": "doubao_speech", "model": "seed-tts-2.0", "params": {"resource_id": "seed-tts-2.0"}},
+                      inputs={}, outputs=[{"id": "voice", "path": "voice.wav", "sha256": "0" * 64, "entity": value["entities"][0]["id"], "voice": "sample-voice"}])
+        self.assertEqual(C.record_errors(record), [])
+        self.assertEqual(C.record_problems(record, value, STATE), ([], []))
+        record["engine"]["params"]["resource_id"] = "seed-icl-2.0"
+        self.assertTrue(any("声音模型资源" in x for x in C.record_problems(record, value, STATE)[0]))
+        record["engine"]["provider"] = "other"
+        self.assertTrue(any("声音供应商" in x for x in C.record_problems(record, value, STATE)[0]))
+
     def test_malformed_record_values_are_reported_without_crashing(self):
         self.assertTrue(C.record_errors([]))
         record = self.record()

@@ -1,0 +1,60 @@
+{
+  "format": "vsc.production-batch/v1",
+  "project_id": "replace-with-project-id",
+  "id": "batch-001",
+  "max_remote_jobs": 3,
+  "max_attempts": 3,
+  "budget": {
+    "max_images": 1,
+    "max_video_seconds": 10
+  },
+  "jobs": [
+    {
+      "id": "entry-001",
+      "kind": "image",
+      "depends_on": [],
+      "args": {
+        "out": "06-素材/批量/batch-001",
+        "name": "entry-001",
+        "purpose": "candidate",
+        "shot": "SH-001",
+        "moment": "entry",
+        "bible": {"path": "05-连续性/资产库.json"},
+        "state": {"path": "05-连续性/场景状态.json"},
+        "prompt_file": {"path": "05-连续性/SH-001-入点提示词.txt"}
+      }
+    },
+    {
+      "id": "video-001",
+      "kind": "video",
+      "depends_on": ["entry-001"],
+      "args": {
+        "out": "06-素材/批量/batch-001",
+        "name": "video-001",
+        "shot": "SH-001",
+        "bible": {"path": "05-连续性/资产库.json"},
+        "state": {"path": "05-连续性/场景状态.json"},
+        "prompt_file": {"path": "05-连续性/SH-001-视频提示词.txt"},
+        "first_frame": {"job": "entry-001", "output": "image"},
+        "duration": 5,
+        "resolution": "480p"
+      }
+    },
+    {
+      "id": "video-002",
+      "kind": "video",
+      "depends_on": ["video-001"],
+      "args": {
+        "out": "06-素材/批量/batch-001",
+        "name": "video-002",
+        "shot": "SH-002",
+        "bible": {"path": "05-连续性/资产库.json"},
+        "state": {"path": "05-连续性/场景状态.json"},
+        "prompt_file": {"path": "05-连续性/SH-002-视频提示词.txt"},
+        "first_frame_ref": {"job": "video-001", "output": "last_frame"},
+        "duration": 5,
+        "resolution": "480p"
+      }
+    }
+  ]
+}

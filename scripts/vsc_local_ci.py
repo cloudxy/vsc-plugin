@@ -9,6 +9,7 @@ vendor/、projects/ 与 library/ 只存在于维护者本机，线上环境无�
   projects  projects/ 中每个作品仍能被当前状态机读取
   library   本机素材库每个条目字段有效、文件与 SHA-256 一致
   craft     公开创作方法库结构与来源引用有效
+  recipes   制作规格库、20 类覆盖与创作方法引用有效
   tracked   Git 跟踪文件不含作品、素材库、vendor 源码或本机配置
   links     Markdown 中的相对链接都指向存在的文件
 
@@ -25,6 +26,7 @@ from pathlib import Path
 import vendor_skills
 import vsc_library
 import vsc_craft
+import vsc_recipes
 from vendor_sync import NON_RUNTIME_MODES, installed_problem
 from vsc_kernel import doctor_problems
 
@@ -127,6 +129,16 @@ def check_craft():
     return f"{len(data['cards'])} 条方法，{len(data['sources'])} 个来源", []
 
 
+def check_recipes():
+    try:
+        data = vsc_recipes.load()
+        craft_ids = {card["id"] for card in vsc_craft.load()["cards"]}
+        problems = [f"{recipe['id']} 引用不存在的方法 {ref}" for recipe in data["recipes"] for ref in recipe.get("craft_refs", []) if ref not in craft_ids]
+    except (ValueError, OSError) as exc:
+        return "", [str(exc)]
+    return f"{len(data['recipes'])} 条制作规格", problems
+
+
 def tracked_problems(paths):
     problems = []
     for path in paths:
@@ -186,6 +198,7 @@ CHECKS = (
     ("projects", check_projects),
     ("library", check_library),
     ("craft", check_craft),
+    ("recipes", check_recipes),
     ("tracked", check_tracked),
     ("links", check_links),
 )

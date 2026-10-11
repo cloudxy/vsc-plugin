@@ -448,8 +448,8 @@ def record_errors(record):
         errors.append(f"kind 必须是 {'/'.join(RECORD_KINDS)}")
     if purpose not in PURPOSES:
         errors.append(f"purpose 必须是 {'/'.join(PURPOSES)}")
-    if purpose == "asset" and kind != "image":
-        errors.append("资产生成（purpose=asset）只能是图像")
+    if purpose == "asset" and kind not in ("image", "audio"):
+        errors.append("资产生成（purpose=asset）只能是图像或音频")
     elif kind in ("video", "image") and purpose != "asset" and not text(record.get("shot_id")):
         errors.append("镜头画面生成必须写 shot_id")
     inputs = record.get("inputs")
@@ -566,7 +566,7 @@ def record_problems(record, bible, state, project=None, keyframes=None):
         problems.append("生成记录与资产库的 project_id 不一致")
     index, inputs = entity_index(bible), record.get("inputs", {})
     label = record.get("shot_id") or record.get("kind")
-    if record.get("purpose") == "asset":
+    if record.get("purpose") == "asset" and record.get("kind") == "image":
         registered = {ref["sha256"] for entity in bible.get("entities", []) for ref in entity.get("references", [])}
         for output in record.get("outputs", []):
             if output.get("sha256") not in registered:
@@ -617,6 +617,13 @@ def record_problems(record, bible, state, project=None, keyframes=None):
         binding = index.get(speaker, {}).get("voice") if speaker else None
         if binding and output.get("voice") and output["voice"] != binding["voice"]:
             problems.append(f"{label}：{output['id']} 的音色 {output['voice']} 与资产库中 {speaker} 的绑定 {binding['voice']} 不一致")
+        if binding and record.get("kind") == "audio":
+            provider = record["engine"]["provider"]
+            if binding.get("engine") and binding["engine"] != provider:
+                problems.append(f"{label}：{speaker} 的声音供应商与绑定不一致")
+            resource = record["engine"].get("params", {}).get("resource_id")
+            if binding.get("resource_id") and resource != binding["resource_id"]:
+                problems.append(f"{label}：{speaker} 的声音模型资源与绑定不一致")
     if project:
         items = [(f"{label} 输出 {output.get('id')}", output) for output in record.get("outputs", [])]
         items += [(f"{label} {key}", inputs[key]) for key in ("first_frame", "last_frame", "base_frame") if inputs.get(key)]

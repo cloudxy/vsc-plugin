@@ -229,6 +229,8 @@ def doctor_problems():
             if not isinstance(validator, dict) or not isinstance(validator.get("arguments"), list):
                 problems.append(f"contract {format_id}.validator 必须含 script 和 arguments")
             else:
+                if not isinstance(validator.get("requires_project", False), bool):
+                    problems.append(f"contract {format_id}.validator.requires_project 必须为布尔值")
                 try:
                     script = relative_file(validator.get("script"), f"contract {format_id}.validator.script")
                 except KernelError as exc:
@@ -329,7 +331,14 @@ def command_contract_validate(args):
     script = relative_file(validator.get("script"), f"contract {args.format}.validator.script")
     if not script.is_file():
         raise KernelError(f"校验器不存在：{script.relative_to(ROOT)}")
-    result = subprocess.run([sys.executable, "-B", str(script), *validator["arguments"], args.file])
+    command = [sys.executable, "-B", str(script), *validator["arguments"], args.file]
+    if validator.get("requires_project"):
+        if not args.project:
+            raise KernelError(f"{args.format} 校验需要 --project，以复验实际输入和项目绑定")
+        command += ["--project", args.project]
+    elif args.project:
+        raise KernelError(f"{args.format} 的结构校验不接受 --project；请使用该阶段的项目检查命令")
+    result = subprocess.run(command)
     raise SystemExit(result.returncode)
 
 
@@ -355,6 +364,7 @@ def main():
     validate_parser = contract_commands.add_parser("validate")
     validate_parser.add_argument("format")
     validate_parser.add_argument("file")
+    validate_parser.add_argument("--project", help="需要项目上下文的契约校验器使用")
     validate_parser.set_defaults(fn=command_contract_validate)
     args = parser.parse_args()
     try:

@@ -61,6 +61,13 @@ class ArkError(RuntimeError):
     """请求无效、平台拒绝或运行环境未就绪。"""
 
 
+class ArkHTTPError(ArkError):
+    """HTTP 错误保留状态码；计费分类不依赖异常文本。"""
+    def __init__(self, status_code, message):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def now():
     return datetime.datetime.now().astimezone()
 
@@ -85,14 +92,14 @@ def call(path, payload=None, attempts=None):
     key = api_key()
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode()
     request = urllib.request.Request(BASE + path, data=data, headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
-    attempts = attempts or (1 if payload is not None else 6)
+    attempts = 1 if payload is not None else (attempts or 6)
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=300) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace").replace(key, "[REDACTED]")
-            raise ArkError(f"HTTP {exc.code}: {body[:800]}") from None
+            raise ArkHTTPError(exc.code, f"HTTP {exc.code}: {body[:800]}") from None
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as exc:
             if attempt == attempts - 1:
                 raise ArkError(f"网络错误：{str(exc).replace(key, '[REDACTED]')}") from None
@@ -382,11 +389,49 @@ def generation_task(out, args, record, payload, targets):
                 or {key: value for key, value in engine["params"].items() if key != "actual"} != record["engine"]["params"]):
             raise ArkError("任务文件的原始模型或参数与绑定不符，不能安全续接")
         if record["kind"] == "video" and (not isinstance(task.get("id"), str) or not consistency.SAFE_ID.fullmatch(task["id"])):
-            raise ArkError("任务文件缺少有效的远程任务编号，不能安全续接")
+            reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交状态未知，任务文件缺少有效远程编号"
+            raise ArkError(reason + "；不能自动重提，请先人工核查平台任务与账单")
         return task_file, task
     if any(path.exists() for path in [record_file, *targets]):
         raise ArkError(f"同名输出或生成记录已存在：{args.name}；请使用新的 --name")
     return task_file, {"format": "vsc.ark-task/v1", "binding": binding, "record": record}
+
+
+def submit_once(task_file, task, path, payload, out, args):
+    """提交意图先持久化；进程退出或响应丢失时不能靠重跑再次扣费。"""
+    if task_file.exists():
+        reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交结果未知"
+        raise ArkError(reason + "；不能自动重提，请先人工核查平台任务与账单")
+    api_key()  # 本地缺密钥不留下可能已提交的凭证。
+    record = task["record"]
+    record.update(finished_at=stamp(now()), errors=[],
+                  budget={"billable": True, "usage": {"note": "提交意图已记录；结果未知，可能计费，须核对平台账单"}})
+    task.update(submission_state="intent", submitted_at=stamp(now()))
+    write_json(task_file, task)
+    write_record(out, args.name, record)
+    try:
+        result = call(path, payload)
+    except BaseException as exc:
+        rejected = isinstance(exc, ArkHTTPError) and 400 <= exc.status_code < 500
+        task["submission_state"] = "rejected" if rejected else "unknown"
+        record.update(finished_at=stamp(now()), errors=[{"error": str(exc) or type(exc).__name__, "stage": "submission"}],
+                      budget={"billable": False} if rejected else
+                      {"billable": True, "usage": {"note": "提交结果未知，可能计费；不能自动重提，须核对平台任务和账单"}})
+        write_json(task_file, task)
+        write_record(out, args.name, record)
+        raise
+    task.update(submission_state="responded", submission=result)
+    if isinstance(result, dict):
+        if record["kind"] == "image":
+            task.update(result=result, generated_at=stamp(generated_at(result, now())))
+        else:
+            identifier = result.get("id")
+            if isinstance(identifier, str) and consistency.SAFE_ID.fullmatch(identifier):
+                task["id"] = identifier
+                record["engine"]["task_id"] = identifier
+    # 原始响应先落盘，后续解析异常也不能丢失提交证据。
+    write_json(task_file, task)
+    return result
 
 
 def remote_success(record, result):
@@ -458,12 +503,9 @@ def generate_image(args):
     with generation_lock(out, args.name):
         task_file, task = generation_task(out, args, record, payload, [target])
         if "result" not in task:
-            try:
-                result = call("/images/generations", payload)
-            except ArkError as exc:
-                record.update(finished_at=stamp(now()), errors=[{"error": str(exc)}], budget={"billable": False})
-                write_record(out, args.name, record)
-                raise
+            result = submit_once(task_file, task, "/images/generations", payload, out, args)
+            if not isinstance(result, dict):
+                raise ArkError("平台图像响应不是对象；提交已有响应，不能安全重提")
             task.update(result=result, generated_at=stamp(generated_at(result, now())))
             write_json(task_file, task)  # 响应与用量先落盘，下载失败不会导致再次生成。
         else:
@@ -565,12 +607,7 @@ def generate_video(args):
         if "completed_record" in task:
             return out / f"{args.name}-生成记录.json"
         if "id" not in task:
-            try:
-                submission = call("/contents/generations/tasks", payload)
-            except ArkError as exc:
-                record.update(finished_at=stamp(now()), errors=[{"error": str(exc)}], budget={"billable": False})
-                write_record(out, args.name, record)
-                raise
+            submission = submit_once(task_file, task, "/contents/generations/tasks", payload, out, args)
             task.update(submission=submission, submitted_at=stamp(started))
             task_id = submission.get("id") if isinstance(submission, dict) else None
             if not isinstance(task_id, str) or not consistency.SAFE_ID.fullmatch(task_id):
