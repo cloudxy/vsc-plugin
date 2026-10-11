@@ -1,6 +1,6 @@
 # 生成适配器边界
 
-VSC 核心不含任何图像、视频、音频或模型供应商 SDK。需要上游项目的能力时，把它移植成 VSC 自己的代码（见下文），运行时不调用上游项目。适配器由团队按其账号、成本、地区、授权与数据政策另行实现；更换适配器不应改变项目的剧本、资产或镜头语义。适配器位于 `workflow/` 声明的稳定 VSC 语义与外部实现之间；它不拥有阶段、角色或项目批准规则。
+VSC 核心不依赖模型供应商 SDK。需要上游项目的能力时，把它移植成 VSC 自己的代码（见下文），运行时不调用上游项目。已有可选豆包适配器；团队按账号、成本、地区、授权与数据政策选择或补充实现。更换适配器不应改变项目的剧本、资产或镜头语义。适配器位于 `workflow/` 声明的稳定 VSC 语义与外部实现之间；它不拥有阶段、角色或项目批准规则。
 
 每次生成任务保存一份 `vsc.generation-record/v1` 生成记录（字段见 `scripts/consistency.py` 与 `templates/generation-record.json`）。生成输出只登记为候选 take，必须经项目责任人选择后才能进入时间线。
 
@@ -31,5 +31,36 @@ VSC 核心不含任何图像、视频、音频或模型供应商 SDK。需要上
 | 日期 | 供应商与模型 | 用途 | 结果 |
 |---|---|---|---|
 | 2026-10-11 | 火山方舟 Seedream 4.5（`doubao-seedream-4-5-251128`） | 资产图、关键帧 | 可用。单次最多 14 张参考图，也可以把上一张关键帧当底图做局部编辑。但道具数量和位置仍会出错，需要逐张检查。 |
-| 2026-10-11 | 火山方舟 Seedance 2.5（`doubao-seedance-2-5-260628`） | 首尾帧生成视频 | 拒绝。只要输入图里有写实人脸，即使是 AI 生成的，也会以 `InputImageSensitiveContentDetected.PrivacyInformation` 拒收。写实人物的首尾帧和参考图都不能走这条路。 |
-| 2026-10-11 | 阿里云百炼 万相 `wan2.2-kf2v-flash` | 首尾帧生成视频 | 接受同一批关键帧。480P，固定 5 秒，无声音。相邻镜头共用交界帧时，镜头之间的画面能严丝合缝接上。动作由谁完成仍取决于文字，可能做错。 |
+| 2026-10-11 | 火山方舟 Seedream 5.0 flash（`doubao-seedream-5-0-flash-260915`） | 纯文生人物资产图 | 已生成并登记人物规范图，原始产物被同账号 Seedance 接受。当前账号其他模型是否开通须单独核对。 |
+| 2026-10-11 | 火山方舟 Seedance 2.5（`doubao-seedance-2-5-260628`） | 参考人物图生成视频，返回尾帧接下一镜 | 可信 Seedream 原始产物获接受；三镜 480p、24fps，均含音轨，后两镜绑定前镜返回尾帧。普通 Seedream 4.5 写实人脸图曾被拒绝，不能概括为所有 AI 人脸都不可用。输入 SHA 和镜头交界检查通过；表演、动作、口型和声音仍需审片。 |
+
+## 豆包适配器
+
+[`scripts/volc_ark.py`](../../scripts/volc_ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读环境变量 `HUO_SHAN_API_KEY` 或 `ARK_API_KEY`。执行前应有本项目已批准输入、预算和授权。
+
+```bash
+# 一次生成规范资产图；模型需已在账号开通。
+python3 -B scripts/volc_ark.py image --project projects/雨夜来信 \
+  --out 06-素材/资产 --name character-01 --purpose asset --prompt-file ./人物提示.txt
+
+# 提交前检查请求。去掉 --dry-run 才调用付费视频生成。
+python3 -B scripts/volc_ark.py video --project projects/雨夜来信 \
+  --out 06-素材/视频 --name SH-001-T1 --shot SH-001 \
+  --bible projects/雨夜来信/04-视听设计/资产库.json \
+  --state projects/雨夜来信/05-预演/状态时间线.json \
+  --prompt-file ./动作提示.txt --ref-image projects/雨夜来信/06-素材/资产/character-01.png \
+  --resolution 480p --draft --dry-run
+
+python3 -B scripts/volc_ark.py inspect --project projects/雨夜来信 \
+  --media projects/雨夜来信/06-素材/视频/SH-001-T1.mp4 \
+  --bible projects/雨夜来信/04-视听设计/资产库.json \
+  --state projects/雨夜来信/05-预演/状态时间线.json --shot SH-001
+```
+
+`image --purpose candidate` 生成关键帧前须给出镜头、时刻、资产库及时间线。`video --first-frame` 是首帧约束模式，不能混用参考素材；`--first-frame-ref` 是全模态模式中把图片1作为起始画面的文字要求，属于参考，不能声称平台硬约束首帧。视频返回尾帧登记为 `outputs[].role=last_frame`，可原样传给下一镜；一致性检查优先采用实际返回帧，画面接点仍须审阅。
+
+方舟官方[肖像素材指南](https://docs.volcengine.com/docs/ark/seedance-portrait-asset-guide?lang=zh)说明：平台信任同账号近 30 天内指定 Seedance 视频及对应尾帧、Seedream 5.0 lite/pro 纯文生图的含人脸原始产物；改动、转码、跨账号或过期不能据此获得信任。参考生图产物不能自动沿用纯文生图的信任。具体型号范围由脚本 `TRUSTED` 声明，平台最终判定优先。原始下载链接的有效期和人脸信任期限是两回事；记录期限不能保证原始 URL 始终可访问。可信素材库的 `asset://` 引用须在账号内另行建立，不会因本地复制自动创建。
+
+每次生成保留输入快照、请求摘要、远程任务／响应、原始链接、用量和输出 SHA。同名命令只有请求完全一致才可续接，下载失败保留已计费用量；不同输入须用新 take 名称。无法核实的旧任务，以及引用链接过期后请求编码变化的任务，会停止并说明原因，不把旧结果绑定到新输入。音轨存在只证明有声音，联合生成不等于可复用的稳定角色声线；专用 TTS／音乐生成尚未接入。
+
+视觉检查按锚点逐项给出 `pass/fail/unsure` 和可见依据，保存 `vsc.visual-check/v1`。视频默认抽首、中、尾三帧，因此不是逐帧动作或口型验证；报告必须 `advisory=true`，完整清单通过也不能代替人审。

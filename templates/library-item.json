@@ -1,0 +1,29 @@
+{
+  "format": "vsc.library-item/v1",
+  "id": "motion-handover-01",
+  "kind": "motion",
+  "name": "递物五拍规格",
+  "summary": "通用动作规格示例：准备、伸手、接触、转移、收手。",
+  "tags": [
+    "递物",
+    "动作"
+  ],
+  "files": [],
+  "attributes": {
+    "beats": [
+      "准备",
+      "伸手",
+      "接触",
+      "转移",
+      "收手"
+    ],
+    "limits": "示例规格，需在本片预演后确认。"
+  },
+  "rights": {
+    "status": "owned",
+    "license": "VSC MIT 示例规格",
+    "commercial_use": true
+  },
+  "provider_refs": [],
+  "used_by": []
+}

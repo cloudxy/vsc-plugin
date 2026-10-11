@@ -219,6 +219,20 @@ def reference_errors(project, state, item, visited=None):
         for segment in data.get("segments", []):
             if segment.get("source_shot_id"):
                 need(segment["source_shot_id"], "shot", "source_shot_id")
+    elif fmt == "vsc.sequence-links/v1":
+        from vsc_sequence import sequence_problems
+        errors.extend(sequence_problems(data, project))
+        for unit in data.get("units", []):
+            need(unit.get("id"), unit.get("kind"), "units.id")
+            for key in ("entry_shot", "exit_shot"):
+                need(unit.get(key), "shot", key)
+                if not in_scope(objects, unit.get(key), unit.get("id")):
+                    errors.append(f"{key} 不属于单元 {unit.get('id')}")
+            baselines = [a for a in state.get("artifacts", []) if a["id"] in item.get("depends_on", [])
+                         and a["type"] == "vsc.scene_state" and a.get("sha256") == unit.get("state_sha256")
+                         and (Path(project) / a["path"]).resolve() == (Path(project) / unit.get("state_path", "")).resolve()]
+            if not baselines:
+                errors.append(f"单元 {unit.get('id')} 必须依赖匹配路径和 SHA 的 vsc.scene_state 版本")
     elif fmt in ("vsc.media-qa/v1", "vsc.sample-review/v1"):
         try:
             qa = data
