@@ -137,8 +137,9 @@ class AnchorTest(unittest.TestCase):
         self.assertEqual(pack["entities"]["信封"]["exit"]["variant"], "信封-已拆")
         self.assertEqual(pack["entities"]["主角"]["entry"]["variant_description"], "深色及膝风衣，领口微湿")
         text = C.anchor_text(pack)
-        self.assertIn("本镜变化：信封 → variant=信封-已拆", text)
+        self.assertIn("本镜变化：旧信封变为封口撕开，信纸露出一角。", text)
         self.assertLess(text.index("主角"), text.index("旧信封"))
+        self.assertIn("主角：三十岁左右的短发女性，左眉浅疤，神情克制", text)
 
     def test_sha_changes_only_when_this_shot_is_affected(self):
         base = C.pack_sha256(C.anchor_pack(BIBLE, STATE, "SH-002"))
