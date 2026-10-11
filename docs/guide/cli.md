@@ -2,6 +2,8 @@
 
 以下流程直接调用 VSC CLI；在 AI 客户端中使用时，智能体也按这些命令推进。
 
+跨作品素材复用、公开创作方法、统一内容检索与章节衔接见[素材复用与检索](reuse-and-search.md)；实际生成命令见[生成适配器](../architecture/generation-adapters.md#豆包适配器)。
+
 ## 立即开始
 
 VSC 的状态机只依赖 Python 标准库：

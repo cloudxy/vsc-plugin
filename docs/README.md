@@ -8,6 +8,7 @@
 |---|---|
 | [AI 客户端接入](guide/workspace-setup.md) | Codex、Claude Code、Grok Build、Kimi Code、ZCode 的入口与验证 |
 | [命令行使用](guide/cli.md) | 新建项目、登记与批准、契约校验、记忆与学习、Profile、外部交接 |
+| [素材复用与检索](guide/reuse-and-search.md) | 跨作品素材库、公开创作方法、内容查找与集／场衔接 |
 | [本地 Vendor](../vendor/README.md) | 第三方 Skill/工具的声明、安装与锁定字段 |
 | [维护与本地验证](guide/maintenance.md) | 本地 CI、提交与推送钩子、宿主入口同步、测试 |
 
@@ -51,4 +52,5 @@
 | 文档 | 内容 |
 |---|---|
 | [v0.9](releases/v0.9.md) | 创作目标、批准版本、依赖与范围验收、试用评测和真实媒体证据 |
+| [v0.10](releases/v0.10.md) | 豆包适配器、素材复用、创作方法检索和集／场衔接 |
 | [v0.2](releases/v0.2.md) | 架构如何落为插件骨架 |

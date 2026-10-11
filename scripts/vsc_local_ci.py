@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """VSC 本地 CI：维护者把改动提交并推送 main 前，在本机运行。
 
-vendor/ 与 projects/ 只存在于维护者本机，线上环境无法复现，因此 VSC 不使用线上 CI。依次检查：
+vendor/、projects/ 与 library/ 只存在于维护者本机，线上环境无法复现，因此 VSC 不使用线上 CI。依次检查：
 
   doctor    工作流内核与物理入口
   tests     tests/test_*.py 全部测试
   vendor    锁定文件、已安装版本与各阶段路由的上游 Skill
   projects  projects/ 中每个作品仍能被当前状态机读取
-  tracked   Git 跟踪文件不含作品、vendor 源码或本机配置
+  library   本机素材库每个条目字段有效、文件与 SHA-256 一致
+  craft     公开创作方法库结构与来源引用有效
+  tracked   Git 跟踪文件不含作品、素材库、vendor 源码或本机配置
   links     Markdown 中的相对链接都指向存在的文件
 
 只读：不联网、不下载、不写作品状态。全部通过时退出码为 0。
@@ -21,6 +23,8 @@ import sys
 from pathlib import Path
 
 import vendor_skills
+import vsc_library
+import vsc_craft
 from vendor_sync import NON_RUNTIME_MODES, installed_problem
 from vsc_kernel import doctor_problems
 
@@ -107,11 +111,29 @@ def check_projects():
     return f"{len(projects)} 个作品", problems
 
 
+def check_library():
+    try:
+        count, problems = vsc_library.check(argparse.Namespace(library=None))
+    except (ValueError, OSError, vsc_library.LibraryError) as exc:
+        return "", [str(exc)]
+    return f"{count} 个素材", problems
+
+
+def check_craft():
+    try:
+        data = vsc_craft.load()
+    except (ValueError, OSError) as exc:
+        return "", [str(exc)]
+    return f"{len(data['cards'])} 条方法，{len(data['sources'])} 个来源", []
+
+
 def tracked_problems(paths):
     problems = []
     for path in paths:
         if path.startswith("projects/"):
             problems.append(f"作品数据被 Git 跟踪：{path}")
+        elif path.startswith("library/"):
+            problems.append(f"素材库内容被 Git 跟踪：{path}")
         elif path.startswith("vendor/") and path not in TRACKED_VENDOR:
             problems.append(f"vendor 源码被 Git 跟踪：{path}")
         elif path.startswith(LOCAL_ONLY) or path.rsplit("/", 1)[-1] == ".DS_Store" or "__pycache__/" in path:
@@ -162,6 +184,8 @@ CHECKS = (
     ("tests", check_tests),
     ("vendor", check_vendor),
     ("projects", check_projects),
+    ("library", check_library),
+    ("craft", check_craft),
     ("tracked", check_tracked),
     ("links", check_links),
 )

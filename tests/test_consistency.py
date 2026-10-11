@@ -205,6 +205,31 @@ class RecordTest(unittest.TestCase):
         self.assertTrue(any("不能被选为交付候选" in error for error in errors))
         self.assertTrue(any("shot_id" in error for error in errors))
 
+    def test_malformed_record_values_are_reported_without_crashing(self):
+        self.assertTrue(C.record_errors([]))
+        record = self.record()
+        record["outputs"][0]["id"] = ["bad"]
+        record["selection"] = {"output_id": ["bad"], "by": "用户"}
+        self.assertTrue(any("id 必须唯一" in error for error in C.record_errors(record)))
+        self.assertTrue(any("selection" in error for error in C.record_errors(record)))
+
+    def test_check_reports_invalid_record_before_indexing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "malformed.json"
+            record = self.record()
+            record["kind"] = "image"
+            record["inputs"].pop("first_frame", None)
+            record["outputs"][0].pop("sha256")
+            path.write_text(json.dumps(record), "utf-8")
+            result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "consistency.py"), "check",
+                                     "--bible", str(ROOT / "templates/asset-bible.json"),
+                                     "--state", str(ROOT / "templates/scene-state.json"), "--record", str(path)],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("INVALID:", result.stderr)
+            self.assertIn("sha256", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
 
 class KeyframeChainTest(unittest.TestCase):
     """资产图 → 关键帧 → 视频：身份沿链路追溯，相邻镜头共用交界帧。"""
@@ -254,6 +279,62 @@ class KeyframeChainTest(unittest.TestCase):
         second["inputs"]["first_frame"]["sha256"] = "4" * 64
         self.assertIn("不是同一张图", C.chain_problems([first, second], STATE)[0])
 
+    def test_actual_tail_precedes_the_requested_tail(self):
+        first = self.video("SH-001", "1" * 64, "2" * 64)
+        second = self.video("SH-002", "2" * 64, "3" * 64)
+        first["outputs"].append({"id": "actual-tail", "path": "tail.png", "sha256": "4" * 64, "role": "last_frame"})
+        self.assertIn("不是同一张图", C.chain_problems([first, second], STATE)[0])
+        second["inputs"]["first_frame"]["sha256"] = "4" * 64
+        self.assertEqual(C.chain_problems([first, second], STATE), [])
+        first["outputs"].pop()
+        self.assertIn("不是同一张图", C.chain_problems([first, second], STATE)[0])
+        second["inputs"]["first_frame"]["sha256"] = "2" * 64
+        self.assertEqual(C.chain_problems([first, second], STATE), [])
+
+    def test_identical_actual_tails_keep_both_shot_boundaries(self):
+        shared = "5" * 64
+        first = self.video("SH-001", "1" * 64, shared)
+        first["inputs"]["references"] = [self.HERO]
+        second = self.video("SH-002", shared, shared)
+        for record in (first, second):
+            record["outputs"].append({"id": "tail", "path": "tail.png", "sha256": shared, "role": "last_frame"})
+        for records in ([first, second], [second, first]):
+            keyframes = C.keyframe_index(records, BIBLE["project_id"])
+            self.assertIn(shared, keyframes)
+            self.assertEqual({C.moment_of(source) for source in keyframes[shared]}, {("SH-001", "exit"), ("SH-002", "exit")})
+            self.assertEqual(C.record_problems(second, BIBLE, STATE, keyframes=keyframes), ([], []))
+            self.assertEqual(C.chain_problems(records, STATE), [])
+
+    def test_same_hash_does_not_make_the_wrong_boundary_valid(self):
+        shared = "6" * 64
+        wrong = self.image(shared, "SH-002", "exit", [self.HERO])
+        second = self.video("SH-002", shared, shared)
+        problems, warnings = C.record_problems(second, BIBLE, STATE, keyframes=C.keyframe_index([wrong]))
+        self.assertTrue(any("首帧对应的关键帧" in item for item in problems))
+        # 本镜尾帧仍可提供身份来源，不能把它误当作入点边界。
+        self.assertEqual(warnings, [])
+
+    def test_failed_foreign_and_malformed_sources_cannot_anchor_video(self):
+        entry, exit_ = "7" * 64, "8" * 64
+        video = self.video("SH-002", entry, exit_)
+        sources = []
+        failed = self.image(entry, "SH-001", "exit", [self.HERO])
+        failed["status"] = "failed"
+        sources.append(failed)
+        foreign = self.image(entry, "SH-001", "exit", [self.HERO])
+        foreign["project_id"] = "another-project"
+        sources.append(foreign)
+        malformed = self.image(entry, "SH-001", "exit", [self.HERO])
+        malformed["outputs"][0].pop("sha256")
+        sources.append(malformed)
+        for source in sources:
+            self.assertNotIn(entry, C.keyframe_index([source], BIBLE["project_id"]))
+            # 外部调用方传旧索引也不能绕过来源核验。
+            problems, warnings = C.record_problems(video, BIBLE, STATE, keyframes={entry: source})
+            self.assertEqual(problems, [])
+            self.assertTrue(any("只靠文字锚定" in item for item in warnings))
+        self.assertEqual(C.keyframe_index([{}, None, [], malformed]), {})
+
     def test_asset_images_need_no_shot_and_must_be_registered(self):
         asset = self.image("e" * 64, None, None, purpose="asset")
         asset["inputs"].pop("moment")
@@ -270,6 +351,46 @@ class KeyframeChainTest(unittest.TestCase):
         errors = C.record_errors(image)
         self.assertTrue(any("inputs.moment" in error for error in errors))
         self.assertTrue(any("base_frame.use" in error for error in errors))
+
+
+class VisualReportTest(unittest.TestCase):
+    @staticmethod
+    def report():
+        return {"format": C.VISUAL_FORMAT, "project_id": BIBLE["project_id"], "entities": ["主角"],
+                "subject": {"path": "portrait.png", "sha256": "9" * 64},
+                "engine": {"provider": "volcengine_ark", "model": "vision"}, "advisory": True,
+                "checklist": ["主角在场", "衣服完整"],
+                "results": [{"item": "主角在场", "verdict": "pass", "evidence": "画面中有主角"},
+                            {"item": "衣服完整", "verdict": "unsure", "evidence": "衣服下部被遮挡"}], "issues": []}
+
+    def test_complete_checklist_and_evidence_are_valid(self):
+        self.assertEqual(C.visual_errors(self.report()), [])
+
+    def test_missing_evidence_and_advisory_are_rejected(self):
+        report = self.report()
+        report["results"][0]["evidence"] = " "
+        report["advisory"] = False
+        errors = C.visual_errors(report)
+        self.assertTrue(any("evidence" in item for item in errors))
+        self.assertTrue(any("advisory" in item for item in errors))
+
+    def test_checklist_requires_exactly_one_result_per_item(self):
+        report = self.report()
+        report["results"].pop()
+        self.assertTrue(any("遗漏" in item for item in C.visual_errors(report)))
+        report = self.report()
+        report["results"].append(copy.deepcopy(report["results"][0]))
+        self.assertTrue(any("重复核对" in item for item in C.visual_errors(report)))
+        report = self.report()
+        report["results"][0]["item"] = "自选检查项"
+        self.assertTrue(any("之外" in item for item in C.visual_errors(report)))
+        report = self.report()
+        report["checklist"] = ["主角在场", "主角在场"]
+        self.assertTrue(any("重复条目" in item for item in C.visual_errors(report)))
+        for checklist in (None, [], "主角在场", [None]):
+            report = self.report()
+            report["checklist"] = checklist
+            self.assertTrue(any("checklist" in item for item in C.visual_errors(report)))
 
 
 class KernelTest(unittest.TestCase):

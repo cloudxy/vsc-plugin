@@ -18,6 +18,8 @@ description: "Use when VSC needs to preserve character, scene, action, camera, l
 
 同场各镜的状态不要逐镜手写：每场戏写一份基线，每个镜头只写本镜内发生的变化，保存为 `vsc.scene-state/v1`（模板 `templates/scene-state.json`）。连续性计划的人物键使用资产库 ID、`costume_id` 使用变体名，再用 `python3 -B scripts/consistency.py check --bible <资产库> --state <状态时间线> --continuity <连续性计划>` 核对三者一致。
 
+跨集或跨场另写 `vsc.sequence-links/v1`，绑定状态版本、首尾镜头、叙事接收、声音桥、保持项和变化理由。运行 `scripts/vsc_sequence.py check <计划> --project <作品>` 核对，登记后依赖明确的状态版本。见[集、场衔接](../../docs/guide/reuse-and-search.md#集场衔接)。
+
 将 JSON 计划保存为 `vsc.continuity-plan/v1`，运行：
 
 ```bash

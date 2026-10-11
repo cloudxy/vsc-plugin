@@ -14,7 +14,7 @@
       },
       "roles": ["orchestrator"],
       "profile_stages": ["brief", "source", "delivery"],
-      "contracts": ["creative-handoff/v1", "vsc.role-context/v1"]
+      "contracts": ["creative-handoff/v1", "vsc.role-context/v1", "vsc.sequence-links/v1"]
     },
     {
       "id": "adapt",
@@ -58,7 +58,7 @@
       },
       "roles": ["director"],
       "profile_stages": ["design", "animatic"],
-      "contracts": ["vsc.continuity-plan/v1"],
+      "contracts": ["vsc.continuity-plan/v1", "vsc.scene-state/v1", "vsc.sequence-links/v1"],
       "vendor_skill_stage": "direct"
     },
     {
@@ -73,7 +73,7 @@
       },
       "roles": ["asset-director"],
       "profile_stages": ["design"],
-      "contracts": [],
+      "contracts": ["vsc.asset-bible/v1", "vsc.library-item/v1"],
       "vendor_skill_stage": "assets"
     },
     {
@@ -88,7 +88,7 @@
       },
       "roles": ["generation-producer", "continuity-supervisor"],
       "profile_stages": ["production"],
-      "contracts": ["vsc.continuity-plan/v1"],
+      "contracts": ["vsc.continuity-plan/v1", "vsc.generation-record/v1", "vsc.visual-check/v1"],
       "vendor_skill_stage": "produce"
     },
     {
@@ -103,7 +103,7 @@
       },
       "roles": ["continuity-supervisor", "director", "asset-director"],
       "profile_stages": ["design", "animatic", "production"],
-      "contracts": ["vsc.continuity-plan/v1"]
+      "contracts": ["vsc.continuity-plan/v1", "vsc.asset-bible/v1", "vsc.scene-state/v1", "vsc.sequence-links/v1"]
     },
     {
       "id": "sound",
@@ -161,7 +161,7 @@
       },
       "roles": ["director", "asset-director", "post-reviewer"],
       "profile_stages": [],
-      "contracts": []
+      "contracts": ["vsc.craft-catalog/v1"]
     },
     {
       "id": "vendor",

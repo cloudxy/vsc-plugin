@@ -8,8 +8,9 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
-# 作品目录为本地创作数据，不进入 VSC 源码仓库。
+# 作品目录与跨作品素材库为本地创作数据，不进入 VSC 源码仓库。
 /projects/
+/library/
 
 # ZCode 本地索引排除配置。
 /.zcodeignore

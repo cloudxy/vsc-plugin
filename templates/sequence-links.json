@@ -1,0 +1,45 @@
+{
+  "format": "vsc.sequence-links/v1",
+  "project_id": "replace-with-project-id",
+  "units": [
+    {
+      "id": "EP-001",
+      "kind": "episode",
+      "state_path": "05-预演/EP-001-scene-state.json",
+      "state_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "entry_shot": "EP-001-SH-001",
+      "exit_shot": "EP-001-SH-002"
+    },
+    {
+      "id": "EP-002",
+      "kind": "episode",
+      "state_path": "05-预演/EP-002-scene-state.json",
+      "state_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "entry_shot": "EP-002-SH-001",
+      "exit_shot": "EP-002-SH-002"
+    }
+  ],
+  "links": [
+    {
+      "from": "EP-001",
+      "to": "EP-002",
+      "mode": "ellipsis",
+      "purpose": "人工填写：本次集或场衔接承担的叙事目的。",
+      "narrative": {
+        "carry": "人工填写：前一单元留下的行动、情绪、信息或悬念。",
+        "receive": "人工填写：后一单元如何接住该行动、情绪、信息或悬念。"
+      },
+      "audio": {
+        "strategy": "人工填写：J cut、L cut、声音桥、硬切或静默等策略。",
+        "description": "人工填写：声源、进入和退出时机，以及衔接的听觉意图。"
+      },
+      "match_fields": ["location_id"],
+      "changes": [
+        {
+          "field": "environment.time",
+          "reason": "人工填写：时间省略的范围与观众如何理解这次变化。"
+        }
+      ]
+    }
+  ]
+}

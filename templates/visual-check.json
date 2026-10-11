@@ -1,0 +1,30 @@
+{
+  "format": "vsc.visual-check/v1",
+  "project_id": "replace-with-project-id",
+  "shot_id": null,
+  "entities": [
+    "character-id"
+  ],
+  "moment": null,
+  "subject": {
+    "path": "06-素材/图像/参考.png",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "anchors_sha256": null,
+  "engine": {
+    "provider": "volcengine_ark",
+    "model": "replace-with-model-id"
+  },
+  "advisory": true,
+  "checklist": [
+    "人物不可变特征是否可见"
+  ],
+  "results": [
+    {
+      "item": "人物不可变特征是否可见",
+      "verdict": "unsure",
+      "evidence": "模板示例，尚未检查任何真实画面。"
+    }
+  ],
+  "issues": []
+}

@@ -8,6 +8,7 @@
                                                输出该镜头的锚点包（JSON，含 sha256）；--text 输出可改写为提示词的文字，
                                                加 --moment 时只写入点或出点的完整状态，用于生成首帧、尾帧
   record validate FILE                         校验一份生成记录的结构
+  visual validate FILE                         校验一份 AI 视觉检查报告（vsc.visual-check/v1）的结构
   check --bible FILE --state FILE [--continuity PLAN] [--record FILE ...] [--project DIR]
                                                交叉检查；连续性计划须与时间线一致，生成记录须绑定当前锚点。
                                                同时给出资产图、关键帧与视频的记录时，沿“资产图 → 关键帧 → 视频”追溯
@@ -25,6 +26,9 @@
 - 资产图：purpose=asset，不写 shot_id；生成后应登记为资产库中对应实体的参考素材。
 - 关键帧：图像记录写 shot_id 和 inputs.moment（entry/exit）。以上一张关键帧为底图编辑或参考时，写 inputs.base_frame（use=edit/reference），身份沿它逐级上溯到资产图。
 - 视频：inputs.first_frame 和 inputs.last_frame 写两帧的 SHA；同场相邻两镜，前一镜的尾帧与后一镜的首帧必须是同一张图。
+  供应商返回的视频尾帧作为输出登记（role=last_frame），它就是该镜出点，可直接作为下一镜首帧。
+
+视觉检查报告逐条记录 AI 对画面的判断（pass/fail/unsure）与依据，advisory 必须为 true：它只作提醒，不能代替人工批准。
 """
 import argparse
 import copy
@@ -41,6 +45,9 @@ RECORD_KINDS = ("video", "image", "audio")
 PURPOSES = ("candidate", "animatic_temp", "asset")
 MOMENTS = ("entry", "exit")
 BASE_USES = ("reference", "edit")
+OUTPUT_ROLES = ("last_frame",)
+VISUAL_FORMAT = "vsc.visual-check/v1"
+VERDICTS = ("pass", "fail", "unsure")
 STATUSES = ("succeeded", "partial", "failed")
 FRAME_SOURCES = ("reference", "previous_exit", "generated")
 KINDS = ("character", "prop", "object", "location", "creature", "vehicle")
@@ -429,7 +436,11 @@ def anchor_text(pack, moment=None):
 # ---------- 生成记录 ----------
 
 def record_errors(record):
+    if not isinstance(record, dict):
+        return ["生成记录必须是对象"]
     errors = []
+    if record.get("format") != RECORD_FORMAT:
+        errors.append(f"format 必须为 {RECORD_FORMAT}")
     if not text(record.get("project_id")):
         errors.append("project_id 必须是非空字符串")
     kind, purpose = record.get("kind"), record.get("purpose")
@@ -489,37 +500,67 @@ def record_errors(record):
         _media_errors(output, label, errors)
         if not isinstance(output, dict):
             continue
-        if not text(output.get("id")) or output["id"] in ids:
+        output_id = output.get("id")
+        if not text(output_id) or output_id in ids:
             errors.append(f"{label}.id 必须唯一")
-        ids.add(output.get("id"))
+        if output.get("role") is not None and (kind != "video" or output["role"] not in OUTPUT_ROLES):
+            errors.append(f"{label}.role 只用于视频输出，取值 {'/'.join(OUTPUT_ROLES)}")
+        if text(output_id):
+            ids.add(output_id)
     if not isinstance(record.get("errors", []), list):
         errors.append("errors 必须是数组")
     selection = record.get("selection")
     if selection is not None:
-        if not isinstance(selection, dict) or selection.get("output_id") not in ids or not text(selection.get("by")):
+        if not isinstance(selection, dict) or not text(selection.get("output_id")) or selection["output_id"] not in ids or not text(selection.get("by")):
             errors.append("selection 必须指向已有输出，并写选择人 by")
         elif purpose == "animatic_temp":
             errors.append("预演临时产物不能被选为交付候选")
     return errors
 
 
-def identity_references(record, keyframes, seen=()):
-    """一张画面实际承载的参考素材：自身 references，加上它所基于的关键帧（逐级上溯）承载的参考素材。"""
+def _anchor_record(record, project_id=None):
+    """只有同作品、结构完整且有成功输出的记录可承载身份来源。"""
+    return (not record_errors(record) and record.get("status") in ("succeeded", "partial")
+            and (project_id is None or record.get("project_id") == project_id))
+
+
+def keyframe_sources(keyframes, digest, project_id=None):
+    """读取同一文件的全部合法来源；兼容旧调用方传入的单记录索引。"""
+    sources = keyframes.get(digest, [])
+    if isinstance(sources, dict):
+        sources = [sources]
+    if not isinstance(sources, (list, tuple)):
+        return []
+    return [record for record in sources if _anchor_record(record, project_id)
+            and ((record.get("kind") == "image" and record.get("purpose") == "candidate"
+                  and any(output["sha256"] == digest for output in record["outputs"]))
+                 or (record.get("kind") == "video" and any(output.get("role") == "last_frame" and output["sha256"] == digest
+                                                           for output in record["outputs"])))]
+
+
+def identity_references(record, keyframes, seen=(), project_id=None):
+    """沿基础帧或视频首帧追溯身份；同一 SHA 可有多个来源，循环按记录截断。"""
+    project_id = project_id or (record.get("project_id") if isinstance(record, dict) else None)
+    if not _anchor_record(record, project_id) or id(record) in seen:
+        return set()
     inputs = record.get("inputs", {})
     used = set(inputs.get("references", []))
-    base = (inputs.get("base_frame") or {}).get("sha256")
-    if base in keyframes and base not in seen:
-        used |= identity_references(keyframes[base], keyframes, (*seen, base))
+    base = (inputs.get("first_frame" if record.get("kind") == "video" else "base_frame") or {}).get("sha256")
+    for source in keyframe_sources(keyframes, base, project_id):
+        used |= identity_references(source, keyframes, (*seen, id(record)), project_id)
     return used
 
 
 def record_problems(record, bible, state, project=None, keyframes=None):
     """生成记录与当前资产库、时间线的交叉检查；返回 (问题, 提醒)。
 
-    keyframes 是 {输出 SHA-256: 关键帧图像记录}。关键帧的身份来自它用到的资产图以及它所基于的上一张关键帧；
+    keyframes 是 {输出 SHA-256: 来源记录数组}，也兼容旧的单记录索引。关键帧的身份来自它用到的资产图以及它所基于的上一张关键帧；
     视频首尾帧能追溯到这样的关键帧时，身份算作由图像锚定。
     """
     problems, warnings = [], []
+    structural = record_errors(record)
+    if structural:
+        return structural, warnings
     keyframes = keyframes or {}
     if record.get("project_id") != bible.get("project_id"):
         problems.append("生成记录与资产库的 project_id 不一致")
@@ -543,29 +584,34 @@ def record_problems(record, bible, state, project=None, keyframes=None):
         allowed.update({ref["sha256"]: pack["location"]["id"] for ref in pack["location"].get("references", [])})
         for sha in sorted(set(inputs.get("references", [])) - set(allowed)):
             problems.append(f"{label}：参考素材 {sha[:12]} 不属于本镜在场的实体或地点")
-        used = identity_references(record, keyframes)
+        used = (set(inputs.get("references", [])) if record.get("kind") == "video"
+                else identity_references(record, keyframes, project_id=bible.get("project_id")))
         base = inputs.get("base_frame")
-        if base and keyframes and base["sha256"] not in keyframes:
+        if base and keyframes and not keyframe_sources(keyframes, base["sha256"], bible.get("project_id")):
             warnings.append(f"{label}：基础帧 {base['path']} 追溯不到关键帧记录")
+        boundaries = {"first_frame": ((record["shot_id"], "entry"), (pack["previous_shot"], "exit")),
+                      "last_frame": ((record["shot_id"], "exit"),)}
+        frame_sources = {}
         if record.get("kind") == "video":
             for key in ("first_frame", "last_frame"):
-                source = keyframes.get((inputs.get(key) or {}).get("sha256"))
-                if inputs.get(key) and source is None and keyframes:
+                sources = keyframe_sources(keyframes, (inputs.get(key) or {}).get("sha256"), bible.get("project_id"))
+                frame_sources[key] = sources
+                if inputs.get(key) and not sources and keyframes:
                     warnings.append(f"{label}：{key} {inputs[key]['path']} 追溯不到关键帧记录，无法确认它用资产图锚定")
-                elif source is not None:
-                    used |= identity_references(source, keyframes)
+                for source in sources:
+                    if moment_of(source) in boundaries[key]:
+                        used |= identity_references(source, keyframes, project_id=bible.get("project_id"))
         for entity_id, info in pack["entities"].items():
             if info.get("kind") in ("character", "creature") and not used & {ref["sha256"] for ref in info.get("references", [])}:
                 warnings.append(f"{label}：{entity_id} 没有使用任何参考素材或由资产图生成的关键帧，身份只靠文字锚定")
         frame = inputs.get("first_frame") or {}
         if frame.get("from") == "previous_exit" and frame.get("shot") != pack["previous_shot"]:
             problems.append(f"{label}：首帧取自 {frame.get('shot')} 的出点，但上一镜是 {pack['previous_shot']}")
-        first = keyframes.get(frame.get("sha256"))
-        if first is not None and moment_of(first) not in ((record["shot_id"], "entry"), (pack["previous_shot"], "exit")):
-            problems.append(f"{label}：首帧对应的关键帧既不是本镜入点也不是上一镜出点（{' '.join(map(str, moment_of(first)))}）")
-        last = keyframes.get((inputs.get("last_frame") or {}).get("sha256"))
-        if last is not None and moment_of(last) != (record["shot_id"], "exit"):
-            problems.append(f"{label}：尾帧对应的关键帧不是本镜出点（{' '.join(map(str, moment_of(last)))}）")
+        first, last = frame_sources.get("first_frame", []), frame_sources.get("last_frame", [])
+        if first and not any(moment_of(source) in boundaries["first_frame"] for source in first):
+            problems.append(f"{label}：首帧对应的关键帧既不是本镜入点也不是上一镜出点")
+        if last and not any(moment_of(source) in boundaries["last_frame"] for source in last):
+            problems.append(f"{label}：尾帧对应的关键帧不是本镜出点")
     for output in record.get("outputs", []):
         speaker = output.get("entity")
         binding = index.get(speaker, {}).get("voice") if speaker else None
@@ -583,23 +629,94 @@ def record_problems(record, bible, state, project=None, keyframes=None):
     return problems, warnings
 
 
+def visual_errors(report):
+    if not isinstance(report, dict):
+        return ["视觉检查报告必须是对象"]
+    errors = []
+    if report.get("format") != VISUAL_FORMAT:
+        errors.append(f"format 必须为 {VISUAL_FORMAT}")
+    if not text(report.get("project_id")):
+        errors.append("project_id 必须是非空字符串")
+    shot, entities = report.get("shot_id"), report.get("entities")
+    if not (text(shot) or (isinstance(entities, list) and entities and all(text(item) for item in entities))):
+        errors.append("必须写 shot_id（核对镜头），或写 entities（核对资产图中的实体）")
+    if report.get("moment") is not None and report["moment"] not in MOMENTS:
+        errors.append(f"moment 必须是 {'/'.join(MOMENTS)} 或 null")
+    _media_errors(report.get("subject"), "subject", errors)
+    if text(shot) and not (isinstance(report.get("anchors_sha256"), str) and SHA256.fullmatch(report["anchors_sha256"])):
+        errors.append("核对镜头时 anchors_sha256 必须是 64 位小写十六进制")
+    engine = report.get("engine")
+    if not isinstance(engine, dict) or not text(engine.get("provider")) or not text(engine.get("model")):
+        errors.append("engine 必须写 provider 与 model")
+    if report.get("advisory") is not True:
+        errors.append("advisory 必须为 true：AI 视觉检查只作提醒")
+    results = report.get("results")
+    if not isinstance(results, list) or not results:
+        errors.append("results 必须是非空数组")
+        results = []
+    for index, item in enumerate(results):
+        if not isinstance(item, dict) or not text(item.get("item")) or item.get("verdict") not in VERDICTS:
+            errors.append(f"results[{index}] 必须写 item 与 verdict（{'/'.join(VERDICTS)}）")
+        if not isinstance(item, dict) or not text(item.get("evidence")):
+            errors.append(f"results[{index}].evidence 必须是非空字符串")
+    if "checklist" in report:
+        checklist = report["checklist"]
+        if not isinstance(checklist, list) or not checklist or not all(text(item) for item in checklist):
+            errors.append("checklist 必须是非空字符串数组")
+        else:
+            if len(set(checklist)) != len(checklist):
+                errors.append("checklist 不能包含重复条目")
+            returned = [item["item"] for item in results if isinstance(item, dict) and text(item.get("item"))]
+            if len(set(returned)) != len(returned):
+                errors.append("results 不能重复核对同一条目")
+            if set(checklist) - set(returned):
+                errors.append("results 遗漏 checklist 中的条目")
+            if set(returned) - set(checklist):
+                errors.append("results 含 checklist 之外的条目")
+    if not isinstance(report.get("issues", []), list):
+        errors.append("issues 必须是数组")
+    return errors
+
+
+def keyframe_index(records, project_id=None):
+    """{SHA-256: 来源记录数组}：图像记录的输出，加上视频返回的实际尾帧。
+
+    视频尾帧是该镜的出点；它的身份来自该视频的参考素材，以及视频首帧所在的关键帧链。
+    """
+    index = {}
+    for record in records:
+        if not _anchor_record(record, project_id):
+            continue
+        for output in record["outputs"]:
+            if ((record["kind"] == "image" and record["purpose"] == "candidate")
+                    or (record["kind"] == "video" and output.get("role") == "last_frame")):
+                sources = index.setdefault(output["sha256"], [])
+                if not any(source is record for source in sources):
+                    sources.append(record)
+    return index
+
+
 def moment_of(record):
-    return record.get("shot_id"), record.get("inputs", {}).get("moment")
+    return record.get("shot_id"), "exit" if record.get("kind") == "video" else record.get("inputs", {}).get("moment")
 
 
 def chain_problems(records, state):
-    """同场相邻镜头的视频：后一镜首帧必须与前一镜尾帧是同一张图。"""
-    videos = {record["shot_id"]: record for record in records if record.get("kind") == "video" and record.get("status") != "failed"}
+    """同场相邻视频以实际尾帧核对交界；未返回实际尾帧时才退回请求尾帧。"""
+    videos = {record["shot_id"]: record for record in records
+              if _anchor_record(record, state.get("project_id")) and record.get("kind") == "video"}
     problems = []
     for scene in state["scenes"]:
         order = [shot["id"] for shot in scene["shots"]]
         for previous, current in zip(order, order[1:]):
             if previous in videos and current in videos:
-                tail = (videos[previous].get("inputs", {}).get("last_frame") or {}).get("sha256")
+                tails = {output["sha256"] for output in videos[previous]["outputs"] if output.get("role") == "last_frame"}
+                if not tails:
+                    tails = {(videos[previous].get("inputs", {}).get("last_frame") or {}).get("sha256")}
+                tails.discard(None)
                 head = (videos[current].get("inputs", {}).get("first_frame") or {}).get("sha256")
-                if not tail or not head:
+                if not tails or not head:
                     problems.append(f"{previous}→{current}：缺首帧或尾帧，交界无法核对")
-                elif tail != head:
+                elif head not in tails:
                     problems.append(f"{previous}→{current}：后一镜首帧与前一镜尾帧不是同一张图")
     return problems
 
@@ -661,6 +778,9 @@ def main():
     record = commands.add_parser("record").add_subparsers(dest="action", required=True)
     command = record.add_parser("validate")
     command.add_argument("file")
+    visual = commands.add_parser("visual").add_subparsers(dest="action", required=True)
+    command = visual.add_parser("validate")
+    command.add_argument("file")
     command = commands.add_parser("check")
     command.add_argument("--bible", required=True)
     command.add_argument("--state", required=True)
@@ -680,7 +800,14 @@ def main():
         elif args.command == "record":
             data = load(args.file, RECORD_FORMAT)
             problems = record_errors(data)
-            label = f"{data.get('kind')} 生成记录，{len(data.get('outputs', []))} 个输出"
+            outputs = data.get("outputs")
+            label = f"{data.get('kind')} 生成记录，{len(outputs) if isinstance(outputs, list) else 0} 个输出"
+        elif args.command == "visual":
+            data = load(args.file, VISUAL_FORMAT)
+            problems = visual_errors(data)
+            results = data.get("results") if isinstance(data.get("results"), list) else []
+            failed = sum(1 for item in results if isinstance(item, dict) and item.get("verdict") == "fail")
+            label = f"视觉检查 {len(results)} 条，未通过 {failed} 条（仅供参考）"
         elif args.command == "bible":
             data = load(args.file, BIBLE_FORMAT)
             problems = bible_errors(data)
@@ -709,10 +836,15 @@ def main():
                 plan = json.loads(Path(args.continuity).read_text("utf-8"))
                 problems, warnings = continuity_problems(plan, derive(data), bible_data)
             records = [(path, load(path, RECORD_FORMAT)) for path in (args.record if not problems else [])]
-            keyframes = {output["sha256"]: record for _, record in records
-                         if record.get("kind") == "image" and record.get("purpose") == "candidate" for output in record.get("outputs", [])}
+            valid_records = []
             for path, record_data in records:
-                found, notes = (record_errors(record_data), []) if record_errors(record_data) else record_problems(record_data, bible_data, data, args.project, keyframes)
+                structural = record_errors(record_data)
+                problems += [f"{Path(path).name}：{item}" for item in structural]
+                if not structural:
+                    valid_records.append((path, record_data))
+            keyframes = keyframe_index([record for _, record in valid_records], bible_data.get("project_id"))
+            for path, record_data in valid_records:
+                found, notes = record_problems(record_data, bible_data, data, args.project, keyframes)
                 problems += [f"{Path(path).name}：{item}" for item in found]
                 warnings += [f"{Path(path).name}：{item}" for item in notes]
             if records and not problems:

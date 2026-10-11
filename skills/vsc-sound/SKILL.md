@@ -5,6 +5,8 @@ description: "Use when VSC needs scene-aware BGM, ambience, dialogue space, soun
 
 # VSC 音乐与声音叙事
 
+设计前检索素材库的 voice、ambience、sfx、music，复用既有声线与声场；需要声音桥方法时查询 `scripts/vsc_craft.py search <需求> --stage sound`。操作见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
+
 先写声音提示表，再找/生成音乐。每个场景按“观众此刻应感到什么、角色不知道什么、信息何时转向”建立情绪曲线；每个 Cue 要有叙事功能、情绪、强度 0–5、音色/节奏方向、进出方式、可控 stem/混音层、环境底、对白避让和使用权。
 
 按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `sound` 阶段；其输出必须回填本技能的声音提示表与使用权字段。

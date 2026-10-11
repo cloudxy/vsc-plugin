@@ -1,0 +1,924 @@
+{
+  "format": "vsc.craft-catalog/v1",
+  "version": "1.0",
+  "description": "公开电影教育资料的简要概念依据，加上 VSC 自编的制作应用。链接供阅读原文；不收录原文全文、影片画面或音频，不代表项目方法已批准。",
+  "sources": [
+    {
+      "id": "yale-camera",
+      "title": "Film Analysis: Cinematography",
+      "publisher": "Yale University",
+      "url": "https://filmanalysis.yale.edu/cinematography/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "yale-stage",
+      "title": "Film Analysis: Mise-en-scene",
+      "publisher": "Yale University",
+      "url": "https://filmanalysis.yale.edu/mise-en-scene/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "yale-edit",
+      "title": "Film Analysis: Editing",
+      "publisher": "Yale University",
+      "url": "https://filmanalysis.yale.edu/editing/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "yale-sound",
+      "title": "Film Analysis: Sound",
+      "publisher": "Yale University",
+      "url": "https://filmanalysis.yale.edu/sound/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "columbia-move",
+      "title": "Camera Movement",
+      "publisher": "Columbia University",
+      "url": "https://filmglossary.ccnmtl.columbia.edu/term/camera-movement/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "columbia-axis",
+      "title": "180-Degree Rule",
+      "publisher": "Columbia University",
+      "url": "https://filmglossary.ccnmtl.columbia.edu/term/180-degree-rule/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "columbia-eye",
+      "title": "Eye-Line Match",
+      "publisher": "Columbia University",
+      "url": "https://filmglossary.ccnmtl.columbia.edu/term/eye-line-match/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "columbia-stage",
+      "title": "Mise-en-Scène",
+      "publisher": "Columbia University",
+      "url": "https://filmglossary.ccnmtl.columbia.edu/term/mise-en-scene/",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "hitchcock",
+      "title": "Alfred Hitchcock: my own methods",
+      "publisher": "BFI / Sight and Sound",
+      "url": "https://www.bfi.org.uk/sight-and-sound/features/alfred-hitchcock-my-own-methods",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "bfi-gaze",
+      "title": "How Ingmar Bergman mastered filming faces",
+      "publisher": "BFI",
+      "url": "https://www.bfi.org.uk/features/ingmar-bergman-faces-close-ups",
+      "checked_at": "2026-10-11"
+    },
+    {
+      "id": "bfi-gesture",
+      "title": "All that mise en scène allows: Douglas Sirk’s expressive use of gesture",
+      "publisher": "BFI / Sight and Sound",
+      "url": "https://www.bfi.org.uk/sight-and-sound/features/all-that-mise-en-scene-allows-douglas-sirks-expressive-use-gesture",
+      "checked_at": "2026-10-11"
+    }
+  ],
+  "cards": [
+    {
+      "id": "motivated-push",
+      "category": "运镜",
+      "name": "有动机的推进",
+      "tags": [
+        "推进",
+        "推镜",
+        "注意力",
+        "发现"
+      ],
+      "stages": [
+        "direct"
+      ],
+      "source_basis": "机位移动会改变观众与主体的空间关系。",
+      "principle": "让推进对应一个信息变化，先说明观众此刻需要看清什么。",
+      "steps": [
+        "写明起止构图与揭示对象",
+        "把信息出现的节拍标在动作之后",
+        "低清预演检查变化是否可读"
+      ],
+      "pitfalls": [
+        "推进不能代替人物行动",
+        "每镜都推进会抹平重音"
+      ],
+      "sources": [
+        "columbia-move"
+      ]
+    },
+    {
+      "id": "tracking-block",
+      "category": "运镜",
+      "name": "跟移与行动路线",
+      "tags": [
+        "跟拍",
+        "横移",
+        "遮挡",
+        "路线"
+      ],
+      "stages": [
+        "direct",
+        "continuity"
+      ],
+      "source_basis": "跟移镜头让机位随主体在空间中移动。",
+      "principle": "把主体路线与机位路线分别写出，再规定它们的相对距离。",
+      "steps": [
+        "固定行进方向与前后景",
+        "标明经过的门窗或遮挡物",
+        "检查入点出点的画面方向"
+      ],
+      "pitfalls": [
+        "人物走路与镜头移动不是同一动作",
+        "穿帮的背景不能靠快剪掩盖"
+      ],
+      "sources": [
+        "columbia-move"
+      ]
+    },
+    {
+      "id": "pan-reveal",
+      "category": "运镜",
+      "name": "摇镜揭示空间",
+      "tags": [
+        "摇镜",
+        "上摇",
+        "下摇",
+        "空间",
+        "揭示"
+      ],
+      "stages": [
+        "direct"
+      ],
+      "source_basis": "摇镜转动观察方向而非平移机位。",
+      "principle": "让摇镜连接已有对象与新信息，避免同时要求复杂移动。",
+      "steps": [
+        "给出开始和结束看到的对象",
+        "说明转动方向与停留时刻",
+        "核对场景布局能支持该视线"
+      ],
+      "pitfalls": [
+        "摇镜与横移不要混写",
+        "甩镜遮挡需另写转场契约"
+      ],
+      "sources": [
+        "columbia-move"
+      ]
+    },
+    {
+      "id": "reframe-follow",
+      "category": "运镜",
+      "name": "小幅重构图跟随",
+      "tags": [
+        "重构图",
+        "跟随",
+        "动作",
+        "构图"
+      ],
+      "stages": [
+        "direct"
+      ],
+      "source_basis": "重构图可随人物移动微调画面。",
+      "principle": "人物动作先成立，再用小幅调整保持关键动作可见。",
+      "steps": [
+        "标明人物动作的活动区",
+        "规定允许的镜头调整",
+        "保留手部和互动对象的可见空间"
+      ],
+      "pitfalls": [
+        "不要每次移动都换机位",
+        "主体容易被裁切时先改布局"
+      ],
+      "sources": [
+        "yale-camera"
+      ]
+    },
+    {
+      "id": "angle-context",
+      "category": "构图",
+      "name": "角度与叙事语境",
+      "tags": [
+        "俯拍",
+        "仰拍",
+        "权力",
+        "心理",
+        "角度"
+      ],
+      "stages": [
+        "direct"
+      ],
+      "source_basis": "高低角度的意义依赖具体语境。",
+      "principle": "为角度写一个本场理由，并检验观众能否从前后镜读懂。",
+      "steps": [
+        "先确定谁在观察",
+        "再选择机位高度与方向",
+        "比较平视版本是否更清楚"
+      ],
+      "pitfalls": [
+        "仰拍不恒等于强势",
+        "不能用外貌判断道德或心理事实"
+      ],
+      "sources": [
+        "yale-camera"
+      ]
+    },
+    {
+      "id": "focus-attention",
+      "category": "构图",
+      "name": "焦点分配注意力",
+      "tags": [
+        "景深",
+        "浅焦",
+        "深焦",
+        "前景",
+        "后景"
+      ],
+      "stages": [
+        "direct",
+        "assets"
+      ],
+      "source_basis": "浅焦集中一个景面，深焦保留多个景面。",
+      "principle": "先决定观众必须同时读哪些信息，再选择清晰范围。",
+      "steps": [
+        "列出必须看清的脸手与道具",
+        "设定前中后景的任务",
+        "核对关键物没有被虚化"
+      ],
+      "pitfalls": [
+        "漂亮虚化可能藏掉动作证据",
+        "焦点转移须写起止对象"
+      ],
+      "sources": [
+        "yale-camera"
+      ]
+    },
+    {
+      "id": "color-pattern",
+      "category": "视觉",
+      "name": "色彩作为重复关系",
+      "tags": [
+        "色彩",
+        "色板",
+        "冷暖",
+        "视觉",
+        "母题"
+      ],
+      "stages": [
+        "assets",
+        "direct"
+      ],
+      "source_basis": "颜色可以建立图案，含义并非固定。",
+      "principle": "把颜色与本片反复出现的关系绑定，避免通用情绪标签。",
+      "steps": [
+        "设定少量主色与例外",
+        "将变化绑定场次或事件",
+        "对照相邻镜检查色偏"
+      ],
+      "pitfalls": [
+        "红色并非必然代表爱情",
+        "统一色调不等于统一物件身份"
+      ],
+      "sources": [
+        "yale-camera"
+      ]
+    },
+    {
+      "id": "space-blocking",
+      "category": "构图",
+      "name": "空间距离与人物关系",
+      "tags": [
+        "场面调度",
+        "距离",
+        "留白",
+        "遮挡",
+        "构图"
+      ],
+      "stages": [
+        "direct",
+        "assets"
+      ],
+      "source_basis": "空间深度与人物位置影响关系的表达。",
+      "principle": "用位置变化承担关系变化，并保持地点几何可复用。",
+      "steps": [
+        "先画人物和重要道具位置",
+        "标明接近退让或隔离的节拍",
+        "同步状态时间线的位置和手持物"
+      ],
+      "pitfalls": [
+        "空间关系要能在反打中成立",
+        "留白不能挡住核心互动"
+      ],
+      "sources": [
+        "yale-stage"
+      ]
+    },
+    {
+      "id": "light-identity",
+      "category": "视觉",
+      "name": "主光方向与跨镜一致",
+      "tags": [
+        "灯光",
+        "主光",
+        "轮廓光",
+        "环境",
+        "光源"
+      ],
+      "stages": [
+        "assets",
+        "continuity"
+      ],
+      "source_basis": "光的方向和强弱改变形体与注意力。",
+      "principle": "把主光来源写进场景身份，每镜继承再声明变化。",
+      "steps": [
+        "标出可见与画外光源",
+        "记录主光方向和色温描述",
+        "逐镜检查阴影与时间状态"
+      ],
+      "pitfalls": [
+        "调亮画面不能解释光源跳变",
+        "夜景也须能看清关键动作"
+      ],
+      "sources": [
+        "yale-stage"
+      ]
+    },
+    {
+      "id": "costume-state",
+      "category": "视觉",
+      "name": "服装身份与状态分层",
+      "tags": [
+        "服装",
+        "妆容",
+        "伤妆",
+        "变体",
+        "连续性"
+      ],
+      "stages": [
+        "assets",
+        "continuity"
+      ],
+      "source_basis": "服装参与人物形象和区分。",
+      "principle": "服装设计进入资产变体，穿着变化进入状态时间线。",
+      "steps": [
+        "为造型建立稳定变体ID",
+        "标明何时换装或出现污损",
+        "用参考图检查配饰和材质"
+      ],
+      "pitfalls": [
+        "同名服装可能生成不同结构",
+        "不可改写旧变体的含义"
+      ],
+      "sources": [
+        "yale-stage"
+      ]
+    },
+    {
+      "id": "axis-map",
+      "category": "剪辑",
+      "name": "轴线与画面方向",
+      "tags": [
+        "轴线",
+        "180",
+        "左右",
+        "反打",
+        "连续性"
+      ],
+      "stages": [
+        "direct",
+        "continuity"
+      ],
+      "source_basis": "轴线规则通过机位同侧维持空间方向。",
+      "principle": "用场景布局和人物关系线固定机位侧，越轴时设计可见过渡。",
+      "steps": [
+        "标明人物关系线",
+        "登记每镜机位侧和视线方向",
+        "越轴采用可读的移动或重建空间镜头"
+      ],
+      "pitfalls": [
+        "规则服务空间理解",
+        "同一首尾帧不能保证中间没有越轴"
+      ],
+      "sources": [
+        "columbia-axis"
+      ]
+    },
+    {
+      "id": "eyeline-match",
+      "category": "剪辑",
+      "name": "视线与所见对象匹配",
+      "tags": [
+        "眼神",
+        "视线",
+        "反应",
+        "所见",
+        "匹配"
+      ],
+      "stages": [
+        "direct",
+        "continuity"
+      ],
+      "source_basis": "人物看向某处与对象镜头共同构成视线连接。",
+      "principle": "分别写看向哪里、看到什么、随后如何回应。",
+      "steps": [
+        "固定视线目标的空间位置",
+        "检查反打高度与方向",
+        "保留看见前后的反应余量"
+      ],
+      "pitfalls": [
+        "看镜头不等于看对方",
+        "一个眼神不能证明真实心理状态"
+      ],
+      "sources": [
+        "columbia-eye"
+      ]
+    },
+    {
+      "id": "match-action",
+      "category": "剪辑",
+      "name": "动作接续与切点",
+      "tags": [
+        "动作匹配",
+        "递物",
+        "打斗",
+        "节拍",
+        "切点"
+      ],
+      "stages": [
+        "direct",
+        "continuity",
+        "post"
+      ],
+      "source_basis": "动作匹配在两镜之间延续运动。",
+      "principle": "把动作拆成准备接触结果，切点两侧写清同一动作阶段。",
+      "steps": [
+        "给出施动者受动者与接触对象",
+        "统一持物手方向和姿态",
+        "在动作中选切点并保留余量"
+      ],
+      "pitfalls": [
+        "同一动作重复开始会造成回跳",
+        "打斗还须检查受力方向和结果"
+      ],
+      "sources": [
+        "yale-edit"
+      ]
+    },
+    {
+      "id": "establish-return",
+      "category": "剪辑",
+      "name": "建立与重建空间",
+      "tags": [
+        "建立镜头",
+        "远景",
+        "换场",
+        "方位"
+      ],
+      "stages": [
+        "direct",
+        "continuity"
+      ],
+      "source_basis": "建立镜头交代人物物体与地点关系。",
+      "principle": "新场或大幅调度后给观众一次重新定位的机会。",
+      "steps": [
+        "标注进入场景的新信息",
+        "给出人门路与关键物的关系",
+        "视线或方向变化后检查是否需要重建"
+      ],
+      "pitfalls": [
+        "建立镜头不必机械放在首镜",
+        "短视频也不能完全省掉方位证据"
+      ],
+      "sources": [
+        "yale-edit"
+      ]
+    },
+    {
+      "id": "graphic-match",
+      "category": "剪辑",
+      "name": "图形匹配跨场衔接",
+      "tags": [
+        "匹配转场",
+        "形状",
+        "色彩",
+        "章节"
+      ],
+      "stages": [
+        "direct",
+        "post"
+      ],
+      "source_basis": "形状和色彩的相似可以连接两镜。",
+      "principle": "把构图相似与故事关系一起写入跨场衔接。",
+      "steps": [
+        "指定对应的形状或运动",
+        "说明跨越的时间地点",
+        "记录保持项和允许变化项"
+      ],
+      "pitfalls": [
+        "图形相似不等于时间连续",
+        "不要强迫不同场景共用同一帧"
+      ],
+      "sources": [
+        "yale-edit"
+      ]
+    },
+    {
+      "id": "parallel-lines",
+      "category": "叙事",
+      "name": "平行行动与信息次序",
+      "tags": [
+        "平行剪辑",
+        "悬念",
+        "多线",
+        "章节"
+      ],
+      "stages": [
+        "adapt",
+        "script",
+        "post"
+      ],
+      "source_basis": "交叉剪辑可关联不同地点的行动。",
+      "principle": "先约定各线时间关系，再安排观众何时获得每条信息。",
+      "steps": [
+        "列出各行动线的时间标记",
+        "选取相互影响的事件切点",
+        "检查回到每条线时状态没有跳变"
+      ],
+      "pitfalls": [
+        "同时发生不能只靠交替剪辑宣称",
+        "章尾信息须在下一章得到承接"
+      ],
+      "sources": [
+        "yale-edit"
+      ]
+    },
+    {
+      "id": "sound-bridge",
+      "category": "声音",
+      "name": "声音提前进入或延续",
+      "tags": [
+        "声音桥",
+        "J-cut",
+        "L-cut",
+        "转场",
+        "对白"
+      ],
+      "stages": [
+        "sound",
+        "post",
+        "continuity"
+      ],
+      "source_basis": "声音可越过画面边界形成连接。",
+      "principle": "把声音跨镜的起止点与叙事目的写成独立提示。",
+      "steps": [
+        "选择先听后见或画变声留",
+        "标明声源所属的场次",
+        "检查尾句和新对白不会互相遮盖"
+      ],
+      "pitfalls": [
+        "声音桥不自动意味着同一时空",
+        "跨集还需考虑单独播放的开头"
+      ],
+      "sources": [
+        "hitchcock"
+      ]
+    },
+    {
+      "id": "visual-dialogue",
+      "category": "对白",
+      "name": "让动作分担台词信息",
+      "tags": [
+        "对白",
+        "语言艺术",
+        "视觉",
+        "信息"
+      ],
+      "stages": [
+        "script",
+        "direct"
+      ],
+      "source_basis": "画面与对白可以共同承担故事表达。",
+      "principle": "每句台词明确说话目的，把可见事实交给动作或道具。",
+      "steps": [
+        "写说话者想让对方做什么",
+        "标出一句中的信息增量",
+        "删句预演检查动作是否仍能被理解"
+      ],
+      "pitfalls": [
+        "减少台词不等于删除因果",
+        "不要以解释旁白填补动作错误"
+      ],
+      "sources": [
+        "hitchcock"
+      ]
+    },
+    {
+      "id": "reveal-detail",
+      "category": "叙事",
+      "name": "用细节安排揭示",
+      "tags": [
+        "揭示",
+        "悬念",
+        "道具",
+        "特写",
+        "章节钩子"
+      ],
+      "stages": [
+        "adapt",
+        "script",
+        "direct"
+      ],
+      "source_basis": "镜头选择能突出对故事重要的细节。",
+      "principle": "章节结束给出可感知的未决信息，下一章承接其后果。",
+      "steps": [
+        "明确观众已知与人物已知",
+        "选一个可见的证据细节",
+        "在衔接表写未决问题与接收事件"
+      ],
+      "pitfalls": [
+        "钩子不等于随机惊吓",
+        "不能隐去人物本应知道的关键事实来硬造悬念"
+      ],
+      "sources": [
+        "hitchcock"
+      ]
+    },
+    {
+      "id": "gaze-beat",
+      "category": "表演",
+      "name": "把眼神写成可表演节拍",
+      "tags": [
+        "眼神",
+        "微表情",
+        "心理",
+        "反应",
+        "特写"
+      ],
+      "stages": [
+        "script",
+        "direct"
+      ],
+      "source_basis": "近景可以呈现眼睛与面部细微变化。",
+      "principle": "用刺激目标停顿回应描述表演，不从外貌推断内在真相。",
+      "steps": [
+        "给出具体看向的对象",
+        "标明获得信息前后的停顿",
+        "选择足够看清变化的景别"
+      ],
+      "pitfalls": [
+        "眉眼动作不是通用测谎信号",
+        "单个表情不能固定对应一种情绪"
+      ],
+      "sources": [
+        "bfi-gaze"
+      ]
+    },
+    {
+      "id": "face-restraint",
+      "category": "表演",
+      "name": "近景表演的动作幅度",
+      "tags": [
+        "表情",
+        "外貌",
+        "面部",
+        "特写",
+        "克制"
+      ],
+      "stages": [
+        "direct",
+        "assets"
+      ],
+      "source_basis": "脸部近景可放大表演细节。",
+      "principle": "按最终景别校准动作幅度，保存起止表情参考。",
+      "steps": [
+        "区分静态长相与本镜表情",
+        "用小幅可见变化表达一次转折",
+        "低清测试后抽帧检查嘴眼形变"
+      ],
+      "pitfalls": [
+        "克制不等于完全无动作",
+        "美化脸部可能破坏人物身份"
+      ],
+      "sources": [
+        "bfi-gaze"
+      ]
+    },
+    {
+      "id": "gesture-subtext",
+      "category": "表演",
+      "name": "动作与潜台词",
+      "tags": [
+        "潜台词",
+        "肢体",
+        "手势",
+        "回避",
+        "心理",
+        "语言"
+      ],
+      "stages": [
+        "script",
+        "direct"
+      ],
+      "source_basis": "手势与回避行为可和对白形成表达关系。",
+      "principle": "写表面谈论内容与行动目的的差异，并给出可观察的行为。",
+      "steps": [
+        "明确人物希望隐瞒或得到什么",
+        "选择看物转身或停手等动作",
+        "检查台词和动作的关系能被语境支持"
+      ],
+      "pitfalls": [
+        "勿把回避眼神当作说谎证据",
+        "不要堆叠互相矛盾的情绪动作"
+      ],
+      "sources": [
+        "bfi-gesture"
+      ]
+    },
+    {
+      "id": "performance-context",
+      "category": "表演",
+      "name": "统一全片表演尺度",
+      "tags": [
+        "表演",
+        "风格",
+        "夸张",
+        "写实",
+        "外貌"
+      ],
+      "stages": [
+        "script",
+        "assets",
+        "direct"
+      ],
+      "source_basis": "表演风格会随文化和作品形式变化。",
+      "principle": "先约定本片的表演尺度，再判断某个镜头是否偏离。",
+      "steps": [
+        "确定写实或程式化的基调",
+        "给每个人物设动作与语言习惯",
+        "相邻镜检查表情强度是否连续"
+      ],
+      "pitfalls": [
+        "外貌不决定性格",
+        "风格基线不能抹平角色差别"
+      ],
+      "sources": [
+        "yale-stage"
+      ]
+    },
+    {
+      "id": "sound-world",
+      "category": "声音",
+      "name": "区分故事内外声音",
+      "tags": [
+        "环境声",
+        "背景音",
+        "配乐",
+        "音源"
+      ],
+      "stages": [
+        "sound",
+        "post"
+      ],
+      "source_basis": "声音可以来自故事空间，也可以在故事之外。",
+      "principle": "逐条标明声源与听觉视点，建立可复用环境底。",
+      "steps": [
+        "给环境拟音配乐分别分轨",
+        "记录声源距离与空间",
+        "换场时设计底噪的交接"
+      ],
+      "pitfalls": [
+        "音乐不是所有场景的必需品",
+        "音色一致不代表声音空间一致"
+      ],
+      "sources": [
+        "yale-sound"
+      ]
+    },
+    {
+      "id": "offscreen-cause",
+      "category": "声音",
+      "name": "用画外声建立因果",
+      "tags": [
+        "画外声",
+        "悬念",
+        "听觉",
+        "动作"
+      ],
+      "stages": [
+        "script",
+        "sound",
+        "direct"
+      ],
+      "source_basis": "画外声可提示画框之外的事件。",
+      "principle": "先让声源事件成立，再安排人物反应与是否揭示。",
+      "steps": [
+        "写出声音在故事里的来源",
+        "标明谁能听到及其反应",
+        "检查声画先后关系"
+      ],
+      "pitfalls": [
+        "不能用音效替代完全缺失的动作结果",
+        "画外声并非总是旁白"
+      ],
+      "sources": [
+        "yale-sound"
+      ]
+    },
+    {
+      "id": "dialogue-space",
+      "category": "声音",
+      "name": "对白可懂度与节奏留白",
+      "tags": [
+        "对白",
+        "配乐",
+        "静默",
+        "呼吸",
+        "空间"
+      ],
+      "stages": [
+        "sound",
+        "post"
+      ],
+      "source_basis": "音轨由对白音乐和其他声音共同构成。",
+      "principle": "按对白的信息重音分配其他声音的进退，不只调一个总音量。",
+      "steps": [
+        "标记关键字和停顿",
+        "避开同频段持续干扰",
+        "在最终播放响度下检查尾字"
+      ],
+      "pitfalls": [
+        "声音大不等于听得清",
+        "静默也需交代环境底是否仍在"
+      ],
+      "sources": [
+        "yale-sound"
+      ]
+    },
+    {
+      "id": "action-geometry",
+      "category": "动作",
+      "name": "互动与打斗的空间因果",
+      "tags": [
+        "动作",
+        "打斗",
+        "受力",
+        "攻防",
+        "动物"
+      ],
+      "stages": [
+        "direct",
+        "continuity"
+      ],
+      "source_basis": "场面调度组合人物动作与机位及环境。",
+      "principle": "每拍明确施动受动接触和结果，先验证几何再加速度。",
+      "steps": [
+        "拆成起势接触反应结果",
+        "保持方向距离和持物手",
+        "短段预演确认角色没有交换动作"
+      ],
+      "pitfalls": [
+        "动作参考不能保证生成结果正确",
+        "真实危险动作由专业人员处理"
+      ],
+      "sources": [
+        "columbia-stage"
+      ]
+    },
+    {
+      "id": "effects-layers",
+      "category": "特效",
+      "name": "环境与特效分层复用",
+      "tags": [
+        "特效",
+        "火",
+        "雨",
+        "烟",
+        "动物",
+        "环境",
+        "合成"
+      ],
+      "stages": [
+        "assets",
+        "produce",
+        "post"
+      ],
+      "source_basis": "场面调度涵盖画面中的环境与运动。",
+      "principle": "把稳定场景与可变效果分层，效果只承担指定叙事任务。",
+      "steps": [
+        "保存干净场景底图",
+        "记录特效位置尺度光照和起止",
+        "检查特效没有遮掉关键动作或改变道具"
+      ],
+      "pitfalls": [
+        "特效元素可复用但需匹配机位",
+        "叠加效果不能修复基础空间错误"
+      ],
+      "sources": [
+        "columbia-stage"
+      ]
+    }
+  ],
+  "application_notice": "principle、steps 和 pitfalls 为 VSC 自编应用建议，须结合本片目标试用和人工审查；source_basis 为来源概念的简要概括。"
+}

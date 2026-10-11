@@ -1,6 +1,6 @@
 {
   "format": "vsc.contract-catalog/v1",
-  "version": "1.2",
+  "version": "1.3",
   "contracts": [
     {
       "format": "vsc.creative-brief/v1",
@@ -89,6 +89,32 @@
       "artifact_types": ["vsc.generation_record"],
       "template": "templates/generation-record.json",
       "validator": {"script": "scripts/consistency.py", "arguments": ["record", "validate"]}
+    },
+    {
+      "format": "vsc.visual-check/v1",
+      "owner": "制作阶段",
+      "artifact_types": ["vsc.visual_check"],
+      "template": "templates/visual-check.json",
+      "validator": {"script": "scripts/consistency.py", "arguments": ["visual", "validate"]}
+    },
+    {
+      "format": "vsc.library-item/v1",
+      "owner": "跨作品素材库",
+      "template": "templates/library-item.json",
+      "validator": {"script": "scripts/vsc_library.py", "arguments": ["validate"]}
+    },
+    {
+      "format": "vsc.craft-catalog/v1",
+      "owner": "公开创作方法库",
+      "template": null,
+      "validator": {"script": "scripts/vsc_craft.py", "arguments": ["validate"]}
+    },
+    {
+      "format": "vsc.sequence-links/v1",
+      "owner": "连续性阶段",
+      "artifact_types": ["vsc.sequence_links"],
+      "template": "templates/sequence-links.json",
+      "validator": {"script": "scripts/vsc_sequence.py", "arguments": ["validate"]}
     }
   ]
 }
