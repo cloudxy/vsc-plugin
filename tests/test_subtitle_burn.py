@@ -4,9 +4,11 @@
 运行：python3 tests/test_subtitle_burn.py
 """
 import shutil
+import importlib.util
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from _paths import ROOT
@@ -44,6 +46,16 @@ class StyleTest(unittest.TestCase):
 
 
 class InputTest(unittest.TestCase):
+    def test_delivery_rejects_partial_bad_srt_and_out_of_range_before_render(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            font = root / "fixture.otf"
+            font.write_bytes(b"not loaded because SRT must fail first")
+            for text in ("1\n00:00:00,000 --> 00:00:00,500\n有效\n\n2\nbad time\n丢失", "1\n00:01:30,000 --> 00:01:31,000\n越界"):
+                (root / "a.srt").write_text(text)
+                with patch.object(SB, "probe_video", return_value=(320, 240, 1)), self.assertRaises(SB.BurnError):
+                    SB.burn(root / "in.mp4", root / "a.srt", root / "out.mp4", dict(STYLE, font=str(font)))
+
     def test_bad_inputs_are_rejected_before_rendering(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -57,7 +69,7 @@ class InputTest(unittest.TestCase):
                 SB.burn(root / "in.mp4", root / "a.srt", root / "new.mp4", dict(STYLE, font=str(root / "missing.otf")))
 
 
-@unittest.skipUnless(shutil.which("uv") and shutil.which("ffmpeg") and SB.DEFAULT_FONT.is_file(), "真实烧录需要 uv、ffmpeg 与 noto-sans-sc")
+@unittest.skipUnless(importlib.util.find_spec("PIL") and shutil.which("ffmpeg") and SB.DEFAULT_FONT.is_file(), "离线真实烧录需要本机 Pillow、ffmpeg 与 noto-sans-sc；不安装依赖")
 class RealBurnTest(unittest.TestCase):
     def test_burned_frame_differs_only_inside_cue_window(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -66,7 +78,14 @@ class RealBurnTest(unittest.TestCase):
             subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=30:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)], check=True, timeout=60)
             srt = root / "a.srt"
             srt.write_text("1\n00:00:00,500 --> 00:00:01,000\n测试字幕\n", "utf-8")
-            result = SB.burn(video, srt, output, STYLE)
+            def offline_runner(command, **kwargs):
+                if "render" in command:
+                    # Exercise the real Pillow renderer without uv cache writes or downloads.
+                    SB.render(command[-1])
+                    return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+                return subprocess.run(command, **kwargs)
+            with patch.object(SB.shutil, "which", return_value="offline-test-renderer"):
+                result = SB.burn(video, srt, output, STYLE, run=offline_runner)
             self.assertEqual((result["cues"], result["size"]), (1, [320, 240]))
 
             def frame(at):

@@ -1,0 +1,20 @@
+{
+  "format": "vsc.episode-beats/v1",
+  "episodes": [
+    {
+      "id": "EP-01",
+      "beats": [
+        {
+          "id": "B-01",
+          "action": "请填写可拍行动",
+          "change": "请填写转折",
+          "screen_unit_ids": [
+            "CU-01"
+          ]
+        }
+      ],
+      "ending_function": "closure",
+      "ending": "请填写结尾"
+    }
+  ]
+}

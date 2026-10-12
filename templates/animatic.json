@@ -1,0 +1,27 @@
+{
+  "format": "vsc.animatic/v1",
+  "project_id": "replace-with-project-id",
+  "scope": "EP",
+  "media": {
+    "path": "preview/animatic.mp4",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "coverage_plan": {
+    "id": "A7",
+    "sha256": "549e41b36bedb110aad77ccff003ea795ac758062109fe45b6f7f80c7514f9a5"
+  },
+  "plans": [
+    {
+      "id": "A3",
+      "sha256": "1de4ddd3f469c641a90ee8b4e8be870e310b42fa782d895bf9aa7496d21b66e9"
+    },
+    {
+      "id": "A4",
+      "sha256": "adfb4e18bfd349a7b634bdca9f86f37ea89eb42bde576e50c5e47cf3b063d9dc"
+    }
+  ],
+  "temporary_audio": [],
+  "unresolved_issues": [
+    "Replace synthetic template with project decisions and playable media."
+  ]
+}

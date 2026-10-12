@@ -1,0 +1,12 @@
+{
+  "format": "vsc.mix/v1",
+  "project_id": "replace-with-project-id",
+  "scope": "EP",
+  "timeline": {
+    "id": "A11",
+    "sha256": "e12be740ba2f4c3989994f88186c17713b71c10745bc08c30dc1e88b868b0270"
+  },
+  "sound_plans": [],
+  "layers": [],
+  "boundaries": []
+}

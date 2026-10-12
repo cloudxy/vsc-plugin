@@ -54,3 +54,7 @@ python3 scripts/media_qa.py review ./sample-review.json
 测试包含真实 ffmpeg 合成的短视频/音频及本机 ffprobe 检查，也包含缺媒体、越界、损坏媒体、缺成片音轨、报告过期和故障注入。它们验证技术闭环，不是 AI 生成样片、Remotion 渲染验收或专业审美评测。没有 ffprobe/ffmpeg 的机器会明确跳过真实媒体集成测试，故障/结构测试仍运行。
 
 实现参照：[Remotion Video](https://www.remotion.dev/docs/media/video)、[Remotion Audio](https://www.remotion.dev/docs/media/audio)、[Remotion CLI](https://www.remotion.dev/docs/cli)。
+
+## v0.12.0 制作交接
+
+新项目使用固定 production-v2 Profile，旧项目保留历史规则。正式运行、共享预算、交接契约与迁移操作以 [v2 指南](../guide/production-v2.md) 为准；旧低层命令不再作为新项目的直接付费执行入口。

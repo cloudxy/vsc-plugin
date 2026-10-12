@@ -65,3 +65,7 @@ python3 -B scripts/procedural_audio.py --project projects/作品名 --name music
 只检查 JSON 非空不能证明故事有效；依赖或锚点变化也不能沿用旧批准。项目负责人选择候选后再进入时间线，并完成技术 QA 与具名审片。批队列不会自动将成功生成视为通过 Gate。
 
 `vsc_toolchain.py` 只读汇总实现、配置存在性、本项目可核验的候选记录、视觉报告及媒体／规格库存；它不会联网、不写项目状态，所有候选的人审状态仍为 pending。最终以项目 Gate、有效批准、实际审听和审片为准。
+
+## v0.12.0 制作交接
+
+新项目使用固定 production-v2 Profile，旧项目保留历史规则。正式运行、共享预算、交接契约与迁移操作以 [v2 指南](../guide/production-v2.md) 为准；旧低层命令不再作为新项目的直接付费执行入口。

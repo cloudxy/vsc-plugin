@@ -31,6 +31,52 @@ SOFTWARE.
 """
 import math
 import re
+from pathlib import Path
+
+DEFAULT_STYLE = {"font": None, "font_size": 60, "color": "#FFFFFF", "stroke_color": "#000000", "stroke_width": 1.5,
+                 "position": "bottom", "custom_position": 70.0, "background": None, "rounded": False}
+SAFE_MARGIN = 0.05
+
+
+class SubtitleError(ValueError):
+    """Strict delivery errors, including the original block locations."""
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__("；".join(errors))
+
+
+def resolve_style(bible_path=None, overrides=None):
+    """Shared burn/export style resolution. Relative bible fonts use the workflow root."""
+    import consistency
+    from vendor_sync import ROOT, VENDOR
+    style, source = dict(DEFAULT_STYLE), "default"
+    if bible_path:
+        bible = consistency.load(bible_path, consistency.BIBLE_FORMAT)
+        problems = consistency.bible_errors(bible)
+        if problems:
+            raise SubtitleError(problems)
+        if bible.get("subtitle_style"):
+            style.update(bible["subtitle_style"])
+            if style.get("font") and not Path(style["font"]).is_absolute():
+                style["font"] = str(ROOT / style["font"])
+            source = "bible"
+    explicit = {key: value for key, value in (overrides or {}).items() if value is not None}
+    unknown = set(explicit) - set(DEFAULT_STYLE)
+    if unknown:
+        raise SubtitleError(["未知字幕样式字段：" + ", ".join(sorted(unknown))])
+    style.update(explicit)
+    problems = consistency.style_errors({key: value for key, value in style.items() if value is not None})
+    for key in ("font_size", "stroke_width", "custom_position"):
+        value = style[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            problems.append(f"subtitle_style.{key} 必须是有限数值")
+    if problems:
+        raise SubtitleError(problems)
+    if style["font"] is None:
+        default_font = VENDOR / "noto-sans-sc/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf"
+        if default_font.is_file():
+            style["font"] = str(default_font)
+    return style, source + ("+args" if explicit else "")
 
 PUNCTUATIONS = ("?", ",", ".", "、", ";", ":", "!", "…", "？", "，", "。", "；", "：", "！", "...", "،", "؛", "؟")
 LINE_START_PUNCTUATION = "，。！？；：、,.!?;:)]}）】》」』”’"
@@ -102,28 +148,42 @@ def to_srt(items):
     return "\n".join(f"{index}\n{srt_time(begin)} --> {srt_time(end)}\n{text}\n" for index, (begin, end, text) in enumerate(items, 1))
 
 
-def parse_srt(text):
-    """解析 SRT 为 [(开始秒, 结束秒, 文本)]；跳过无效块。"""
-    entries = []
-    for block in re.split(r"\n\s*\n", text.strip().replace("\r\n", "\n")):
+def parse_srt(text, strict=False, duration=None):
+    """Preview skips invalid blocks. Strict delivery reports every bad block/range."""
+    entries, errors = [], []
+    if duration is not None and (isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0):
+        raise SubtitleError(["字幕成片时长必须是有限正数"])
+    for block_index, block in enumerate(re.split(r"\n\s*\n", text.strip().replace("\r\n", "\n")), 1):
+        if not block.strip():
+            continue
         lines = [line.strip() for line in block.splitlines() if line.strip()]
         index = next((i for i, line in enumerate(lines) if "-->" in line), None)
-        if index is None or index + 1 >= len(lines):
-            continue
         try:
+            if index is None or index + 1 >= len(lines) or index not in {0, 1} or (index == 1 and not lines[0].isdigit()):
+                raise ValueError("缺少有效时间行或字幕文字")
             begin, end = (_srt_seconds(part) for part in lines[index].split("-->", 1))
-        except ValueError:
-            continue
-        if end > begin:
+            if begin < 0 or end <= begin:
+                raise ValueError("字幕起止时间无效")
+            if duration is not None and end > duration + 0.001:
+                raise ValueError(f"字幕结束 {end:.3f}s 超过成片 {duration:.3f}s")
+            if any("-->" in line for line in lines[index + 1:]):
+                raise ValueError("字幕块缺少分隔空行")
             entries.append((begin, end, "\n".join(lines[index + 1:])))
+        except ValueError as exc:
+            errors.append(f"SRT block {block_index}: {exc}")
+    if strict and not entries and not errors:
+        errors.append("SRT 没有有效字幕")
+    if strict and errors:
+        raise SubtitleError(errors)
     return entries
 
 
 def _srt_seconds(value):
-    parts = value.strip().replace(",", ".").split(":")
-    if len(parts) != 3:
+    match = re.fullmatch(r"(\d{2,}):([0-5]\d):([0-5]\d)[,.](\d{3})", value.strip())
+    if not match:
         raise ValueError(value)
-    return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    hours, minutes, seconds, millis = map(int, match.groups())
+    return hours * 3600 + minutes * 60 + seconds + millis / 1000
 
 
 PHRASE = re.compile(r"[^，。！？；：、,.!?;:…]+[，。！？；：、,.!?;:…]*|[，。！？；：、,.!?;:…]+")

@@ -27,3 +27,9 @@ VSC 通过本机作品（`projects/`）发现问题，再改进 VSC 本身。本
 3. 验证：运行 `python3 -B scripts/vsc_local_ci.py`，须全部通过（检查项见其说明）。再用暴露问题的作品重跑对应阶段，确认问题消失；无法重跑时如实说明。
 4. 提交：钩子失败时按维护指南处理，不得绕过。提交说明沿用 `feat:`/`fix:`/`refactor:`/`docs:`/`chore:`，正文写现象、根因与验证。仓库公开：提交说明和文件中不写作品原文、人物、素材或其他受限内容，按 `capability export` 的去项目化标准描述。
 5. 推送：`git push origin main`。行为、契约或 schema 变化时，更新 `.zcode-plugin/plugin.json` 的版本号，并在 `docs/releases/` 写明变化。
+
+## 制作交接 v2
+
+production-v2 的规范、显式迁移和验证入口见新增内核协议。维护时保留旧 Profile 快照和真实批准；新 DAG 验证缓存仅单次操作有效，不跨命令掩盖 SHA 漂移。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

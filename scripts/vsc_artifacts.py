@@ -89,7 +89,7 @@ def brief_errors(data):
     return errors
 
 
-def content_errors(path, artifact_type):
+def content_errors(path, artifact_type, policy='production-v2'):
     path = Path(path)
     if not path.is_file():
         return ["版本文件不存在"]
@@ -97,7 +97,8 @@ def content_errors(path, artifact_type):
         return ["产物为空"]
     catalog = contract_catalog()
     expected = next((fmt for fmt, entry in catalog.items()
-                     if artifact_type in entry.get("artifact_types", [])), None)
+                     if artifact_type in entry.get("artifact_types", [])
+                     and (not entry.get('strict_policy') or entry['strict_policy'] == policy)), None)
     # JSON 契约也可以保存在 Markdown 路径；格式由内容与类型决定，不由后缀猜测。
     if expected or path.suffix.lower() == ".json":
         if path.stat().st_size > 16 * 1024 * 1024:
@@ -151,7 +152,7 @@ def in_scope(objects, object_id, scope):
     return scope == "project"
 
 
-def reference_errors(project, state, item, visited=None):
+def reference_errors(project, state, item, visited=None, cache=None):
     objects = object_index(state)
     scope = item.get("scope", "project")
     errors = []
@@ -177,16 +178,45 @@ def reference_errors(project, state, item, visited=None):
         elif check_scope and not in_scope(objects, identifier, scope):
             errors.append(f"{label} 不在产物范围 {scope} 内：{identifier}")
         elif kind == "asset":
-            bound = next((x for x in state["artifacts"] if x["id"] == obj.get("artifact")), None)
+            binding = item.get('asset_versions', {}).get(identifier, {})
+            bound = next((x for x in state["artifacts"] if x["id"] == binding.get('id', obj.get("artifact"))), None)
             if not bound or bound.get("status") != "approved" or bound.get("superseded_by"):
                 errors.append(f"参考资产 {identifier} 没有有效已批准版本")
+            elif binding and binding.get('sha256') != bound.get('sha256'):
+                errors.append(f'参考资产 {identifier} 固定绑定 SHA 不一致')
             elif not (Path(project) / bound["path"]).is_file() or digest(Path(project) / bound["path"]) != bound.get("sha256"):
                 errors.append(f"参考资产 {identifier} 的版本文件失效")
             else:
                 errors.extend(f"参考资产 {identifier}：{problem}" for problem in
-                              validate_artifact(project, state, bound, visited=visited))
+                              validate_artifact(project, state, bound, visited=visited, _cache=cache))
 
     fmt = data.get("format")
+    if fmt in ('vsc.source-map/v1', 'vsc.episode-beats/v1', 'vsc.visual-bible/v1'):
+        from vsc_story import project_errors
+        errors.extend(project_errors(data, project, state, item))
+    if fmt in ('vsc.screenplay/v1', 'vsc.coverage-plan/v1', 'vsc.selected-takes/v1',
+               'vsc.animatic/v1', 'vsc.timeline/v1', 'vsc.mix/v1', 'vsc.delivery-manifest/v1'):
+        from vsc_handoffs import project_errors
+        # Handoff references must be registered explicit dependencies; the common
+        # traversal below validates them once, including successful draft records.
+        errors.extend(project_errors(data, project, state, item))
+    if state.get('profile_snapshot', {}).get('contract_policy') == 'production-v2':
+        if fmt == 'vsc.adaptation-map/v1':
+            from vsc_sources import provenance_errors
+            errors.extend(provenance_errors(data, project, state, item))
+            allowed = state['profile_snapshot'].get('ending_functions', ['closure','resonance','action','cliffhanger'])
+            for episode in data.get('episodes', []):
+                if episode.get('ending_function') not in allowed or not episode.get('ending'):
+                    errors.append('新改编需明确当前Profile支持的 ending_function 和 ending')
+        if fmt == 'vsc.sample-review/v1':
+            from media_qa import validate_review
+            errors.extend(validate_review(path, strict=True))
+        if fmt == 'vsc.sound-cue-sheet/v1':
+            from vsc_performance import project_sound_errors
+            errors.extend(project_sound_errors(data, project, state, item))
+        if fmt == 'vsc.production-run/v1':
+            from vsc_run import project_errors
+            errors.extend(project_errors(data, project, state, item))
     if fmt == "vsc.adaptation-map/v1":
         for ep in data.get("episodes", []):
             need(ep.get("id"), "episode", "episodes")
@@ -245,18 +275,24 @@ def reference_errors(project, state, item, visited=None):
             elif not any(x["id"] in item.get("depends_on", []) and x["type"] in ("vsc.timeline", "vsc.remotion_render_plan")
                          and x.get("sha256") == qa.get("plan_sha256") for x in state["artifacts"]):
                 errors.append("技术报告必须依赖匹配 plan_sha256 的已登记时间线版本")
+            # The actual registered timeline is recursively validated through the
+            # fixed dependency below. A synthetic item would lose its own refs.
             plan_path = Path(qa["plan_path"])
-            errors.extend(reference_errors(project, state, {"type": "vsc.remotion_render_plan",
-                                                            "path": str(plan_path), "scope": scope}, visited=visited))
+            if not plan_path.is_file() or digest(plan_path) != qa.get('plan_sha256'):
+                errors.append('技术报告计划文件缺失或 SHA 不一致')
         except (KeyError, OSError, ValueError, TypeError):
             errors.append("技术报告绑定的时间线计划不可读取")
     return errors
 
 
-def validate_artifact(project, state, item, require_approved=True, visited=None):
+def validate_artifact(project, state, item, require_approved=True, visited=None, _cache=None):
     visited = set(visited or ())
     if item["id"] in visited:
         return ["产物依赖形成循环"]
+    cache = {} if _cache is None else _cache
+    cache_key = (item['id'], require_approved)
+    if cache_key in cache:
+        return list(cache[cache_key])
     visited.add(item["id"])
     errors = []
     if item.get("legacy_unverified"):
@@ -273,14 +309,21 @@ def validate_artifact(project, state, item, require_approved=True, visited=None)
     elif digest(path) != item["sha256"]:
         errors.append("版本内容已变化，必须登记新版本")
     if not errors or (path.is_file() and item.get("sha256") == digest(path)):
-        errors.extend(content_errors(path, item["type"]))
+        errors.extend(content_errors(path, item["type"], state.get('profile_snapshot', {}).get('contract_policy')))
         if not errors:
-            errors.extend(reference_errors(project, state, item, visited=visited))
+            errors.extend(reference_errors(project, state, item, visited=visited, cache=cache))
     artifacts = {x["id"]: x for x in state["artifacts"]}
     profile = state.get("profile_snapshot", {})
     stages = profile.get("stages", [])
     owner_index = next((i for i, stage in enumerate(stages) if stage["id"] == item["stage"]), None)
-    if (profile.get("dependency_policy") == "previous_stage" and owner_index is not None and owner_index > 0
+    explicit = profile.get('dependency_requirements', {}).get(item['type'])
+    if explicit is not None:
+        for kind in explicit:
+            if not any(artifacts.get(ref, {}).get('type') == kind and
+                       artifacts[ref].get('scope', 'project') in ('project', item.get('scope', 'project'))
+                       for ref in item.get('depends_on', [])):
+                errors.append(f'缺少明确版本依赖：{kind}')
+    elif (profile.get("dependency_policy") == "previous_stage" and owner_index is not None and owner_index > 0
             and item["type"] in stages[owner_index].get("required", [])):
         previous_stage = stages[owner_index - 1]
         for kind in previous_stage.get("required", []):
@@ -297,8 +340,12 @@ def validate_artifact(project, state, item, require_approved=True, visited=None)
             continue
         if versions.get(ref) != dependency.get("sha256"):
             errors.append(f"依赖版本不匹配：{ref}")
-        nested = validate_artifact(project, state, dependency, visited=visited)
+        # Draft candidates may be consumed only by an approved explicit selection;
+        # their record/output checks still run. Other draft deps never pass.
+        candidate = item['type'] == 'vsc.selected_takes' and dependency['type'] == 'vsc.generation_record'
+        nested = validate_artifact(project, state, dependency, require_approved=not candidate, visited=visited, _cache=cache)
         errors.extend(f"依赖 {ref}：{problem}" for problem in nested)
+    cache[cache_key] = list(errors)
     return errors
 
 

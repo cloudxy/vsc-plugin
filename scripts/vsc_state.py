@@ -248,7 +248,7 @@ def stage_for(profile, stage_id):
     return stage
 
 
-def gate_problems(project: Path, state, stage_id):
+def gate_problems(project: Path, state, stage_id, scope=None):
     profile = project_profile(state)
     stage_index = next((i for i, x in enumerate(profile["stages"]) if x["id"] == stage_id), None)
     if stage_index is None:
@@ -257,8 +257,15 @@ def gate_problems(project: Path, state, stage_id):
     for stage in profile["stages"][:stage_index + 1]:
         required.extend((stage["id"], kind) for kind in stage.get("required", []))
     problems = []
+    validation_cache = {}
+    if scope and object_index(state).get(scope, {}).get('kind') != 'episode':
+        return ['--scope 必须是已登记 episode']
     if stage_index >= 1 and not state["sources"]:
         problems.append("尚未登记来源（source add 或 source import）")
+    if stage_index >= 1 and profile.get('contract_policy') == 'production-v2':
+        from vsc_sources import source_errors
+        for source in state['sources']:
+            problems.extend(source_errors(project, source))
     for owner_stage, kind in required:
         candidates = [x for x in state["artifacts"] if x.get("type") == kind and x.get("stage") == owner_stage
                       and x.get("status") == "approved" and not x.get("superseded_by")]
@@ -267,22 +274,24 @@ def gate_problems(project: Path, state, stage_id):
         stage_ids = [x["id"] for x in profile["stages"]]
         if scoped_from and stage_ids.index(owner_stage) >= stage_ids.index(scoped_from):
             scopes = [x["id"] for x in state.get("objects", []) if x["kind"] == "episode"]
+            if scope:
+                scopes = [scope]
             if not scopes:
                 problems.append(f"{owner_stage} 尚未登记 episode；不能以项目级文件证明多集完成")
-        for scope in scopes:
-            matching = [x for x in candidates if x.get("scope", "project") == scope]
+        for target_scope in scopes:
+            matching = [x for x in candidates if x.get("scope", "project") == target_scope]
             if not matching:
-                problems.append(f"{owner_stage} [{scope}] 缺有效已批准产物：{kind}")
-            elif not any(not validate_artifact(project, state, x) for x in matching):
-                details = validate_artifact(project, state, matching[-1])
-                problems.append(f"{owner_stage} [{scope}] {kind} 失效：" + "；".join(details))
+                problems.append(f"{owner_stage} [{target_scope}] 缺有效已批准产物：{kind}")
+            elif not any(not validate_artifact(project, state, x, _cache=validation_cache) for x in matching):
+                details = validate_artifact(project, state, matching[-1], _cache=validation_cache)
+                problems.append(f"{owner_stage} [{target_scope}] {kind} 失效：" + "；".join(details))
     return problems
 
 
-def first_open_stage(project: Path, state):
+def first_open_stage(project: Path, state, scope=None):
     profile = project_profile(state)
     for stage in profile["stages"]:
-        if gate_problems(project, state, stage["id"]):
+        if gate_problems(project, state, stage["id"], scope):
             return stage
     return None
 
@@ -324,7 +333,7 @@ def cmd_init(args):
     template_files(project)
     state = {
         "schema_version": SCHEMA,
-        "runtime_version": "0.9.0",
+        "runtime_version": "0.12.0",
         "project_id": f"vsc-project-{uuid.uuid4().hex}",
         "title": args.title,
         "profile_id": profile["profile_id"],
@@ -355,7 +364,8 @@ def cmd_migrate(args):
         return
     if version not in (1, 2):
         die(f"{STATE_FILE} schema {version} 不支持迁移到 {SCHEMA}")
-    profile = profile_for(state.get("profile_id"))
+    fixed = state.get('profile_snapshot')
+    profile = fixed if isinstance(fixed, dict) and profile_digest(fixed) == state.get('profile_sha256') else profile_for(state.get("profile_id"))
     if state.get("profile_version") != profile.get("version") and not args.accept_current_profile:
         die("历史 Profile 版本不可恢复；确认使用当前规则后加 --accept-current-profile")
     backup = project / "09-台账" / f"vsc-schema-{version}-{uuid.uuid4().hex}.json"
@@ -394,8 +404,10 @@ def cmd_migrate(args):
 def cmd_status(args):
     project = Path(args.project)
     state = project_state(project)
+    if args.scope and object_index(state).get(args.scope, {}).get('kind') != 'episode':
+        die('--scope 必须是已登记 episode')
     profile = project_profile(state)
-    open_stage = first_open_stage(project, state)
+    open_stage = first_open_stage(project, state, args.scope)
     approved = sum(1 for x in state["artifacts"] if x["status"] == "approved")
     print(f"项目: {state['title']}  Profile: {profile['label']}  Owner: {state['owner'] or '未设'}")
     memories = sum(1 for x in state["memories"] if x["status"] == "approved")
@@ -403,7 +415,7 @@ def cmd_status(args):
     print(f"来源: {len(state['sources'])}  产物: {len(state['artifacts'])}（批准记录 {approved}，有效性另由 Gate 检查）  决策: {len(state['decisions'])}")
     print(f"记忆: {len(state['memories'])}（已批准 {memories}）  观察: {len(state['learning']['observations'])}  能力: {len(state['learning']['capabilities'])}（已批准 {capabilities}）")
     if open_stage:
-        gaps = gate_problems(project, state, open_stage["id"])
+        gaps = gate_problems(project, state, open_stage["id"], args.scope)
         print(f"下一关: {open_stage['id']}「{open_stage['label']}」")
         for item in gaps:
             print(f"  - {item}")
@@ -415,7 +427,9 @@ def cmd_status(args):
 def cmd_next(args):
     project = Path(args.project)
     state = project_state(project)
-    stage = first_open_stage(project, state)
+    if args.scope and object_index(state).get(args.scope, {}).get('kind') != 'episode':
+        die('--scope 必须是已登记 episode')
+    stage = first_open_stage(project, state, args.scope)
     if not stage:
         print("DONE")
         return
@@ -431,8 +445,10 @@ def cmd_source(args):
         path = Path(args.file)
         if not path.is_file():
             die(f"来源文件不存在：{path}")
-        source = {"id": next_id(state["sources"], "S"), "kind": args.kind, "path": rel_or_abs(path, project),
-                  "sha256_16": sha16(path), "sha256": digest(path), "rights": args.rights, "added_at": now()}
+        identifier = next_id(state['sources'], 'S')
+        fixed, full_sha = snapshot(project, path, identifier)
+        source = {"id": identifier, "kind": args.kind, "path": fixed, 'source_path': rel_or_abs(path, project), 'snapshot': True,
+                  "sha256_16": full_sha[:16], "sha256": full_sha, "rights": args.rights, "added_at": now()}
         state["sources"].append(source)
         append_event(state, "source_registered", source_id=source["id"], kind=args.kind)
         save(project, state)
@@ -440,8 +456,10 @@ def cmd_source(args):
         return
     manifest = Path(args.manifest)
     package = validate_handoff(manifest)
-    source = {"id": next_id(state["sources"], "S"), "kind": "handoff", "path": rel_or_abs(manifest, project),
-              "sha256_16": sha16(manifest), "sha256": digest(manifest), "package_id": package["package_id"], "rights": args.rights, "added_at": now()}
+    identifier = next_id(state['sources'], 'S')
+    fixed, full_sha = snapshot(project, manifest, identifier)
+    source = {"id": identifier, "kind": "handoff", "path": fixed, 'source_path': rel_or_abs(manifest, project), 'snapshot': True,
+              "sha256_16": full_sha[:16], "sha256": full_sha, "package_id": package["package_id"], "rights": args.rights, "added_at": now()}
     state["sources"].append(source)
     append_event(state, "handoff_imported", source_id=source["id"], package_id=package["package_id"])
     save(project, state)
@@ -834,6 +852,37 @@ def cmd_artifact(args):
     project = Path(args.project)
     state = project_state(project)
     profile = project_profile(state)
+    if args.action == 'decide-bundle':
+        trial = copy.deepcopy(state)
+        chosen = []
+        for pair in args.item:
+            identifier, expected_sha = pair.split(':', 1)
+            artifact = artifact_by_id(trial, identifier)
+            if expected_sha != artifact.get('sha256') or identifier in chosen:
+                die('审阅包必须列唯一且固定 SHA 的产物版本')
+            chosen.append(identifier)
+            artifact['status'] = args.status
+        if not chosen or not args.reason.strip():
+            die('审阅包必须有固定版本和 --reason')
+        if args.status == 'approved':
+            for identifier in chosen:
+                artifact = artifact_by_id(trial, identifier)
+                problems = validate_artifact(project, trial, artifact)
+                scoped_from = profile.get('scope_required_from')
+                stages = [s['id'] for s in profile['stages']]
+                if scoped_from and artifact['type'] in stage_for(profile, artifact['stage']).get('required', []) and stages.index(artifact['stage']) >= stages.index(scoped_from):
+                    if object_index(trial).get(artifact.get('scope'), {}).get('kind') != 'episode':
+                        problems.append('该连续剧交付必须指定 episode 范围')
+                if problems: die('审阅包不能批准 ' + identifier + '：' + '；'.join(problems))
+        for identifier in chosen:
+            artifact = artifact_by_id(trial, identifier)
+            artifact['decision'] = {'by': args.by, 'note': args.reason, 'at': now(), 'bundle': chosen}
+            if args.status == 'approved' and artifact.get('supersedes'):
+                artifact_by_id(trial, artifact['supersedes'])['superseded_by'] = identifier
+        append_event(trial, 'artifact_bundle_decided', artifact_ids=chosen, by=args.by, status=args.status, reason=args.reason)
+        save(project, trial)
+        print('OK 固定版本审阅包已原子登记决定；未批准任何未列入版本')
+        return
     if args.action == "list":
         for item in state["artifacts"]:
             if args.stage and item["stage"] != args.stage:
@@ -883,6 +932,22 @@ def cmd_artifact(args):
                 "sha256_16": version_hash[:16], "scope": scope, "supersedes": supersedes,
                 "depends_on": deps, "dependency_versions": {ref: artifact_by_id(state, ref).get("sha256") for ref in deps},
                 "note": args.note or "", "status": "draft", "created_at": now(), "decision": None}
+        # Each consumer pins the versions that stable asset identities meant at
+        # registration time. Rebinding cannot reinterpret earlier snapshots.
+        try:
+            document = json.loads((project / version_path).read_text('utf-8'))
+        except (ValueError, UnicodeError):
+            document = {}
+        strings = set()
+        def collect(value):
+            if isinstance(value, str): strings.add(value)
+            elif isinstance(value, dict):
+                for key, nested in value.items(): strings.add(key); collect(nested)
+            elif isinstance(value, list):
+                for nested in value: collect(nested)
+        collect(document)
+        item['asset_versions'] = {o['id']: {'id': o['artifact'], 'sha256': artifact_by_id(state, o['artifact']).get('sha256')}
+                                  for o in state.get('objects', []) if o['kind'] == 'asset' and o.get('artifact') and o['id'] in strings}
         state["artifacts"].append(item)
         append_event(state, "artifact_registered", artifact_id=item["id"], type=item["type"], stage=item["stage"])
         save(project, state)
@@ -918,19 +983,43 @@ def cmd_object(args):
         for item in state["objects"]:
             print(f"{item['id']} {item['kind']} parent={item.get('parent') or '-'} artifact={item.get('artifact') or '-'}")
         return
+    if args.action == 'bind':
+        obj = objects.get(args.id)
+        if not obj or obj['kind'] != 'asset':
+            die('bind 只能更新已登记的稳定 asset 身份')
+        bound = artifact_by_id(state, args.artifact)
+        problems = validate_artifact(project, state, bound)
+        if problems:
+            die('新资产版本无效：' + '；'.join(problems))
+        if not args.reason.strip():
+            die('bind 必须说明 --reason')
+        obj.setdefault('binding_history', []).append({'artifact': obj.get('artifact'), 'replaced_at': now(), 'by': args.by, 'reason': args.reason})
+        obj['artifact'] = bound['id']
+        append_event(state, 'asset_rebound', object_id=obj['id'], artifact_id=bound['id'], by=args.by)
+        save(project, state)
+        print(f"OK {obj['id']} 已绑定 {bound['id']}；旧消费版本保留固定绑定")
+        return
     identifier = nonempty(args.id, "--id")
+    if args.kind == 'episode' and project_profile(state).get('max_episodes'):
+        if sum(o['kind'] == 'episode' for o in objects.values()) >= project_profile(state)['max_episodes']:
+            die('当前轻量Profile只支持单集；多集先显式迁移Profile')
     if identifier == "project" or identifier in objects:
         die("对象 id 已存在或保留，不能重新解释已登记身份")
-    expected_parent = {"scene": "episode", "sequence": "scene", "shot": "sequence", "take": "shot"}.get(args.kind)
+    expected_parent = {"scene": "episode", "sequence": "scene", "shot": "sequence"}.get(args.kind)
     if expected_parent and objects.get(args.parent, {}).get("kind") != expected_parent:
         die(f"{args.kind} 必须以已登记 {expected_parent} 作为 --parent")
     if args.parent and args.parent not in objects:
         die("父对象不存在")
+    if args.kind == 'take' and objects.get(args.parent, {}).get('kind') not in ('shot', 'sequence', 'scene'):
+        die('take 必须属于 shot / sequence / scene')
     if args.kind in ("asset", "take") and not args.artifact:
         die(f"{args.kind} 必须绑定 --artifact 已批准版本")
     if args.artifact:
         bound = artifact_by_id(state, args.artifact)
-        problems = validate_artifact(project, state, bound)
+        # A generated take is a draft candidate. Its selection is a separate
+        # approved selected-takes artifact; importing never approves a take.
+        candidate = args.kind == 'take' and bound['type'] == 'vsc.generation_record'
+        problems = validate_artifact(project, state, bound, require_approved=not candidate)
         if problems:
             die("对象绑定的版本无效：" + "；".join(problems))
     item = {"id": identifier, "kind": args.kind, "parent": args.parent, "artifact": args.artifact,
@@ -944,7 +1033,11 @@ def cmd_object(args):
 def cmd_decision(args):
     project = Path(args.project)
     state = project_state(project)
-    artifact_by_id(state, args.target)
+    if args.kind in ('omission', 'scope_omission'):
+        if object_index(state).get(args.target, {}).get('kind') not in ('scene', 'sequence', 'shot'):
+            die('omission target 必须是已登记 scene / sequence / shot')
+    else:
+        artifact_by_id(state, args.target)
     if not args.reason.strip():
         die("决策必须写 --reason，保留选择依据")
     item = {"id": next_id(state["decisions"], "D"), "kind": args.kind, "target": args.target,
@@ -958,7 +1051,7 @@ def cmd_decision(args):
 def cmd_gate(args):
     project = Path(args.project)
     state = project_state(project)
-    problems = gate_problems(project, state, args.stage)
+    problems = gate_problems(project, state, args.stage, args.scope)
     if problems:
         print(f"GATE {args.stage}: FAIL")
         for problem in problems:
@@ -1067,7 +1160,8 @@ def cmd_adaptation(args):
             continue
         label = f"source_units[{index}]"
         source_ids.add(required_text(item, "id", label, errors))
-        required_text(item, "locator", label, errors)
+        if not isinstance(item.get('locator'), dict):
+            required_text(item, "locator", label, errors)
         required_text(item, "fact_or_claim", label, errors)
         required_text(item, "narrative_function", label, errors)
     episode_ids = set()
@@ -1078,7 +1172,10 @@ def cmd_adaptation(args):
         episode_ids.add(required_text(item, "id", label, errors))
         required_text(item, "logline", label, errors)
         required_text(item, "opening_hook", label, errors)
-        required_text(item, "exit_hook", label, errors)
+        if item.get('ending_function') not in ('closure', 'resonance', 'action', 'cliffhanger'):
+            required_text(item, "exit_hook", label, errors)
+        else:
+            required_text(item, 'ending', label, errors)
     for index, item in enumerate(screens):
         if not isinstance(item, dict):
             continue
@@ -1088,7 +1185,7 @@ def cmd_adaptation(args):
         if episode_id and episode_id not in episode_ids:
             errors.append(f"{label}.episode_id 引用了不存在的 episode：{episode_id}")
         refs = required_list(item, "source_refs", label, errors)
-        if not refs:
+        if not refs and not (item.get('origin') == 'invention' and item.get('decision_ref')):
             errors.append(f"{label}.source_refs 不能为空；新增内容也要写来源或在改编契约中登记")
         for reference in refs:
             if reference not in source_ids:
@@ -1098,7 +1195,7 @@ def cmd_adaptation(args):
     uncovered = episode_ids - {item.get("episode_id") for item in screens if isinstance(item, dict)}
     if uncovered:
         errors.append("以下集没有可拍场景单元：" + "、".join(sorted(uncovered)))
-    if not sources or not episodes or not screens:
+    if (not sources and not all(u.get('origin') == 'invention' for u in screens)) or not episodes or not screens:
         errors.append("source_units / episodes / screen_units 不能为空；空映射不能作为剧本化依据")
     if not errors:
         errors.extend(project_contract_errors(args, "vsc.adaptation_plan"))
@@ -1303,6 +1400,36 @@ def cmd_handoff(args):
 
 
 def cmd_profile(args):
+    if args.action == 'migrate':
+        project = Path(args.project)
+        state = project_state(project)
+        target = copy.deepcopy(profile_for(args.profile_id))
+        trial = copy.deepcopy(state)
+        trial.update(profile_id=target['profile_id'], profile_version=target['version'],
+                     profile_snapshot=target, profile_sha256=profile_digest(target))
+        invalid = {a['id']: validate_artifact(project, trial, a) for a in state['artifacts'] if a.get('status') == 'approved'}
+        invalid = {k: v for k, v in invalid.items() if v}
+        proposal = {'format': 'vsc.profile-migration/v1', 'project_id': state['project_id'],
+                    'revision': state['revision'], 'from_sha256': state['profile_sha256'],
+                    'to_profile': target, 'to_sha256': profile_digest(target), 'invalidated': invalid,
+                    'requirements_before': {s['id']: s['required'] for s in project_profile(state)['stages']},
+                    'requirements_after': {s['id']: s['required'] for s in target['stages']}}
+        proposal_hash = profile_digest(proposal)
+        if not args.apply:
+            print(json.dumps({**proposal, 'plan_sha256': proposal_hash}, ensure_ascii=False, indent=2))
+            return
+        if args.plan_hash != proposal_hash or not args.by or not args.reason:
+            die('迁移必须提供当前预览的 --plan-hash、--by、--reason；状态变化后重新预览')
+        backup = project / '09-台账' / ('profile-backup-' + uuid.uuid4().hex + '.json')
+        write_json(backup, state)
+        state.setdefault('profile_history', []).append({'profile_snapshot': state['profile_snapshot'],
+            'sha256': state['profile_sha256'], 'by': args.by, 'reason': args.reason, 'backup': str(backup.relative_to(project))})
+        state.update(profile_id=target['profile_id'], profile_version=target['version'],
+                     profile_snapshot=target, profile_sha256=profile_digest(target))
+        append_event(state, 'profile_migrated', by=args.by, plan_sha256=proposal_hash, invalidated=invalid)
+        save(project, state)
+        print('OK Profile 已迁移；历史批准与快照保留，失效产物需重新登记、审阅')
+        return
     catalog = profile_catalog()
     if args.action == "list":
         for profile_id, profile in catalog.items():
@@ -1321,7 +1448,7 @@ def main():
     p.add_argument("--profile", default="vsc.narrative-base"); p.add_argument("--owner"); p.set_defaults(fn=cmd_init)
     p = commands.add_parser("migrate"); p.add_argument("project"); p.add_argument("--accept-current-profile", action="store_true"); p.set_defaults(fn=cmd_migrate)
     for name, fn in (("status", cmd_status), ("next", cmd_next)):
-        p = commands.add_parser(name); p.add_argument("project"); p.set_defaults(fn=fn)
+        p = commands.add_parser(name); p.add_argument("project"); p.add_argument('--scope'); p.set_defaults(fn=fn)
     p = commands.add_parser("source"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("add"); q.add_argument("project"); q.add_argument("--kind", choices=SOURCE_KINDS, required=True); q.add_argument("--file", required=True)
     q.add_argument("--rights", choices=SOURCE_RIGHTS, default="unknown")
@@ -1335,12 +1462,16 @@ def main():
     q = subs.add_parser("decide"); q.add_argument("project"); q.add_argument("id"); q.add_argument("--status", choices=("approved", "rejected"), required=True)
     q.add_argument("--by", required=True); q.add_argument("--note")
     q = subs.add_parser("list"); q.add_argument("project"); q.add_argument("--stage"); q.add_argument("--type")
+    q = subs.add_parser('decide-bundle'); q.add_argument('project'); q.add_argument('--item', action='append', required=True, help='A-ID:SHA256')
+    q.add_argument('--status', choices=('approved','rejected'), required=True); q.add_argument('--by', required=True); q.add_argument('--reason', required=True)
     p.set_defaults(fn=cmd_artifact)
     p = commands.add_parser("object"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("add"); q.add_argument("project"); q.add_argument("--id", required=True)
     q.add_argument("--kind", choices=("episode", "scene", "sequence", "shot", "take", "asset"), required=True)
     q.add_argument("--parent"); q.add_argument("--artifact"); q.add_argument("--label")
     q = subs.add_parser("list"); q.add_argument("project")
+    q = subs.add_parser('bind'); q.add_argument('project'); q.add_argument('--id', required=True); q.add_argument('--artifact', required=True)
+    q.add_argument('--by', required=True); q.add_argument('--reason', required=True)
     p.set_defaults(fn=cmd_object)
     p = commands.add_parser("decision"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("add"); q.add_argument("project"); q.add_argument("--kind", required=True); q.add_argument("--target", required=True)
@@ -1348,6 +1479,7 @@ def main():
     p.set_defaults(fn=cmd_decision)
     p = commands.add_parser("gate"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("check"); q.add_argument("project"); q.add_argument("stage")
+    q.add_argument('--scope')
     p.set_defaults(fn=cmd_gate)
     p = commands.add_parser("memory"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("add"); q.add_argument("project"); q.add_argument("--scope", choices=MEMORY_SCOPES, required=True)
@@ -1407,9 +1539,11 @@ def main():
     p = commands.add_parser("profile"); subs = p.add_subparsers(dest="action", required=True)
     subs.add_parser("list")
     q = subs.add_parser("show"); q.add_argument("profile_id")
+    q = subs.add_parser('migrate'); q.add_argument('project'); q.add_argument('--profile', dest='profile_id', required=True)
+    q.add_argument('--apply', action='store_true'); q.add_argument('--plan-hash'); q.add_argument('--by'); q.add_argument('--reason')
     p.set_defaults(fn=cmd_profile)
     args = parser.parse_args()
-    if hasattr(args, "by"):
+    if hasattr(args, "by") and not (args.command == 'profile' and args.action == 'migrate' and not args.apply):
         args.by = nonempty(args.by, "--by 责任人")
     if getattr(args, "project", None):
         with project_lock(Path(args.project)):

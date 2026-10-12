@@ -16,3 +16,9 @@ python3 scripts/vsc_kernel.py contract validate vsc.adaptation-map/v1 <改编映
 ```
 
 随后等待创作负责人批准。
+
+## 制作交接 v2
+
+新规则使用来源快照与可解析定位；source-map、episode-beats、adaptation-map 固定版本。区分事实、人物说法、解释与新增；invention 必须绑定真实决定。单条结尾可闭合、余韵、行动或悬念。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

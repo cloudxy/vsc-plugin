@@ -16,3 +16,9 @@ description: "Design VSC character, location, prop, action and voice assets befo
 资产库保存为 `vsc.asset-bible/v1`（从 `templates/asset-bible.json` 复制起步，字段与命令见 `scripts/consistency.py --help`）：人物、道具、物体、地点各有稳定 ID、不可变特征和命名变体，参考素材绑定 SHA-256；会说话的人物绑定音色，有标志声音的物体或地点绑定声音；全片字幕样式写在同一份资产库里。新增服装、伤妆或道具状态时增加变体，不改写既有变体的含义。
 
 按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `assets` 阶段，结论写入 VSC AssetBible、动作规格和连续性约束；不因使用上游方法扩大人物、声音或素材的授权范围。
+
+## 制作交接 v2
+
+稳定资产身份更新用 object bind 保留版本历史；参考按变体、媒体类别和用途过滤。资产准备正式 run 在 script Gate 与批准资产规格后进行，不以未来预演造成依赖环。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

@@ -1,0 +1,61 @@
+{
+  "format": "vsc.timeline/v1",
+  "project_id": "replace-with-project-id",
+  "scope": "EP",
+  "selected_takes": {
+    "id": "A10",
+    "sha256": "2c6cd5df56b19d4e65669a431b06e7a31a9d72992e6ae697af1b44ffe674a6e4"
+  },
+  "sound_plans": [],
+  "render_plan": {
+    "format": "vsc.remotion-render-plan/v1",
+    "project_id": "replace-with-project-id",
+    "composition": {
+      "id": "Test",
+      "width": 320,
+      "height": 240,
+      "fps": 24,
+      "duration_in_frames": 48
+    },
+    "segments": [
+      {
+        "id": "V1",
+        "kind": "video",
+        "source": "media/SH1.bin",
+        "source_shot_id": "SH1",
+        "from_frame": 0,
+        "duration_in_frames": 24,
+        "muted": true
+      },
+      {
+        "id": "V2",
+        "kind": "video",
+        "source": "media/SH2.bin",
+        "source_shot_id": "SH2",
+        "from_frame": 24,
+        "duration_in_frames": 24,
+        "muted": true
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "segment_id": "V1",
+      "selected_item_id": "SEL1",
+      "sha256": "d2b20be219f3b5b647d87d2c2efb58e85dd67998812021c19e6faa4683476910",
+      "purpose": "visual",
+      "usage_rights": "owned",
+      "audio_role": "none",
+      "cue_id": null
+    },
+    {
+      "segment_id": "V2",
+      "selected_item_id": "SEL2",
+      "sha256": "7b60a3b985aeaa34601b4a3796fa3b6e71ee466a0503731e8734060692d0ba67",
+      "purpose": "visual",
+      "usage_rights": "owned",
+      "audio_role": "none",
+      "cue_id": null
+    }
+  ]
+}

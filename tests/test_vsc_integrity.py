@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from _paths import ROOT
+from _paths import freeze_legacy_profile, ROOT
 import vsc_state as state_module
 
 CLI = ROOT / "scripts" / "vsc_state.py"
@@ -28,7 +28,10 @@ class Integrity(unittest.TestCase):
         self.temp.cleanup()
 
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-B", str(CLI), *map(str, args)], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, "-B", str(CLI), *map(str, args)], capture_output=True, text=True)
+        if args and args[0] == "init" and result.returncode == 0:
+            freeze_legacy_profile(args[1])
+        return result
 
     def ok(self, *args):
         result = self.run_cli(*args)

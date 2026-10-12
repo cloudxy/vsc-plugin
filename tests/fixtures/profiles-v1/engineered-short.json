@@ -1,0 +1,84 @@
+{
+  "profile_id": "vsc.engineered-short",
+  "version": "1.0",
+  "dependency_policy": "previous_stage",
+  "label": "工程化叙事短视频",
+  "use_case": "需要固定资产、状态时间线、声音计划与场次衔接的叙事短视频",
+  "stages": [
+    {
+      "id": "brief",
+      "label": "创作委托",
+      "required": [
+        "vsc.creative_brief"
+      ]
+    },
+    {
+      "id": "source",
+      "label": "素材理解",
+      "required": [
+        "vsc.source_map"
+      ]
+    },
+    {
+      "id": "adaptation",
+      "label": "改编设计",
+      "required": [
+        "vsc.adaptation_plan",
+        "vsc.episode_beats"
+      ]
+    },
+    {
+      "id": "script",
+      "label": "剧本",
+      "required": [
+        "vsc.screenplay"
+      ]
+    },
+    {
+      "id": "design",
+      "label": "视听与资产设计",
+      "required": [
+        "vsc.visual_bible",
+        "vsc.asset_bible",
+        "vsc.shot_plan",
+        "vsc.sound_plan",
+        "vsc.scene_state",
+        "vsc.sequence_links"
+      ]
+    },
+    {
+      "id": "animatic",
+      "label": "分镜预演",
+      "required": [
+        "vsc.animatic"
+      ]
+    },
+    {
+      "id": "production",
+      "label": "素材制作",
+      "required": [
+        "vsc.selected_takes"
+      ]
+    },
+    {
+      "id": "post",
+      "label": "剪辑与后期",
+      "required": [
+        "vsc.timeline"
+      ]
+    },
+    {
+      "id": "delivery",
+      "label": "审片与交付",
+      "required": [
+        "vsc.delivery_manifest",
+        "vsc.sample_review"
+      ]
+    }
+  ],
+  "policy": {
+    "creative_decisions": "human",
+    "technical_checks": "automatic",
+    "external_publish": "not_enabled"
+  }
+}

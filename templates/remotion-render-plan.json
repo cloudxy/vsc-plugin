@@ -8,6 +8,17 @@
     "fps": 30,
     "duration_in_frames": 360
   },
+  "subtitle_style": {
+    "font": null,
+    "font_size": 60,
+    "color": "#FFFFFF",
+    "stroke_color": "#000000",
+    "stroke_width": 1.5,
+    "position": "bottom",
+    "custom_position": 70,
+    "background": null,
+    "rounded": false
+  },
   "segments": [
     {
       "id": "SH-001",

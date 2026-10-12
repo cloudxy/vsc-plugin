@@ -13,6 +13,10 @@
           "主角": {
             "variant": "主角-风衣-v1",
             "position": "沙发边",
+            "pose": "坐在沙发边",
+            "gaze": "门口",
+            "orientation": "朝向客厅东侧",
+            "holding_hand": "right",
             "holding": [
               "信封"
             ]
@@ -25,12 +29,14 @@
       "shots": [
         {
           "id": "SH-001",
-          "changes": {}
+          "camera": {"screen_direction": "面向画面右侧"},
+          "changes": {"entities": {"主角": {"pose": "抬头看向门口"}}}
         },
         {
           "id": "SH-002",
           "changes": {
             "entities": {
+              "主角": {"pose": "站起"},
               "信封": {
                 "variant": "信封-已拆"
               }

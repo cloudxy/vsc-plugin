@@ -5,11 +5,79 @@
   "technical_report": "media-qa-001.json",
   "technical_report_sha256": "",
   "assessments": {
-    "story_and_motivation": {"result": "not_checked", "evidence": ""},
-    "physical_continuity": {"result": "not_checked", "evidence": ""},
-    "emotional_continuity": {"result": "not_checked", "evidence": ""},
-    "edit_coverage": {"result": "not_checked", "evidence": ""},
-    "dialogue_and_music": {"result": "not_checked", "evidence": ""}
+    "story_and_motivation": {
+      "result": "not_checked",
+      "evidence": [
+        {
+          "start_frame": 0,
+          "end_frame": null,
+          "segment_id": "",
+          "shot_id": "",
+          "note": ""
+        }
+      ]
+    },
+    "physical_continuity": {
+      "result": "not_checked",
+      "evidence": [
+        {
+          "start_frame": 0,
+          "end_frame": null,
+          "segment_id": "",
+          "shot_id": "",
+          "note": ""
+        }
+      ]
+    },
+    "emotional_continuity": {
+      "result": "not_checked",
+      "evidence": [
+        {
+          "start_frame": 0,
+          "end_frame": null,
+          "segment_id": "",
+          "shot_id": "",
+          "note": ""
+        }
+      ]
+    },
+    "edit_coverage": {
+      "result": "not_checked",
+      "evidence": [
+        {
+          "start_frame": 0,
+          "end_frame": null,
+          "segment_id": "",
+          "shot_id": "",
+          "note": ""
+        }
+      ]
+    },
+    "dialogue_and_music": {
+      "result": "not_checked",
+      "evidence": [
+        {
+          "start_frame": 0,
+          "end_frame": null,
+          "segment_id": "",
+          "shot_id": "",
+          "note": ""
+        }
+      ]
+    }
   },
-  "run": {"elapsed_seconds": null, "cost_amount": null, "currency": "CNY", "failures": []}
+  "run": {
+    "elapsed_seconds": null,
+    "cost_amount": null,
+    "currency": "CNY",
+    "failures": []
+  },
+  "evidence_mode": "structured",
+  "render_sha256": "",
+  "scope": {
+    "kind": "sample",
+    "start_frame": 0,
+    "end_frame": null,
+    "delivery_id": ""
+  }
 }

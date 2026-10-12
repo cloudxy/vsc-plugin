@@ -1,0 +1,53 @@
+{
+  "format": "vsc.selected-takes/v1",
+  "project_id": "replace-with-project-id",
+  "scope": "EP",
+  "items": [
+    {
+      "id": "SEL1",
+      "shot_id": "SH1",
+      "take_id": "TK1",
+      "output_id": "OUT1",
+      "scope": "EP",
+      "purpose": "visual",
+      "usage_rights": "owned",
+      "selected_by": "synthetic fixture",
+      "media": {
+        "path": "media/SH1.bin",
+        "sha256": "d2b20be219f3b5b647d87d2c2efb58e85dd67998812021c19e6faa4683476910"
+      },
+      "source": {
+        "kind": "manual",
+        "artifact": {
+          "id": "A8",
+          "sha256": "d2b20be219f3b5b647d87d2c2efb58e85dd67998812021c19e6faa4683476910"
+        },
+        "imported_by": "synthetic fixture",
+        "provenance": "Synthetic bytes; not production evidence"
+      }
+    },
+    {
+      "id": "SEL2",
+      "shot_id": "SH2",
+      "take_id": "TK2",
+      "output_id": "OUT2",
+      "scope": "EP",
+      "purpose": "visual",
+      "usage_rights": "owned",
+      "selected_by": "synthetic fixture",
+      "media": {
+        "path": "media/SH2.bin",
+        "sha256": "7b60a3b985aeaa34601b4a3796fa3b6e71ee466a0503731e8734060692d0ba67"
+      },
+      "source": {
+        "kind": "manual",
+        "artifact": {
+          "id": "A9",
+          "sha256": "7b60a3b985aeaa34601b4a3796fa3b6e71ee466a0503731e8734060692d0ba67"
+        },
+        "imported_by": "synthetic fixture",
+        "provenance": "Synthetic bytes; not production evidence"
+      }
+    }
+  ]
+}

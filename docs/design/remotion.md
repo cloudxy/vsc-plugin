@@ -62,3 +62,7 @@ python3 scripts/remotion_plan.py scaffold templates/remotion-render-plan.json /t
 - 片段是否相接仍由连续性计划决定；Remotion 不修复 AI 画面中人物、空间或动作的错位。
 - BGM、环境底和字幕必须沿用 VSC Cue Sheet/字幕时间码；不得因进入 Composition 而丢失使用权与版本信息。
 - Studio 的编辑是一个新的候选版本；负责人批准并回写 VSC 时间线后才进入交付。
+
+## v0.12.0 制作交接
+
+新项目使用固定 production-v2 Profile，旧项目保留历史规则。正式运行、共享预算、交接契约与迁移操作以 [v2 指南](../guide/production-v2.md) 为准；旧低层命令不再作为新项目的直接付费执行入口。

@@ -18,11 +18,13 @@ inspect 写 vsc.visual-check/v1；两者都放在输出旁边。视觉检查只�
 import argparse
 import base64
 import contextlib
+import contextvars
 import datetime
 import fcntl
 import hashlib
 import http.client
 import json
+import math
 import mimetypes
 import os
 import re
@@ -55,6 +57,7 @@ TRUSTED = {
     "doubao-seedance-2-0-mini-260615": "any",
 }
 SEQUENTIAL = ("doubao-seedream-5-0-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828")
+QUERY_DEADLINE = contextvars.ContextVar("ark_query_deadline", default=None)
 
 
 class ArkError(RuntimeError):
@@ -66,6 +69,10 @@ class ArkHTTPError(ArkError):
     def __init__(self, status_code, message):
         super().__init__(message)
         self.status_code = status_code
+
+
+class ArkPending(ArkError):
+    """本轮查询有界退出；远程任务仍可用同一编号续查。"""
 
 
 def now():
@@ -94,9 +101,15 @@ def call(path, payload=None, attempts=None):
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode()
     request = urllib.request.Request(BASE + path, data=data, headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
     attempts = 1 if payload is not None else (attempts or 6)
+    deadline = QUERY_DEADLINE.get() if payload is None else None
+    if deadline is not None:
+        attempts = 1
     for attempt in range(attempts):
+        timeout = 300 if deadline is None else min(300, deadline - time.monotonic())
+        if timeout <= 0:
+            raise ArkPending("本轮查询已达到 deadline；相同命令可续查原任务")
         try:
-            with urllib.request.urlopen(request, timeout=300) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace").replace(key, "[REDACTED]")
@@ -250,6 +263,38 @@ def anchors(args, shot):
     return consistency.pack_sha256(consistency.anchor_pack(bible, state, shot))
 
 
+def audio_anchors(args, shot):
+    if not (args.bible and args.state and shot):
+        return None
+    return consistency.pack_sha256(consistency.audio_pack(consistency.load(args.bible, consistency.BIBLE_FORMAT),
+                                                         consistency.load(args.state, consistency.STATE_FORMAT), shot))
+
+
+def typed_references(values, media, args):
+    """适配器保留真正的媒体角色与用途；资产库能确定实体时一并绑定。"""
+    bible = consistency.load(args.bible, consistency.BIBLE_FORMAT) if args.bible else {}
+    result = []
+    for url, item in values:
+        if not item:
+            result.append({"source_uri": url, "sha256": None, "media_type": media, "role": "reference_" + media,
+                           "purpose": {"image": "identity", "video": "action", "audio": "sound"}[media], "entity_id": None})
+            continue  # 不能伪造远程不透明输入的内容 SHA；下游会明确报告无法核对。
+        matches = []
+        for entity in bible.get("entities", []):
+            for ref in entity.get("references", []):
+                info = consistency.reference_info(ref)
+                if info["sha256"] == item["sha256"] and info["media_type"] == media:
+                    matches.append((entity["id"], info))
+            if media == "audio" and entity.get("sound", {}).get("sha256") == item["sha256"]:
+                matches.append((entity["id"], {"purpose": "sound"}))
+        purpose = matches[0][1]["purpose"] if matches and len({ref[1]["purpose"] for ref in matches}) == 1 else {
+            "image": "identity", "video": "action", "audio": "sound"}[media]
+        bound = {**item, "media_type": media, "role": "reference_" + media, "purpose": purpose,
+                 "entity_id": matches[0][0] if len({ref[0] for ref in matches}) == 1 else None}
+        result.append(bound)
+    return result
+
+
 def project_id(project):
     try:
         return json.loads((Path(project) / "vsc.json").read_text("utf-8"))["project_id"]
@@ -332,10 +377,28 @@ def generation_lock(out, name):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def request_binding(record, payload):
+def semantic_payload(payload, media_inputs):
+    """运输地址可过期；本地输入的语义固定为内容 SHA，媒体角色仍由原 content 保留。"""
+    normalized = json.loads(json.dumps(payload, ensure_ascii=False))
+    media_inputs = iter(media_inputs)
+    if "content" in normalized:
+        for entry in normalized["content"]:
+            for key in ("image_url", "video_url", "audio_url"):
+                if key in entry:
+                    _, item = next(media_inputs)
+                    if item:
+                        entry[key]["url"] = "sha256:" + item["sha256"]
+    elif normalized.get("image"):
+        normalized["image"] = ["sha256:" + item["sha256"] if item else url for url, item in media_inputs]
+    return normalized
+
+
+def request_binding(record, payload, semantic=None):
     binding = {"project_id": record["project_id"], "kind": record["kind"], "purpose": record["purpose"],
             "shot_id": record["shot_id"], "inputs": record["inputs"], "model": record["engine"]["model"],
             "params": record["engine"]["params"], "payload_sha256": digest_json(payload)}
+    if semantic is not None:
+        binding["semantic_payload_sha256"] = digest_json(semantic)
     return json.loads(json.dumps(binding, ensure_ascii=False))
 
 
@@ -355,17 +418,21 @@ def checked_outputs(record, project):
     return bool(record.get("outputs"))
 
 
-def generation_task(out, args, record, payload, targets):
+def generation_task(out, args, record, payload, targets, semantic=None):
     task_file, record_file = out / f"{args.name}-任务.json", out / f"{args.name}-生成记录.json"
     for path in [task_file, record_file, *targets]:
         if path.is_symlink():
             raise ArkError(f"生成输出不能是符号链接：{path.name}")
-    binding = request_binding(record, payload)
+    binding = request_binding(record, payload, semantic)
     if task_file.exists():
         task = json.loads(task_file.read_text("utf-8"))
         if not isinstance(task, dict):
             raise ArkError("任务文件无效，不能安全续接")
-        if task.get("binding") != binding:
+        saved_binding = task.get("binding")
+        same_semantics = (isinstance(saved_binding, dict) and saved_binding.get("semantic_payload_sha256")
+                          and {key: value for key, value in saved_binding.items() if key != "payload_sha256"}
+                          == {key: value for key, value in binding.items() if key != "payload_sha256"})
+        if saved_binding != binding and not same_semantics:
             # 老任务未保存请求，只有纯文生视频的完整记录可逐项反证其原始请求。
             legacy = task.get("binding") is None and record["kind"] == "video"
             old = json.loads(record_file.read_text("utf-8")) if legacy and record_file.is_file() else None
@@ -392,6 +459,8 @@ def generation_task(out, args, record, payload, targets):
         if record["kind"] == "video" and (not isinstance(task.get("id"), str) or not consistency.SAFE_ID.fullmatch(task["id"])):
             reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交状态未知，任务文件缺少有效远程编号"
             raise ArkError(reason + "；不能自动重提，请先人工核查平台任务与账单")
+        if task.get("credential_sha256") and task["credential_sha256"] != hashlib.sha256(api_key().encode()).hexdigest():
+            raise ArkError("当前凭证与原任务提交凭证不一致；请恢复原凭证后续查或下载，不能自动重提")
         return task_file, task
     if any(path.exists() for path in [record_file, *targets]):
         raise ArkError(f"同名输出或生成记录已存在：{args.name}；请使用新的 --name")
@@ -403,11 +472,12 @@ def submit_once(task_file, task, path, payload, out, args):
     if task_file.exists():
         reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交结果未知"
         raise ArkError(reason + "；不能自动重提，请先人工核查平台任务与账单")
-    api_key()  # 本地缺密钥不留下可能已提交的凭证。
+    key = api_key()  # 本地缺密钥不留下可能已提交的凭证。
+    check_budget_authorization(args, task["record"]["kind"])
     record = task["record"]
     record.update(finished_at=stamp(now()), errors=[],
                   budget={"billable": True, "usage": {"note": "提交意图已记录；结果未知，可能计费，须核对平台账单"}})
-    task.update(submission_state="intent", submitted_at=stamp(now()))
+    task.update(submission_state="intent", submitted_at=stamp(now()), credential_sha256=hashlib.sha256(key.encode()).hexdigest())
     write_json(task_file, task)
     write_record(out, args.name, record)
     try:
@@ -433,6 +503,23 @@ def submit_once(task_file, task, path, payload, out, args):
     # 原始响应先落盘，后续解析异常也不能丢失提交证据。
     write_json(task_file, task)
     return result
+
+
+def check_budget_authorization(args, operation):
+    """正式运行在付费 POST 前核对共享预算；查询／下载不重新预留。"""
+    try:
+        import vsc_budget
+    except ImportError:
+        state = json.loads((Path(args.project) / "vsc.json").read_text("utf-8"))
+        if state.get("profile_snapshot", {}).get("contract_policy") == "production-v2":
+            raise ArkError("正式运行缺少预算授权模块，不能提交付费请求") from None
+        return
+    try:
+        required = {"remote_jobs": 1, "images": 1} if operation == "image" else {"remote_jobs": 1, "video_seconds": args.duration}
+        vsc_budget.check_authorization(args.project, getattr(args, "budget_reservation", None),
+                                       f"{operation}:{args.out}/{args.name}", required, request=vars(args))
+    except (ValueError, RuntimeError) as exc:
+        raise ArkError(f"预算授权无效：{exc}") from None
 
 
 def remote_success(record, result):
@@ -491,7 +578,7 @@ def generate_image(args):
     refs = [resolve(value, args.project, sources) for value in args.ref]
     base = resolve(args.base_frame, args.project, sources) if args.base_frame else None
     images = ([base[0]] if base else []) + [url for url, _ in refs]
-    inputs = {"anchors_sha256": anchors(args, args.shot), "references": [item["sha256"] for _, item in refs if item], "prompt": prompt}
+    inputs = {"anchors_sha256": anchors(args, args.shot), "references": typed_references(refs, "image", args), "prompt": prompt}
     if args.moment:
         inputs["moment"] = args.moment
     if base:
@@ -502,7 +589,7 @@ def generate_image(args):
     payload = image_payload(args.model, prompt, args.size, images)
     target = out / f"{args.name}.{'png' if args.model.startswith('doubao-seedream-5') else 'jpeg'}"
     with generation_lock(out, args.name):
-        task_file, task = generation_task(out, args, record, payload, [target])
+        task_file, task = generation_task(out, args, record, payload, [target], semantic_payload(payload, ([base] if base else []) + refs))
         if "result" not in task:
             result = submit_once(task_file, task, "/images/generations", payload, out, args)
             if not isinstance(result, dict):
@@ -515,6 +602,8 @@ def generate_image(args):
         remote_success(record, result)
         record["engine"]["request_sha256"] = digest_json(task["binding"])
         record["engine"]["payload_sha256"] = task["binding"]["payload_sha256"]
+        if task["binding"].get("semantic_payload_sha256"):
+            record["engine"]["semantic_payload_sha256"] = task["binding"]["semantic_payload_sha256"]
         write_record(out, args.name, record)
         made = datetime.datetime.fromisoformat(task["generated_at"])
         try:
@@ -570,6 +659,7 @@ def frame_source(item, shot, state, project):
 
 
 def generate_video(args):
+    poll_limits(args)  # 无效本轮限制必须在提交前失败。
     out, prompt, sources = output_dir(args), prompt_of(args), originals(args.project)
     pick = lambda values: [resolve(value, args.project, sources) for value in values]  # noqa: E731
     first = resolve(args.first_frame, args.project, sources) if args.first_frame else None
@@ -585,8 +675,11 @@ def generate_video(args):
     payload = {"model": args.model, "content": content, **params}
     state = consistency.load(args.state, consistency.STATE_FORMAT) if args.state else None
     inputs = {"anchors_sha256": anchors(args, args.shot),
-              "references": [item["sha256"] for _, item in [*images, *videos, *audios] if item],
+              "references": [*typed_references(images, "image", args), *typed_references(videos, "video", args),
+                             *typed_references(audios, "audio", args)],
               "prompt": content[0]["text"]}
+    if not args.no_audio or audios:
+        inputs["audio_anchors_sha256"] = audio_anchors(args, args.shot)
     for key, value in (("first_frame", first or first_ref), ("last_frame", last)):
         if value and value[1]:
             inputs[key] = frame_source(value[1], args.shot, state, args.project) if key == "first_frame" else {**value[1], "from": "generated"}
@@ -604,7 +697,8 @@ def generate_video(args):
     frame = out / f"{args.name}-尾帧.jpeg"
     preflight_record(record)
     with generation_lock(out, args.name):
-        task_file, task = generation_task(out, args, record, payload, [video, frame])
+        media_inputs = ([first] if first else []) + ([last] if last else []) + ([first_ref] if first_ref else []) + images + videos + audios
+        task_file, task = generation_task(out, args, record, payload, [video, frame], semantic_payload(payload, media_inputs))
         if "completed_record" in task:
             return out / f"{args.name}-生成记录.json"
         if "id" not in task:
@@ -626,13 +720,7 @@ def generate_video(args):
             record = task["record"]
             print(f"{args.name} 续接任务 {task['id']}", flush=True)
         if "result" not in task:
-            while True:
-                result = call(f"/contents/generations/tasks/{task['id']}")
-                if result.get("status") in ("succeeded", "failed", "cancelled", "expired"):
-                    break
-                time.sleep(15)
-            task.update(result=result, generated_at=stamp(generated_at(result, now())))
-            write_json(task_file, task)
+            poll_task(task_file, task, out, args)
         result = task["result"]
         record.update(finished_at=stamp(now()), budget={"billable": result.get("status") == "succeeded", "usage": result.get("usage") or {"note": "平台未返回用量"}})
         if result.get("status") != "succeeded":
@@ -642,6 +730,8 @@ def generate_video(args):
         remote_success(record, result)
         record["engine"]["request_sha256"] = digest_json(task["binding"])
         record["engine"]["payload_sha256"] = task["binding"]["payload_sha256"]
+        if task["binding"].get("semantic_payload_sha256"):
+            record["engine"]["semantic_payload_sha256"] = task["binding"]["semantic_payload_sha256"]
         write_record(out, args.name, record)
         made = datetime.datetime.fromisoformat(task["generated_at"])
         common = {"source_url_expires_at": stamp(made + URL_TTL), "generated_at": stamp(made),
@@ -666,6 +756,58 @@ def generate_video(args):
         task["record"] = record
         write_json(task_file, task)
         return write_record(out, args.name, record)
+
+
+def poll_limits(args):
+    values = (getattr(args, "max_polls", 40), getattr(args, "deadline_seconds", 600), getattr(args, "poll_interval", 15))
+    if (isinstance(values[0], bool) or not isinstance(values[0], int) or values[0] < 1
+            or not consistency.number(values[1], 0, inclusive=False) or not consistency.number(values[2])
+            or not math.isfinite(values[1]) or not math.isfinite(values[2])):
+        raise ArkError("max-polls 必须为正整数，deadline-seconds 必须为正数，poll-interval 必须为非负数")
+    return values
+
+
+def poll_task(task_file, task, out, args):
+    """每轮有界查询同一个 task；等待、超时或中断均不允许再次 POST。"""
+    maximum, seconds, interval = poll_limits(args)
+    deadline = time.monotonic() + seconds
+    polling = task.setdefault("polling", {"polls_total": 0})
+    token = QUERY_DEADLINE.set(deadline)
+    reason = "达到 max-polls"
+    try:
+        for attempt in range(maximum):
+            if time.monotonic() >= deadline:
+                reason = "达到 deadline"
+                break
+            try:
+                result = call(f"/contents/generations/tasks/{task['id']}")
+            except ArkPending:
+                reason = "达到 deadline"
+                break
+            if not isinstance(result, dict):
+                raise ArkError("平台查询响应不是对象；保留原任务编号供续查")
+            polling.update(polls_total=polling.get("polls_total", 0) + 1, last_result=result, last_poll_at=stamp(now()), state="waiting")
+            task["record"]["engine"]["task_status"] = result.get("status")
+            if result.get("status") in ("succeeded", "failed", "cancelled", "expired"):
+                polling["state"] = "terminal"
+                task.update(result=result, generated_at=stamp(generated_at(result, now())))
+                write_json(task_file, task)
+                return result
+            write_json(task_file, task)
+            if attempt + 1 < maximum:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    reason = "达到 deadline"
+                    break
+                time.sleep(min(interval, remaining))
+    finally:
+        QUERY_DEADLINE.reset(token)
+    polling["state"] = "waiting"
+    record = task["record"]
+    record.update(finished_at=stamp(now()), errors=[{"stage": "poll", "error": f"本轮查询{reason}，远程任务仍待续查"}])
+    write_json(task_file, task)
+    write_record(out, args.name, record)
+    raise ArkPending(f"{args.name} 本轮查询{reason}；任务 {task['id']} 仍保留，相同命令可续查，不会重新提交")
 
 
 # ---------- 视觉检查 ----------
@@ -748,36 +890,167 @@ def frames_of(media, workdir):
     return picked
 
 
-def inspect(args):
-    bible = consistency.load(args.bible, consistency.BIBLE_FORMAT)
+def prepare_inspection(args):
+    """纯本地预检；批准与付费提交共用同一份固定输入绑定。"""
+    project = Path(args.project).resolve()
+    pid = project_id(project)
+    shot, entities = getattr(args, "shot", None), getattr(args, "entity", None)
+    moment = getattr(args, "moment", None)
+    if not getattr(args, "bible", None) or bool(shot) == bool(entities) or (shot and not getattr(args, "state", None)):
+        raise ArkError("inspect 需要 --bible，并选择 --shot/--state 或 --entity")
+    if moment not in (None, *consistency.MOMENTS) or (moment and not shot):
+        raise ArkError("inspect 的 --moment 只用于镜头的 entry 或 exit 检查")
+    model = getattr(args, "model", None)
+    if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}", model):
+        raise ArkError("inspect 需要有效的视觉模型 ID")
+    extra = getattr(args, "check", [])
+    if not isinstance(extra, list) or any(not consistency.text(item) for item in extra):
+        raise ArkError("视觉检查清单必须是非空文本条目")
+    if entities is not None and (not isinstance(entities, list) or any(not consistency.text(item) for item in entities)):
+        raise ArkError("视觉检查实体必须是非空 ID 数组")
+
+    def local(raw):
+        value = Path(raw)
+        # 作品内相对路径优先；保留旧 CLI 从工作区传入 Bible/状态路径的用法。
+        path = (project / value if not value.is_absolute() and (project / value).exists() else value).resolve()
+        if not path.is_file():
+            raise ArkError(f"视觉检查输入文件不存在：{raw}")
+        try:
+            name = str(path.relative_to(project))
+        except ValueError:
+            name = str(path)
+        return path, {"path": name, "sha256": sha256(path)}
+
+    def document(raw, expected):
+        path, ref = local(raw)
+        content = path.read_bytes()
+        ref["sha256"] = hashlib.sha256(content).hexdigest()
+        try:
+            data = json.loads(content)
+        except (ValueError, UnicodeError):
+            raise ArkError(f"视觉检查输入不是有效 JSON：{path.name}") from None
+        if not isinstance(data, dict) or data.get("format") != expected:
+            raise ArkError(f"视觉检查输入格式必须为 {expected}")
+        return data, ref
+
+    bible, bible_ref = document(args.bible, consistency.BIBLE_FORMAT)
     errors = consistency.bible_errors(bible)
-    if bible.get("project_id") != project_id(args.project):
+    if bible.get("project_id") != pid:
         errors.append("资产库与当前项目编号必须一致")
+    state, state_ref = None, None
+    if getattr(args, "state", None):
+        state, state_ref = document(args.state, consistency.STATE_FORMAT)
+        errors += consistency.state_errors(state, bible)
+        if state.get("project_id") != pid:
+            errors.append("场景状态与当前项目编号必须一致")
     if errors:
         raise ArkError("视觉检查输入无效：" + "；".join(errors))
-    if args.shot:
-        anchors(args, args.shot)
-        pack = consistency.anchor_pack(bible, consistency.load(args.state, consistency.STATE_FORMAT), args.shot)
-        items = checklist(pack, args.moment) + list(args.check)
+    if shot:
+        try:
+            pack = consistency.anchor_pack(bible, state, shot)
+        except (KeyError, ValueError) as exc:
+            raise ArkError(f"视觉检查镜头无效：{exc}") from None
+        items = checklist(pack, moment) + extra
     else:
-        pack, items = None, entity_checklist(bible, args.entity) + list(args.check)
+        pack, items = None, entity_checklist(bible, entities) + extra
     items = list(dict.fromkeys(items))
-    media = Path(args.media).resolve()
+    media, media_ref = local(args.media)
     try:
-        relative = str(media.relative_to(Path(args.project).resolve()))
+        media.relative_to(project)
     except ValueError:
         raise ArkError("inspect 素材必须位于项目内") from None
-    subject_sha256 = sha256(media)
     if not media_type(media).startswith(("image/", "video/")):
         raise ArkError("inspect 只接受图像或视频")
-    pid = project_id(args.project)
-    with tempfile.TemporaryDirectory() as workdir:
-        content = []
-        for label, path in frames_of(media, workdir):
-            content.append({"type": "text", "text": label})
-            content.append({"type": "image_url", "image_url": {"url": f"data:{media_type(path)};base64,{base64.b64encode(path.read_bytes()).decode()}"}})
-        content.append({"type": "text", "text": vision_prompt(items)})
-        result = call("/chat/completions", {"model": args.model, "messages": [{"role": "user", "content": content}]}, attempts=1)
+    inputs = {"bible": bible_ref, "media": media_ref}
+    if state_ref:
+        inputs["state"] = state_ref
+    if pack:
+        inputs["anchors_sha256"] = consistency.pack_sha256(pack)
+    binding = {"project_id": pid, "kind": "inspect", "provider": PROVIDER, "model": model,
+               "shot_id": shot, "moment": moment, "entities": entities or None, "checklist": items, "inputs": inputs}
+    return binding, items, pack, media
+
+
+def inspect(args):
+    binding, items, pack, media = prepare_inspection(args)
+    binding_sha256 = digest_json(binding)
+    target = media.with_name(f"{media.stem}-视觉检查.json")
+    attempt_file = media.with_name(f"{media.stem}-视觉检查-{binding_sha256}-尝试.json")
+    reservation = getattr(args, "budget_reservation", None)
+    with generation_lock(media.parent, media.stem + "-视觉检查"):
+        for path in (target, attempt_file):
+            if path.is_symlink():
+                raise ArkError("视觉检查报告与尝试凭据不能是符号链接")
+        if target.exists():
+            try:
+                old = json.loads(target.read_text("utf-8"))
+            except ValueError:
+                old = None
+            if not isinstance(old, dict) or old.get("binding_sha256") != binding_sha256:
+                target = media.with_name(f"{media.stem}-视觉检查-{binding_sha256}.json")
+        if target.is_symlink():
+            raise ArkError("视觉检查报告不能是符号链接")
+        attempt = json.loads(attempt_file.read_text("utf-8")) if attempt_file.exists() else None
+        if attempt is not None and (not isinstance(attempt, dict) or attempt.get("binding") != binding
+                                    or attempt.get("binding_sha256") != binding_sha256):
+            raise ArkError("视觉检查尝试凭据与当前输入不符，不能安全续接")
+        if target.exists():
+            report = json.loads(target.read_text("utf-8"))
+            if (not isinstance(report, dict) or report.get("binding") != binding or report.get("binding_sha256") != binding_sha256
+                    or consistency.visual_errors(report) or report.get("checklist") != items
+                    or report.get("subject") != binding["inputs"]["media"]
+                    or report.get("engine") != {"provider": PROVIDER, "model": binding["model"]}
+                    or any(report.get(key) != binding[key] for key in ("project_id", "shot_id", "moment", "entities"))
+                    or report.get("anchors_sha256") != binding["inputs"].get("anchors_sha256")
+                    or (attempt and (report.get("budget_reservation") != attempt.get("budget_reservation")
+                                     or (attempt.get("report_sha256") and attempt["report_sha256"] != sha256(target))))):
+                raise ArkError("已有视觉检查报告不能通过原始绑定核验，拒绝重新付费或覆盖")
+            return target
+        if attempt is not None:
+            if attempt.get("submission_state") != "responded" or "response" not in attempt:
+                raise ArkError("视觉检查提交结果未知或已拒绝；不能自动重提，请先人工核查平台任务与账单")
+            result = attempt["response"]
+        else:
+            # 即使换了输入，也不能把一个已经提交过的预留再次用于 POST。
+            if reservation:
+                for saved in Path(args.project).resolve().rglob("*-视觉检查-*-尝试.json"):
+                    value = json.loads(saved.read_text("utf-8"))
+                    if isinstance(value, dict) and value.get("budget_reservation") == reservation:
+                        raise ArkError("该预算预留已有视觉检查提交凭据，不能重复提交")
+            with tempfile.TemporaryDirectory() as workdir:
+                content = []
+                for label, path in frames_of(media, workdir):
+                    content.append({"type": "text", "text": label})
+                    content.append({"type": "image_url", "image_url": {"url": f"data:{media_type(path)};base64,{base64.b64encode(path.read_bytes()).decode()}"}})
+                content.append({"type": "text", "text": vision_prompt(items)})
+                if prepare_inspection(args)[0] != binding:
+                    raise ArkError("视觉检查输入在预检后已改变，不能提交")
+                key = api_key()  # 本地缺凭证不写可能已付费的提交意图。
+                try:
+                    import vsc_budget
+                    vsc_budget.check_authorization(args.project, reservation, "inspect:" + binding["inputs"]["media"]["path"],
+                                                   {"remote_jobs": 1, "vision_jobs": 1}, request=binding)
+                except (ImportError, ValueError, RuntimeError) as exc:
+                    raise ArkError(f"预算授权无效：{exc}") from None
+                attempt = {"format": "vsc.ark-inspection-attempt/v1", "binding": binding, "binding_sha256": binding_sha256,
+                           "budget_reservation": reservation, "credential_sha256": hashlib.sha256(key.encode()).hexdigest(),
+                           "submission_state": "intent", "submitted_at": stamp(now())}
+                write_json(attempt_file, attempt)
+                try:
+                    result = call("/chat/completions", {"model": binding["model"], "messages": [{"role": "user", "content": content}]}, attempts=1)
+                except BaseException as exc:
+                    rejected = isinstance(exc, ArkHTTPError) and 400 <= exc.status_code < 500
+                    attempt.update(submission_state="rejected" if rejected else "unknown",
+                                   error=(str(exc) or type(exc).__name__).replace(key, "[REDACTED]"))
+                    write_json(attempt_file, attempt)
+                    raise
+                attempt.update(submission_state="responded", response=result)
+                write_json(attempt_file, attempt)
+        return _inspection_report(args, binding, items, pack, media, target, attempt_file, attempt, result)
+
+
+def _inspection_report(args, binding, items, pack, media, target, attempt_file, attempt, result):
+    """已付费响应只在本地解析；解析失败也保留原响应，禁止重付费。"""
     try:
         answer = parse_json(result["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError, ValueError) as exc:
@@ -788,25 +1061,27 @@ def inspect(args):
     if (not isinstance(results, list) or any(not isinstance(item, dict) or not consistency.text(item.get("item")) or not consistency.text(item.get("evidence")) for item in results)
             or len(results) != len(items) or sorted(item.get("item", "") for item in results) != sorted(items)):
         raise ArkError("视觉检查必须逐项返回原始 checklist，且每项恰好一次并提供非空 evidence")
-    if sha256(media) != subject_sha256:
-        raise ArkError("检查期间素材已改变，不能把视觉结果绑定到新文件")
-    report = {"format": consistency.VISUAL_FORMAT, "project_id": pid, "shot_id": args.shot, "moment": args.moment,
-              "subject": {"path": relative, "sha256": subject_sha256},
-              "anchors_sha256": consistency.pack_sha256(pack) if pack else None, "entities": args.entity or None,
-              "engine": {"provider": PROVIDER, "model": args.model},
+    if prepare_inspection(args)[0] != binding:
+        raise ArkError("检查期间输入已改变，不能把视觉结果绑定到新文件")
+    report = {"format": consistency.VISUAL_FORMAT, "project_id": binding["project_id"], "shot_id": binding["shot_id"], "moment": binding["moment"],
+              "subject": binding["inputs"]["media"],
+              "anchors_sha256": consistency.pack_sha256(pack) if pack else None, "entities": binding["entities"],
+              "engine": {"provider": PROVIDER, "model": binding["model"]},
+              "binding": binding, "binding_sha256": digest_json(binding), "budget_reservation": attempt.get("budget_reservation"),
               "created_at": stamp(now()), "advisory": True, "usage": result.get("usage"),
               "checklist": items, "results": results, "people": answer.get("people"), "issues": answer.get("issues", [])}
     errors = consistency.visual_errors(report)
     if errors:
         raise ArkError("视觉检查结果无效：" + "；".join(errors))
-    target = media.with_name(f"{media.stem}-视觉检查.json")
-    target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    write_json(target, report)
+    attempt["report_sha256"] = sha256(target)
+    write_json(attempt_file, attempt)
     return target
 
 
 # ---------- 命令行 ----------
 
-def main(argv=None):
+def parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     common = argparse.ArgumentParser(add_help=False)
@@ -818,6 +1093,7 @@ def main(argv=None):
     made.add_argument("--name", required=True)
     made.add_argument("--prompt")
     made.add_argument("--prompt-file")
+    made.add_argument("--budget-reservation", help="正式付费提交使用的共享预算预留 ID")
 
     image = sub.add_parser("image", parents=[made], help="Seedream 生成资产图或关键帧")
     image.add_argument("--ref", action="append", default=[])
@@ -844,6 +1120,9 @@ def main(argv=None):
     video.add_argument("--no-audio", action="store_true")
     video.add_argument("--draft", action="store_true", help="Seedance 2.5 样片模式（仅 480p，可在 7 天内升级为 1080p）")
     video.add_argument("--dry-run", action="store_true", help="只打印请求与记录输入，不提交")
+    video.add_argument("--max-polls", type=int, default=40, help="本轮最多查询次数，续查沿用原 task")
+    video.add_argument("--deadline-seconds", type=float, default=600, help="本轮查询时间上限（秒）")
+    video.add_argument("--poll-interval", type=float, default=15, help="查询间隔（秒）")
 
     check = sub.add_parser("inspect", parents=[common], help="用豆包视觉模型按锚点包核对画面")
     check.add_argument("--media", required=True)
@@ -853,8 +1132,13 @@ def main(argv=None):
     check.add_argument("--moment", choices=consistency.MOMENTS)
     check.add_argument("--check", action="append", default=[], help="额外核对条目")
     check.add_argument("--model", default=VISION_MODEL)
+    check.add_argument("--budget-reservation", help="正式视觉检查使用的共享预算预留 ID")
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
     try:
         if args.command == "image":
             path = generate_image(args)
@@ -863,8 +1147,6 @@ def main(argv=None):
                 print("提醒：未给 --bible/--state，生成记录不会绑定锚点包", file=sys.stderr)
             path = generate_video(args)
         else:
-            if not args.bible or (args.shot and not args.state):
-                raise ArkError("inspect 需要 --bible；核对镜头时还需要 --state")
             path = inspect(args)
     except (ArkError, ValueError, OSError, subprocess.CalledProcessError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

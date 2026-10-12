@@ -13,6 +13,7 @@
 """
 import argparse
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -27,8 +28,7 @@ PILLOW = "pillow==11.3.0"
 FONT_SOURCE = "noto-sans-sc"
 DEFAULT_FONT = VENDOR / FONT_SOURCE / "Sans" / "SubsetOTF" / "SC" / "NotoSansSC-Bold.otf"
 POSITIONS = consistency.POSITIONS
-DEFAULT_STYLE = {"font": None, "font_size": 60, "color": "#FFFFFF", "stroke_color": "#000000", "stroke_width": 1.5,
-                 "position": "bottom", "custom_position": 70.0, "background": None, "rounded": False}
+DEFAULT_STYLE = subtitles.DEFAULT_STYLE
 
 
 class BurnError(RuntimeError):
@@ -37,42 +37,38 @@ class BurnError(RuntimeError):
 
 def resolve_style(bible_path=None, overrides=None):
     """默认值 ← 资产库 subtitle_style ← 显式参数；返回 (样式, 来源)。"""
-    style, source = dict(DEFAULT_STYLE), "default"
-    if bible_path:
-        try:
-            bible = consistency.load(bible_path, consistency.BIBLE_FORMAT)
-        except ValueError as exc:
-            raise BurnError(str(exc)) from exc
-        problems = consistency.bible_errors(bible)
-        if problems:
-            raise BurnError("资产库无效：" + "；".join(problems))
-        if bible.get("subtitle_style"):
-            style.update(bible["subtitle_style"])
-            if style.get("font") and not Path(style["font"]).is_absolute():
-                style["font"] = str(ROOT / style["font"])
-            source = "bible"
-    explicit = {key: value for key, value in (overrides or {}).items() if value is not None}
-    if explicit:
-        style.update(explicit)
-        source = f"{source}+args"
-    return style, source
+    try:
+        return subtitles.resolve_style(bible_path, overrides)
+    except ValueError as exc:
+        raise BurnError(str(exc)) from exc
+
+
+def probe_video(video):
+    result = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", str(video)],
+                            capture_output=True, text=True, timeout=60)
+    metadata = json.loads(result.stdout or "{}") if result.returncode == 0 else {}
+    streams = metadata.get("streams")
+    if not streams:
+        raise BurnError(f"无法读取视频画幅：{video}")
+    try:
+        duration = float(streams[0].get("duration") or metadata.get("format", {}).get("duration"))
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError("invalid duration")
+    except (TypeError, ValueError) as exc:
+        raise BurnError("无法确认视频时长，字幕交付未验证") from exc
+    return streams[0]["width"], streams[0]["height"], duration
 
 
 def probe_size(video):
-    result = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", str(video)],
-                            capture_output=True, text=True, timeout=60)
-    streams = json.loads(result.stdout or "{}").get("streams") if result.returncode == 0 else None
-    if not streams:
-        raise BurnError(f"无法读取视频画幅：{video}")
-    return streams[0]["width"], streams[0]["height"]
+    return probe_video(video)[:2]
 
 
 def placement(position, custom, video_height, image_height):
     """与 MoneyPrinterTurbo 一致：底部留 5%，顶部留 5%，custom 为距顶部的百分比。"""
     if position == "bottom":
-        return video_height * 0.95 - image_height
+        return video_height * (1 - subtitles.SAFE_MARGIN) - image_height
     if position == "top":
-        return video_height * 0.05
+        return video_height * subtitles.SAFE_MARGIN
     if position == "custom":
         return (video_height - image_height) * custom / 100
     return (video_height - image_height) / 2
@@ -142,13 +138,18 @@ def burn(video, srt, output, style, run=subprocess.run):
             raise BurnError(problem)
     if not font.is_file():
         raise BurnError(f"字体不存在：{font}")
-    cues = [{"start": begin, "end": end, "text": text} for begin, end, text in subtitles.parse_srt(srt.read_text("utf-8-sig"))]
+    width, height, duration = probe_video(video)
+    try:
+        entries = subtitles.parse_srt(srt.read_text("utf-8-sig"), strict=True, duration=duration)
+        subtitles.resolve_style(overrides=style)
+    except ValueError as exc:
+        raise BurnError(str(exc)) from exc
+    cues = [{"start": begin, "end": end, "text": text} for begin, end, text in entries]
     if not cues:
         raise BurnError(f"SRT 没有有效字幕：{srt}")
     uv = shutil.which("uv")
     if not uv:
         raise BurnError("需要 uv：https://docs.astral.sh/uv/")
-    width, height = probe_size(video)
     with tempfile.TemporaryDirectory() as temp:
         job_path = Path(temp) / "job.json"
         job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)}}

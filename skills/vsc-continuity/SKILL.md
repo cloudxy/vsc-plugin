@@ -27,3 +27,9 @@ python3 scripts/vsc_kernel.py contract validate vsc.continuity-plan/v1 ./05-预�
 ```
 
 结构通过不代表画面已通过。必须人工核对：人物身份、服装/道具、左右方向、动作接点、镜头运动、空间地理、天气/光色、帧率/画幅、环境底与对白进出；失败应退回角色资产、场景资产、ShotPlan 或生成 take 的最早根因。
+
+## 制作交接 v2
+
+连续性消费 selected-takes 的明确映射和正式 bridge 策略。仅 match_frame 校验相同像素；多候选没有选择时报告歧义。姿态、朝向、视线、持物手与声音锚点分别追踪。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

@@ -5,17 +5,21 @@ The scaffold contains VSC-authored glue only. It references media that the user 
 it never copies Remotion source code or installs npm dependencies.
 """
 import argparse
+import hashlib
 import json
 import math
 import re
+import shutil
 import sys
 from pathlib import Path
+import subtitles
 
 FORMAT = "vsc.remotion-render-plan/v1"
 COMPOSITION_ID = re.compile(r"[A-Za-z0-9-]+\Z")
 SEGMENT_ID = re.compile(r"[A-Za-z0-9_.-]+\Z")
 KINDS = {"video", "image", "audio", "caption", "text"}
 REMOTION_VERSION = "4.0.532"
+TIMELINE_FORMAT = "vsc.timeline/v1"
 
 
 def load_plan(path):
@@ -29,6 +33,11 @@ def load_plan(path):
 
 def text(value):
     return isinstance(value, str) and bool(value.strip())
+
+
+def render_plan(document):
+    """Read the embedded plan without discarding the outer timeline as provenance."""
+    return document.get("render_plan") if isinstance(document, dict) and document.get("format") == TIMELINE_FORMAT else document
 
 
 def nonnegative_int(value):
@@ -54,6 +63,7 @@ def unit_interval(value):
 
 
 def validate(plan):
+    plan = render_plan(plan)
     errors = []
     if not isinstance(plan, dict):
         return ["计划必须是 object"]
@@ -61,6 +71,13 @@ def validate(plan):
         errors.append(f"format 必须为 {FORMAT}")
     if not text(plan.get("project_id")):
         errors.append("project_id 必须是非空字符串")
+    if "subtitle_style" in plan:
+        try:
+            if not isinstance(plan["subtitle_style"], dict):
+                raise ValueError("subtitle_style 必须是 object")
+            subtitles.resolve_style(overrides=plan["subtitle_style"])
+        except ValueError as exc:
+            errors.append(str(exc))
     composition = plan.get("composition")
     if not isinstance(composition, dict):
         return errors + ["composition 必须是 object"]
@@ -195,6 +212,17 @@ export type RenderPlan = {
   format: string; project_id: string;
   composition: {id: string; width: number; height: number; fps: Fps; duration_in_frames: number};
   segments: Segment[];
+  subtitle_style?: SubtitleStyle;
+};
+export type SubtitleStyle = {
+  font: string | null; font_size: number; color: string; stroke_color: string; stroke_width: number;
+  position: 'bottom' | 'top' | 'center' | 'custom'; custom_position: number; background: string | null; rounded: boolean;
+};
+export const captionPlacement = (style: SubtitleStyle, margin: number) => {
+  if (style.position === 'bottom') return {bottom: `${margin * 100}%`};
+  if (style.position === 'top') return {top: `${margin * 100}%`};
+  const percent = style.position === 'custom' ? style.custom_position : 50;
+  return {top: `${percent}%`, transform: `translateY(-${percent}%)`};
 };
 export const toFps = (fps: Fps): number => typeof fps === 'number' ? fps : fps.numerator / fps.denominator;
 const clamp = (x: number): number => Math.max(0, Math.min(1, x));
@@ -223,19 +251,50 @@ export const volumeAtFrame = (segment: Segment, frame: number): number => {
 };
 """
 
-VIDEO_TSX = """import {AbsoluteFill, Img, Sequence, staticFile, useCurrentFrame} from 'remotion';
+VIDEO_TSX = """import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {AbsoluteFill, Img, Sequence, staticFile, useCurrentFrame, delayRender, continueRender, cancelRender} from 'remotion';
 import {Audio, Video} from '@remotion/media';
 import {plan as defaultPlan} from './plan';
-import {fadeGain, toFps, volumeAtFrame} from './timing';
-import type {RenderPlan, Segment} from './timing';
+import {captionPlacement, fadeGain, toFps, volumeAtFrame} from './timing';
+import type {RenderPlan, Segment, SubtitleStyle} from './timing';
 
 const mediaStyle: React.CSSProperties = {width: '100%', height: '100%', objectFit: 'cover'};
 
-const TextLayer: React.FC<{text: string}> = ({text}) => (
-  <AbsoluteFill style={{alignItems: 'center', justifyContent: 'flex-end', padding: 72, color: 'white', fontSize: 42, fontWeight: 700, textAlign: 'center', textShadow: '0 2px 8px black'}}>
-    <div>{text}</div>
-  </AbsoluteFill>
-);
+const safeMargin = __SAFE_MARGIN__;
+const TextLayer: React.FC<{text: string; style: SubtitleStyle; height: number}> = ({text, style, height}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (ref.current && ref.current.getBoundingClientRect().height > height * (1 - 2 * safeMargin)) {
+      cancelRender(new Error('Subtitle exceeds safe area; shorten text or change approved style'));
+    }
+  }, [text, height, style]);
+  return <AbsoluteFill>
+    <div ref={ref} style={{position: 'absolute', left: `${safeMargin * 100}%`, width: `${(1 - 2 * safeMargin) * 100}%`,
+      ...captionPlacement(style, safeMargin), color: style.color, fontSize: style.font_size,
+      fontFamily: style.font ? 'VSCSubtitle' : 'sans-serif', fontWeight: 700, textAlign: 'center',
+      whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', boxSizing: 'border-box', lineHeight: 1.25,
+      WebkitTextStroke: `${style.stroke_width}px ${style.stroke_color}`, paintOrder: 'stroke fill',
+      backgroundColor: style.background ? `${style.background}${style.rounded ? '8c' : ''}` : undefined,
+      borderRadius: style.rounded ? style.font_size * 0.4 : 0,
+      padding: style.background ? `${style.font_size * 0.35}px ${style.font_size * 0.6}px` : 0}}>{text}</div>
+  </AbsoluteFill>;
+};
+
+const useSubtitleFont = (font: string | null) => {
+  const [handle] = useState(() => delayRender('Loading bound subtitle font'));
+  const [ready, setReady] = useState(!font);
+  useLayoutEffect(() => {if (ready) continueRender(handle);}, [ready, handle]);
+  useEffect(() => {
+    if (!font) {setReady(true); return;}
+    let cancelled = false;
+    const face = new FontFace('VSCSubtitle', `url("${staticFile(font)}")`);
+    face.load().then((loaded) => {
+      if (!cancelled) {document.fonts.add(loaded); setReady(true);}
+    }).catch((error) => {if (!cancelled) cancelRender(error);});
+    return () => {cancelled = true;};
+  }, [font, handle]);
+  return ready;
+};
 
 const Visual: React.FC<{segment: Segment}> = ({segment}) => {
   const frame = useCurrentFrame();
@@ -251,17 +310,19 @@ const Sound: React.FC<{segment: Segment}> = ({segment}) => {
   return <Audio src={staticFile(segment.source!)} trimBefore={segment.source_in_frame ?? 0} durationInFrames={segment.duration_in_frames} volume={volumeAtFrame(segment, frame)} muted={segment.muted ?? false} />;
 };
 
-export const ShortDrama: React.FC<{plan?: RenderPlan}> = ({plan = defaultPlan}) => (
-  <AbsoluteFill style={{backgroundColor: 'black'}}>
+export const ShortDrama: React.FC<{plan?: RenderPlan}> = ({plan = defaultPlan}) => {
+  const subtitleStyle = plan.subtitle_style ?? defaultPlan.subtitle_style!;
+  const fontReady = useSubtitleFont(subtitleStyle.font);
+  return <AbsoluteFill style={{backgroundColor: 'black'}}>
     {plan.segments.map((segment) => (
       <Sequence key={segment.id} name={segment.id} from={segment.from_frame} durationInFrames={segment.duration_in_frames} premountFor={Math.ceil(toFps(plan.composition.fps))}>
         {segment.kind === 'video' || segment.kind === 'image' ? <Visual segment={segment} /> : null}
         {segment.kind === 'audio' ? <Sound segment={segment} /> : null}
-        {segment.kind === 'caption' || segment.kind === 'text' ? <TextLayer text={segment.text!} /> : null}
+        {fontReady && (segment.kind === 'caption' || segment.kind === 'text') ? <TextLayer text={segment.text!} style={subtitleStyle} height={plan.composition.height} /> : null}
       </Sequence>
     ))}
-  </AbsoluteFill>
-);
+  </AbsoluteFill>;
+};
 """
 
 INDEX_TS = """import {registerRoot} from 'remotion';
@@ -271,13 +332,61 @@ registerRoot(Root);
 """
 
 
-def scaffold(plan, destination):
+def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles=False):
+    errors = validate(document)
+    if errors:
+        raise ValueError("；".join(errors))
+    plan = json.loads(json.dumps(render_plan(document)))
+    bible_bytes = Path(bible).read_bytes() if bible else None
+    style, style_source = subtitles.resolve_style(bible, plan.get("subtitle_style"))
+    if bible and Path(bible).read_bytes() != bible_bytes:
+        raise ValueError("资产库在字幕样式解析过程中变更，请重试")
+    source_bytes = (json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    if plan_path is not None:
+        source_bytes = Path(plan_path).read_bytes()
+        if json.loads(source_bytes) != document:
+            raise ValueError("源时间线在脚手架准备过程中变更，请重试")
+    source_sha = hashlib.sha256(source_bytes).hexdigest()
+    font_path, font_record, warnings = None, None, ["浏览器、Pillow 与剪映的字体排版并非逐像素等同；横竖版字幕和主体安全区仍须真实回看"]
+    if style.get("font"):
+        font_path = Path(style["font"])
+        if not font_path.is_absolute():
+            font_path = (Path(plan_path).resolve().parent if plan_path else Path.cwd()) / font_path
+        if not font_path.is_file():
+            raise ValueError(f"字幕字体不存在：{font_path}")
+    else:
+        from vendor_sync import VENDOR
+        default_font = VENDOR / "noto-sans-sc/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf"
+        if default_font.is_file():
+            font_path = default_font
+        elif strict_subtitles and any(s["kind"] in {"caption", "text"} for s in plan["segments"]):
+            raise ValueError("严格字幕交付需要可打包并绑定 SHA 的字体文件")
+        else:
+            warnings.append("未找到可打包的字幕字体，使用系统 sans-serif；字体不可复现，须配置字体后才能作为严格字幕交付依据")
+    if font_path:
+        font_sha = hashlib.sha256(font_path.read_bytes()).hexdigest()
+        relative = f"fonts/vsc-{font_sha[:16]}{font_path.suffix.lower()}"
+        style["font"] = relative
+        font_record = {"path": "public/" + relative, "sha256": font_sha, "source_filename": font_path.name}
+    plan["subtitle_style"] = style
     destination = Path(destination)
     if destination.exists() and any(destination.iterdir()):
         raise ValueError(f"拒绝覆盖非空目录：{destination}")
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "src").mkdir(exist_ok=True)
     (destination / "public").mkdir(exist_ok=True)
+    if font_record:
+        target = destination / font_record["path"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(font_path, target)
+        if hashlib.sha256(target.read_bytes()).hexdigest() != font_record["sha256"]:
+            raise ValueError("字体在复制过程中变更，请重新生成脚手架")
+    (destination / "vsc-source-plan.json").write_bytes(source_bytes)
+    manifest = {"format": "vsc.remotion-scaffold/v1", "source_plan": {"path": "vsc-source-plan.json", "sha256": source_sha, "format": document.get("format")},
+                "subtitle_style": {"source": style_source, "resolved": style, "bible_sha256": hashlib.sha256(bible_bytes).hexdigest() if bible_bytes is not None else None,
+                                   "font": font_record, "safe_margin_ratio": subtitles.SAFE_MARGIN}, "warnings": warnings,
+                "verification": {"scaffold": "generated", "typecheck": "not_run", "render": "not_run", "human_review": "not_run"}}
+    (destination / "vsc-scaffold.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", "utf-8")
     safe_project = re.sub(r"[^a-z0-9-]+", "-", plan["project_id"].lower()).strip("-") or "project"
     package = {
         "name": f"vsc-{safe_project}-remotion",
@@ -290,12 +399,13 @@ def scaffold(plan, destination):
     (destination / "package.json").write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n", "utf-8")
     (destination / "src" / "index.ts").write_text(INDEX_TS, "utf-8")
     (destination / "src" / "Root.tsx").write_text(ROOT_TSX, "utf-8")
-    (destination / "src" / "ShortDrama.tsx").write_text(VIDEO_TSX, "utf-8")
+    (destination / "src" / "ShortDrama.tsx").write_text(VIDEO_TSX.replace("__SAFE_MARGIN__", str(subtitles.SAFE_MARGIN)), "utf-8")
     (destination / "src" / "plan.ts").write_text(plan_module(plan), "utf-8")
     (destination / "src" / "timing.ts").write_text(TIMING_TS, "utf-8")
     (destination / "tsconfig.json").write_text(json.dumps({"compilerOptions": {"target": "ES2022", "lib": ["DOM", "ES2022"], "jsx": "react-jsx", "module": "ESNext", "moduleResolution": "Bundler", "strict": True, "skipLibCheck": True, "noEmit": True}, "include": ["src"]}, indent=2) + "\n", "utf-8")
     (destination / "public" / "README.md").write_text("将计划中 source 指向的媒体按相同相对路径放入此目录。例如 takes/SH-001.mp4 对应 public/takes/SH-001.mp4。\n", "utf-8")
-    (destination / "README.md").write_text("# VSC Remotion 项目\n\n1. 将选定 take、音频和其他素材放到 `public/`。\n2. `npm install`\n3. `npm run typecheck`，再 `npm run studio` 预览并由负责人确认。\n4. `npm run render -- <composition-id> out/final.mp4` 导出。\n\n计划字段的语义见 VSC 仓库 docs/design/remotion.md 的「帧级字段」。\n\n脚手架生成不代表已安装、通过类型检查、成功渲染或人工审片。此项目由 VSC 计划生成；上游 Remotion Skill 在 vendor/remotion 中单独保留。\n", "utf-8")
+    (destination / "README.md").write_text("# VSC Remotion 项目\n\n1. 将选定 take、音频和其他素材放到 `public/`。\n2. `npm install`\n3. `npm run typecheck`，再 `npm run studio` 预览并由负责人确认。\n4. `npm run render -- <composition-id> out/final.mp4` 导出。\n\n`vsc-source-plan.json` 保留原始时间线，`vsc-scaffold.json` 绑定外层 SHA、共享字幕样式、已打包字体与安全区。字体加载失败或字幕高于安全区会阻断渲染；横竖版排版仍须分别回看。\n\n计划字段的语义见 VSC 仓库 docs/design/remotion.md 的「帧级字段」。\n\n脚手架生成不代表已安装、通过类型检查、成功渲染或人工审片。此项目由 VSC 计划生成；上游 Remotion Skill 在 vendor/remotion 中单独保留。\n" + "".join("\n警告：" + warning + "\n" for warning in warnings), "utf-8")
+    return manifest
 
 
 def main():
@@ -306,6 +416,8 @@ def main():
     scaffold_parser = command.add_parser("scaffold", help="生成本地可编辑 Remotion 项目，不安装依赖")
     scaffold_parser.add_argument("plan")
     scaffold_parser.add_argument("output")
+    scaffold_parser.add_argument("--bible", help="与烧录器/剪映共用的资产库 subtitle_style")
+    scaffold_parser.add_argument("--strict-subtitles", action="store_true", help="字幕字体必须能够打包并绑定 SHA")
     args = parser.parse_args()
     try:
         plan = load_plan(args.plan)
@@ -315,11 +427,12 @@ def main():
                 print(f"INVALID: {error}", file=sys.stderr)
             raise SystemExit(1)
         if args.command == "validate":
-            print(f"VALID: {plan['composition']['id']}  {len(plan['segments'])} segments")
+            actual = render_plan(plan)
+            print(f"VALID: {actual['composition']['id']}  {len(actual['segments'])} segments")
             return
-        scaffold(plan, args.output)
+        scaffold(plan, args.output, plan_path=args.plan, bible=args.bible, strict_subtitles=args.strict_subtitles)
         print(f"SCAFFOLDED: {Path(args.output)}")
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         die(str(exc))
 
 

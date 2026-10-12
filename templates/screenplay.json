@@ -1,0 +1,44 @@
+{
+  "format": "vsc.screenplay/v1",
+  "project_id": "replace-with-project-id",
+  "scope": "EP",
+  "body": "请替换为正式剧本正文；本模板的场次与单元仅说明结构。",
+  "adaptation_refs": [
+    {
+      "id": "A1",
+      "sha256": "d76b0915256bc2264f7da720a3f2f4d33f19f32b3175c6b182e861444fab8fdc"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "SC1",
+      "estimated_duration_ms": 1000,
+      "actions": [
+        {
+          "id": "A1",
+          "text": "Synthetic action",
+          "narrative_refs": [
+            "N1"
+          ]
+        }
+      ],
+      "dialogue": [],
+      "silence": []
+    },
+    {
+      "id": "SC2",
+      "estimated_duration_ms": 1000,
+      "actions": [
+        {
+          "id": "A2",
+          "text": "Synthetic action",
+          "narrative_refs": [
+            "N2"
+          ]
+        }
+      ],
+      "dialogue": [],
+      "silence": []
+    }
+  ]
+}

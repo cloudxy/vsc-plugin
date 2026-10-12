@@ -293,6 +293,8 @@ def completed(project, job):
     rebuilt = {"project_id": record["project_id"], "kind": record["kind"], "purpose": record["purpose"],
                "shot_id": record["shot_id"], "inputs": record["inputs"], "model": engine["model"],
                "params": params, "payload_sha256": engine.get("payload_sha256")}
+    if engine.get("semantic_payload_sha256"):
+        rebuilt["semantic_payload_sha256"] = engine["semantic_payload_sha256"]
     require(isinstance(task.get("binding"), dict) and rebuilt == task["binding"]
             and engine.get("request_sha256") == ark.digest_json(rebuilt) and task.get("record") == record,
             "生成记录与方舟任务请求绑定不一致")
@@ -308,6 +310,50 @@ def completed(project, job):
     require(engine["model"] == args["model"] and params == expected_params and record["shot_id"] == args.get("shot")
             and record["purpose"] == args.get("purpose", "candidate") and record["inputs"].get("prompt") == prompt,
             "生成记录与计划的提示词、模型、镜头或参数不一致")
+    if rebuilt.get("semantic_payload_sha256"):
+        # 从计划声明的模式与实际输入摘要重建语义请求；不使用会过期的运输 URL。
+        inputs, references = record["inputs"], record["inputs"].get("references", [])
+        shape = ([("image", spec) for spec in args.get("ref", [])] if job["kind"] == "image" else
+                 [(media, spec) for key, media in (("ref_image", "image"), ("ref_video", "video"), ("ref_audio", "audio"))
+                  for spec in args.get(key, [])])
+        require(len(references) == len(shape), "参考输入数量与计划不一致")
+        normalized_refs = []
+        for ref, (media, spec) in zip(references, shape):
+            info = ark.consistency.reference_info(ref)
+            require(info["media_type"] == media and info.get("role", "reference_" + media) == "reference_" + media,
+                    "参考媒体角色与计划不一致")
+            require(info.get("sha256"), "本地队列参考缺少内容 SHA-256")
+            if isinstance(ref, dict) and ref.get("path"):
+                require(ark.sha256(path_in(project, ref["path"])) == ref["sha256"], "参考输入内容已漂移")
+                if spec.get("path"):
+                    require(ref["path"] == spec["path"], "参考输入路径与计划不一致")
+            normalized_refs.append((media, "sha256:" + info["sha256"]))
+        if job["kind"] == "image":
+            base = inputs.get("base_frame")
+            require(bool(base) == bool(args.get("base_frame")), "基础帧模式与计划不一致")
+            if base:
+                require(base.get("use") == args["base_use"] and ark.sha256(path_in(project, base["path"])) == base["sha256"],
+                        "基础帧用途或内容与计划不一致")
+                if args["base_frame"].get("path"):
+                    require(base["path"] == args["base_frame"]["path"], "基础帧路径与计划不一致")
+            images = (["sha256:" + base["sha256"]] if base else []) + [url for _, url in normalized_refs]
+            semantic = ark.image_payload(engine["model"], prompt, args["size"], images)
+        else:
+            content = [{"type": "text", "text": prompt}]
+            for key, role in (("first_frame", "reference_image" if args.get("first_frame_ref") else "first_frame"),
+                              ("last_frame", "last_frame")):
+                frame = inputs.get(key)
+                declared = args.get(key) or (args.get("first_frame_ref") if key == "first_frame" else None)
+                require(bool(frame) == bool(declared), "首尾帧模式与计划不一致")
+                if frame:
+                    require(ark.sha256(path_in(project, frame["path"])) == frame["sha256"], "首尾帧输入内容已漂移")
+                    if declared.get("path"):
+                        require(frame["path"] == declared["path"], "首尾帧输入路径与计划不一致")
+                    content.append({"type": "image_url", "image_url": {"url": "sha256:" + frame["sha256"]}, "role": role})
+            content += [{"type": media + "_url", media + "_url": {"url": url}, "role": "reference_" + media}
+                        for media, url in normalized_refs]
+            semantic = {"model": engine["model"], "content": content, **params}
+        require(ark.digest_json(semantic) == rebuilt["semantic_payload_sha256"], "生成记录的语义请求与计划输入不一致")
     expected_outputs = {relative: key for key, relative in outputs(job).items()}
     for item in record["outputs"]:
         output = expected_outputs.get(item["path"])
@@ -354,7 +400,10 @@ def default_runner(argv):
     subprocess.run([sys.executable, str(Path(ark.__file__).resolve()), *argv], check=True)
 
 
-def run(project, plan, plan_hash, runner=None):
+def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, formal=False):
+    state = read(Path(project) / 'vsc.json')
+    require(formal or state.get('profile_snapshot', {}).get('contract_policy') != 'production-v2',
+            '新项目执行必须经 vsc_run.py，plan hash 不是人工批准')
     require(plan_hash == plan["plan_sha256"], "执行 plan hash 与当前计划不一致；请重新 plan 并审阅")
     runner = runner or default_runner
     path = journal_path(project, plan["id"])
@@ -378,6 +427,14 @@ def run(project, plan, plan_hash, runner=None):
         jobs = {job["id"]: job for job in plan["jobs"]}
         for job in plan["jobs"]:
             entry = journal["jobs"].get(job["id"])
+            if before_job:
+                extra = before_job(job, journal)
+                if extra is None:
+                    journal['status'] = 'awaiting_review'
+                    ark.write_json(path, journal)
+                    return journal
+            else:
+                extra = []
             argv, hashes = resolve_args(project, job, jobs)
             for relative, digest in hashes.items():
                 if relative in plan["inputs_sha256"]:
@@ -396,6 +453,9 @@ def run(project, plan, plan_hash, runner=None):
                     entry["outputs_sha256"] = output_hashes
                     entry["status"] = "succeeded"
                     ark.write_json(path, journal)
+                    if after_job and not after_job(job, record, journal):
+                        journal['status'] = 'awaiting_review'; ark.write_json(path, journal)
+                        return journal
                     continue
                 # 没有方舟任务凭证时无法证明提交失败：绝不自动重提。
                 require(path_in(project, task_path(job)).is_file(), "上次调用没有可续接的方舟任务凭证；提交状态未知，须人工核查后使用新任务")
@@ -406,7 +466,7 @@ def run(project, plan, plan_hash, runner=None):
             entry.update(attempts=entry["attempts"] + 1, status="running")
             ark.write_json(path, journal)
             try:
-                runner(argv)
+                runner(argv + extra)
                 record = completed(project, job)
                 require(record is not None, "调用结束但未发现成功生成记录")
             except Exception as exc:
@@ -418,6 +478,11 @@ def run(project, plan, plan_hash, runner=None):
             entry["outputs_sha256"] = {item["path"]: item["sha256"] for item in record["outputs"]}
             entry.pop("error", None)
             ark.write_json(path, journal)
+            if after_job and not after_job(job, record, journal):
+                journal['status'] = 'awaiting_review'; ark.write_json(path, journal)
+                return journal
+        journal['status'] = 'completed'
+        ark.write_json(path, journal)
         return journal
 
 
