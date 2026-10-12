@@ -1,12 +1,14 @@
 # VSC · Video Short Create
 
-VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 预演 → 图像/视频/声音候选 → 剪辑 → 审片与交付**。
+VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 带声预演 → 图像／视频／声音候选 → 获选素材 → 剪辑、混音 → 审片与交付**。
 
 <!-- vsc:view version -->
 当前版本：**v0.12.0**，各版本变化见 [版本记录](docs/releases/)。
 <!-- /vsc:view -->
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
+
+你可以在支持的 AI 客户端中用自然语言启动创作，也可以用本地 CLI 管理版本、质量门和制作任务。创作选择由真实负责人批准；生成成功的媒体先作为候选保存。
 
 ## 为什么存在
 
@@ -59,36 +61,119 @@ flowchart LR
 
 在 S6 中，图片、视频、声音都是候选 take，不会因为“生成成功”自动进入成片。带临时对白、音效和音乐节拍的 S5 预演，是在扩大生成成本前检验叙事、时长和镜头关系的关键点。
 
+新作品使用 `production-v2` 制作规则：逐场核对剧本覆盖，固定获选素材与时间线的版本，再核对混音、真实媒体 QA 和完整范围的人工审片。详见 [制作交接与正式运行规则](workflow/production-v2.md)。
+
 ## 快速开始
 
-在 Codex、Claude Code、Grok Build、Kimi Code 或 ZCode 中打开仓库根目录，开始新会话后直接说“用 VSC……”，或使用 `/vsc`（Codex 为 `$vsc`）。各客户端读取哪些入口、需要注意什么，见 [AI 客户端接入](docs/guide/workspace-setup.md)。
+在 Codex、Claude Code、Grok Build、Kimi Code 或 ZCode 中打开仓库根目录，开始新会话后直接说“用 VSC……”。快捷入口包括 Codex 的 `$vsc`、Claude Code／Grok Build 的 `/vsc`、Kimi Code 的 `/skill:vsc`；ZCode 的插件面板安装步骤见 [AI 客户端接入](docs/guide/workspace-setup.md)。
 
-也可以直接使用命令行，状态机只依赖 Python 标准库：
+也可以直接使用命令行。项目状态机只依赖 Python 标准库；以下命令从仓库根目录执行，先把作品名、标题和负责人换成实际值：
 
 ```bash
 python3 -B scripts/vsc_kernel.py doctor        # 核对内核、入口与各客户端配置
 python3 -B scripts/vsc_state.py profile list   # 查看可选业务 Profile
-python3 -B scripts/vsc_state.py init ./projects/雨夜来信 --title "雨夜来信" --profile vsc.novel-serial --owner "导演"
-python3 -B scripts/vsc_state.py next ./projects/雨夜来信
+python3 -B scripts/vsc_state.py init ./projects/作品名 --title "作品标题" --profile vsc.light-short --owner "实际负责人"
+python3 -B scripts/vsc_state.py status ./projects/作品名
+python3 -B scripts/vsc_state.py next ./projects/作品名
 ```
 
-来源登记、批准、契约校验、记忆与学习、Profile 定制和外部交接的完整用法，见 [命令行使用](docs/guide/cli.md)。
+### 选择 Profile
+
+| 制作需求 | Profile |
+|---|---|
+| 单条原创或资料改编短视频，采用精简交付与固定版本包审阅 | `vsc.light-short` |
+| 原创剧情短片、一般叙事短视频 | `vsc.narrative-base` |
+| 小说改编连续短剧 | `vsc.novel-serial` |
+| 品牌叙事短视频 | `vsc.brand-story` |
+| 需要固定资产、状态时间线和场次衔接的短视频 | `vsc.engineered-short` |
+| 按集管理人物、状态、声音与章节承接的连续短剧 | `vsc.engineered-serial` |
+
+Profile 固定阶段顺序、必需产物与质量门。轻量单条减少重复交付，仍保留预演、获选素材、时间线、混音与审片链；工程化 Profile 的制作方法见 [工程化制作](docs/design/engineering-production.md)。
+
+### 接续已有作品
+
+在任一支持的客户端中说“用 VSC 继续 projects/作品名，先读取进度”，或运行：
+
+```bash
+python3 -B scripts/vsc_state.py status ./projects/作品名
+python3 -B scripts/vsc_state.py next ./projects/作品名
+# 连续剧可按实际分集 ID 查看进度与质量门
+python3 -B scripts/vsc_state.py status ./projects/作品名 --scope EP-ID
+python3 -B scripts/vsc_state.py next ./projects/作品名 --scope EP-ID
+python3 -B scripts/vsc_state.py gate check ./projects/作品名 design --scope EP-ID
+```
+
+各客户端共用作品的 `vsc.json`、产物快照与台账；状态写入走 CLI。`projects/`、本机素材库和第三方源码不随 Git 提交，需要自行保存。旧作品保留原固定 Profile，采用 v2 规则前先查看 `profile migrate` 的差异与影响，再显式应用；操作见 [制作交接 v2 指南](docs/guide/production-v2.md)。
+
+来源登记、产物版本、批准、契约校验、记忆与学习及外部交接的完整用法，见 [命令行使用](docs/guide/cli.md)。
+
+## 从批准输入到正式交付
+
+v0.12.0 将制作过程中的版本交接落实为可检查的契约：
+
+1. **固定故事与设计依据**：来源保存快照与 SHA；剧本、镜头和声音按创作对象登记，覆盖计划逐场核对。新增剧情和有意省略需记录真实人工决定。
+2. **审阅正式运行计划**：`production-run` 固定输入、请求参数、预算和人审暂停点。资产准备在剧本质量门通过后进行，镜头候选制作在预演质量门通过后进行；执行前核对批准版本。
+3. **共享项目预算并安全续接**：图像、视频、语音、音乐和视觉检查共用原生单位额度；已有任务优先恢复，提交结果不明时停止重提。额度与平台实际金额分别记录，未知费用保持未知。
+4. **选择素材后进入后期**：生成结果先导入为草稿，获选清单绑定具体输出、文件 SHA、用途、权属和选择人。时间线回指获选媒体，混音核对声音 Cue、实测时长与声音桥。
+5. **复检并打包交付**：完整解码、音轨覆盖与响度检查绑定实际成片版本；人工审片绑定帧范围和交付 ID。可迁移包使用相对路径与 SHA 清单，移动后重新检查媒体与技术 QA。
+
+正式运行、共享预算、包审阅、迁移与交付命令见 [v2 指南](docs/guide/production-v2.md)。低层生成队列由正式运行入口调用；新作品的付费执行从已批准的运行计划开始。交付包只复制清单中明确许可的材料，私有来源默认保留版本引用。
+
+## 本机工具与素材复用
+
+核心状态管理与云端适配器使用 Python 标准库。真实媒体探测、解码与响度检查需要 FFmpeg／ffprobe；Remotion 项目另需 Node/npm 依赖。工具存在、凭证配置、线上调用成功和人工验收分别报告。
+
+```bash
+# 只读诊断本机工具、默认凭证变量与作品候选，不探测云端权限
+python3 -B scripts/vsc_toolchain.py --project ./projects/作品名 --json
+```
+
+本工作区的凭证集中在 `~/.zshenv`。若进程未加载变量，在启动工具的 zsh 中执行 `source ~/.zshenv` 后重新启动工具；其他启动方式需显式传入环境变量。具体变量及配置方式见 [客户端与本机配置](docs/guide/workspace-setup.md)。
+
+- **图像与视频**：豆包适配器支持资产图、关键帧、图生视频、任务恢复和辅助视觉检查，保留实际输入、用量与输出记录，见 [生成适配器](docs/architecture/generation-adapters.md)。
+- **声音与字幕**：支持预演临时配音、字幕烧录、本地原创环境声／拟音／简约配乐；固定音色语音与 Seed-Audio 适配器的验证状态见下表。
+- **后期工程**：支持剪映草稿导出与 Remotion Composition 脚手架；v2 时间线将获选素材引用与原有帧级渲染计划绑定。Remotion 的源裁切、手柄、分数帧率和音量包络见 [Remotion 指南](docs/design/remotion.md)。
+- **跨作品复用**：提供素材库、34 条公开创作方法、[20 类制作规格](docs/guide/asset-recipes.md)和[统一检索](docs/guide/reuse-and-search.md)。方法试用、评测与跨项目导出绑定版本和权属。
 
 ## 当前边界与路线
 
-**已经实现**：总编排与专业入口、声明内核、创作目标契约、项目 Profile 固定、本机串行状态写入、产物快照与内容／依赖／范围验收、创作对象引用、受控检索与版本绑定评测、反例处理、跨项目方法包、完整 Skill 资源候选与可重试分析、本地媒体 QA（含响度）和具名人工审片；资产库、场景状态时间线与生成锚定（锚点包与生成记录）的一致性校验，以及“资产图 → 关键帧 → 视频”的链路追溯；预演临时配音与字幕、字幕烧录、剪映草稿导出（见[本机制作工具](docs/architecture/generation-adapters.md)）。`doctor`、结构检查和测试通过只证明声明可达与行为正确，不证明角色拥有独立专业能力或作品质量。
+| 能力 | 已有证据 | 仍需验证 |
+|---|---|---|
+| 制作交接、正式运行与共享预算 | 离线回归覆盖完整 CLI 链、关键帧暂停／续跑及三集独立进度 | 真实项目中的创作、表演与制作效果 |
+| 豆包图像／视频／辅助视觉检查 | 已有线上候选记录，验证日期与范围见 [适配器文档](docs/architecture/generation-adapters.md) | 每次使用的账号权限、素材适用性及完整人工审片 |
+| [固定音色语音](docs/architecture/doubao-speech.md)与 [Seed-Audio](docs/architecture/doubao-audio.md) | 已实现适配器、离线协议与本地媒体验证 | 有效服务凭证下的真实云端合成、音色稳定和审听 |
+| 剪映与 Remotion | 草稿／脚手架导出及字幕、字体、计划版本检查 | 新导出在剪映 UI 的保真回看；Remotion 依赖安装、类型检查、浏览器渲染与回看 |
+| 可迁移交付包 | 已用真实合成媒体完成移动后的复检回归 | 实际作品的授权归档、跨环境工程复现与交付验收 |
 
-**本机可选后期层**：手动整理选定镜头、声音与字幕为 `vsc.remotion-render-plan/v1`，生成 Composition 脚手架，支持源范围、手柄、分数帧率和音量包络。依赖安装、完整 TypeScript 编译、Studio 与实际渲染仍需在生成项目中验证；尚没有从全部 VSC 台账自动转换为时间线的编译器。
+`doctor`、契约校验和测试通过提供结构与行为证据。叙事理解、表演、情绪、口型、声音及审美仍须具名负责人观看／审听；具体回归与验收边界见 [v0.12.0 实施记录](docs/plans/2026-10-12-vsc-workflow-implementation.md)。
 
-**工程化制作与复用**：[工程化短视频／连续短剧 Profile](docs/design/engineering-production.md)把资产、声音计划、状态时间线和章节衔接接入质量门；[批量生产](docs/guide/production-batch.md)支持依赖、规模预算和原任务续接。[20 类制作规格](docs/guide/asset-recipes.md)、34 条公开方法以及[统一检索](docs/guide/reuse-and-search.md)帮助跨作品复用。豆包图像／视频／视觉检查已有线上候选证据；[固定音色语音](docs/architecture/doubao-speech.md)与 [Seed-Audio](docs/architecture/doubao-audio.md)已实现适配器及离线测试，云端声音实测仍受当前账号凭证与服务权限阻塞。本地原创环境声、拟音和简约配乐可独立生成。
+尚未实现的方向包括 3D、向量检索、云端媒体存储、完整货币费用账本、逐帧人脸／服装／道具／声纹比对、可视化时间线、真实观众实验与发布集成、模型训练／微调，以及从全部台账自动生成时间线的编译器。
 
-**尚待实现或验收**：豆包云端语音／音乐的真实合成与听感验收、3D、向量检索、AI 样片的完整人审与 Remotion 实际渲染验收、云端媒体存储、完整费用账本、逐帧人脸／服装／道具／声纹比对、可视化时间线、真实观众实验与发布集成，以及模型训练/微调。实现、配置存在、真实调用成功与人工批准分别报告。
-
-下一阶段优先验证一条真实链路：一个 60 秒原创短片或一集小说短剧，从来源到带声预演，再到少量已批准镜头的图像/图生视频候选与人工审片。
+下一步优先用一条 60 秒原创短片或一集小说短剧，验证来源、带声预演、正式运行、获选镜头、混音与完整人工审片的真实制作链。
 
 ## 文档地图
 
-全部文档按读者分组列在 [docs/README.md](docs/README.md)。
+| 要做什么 | 从这里开始 |
+|---|---|
+| 连接 AI 客户端、配置本机环境 | [客户端接入](docs/guide/workspace-setup.md) |
+| 新建项目、登记来源与产物、批准版本 | [CLI 指南](docs/guide/cli.md) |
+| 执行制作、共享预算、迁移或交付 | [制作交接 v2](docs/guide/production-v2.md) |
+| 组织图像／视频依赖批次 | [批量生产](docs/guide/production-batch.md) |
+| 理解阶段、角色、契约及扩展点 | [工作流内核](workflow/README.md)、[术语表](GLOSSARY.md) |
+| 安装或审核本地第三方 Skill／工具 | [Vendor 说明](vendor/README.md) |
+| 修改工作流与运行本地验证 | [维护指南](docs/guide/maintenance.md) |
+
+全部文档按读者分组列在 [docs/README.md](docs/README.md)。工作流规范以 `workflow/` 为准，技能正文在 `skills/`，宿主发现入口按声明生成。
+
+## 维护
+
+工作流改动直接提交并推送到 `main`；提交前运行以下检查，确认全部通过。作品、素材库、vendor 源码和本机配置保持在本机。
+
+```bash
+python3 -B scripts/vsc_local_ci.py
+```
+
+本地 CI 覆盖内核、全部测试、Vendor 路由、已有作品可读性、素材与方法库、Git 跟踪范围和文档链接。钩子启用、入口同步与维护规则见 [维护与本地验证](docs/guide/maintenance.md)。
 
 ## 许可证
 
