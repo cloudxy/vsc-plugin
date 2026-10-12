@@ -325,6 +325,52 @@ class QueueTest(unittest.TestCase):
             self.run_queue()
         self.assertEqual(len(self.calls), count)
 
+    def test_completed_semantic_binding_survives_expired_transport_and_detects_tampering(self):
+        plan = self.plan()
+        self.run_queue(plan)
+        count = len(self.calls)
+        later = A.now() + A.datetime.timedelta(days=2)
+        with mock.patch.object(A, "now", return_value=later):
+            self.run_queue(plan)
+        self.assertEqual(len(self.calls), count)
+        record_path, task_path = self.project / "takes/first-生成记录.json", self.project / "takes/first-任务.json"
+        record, task = json.loads(record_path.read_text()), json.loads(task_path.read_text())
+        self.assertEqual(record["engine"]["semantic_payload_sha256"], task["binding"]["semantic_payload_sha256"])
+        record["engine"]["semantic_payload_sha256"] = "f" * 64
+        task["binding"]["semantic_payload_sha256"] = "f" * 64
+        record["engine"]["request_sha256"] = A.digest_json(task["binding"])
+        task["record"] = record
+        record_path.write_text(json.dumps(record))
+        task_path.write_text(json.dumps(task))
+        with self.assertRaisesRegex(P.ProductionError, "语义请求"):
+            self.run_queue(plan)
+        self.assertEqual(len(self.calls), count)
+
+    def test_completed_typed_references_keep_media_roles_and_content_binding(self):
+        for name, data in (("identity.png", self.png), ("action.mp4", self.mp4), ("sound.wav", self.wav)):
+            (self.project / name).write_bytes(data)
+        job = self.video("multimodal", "SH-001", [], {"path": "identity.png"})
+        job["args"].update(ref_image=[{"path": "identity.png"}], ref_video=[{"path": "action.mp4"}], ref_audio=[{"path": "sound.wav"}])
+        self.batch["jobs"] = [job]
+        plan = self.plan()
+        self.run_queue(plan)
+        count = len(self.calls)
+        record_path, task_path = self.project / "takes/multimodal-生成记录.json", self.project / "takes/multimodal-任务.json"
+        record, task = json.loads(record_path.read_text()), json.loads(task_path.read_text())
+        self.assertEqual([ref["media_type"] for ref in record["inputs"]["references"]], ["image", "video", "audio"])
+        self.run_queue(plan)
+        self.assertEqual(len(self.calls), count)
+        ref = record["inputs"]["references"][1]
+        ref.update(media_type="audio", role="reference_audio", purpose="sound")
+        task["binding"]["inputs"] = record["inputs"]
+        record["engine"]["request_sha256"] = A.digest_json(task["binding"])
+        task["record"] = record
+        record_path.write_text(json.dumps(record))
+        task_path.write_text(json.dumps(task))
+        with self.assertRaisesRegex(P.ProductionError, "参考媒体角色"):
+            self.run_queue(plan)
+        self.assertEqual(len(self.calls), count)
+
     def test_generated_fake_video_is_rejected_before_downstream(self):
         original = self.fake_download
         def jpeg_as_video(url, target):

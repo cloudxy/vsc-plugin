@@ -304,6 +304,9 @@ def generate(args):
                     raise AudioError("远程任务已失败；不能自动重新提交")
                 key = api_key(args.key_env)
                 if task["status"] == "new":
+                    from vsc_budget import check_authorization
+                    check_authorization(project, getattr(args, 'budget_reservation', None),
+                        f'audio:{out.relative_to(project)}/{args.name}', {'remote_jobs':1, 'audio_jobs':1}, request=binding)
                     task["status"] = "submitted"
                     persist(task_file, record_file, task)  # 付费请求前先落盘，不确定时禁止重提。
                     submitted = call(SUBMIT, key, payload)
@@ -390,6 +393,7 @@ def parser():
     command.add_argument("--max-polls", type=int, default=30, help="本轮GET次数上限，可重跑续查同一任务")
     command.add_argument("--poll-interval", type=float, default=5, help="查询间隔秒数，0到60")
     command.add_argument("--key-env", default="DOUBAO_MEDIAKIT_API_KEY", help="显式凭证环境变量名，不自动fallback")
+    command.add_argument('--budget-reservation')
     mode = command.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--execute", action="store_true", help="显式提交一次付费生成或续查原任务")

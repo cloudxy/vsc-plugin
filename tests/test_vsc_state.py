@@ -7,12 +7,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from _paths import SCRIPTS
+from _paths import freeze_legacy_profile, SCRIPTS
 STATE = str(SCRIPTS / "vsc_state.py")
 
 
 def run(*args):
     result = subprocess.run([sys.executable, "-B", STATE, *map(str, args)], capture_output=True, text=True)
+    if args and args[0] == 'init' and result.returncode == 0:
+        freeze_legacy_profile(args[1])
     return result.returncode, result.stdout + result.stderr
 
 

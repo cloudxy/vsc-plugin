@@ -145,3 +145,7 @@ python3 scripts/vsc_state.py migrate ./projects/雨夜来信
 VSC 接受小说、原创文本、品牌资料、素材库或 `creative-handoff/v1` JSON 清单。交接包只包含来源身份、允许范围、版本化来源产物和既有决定；导入后仍要在 VSC 中重新形成并批准本项目的 StoryMap、改编方案、剧本和镜头资产。
 
 这使来源工具与 VSC 保持独立：不会互相调用、不会共享内部状态、不会要求在同一目录安装。协议详情见 [外部来源与交接](../../skills/vsc/references/source-handoff.md)。
+
+## v0.12.0 制作交接
+
+新项目使用固定 production-v2 Profile，旧项目保留历史规则。正式运行、共享预算、交接契约与迁移操作以 [v2 指南](../guide/production-v2.md) 为准；旧低层命令不再作为新项目的直接付费执行入口。

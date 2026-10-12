@@ -191,6 +191,130 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(self.run_cli(*argv), 0)
         self.assertEqual([path for path, _ in self.calls], ["/contents/generations/tasks/cgt-old"])
 
+    def test_poll_budget_exits_and_resumes_same_task_without_post(self):
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "waiting", "--shot", "SH-001",
+                "--prompt", "动作", "--max-polls", "2", "--poll-interval", "0"]
+        def processing(path, payload=None):
+            self.calls.append((path, payload))
+            return {"id": "cgt-waiting"} if payload else {"status": "processing"}
+        with mock.patch.object(A, "call", side_effect=processing), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main(argv), 1)
+        self.assertEqual(len(self.calls), 3)
+        task = json.loads((self.project / "视频/waiting-任务.json").read_text())
+        self.assertEqual((task["id"], task["polling"]["state"], task["polling"]["polls_total"]), ("cgt-waiting", "waiting", 2))
+        self.assertNotIn("result", task)
+        self.assertIsNone(task["record"]["selection"])
+        self.calls.clear()
+        self.assertEqual(self.run_cli(*argv), 0)
+        self.assertEqual([path for path, _ in self.calls], ["/contents/generations/tasks/cgt-waiting"])
+
+    def test_poll_deadline_is_per_run_and_invalid_limits_do_not_submit(self):
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "deadline", "--shot", "SH-001", "--prompt", "动作"]
+        def processing(path, payload=None):
+            self.calls.append((path, payload))
+            return {"id": "cgt-deadline"} if payload else {"status": "processing"}
+        with mock.patch.object(A, "call", side_effect=processing), mock.patch.object(A.time, "monotonic", side_effect=[0, 0, .5, 1.2]), \
+                mock.patch.object(A.time, "sleep") as sleep, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main([*argv, "--deadline-seconds", "1"]), 1)
+            sleep.assert_called_once_with(.5)
+        self.assertEqual(len(self.calls), 2)
+        self.calls.clear()
+        self.assertEqual(self.run_cli(*argv), 0)
+        self.assertEqual(len(self.calls), 1)
+        for flag, value in (("--max-polls", "0"), ("--deadline-seconds", "0"), ("--poll-interval", "-1")):
+            self.calls.clear()
+            self.assertEqual(self.run_cli(*argv, "--name", "invalid-" + flag[2:], flag, value), 1)
+            self.assertEqual(self.calls, [])
+
+    def test_expired_input_transport_resumes_original_video_download(self):
+        ref = self.project / "source.png"
+        ref.write_bytes(PNG)
+        digest = A.sha256(ref)
+        origin = {digest: {"source_url": "https://tos/trusted-original", "source_url_expires_at": A.stamp(A.now() + datetime.timedelta(hours=1))}}
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "expired-input", "--shot", "SH-001",
+                "--prompt", "动作", "--first-frame", str(ref)]
+        with mock.patch.object(A, "originals", return_value=origin), mock.patch.object(A, "call", side_effect=self.fake_call), \
+                mock.patch.object(A, "download", side_effect=A.ArkError("offline download interruption")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main(argv), 1)
+        path = self.project / "视频/expired-input-任务.json"
+        original = json.loads(path.read_text())
+        origin[digest]["source_url_expires_at"] = A.stamp(A.now() - datetime.timedelta(hours=1))
+        with mock.patch.object(A, "originals", return_value=origin), mock.patch.object(A, "call", side_effect=AssertionError("must not POST or GET")), \
+                mock.patch.object(A, "download", side_effect=self.fake_download), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main(argv), 0)
+        resumed = json.loads(path.read_text())
+        self.assertEqual(resumed["binding"], original["binding"])
+        self.assertEqual(resumed["credential_sha256"], original["credential_sha256"])
+        self.assertEqual(resumed["record"]["engine"]["payload_sha256"], original["binding"]["payload_sha256"])
+        ref.write_bytes(PNG + b"changed")
+        self.calls.clear()
+        self.assertEqual(self.run_cli(*argv), 1)
+        self.assertEqual(self.calls, [])
+
+    def test_expired_input_transport_resumes_original_image_download(self):
+        ref = self.project / "source.png"
+        ref.write_bytes(PNG)
+        origin = {A.sha256(ref): {"source_url": "https://tos/original", "source_url_expires_at": A.stamp(A.now() + datetime.timedelta(hours=1))}}
+        argv = ["image", "--project", str(self.project), "--out", "资产", "--name", "expired-input", "--purpose", "asset",
+                "--prompt", "图像", "--ref", str(ref)]
+        with mock.patch.object(A, "originals", return_value=origin), mock.patch.object(A, "call", side_effect=self.fake_call), \
+                mock.patch.object(A, "download", side_effect=A.ArkError("offline interruption")), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main(argv), 1)
+        with mock.patch.object(A, "originals", return_value={}), mock.patch.object(A, "call", side_effect=AssertionError("must not call")), \
+                mock.patch.object(A, "download", side_effect=self.fake_download), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main(argv), 0)
+
+    def test_resume_rejects_a_different_credential_before_network(self):
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "credential", "--shot", "SH-001", "--prompt", "动作"]
+        self.assertEqual(self.run_cli(*argv), 0)
+        self.calls.clear()
+        with mock.patch.object(A, "api_key", return_value="another-offline-test-key"):
+            self.assertEqual(self.run_cli(*argv), 1)
+        self.assertEqual(self.calls, [])
+
+    def test_multimodal_reference_metadata_and_audio_baseline_are_retained(self):
+        image, video, audio = (self.project / name for name in ("identity.png", "action.mp4", "sound.wav"))
+        image.write_bytes(PNG)
+        video.write_bytes(b"synthetic action")
+        audio.write_bytes(b"synthetic sound")
+        bible = json.loads(BIBLE.read_text())
+        bible["entities"][0]["references"] = [{"path": image.name, "sha256": A.sha256(image), "media_type": "image", "purpose": "identity"},
+            {"path": video.name, "sha256": A.sha256(video), "media_type": "video", "purpose": "action"}]
+        bible["entities"][1]["references"] = []
+        bible["entities"][2]["sound"].update(path=audio.name, sha256=A.sha256(audio))
+        bible_path = self.project / "bible.json"
+        bible_path.write_text(json.dumps(bible))
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "multimodal", "--shot", "SH-002",
+                "--prompt", "动作", "--bible", str(bible_path), "--state", str(STATE), "--ref-image", str(image),
+                "--ref-video", str(video), "--ref-audio", str(audio)]
+        self.assertEqual(self.run_cli(*argv), 0)
+        record = json.loads((self.project / "视频/multimodal-生成记录.json").read_text())
+        refs = record["inputs"]["references"]
+        self.assertEqual([(r["media_type"], r["purpose"], r["entity_id"]) for r in refs],
+                         [("image", "identity", "主角"), ("video", "action", "主角"), ("audio", "sound", "信封")])
+        self.assertEqual(C.record_problems(record, bible, json.loads(STATE.read_text())), ([], []))
+        self.assertEqual(self.run_cli(*argv, "--name", "silent", "--no-audio"), 0)
+        silent = json.loads((self.project / "视频/silent-生成记录.json").read_text())
+        self.assertIn("audio_anchors_sha256", silent["inputs"])  # 声音参考仍是声音消费者。
+
+    def test_paid_post_uses_budget_reservation_once_but_resume_does_not(self):
+        import vsc_budget
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "budget", "--shot", "SH-001", "--prompt", "动作",
+                "--budget-reservation", "BR-offline-fixture"]
+        with mock.patch.object(vsc_budget, "check_authorization") as check:
+            self.assertEqual(self.run_cli(*argv), 0)
+            self.assertEqual(check.call_count, 1)
+            self.assertEqual(check.call_args.args, (str(self.project), "BR-offline-fixture", "video:视频/budget", {"remote_jobs": 1, "video_seconds": 5}))
+            self.assertEqual(check.call_args.kwargs["request"]["prompt"], "动作")
+        with mock.patch.object(vsc_budget, "check_authorization", side_effect=AssertionError("resume must not reserve again")):
+            self.assertEqual(self.run_cli(*argv), 0)
+        self.calls.clear()
+        with mock.patch.object(vsc_budget, "check_authorization", side_effect=ValueError("invalid reservation")):
+            self.assertEqual(self.run_cli(*argv, "--name", "budget-rejected"), 1)
+        self.assertEqual(self.calls, [])
+        self.assertFalse((self.project / "视频/budget-rejected-任务.json").exists())
+
     def test_saved_task_rejects_changed_request_before_any_network(self):
         argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "SH-001-T1", "--shot", "SH-001", "--prompt", "动作"]
         self.assertEqual(self.run_cli(*argv), 0)
@@ -405,6 +529,11 @@ class GenerateTest(unittest.TestCase):
 
 
 class VisualTest(unittest.TestCase):
+    def setUp(self):
+        key = mock.patch.object(A, "api_key", return_value="offline-test-key")
+        key.start()
+        self.addCleanup(key.stop)
+
     def test_checklist_follows_the_anchor_pack(self):
         bible, state = C.load(BIBLE, C.BIBLE_FORMAT), C.load(STATE, C.STATE_FORMAT)
         items = A.checklist(C.anchor_pack(bible, state, "SH-002"), "exit")
@@ -461,16 +590,208 @@ class VisualTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             project = Path(temp)
             (project / "vsc.json").write_text(json.dumps({"project_id": bible["project_id"]}), "utf-8")
-            media = project / "a.png"
-            media.write_bytes(PNG)
-            argv = ["inspect", "--project", str(project), "--media", str(media), "--bible", str(BIBLE), "--entity", entity]
             variants = [good[:-1], good + [{"item": "不相关条目", "verdict": "pass", "evidence": "有"}],
                         [good[0]] * len(good), [{**item, "evidence": ""} for item in good]]
-            for results in variants:
+            for index, results in enumerate(variants):
+                media = project / f"a{index}.png"
+                media.write_bytes(PNG)
+                argv = ["inspect", "--project", str(project), "--media", str(media), "--bible", str(BIBLE), "--entity", entity]
                 response = {"choices": [{"message": {"content": json.dumps({"results": results})}}]}
                 with mock.patch.object(A, "call", return_value=response), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(A.main(argv), 1)
-                self.assertFalse(media.with_name("a-视觉检查.json").exists())
+                self.assertFalse(media.with_name(f"a{index}-视觉检查.json").exists())
+
+
+class InspectionBudgetTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.project = Path(self.temp.name)
+        self.bible = self.project / "bible.json"
+        self.bible.write_bytes(BIBLE.read_bytes())
+        self.state = self.project / "state.json"
+        self.state.write_bytes(STATE.read_bytes())
+        self.pid = json.loads(self.bible.read_text("utf-8"))["project_id"]
+        self.entity = json.loads(self.bible.read_text("utf-8"))["entities"][0]["id"]
+        (self.project / "vsc.json").write_text(json.dumps({"project_id": self.pid}), "utf-8")
+        self.media = self.project / "a.png"
+        self.media.write_bytes(PNG)
+        key = mock.patch.object(A, "api_key", return_value="offline-test-key")
+        key.start()
+        self.addCleanup(key.stop)
+
+    def args(self, *extra):
+        return A.parser().parse_args(["inspect", "--project", str(self.project), "--bible", "bible.json",
+                                     "--media", "a.png", "--entity", self.entity, *extra])
+
+    def response(self, args):
+        items = A.prepare_inspection(args)[1]
+        return {"choices": [{"message": {"content": json.dumps({"results": [
+            {"item": item, "verdict": "pass", "evidence": "可见对应特征"} for item in items],
+            "people": 1, "issues": []})}}], "usage": {"total_tokens": 123}}
+
+    def attempt(self):
+        return json.loads(next(self.project.glob("*-视觉检查-*-尝试.json")).read_text("utf-8"))
+
+    def test_prepare_is_pure_and_binds_exact_local_inputs(self):
+        args = self.args("--state", "state.json", "--check", "手指数量", "--budget-reservation", "BR-test")
+        before = {p.name: p.read_bytes() for p in self.project.iterdir()}
+        with mock.patch.object(A, "api_key", side_effect=AssertionError("must not read key")), \
+                mock.patch.object(A, "call", side_effect=AssertionError("must not call provider")), \
+                mock.patch.object(A, "write_json", side_effect=AssertionError("must not write")), \
+                mock.patch.object(A.subprocess, "run", side_effect=AssertionError("must not extract frames")):
+            binding, items, pack, media = A.prepare_inspection(args)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.project.iterdir()})
+        self.assertEqual(media, self.media.resolve())
+        self.assertIsNone(pack)
+        self.assertEqual(binding["checklist"], items)
+        self.assertEqual(binding["project_id"], self.pid)
+        self.assertEqual(binding["model"], A.VISION_MODEL)
+        self.assertEqual(binding["kind"], "inspect")
+        self.assertNotIn("budget_reservation", binding)
+        self.assertEqual(binding["inputs"], {"bible": {"path": "bible.json", "sha256": A.sha256(self.bible)},
+                                             "state": {"path": "state.json", "sha256": A.sha256(self.state)},
+                                             "media": {"path": "a.png", "sha256": A.sha256(self.media)}})
+        original = A.digest_json(binding)
+        for flag, value in (("--check", "新的检查项"), ("--model", "another-model")):
+            self.assertNotEqual(original, A.digest_json(A.prepare_inspection(self.args("--state", "state.json", flag, value))[0]))
+        for path in (self.bible, self.state, self.media):
+            previous = path.read_bytes()
+            path.write_bytes(previous + b" ")
+            self.assertNotEqual(original, A.digest_json(A.prepare_inspection(args)[0]))
+            path.write_bytes(previous)
+        shot = A.parser().parse_args(["inspect", "--project", str(self.project), "--bible", "bible.json", "--state", "state.json",
+                                      "--media", "a.png", "--shot", "SH-001", "--moment", "entry"])
+        shot_binding, _, pack, _ = A.prepare_inspection(shot)
+        self.assertEqual(shot_binding["inputs"]["anchors_sha256"], C.pack_sha256(pack))
+        self.assertEqual(shot_binding["shot_id"], "SH-001")
+        self.assertEqual(shot_binding["moment"], "entry")
+
+    def test_invalid_preflight_never_reads_credentials_or_submits(self):
+        cases = [("--entity", "missing"), ("--model", "bad model"), ("--check", " "), ("--moment", "entry")]
+        with mock.patch.object(A, "api_key") as key, mock.patch.object(A, "call") as remote:
+            for flags in cases:
+                with self.subTest(flags=flags), self.assertRaises(A.ArkError):
+                    A.inspect(self.args(*flags))
+            key.assert_not_called()
+            remote.assert_not_called()
+        self.assertFalse(list(self.project.glob("*-尝试.json")))
+
+    def test_strict_inspection_without_budget_cannot_post(self):
+        (self.project / "vsc.json").write_text(json.dumps({"project_id": self.pid,
+            "profile_snapshot": {"contract_policy": "production-v2"}}), "utf-8")
+        with mock.patch.object(A, "call") as remote, self.assertRaisesRegex(A.ArkError, "预算授权无效"):
+            A.inspect(self.args())
+        remote.assert_not_called()
+        self.assertFalse(list(self.project.glob("*-尝试.json")))
+
+    def test_budget_receives_binding_and_valid_report_is_read_only_reused(self):
+        import vsc_budget
+        args = self.args("--budget-reservation", "BR-test")
+        binding = A.prepare_inspection(args)[0]
+        with mock.patch.object(vsc_budget, "check_authorization") as budget, \
+                mock.patch.object(A, "call", return_value=self.response(args)) as remote:
+            target = A.inspect(args)
+        budget.assert_called_once_with(str(self.project), "BR-test", "inspect:a.png", {"remote_jobs": 1, "vision_jobs": 1}, request=binding)
+        remote.assert_called_once()
+        report = json.loads(target.read_text("utf-8"))
+        self.assertEqual(report["binding"], binding)
+        self.assertEqual(report["binding_sha256"], A.digest_json(binding))
+        self.assertEqual(report["budget_reservation"], "BR-test")
+        self.assertIs(report["advisory"], True)
+        self.assertNotIn("selection", report)
+        self.assertEqual(self.attempt()["submission_state"], "responded")
+        self.assertNotIn("offline-test-key", next(self.project.glob("*-尝试.json")).read_text("utf-8"))
+        before = {p.name: p.read_bytes() for p in self.project.iterdir() if p.is_file()}
+        with mock.patch.object(vsc_budget, "check_authorization", side_effect=AssertionError("must not charge")), \
+                mock.patch.object(A, "api_key", side_effect=AssertionError("must not need key")), \
+                mock.patch.object(A, "call", side_effect=AssertionError("must not POST")):
+            self.assertEqual(A.inspect(self.args("--budget-reservation", "BR-later")), target)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.project.iterdir() if p.is_file()})
+        # A crash after writing the valid report but before recording its digest is also free to resume.
+        attempt_path = next(self.project.glob("*-尝试.json"))
+        attempt = self.attempt()
+        attempt.pop("report_sha256")
+        A.write_json(attempt_path, attempt)
+        with mock.patch.object(A, "call", side_effect=AssertionError("must not POST")):
+            self.assertEqual(A.inspect(args), target)
+
+    def test_old_report_preserved_and_binding_change_writes_new_report(self):
+        args = self.args()
+        with mock.patch.object(A, "call", return_value=self.response(args)):
+            first = A.inspect(args)
+        original = first.read_bytes()
+        changed = self.args("--check", "新的要求")
+        with mock.patch.object(A, "call", return_value=self.response(changed)) as remote:
+            second = A.inspect(changed)
+        self.assertNotEqual(first, second)
+        self.assertEqual(first.read_bytes(), original)
+        self.assertEqual(json.loads(second.read_text("utf-8"))["checklist"], A.prepare_inspection(changed)[1])
+        remote.assert_called_once()
+        with mock.patch.object(A, "call", side_effect=AssertionError("must not POST")):
+            self.assertEqual(A.inspect(changed), second)
+
+    def test_unknown_submit_persists_evidence_and_cannot_repost_same_reservation(self):
+        import vsc_budget
+        for index, failure in enumerate((A.ArkError("response lost offline-test-key"), KeyboardInterrupt())):
+            media = self.project / f"unknown{index}.png"
+            media.write_bytes(PNG)
+            args = self.args("--media", media.name, "--budget-reservation", f"BR-{index}")
+            with mock.patch.object(vsc_budget, "check_authorization"), mock.patch.object(A, "call", side_effect=failure):
+                with self.assertRaises(type(failure)):
+                    A.inspect(args)
+            saved = next(self.project.glob(f"unknown{index}-*-尝试.json"))
+            evidence = json.loads(saved.read_text("utf-8"))
+            self.assertEqual(evidence["submission_state"], "unknown")
+            self.assertEqual(evidence["budget_reservation"], f"BR-{index}")
+            self.assertNotIn("offline-test-key", saved.read_text("utf-8"))
+            with mock.patch.object(vsc_budget, "check_authorization") as budget, mock.patch.object(A, "call") as remote:
+                with self.assertRaisesRegex(A.ArkError, "不能自动重提"):
+                    A.inspect(args)
+                with self.assertRaisesRegex(A.ArkError, "不能重复提交"):
+                    A.inspect(self.args("--media", media.name, "--budget-reservation", f"BR-{index}", "--check", "改变输入"))
+                budget.assert_not_called()
+                remote.assert_not_called()
+
+    def test_malformed_response_retained_and_retry_only_parses_locally(self):
+        args = self.args()
+        with mock.patch.object(A, "call", return_value={"choices": []}) as remote:
+            with self.assertRaises(A.ArkError):
+                A.inspect(args)
+        remote.assert_called_once()
+        self.assertEqual(self.attempt()["submission_state"], "responded")
+        with mock.patch.object(A, "call") as remote, mock.patch.object(A, "api_key") as key:
+            with self.assertRaises(A.ArkError):
+                A.inspect(args)
+            remote.assert_not_called()
+            key.assert_not_called()
+
+    def test_paid_response_survives_input_drift_without_rebilling(self):
+        args = self.args()
+        original = self.bible.read_bytes()
+        response = self.response(args)
+        def drift(*unused, **kwargs):
+            self.bible.write_bytes(original + b" ")
+            return response
+        with mock.patch.object(A, "call", side_effect=drift):
+            with self.assertRaisesRegex(A.ArkError, "检查期间输入已改变"):
+                A.inspect(args)
+        self.assertEqual(self.attempt()["response"], response)
+        self.assertFalse((self.project / "a-视觉检查.json").exists())
+        self.bible.write_bytes(original)
+        with mock.patch.object(A, "call", side_effect=AssertionError("must not POST")):
+            self.assertTrue(A.inspect(args).exists())
+
+    def test_tampered_report_refuses_overwrite_and_never_rebills(self):
+        args = self.args()
+        with mock.patch.object(A, "call", return_value=self.response(args)):
+            target = A.inspect(args)
+        report = json.loads(target.read_text("utf-8"))
+        report["results"][0]["verdict"] = "fail"
+        A.write_json(target, report)
+        with mock.patch.object(A, "call") as remote, self.assertRaisesRegex(A.ArkError, "拒绝重新付费或覆盖"):
+            A.inspect(args)
+        remote.assert_not_called()
 
 
 if __name__ == "__main__":

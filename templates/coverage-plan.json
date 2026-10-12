@@ -1,0 +1,60 @@
+{
+  "format": "vsc.coverage-plan/v1",
+  "project_id": "replace-with-project-id",
+  "scope": "EP",
+  "screenplay": {
+    "id": "A2",
+    "sha256": "fd89ce7aa6893e8bc4088facbef925777e3fbeb5daf73dfb0ee33b2557662f40"
+  },
+  "omissions": [],
+  "scenes": [
+    {
+      "id": "SC1",
+      "sequences": [
+        {
+          "id": "SQ1",
+          "shot_plan": {
+            "id": "A3",
+            "sha256": "1de4ddd3f469c641a90ee8b4e8be870e310b42fa782d895bf9aa7496d21b66e9"
+          },
+          "sound_plan": {
+            "id": "A4",
+            "sha256": "adfb4e18bfd349a7b634bdca9f86f37ea89eb42bde576e50c5e47cf3b063d9dc"
+          },
+          "shots": [
+            {
+              "id": "SH1",
+              "screenplay_unit_ids": [
+                "A1"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SC2",
+      "sequences": [
+        {
+          "id": "SQ2",
+          "shot_plan": {
+            "id": "A5",
+            "sha256": "47d7194e8b7cb2fb039c3d795fbb064e95e7233839ca938c829be847fdd6f6aa"
+          },
+          "sound_plan": {
+            "id": "A6",
+            "sha256": "4a47f0d916a3c510cda713663332dab10b47cd1bb27f765e7ed8799d025d2a3f"
+          },
+          "shots": [
+            {
+              "id": "SH2",
+              "screenplay_unit_ids": [
+                "A2"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

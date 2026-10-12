@@ -1,0 +1,9 @@
+{
+  "format": "vsc.visual-bible/v1",
+  "intent": "请填写视听意图",
+  "lighting": "请填写用光",
+  "composition": "请填写构图原则",
+  "palette": [
+    "请填写色彩"
+  ]
+}

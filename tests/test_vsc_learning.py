@@ -207,6 +207,11 @@ class TestLearningWorkflow(unittest.TestCase):
         fixture = self.pilot()
         self.evaluate(fixture)
         self.write("sample.txt", "同路径已换成另一个来源内容")
+        # Editing a working file cannot reinterpret the registered source bytes.
+        self.ok('context', 'build', self.project, '--role', 'director', '--task', '动作试用',
+                '--pilot', fixture[0], '--artifact', fixture[1])
+        source = self.state()['sources'][0]
+        (self.project / source['path']).write_text('固定快照被篡改', encoding='utf-8')
         message = self.bad("capability", "decide", self.project, fixture[0], "--status", "approved", "--by", "导演")
         self.assertIn("来源 S-0001 文件缺失或已改变", message)
         self.assertIn("来源不可用", self.bad("context", "build", self.project, "--role", "director", "--task", "打斗动作",

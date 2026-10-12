@@ -29,6 +29,24 @@ class SplitAndGroupTest(unittest.TestCase):
 
 
 class SrtTest(unittest.TestCase):
+    def test_strict_delivery_reports_each_bad_block_and_overflow(self):
+        text = "1\n00:00:00,000 --> 00:00:00,900\n有效\n\n2\nbad time\n坏块\n\n3\n00:01:30,000 --> 00:01:31,000\n越界"
+        self.assertEqual(SUB.parse_srt(text, duration=1), [(0, 0.9, "有效")])
+        with self.assertRaises(SUB.SubtitleError) as failure:
+            SUB.parse_srt(text, strict=True, duration=1)
+        self.assertEqual(len(failure.exception.errors), 2)
+        self.assertIn("block 2", str(failure.exception))
+        self.assertIn("block 3", str(failure.exception))
+
+    def test_invalid_time_components_and_missing_separator_cannot_hide_cues(self):
+        for text in ("1\n00:99:00,000 --> 01:00:00,000\n坏", "1\n00:00:00,000 --> 00:00:00,500\n一\n2\n00:00:00,500 --> 00:00:01,000\n二"):
+            with self.subTest(text=text), self.assertRaises(SUB.SubtitleError):
+                SUB.parse_srt(text, strict=True, duration=1)
+
+    def test_style_validation_is_shared_and_rejects_invalid_overrides(self):
+        for changes in ({"font_size": -1}, {"custom_position": 101}, {"color": "red"}, {"stroke_width": float("inf")}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                SUB.resolve_style(overrides=changes)
     def test_round_trip(self):
         items = [(0.2, 4.9, "第一句"), (3725.5, 3726.0, "两行\n字幕")]
         text = SUB.to_srt(items)

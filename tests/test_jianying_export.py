@@ -41,6 +41,32 @@ class MediaFixture(unittest.TestCase):
 
 
 class MappingTest(MediaFixture):
+    def test_supported_fps_and_duration_are_fixed_fractional_fps_rejected(self):
+        for fps in (24, 25, 30):
+            value = plan()
+            value["composition"].update(fps=fps, duration_in_frames=fps * 4)
+            payload, _, _ = JY.draft_payload(value, self.root)
+            self.assertEqual((payload["fps"], payload["duration_us"]), (fps, 4_000_000))
+            self.assertEqual(payload["black_intervals_frames"][-1][1], fps * 4)
+        for fps in (60, 23.976, {"numerator": 30000, "denominator": 1001}, {"numerator": 24, "denominator": 1}):
+            value = plan()
+            value["composition"]["fps"] = fps
+            with self.subTest(fps=fps), self.assertRaises(JY.ExportError):
+                JY.draft_payload(value, self.root)
+
+    def test_shared_style_is_preserved_and_unsupported_background_rejected(self):
+        payload, _, _ = JY.draft_payload(plan(), self.root, {"font_size": 48, "color": "#FF0000", "position": "top"})
+        self.assertEqual((payload["subtitle_style"]["font_size"], payload["subtitle_style"]["position"]), (48, "top"))
+        with self.assertRaises(JY.ExportError):
+            JY.draft_payload(plan(), self.root, {"background": "#000000"})
+
+    def test_jianying_uses_shared_strict_subtitle_parser(self):
+        srt = self.root / "bad.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:00,500\n有效\n\n2\nbad time\n坏块")
+        self.assertEqual(len(JY.jd._parse_srt_entries(str(srt))), 1)
+        with self.assertRaises(ValueError):
+            JY.jd._parse_srt_entries(str(srt), strict=True, duration=1)
+
     def test_tracks_timing_volume_and_dropped_features(self):
         payload, captions, dropped = JY.draft_payload(plan(), self.root)
         self.assertEqual([(item["id"], item["track"]) for item in payload["video"]], [("V1", 0), ("V2", 1)])
@@ -76,6 +102,30 @@ class DryRunTest(MediaFixture):
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "真实写入需要 ffmpeg 与 ffprobe")
 class RealExportTest(unittest.TestCase):
+    def test_explicit_tail_black_keeps_24_25_30_fps_and_complete_duration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            media = root / "video.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=30:d=2", "-c:v", "mpeg4", str(media)], check=True, timeout=60)
+            for fps in (24, 25, 30):
+                value = plan()
+                value["composition"].update(fps=fps, duration_in_frames=2 * fps)
+                value["segments"] = [{"id": "V1", "kind": "video", "source": media.name, "source_shot_id": "SH-001", "from_frame": 0, "duration_in_frames": fps, "muted": True},
+                                     {"id": "C1", "kind": "caption", "text": "尾字幕", "from_frame": fps, "duration_in_frames": fps}]
+                payload, captions, _ = JY.draft_payload(value, root)
+                srt = root / f"captions-{fps}.srt"
+                srt.write_text(JY.subtitles.to_srt(captions))
+                payload.update(drafts_root=str(root), name=f"black-{fps}", srt=str(srt))
+                result = JY.build_draft(payload)
+                draft_path = Path(result["draft_path"])
+                draft = json.loads((draft_path / "draft_info.json").read_text())
+                self.assertEqual((draft["fps"], draft["duration"]), (fps, 2_000_000))
+                video_segments = draft["tracks"][0]["segments"]
+                self.assertEqual(sorted((s["target_timerange"]["start"], s["target_timerange"]["duration"]) for s in video_segments), [(0, 1_000_000), (1_000_000, 1_000_000)])
+                probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries", "stream=avg_frame_rate,nb_read_frames", "-of", "json", str(draft_path / "assets/video/vsc-black-1.mp4")], capture_output=True, text=True, check=True, timeout=30)
+                stream = json.loads(probe.stdout)["streams"][0]
+                self.assertEqual((stream["avg_frame_rate"], int(stream["nb_read_frames"])), (f"{fps}/1", fps))
+
     def test_multitrack_draft_is_written_with_backup_and_record(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

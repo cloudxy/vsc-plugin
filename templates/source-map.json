@@ -1,0 +1,19 @@
+{
+  "format": "vsc.source-map/v1",
+  "summary": "请说明故事依据",
+  "source_units": [
+    {
+      "id": "SU-01",
+      "source_id": "S-0001",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "locator": {
+        "kind": "lines",
+        "start": 1,
+        "end": 1
+      },
+      "fact_or_claim": "请填写依据",
+      "narrative_function": "请说明作用",
+      "claim_kind": "fact"
+    }
+  ]
+}

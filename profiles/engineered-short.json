@@ -1,6 +1,6 @@
 {
   "profile_id": "vsc.engineered-short",
-  "version": "1.0",
+  "version": "2.0",
   "dependency_policy": "previous_stage",
   "label": "工程化叙事短视频",
   "use_case": "需要固定资产、状态时间线、声音计划与场次衔接的叙事短视频",
@@ -43,7 +43,8 @@
         "vsc.shot_plan",
         "vsc.sound_plan",
         "vsc.scene_state",
-        "vsc.sequence_links"
+        "vsc.sequence_links",
+        "vsc.coverage_plan"
       ]
     },
     {
@@ -64,7 +65,8 @@
       "id": "post",
       "label": "剪辑与后期",
       "required": [
-        "vsc.timeline"
+        "vsc.timeline",
+        "vsc.mix"
       ]
     },
     {
@@ -72,7 +74,8 @@
       "label": "审片与交付",
       "required": [
         "vsc.delivery_manifest",
-        "vsc.sample_review"
+        "vsc.sample_review",
+        "vsc.media_qa"
       ]
     }
   ],
@@ -80,5 +83,54 @@
     "creative_decisions": "human",
     "technical_checks": "automatic",
     "external_publish": "not_enabled"
+  },
+  "contract_policy": "production-v2",
+  "ending_functions": [
+    "closure",
+    "resonance",
+    "action",
+    "cliffhanger"
+  ],
+  "dependency_requirements": {
+    "vsc.coverage_plan": [
+      "vsc.screenplay"
+    ],
+    "vsc.shot_plan": [
+      "vsc.screenplay"
+    ],
+    "vsc.sound_plan": [
+      "vsc.screenplay"
+    ],
+    "vsc.animatic": [
+      "vsc.coverage_plan",
+      "vsc.asset_bible"
+    ],
+    "vsc.selected_takes": [
+      "vsc.animatic"
+    ],
+    "vsc.timeline": [
+      "vsc.selected_takes"
+    ],
+    "vsc.mix": [
+      "vsc.timeline",
+      "vsc.sound_plan"
+    ],
+    "vsc.media_qa": [
+      "vsc.timeline",
+      "vsc.mix"
+    ],
+    "vsc.sample_review": [
+      "vsc.media_qa"
+    ],
+    "vsc.delivery_manifest": [
+      "vsc.timeline",
+      "vsc.mix",
+      "vsc.media_qa",
+      "vsc.sample_review"
+    ],
+    "vsc.production_run": [],
+    "vsc.episode_beats": [
+      "vsc.adaptation_plan"
+    ]
   }
 }

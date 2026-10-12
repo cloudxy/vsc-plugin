@@ -168,6 +168,16 @@ def plan(args):
     if not -50 <= args.speech_rate <= 100:
         raise SpeechError("--speech-rate 范围为 -50 到 100")
     inputs = {"prompt": text, "text": text, "references": [], "speaker": args.speaker, "context_texts": args.context}
+    if getattr(args, 'line_id', None):
+        if not getattr(args, 'screenplay', None) or not getattr(args, 'acting_choice', None) or not getattr(args, 'lip_sync_intent', None):
+            raise SpeechError('对白合成需 screenplay、acting-choice、lip-sync-intent')
+        screenplay_path = project_path(project, args.screenplay)
+        screenplay = json.loads(screenplay_path.read_text('utf-8'))
+        lines = [line for scene in screenplay.get('scenes', []) for line in scene.get('dialogue', []) if line.get('id') == args.line_id]
+        if len(lines) != 1 or lines[0].get('text') != text or (args.entity and lines[0].get('speaker') != args.entity):
+            raise SpeechError('line-id / 文本 / speaker 与剧本固定版本不一致')
+        inputs.update(line_id=args.line_id, screenplay={'path': str(screenplay_path.relative_to(project)), 'sha256': sha256(screenplay_path)},
+                      acting_choice=args.acting_choice, lip_sync_intent=args.lip_sync_intent)
     if args.entity:
         if not SAFE_ID.fullmatch(args.entity) or not args.bible:
             raise SpeechError("人物绑定需要有效 --entity 和作品内 --bible")
@@ -368,6 +378,10 @@ def synthesize(args):
         errors = consistency.record_errors(record)
         if errors:
             raise SpeechError("生成记录预检失败：" + "；".join(errors))
+        from vsc_budget import check_authorization
+        check_authorization(project, getattr(args, 'budget_reservation', None),
+            f'speech:{out.relative_to(project)}/{args.name}',
+            {'remote_jobs':1, 'speech_chars':len(binding['inputs']['prompt'])}, request=binding)
         task = {"format": "vsc.speech-task/v1", "binding": binding, "request_id": request_id, "status": "submitted", "submitted_at": record["submitted_at"]}
         write_json(task_file, task)
         write_json(record_file, record)
@@ -390,6 +404,9 @@ def synthesize(args):
                       "voice": args.speaker, "speaker": args.speaker, "resource_id": args.resource_id, "provider": PROVIDER, **metadata}
             if args.entity:
                 output["entity"] = args.entity
+            if binding['inputs'].get('line_id'):
+                output['performance'] = {key: binding['inputs'][key] for key in ('line_id', 'acting_choice', 'lip_sync_intent')}
+                output['performance']['measured_duration_seconds'] = metadata['duration_ms'] / 1000
             record.update(status="succeeded", finished_at=stamp(), outputs=[output])
             errors = consistency.record_errors(record)
             if errors:
@@ -431,6 +448,9 @@ def parser():
     synth.add_argument("--speech-rate", type=int, default=0)
     synth.add_argument("--entity", help="可选人物ID；需要bible")
     synth.add_argument("--bible", help="作品内资产库相对路径")
+    synth.add_argument('--budget-reservation')
+    synth.add_argument('--line-id'); synth.add_argument('--screenplay'); synth.add_argument('--acting-choice')
+    synth.add_argument('--lip-sync-intent', choices=('required', 'offscreen', 'voiceover'))
     synth.add_argument("--max-chars", type=int, required=True, help="本次文本字符预算上限（含标点空白）")
     synth.add_argument("--key-env", default="DOUBAO_SPEECH_API_KEY", help="显式选择语音鉴权环境变量（仅变量名）；不会自动回退")
     mode = synth.add_mutually_exclusive_group()

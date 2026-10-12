@@ -40,3 +40,9 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 需要批量图像／视频时，按[批量生产](../../docs/guide/production-batch.md)准备 `templates/production-batch.json`，先用 `scripts/vsc_production.py validate/plan` 只读预检并审阅任务依赖、输入 SHA 和规模预算，再 `run --execute --plan-hash <hash>`。队列当前只支持方舟 image/video，不接管声音任务；计划 hash 不等于人工批准，未知提交不重提，失败停止下游。
 
 按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `produce` 阶段；除运行环境外，项目授权也须就绪才调用生成工作流。未就绪时保留为可选能力，不伪造供应商调用或生成结果。
+
+## 制作交接 v2
+
+新规则付费制作必须走已批准 production-run、相应 Gate 和项目共享预算；批次 plan hash 不是人工批准。成功先导入 draft，关键候选真实审阅后下游才续跑；最终选择另交 selected-takes。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

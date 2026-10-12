@@ -5,9 +5,15 @@
   "purpose": "candidate",
   "shot_id": "SH-002",
   "inputs": {
-    "anchors_sha256": "92d91f636cc20a48cb64fe6c4230b5918aa6bad0ef44f4f22140e187f114c32e",
+    "anchors_sha256": "be777d85cc624ebd94990258c8d50c924d6ba1ac26c54b0870907872e21c08f1",
     "references": [
-      "0000000000000000000000000000000000000000000000000000000000000000"
+      {
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "media_type": "image",
+        "role": "reference_image",
+        "purpose": "identity",
+        "entity_id": "主角"
+      }
     ],
     "first_frame": {
       "path": "06-素材/帧/SH-001-exit.png",

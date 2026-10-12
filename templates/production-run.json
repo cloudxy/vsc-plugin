@@ -1,0 +1,25 @@
+{
+  "format": "vsc.production-run/v1",
+  "project_id": "请填写",
+  "scope": "project",
+  "batch": {
+    "path": "production-batch.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "approved_inputs": [
+    {
+      "id": "A-0001",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "review_after": [
+    "KEYFRAME"
+  ],
+  "operations": {
+    "image:06-素材/图像/keyframe": {
+      "remote_jobs": 1,
+      "images": 1
+    }
+  }
+}

@@ -18,3 +18,9 @@ BGM 和环境底按场景/情绪段落跨镜铺设，不按每个生成视频重
 - 交付前核对响度：`scripts/media_qa.py check` 的 `--loudness-target` 按发布平台规范填写。
 
 需要把已批准时间线做成可编辑预演或确定性成片时，交给 `/vsc-remotion`。它直接复用本机 Remotion 官方 Skill，并将 VSC 时间线编译为可校验的 `vsc.remotion-render-plan/v1`；不要在本技能中绕过预览与人工导出决定。
+
+## 制作交接 v2
+
+新规则时间线绑定获选媒体 SHA、用途与声音 Cue，混音交付独立索引。正式 QA 完整解码并复检音频区间与固定响度目标；完整结构化审片绑定 render SHA 和 delivery ID。交付包迁移后重新检查媒体，不能借旧本机路径报告过关。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

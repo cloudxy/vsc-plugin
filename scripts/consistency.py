@@ -9,10 +9,10 @@
                                                加 --moment 时只写入点或出点的完整状态，用于生成首帧、尾帧
   record validate FILE                         校验一份生成记录的结构
   visual validate FILE                         校验一份 AI 视觉检查报告（vsc.visual-check/v1）的结构
-  check --bible FILE --state FILE [--continuity PLAN] [--record FILE ...] [--project DIR]
+  check --bible FILE --state FILE [--continuity PLAN] [--selections MAP] [--record FILE ...] [--project DIR]
                                                交叉检查；连续性计划须与时间线一致，生成记录须绑定当前锚点。
                                                同时给出资产图、关键帧与视频的记录时，沿“资产图 → 关键帧 → 视频”追溯
-                                               身份锚定，并核对相邻镜头视频的交界帧是同一张图
+                                               身份锚定，按所选 take 和 bridge.strategy 核对相邻镜头
 
 资产库为人物、道具、物体、地点等实体登记不可变特征、命名变体、参考素材、生成锚点，以及人物音色与物体声音，
 并给出全片统一的字幕样式。状态时间线为每场戏写基线状态，每个镜头只写该镜内发生的变化：任一镜头的入点状态
@@ -25,7 +25,7 @@
 画面按“资产图 → 关键帧 → 视频”三段生成，生成记录相应写明：
 - 资产图：purpose=asset，不写 shot_id；生成后应登记为资产库中对应实体的参考素材。
 - 关键帧：图像记录写 shot_id 和 inputs.moment（entry/exit）。以上一张关键帧为底图编辑或参考时，写 inputs.base_frame（use=edit/reference），身份沿它逐级上溯到资产图。
-- 视频：inputs.first_frame 和 inputs.last_frame 写两帧的 SHA；同场相邻两镜，前一镜的尾帧与后一镜的首帧必须是同一张图。
+- 视频：inputs.first_frame 和 inputs.last_frame 写两帧的 SHA；match_frame 续接要求共用交界帧，其他剪切按 match_fields 核对。
   供应商返回的视频尾帧作为输出登记（role=last_frame），它就是该镜出点，可直接作为下一镜首帧。
 
 视觉检查报告逐条记录 AI 对画面的判断（pass/fail/unsure）与依据，advisory 必须为 true：它只作提醒，不能代替人工批准。
@@ -33,6 +33,7 @@
 import argparse
 import copy
 import hashlib
+import math
 import json
 import re
 import sys
@@ -55,6 +56,10 @@ HOLDABLE = ("prop", "object")
 RIGHTS = ("owned", "licensed", "temp_only", "unknown")
 POSITIONS = ("bottom", "top", "center", "custom")
 ENVIRONMENT_KEYS = ("time", "weather", "lighting")
+PERFORMANCE_KEYS = ("pose", "gaze", "orientation", "holding_hand")
+REFERENCE_PURPOSES = ("identity", "appearance", "composition", "action", "voice", "sound")
+REFERENCE_MEDIA = ("image", "video", "audio")
+BRIDGE_STRATEGIES = ("match_frame", "match_action", "cutaway", "reaction_hold", "occlusion", "whip_pan", "hard_cut", "scene_cut")
 # 实体、变体、场景与镜头 ID：Unicode 字母数字开头，可含点、下划线、连字符，便于与中文连续性计划对齐。
 SAFE_ID = re.compile(r"[^\W_][\w.-]*\Z")
 HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}\Z")
@@ -94,6 +99,52 @@ def _media_errors(item, label, errors):
         errors.append(f"{label}.sha256 必须是 64 位小写十六进制，绑定具体文件版本")
 
 
+def reference_info(ref):
+    """旧 SHA 引用默认是身份图片；新引用保留媒体、用途、实体和版本元数据。"""
+    if isinstance(ref, str):
+        return {"sha256": ref, "media_type": "image", "purpose": "identity"}
+    return {"media_type": "image", "purpose": "identity", **ref}
+
+
+def _reference_errors(ref, label, errors, asset=False):
+    if isinstance(ref, str) and not asset:
+        if not SHA256.fullmatch(ref):
+            errors.append(f"{label} 必须是 SHA-256 或带用途的引用对象")
+        return
+    if not isinstance(ref, dict):
+        errors.append(f"{label} 必须是引用对象")
+        return
+    if asset or "path" in ref:
+        _media_errors(ref, label, errors)
+    elif ref.get("sha256") is None and isinstance(ref.get("source_uri"), str) and ref["source_uri"].startswith(("https://", "http://", "asset://")):
+        pass  # 透明保留未提供内容摘要的远程输入，交叉检查仍不能把它当作已核实身份。
+    elif not isinstance(ref.get("sha256"), str) or not SHA256.fullmatch(ref["sha256"]):
+        errors.append(f"{label}.sha256 必须是 64 位小写十六进制")
+    info = reference_info(ref)
+    if info["media_type"] not in REFERENCE_MEDIA or info["purpose"] not in REFERENCE_PURPOSES:
+        errors.append(f"{label} 必须声明有效 media_type 与 purpose")
+    elif ((info["purpose"] in ("identity", "appearance", "composition") and info["media_type"] != "image")
+          or (info["purpose"] == "action" and info["media_type"] != "video")
+          or (info["purpose"] in ("voice", "sound") and info["media_type"] != "audio")):
+        errors.append(f"{label} 的媒体类别与用途不相容")
+    for key in ("entity_id", "role"):
+        if key in ref and ref[key] is not None and not text(ref[key]):
+            errors.append(f"{label}.{key} 必须是非空字符串或 null")
+    if ref.get("role") and info["media_type"] in REFERENCE_MEDIA and ref["role"] != "reference_" + info["media_type"]:
+        errors.append(f"{label}.role 与 media_type 不一致")
+    variants = ref.get("variants")
+    if variants is not None and not (isinstance(variants, list) and variants and all(text(v) for v in variants)):
+        errors.append(f"{label}.variants 必须是非空变体 ID 数组")
+    if asset and info["purpose"] == "appearance" and not variants:
+        errors.append(f"{label} 的外观参考必须声明适用 variants")
+
+
+def applicable_references(entity, variants):
+    """通用身份可跨变体；专用参考只进入实际使用该变体的镜头。"""
+    return [copy.deepcopy(ref) for ref in entity.get("references", [])
+            if not ref.get("variants") or set(ref["variants"]) & set(variants)]
+
+
 def bible_errors(data):
     errors = []
     if not text(data.get("project_id")):
@@ -127,7 +178,10 @@ def bible_errors(data):
         elif not all(SAFE_ID.fullmatch(name) and text(value) for name, value in variants.items()):
             errors.append(f"{label}.variants 的名称须为安全 ID，说明须为非空字符串")
         for ref_index, ref in enumerate(entity.get("references", [])):
-            _media_errors(ref, f"{label}.references[{ref_index}]", errors)
+            _reference_errors(ref, f"{label}.references[{ref_index}]", errors, asset=True)
+            if isinstance(ref, dict) and isinstance(ref.get("variants"), list) and all(text(v) for v in ref["variants"]) and isinstance(variants, dict):
+                if set(ref["variants"]) - set(variants):
+                    errors.append(f"{label}.references[{ref_index}] 含未登记的变体")
         if "generation" in entity and not isinstance(entity["generation"], dict):
             errors.append(f"{label}.generation 必须是对象")
         voice = entity.get("voice")
@@ -208,12 +262,14 @@ def _entity_state_errors(entity_id, value, label, errors, partial):
         if set(value) != {"exit"}:
             errors.append(f"{label}.{entity_id} 离场时只能写 exit")
         return
-    for key in ("variant", "position"):
+    for key in ("variant", "position", "pose", "gaze", "orientation", "note"):
         if key in value and not text(value[key]):
             errors.append(f"{label}.{entity_id}.{key} 必须是非空字符串")
     if "holding" in value and not (isinstance(value["holding"], list) and all(isinstance(x, str) for x in value["holding"])):
         errors.append(f"{label}.{entity_id}.holding 必须是实体 ID 数组")
-    unknown = set(value) - {"variant", "position", "holding", "note", "exit"}
+    if "holding_hand" in value and value["holding_hand"] not in ("left", "right", "both", "none"):
+        errors.append(f"{label}.{entity_id}.holding_hand 必须是 left/right/both/none")
+    unknown = set(value) - {"variant", "position", "holding", "note", "exit", *PERFORMANCE_KEYS}
     if unknown:
         errors.append(f"{label}.{entity_id} 含未知字段：{'/'.join(sorted(unknown))}")
 
@@ -228,6 +284,8 @@ def _apply(state, changes):
             continue
         current = state["entities"].setdefault(entity_id, {"variant": "default"})
         current.update({key: value for key, value in change.items() if key != "exit"})
+        if change.get("holding") == [] and "holding_hand" not in change and "holding_hand" in current:
+            current["holding_hand"] = "none"
 
 
 def _consistency_errors(snapshot, where, bible, errors):
@@ -235,6 +293,8 @@ def _consistency_errors(snapshot, where, bible, errors):
     entities = snapshot["entities"]
     holders = {}
     for entity_id, value in entities.items():
+        if value.get("holding_hand") in ("left", "right", "both") and not value.get("holding"):
+            errors.append(f"{where}：{entity_id} 声明持物手但没有 holding")
         for held in value.get("holding", []):
             if held not in entities:
                 errors.append(f"{where}：{entity_id} 手持的 {held} 不在场")
@@ -301,6 +361,9 @@ def state_errors(data, bible=None):
             if not isinstance(shot_id, str) or not SAFE_ID.fullmatch(shot_id) or shot_id in shot_ids:
                 errors.append(f"{shot_label}.id 必须在全片唯一，且为安全 ID")
             shot_ids.add(shot_id)
+            camera = shot.get("camera")
+            if camera is not None and (not isinstance(camera, dict) or any(not text(v) for v in camera.values())):
+                errors.append(f"{shot_id}.camera 必须是摄影描述对象；屏幕方向不能写作人物世界朝向")
             changes = shot.get("changes", {})
             if not isinstance(changes, dict) or set(changes) - {"environment", "entities"}:
                 errors.append(f"{shot_id or shot_label}.changes 只能含 environment 与 entities")
@@ -327,6 +390,8 @@ def derive(data):
             entry = copy.deepcopy(state)
             _apply(state, shot.get("changes", {}))
             result[shot["id"]] = {"scene": scene["id"], "location_id": scene["location_id"], "entry": entry, "exit": copy.deepcopy(state)}
+            if shot.get("camera"):
+                result[shot["id"]]["camera"] = copy.deepcopy(shot["camera"])
     return result
 
 
@@ -343,16 +408,19 @@ def anchor_pack(bible, state, shot_id):
     position = order.index(shot_id)
     changes = scene["shots"][position].get("changes", {})
 
-    def entity(entity_id):
+    def entity(entity_id, variants=("default",)):
         source = index.get(entity_id, {})
         result = {key: source[key] for key in ("kind", "name", "identity", "generation") if key in source}
-        result["references"] = source.get("references", [])
+        result["references"] = [ref for ref in applicable_references(source, variants)
+                                if reference_info(ref)["media_type"] != "audio"]
         return result
 
     present = sorted(set(item["entry"]["entities"]) | set(item["exit"]["entities"]))
     entities = {}
     for entity_id in present:
-        info = entity(entity_id)
+        variants = {item[moment]["entities"][entity_id].get("variant", "default") for moment in MOMENTS
+                    if entity_id in item[moment]["entities"]}
+        info = entity(entity_id, variants)
         for moment in ("entry", "exit"):
             value = item[moment]["entities"].get(entity_id)
             if value is not None:
@@ -360,7 +428,7 @@ def anchor_pack(bible, state, shot_id):
                 info[moment] = {**value, "variant_description": index.get(entity_id, {}).get("variants", {}).get(variant)}
         entities[entity_id] = info
     location = entity(item["location_id"])
-    return {
+    pack = {
         "shot": shot_id, "scene": item["scene"],
         "previous_shot": order[position - 1] if position else None,
         "next_shot": order[position + 1] if position + 1 < len(order) else None,
@@ -369,6 +437,29 @@ def anchor_pack(bible, state, shot_id):
         "entities": entities,
         "changes": changes,
     }
+    if item.get("camera"):
+        pack["camera"] = item["camera"]
+    return pack
+
+
+def audio_pack(bible, state, shot_id):
+    """声音消费者独立绑定声音基线，静音图像的视觉摘要不依赖 voice/sound。"""
+    derived, index = derive(state), entity_index(bible)
+    if shot_id not in derived:
+        raise ValueError(f"状态时间线中没有镜头 {shot_id}")
+    item = derived[shot_id]
+    present = set(item["entry"]["entities"]) | set(item["exit"]["entities"]) | {item["location_id"]}
+    entities = {}
+    for entity_id in sorted(present):
+        source = index.get(entity_id, {})
+        info = {key: copy.deepcopy(source[key]) for key in ("voice", "sound") if key in source}
+        variants = {item[m]["entities"][entity_id].get("variant", "default") for m in MOMENTS if entity_id in item[m]["entities"]} or {"default"}
+        refs = [ref for ref in applicable_references(source, variants) if reference_info(ref)["media_type"] == "audio"]
+        if refs:
+            info["references"] = refs
+        if info:
+            entities[entity_id] = info
+    return {"shot": shot_id, "scene": item["scene"], "entities": entities}
 
 
 def pack_sha256(pack):
@@ -396,6 +487,8 @@ def anchor_text(pack, moment=None):
     label = {"entry": "入点", "exit": "出点"}.get(moment, "")
     lines = [f"镜头 {pack['shot']}{label}（{pack['scene']}）。地点：{location.get('name', location['id'])}，"
              f"{describe(location)}；{'、'.join(str(v) for v in pack['environment'][state_moment].values())}。"]
+    if pack.get("camera"):
+        lines.append("摄影：" + "；".join(f"{key}={value}" for key, value in pack["camera"].items()) + "。")
     order = {kind: rank for rank, kind in enumerate(("character", "creature", "vehicle", "prop", "object"))}
     for entity_id, info in sorted(pack["entities"].items(), key=lambda item: (order.get(item[1].get("kind"), 9), item[0])):
         if info.get("kind") == "location":
@@ -410,6 +503,9 @@ def anchor_text(pack, moment=None):
             parts.append(f"位于{entry['position']}")
         if entry.get("holding"):
             parts.append("手持" + named(entry["holding"]))
+        for key, title in (("pose", "姿势"), ("gaze", "视线"), ("orientation", "世界朝向"), ("holding_hand", "持物手"), ("note", "状态备注")):
+            if entry.get(key):
+                parts.append(f"{title}：{entry[key]}")
         lines.append("；".join(parts) + "。")
     if moment:
         return "\n".join(lines)
@@ -428,6 +524,9 @@ def anchor_text(pack, moment=None):
         if "variant" in change:
             exit_state = pack["entities"].get(entity_id, {}).get("exit", {})
             steps.append(f"变为{exit_state.get('variant_description') or change['variant']}")
+        for key, title in (("pose", "姿势"), ("gaze", "视线"), ("orientation", "世界朝向"), ("holding_hand", "持物手"), ("note", "状态备注")):
+            if key in change:
+                steps.append(f"{title}变为{change[key]}")
         moves.append(name + "，".join(steps))
     lines.append("本镜变化：" + ("；".join(moves) if moves else "无") + "。")
     return "\n".join(lines)
@@ -466,8 +565,13 @@ def record_errors(record):
             errors.append(f"inputs.base_frame.use 必须是 {'/'.join(BASE_USES)}")
     if inputs.get("anchors_sha256") is not None and not (isinstance(inputs["anchors_sha256"], str) and SHA256.fullmatch(inputs["anchors_sha256"])):
         errors.append("inputs.anchors_sha256 必须是 64 位小写十六进制或 null")
-    if not (isinstance(inputs.get("references", []), list) and all(isinstance(x, str) and SHA256.fullmatch(x) for x in inputs.get("references", []))):
-        errors.append("inputs.references 必须是参考素材 SHA-256 数组")
+    if inputs.get("audio_anchors_sha256") is not None and not (isinstance(inputs["audio_anchors_sha256"], str) and SHA256.fullmatch(inputs["audio_anchors_sha256"])):
+        errors.append("inputs.audio_anchors_sha256 必须是 64 位小写十六进制或 null")
+    if not isinstance(inputs.get("references", []), list):
+        errors.append("inputs.references 必须是参考素材 SHA-256 或带用途的引用数组")
+    else:
+        for index, ref in enumerate(inputs.get("references", [])):
+            _reference_errors(ref, f"inputs.references[{index}]", errors)
     for key in ("first_frame", "last_frame"):
         frame = inputs.get(key)
         if frame is not None:
@@ -500,6 +604,13 @@ def record_errors(record):
         _media_errors(output, label, errors)
         if not isinstance(output, dict):
             continue
+        if output.get('performance') is not None:
+            performance = output['performance']
+            if (not isinstance(performance, dict) or not all(text(performance.get(k)) for k in ('line_id','acting_choice','lip_sync_intent'))
+                    or performance.get('lip_sync_intent') not in ('required','offscreen','voiceover')
+                    or not number(performance.get('measured_duration_seconds'), 0, False)
+                    or not math.isfinite(performance['measured_duration_seconds'])):
+                errors.append(f'{label}.performance 必须绑定台词、表演、口型用途和有限正数实测时长')
         output_id = output.get("id")
         if not text(output_id) or output_id in ids:
             errors.append(f"{label}.id 必须唯一")
@@ -544,7 +655,8 @@ def identity_references(record, keyframes, seen=(), project_id=None):
     if not _anchor_record(record, project_id) or id(record) in seen:
         return set()
     inputs = record.get("inputs", {})
-    used = set(inputs.get("references", []))
+    used = {reference_info(ref)["sha256"] for ref in inputs.get("references", [])
+            if reference_info(ref).get("sha256") and reference_info(ref)["purpose"] == "identity" and reference_info(ref)["media_type"] == "image"}
     base = (inputs.get("first_frame" if record.get("kind") == "video" else "base_frame") or {}).get("sha256")
     for source in keyframe_sources(keyframes, base, project_id):
         used |= identity_references(source, keyframes, (*seen, id(record)), project_id)
@@ -566,6 +678,13 @@ def record_problems(record, bible, state, project=None, keyframes=None):
         problems.append("生成记录与资产库的 project_id 不一致")
     index, inputs = entity_index(bible), record.get("inputs", {})
     label = record.get("shot_id") or record.get("kind")
+    if record.get("kind") == "audio" and inputs.get("audio_anchors_sha256") is not None:
+        try:
+            sounds = audio_pack(bible, state, record.get("shot_id"))
+            if inputs["audio_anchors_sha256"] != pack_sha256(sounds):
+                problems.append(f"{label}：声音基线已改动，涉及声音的 take 需复核或重生成")
+        except ValueError as exc:
+            problems.append(str(exc))
     if record.get("purpose") == "asset" and record.get("kind") == "image":
         registered = {ref["sha256"] for entity in bible.get("entities", []) for ref in entity.get("references", [])}
         for output in record.get("outputs", []):
@@ -580,11 +699,32 @@ def record_problems(record, bible, state, project=None, keyframes=None):
             problems.append(f"{label}：生成时没有绑定锚点包，无法证明与资产库和时间线一致")
         elif inputs["anchors_sha256"] != pack_sha256(pack):
             problems.append(f"{label}：生成后资产库或时间线改动了本镜锚点，take 可能已过期，需复核或重生成")
-        allowed = {ref["sha256"]: entity_id for entity_id, info in pack["entities"].items() for ref in info.get("references", [])}
-        allowed.update({ref["sha256"]: pack["location"]["id"] for ref in pack["location"].get("references", [])})
-        for sha in sorted(set(inputs.get("references", [])) - set(allowed)):
-            problems.append(f"{label}：参考素材 {sha[:12]} 不属于本镜在场的实体或地点")
-        used = (set(inputs.get("references", [])) if record.get("kind") == "video"
+        allowed = []
+        for entity_id, info in [*pack["entities"].items(), (pack["location"]["id"], pack["location"])]:
+            allowed += [(entity_id, reference_info(ref)) for ref in info.get("references", [])]
+        sounds = audio_pack(bible, state, record["shot_id"])
+        for entity_id, info in sounds["entities"].items():
+            allowed += [(entity_id, reference_info(ref)) for ref in info.get("references", [])]
+            if info.get("sound"):
+                allowed.append((entity_id, {**info["sound"], "media_type": "audio", "purpose": "sound"}))
+        audio_bound = inputs.get("audio_anchors_sha256")
+        if audio_bound is not None and audio_bound != pack_sha256(sounds):
+            problems.append(f"{label}：声音基线已改动，涉及声音的 take 需复核或重生成")
+        for ref in inputs.get("references", []):
+            info = reference_info(ref)
+            if not info.get("sha256"):
+                problems.append(f"{label}：远程 {info['role'] if info.get('role') else info['media_type']} 缺少内容 SHA-256，无法核对来源与身份")
+                continue
+            same_sha = [(entity_id, candidate) for entity_id, candidate in allowed if candidate["sha256"] == info["sha256"]]
+            compatible = [(entity_id, candidate) for entity_id, candidate in same_sha
+                          if candidate["media_type"] == info["media_type"] and candidate["purpose"] == info["purpose"]
+                          and (not info.get("entity_id") or info["entity_id"] == entity_id)]
+            if not compatible:
+                problems.append(f"{label}：参考素材 {info['sha256'][:12]} 不属于本镜在场的实体或地点，或用途/变体/实体绑定不适用")
+            if info["media_type"] == "audio" and audio_bound is None:
+                problems.append(f"{label}：声音参考没有绑定独立 audio_anchors_sha256")
+        used = ({reference_info(ref)["sha256"] for ref in inputs.get("references", [])
+                 if reference_info(ref).get("sha256") and reference_info(ref)["media_type"] == "image" and reference_info(ref)["purpose"] == "identity"} if record.get("kind") == "video"
                 else identity_references(record, keyframes, project_id=bible.get("project_id")))
         base = inputs.get("base_frame")
         if base and keyframes and not keyframe_sources(keyframes, base["sha256"], bible.get("project_id")):
@@ -602,7 +742,8 @@ def record_problems(record, bible, state, project=None, keyframes=None):
                     if moment_of(source) in boundaries[key]:
                         used |= identity_references(source, keyframes, project_id=bible.get("project_id"))
         for entity_id, info in pack["entities"].items():
-            if info.get("kind") in ("character", "creature") and not used & {ref["sha256"] for ref in info.get("references", [])}:
+            if info.get("kind") in ("character", "creature") and not used & {ref["sha256"] for ref in info.get("references", [])
+                                                                           if reference_info(ref)["purpose"] == "identity"}:
                 warnings.append(f"{label}：{entity_id} 没有使用任何参考素材或由资产图生成的关键帧，身份只靠文字锚定")
         frame = inputs.get("first_frame") or {}
         if frame.get("from") == "previous_exit" and frame.get("shot") != pack["previous_shot"]:
@@ -627,6 +768,7 @@ def record_problems(record, bible, state, project=None, keyframes=None):
     if project:
         items = [(f"{label} 输出 {output.get('id')}", output) for output in record.get("outputs", [])]
         items += [(f"{label} {key}", inputs[key]) for key in ("first_frame", "last_frame", "base_frame") if inputs.get(key)]
+        items += [(f"{label} 参考", ref) for ref in inputs.get("references", []) if isinstance(ref, dict) and ref.get("path")]
         for name, item in items:
             path = Path(project) / item["path"]
             if not path.is_file():
@@ -707,15 +849,86 @@ def moment_of(record):
     return record.get("shot_id"), "exit" if record.get("kind") == "video" else record.get("inputs", {}).get("moment")
 
 
-def chain_problems(records, state):
-    """同场相邻视频以实际尾帧核对交界；未返回实际尾帧时才退回请求尾帧。"""
-    videos = {record["shot_id"]: record for record in records
-              if _anchor_record(record, state.get("project_id")) and record.get("kind") == "video"}
-    problems = []
+def selected_videos(records, project_id=None, selections=None):
+    """解析选择但不作选择。映射是 {shot_id: output_id 或 {output_id, sha256?}}。
+
+    没有外部映射时读取带选择人的旧 record.selection；单候选可作技术检查，多候选不得依赖输入顺序。
+    此接口不验证清单批准，正式消费者应先通过产物模块解析已批准清单。
+    """
+    grouped, videos, problems = {}, {}, []
+    for record in records:
+        if _anchor_record(record, project_id) and record.get("kind") == "video":
+            grouped.setdefault(record["shot_id"], []).append(record)
+    selections = selections or {}
+    for shot in sorted(set(grouped) | set(selections)):
+        candidates = grouped.get(shot, [])
+        choice = selections.get(shot)
+        if choice is not None:
+            choice = {"output_id": choice} if isinstance(choice, str) else choice
+            if not isinstance(choice, dict) or not text(choice.get("output_id")):
+                problems.append(f"{shot}：选择映射必须写 output_id")
+                continue
+            selected = [record for record in candidates if any(
+                not output.get("role") and output["id"] == choice["output_id"]
+                and (not choice.get("sha256") or output["sha256"] == choice["sha256"])
+                for output in record["outputs"])]
+        else:
+            selected = [record for record in candidates if record.get("selection") and any(
+                not output.get("role") and output["id"] == record["selection"]["output_id"] for output in record["outputs"])]
+            if not selected and any(record.get("selection") for record in candidates):
+                problems.append(f"{shot}：选择没有指向视频主输出")
+                continue
+            if not selected and len(candidates) == 1 and sum(not output.get("role") for output in candidates[0]["outputs"]) == 1:
+                selected = candidates
+        if len(selected) != 1:
+            reason = "选择未匹配到有效视频候选" if choice is not None and not selected else "多个候选存在歧义，必须显式选择 take"
+            problems.append(f"{shot}：{reason}")
+        else:
+            videos[shot] = selected[0]
+    return videos, problems
+
+
+def _field(value, path):
+    for key in path.split("."):
+        if not isinstance(value, dict) or key not in value:
+            return False, None
+        value = value[key]
+    return True, value
+
+
+def chain_problems(records, state, continuity=None, selections=None):
+    """按所选 take 和桥接策略核对；仅 match_frame 要求同帧，其他剪切核对声明状态。"""
+    videos, problems = selected_videos(records, state.get("project_id"), selections)
+    planned = {shot["id"]: shot for shot in (continuity or {}).get("shots", []) if isinstance(shot, dict) and "id" in shot}
     for scene in state["scenes"]:
         order = [shot["id"] for shot in scene["shots"]]
         for previous, current in zip(order, order[1:]):
             if previous in videos and current in videos:
+                bridge = planned.get(previous, {}).get("bridge_to_next", {})
+                strategy = bridge.get("strategy")
+                # 老记录只在首帧明确声明 previous_exit 时保留同帧语义，缺策略不能猜测剪切意图。
+                if not strategy and continuity is None:
+                    first = videos[current].get("inputs", {}).get("first_frame") or {}
+                    if first.get("from") == "previous_exit" and first.get("shot") == previous:
+                        strategy = "match_frame"
+                if strategy not in BRIDGE_STRATEGIES:
+                    problems.append(f"{previous}→{current}：缺少或不支持 bridge.strategy，无法确定连续性规则")
+                    continue
+                before, after = planned.get(previous, {}).get("exit_state", {}), planned.get(current, {}).get("entry_state", {})
+                fields = bridge.get("match_fields", [])
+                if not isinstance(fields, list) or any(not text(field) for field in fields):
+                    problems.append(f"{previous}→{current}：match_fields 必须是字段路径数组")
+                    continue
+                if strategy == "match_action" and not fields:
+                    problems.append(f"{previous}→{current}：match_action 缺少 match_fields，无法核对动作状态")
+                for field in fields:
+                    left, right = _field(before, field), _field(after, field)
+                    if not left[0] or not right[0]:
+                        problems.append(f"{previous}→{current}：match_fields {field} 在出点或入点状态缺失")
+                    elif left[1] != right[1]:
+                        problems.append(f"{previous}→{current}：{field} 出入点状态不一致（{left[1]} → {right[1]}）")
+                if strategy != "match_frame":
+                    continue
                 tails = {output["sha256"] for output in videos[previous]["outputs"] if output.get("role") == "last_frame"}
                 if not tails:
                     tails = {(videos[previous].get("inputs", {}).get("last_frame") or {}).get("sha256")}
@@ -758,6 +971,9 @@ def continuity_problems(plan, derived, bible):
                 prop = character.get("prop")
                 if prop in index and prop not in state.get("holding", []):
                     problems.append(f"{where}：{name} 拿着 {prop}，时间线此刻没有")
+                for field in PERFORMANCE_KEYS:
+                    if field in character and field in state and character[field] != state[field]:
+                        problems.append(f"{where}：{name} 的 {field}={character[field]}，时间线为 {state[field]}")
     return problems, warnings
 
 
@@ -792,6 +1008,7 @@ def main():
     command.add_argument("--bible", required=True)
     command.add_argument("--state", required=True)
     command.add_argument("--continuity")
+    command.add_argument("--selections", help="已解析的 {shot_id: output_id 或 {output_id, sha256}} JSON；不会自动写入选择")
     command.add_argument("--record", action="append", default=[])
     command.add_argument("--project")
     args = parser.parse_args()
@@ -839,6 +1056,7 @@ def main():
             if not problems and args.project:
                 problems = media_problems(bible_data, args.project)
             warnings = []
+            plan = None
             if not problems and args.continuity:
                 plan = json.loads(Path(args.continuity).read_text("utf-8"))
                 problems, warnings = continuity_problems(plan, derive(data), bible_data)
@@ -855,7 +1073,10 @@ def main():
                 problems += [f"{Path(path).name}：{item}" for item in found]
                 warnings += [f"{Path(path).name}：{item}" for item in notes]
             if records and not problems:
-                problems += chain_problems([record for _, record in records], data)
+                selections = json.loads(Path(args.selections).read_text("utf-8")) if args.selections else None
+                if selections is not None and not isinstance(selections, dict):
+                    raise ValueError("--selections 必须是镜头到输出的映射对象")
+                problems += chain_problems([record for _, record in records], data, plan, selections)
             for warning in warnings:
                 print(f"WARN {warning}")
             label = "资产库与状态时间线"

@@ -36,3 +36,9 @@ python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./07-后�
 图像／视频可用[批量生产队列](../../docs/guide/production-batch.md)按 plan hash 执行，但当前队列不包含声音任务；声音按场景／段落生产后由剪辑阶段放入独立音轨。
 
 音频生成或延长不应承担对白真伪、音乐版权或场景连续性的全部责任。将对白、BGM、环境声和 SFX 分轨保存；每个音频资产都写使用权、版本、时码和最终选择人。
+
+## 制作交接 v2
+
+新规则对白 Cue 回指固定剧本行 ID、表演及口型用途；候选记录实测时长。mix 对照 timeline 检查实际 Cue 覆盖和 J/L cut。原生音画须具名人工审听/口型复核，不用 AI 推断替代。
+
+规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

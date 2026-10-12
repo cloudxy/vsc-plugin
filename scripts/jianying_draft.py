@@ -40,6 +40,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
+import subtitles
 
 logger = logging.getLogger("vsc.jianying")
 
@@ -54,6 +55,7 @@ class SubtitleStyle:
     stroke_width: float = 1.5
     subtitle_position: str = "bottom"
     custom_position: float = 70.0
+    font: Optional[str] = None
 
 
 def _parse_srt_like_time(time_text: str) -> float:
@@ -645,7 +647,7 @@ def _resolve_subtitle_text_size(params: SubtitleStyle) -> float:
         font_size = float(raw_size)
     except (TypeError, ValueError):
         font_size = 60.0
-    return max(4.0, min(10.0, font_size / 12.0))
+    return font_size / 12.0
 
 
 def _resolve_subtitle_transform_y(params: SubtitleStyle) -> float:
@@ -692,6 +694,8 @@ def _create_text_material(text: str, params: SubtitleStyle) -> Dict[str, Any]:
         "underline": False,
         "strokes": [],
     }
+    if params.font:
+        text_style["font"] = {"path": params.font, "id": ""}
     check_flag = 7
     if stroke_width > 0:
         text_style["strokes"] = [
@@ -757,47 +761,25 @@ def _create_text_segment(
     }
 
 
-def _parse_srt_entries(subtitle_path: str) -> List[Tuple[float, float, str]]:
+def _parse_srt_entries(subtitle_path: str, strict=False, duration=None) -> List[Tuple[float, float, str]]:
     if not subtitle_path or not os.path.exists(subtitle_path):
+        if strict:
+            raise subtitles.SubtitleError(["字幕文件不存在"])
         return []
 
     with open(subtitle_path, "r", encoding="utf-8-sig") as f:
         content = f.read().strip()
-    if not content:
-        return []
-
-    entries: List[Tuple[float, float, str]] = []
-    for block in re.split(r"\n\s*\n", content):
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        time_line_index = next(
-            (index for index, line in enumerate(lines) if "-->" in line),
-            None,
-        )
-        if time_line_index is None or time_line_index + 1 >= len(lines):
-            continue
-
-        try:
-            start_text, end_text = lines[time_line_index].split("-->", 1)
-            start = _parse_srt_like_time(start_text)
-            end = _parse_srt_like_time(end_text)
-        except Exception as e:
-            logger.warning(f"解析剪映字幕时间失败，跳过字幕块: {e}")
-            continue
-
-        text = "\n".join(lines[time_line_index + 1:]).strip()
-        if end <= start or not text:
-            continue
-        entries.append((start, end, text))
-
-    return entries
+    return subtitles.parse_srt(content, strict=strict, duration=duration)
 
 
 def _add_subtitle_track_from_srt(
     draft: Dict[str, Any],
     subtitle_path: str,
     params: SubtitleStyle,
+    strict=False,
+    duration=None,
 ) -> int:
-    entries = _parse_srt_entries(subtitle_path)
+    entries = _parse_srt_entries(subtitle_path, strict=strict, duration=duration)
     if not entries:
         return 0
 

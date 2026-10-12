@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -26,19 +27,28 @@ import subtitles
 DEFAULT_DRAFTS_ROOT = Path.home() / "Movies" / "JianyingPro" / "User Data" / "Projects" / "com.lveditor.draft"
 FADE_KEYS = ("fade_in_frames", "fade_out_frames", "audio_fade_in_frames", "audio_fade_out_frames")
 FORMAT_NOTE = "剪映草稿为非官方公开格式，可能随剪映版本失效；须在剪映中打开核验。"
+SUPPORTED_FPS = (24, 25, 30)
 
 
 class ExportError(RuntimeError):
     """计划、素材或上游环境不满足导出条件。"""
 
 
-def draft_payload(plan, media_root):
+def draft_payload(plan, media_root, subtitle_style=None):
     """把时间线计划映射为剪映写入器的输入；返回 (payload, 未迁移项)。"""
     errors = remotion_plan.validate(plan)
     if errors:
         raise ExportError("时间线计划无效：" + "；".join(errors))
     composition = plan["composition"]
     fps = remotion_plan.frame_rate(composition["fps"])
+    if fps not in SUPPORTED_FPS or isinstance(composition["fps"], dict):
+        raise ExportError("剪映导出仅支持整数 24/25/30 fps；分数与其他帧率尚未验证，拒绝导出")
+    try:
+        style, _ = subtitles.resolve_style(overrides=subtitle_style)
+    except (OSError, ValueError) as exc:
+        raise ExportError(str(exc)) from exc
+    if style.get("background") or style.get("rounded"):
+        raise ExportError("剪映导出尚不支持字幕背景/圆角样式，拒绝静默丢失")
 
     def us(frames):
         return round(frames * 1_000_000 / fps)
@@ -54,7 +64,7 @@ def draft_payload(plan, media_root):
                 missing.append(f"{label}：{segment['source']}")
                 continue
             volume = 0.0 if segment.get("muted") else float(segment.get("volume", 1.0))
-            item = {"id": label, "path": str(path), "start_us": us(start), "duration_us": us(length),
+            item = {"id": label, "path": str(path), "start_us": us(start), "duration_us": us(start + length) - us(start),
                     "source_start_us": us(segment.get("source_in_frame", 0)), "volume": volume}
             if kind == "video":
                 track = next((index for index, end in enumerate(track_ends) if end <= start), len(track_ends))
@@ -78,7 +88,18 @@ def draft_payload(plan, media_root):
         raise ExportError("素材不存在：" + "；".join(missing))
     if not video:
         raise ExportError("计划中没有可导出的视频片段")
-    payload = {"width": composition["width"], "height": composition["height"], "video": video, "audio": audio}
+    cursor, black = 0, []
+    for start, end in sorted((s["from_frame"], s["from_frame"] + s["duration_in_frames"]) for s in plan["segments"] if s["kind"] == "video"):
+        if start > cursor:
+            black.append([cursor, start])
+        cursor = max(cursor, end)
+    if cursor < composition["duration_in_frames"]:
+        black.append([cursor, composition["duration_in_frames"]])
+    if black and (composition["width"] % 2 or composition["height"] % 2):
+        raise ExportError("显式黑场编码需要偶数画幅尺寸，当前规格不支持")
+    payload = {"width": composition["width"], "height": composition["height"], "fps": int(fps),
+               "duration_us": us(composition["duration_in_frames"]), "duration_in_frames": composition["duration_in_frames"],
+               "black_intervals_frames": black, "subtitle_style": style, "video": video, "audio": audio}
     return payload, captions, dropped
 
 
@@ -89,12 +110,16 @@ def sha256(path):
 def build_draft(payload):
     """在剪映草稿根目录写入多轨草稿，返回 {"draft_path", "folder"}。"""
     root, name = payload["drafts_root"], payload["name"]
+    if payload.get("fps") not in SUPPORTED_FPS or not isinstance(payload.get("duration_us"), int) or payload["duration_us"] <= 0:
+        raise ExportError("草稿输入缺少受支持的 fps 或固定总时长")
     folder, draft_path = jd._create_unique_draft_path(root, name)
     os.makedirs(draft_path, exist_ok=False)
     for relative in jd.DRAFT_PACKAGE_DIRECTORIES:
         os.makedirs(os.path.join(draft_path, *relative.split("/")), exist_ok=True)
     draft_id = uuid.uuid4().hex
     draft = jd._create_draft_template(draft_id, name, root, payload["width"], payload["height"])
+    draft["fps"] = float(payload["fps"])
+    draft["canvas_config"]["background"] = {"type": "color", "color": "#000000"}
     used, copied, durations, metadata, materials = set(), {}, {}, {}, {}
 
     video_tracks = []
@@ -111,6 +136,23 @@ def build_draft(payload):
         video_tracks[item["track"]]["segments"].append(jd._create_video_segment(
             material["id"], item["source_start_us"], item["duration_us"], item["start_us"], item["volume"]))
 
+    for index, (start, end) in enumerate(payload.get("black_intervals_frames", [])):
+        relative = f"assets/video/vsc-black-{index + 1}.mp4"
+        target = Path(draft_path) / relative
+        try:
+            result = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                                     f"color=c=black:s={payload['width']}x{payload['height']}:r={payload['fps']}",
+                                     "-frames:v", str(end - start), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(target)],
+                                    capture_output=True, text=True, timeout=300, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ExportError(f"显式黑场编码未完成：{exc}") from exc
+        if result.returncode:
+            raise ExportError("显式黑场编码失败：" + result.stderr[-500:])
+        start_us, end_us = (round(frame * 1_000_000 / payload["fps"]) for frame in (start, end))
+        material = jd._create_video_material(relative, end_us - start_us, payload["width"], payload["height"])
+        draft["materials"]["videos"].append(material)
+        video_tracks[0]["segments"].append(jd._create_video_segment(material["id"], 0, end_us - start_us, start_us, 0))
+
     audio_tracks = []
     for item in payload["audio"]:
         duration_us = jd._seconds_to_microseconds(jd._get_cached_media_duration(item["path"], durations))
@@ -125,33 +167,53 @@ def build_draft(payload):
         audio_tracks.append(track)
 
     draft["tracks"] = video_tracks + audio_tracks
-    end_us = max(item["start_us"] + item["duration_us"] for item in payload["video"] + payload["audio"])
+    end_us = payload["duration_us"]
     if payload.get("srt"):
-        end_us = max(end_us, jd._add_subtitle_track_from_srt(draft, payload["srt"], jd.SubtitleStyle()))
+        style = payload.get("subtitle_style") or subtitles.DEFAULT_STYLE
+        if style.get("font"):
+            if not Path(style["font"]).is_file():
+                raise ExportError(f"字幕字体不存在：{style['font']}")
+            font_path = jd._register_asset(style["font"], draft_path, "assets/fonts", Path(style["font"]).name, used, copied)
+            style = {**style, "font": jd._to_draft_material_path(font_path)}
+        params = jd.SubtitleStyle(font_size=style["font_size"], text_fore_color=style["color"], stroke_color=style["stroke_color"],
+                                  stroke_width=style["stroke_width"], subtitle_position=style["position"], custom_position=style["custom_position"], font=style.get("font"))
+        jd._add_subtitle_track_from_srt(draft, payload["srt"], params, strict=True, duration=end_us / 1_000_000)
     draft["canvas_config"]["width"], draft["canvas_config"]["height"] = payload["width"], payload["height"]
     draft["duration"] = end_us
     draft["update_time"] = int(time.time() * jd.MICROSECONDS)
-    asset_size = sum(os.path.getsize(path) for path in copied if os.path.exists(path))
+    asset_size = sum(path.stat().st_size for path in (Path(draft_path) / "assets").rglob("*") if path.is_file())
     jd._write_plaintext_draft_files(root, draft_path, name, draft_id, draft, asset_size)
     return {"draft_path": draft_path, "folder": folder}
 
 
-def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_DRAFTS_ROOT, dry_run=False):
+def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_DRAFTS_ROOT, dry_run=False, bible=None):
     plan_path, project = Path(plan_path).resolve(), Path(project).resolve()
     if not (project / "vsc.json").is_file():
         raise ExportError(f"不是 VSC 项目：{project}")
     try:
         plan = remotion_plan.load_plan(plan_path)
+        if isinstance(plan, dict) and plan.get("format") == "vsc.timeline/v1":
+            plan = plan.get("render_plan")
     except ValueError as exc:
         raise ExportError(str(exc)) from exc
-    payload, captions, dropped = draft_payload(plan, Path(media_root or plan_path.parent))
+    try:
+        bible_bytes = Path(bible).read_bytes() if bible else None
+        style, style_source = subtitles.resolve_style(bible)
+        if bible and Path(bible).read_bytes() != bible_bytes:
+            raise ValueError("资产库在字幕样式解析过程中变更，请重试")
+    except ValueError as exc:
+        raise ExportError(str(exc)) from exc
+    payload, captions, dropped = draft_payload(plan, Path(media_root or plan_path.parent), style)
+    warnings = [FORMAT_NOTE]
+    if captions:
+        warnings.append("字幕字体、字号与安全区采用共享样式映射；剪映排版与烧录器的像素结果仍须逐版本人工回看")
     name = name or f"VSC-{plan['composition']['id']}"
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     output = project / "07-后期" / "剪映草稿" / f"{name}-{stamp}"
     summary = {"video": len(payload["video"]), "video_tracks": len({item["track"] for item in payload["video"]}),
                "audio_tracks": len(payload["audio"]), "captions": len(captions)}
     if dry_run:
-        return None, {"summary": summary, "dropped": dropped}
+        return None, {"summary": summary, "dropped": dropped, "warnings": warnings, "fps": payload["fps"], "duration_us": payload["duration_us"]}
     drafts_root = Path(drafts_root)
     if not drafts_root.is_dir():
         raise ExportError(f"剪映草稿目录不存在：{drafts_root}（用 --drafts-root 指定）")
@@ -176,6 +238,9 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
         "draft": result,
         "summary": summary,
         "dropped": dropped,
+        "warnings": warnings,
+        "fps": payload["fps"], "duration_us": payload["duration_us"], "black_intervals_frames": payload["black_intervals_frames"],
+        "subtitle_style": {"source": style_source, "resolved": style, "bible_sha256": hashlib.sha256(bible_bytes).hexdigest() if bible_bytes is not None else None},
         "root_meta_backup": str(backup.relative_to(project)) if backup else None,
         "exported_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
     }
@@ -191,11 +256,12 @@ def main():
     command.add_argument("--project", required=True)
     command.add_argument("--media-root", help="source 的解析根目录，默认是计划文件所在目录")
     command.add_argument("--name", help="草稿名称，默认 VSC-<composition.id>")
+    command.add_argument("--bible", help="共享资产库 subtitle_style")
     command.add_argument("--drafts-root", default=str(DEFAULT_DRAFTS_ROOT), help="剪映草稿根目录")
     command.add_argument("--dry-run", action="store_true", help="只检查映射与未迁移项，不写草稿")
     args = parser.parse_args()
     try:
-        output, record = export(args.plan, args.project, args.media_root, args.name, args.drafts_root, args.dry_run)
+        output, record = export(args.plan, args.project, args.media_root, args.name, args.drafts_root, args.dry_run, args.bible)
     except ExportError as exc:
         raise SystemExit(f"错误：{exc}")
     summary = record["summary"]
@@ -203,6 +269,8 @@ def main():
           + ("（dry-run，未写入）" if output is None else f" → {record['draft']['draft_path']}"))
     for item in record["dropped"]:
         print(f"  未迁移：{item}")
+    for warning in record.get("warnings", []):
+        print("  警告：" + warning)
     if output is not None:
         print(f"导出记录：{output / '导出记录.json'}")
         print("注意：" + FORMAT_NOTE)

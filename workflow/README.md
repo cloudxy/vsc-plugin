@@ -32,3 +32,5 @@ python3 scripts/vsc_kernel.py contract validate vsc.production-batch/v1 ./批次
 业务团队可以复制 `profiles/` 来改变阶段顺序和 Gate；Profile 中的阶段必须由内核中至少一个入口覆盖，才能获得明确的责任与路由。
 
 v0.9 项目固定 Profile 内容，批准／消费共用产物版本检查。`artifact_types` 绑定必需 JSON 契约；新增类型不能在多个契约中重复绑定。默认 Profile 要求前一阶段基线，交付需要真实成片与人工审片；连续短剧从剧本起逐集验收。详见 [升级与兼容性](../docs/releases/v0.9.md)。
+
+制作交接与正式运行规则见 [production-v2](production-v2.md)，契约字段仍以 contracts.json 为准。
