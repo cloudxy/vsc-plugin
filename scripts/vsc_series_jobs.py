@@ -26,6 +26,12 @@ def register_provider(project, name, modalities, auth_ref=None, base_url=None, r
         raise SeriesError("Provider 名称与模态必须明确")
     if auth_ref and not auth_ref.startswith("env:"):
         raise SeriesError(f"auth_ref 只能指向环境变量，例如 env:{credentials.KEY_ENV}")
+    if name == "volc_ark":
+        if auth_ref != f"env:{credentials.KEY_ENV}":
+            raise SeriesError("火山方舟 Agent Plan Provider 须使用专属 key 的环境变量引用")
+        if base_url and base_url.rstrip("/") != credentials.PLAN_BASE:
+            raise SeriesError("火山方舟 Agent Plan Provider 须使用专属 Base URL")
+        base_url = credentials.PLAN_BASE
     with project_lock(Path(project)), db.connect(project) as connection:
         connection.execute("INSERT INTO providers VALUES (?,?,?,?,?,?,?)",
             (name, db.canonical(sorted(set(modalities))), base_url, auth_ref, 1, rate_limit, stamp()))

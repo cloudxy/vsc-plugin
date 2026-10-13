@@ -11,6 +11,7 @@ import os
 import re
 
 KEY_ENV = "ARK_AGENT_PLAN_API_KEY"
+PLAN_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3"
 RELOAD = "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量"
 TEXT_MODELS_FORBIDDEN = ("方舟 Agent Plan 规则：文本生成模型及向量化模型不可用于 API 调用；"
                          f"{KEY_ENV} 只用于图片、视频与语音生成，视觉检查和图生文请改为人工审看")

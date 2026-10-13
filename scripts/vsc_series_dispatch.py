@@ -152,6 +152,13 @@ def submit_job(project, job_id, adapter=None, download=None):
     if gaps:
         raise SeriesError("正式制作质量门未通过：" + "；".join(gaps))
     adapter = adapter or jobs.adapter_for_job(project, job_id)
+    if job["provider"] == "volc_ark":
+        from vsc_volc_provider import VolcArkImageProvider, VolcArkVideoProvider
+        if isinstance(adapter, (VolcArkImageProvider, VolcArkVideoProvider)):
+            import volc_ark
+            volc_ark.base_url()  # Reject a standard pay-as-you-go endpoint before reserving budget.
+            if job["modality"] == "video":
+                volc_ark.require_personal_video_tier()
     operation = frozen["operation"]
     bound = run["operations"][operation]
     reservation = budget.reserve(project, job["run_artifact_id"], operation, bound)
