@@ -19,6 +19,8 @@ import vsc_series_jobs as jobs
 import vsc_series_dispatch as dispatch
 import vsc_series_export as series_export
 import vsc_series_query as series_query
+import vsc_series_selection as selection
+import vsc_handoffs
 import vsc_budget as budget
 from vsc_provider import GeneratedAsset, JobHandle, JobStatus
 from vsc_state import project_state, save
@@ -41,6 +43,17 @@ class FakeImageAdapter:
 
     def parse_result(self, raw):
         return [GeneratedAsset("image", temporary_uri=raw["data"][0]["url"])]
+
+
+class FakeVideoAdapter:
+    def submit(self, req):
+        return JobHandle("volc_ark", "symbolic-video", "external-video-1")
+
+    def poll(self, handle):
+        return JobStatus("succeeded", raw={"content": {"video_url": "https://example.invalid/v.mp4?sig=secret"}})
+
+    def parse_result(self, raw):
+        return [GeneratedAsset("video", temporary_uri=raw["content"]["video_url"])]
 
 
 class SeriesDatabase(unittest.TestCase):
@@ -422,6 +435,96 @@ class SeriesDatabase(unittest.TestCase):
             self.assertEqual(jobs.plan_job(self.project, run["id"], requests["SH2"])["status"], "created")
             with self.assertRaises(vsc_series.SeriesError):
                 jobs.plan_job(self.project, run["id"], requests["SH1"])
+
+    def _clip(self, name, color):
+        clip = Path(self.temp.name) / name
+        result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+            f"color=c={color}:s=32x32:r=24", "-t", "1", "-c:v", "mpeg4", str(clip)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return clip
+
+    def _selected_video(self):
+        """Approved video job → transfer → exported record, take object and approved video_take; all offline."""
+        inputs = self._shot_fixture()
+        self._reference("face-day", "char", "identity_face", "day")
+        self._reference("room", "loc", "location_master")
+        context = vsc_series.build_shot_context(self.project, "SH1")
+        request = {"format": "vsc.generation-request/v1", "modality": "video", "shot_id": "SH1",
+            "purpose": "shot_video", "context_sha256": context["sha256"], "prompt": "Synthetic move",
+            "reference_media_ids": ["face-day", "room"], "duration_ms": 5000}
+        state = project_state(self.project)
+        animatic = self._artifact(state, "vsc.animatic", {"format": "vsc.animatic/v1", "synthetic": True})
+        batch = {"jobs": [{"request": request, "candidate_no": 1}]}
+        run = self._artifact(state, "vsc.production_run", {
+            "format": "vsc.production-run/v1", "project_id": state["project_id"], "scope": "EP1",
+            "series_batch": batch, "plan_sha256": db.digest(batch),
+            "approved_inputs": [{"id": item["id"], "sha256": item["sha256"]} for item in (*inputs, animatic)],
+            "review_after": [], "operations": {"series:SH1:shot_video:1": {"remote_jobs": 1, "video_seconds": 5}}},
+            depends=(*inputs, animatic))
+        save(self.project, state)
+        jobs.register_provider(self.project, "volc_ark", ["video"], "env:ARK_API_KEY")
+        jobs.register_model(self.project, "volc_ark", "video-1", "symbolic-video", "video", "fixed-version",
+            {"purposes": ["shot_video"], "reference_media": True, "max_duration_ms": 10000},
+            {"resolution": "720p", "ratio": "9:16"})
+        jobs.set_route(self.project, "video", "shot_video", "video-1")
+        job_id = jobs.plan_job(self.project, run["id"], request)["job_id"]
+        budget.configure(self.project, {"remote_jobs": 1, "video_seconds": 5}, "fixture", "offline test")
+        clip = self._clip("take.mp4", "blue")
+        fake = FakeVideoAdapter()
+        with patch.object(dispatch, "gate_problems", return_value=[]):
+            dispatch.submit_job(self.project, job_id, fake)
+            dispatch.resume_job(self.project, job_id, fake, lambda _url, target: shutil.copyfile(clip, target))
+        media_id = job_id + "-output-1"
+        record = series_export.generation_record(self.project, job_id, fake)
+        self.assertGreater(record["outputs"][0]["duration_ms"], 0)
+        state = project_state(self.project)
+        record_item = self._artifact(state, "vsc.generation_record", record)
+        record_item.update(status="draft", decision=None)
+        state["objects"].append({"id": "TK1", "kind": "take", "parent": "SH1", "artifact": record_item["id"]})
+        save(self.project, state)
+        vsc_series.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed output")
+        vsc_series.bind_media(self.project, "B-take", "SH1", media_id, "video_take")
+        vsc_series.decide_binding(self.project, "B-take", "approved", "fixture", "best take")
+        return media_id, record_item, animatic
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_selected_takes_compile_and_database_agreement(self):
+        with patch.object(vsc_series, "validate_artifact", return_value=[]), \
+                patch("vsc_artifacts.validate_artifact", return_value=[]):
+            media_id, record_item, animatic = self._selected_video()
+            document, depends = selection.compile_selected_takes(self.project, "EP1")
+        item = document["items"][0]
+        self.assertEqual((item["shot_id"], item["take_id"], item["output_id"], item["usage_rights"], item["selected_by"]),
+                         ("SH1", "TK1", media_id, "owned", "fixture"))
+        self.assertEqual(item["source"]["artifact"], {"id": record_item["id"], "sha256": record_item["sha256"]})
+        self.assertEqual(depends, [animatic["id"], record_item["id"]])
+        state = project_state(self.project)
+        registered = {"id": "A-selected", "scope": "EP1", "depends_on": depends,
+                      "dependency_versions": {ref: next(a["sha256"] for a in state["artifacts"] if a["id"] == ref)
+                                              for ref in depends}}
+        self.assertEqual(vsc_handoffs.project_errors(document, self.project, state, registered), [])
+        contradictions = {
+            "usage_rights": lambda row: row.update(usage_rights="licensed"),
+            "导入系列素材库": lambda row: row["media"].update(path="media/elsewhere.mp4"),
+        }
+        for expected, mutate in contradictions.items():
+            changed = copy.deepcopy(document)
+            mutate(changed["items"][0])
+            self.assertTrue(any(expected in problem for problem in selection.selection_errors(self.project, changed)), expected)
+        alternative = vsc_series.import_media(self.project, "alt-take", self._clip("alt.mp4", "green"), "video", "owned", "fixture")
+        changed = copy.deepcopy(document)
+        changed["items"][0].update(output_id="alt-take", media={"path": alternative["path"], "sha256": alternative["sha256"]})
+        self.assertTrue(any("video_take" in problem for problem in selection.selection_errors(self.project, changed)))
+        self.assertTrue(any("video_take" in problem
+                            for problem in vsc_handoffs.project_errors(changed, self.project, state, registered)))
+        out = self.project / "drafts" / "EP1-selected.json"
+        with patch.object(vsc_series, "validate_artifact", return_value=[]), \
+                contextlib.redirect_stdout(io.StringIO()) as printed, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(selection.main(["compile", str(self.project), "--episode", "EP1", "--out", str(out)]), 0)
+            self.assertEqual(selection.main(["compile", str(self.project), "--episode", "EP1", "--out", str(out)]), 1)
+            self.assertEqual(selection.main(["check", str(self.project), str(out)]), 0)
+        self.assertEqual(json.loads(out.read_text("utf-8")), document)
+        self.assertIn("--depends " + record_item["id"], printed.getvalue())
 
     def test_export_frame_provenance(self):
         timestamp = "2026-10-13"

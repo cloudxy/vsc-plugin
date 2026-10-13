@@ -1,4 +1,4 @@
-# 数据库连续短剧工作流（v0.15.0）
+# 数据库连续短剧工作流（v0.16.0）
 
 适用范围：新建的 60 集以上系列项目，每集约 3 分钟。作品题材、画幅、预算、声源权利、责任人和具体供应商模型仍由项目负责人决定。本版本提供本地关系库、素材索引、按镜上下文、统一任务执行入口、关系查询，以及生成结果到后期的离线接缝；没有验证方舟在线生成，也没有自动保证“一次生成即成片”。
 
@@ -67,13 +67,7 @@ run 批准前完整复核每个任务的实时上下文、参考媒体和跨集�
 
 `submit` 复核批准 run、当前上下文、animatic Gate 和预算，在付费 POST 前登记不可重提的提交意图。视频返回外部 ID 后，`resume` 按原 ID 查询；同步结果直接解析。成功结果立即转存到项目 `.vsc-media/` 并校验解码与 SHA；重复恢复先核对已入库字节，避免临时 URL 过期后再次下载。平台 URL 仅在任务原始响应中保留用于故障恢复，媒体表的原始 URI 去掉签名参数，业务镜头只引用稳定媒体 ID。提交响应未知时保守占用预算，须人工核对平台任务及账单，不能重发。预算金额与实际计费用量在无供应商账单时保持未知。
 
-新生成素材初始权属为 `unknown`，经人审确认后才可绑定制作用途：
-
-```bash
-python3 -B scripts/vsc_series.py decide-media-rights PROJECT J-ID-output-1 --rights owned --by '负责人' --reason '核对生成来源与使用权'
-python3 -B scripts/vsc_series.py bind-media PROJECT --id B-SH001-TAKE --target SH001 --media J-ID-output-1 --role video_take
-python3 -B scripts/vsc_series.py decide-binding PROJECT B-SH001-TAKE --status approved --by '负责人' --reason '画面与前后镜头连贯'
-```
+新生成素材初始权属为 `unknown`，经 `decide-media-rights` 人审确认后才可绑定制作用途；完整的选片顺序见下文“从获选素材到后期”。
 
 异步任务较多时，用 `resume-pending` 批量续查（`--limit` 1..100，默认 20）：
 
@@ -85,14 +79,25 @@ python3 -B scripts/vsc_series_dispatch.py resume-pending PROJECT --limit 20
 
 当前 CLI 以 `resume`／`resume-pending` 提供轮询兜底；没有 webhook 服务端、常驻队列、账号级限流或自动重提。音频统一请求与任务表已就绪，火山语音服务映射尚未验证；现有供应商专用 CLI 未迁入此入口。本次只用注入的本地假 Provider 验证了批准 run → 预算 → 提交意图 → 状态恢复 → 转存 → 权属审核链，**没有访问火山方舟**。首次真实调用、实际 URL 时效、平台成本与成片效果须待用户提供脚本及项目素材后验证。
 
-转存后可将任务和素材编译为现有 `vsc.generation-record/v1` 草稿，不重新调用 Provider：
+## 从获选素材到后期
+
+数据库记录媒体字节、权属决定和已批准选片；`vsc.selected_takes` 仍是进入剪辑的正式交接，须人工批准。视频候选按以下顺序接入：
 
 ```bash
 python3 -B scripts/vsc_series_export.py PROJECT --job J-ID --out PROJECT/drafts/J-ID.json
 python3 -B scripts/vsc_state.py artifact add PROJECT --type vsc.generation_record --stage production --scope EP001 --file PROJECT/drafts/J-ID.json --depends A-RUN
+python3 -B scripts/vsc_state.py object add PROJECT --kind take --id TK-SH001-1 --parent SH001 --artifact A-REC
+python3 -B scripts/vsc_series.py decide-media-rights PROJECT J-ID-output-1 --rights owned --by '负责人' --reason '核对生成来源与使用权'
+python3 -B scripts/vsc_series.py bind-media PROJECT --id B-SH001-TAKE --target SH001 --media J-ID-output-1 --role video_take
+python3 -B scripts/vsc_series.py decide-binding PROJECT B-SH001-TAKE --status approved --by '负责人' --reason '画面与前后镜头连贯'
+python3 -B scripts/vsc_series_selection.py compile PROJECT --episode EP001 --out PROJECT/drafts/EP001-selected.json
 ```
 
-导出要求全部输出已落库且 SHA 仍正确。记录包含：由任务钉住的资产库与状态版本重算的 `anchors_sha256`（音频另含 `audio_anchors_sha256`）；按媒体库来源标注的首尾帧（本镜生成、前一镜视频尾帧或外部参考）；带路径和资产 ID 的参考素材；模型版本与默认参数；输出 ID 与媒体路径。用量写批准 run 的原生单位上限，金额未知时不虚构费用。目标文件已存在时拒绝覆盖。系列项目的参考素材以数据库用途绑定为准，资产库 `references` 可以为空，因此不要用旧的 `consistency.py check --record` 判断其参考归属。后续按现有流程登记 take 对象、人工选择 `vsc.selected_takes`，再编制 timeline 和 Remotion 渲染计划。权属决定和审片选择仍须由负责人作出。静帧片段可在 Remotion 计划使用受限 `still_motion` 运镜，参数见[Remotion 设计](../design/remotion.md#帧级字段)。
+第一步把已转存任务编译为现有 `vsc.generation-record/v1` 草稿，不重新调用 Provider。导出要求全部输出已落库且 SHA 仍正确。记录包含：由任务钉住的资产库与状态版本重算的 `anchors_sha256`（音频另含 `audio_anchors_sha256`）；按媒体库来源标注的首尾帧（本镜生成、前一镜视频尾帧或外部参考）；带路径和资产 ID 的参考素材；模型版本与默认参数；输出 ID 与媒体路径。用量写批准 run 的原生单位上限，金额未知时不虚构费用。目标文件已存在时拒绝覆盖。系列项目的参考素材以数据库用途绑定为准，资产库 `references` 可以为空，因此不要用旧的 `consistency.py check --record` 判断其参考归属。
+
+`compile` 只读：从本集已批准的 `video_take` 生成 `vsc.selected-takes/v1` 草稿，选择人取自绑定决定，并打印含全部 `--depends`（animatic 与各生成记录）的登记命令。登记后仍须 `artifact decide` 人工批准。某镜缺唯一生成记录、take 对象或权属确认时，命令报错并指出缺项；手工导入的视频、对白干声和静帧按 [selected-takes 模板](../../templates/selected-takes.json)补写条目。
+
+系列项目登记或批准选片清单时自动核对数据库：获选媒体须已导入素材库；`usage_rights` 必须等于人审权属决定（`owned`／`licensed`，不使用 `project_generated`）；该镜已有批准的 `video_take` 或 `dialogue_dry` 时，同模态条目必须选同一份字节。手写清单可先用 `vsc_series_selection.py check PROJECT FILE` 预检。之后再编制 timeline 和 Remotion 渲染计划；静帧片段可使用受限 `still_motion` 运镜，参数见[Remotion 设计](../design/remotion.md#帧级字段)。
 
 ## 关系查询
 

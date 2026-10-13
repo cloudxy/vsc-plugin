@@ -492,6 +492,15 @@ def project_errors(data, project, state, item, validate_callback=None):
                     p.errors.append("获选输出路径或SHA与生成记录不一致：" + row["id"])
             elif source["artifact"]["sha256"] != row["media"]["sha256"]:
                 p.errors.append("手工导入必须绑定登记媒体本身的SHA：" + row["id"])
+        import vsc_series_db as series_db
+        if state.get("profile_snapshot", {}).get("storage_policy") == series_db.POLICY:
+            # The series database is the media and rights authority; the list must not contradict it.
+            import sqlite3
+            from vsc_series_selection import selection_errors
+            try:
+                p.errors.extend(selection_errors(project, data))
+            except (ValueError, OSError, sqlite3.Error) as exc:
+                p.errors.append("系列素材库核对失败：" + str(exc))
     elif fmt == "vsc.animatic/v1":
         p.media(data["media"], "预演")
         try:
