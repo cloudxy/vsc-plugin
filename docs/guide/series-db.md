@@ -45,16 +45,16 @@ python3 -B scripts/vsc_series.py link-boundary PROJECT --from-shot EP001-LAST --
 
 ## 离线生成任务入口
 
-`vsc_provider.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。模型能力、默认参数、版本与路由由 `vsc_series_jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。
+`vsc_provider.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。`vsc_volc_provider.py` 已按此接口实现火山方舟图像和视频的提交、查询与结果解析；模型能力、默认参数、版本与路由由 `vsc_series_jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。
 
 ```bash
 python3 -B scripts/vsc_series_jobs.py provider-add PROJECT --name volc_ark --modality image --modality video --modality audio --auth-ref env:ARK_API_KEY
-python3 -B scripts/vsc_series_jobs.py model-add PROJECT --provider volc_ark --id image-main --key MODEL_KEY --modality image --version MODEL_VERSION --capabilities '{"purposes":["shot_keyframe"],"reference_media":true}'
+python3 -B scripts/vsc_series_jobs.py model-add PROJECT --provider volc_ark --id image-main --key MODEL_KEY --modality image --version MODEL_VERSION --capabilities '{"purposes":["shot_keyframe"],"reference_media":true}' --defaults '{"size_map":{"1080x1920":"MODEL_SIZE"}}'
 python3 -B scripts/vsc_series_jobs.py route-set PROJECT --modality image --purpose shot_keyframe --model-id image-main
 python3 -B scripts/vsc_series_jobs.py plan PROJECT --run A-RUN --request /path/to/request.json --candidate 1
 ```
 
-这里的模型标识与版本必须按真实账号能力填写；示例命令只注册本地配置，不访问供应商。相同 run、镜头、用途、候选和输入再次计划会返回原 job；变更输入须新建候选。任务状态事件保留 `created → submission_unknown → submitted/running → succeeded/failed`，外部 task ID 只进任务表。未来调度器须在实际提交前重新验证上下文、审批、能力、权属和预算；未知提交结果先按外部任务 ID 对账，不能盲目重发。现有供应商专用脚本尚未迁入这个任务入口，真实调用、回调／轮询、成本与转存有待使用后续测试脚本验证。
+这里的模型标识、版本和尺寸映射必须按真实账号能力填写；示例命令只注册本地配置，不访问供应商。相同 run、镜头、用途、候选和输入再次计划会返回原 job；变更输入须新建候选。任务状态事件保留 `created → submission_unknown → submitted/running → succeeded/failed`，外部 task ID 只进任务表。`adapter_for_job()` 只从固定任务快照构造火山图像或视频适配器，不提交请求。实际调度器须在提交前重新验证上下文、审批、能力、权属与共享预算，先持久化提交意图，再调用 Provider，未知提交结果先对账，不能盲目重发。现有供应商专用 CLI 尚未迁入这个任务入口；音频对应独立语音服务，不能冒充方舟接口。实际调用、回调／轮询、成本与临时 URL 转存仍需后续脚本和真实样本验证。
 
 ## 扩到 60 集前的验收
 

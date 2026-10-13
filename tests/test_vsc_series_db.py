@@ -147,9 +147,13 @@ class SeriesDatabase(unittest.TestCase):
                 "reference_media_ids": ["face-day", "room"], "width": 1080, "height": 1920}
             jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_API_KEY")
             jobs.register_model(self.project, "volc_ark", "model-1", "symbolic-model", "image", "fixed-version",
-                {"purposes": ["shot_keyframe"], "reference_media": True})
+                {"purposes": ["shot_keyframe"], "reference_media": True},
+                {"size_map": {"1080x1920": "2K"}})
             jobs.set_route(self.project, "image", "shot_keyframe", "model-1")
             first = jobs.plan_job(self.project, run["id"], request)
+            from vsc_volc_provider import VolcArkImageProvider
+            self.assertIsInstance(jobs.adapter_for_job(self.project, first["job_id"], transport=lambda *_: None),
+                                  VolcArkImageProvider)
             self.assertEqual(first, jobs.plan_job(self.project, run["id"], request))
             with self.assertRaises(vsc_series.SeriesError):
                 jobs.plan_job(self.project, run["id"], dict(request, prompt="changed"))

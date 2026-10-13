@@ -367,7 +367,7 @@ def cmd_init(args):
     template_files(project)
     state = {
         "schema_version": SCHEMA,
-        "runtime_version": "0.13.0",
+        "runtime_version": "0.13.1",
         "project_id": f"vsc-project-{uuid.uuid4().hex}",
         "title": args.title,
         "profile_id": profile["profile_id"],
