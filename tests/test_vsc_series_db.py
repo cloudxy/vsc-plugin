@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,12 +17,14 @@ from _paths import ROOT
 import vsc_series
 import vsc_series_db as db
 import vsc_series_jobs as jobs
+import vsc_series_run as series_run
 import vsc_series_dispatch as dispatch
 import vsc_series_export as series_export
 import vsc_series_query as series_query
 import vsc_series_selection as selection
 import vsc_handoffs
 import vsc_budget as budget
+import consistency
 from vsc_provider import GeneratedAsset, JobHandle, JobStatus
 from vsc_state import project_state, save
 
@@ -72,13 +75,42 @@ class SeriesDatabase(unittest.TestCase):
                                        transport=lambda *_: self.fail("must not call provider"))
         job = {"status": "created", "provider": "volc_ark", "modality": "video"}
         with patch.dict("os.environ", {"ARK_AGENT_PLAN_TIER": "medium"}), \
-                patch.object(dispatch, "_load", return_value=({}, job, {}, {"scope": "EP1"})), \
+                patch.object(dispatch, "_load", return_value=({}, job, {"logical_request": {
+                    "shot_id": "SH1", "purpose": "shot_video", "context_sha256": "a", "prompt": "move"}},
+                    {"scope": "EP1"})), \
                 patch.object(dispatch, "gate_problems", return_value=[]), \
                 patch.object(jobs, "adapter_for_job", return_value=adapter), \
                 patch.object(budget, "reserve") as reserve:
             with self.assertRaisesRegex(RuntimeError, "Large/Max"):
                 dispatch.submit_job(self.project, "J-test")
             reserve.assert_not_called()
+
+    def test_audio_provider_rejects_unsupported_request_before_budget(self):
+        from vsc_volc_provider import VolcArkAudioProvider, VolcAdapterError
+        binding = {"line_id": "L1", "entity_id": "char", "voice": {
+            "engine": "doubao_speech", "voice": "fixture_voice", "resource_id": "seed-tts-2.0"}}
+        adapter = VolcArkAudioProvider("seed-tts-2.0", self.project, "J-abc", binding,
+                                        {"format": "wav", "sample_rate": 24000}, lambda *_: self.fail("no POST"))
+        frozen = {"logical_request": {"shot_id": "SH1", "purpose": "dialogue_dry", "context_sha256": "a",
+            "prompt": "Hello", "script_line_ids": ["L1"], "params": {"vendor_knob": 1},
+            "format": "vsc.generation-request/v1", "modality": "audio"}}
+        job = {"status": "created", "provider": "volc_ark", "modality": "audio"}
+        with patch.object(dispatch, "_load", return_value=({}, job, frozen, {"scope": "EP1"})), \
+                patch.object(dispatch, "gate_problems", return_value=[]), \
+                patch.object(jobs, "adapter_for_job", return_value=adapter), \
+                patch.object(budget, "reserve") as reserve:
+            with self.assertRaisesRegex(VolcAdapterError, "音频请求"):
+                dispatch.submit_job(self.project, "J-abc")
+            reserve.assert_not_called()
+
+    def test_voice_pronunciation_terms_are_versioned_and_unique(self):
+        bible = {"project_id": "fixture", "entities": [{"id": "char", "kind": "character", "name": "Character",
+            "identity": ["face"], "variants": {"default": "same"}, "references": [],
+            "voice": {"engine": "doubao_speech", "voice": "fixture_voice", "rights": "owned",
+                      "pronunciations": [{"term": "A", "spoken": "ei"}, {"term": "A", "spoken": "ah"}]}}]}
+        self.assertTrue(any("词条不得重复" in error for error in consistency.bible_errors(bible)))
+        bible["entities"][0]["voice"]["pronunciations"].pop()
+        self.assertEqual(consistency.bible_errors(bible), [])
 
     def test_agent_plan_provider_registration_rejects_wrong_endpoint(self):
         with self.assertRaisesRegex(vsc_series.SeriesError, "专属 Base URL"):
@@ -99,7 +131,7 @@ class SeriesDatabase(unittest.TestCase):
         state["artifacts"].append(item)
         return item
 
-    def _shot_fixture(self, shots=("SH1",)):
+    def _shot_fixture(self, shots=("SH1",), voice=None):
         state = project_state(self.project)
         state["objects"] = [
             {"id": "EP1", "kind": "episode"},
@@ -111,7 +143,8 @@ class SeriesDatabase(unittest.TestCase):
         ]
         bible = self._artifact(state, "vsc.asset_bible", {"format": "vsc.asset-bible/v1", "entities": [
             {"id": "char", "kind": "character", "name": "Synthetic", "identity": ["fixed face"],
-             "variants": {"day": "day costume", "night": "night costume"}, "references": []},
+             "variants": {"day": "day costume", "night": "night costume"}, "references": [],
+             **({"voice": voice} if voice else {})},
             {"id": "loc", "kind": "location", "name": "Room", "identity": ["door left"],
              "variants": {"default": "warm"}, "references": []},
         ]})
@@ -544,6 +577,100 @@ class SeriesDatabase(unittest.TestCase):
             self.assertEqual(selection.main(["check", str(self.project), str(out)]), 0)
         self.assertEqual(json.loads(out.read_text("utf-8")), document)
         self.assertIn("--depends " + record_item["id"], printed.getvalue())
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_audio_job_from_approved_line_to_dialogue_selection(self):
+        voice = {"engine": "doubao_speech", "voice": "fixture_voice", "resource_id": "seed-tts-2.0",
+                 "rights": "owned", "pronunciations": [{"term": "Hello", "spoken": "heh-loh"}]}
+        with patch.object(vsc_series, "validate_artifact", return_value=[]), \
+                patch("vsc_artifacts.validate_artifact", return_value=[]):
+            inputs = self._shot_fixture(voice=voice)
+            state = project_state(self.project)
+            coverage = self._artifact(state, "vsc.coverage_plan", {"format": "vsc.coverage-plan/v1",
+                "scenes": [{"id": "SC1", "sequences": [{"id": "SQ1", "shots": [
+                    {"id": "SH1", "screenplay_unit_ids": ["L1"]}]}]}]})
+            save(self.project, state)
+            self._reference("face-day", "char", "identity_face", "day")
+            self._reference("room", "loc", "location_master")
+            context = vsc_series.build_shot_context(self.project, "SH1")
+            request = {"format": "vsc.generation-request/v1", "modality": "audio", "shot_id": "SH1",
+                "purpose": "dialogue_dry", "context_sha256": context["sha256"], "prompt": "Hello",
+                "script_line_ids": ["L1"]}
+            state = project_state(self.project)
+            animatic = self._artifact(state, "vsc.animatic", {"format": "vsc.animatic/v1", "synthetic": True})
+            batch = {"jobs": [{"request": request, "candidate_no": 1}]}
+            run = self._artifact(state, "vsc.production_run", {
+                "format": "vsc.production-run/v1", "project_id": state["project_id"], "scope": "EP1",
+                "series_batch": batch, "plan_sha256": db.digest(batch),
+                "approved_inputs": [{"id": item["id"], "sha256": item["sha256"]} for item in (*inputs, coverage, animatic)],
+                "review_after": [], "operations": {"series:SH1:dialogue_dry:1":
+                    {"remote_jobs": 1, "audio_jobs": 1, "speech_chars": 5}}}, depends=(*inputs, coverage, animatic))
+            save(self.project, state)
+            self.assertEqual(series_run.project_errors(json.loads(db.artifact_document(self.project, run["id"])),
+                self.project, state, {**run, "status": "draft", "decision": None}), [])
+            jobs.register_provider(self.project, "volc_ark", ["audio"], "env:ARK_AGENT_PLAN_API_KEY")
+            jobs.register_model(self.project, "volc_ark", "tts-1", "seed-tts-2.0", "audio", "fixed-version",
+                {"purposes": ["dialogue_dry"]}, {"format": "wav", "sample_rate": 24000})
+            jobs.set_route(self.project, "audio", "dialogue_dry", "tts-1")
+            bad = {**request, "prompt": "Changed"}
+            with self.assertRaisesRegex(vsc_series.SeriesError, "逐字一致"):
+                jobs.plan_job(self.project, run["id"], bad)
+            job_id = jobs.plan_job(self.project, run["id"], request)["job_id"]
+            with patch.object(dispatch, "covered_script_units", return_value=(
+                    {"id": coverage["id"], "type": "vsc.coverage_plan", "sha256": "0" * 64, "scope": "EP1"}, {"L1"})), \
+                    patch.object(budget, "reserve") as reserve:
+                with self.assertRaisesRegex(vsc_series.SeriesError, "覆盖计划已改变"):
+                    dispatch.submit_job(self.project, job_id)
+                reserve.assert_not_called()
+            budget.configure(self.project, {"remote_jobs": 1, "audio_jobs": 1, "speech_chars": 5},
+                             "fixture", "offline test")
+            audio_path = self.project / "fixture.wav"
+            with wave.open(str(audio_path), "wb") as handle:
+                handle.setnchannels(1); handle.setsampwidth(2); handle.setframerate(24000)
+                handle.writeframes(b"\0\0" * 4800)
+            seen = []
+            def fake_tts(payload, resource):
+                seen.append((payload, resource))
+                return audio_path.read_bytes(), {"characters": 5}
+            adapter = jobs.adapter_for_job(self.project, job_id, fake_tts)
+            with patch.object(dispatch, "gate_problems", return_value=[]):
+                result = dispatch.submit_job(self.project, job_id, adapter)
+            self.assertEqual(result["status"], "succeeded")
+            self.assertEqual(len(seen), 1)
+            self.assertEqual(seen[0][0]["req_params"]["speaker"], "fixture_voice")
+            self.assertEqual(seen[0][1], "seed-tts-2.0")
+            self.assertFalse((self.project / ".vsc-staging" / (job_id + ".wav")).exists())
+            self.assertEqual(dispatch.resume_job(self.project, job_id)["status"], "succeeded")
+            media_id = job_id + "-output-1"
+            record = series_export.generation_record(self.project, job_id)
+            self.assertEqual(record["inputs"]["line_id"], "L1")
+            self.assertEqual(record["inputs"]["pronunciations"], voice["pronunciations"])
+            self.assertEqual(record["outputs"][0]["speaker"], "fixture_voice")
+            state = project_state(self.project)
+            record_item = self._artifact(state, "vsc.generation_record", record)
+            record_item.update(status="draft", decision=None)
+            state["objects"].append({"id": "TK-AUDIO", "kind": "take", "parent": "SH1", "artifact": record_item["id"]})
+            save(self.project, state)
+            vsc_series.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed")
+            vsc_series.bind_media(self.project, "B-dialogue", "SH1", media_id, "dialogue_dry", "L1")
+            vsc_series.decide_binding(self.project, "B-dialogue", "approved", "fixture", "auditioned")
+            selected, depends = selection.compile_selected_takes(self.project, "EP1")
+            self.assertEqual(selected["items"][0]["cue_id"], "L1")
+            self.assertEqual(selected["items"][0]["purpose"], "dialogue")
+            self.assertEqual(depends, [animatic["id"], record_item["id"]])
+            registered = {"id": "A-selected", "scope": "EP1", "depends_on": depends,
+                "dependency_versions": {ref: next(a["sha256"] for a in state["artifacts"] if a["id"] == ref)
+                                        for ref in depends}}
+            self.assertEqual(vsc_handoffs.project_errors(selected, self.project, state, registered), [])
+            mislabeled = copy.deepcopy(selected)
+            mislabeled["items"][0]["purpose"] = "ambience"
+            self.assertTrue(any("对白干声不能" in problem for problem in
+                                selection.selection_errors(self.project, mislabeled)))
+            ambience = vsc_series.import_media(self.project, "ambient", audio_path, "audio", "owned", "fixture")
+            manual = {"items": [{"id": "SEL-AMBIENT", "shot_id": "SH1", "output_id": "ambient",
+                "purpose": "ambience", "usage_rights": "owned",
+                "media": {"path": ambience["path"], "sha256": ambience["sha256"]}}]}
+            self.assertEqual(selection.selection_errors(self.project, manual), [])
 
     def test_export_frame_provenance(self):
         timestamp = "2026-10-13"

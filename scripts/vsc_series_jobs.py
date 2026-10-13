@@ -13,11 +13,33 @@ from pathlib import Path
 
 import vsc_credentials as credentials
 import vsc_series_db as db
-from vsc_series import SeriesError, _artifact_document, build_shot_context, series_state, stamp
+from vsc_series import SeriesError, _artifact_document, build_shot_context, covered_script_units, series_state, stamp
 from vsc_provider import AudioRequest, ImageRequest, VideoRequest
 from vsc_state import project_lock
 
 REQUEST_TYPES = {"image": ImageRequest, "video": VideoRequest, "audio": AudioRequest}
+
+
+def audio_binding(project, context, logical):
+    """Validate dialogue against approved script, shot coverage and voice identity."""
+    line_ids = logical.script_line_ids
+    if (logical.purpose != "dialogue_dry" or not isinstance(line_ids, (tuple, list))
+            or len(line_ids) != 1 or not isinstance(line_ids[0], str) or not line_ids[0]):
+        raise SeriesError("干声任务须绑定一条已批准剧本台词行")
+    lines = [line for line in context["script_scene"].get("dialogue", [])
+             if line.get("id") == line_ids[0]]
+    if len(lines) != 1 or logical.prompt != lines[0].get("text"):
+        raise SeriesError("音频文本须与已批准剧本台词逐字一致")
+    coverage_ref, covered_units = covered_script_units(project, logical.shot_id)
+    if line_ids[0] not in covered_units:
+        raise SeriesError("已批准覆盖计划未把此台词行分配给当前镜头")
+    speaker = lines[0].get("speaker")
+    voice = context["audio_anchor"]["pack"]["entities"].get(speaker, {}).get("voice")
+    if (not isinstance(voice, dict) or voice.get("rights") not in ("owned", "licensed")
+            or not isinstance(voice.get("voice"), str) or not voice["voice"]):
+        raise SeriesError("说话人物须有已批准且可用的音色绑定")
+    return {"line_id": line_ids[0], "entity_id": speaker, "voice": voice,
+            "audio_anchor_sha256": context["audio_anchor"]["sha256"]}, coverage_ref
 
 
 def register_provider(project, name, modalities, auth_ref=None, base_url=None, rate_limit=None):
@@ -107,6 +129,10 @@ def plan_job(project, run_id, request, candidate_no=1):
         raise SeriesError("图片宽高须为正整数")
     if modality == "video" and (not isinstance(logical.duration_ms, int) or logical.duration_ms < 1):
         raise SeriesError("视频时长须为正整数")
+    voice_binding = None
+    coverage_ref = None
+    if modality == "audio":
+        voice_binding, coverage_ref = audio_binding(project, context, logical)
     media_ids = {entry["media_id"] for entry in context["media_references"]}
     if set(logical.reference_media_ids) - media_ids:
         raise SeriesError("请求引用了未批准或不适用当前镜头的素材")
@@ -129,6 +155,8 @@ def plan_job(project, run_id, request, candidate_no=1):
     pinned = {(item["id"], item["sha256"]) for item in run.get("approved_inputs", [])}
     if not {(item["id"], item["sha256"]) for item in context["input_versions"]} <= pinned:
         raise SeriesError("production_run 未钉住镜头上下文的全部已批准版本")
+    if coverage_ref and (coverage_ref["id"], coverage_ref["sha256"]) not in pinned:
+        raise SeriesError("production_run 未钉住对白镜头的已批准覆盖计划")
     from vsc_series_run import operation as series_operation
     matches = [entry for entry in run.get("series_batch", {}).get("jobs", [])
                if entry.get("candidate_no") == candidate_no and entry.get("request") == request]
@@ -158,9 +186,12 @@ def plan_job(project, run_id, request, candidate_no=1):
         if modality == "audio" and logical.voice_media_id and not capabilities.get("voice_reference", False):
             raise SeriesError("路由模型不支持声音参考")
         frozen = {"logical_request": request, "operation": operation_key, "context_sha256": context["sha256"],
-                  "input_versions": context["input_versions"], "reference_media": context["media_references"],
+                  "input_versions": context["input_versions"] + ([coverage_ref] if coverage_ref else []),
+                  "reference_media": context["media_references"],
                   "provider": row["provider"], "model": row["model_key"], "model_version": row["model_version"],
                   "default_params": json.loads(row["default_params"]), "capabilities": capabilities}
+        if voice_binding:
+            frozen["voice_binding"] = voice_binding
         request_sha = db.digest(frozen)
         identity = db.digest({"run": run_id, "run_sha256": run_item["sha256"], "shot": shot_id,
             "purpose": purpose, "modality": modality, "candidate": candidate_no, "request_sha256": request_sha})
@@ -262,7 +293,7 @@ def adapter_for_job(project, job_id, transport=None):
 
     if job["provider"] != "volc_ark":
         raise SeriesError("此 Provider 尚无系列任务适配器")
-    from vsc_volc_provider import VolcArkImageProvider, VolcArkVideoProvider
+    from vsc_volc_provider import VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider
     defaults = frozen["default_params"]
     if job["modality"] == "image":
         sizes = defaults.get("size_map", {})
@@ -275,7 +306,9 @@ def adapter_for_job(project, job_id, transport=None):
             raise SeriesError("视频模型须配置 resolution 与 ratio")
         return VolcArkVideoProvider(job["model"], media_url, defaults["resolution"], defaults["ratio"],
             bool(defaults.get("generate_audio", False)), transport)
-    raise SeriesError("火山方舟音频任务尚无已验证的接口映射；须独立接入对应语音服务")
+    if job["modality"] == "audio":
+        return VolcArkAudioProvider(job["model"], project, job_id, frozen.get("voice_binding"), defaults, transport)
+    raise SeriesError("任务模态没有适配器")
 
 
 def main(argv=None):

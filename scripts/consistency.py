@@ -195,6 +195,13 @@ def bible_errors(data):
                     errors.append(f"{label}.voice.rate 必须是正数")
                 if voice.get("rights") not in RIGHTS:
                     errors.append(f"{label}.voice.rights 必须是 {'/'.join(RIGHTS)}")
+                if "pronunciations" in voice:
+                    guide = voice["pronunciations"]
+                    if (not isinstance(guide, list) or any(not isinstance(row, dict)
+                            or not text(row.get("term")) or not text(row.get("spoken")) for row in guide)):
+                        errors.append(f"{label}.voice.pronunciations 须为 term/spoken 非空文本数组")
+                    elif len({row["term"] for row in guide}) != len(guide):
+                        errors.append(f"{label}.voice.pronunciations 词条不得重复")
         sound = entity.get("sound")
         if sound is not None:
             _media_errors(sound, f"{label}.sound", errors)
