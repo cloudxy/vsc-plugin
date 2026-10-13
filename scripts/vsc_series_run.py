@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Validate the series_batch variant of an approved production run."""
+"""Validate the series_batch variant of an approved production run.
+
+Live ShotContext checks run until the run is decided. Afterwards the approval
+stays bound to its pinned versions; plan and submit re-check each job against
+the current context, so a later selection on one shot cannot void the batch.
+"""
 import vsc_series_db as db
-from vsc_series import build_shot_context
+from vsc_series import _scope, build_shot_context
 
 
 def operation(job):
@@ -45,6 +50,7 @@ def project_errors(data, project, state, item):
     if not any(next((a for a in state['artifacts'] if a['id'] == ref), {}).get('type') == 'vsc.animatic'
                for ref, _ in pinned):
         errors.append('系列制作须依赖已批准 animatic')
+    live = not (item.get('status') == 'approved' and item.get('decision'))
     operations = {}
     for index, job in enumerate(batch['jobs']):
         try:
@@ -63,28 +69,31 @@ def project_errors(data, project, state, item):
                 raise ValueError('提示词或参数对象无效')
             if any(key in logical.params for key in ('provider', 'model', 'external_task_id', 'base_url', 'auth_ref')):
                 raise ValueError('逻辑请求包含供应商参数')
-            context = build_shot_context(project, request['shot_id'])
-            if context['sha256'] != request.get('context_sha256'):
-                raise ValueError('镜头上下文已变化')
-            if context['episode_id'] != data['scope']:
+            if not isinstance(logical.reference_media_ids, (list, tuple)) or not all(
+                    isinstance(ref, str) and ref for ref in logical.reference_media_ids):
+                raise ValueError('参考媒体 ID 必须是字符串数组')
+            if _scope(state, request['shot_id'])[0] != data['scope']:
                 raise ValueError('镜头不属于 run 分集范围')
-            if context['unresolved_reference_asset_ids'] or (context['cross_episode_boundary'] and
-                    context['cross_episode_boundary']['status'] != 'linked'):
-                raise ValueError('镜头参考或跨集边界尚未就绪')
-            if not {(ref['id'], ref['sha256']) for ref in context['input_versions']} <= pinned:
-                raise ValueError('镜头上下文输入未全部钉在 run 批准版本中')
-            media = {ref['media_id']: ref for ref in context['media_references']}
-            if not isinstance(logical.reference_media_ids, (list, tuple)) or any(
-                    ref not in media for ref in logical.reference_media_ids):
-                raise ValueError('请求引用了未批准的镜头媒体')
-            needed = 'audio' if modality == 'audio' else 'image'
-            if any(media[ref]['modality'] != needed for ref in logical.reference_media_ids):
-                raise ValueError('参考媒体模态与请求不符')
-            for field, role in (('first_frame_media_id', 'first_frame'), ('last_frame_media_id', 'last_frame'),
-                                ('voice_media_id', 'voice_sample')):
-                ref = getattr(logical, field, None)
-                if ref and (ref not in media or media[ref]['role'] != role):
-                    raise ValueError(field + ' 缺有效用途绑定')
+            if live:
+                context = build_shot_context(project, request['shot_id'])
+                if context['sha256'] != request.get('context_sha256'):
+                    raise ValueError('镜头上下文已变化')
+                if context['unresolved_reference_asset_ids'] or (context['cross_episode_boundary'] and
+                        context['cross_episode_boundary']['status'] != 'linked'):
+                    raise ValueError('镜头参考或跨集边界尚未就绪')
+                if not {(ref['id'], ref['sha256']) for ref in context['input_versions']} <= pinned:
+                    raise ValueError('镜头上下文输入未全部钉在 run 批准版本中')
+                media = {ref['media_id']: ref for ref in context['media_references']}
+                if any(ref not in media for ref in logical.reference_media_ids):
+                    raise ValueError('请求引用了未批准的镜头媒体')
+                needed = 'audio' if modality == 'audio' else 'image'
+                if any(media[ref]['modality'] != needed for ref in logical.reference_media_ids):
+                    raise ValueError('参考媒体模态与请求不符')
+                for field, role in (('first_frame_media_id', 'first_frame'), ('last_frame_media_id', 'last_frame'),
+                                    ('voice_media_id', 'voice_sample')):
+                    ref = getattr(logical, field, None)
+                    if ref and (ref not in media or media[ref]['role'] != role):
+                        raise ValueError(field + ' 缺有效用途绑定')
             if modality == 'image' and (type(logical.width) is not int or logical.width < 1
                                         or type(logical.height) is not int or logical.height < 1):
                 raise ValueError('图片尺寸无效')

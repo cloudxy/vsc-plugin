@@ -23,6 +23,8 @@ MEDIA_ROLES = (
     "first_frame", "last_frame", "prop", "video_take", "dialogue_dry",
     "voice_sample", "ambience", "music", "sfx",
 )
+# Selected outputs for post; they never feed a generation context.
+SELECTION_ROLES = ("video_take", "dialogue_dry")
 RIGHTS = ("owned", "licensed", "analysis_only", "unknown")
 MODALITIES = ("image", "video", "audio")
 
@@ -168,7 +170,7 @@ def _media_references(project, targets, variants):
     output = []
     for row in rows:
         active = variants.get(row["target_id"], {"default"})
-        if row["variant"] not in (None, *active):
+        if row["role"] in SELECTION_ROLES or row["variant"] not in (None, *active):
             continue
         path = (root / row["path"]).resolve()
         if not path.is_relative_to(root) or not path.is_file() or sha256(path) != row["sha256"]:

@@ -19,6 +19,9 @@ from vsc_provider import JobHandle
 from vsc_series import SeriesError, _artifact_document, build_shot_context, import_media, series_state, sha256
 from vsc_state import gate_problems
 
+# Provider transports raise RuntimeError subclasses (for example volc_ark.ArkError).
+ERRORS = (SeriesError, db.SeriesStoreError, budget.BudgetError, sqlite3.Error, OSError, ValueError, RuntimeError)
+
 
 def _load(project, job_id, current=True):
     state = series_state(project)
@@ -66,7 +69,7 @@ def _reservation(project, job_id):
 def _settle_unknown(project, job_id, evidence):
     reservation = _reservation(project, job_id)
     if reservation:
-        budget.settle(project, reservation, evidence=evidence)
+        budget.settle_unknown(project, reservation, evidence)
 
 
 def _stable_original(uri):
@@ -122,6 +125,7 @@ def finalize_job(project, job_id, adapter=None, download=None):
             stored.append(import_media(project, media_id, source, output.modality, "unknown",
                 f"generated:{job_id}", job_id=job_id, original_uri=stable))
     _settle_unknown(project, job_id, "已转存并校验生成任务 " + job_id)
+    jobs.mark_transferred(project, job_id, [item["media_id"] for item in stored])
     return stored
 
 
@@ -180,16 +184,52 @@ def resume_job(project, job_id, adapter=None, download=None):
     return _handle_status(project, job_id, adapter.poll(handle), adapter, download)
 
 
+def resume_pending(project, limit=20, adapter_factory=None, download=None):
+    """Poll known external tasks and finish interrupted transfers; never submits.
+
+    One failing job is recorded and moved behind the others, so expired URLs or
+    provider errors cannot stop the rest of the batch.
+    """
+    series_state(project)
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise SeriesError("批量续查上限须为 1..100")
+    with db.connect(project) as connection:
+        rows = connection.execute("SELECT id FROM generation_jobs g WHERE (status IN ('submitted','running') "
+            "AND external_task_id IS NOT NULL) OR (status='succeeded' AND NOT EXISTS (SELECT 1 FROM job_events e "
+            "WHERE e.job_id=g.id AND e.status='transferred')) ORDER BY updated_at,id LIMIT ?", (limit,)).fetchall()
+    results = []
+    for row in rows:
+        job_id = row["id"]
+        try:
+            adapter = adapter_factory(project, job_id) if adapter_factory else None
+            results.append({"job_id": job_id, **resume_job(project, job_id, adapter, download)})
+        except ERRORS as exc:
+            results.append({"job_id": job_id, "status": "poll_error", "error": str(exc)})
+            try:
+                jobs.record_poll_error(project, job_id, exc)
+            except (db.SeriesStoreError, sqlite3.Error, OSError):
+                pass  # The returned error is still reported; the queue order stays unchanged.
+    return results
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("submit", "resume"))
-    parser.add_argument("project"); parser.add_argument("--job", required=True)
+    parser.add_argument("command", choices=("submit", "resume", "resume-pending"))
+    parser.add_argument("project"); parser.add_argument("--job"); parser.add_argument("--limit", type=int, default=20)
     args = parser.parse_args(argv)
     try:
-        result = submit_job(args.project, args.job) if args.command == "submit" else resume_job(args.project, args.job)
+        if args.command == "resume-pending":
+            result = resume_pending(args.project, args.limit)
+        elif not args.job:
+            raise SeriesError("submit / resume 必须指定 --job")
+        else:
+            result = submit_job(args.project, args.job) if args.command == "submit" else resume_job(args.project, args.job)
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    except (SeriesError, db.SeriesStoreError, budget.BudgetError, sqlite3.Error, OSError, ValueError) as exc:
+    except ERRORS as exc:
         print("ERROR: " + str(exc), file=sys.stderr)
+        return 1
+    if args.command == "resume-pending" and any(item["status"] == "poll_error" for item in result):
+        print("ERROR: 部分任务续查失败，详见上方 poll_error", file=sys.stderr)
         return 1
     return 0
 

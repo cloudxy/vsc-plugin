@@ -74,7 +74,7 @@ Wan 3.0 与 Seedance 2.0 的[方言文件](https://github.com/zenstory-ai/drama-
 
 ### G04 · 静帧成片路径尚未通过真实导出验收（P2）
 
-**当前。** [`remotion_plan.py`](../../scripts/remotion_plan.py)接受 image 片段，生成的 Remotion 画面目前只以静态 `Img` 显示，没有运镜参数。[`jianying_export.py`](../../scripts/jianying_export.py)会把 image 片段写入“未迁移”警告，并要求至少一个 video；因此不能说剪映已支持全静帧草稿。已有 timeline/selected-takes 版本绑定与轻量 Profile 只证明结构接缝存在，不证明静帧运镜、声音桥和成片已跑通。
+**当前。** [`remotion_plan.py`](../../scripts/remotion_plan.py)接受 image 片段，生成的 Remotion 画面原先只以静态 `Img` 显示；v0.15.0 起 image 片段可用受限 `still_motion`（焦点 0..1、缩放 1..1.5、帧驱动插值），尚无真实素材渲染与人工回看证据。[`jianying_export.py`](../../scripts/jianying_export.py)会把 image 片段写入“未迁移”警告，并要求至少一个 video；因此不能说剪映已支持全静帧草稿。已有 timeline/selected-takes 版本绑定与轻量 Profile 只证明结构接缝存在，不证明静帧运镜、声音桥和成片已跑通。
 
 **候选方案。** 先选 Remotion 作为最小成片适配器，给 image 片段增加受限的起止取景、缩放/平移和缓动语义；规定画幅填充、安全区、相邻静帧切点和无效参数的处理。用获选且有权属的图片与声音走正式时间线、实际渲染、解码 QA、字幕/环境声/J/L cut 核验和人工回看。先使用已有、获授权音轨；云端 TTS 若未通过认证，不写入最小路径的成功条件。剪映的“原生图片轨”或“先视频化再导出”另作兼容选择，不能借 Remotion 通过冒称剪映通过。
 

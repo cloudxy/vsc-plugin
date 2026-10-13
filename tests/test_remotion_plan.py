@@ -113,6 +113,26 @@ class TestRemotionPlan(unittest.TestCase):
         self.assertTrue(any("source_shot_id" in error for error in errors))
         self.assertTrue(any("安全相对路径" in error for error in errors))
 
+    def test_still_motion_is_bounded_and_image_only(self):
+        value = plan()
+        image = value["segments"][0]
+        image["kind"] = "image"
+        image["source"] = "stills/SH-001.png"
+        image["still_motion"] = {"from": {"x": 0.2, "y": 0.5, "scale": 1.1},
+            "to": {"x": 0.8, "y": 0.5, "scale": 1.3}, "easing": "ease_in_out"}
+        self.assertEqual(REMOTION.validate(value), [])
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "render"
+            REMOTION.scaffold(value, output)
+            source = (output / "src/ShortDrama.tsx").read_text()
+            self.assertIn("stillMotionAtFrame(segment, frame)", source)
+            self.assertIn("overflow: 'hidden'", source)
+        image["still_motion"]["to"]["scale"] = 0.9
+        self.assertTrue(any("still_motion.to" in error for error in REMOTION.validate(value)))
+        image["still_motion"]["to"]["scale"] = 1.3
+        image["kind"] = "video"
+        self.assertTrue(any("仅适用于 image" in error for error in REMOTION.validate(value)))
+
     def test_scaffold_writes_editable_project_without_dependencies(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "remotion-project"
@@ -149,6 +169,21 @@ console.log(JSON.stringify({begin:m.volumeAtFrame(segment,0),end:m.volumeAtFrame
             self.assertEqual(result["bottom"], {"bottom": "5%"})
             self.assertEqual(result["top"], {"top": "5%"})
             self.assertEqual(result["custom"], {"top": "70%", "transform": "translateY(-70%)"})
+
+    @unittest.skipUnless(shutil.which("node"), "Node required")
+    def test_still_motion_frame_math(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "render"
+            REMOTION.scaffold(plan(), output)
+            segment = {"kind": "image", "duration_in_frames": 3,
+                "still_motion": {"from": {"x": 0, "y": 0.5, "scale": 1.2},
+                                 "to": {"x": 1, "y": 0.5, "scale": 1.2}, "easing": "linear"}}
+            code = f"const m = await import({json.dumps((output / 'src' / 'timing.ts').as_uri())});" + \
+                f"const s = {json.dumps(segment)}; console.log(JSON.stringify([0,1,2].map(f=>m.stillMotionAtFrame(s,f))));"
+            result = json.loads(subprocess.check_output(["node", "--input-type=module", "-e", code], text=True))
+            self.assertAlmostEqual(result[0]["translateX"], 10)
+            self.assertAlmostEqual(result[1]["translateX"], 0)
+            self.assertAlmostEqual(result[2]["translateX"], -10)
 
 
 if __name__ == "__main__":
