@@ -52,8 +52,11 @@ python3 scripts/remotion_plan.py scaffold templates/remotion-render-plan.json /t
 | `muted` / `volume` | 视频原声或独立音轨的静音与基础音量，volume 为 0..1 |
 | `audio_fade_in_frames` / `audio_fade_out_frames` | 音频淡入/淡出，独立于画面淡变 |
 | `volume_keyframes` | `[{"frame":0,"volume":1}, ...]`，按片段本地帧线性插值，可为对白设置 BGM 压低区间 |
+| `still_motion` | 仅用于 image：`{"from":{"x":0.2,"y":0.5,"scale":1.1},"to":{"x":0.8,"y":0.5,"scale":1.3},"easing":"ease_in_out"}`；焦点 x/y 为 0..1，缩放为 1..1.5，画面在片段帧内插值并裁在画幅内 |
 
 音量为基础音量 × 关键帧包络 × 音频淡变。未静音的视频保留原声；独立对白与原声并存时需明确混音，不能自动假定应丢弃原声。跨镜头 BGM 使用一条连续音轨；这里不自动分析对白、不自动决定 ducking。
+
+静帧默认保持静止。`still_motion` 只给一个已获选图片提供受限推拉和焦点平移，使用帧驱动运算，不依赖浏览器 CSS 动画；构图、人物与文字可读性仍须在实际预览和审片中确认。没有图片素材、声音授权及真实渲染时，脚手架通过不代表静帧成片已验收。
 
 脚手架包含同版 `@remotion/cli`、`@remotion/media`、`remotion` 及 `typecheck` 命令。它不安装依赖。`npm run typecheck`、Studio 回看和真正导出仍需在用户的生成目录中执行。
 

@@ -128,6 +128,22 @@ def validate(plan):
             visual_seen = True
             if not text(segment.get("source_shot_id")):
                 errors.append(f"{label}.source_shot_id 必须回指 VSC 镜头")
+        motion = segment.get("still_motion")
+        if motion is not None:
+            if kind != "image" or not isinstance(motion, dict) or set(motion) != {"from", "to", "easing"}:
+                errors.append(f"{label}.still_motion 仅适用于 image，且须包含 from/to/easing")
+            else:
+                if motion["easing"] not in ("linear", "ease_in_out"):
+                    errors.append(f"{label}.still_motion.easing 无效")
+                for point in ("from", "to"):
+                    value = motion[point]
+                    if not isinstance(value, dict) or set(value) != {"x", "y", "scale"}:
+                        errors.append(f"{label}.still_motion.{point} 须包含 x/y/scale")
+                        continue
+                    if (not unit_interval(value["x"]) or not unit_interval(value["y"])
+                            or type(value["scale"]) not in (int, float) or not math.isfinite(value["scale"])
+                            or not 1 <= value["scale"] <= 1.5):
+                        errors.append(f"{label}.still_motion.{point} 须有 0..1 焦点和 1..1.5 缩放")
         if kind in {"caption", "text"} and not text(segment.get("text")):
             errors.append(f"{label}.text 必须是非空字符串")
         for key in ("fade_in_frames", "fade_out_frames", "audio_fade_in_frames", "audio_fade_out_frames"):
@@ -207,6 +223,7 @@ export type Segment = {
   fade_in_frames?: number; fade_out_frames?: number; volume?: number; muted?: boolean;
   audio_fade_in_frames?: number; audio_fade_out_frames?: number;
   volume_keyframes?: {frame: number; volume: number}[];
+  still_motion?: {from: {x: number; y: number; scale: number}; to: {x: number; y: number; scale: number}; easing: 'linear' | 'ease_in_out'};
 };
 export type RenderPlan = {
   format: string; project_id: string;
@@ -226,6 +243,18 @@ export const captionPlacement = (style: SubtitleStyle, margin: number) => {
 };
 export const toFps = (fps: Fps): number => typeof fps === 'number' ? fps : fps.numerator / fps.denominator;
 const clamp = (x: number): number => Math.max(0, Math.min(1, x));
+export const stillMotionAtFrame = (segment: Segment, frame: number): {translateX: number; translateY: number; scale: number} => {
+  const motion = segment.still_motion;
+  if (!motion) return {translateX: 0, translateY: 0, scale: 1};
+  const ratio = clamp(frame / Math.max(1, segment.duration_in_frames - 1));
+  const progress = motion.easing === 'ease_in_out' ? ratio * ratio * (3 - 2 * ratio) : ratio;
+  const blend = (start: number, end: number): number => start + (end - start) * progress;
+  const scale = blend(motion.from.scale, motion.to.scale);
+  const x = blend(motion.from.x, motion.to.x);
+  const y = blend(motion.from.y, motion.to.y);
+  return {translateX: (0.5 - x) * (scale - 1) * 100,
+          translateY: (0.5 - y) * (scale - 1) * 100, scale};
+};
 export const fadeGain = (frame: number, duration: number, fadeIn: number, fadeOut: number): number => {
   const up = fadeIn ? clamp(frame / fadeIn) : 1;
   const down = fadeOut ? clamp((duration - 1 - frame) / fadeOut) : 1;
@@ -255,7 +284,7 @@ VIDEO_TSX = """import {useEffect, useLayoutEffect, useRef, useState} from 'react
 import {AbsoluteFill, Img, Sequence, staticFile, useCurrentFrame, delayRender, continueRender, cancelRender} from 'remotion';
 import {Audio, Video} from '@remotion/media';
 import {plan as defaultPlan} from './plan';
-import {captionPlacement, fadeGain, toFps, volumeAtFrame} from './timing';
+import {captionPlacement, fadeGain, stillMotionAtFrame, toFps, volumeAtFrame} from './timing';
 import type {RenderPlan, Segment, SubtitleStyle} from './timing';
 
 const mediaStyle: React.CSSProperties = {width: '100%', height: '100%', objectFit: 'cover'};
@@ -299,9 +328,12 @@ const useSubtitleFont = (font: string | null) => {
 const Visual: React.FC<{segment: Segment}> = ({segment}) => {
   const frame = useCurrentFrame();
   const opacity = fadeGain(frame, segment.duration_in_frames, segment.fade_in_frames ?? 0, segment.fade_out_frames ?? 0);
-  const style = {...mediaStyle, opacity};
   if (segment.kind === 'video') return <Video src={staticFile(segment.source!)} trimBefore={segment.source_in_frame ?? 0} durationInFrames={segment.duration_in_frames} volume={volumeAtFrame(segment, frame)} muted={segment.muted ?? false} objectFit="cover" style={{width: '100%', height: '100%', opacity}} />;
-  if (segment.kind === 'image') return <Img src={staticFile(segment.source!)} style={style} />;
+  if (segment.kind === 'image') {
+    const motion = stillMotionAtFrame(segment, frame);
+    return <AbsoluteFill style={{overflow: 'hidden', opacity}}><Img src={staticFile(segment.source!)} style={{...mediaStyle,
+      transform: `translate(${motion.translateX}%, ${motion.translateY}%) scale(${motion.scale})`}} /></AbsoluteFill>;
+  }
   return null;
 };
 

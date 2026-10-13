@@ -207,6 +207,28 @@ def record_status(project, job_id, status, external_task_id=None, details=None):
             ("E-" + uuid.uuid4().hex, job_id, status, db.canonical(details or {}), timestamp))
 
 
+def mark_transferred(project, job_id, media_ids):
+    """Durable marker that every output is stored locally; repeat calls are no-ops."""
+    series_state(project)
+    with project_lock(Path(project)), db.connect(project) as connection:
+        row = connection.execute("SELECT status FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
+        if not row or row["status"] != "succeeded":
+            raise SeriesError("只有成功任务可以标记转存完成")
+        if connection.execute("SELECT 1 FROM job_events WHERE job_id=? AND status='transferred'", (job_id,)).fetchone():
+            return
+        connection.execute("INSERT INTO job_events VALUES (?,?,?,?,?)",
+            ("E-" + uuid.uuid4().hex, job_id, "transferred", db.canonical({"media_ids": media_ids}), stamp()))
+
+
+def record_poll_error(project, job_id, error):
+    """Audit a failed resume and move the job behind others in the polling queue."""
+    with project_lock(Path(project)), db.connect(project) as connection:
+        timestamp = stamp()
+        connection.execute("UPDATE generation_jobs SET updated_at=? WHERE id=?", (timestamp, job_id))
+        connection.execute("INSERT INTO job_events VALUES (?,?,?,?,?)",
+            ("E-" + uuid.uuid4().hex, job_id, "poll_error", db.canonical({"error": str(error)[:500]}), timestamp))
+
+
 def adapter_for_job(project, job_id, transport=None):
     """Resolve a frozen job to an adapter; does not submit or poll it."""
     series_state(project)

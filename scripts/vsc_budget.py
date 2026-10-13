@@ -200,6 +200,16 @@ def settle(project, identifier, actual=None, evidence=None):
         # Currency is deliberately unknown unless independently supplied billing.
 
 
+def settle_unknown(project, identifier, evidence):
+    """Close an uncertain submission once; never overwrite a human-settled amount."""
+    with ledger(project) as data:
+        item = data['reservations'].get(identifier)
+        if not item or item['status'] != 'submitted_unknown':
+            return False
+        item.update(status='usage_unknown', evidence=evidence)
+        return True
+
+
 def summary(data):
     groups = {'by_scope': {}, 'by_shot': {}, 'by_status': {}}
     for item in data['reservations'].values():
