@@ -1,0 +1,139 @@
+{
+  "profile_id": "vsc.series-db",
+  "version": "1.0",
+  "storage_policy": "sqlite-series-v1",
+  "dependency_policy": "previous_stage",
+  "scope_required_from": "script",
+  "label": "数据库连续短剧",
+  "use_case": "每集约三分钟、六十集以上；按分集范围和固定版本管理剧本、素材、状态、声音与制作关系",
+  "stages": [
+    {
+      "id": "brief",
+      "label": "创作委托",
+      "required": [
+        "vsc.creative_brief",
+        "vsc.adaptation_contract"
+      ]
+    },
+    {
+      "id": "source",
+      "label": "小说理解",
+      "required": [
+        "vsc.source_map",
+        "vsc.story_bible"
+      ]
+    },
+    {
+      "id": "adaptation",
+      "label": "分集改编",
+      "required": [
+        "vsc.adaptation_plan",
+        "vsc.episode_beats"
+      ]
+    },
+    {
+      "id": "script",
+      "label": "分集剧本",
+      "required": [
+        "vsc.screenplay"
+      ]
+    },
+    {
+      "id": "design",
+      "label": "镜头与资产设计",
+      "required": [
+        "vsc.visual_bible",
+        "vsc.asset_bible",
+        "vsc.shot_plan",
+        "vsc.sound_plan",
+        "vsc.scene_state",
+        "vsc.sequence_links",
+        "vsc.coverage_plan"
+      ]
+    },
+    {
+      "id": "animatic",
+      "label": "带声预演",
+      "required": [
+        "vsc.animatic"
+      ]
+    },
+    {
+      "id": "production",
+      "label": "镜头素材制作",
+      "required": [
+        "vsc.selected_takes"
+      ]
+    },
+    {
+      "id": "post",
+      "label": "剪辑与混音",
+      "required": [
+        "vsc.timeline",
+        "vsc.mix"
+      ]
+    },
+    {
+      "id": "delivery",
+      "label": "审片与交付",
+      "required": [
+        "vsc.delivery_manifest",
+        "vsc.sample_review",
+        "vsc.media_qa"
+      ]
+    }
+  ],
+  "policy": {
+    "creative_decisions": "human",
+    "technical_checks": "automatic",
+    "external_publish": "not_enabled"
+  },
+  "contract_policy": "production-v2",
+  "ending_functions": [
+    "cliffhanger",
+    "closure",
+    "resonance"
+  ],
+  "dependency_requirements": {
+    "vsc.coverage_plan": [
+      "vsc.screenplay"
+    ],
+    "vsc.shot_plan": [
+      "vsc.screenplay"
+    ],
+    "vsc.sound_plan": [
+      "vsc.screenplay"
+    ],
+    "vsc.animatic": [
+      "vsc.coverage_plan",
+      "vsc.asset_bible"
+    ],
+    "vsc.selected_takes": [
+      "vsc.animatic"
+    ],
+    "vsc.timeline": [
+      "vsc.selected_takes"
+    ],
+    "vsc.mix": [
+      "vsc.timeline",
+      "vsc.sound_plan"
+    ],
+    "vsc.media_qa": [
+      "vsc.timeline",
+      "vsc.mix"
+    ],
+    "vsc.sample_review": [
+      "vsc.media_qa"
+    ],
+    "vsc.delivery_manifest": [
+      "vsc.timeline",
+      "vsc.mix",
+      "vsc.media_qa",
+      "vsc.sample_review"
+    ],
+    "vsc.production_run": [],
+    "vsc.episode_beats": [
+      "vsc.adaptation_plan"
+    ]
+  }
+}
