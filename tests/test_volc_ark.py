@@ -41,9 +41,31 @@ class InputTest(unittest.TestCase):
         with mock.patch.dict(A.os.environ, {}, clear=True), \
                 mock.patch.object(A.Path, "read_text", side_effect=AssertionError("must not read shell config")), \
                 mock.patch.object(A.urllib.request, "urlopen") as remote:
-            with self.assertRaisesRegex(A.ArkError, "HUO_SHAN_API_KEY.*~/.zshenv") as error:
+            with self.assertRaisesRegex(A.ArkError, "ARK_AGENT_PLAN_API_KEY.*~/.zshenv") as error:
                 A.call("/images/generations", {"prompt": "offline"})
             self.assertIn("source ~/.zshenv", str(error.exception))
+            remote.assert_not_called()
+
+    def test_retired_key_names_report_the_change_and_plan_base_is_default(self):
+        with mock.patch.dict(A.os.environ, {"HUO_SHAN_API_KEY": "old"}, clear=True), \
+                mock.patch.object(A.urllib.request, "urlopen") as remote:
+            with self.assertRaisesRegex(A.ArkError, "已更换.*ARK_AGENT_PLAN_API_KEY"):
+                A.call("/images/generations", {"prompt": "offline"})
+            remote.assert_not_called()
+        with mock.patch.dict(A.os.environ, {}, clear=True):
+            self.assertEqual(A.base_url(), "https://ark.cn-beijing.volces.com/api/plan/v3")
+        for bad in ("http://ark.cn-beijing.volces.com/api/v3", "https://example.com/api/v3", "https://ark.cn-beijing.volces.com/v3"):
+            with mock.patch.dict(A.os.environ, {"ARK_BASE_URL": bad}, clear=True), self.assertRaises(A.ArkError):
+                A.base_url()
+        with mock.patch.dict(A.os.environ, {"ARK_BASE_URL": "https://ark.cn-beijing.volces.com/api/v3/"}, clear=True):
+            self.assertEqual(A.base_url(), "https://ark.cn-beijing.volces.com/api/v3")
+
+    def test_agent_plan_key_never_calls_text_models(self):
+        with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_API_KEY": "plan"}, clear=True), \
+                mock.patch.object(A.urllib.request, "urlopen") as remote:
+            for path in ("/chat/completions", "/responses", "/embeddings"):
+                with self.assertRaisesRegex(A.ArkError, "Agent Plan"):
+                    A.call(path, {"model": "m"})
             remote.assert_not_called()
 
     def test_media_type_is_sniffed_from_content(self):
@@ -533,6 +555,9 @@ class VisualTest(unittest.TestCase):
         key = mock.patch.object(A, "api_key", return_value="offline-test-key")
         key.start()
         self.addCleanup(key.stop)
+        allowed = mock.patch.object(A.credentials, "text_model_problem", return_value=None)
+        allowed.start()
+        self.addCleanup(allowed.stop)
 
     def test_checklist_follows_the_anchor_pack(self):
         bible, state = C.load(BIBLE, C.BIBLE_FORMAT), C.load(STATE, C.STATE_FORMAT)
@@ -619,6 +644,9 @@ class InspectionBudgetTest(unittest.TestCase):
         key = mock.patch.object(A, "api_key", return_value="offline-test-key")
         key.start()
         self.addCleanup(key.stop)
+        allowed = mock.patch.object(A.credentials, "text_model_problem", return_value=None)
+        self.text_models = allowed.start()
+        self.addCleanup(allowed.stop)
 
     def args(self, *extra):
         return A.parser().parse_args(["inspect", "--project", str(self.project), "--bible", "bible.json",
@@ -675,6 +703,18 @@ class InspectionBudgetTest(unittest.TestCase):
                     A.inspect(self.args(*flags))
             key.assert_not_called()
             remote.assert_not_called()
+        self.assertFalse(list(self.project.glob("*-尝试.json")))
+
+    def test_agent_plan_policy_refuses_new_submission_before_key_budget_or_attempt(self):
+        import vsc_budget
+        self.text_models.return_value = A.credentials.TEXT_MODELS_FORBIDDEN
+        with mock.patch.object(A, "api_key") as key, mock.patch.object(A, "call") as remote, \
+                mock.patch.object(vsc_budget, "check_authorization") as budget:
+            with self.assertRaisesRegex(A.ArkError, "Agent Plan"):
+                A.inspect(self.args("--budget-reservation", "BR-plan"))
+            key.assert_not_called()
+            remote.assert_not_called()
+            budget.assert_not_called()
         self.assertFalse(list(self.project.glob("*-尝试.json")))
 
     def test_strict_inspection_without_budget_cannot_post(self):

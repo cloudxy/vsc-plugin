@@ -33,7 +33,7 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 制作前运行 `python3 -B scripts/vsc_toolchain.py --project <作品目录> --json`。实现存在、默认凭证变量存在、当前作品有有效候选与人工已审阅分别看；该诊断不联网核验权限，`configured=true` 不能当作供应商可用或批准。
 
-声音按已批准声音方案另行制作：`scripts/doubao_speech.py synthesize` 提供固定 speaker 和情绪 context，`scripts/doubao_audio.py generate` 经 MediaKit 生成音乐／环境／音效候选。语音专属套餐 key 须显式 `--service agent-plan`，普通语音默认 `--service speech`；两者不能因鉴权失败自动互换。两个声音脚本默认 dry run，`--execute` 才提交，`--max-chars` 必填；默认分别读 `DOUBAO_SPEECH_API_KEY`、`DOUBAO_MEDIAKIT_API_KEY`，不自动回退到方舟 key，可通过 `--key-env <环境变量名>` 显式选择并单独核验权限。2026-10-11 普通语音探测／合成及显式 Agent Plan 合成均未通过认证（401／45000010），MediaKit key 未配置；接口离线验证通过，尚无成功云端声音，不能声称已生成可用豆包声音。无远程声源时可用 `scripts/procedural_audio.py` 离线合成原创环境底、拟音与简约配乐，须如实标记为程序合成。
+声音按已批准声音方案另行制作：`scripts/doubao_speech.py synthesize` 提供固定 speaker 和情绪 context，`scripts/doubao_audio.py generate` 经 MediaKit 生成音乐／环境／音效候选。语音默认 `--service agent-plan`（统一的方舟 Agent Plan key），普通语音须显式 `--service speech`；两者不能因鉴权失败自动互换。两个声音脚本默认 dry run，`--execute` 才提交，`--max-chars` 必填；火山图片、视频与两个声音脚本统一读 `ARK_AGENT_PLAN_API_KEY`，旧变量已停用并提示“API Key 已更换”；可通过 `--key-env <环境变量名>` 显式选择其他未停用的变量并单独核验权限。该 key 不得直接调用文本生成模型，视觉检查不能新提交。2026-10-11 普通语音探测／合成及显式 Agent Plan 合成均未通过认证（401／45000010），MediaKit key 未配置；接口离线验证通过，尚无成功云端声音，不能声称已生成可用豆包声音。无远程声源时可用 `scripts/procedural_audio.py` 离线合成原创环境底、拟音与简约配乐，须如实标记为程序合成。
 
 声音资产记录写 `kind=audio`、`purpose=asset`，不属于镜头画面。人工试听后通过 `vsc_library.py promote/use` 复用 voice/music/ambience/sfx；相同音色 ID、音轨存在或工具成功都不代替声线、表演、权属与人工选择。具体参数见[豆包语音](../../docs/architecture/doubao-speech.md)、[Seed-Audio](../../docs/architecture/doubao-audio.md)。
 

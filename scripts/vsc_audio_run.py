@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import vsc_budget as budget
+import vsc_credentials as credentials
 from vsc_artifacts import digest
 
 
@@ -62,6 +63,10 @@ def execute(project, identifier):
     gaps = gate_problems(Path(project), state, gate, None if data['scope']=='project' else data['scope'])
     if gaps: raise ValueError('音频制作质量门未满足：'+'；'.join(gaps))
     module, args, binding, operation, bound = prepare(project, data['audio_request'])
+    if data['audio_request']['kind'] == 'inspect':
+        # Agent Plan 规则禁止直接调用文本模型；在预留额度之前拒绝，不留占用。
+        problem = credentials.text_model_problem()
+        if problem: raise ValueError(problem)
     reservation = budget.reserve(project, identifier, operation, bound)
     args.execute = True; args.dry_run = False; args.budget_reservation = reservation
     if data['audio_request']['kind'] == 'inspect':

@@ -200,7 +200,7 @@ class SeriesDatabase(unittest.TestCase):
             from vsc_series_run import project_errors as series_run_errors
             self.assertEqual(series_run_errors(json.loads(db.artifact_document(self.project, run["id"])),
                 self.project, project_state(self.project), run), [])
-            jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_API_KEY")
+            jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY")
             jobs.register_model(self.project, "volc_ark", "model-1", "symbolic-model", "image", "fixed-version",
                 {"purposes": ["shot_keyframe"], "reference_media": True},
                 {"size_map": {"1080x1920": "2K"}})
@@ -278,7 +278,7 @@ class SeriesDatabase(unittest.TestCase):
             "review_after": [], "operations": {"series:SH1:shot_keyframe:1": {"remote_jobs": 1, "images": 1}}},
             depends=(*inputs, animatic))
         save(self.project, state)
-        jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_API_KEY")
+        jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY")
         jobs.register_model(self.project, "volc_ark", "model-1", "symbolic-model", "image", "fixed-version",
             {"purposes": ["shot_keyframe"], "reference_media": True},
             {"size_map": {"1080x1920": "2K"}})
@@ -428,7 +428,7 @@ class SeriesDatabase(unittest.TestCase):
             pending = dict(run, status="draft", decision=None)
             self.assertTrue(any("镜头上下文已变化" in problem
                                 for problem in series_run_errors(document, self.project, state, pending)))
-            jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_API_KEY")
+            jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY")
             jobs.register_model(self.project, "volc_ark", "model-1", "symbolic-model", "image", "fixed-version",
                 {"purposes": ["shot_keyframe"], "reference_media": True}, {"size_map": {"1080x1920": "2K"}})
             jobs.set_route(self.project, "image", "shot_keyframe", "model-1")
@@ -462,7 +462,7 @@ class SeriesDatabase(unittest.TestCase):
             "review_after": [], "operations": {"series:SH1:shot_video:1": {"remote_jobs": 1, "video_seconds": 5}}},
             depends=(*inputs, animatic))
         save(self.project, state)
-        jobs.register_provider(self.project, "volc_ark", ["video"], "env:ARK_API_KEY")
+        jobs.register_provider(self.project, "volc_ark", ["video"], "env:ARK_AGENT_PLAN_API_KEY")
         jobs.register_model(self.project, "volc_ark", "video-1", "symbolic-video", "video", "fixed-version",
             {"purposes": ["shot_video"], "reference_media": True, "max_duration_ms": 10000},
             {"resolution": "720p", "ratio": "9:16"})

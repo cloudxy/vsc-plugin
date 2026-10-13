@@ -9,6 +9,7 @@ import test_vsc_production as media_fixture
 import vsc_artifacts as artifacts
 import vsc_audio_run as single
 import vsc_budget as budget
+import vsc_credentials as credentials
 import vsc_run as formal
 import vsc_state as state_module
 import volc_ark as ark
@@ -34,6 +35,9 @@ class InspectionRun(unittest.TestCase):
         for module in (artifacts,formal,state_module):
             patch=mock.patch.object(module,'validate_artifact',side_effect=self.fixture.validator)
             patch.start();self.addCleanup(patch.stop)
+        # The run protocol is exercised under a policy that permits text models; the Agent Plan refusal has its own test.
+        patch=mock.patch.object(credentials,'text_model_problem',return_value=None)
+        self.text_models=patch.start();self.addCleanup(patch.stop)
         budget.configure(self.project,self.bound,'synthetic reviewer','one inspection')
         items=self.binding['checklist']
         answer={'results':[{'item':item,'verdict':'pass','evidence':'synthetic offline evidence'} for item in items],'issues':[]}
@@ -58,6 +62,13 @@ class InspectionRun(unittest.TestCase):
         with budget.ledger(self.project) as ledger:
             self.assertEqual(budget.usage(ledger)['vision_jobs'],1)
             self.assertEqual(list(ledger['reservations'].values())[0]['status'],'usage_unknown')
+    def test_agent_plan_policy_refuses_inspection_run_before_budget(self):
+        self.text_models.return_value=credentials.TEXT_MODELS_FORBIDDEN
+        with mock.patch.object(state_module,'gate_problems',return_value=[]), mock.patch.object(ark,'call') as transport:
+            with self.assertRaisesRegex(ValueError,'Agent Plan'): formal.execute(self.project,self.run['id'])
+            transport.assert_not_called()
+        with budget.ledger(self.project) as ledger:
+            self.assertEqual(ledger['reservations'],{})
     def test_bound_inspection_drift_fails_before_transport(self):
         data=copy.deepcopy(self.data); self.media.write_bytes(self.jpeg)
         self.assertTrue(single.project_errors(data,self.project,self.fixture.read_state(),self.run))

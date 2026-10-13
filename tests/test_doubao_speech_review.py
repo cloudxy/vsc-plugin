@@ -46,7 +46,7 @@ class SpeechReviewTest(unittest.TestCase):
         self.fixture = FixedRunFixture(Path(self.temp.name) / "project")
         self.project = self.fixture.project
         self.key = "offline-review-fixture-not-a-credential"
-        env = mock.patch.dict(os.environ, {"DOUBAO_SPEECH_API_KEY": self.key})
+        env = mock.patch.dict(os.environ, {speech.credentials.KEY_ENV: self.key})
         env.start(); self.addCleanup(env.stop)
         for module in (artifacts, formal, state_module):
             check = mock.patch.object(module, "validate_artifact", side_effect=self.fixture.validator)
