@@ -201,6 +201,48 @@ def record_status(project, job_id, status, external_task_id=None, details=None):
             ("E-" + uuid.uuid4().hex, job_id, status, db.canonical(details or {}), timestamp))
 
 
+def adapter_for_job(project, job_id, transport=None):
+    """Resolve a frozen job to an adapter; does not submit or poll it."""
+    series_state(project)
+    with db.connect(project) as connection:
+        job = connection.execute("SELECT * FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
+        if not job:
+            raise SeriesError("任务不存在")
+        frozen = json.loads(job["request"])
+    if db.digest(frozen) != job["request_sha256"] or frozen.get("model_version") != job["model_version"]:
+        raise SeriesError("任务请求快照或模型版本已漂移")
+    references = {entry["media_id"]: entry for entry in frozen["reference_media"]}
+
+    def media_url(media_id):
+        import volc_ark
+        from vsc_series import sha256
+        item = references.get(media_id)
+        if not item or item["rights"] not in ("owned", "licensed"):
+            raise SeriesError("任务引用了未获权属批准的素材")
+        root = Path(project).resolve()
+        path = (root / item["path"]).resolve()
+        if not path.is_relative_to(root) or not path.is_file() or sha256(path) != item["sha256"]:
+            raise SeriesError("任务参考媒体已漂移")
+        return volc_ark.resolve(str(path), project, volc_ark.originals(project))[0]
+
+    if job["provider"] != "volc_ark":
+        raise SeriesError("此 Provider 尚无系列任务适配器")
+    from vsc_volc_provider import VolcArkImageProvider, VolcArkVideoProvider
+    defaults = frozen["default_params"]
+    if job["modality"] == "image":
+        sizes = defaults.get("size_map", {})
+        if not isinstance(sizes, dict):
+            raise SeriesError("图片模型须配置 size_map")
+        return VolcArkImageProvider(job["model"], media_url,
+            lambda width, height: sizes.get(f"{width}x{height}"), transport)
+    if job["modality"] == "video":
+        if not defaults.get("resolution") or not defaults.get("ratio"):
+            raise SeriesError("视频模型须配置 resolution 与 ratio")
+        return VolcArkVideoProvider(job["model"], media_url, defaults["resolution"], defaults["ratio"],
+            bool(defaults.get("generate_audio", False)), transport)
+    raise SeriesError("火山方舟音频任务尚无已验证的接口映射；须独立接入对应语音服务")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
