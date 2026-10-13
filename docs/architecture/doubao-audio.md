@@ -14,7 +14,7 @@
 
 ## 用法
 
-默认只读 `DOUBAO_MEDIAKIT_API_KEY`。如账号已明确具备该接口权限，可用 `--key-env SOME_ENV_NAME` 显式选择其他环境变量；不接受密钥字面值、不自动尝试方舟或语音 TTS 的变量。
+默认读取统一的方舟 Agent Plan 专属 key `ARK_AGENT_PLAN_API_KEY`；套餐是否覆盖 MediaKit Seed-Audio 尚未验证。`DOUBAO_MEDIAKIT_API_KEY` 等旧变量已于 2026-10-13 停用，遇到时提示“API Key 已更换”。如另有具备该接口权限的 key，可用 `--key-env SOME_ENV_NAME` 显式选择其他未停用的变量；不接受密钥字面值。
 
 默认 dry run，无需凭证和媒体工具，不写生成产物：
 

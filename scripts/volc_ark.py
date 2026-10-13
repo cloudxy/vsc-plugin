@@ -12,7 +12,9 @@ X 是本地文件、https 链接或 asset://<素材 ID>。本地文件若正是�
 方舟只信任未经改动的原始产物（见 TRUST），转成 Base64 可能失去信任。每次生成写一份 vsc.generation-record/v1，
 inspect 写 vsc.visual-check/v1；两者都放在输出旁边。视觉检查只作提醒，不能代替人工批准。
 
-密钥只从环境变量 HUO_SHAN_API_KEY 或 ARK_API_KEY 读取，不打印、不落盘。提交生成任务不自动重试，避免重复计费；
+密钥只从 ARK_AGENT_PLAN_API_KEY（方舟 Agent Plan 专属 key）读取，不打印、不落盘；旧变量已停用，遇到时提示已更换。
+默认走套餐专属地址，ARK_BASE_URL 只能改成 https://ark.cn-beijing.volces.com/api/ 下的路径。套餐规则禁止用该 key
+直接调用文本生成模型，因此 inspect 只能预检和读取已有报告，不再发起新提交。提交生成任务不自动重试，避免重复计费；
 视频任务的编号先写入 <名称>-任务.json，中断后重跑同一命令会续接查询，不会重新提交。
 """
 import argparse
@@ -33,12 +35,15 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 import consistency
+import vsc_credentials as credentials
 
-BASE = "https://ark.cn-beijing.volces.com/api/v3"
+PLAN_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3"
+TEXT_PATHS = ("/chat/completions", "/responses", "/completions", "/embeddings", "/embeddings/multimodal")
 IMAGE_MODEL = "doubao-seedream-5-0-flash-260915"
 VIDEO_MODEL = "doubao-seedance-2-5-260628"
 VISION_MODEL = "doubao-seed-2-1-pro-260915"
@@ -88,18 +93,27 @@ def sha256(path):
 
 
 def api_key():
-    key = os.environ.get("HUO_SHAN_API_KEY") or os.environ.get("ARK_API_KEY")
-    if not key:
-        raise ArkError("缺少 HUO_SHAN_API_KEY 或 ARK_API_KEY；请先检查 ~/.zshenv 中的对应 export 配置，"
-                       "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量")
-    return key
+    return credentials.read_key(error=ArkError)
+
+
+def base_url():
+    """Agent Plan keys only work on the plan's dedicated base URL; overrides stay on the official Ark host."""
+    value = os.environ.get("ARK_BASE_URL", PLAN_BASE).strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(value)
+    if (parsed.scheme != "https" or parsed.netloc != "ark.cn-beijing.volces.com" or not parsed.path.startswith("/api/")
+            or parsed.query or parsed.fragment):
+        raise ArkError("ARK_BASE_URL 只能是 https://ark.cn-beijing.volces.com/api/ 下的地址")
+    return value
 
 
 def call(path, payload=None, attempts=None):
     """调用方舟接口。提交（有 payload）只发一次，查询失败时重试。"""
+    problem = credentials.text_model_problem() if path.split("?", 1)[0].rstrip("/") in TEXT_PATHS else None
+    if problem:
+        raise ArkError(problem)
     key = api_key()
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode()
-    request = urllib.request.Request(BASE + path, data=data, headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+    request = urllib.request.Request(base_url() + path, data=data, headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
     attempts = 1 if payload is not None else (attempts or 6)
     deadline = QUERY_DEADLINE.get() if payload is None else None
     if deadline is not None:
@@ -1011,6 +1025,10 @@ def inspect(args):
                 raise ArkError("视觉检查提交结果未知或已拒绝；不能自动重提，请先人工核查平台任务与账单")
             result = attempt["response"]
         else:
+            # 新提交会直接调用对话模型；在写预算或提交意图之前就按套餐规则拒绝。
+            problem = credentials.text_model_problem()
+            if problem:
+                raise ArkError(problem)
             # 即使换了输入，也不能把一个已经提交过的预留再次用于 POST。
             if reservation:
                 for saved in Path(args.project).resolve().rglob("*-视觉检查-*-尝试.json"):

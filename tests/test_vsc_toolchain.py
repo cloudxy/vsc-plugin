@@ -67,7 +67,11 @@ class ToolchainTest(unittest.TestCase):
             code, report, err = self.report()
         self.assertEqual(code, 0, err)
         tools = self.tools(report)
-        for identifier in ("ark_image", "ark_video", "ark_visual", "doubao_speech", "seed_audio"):
+        visual = tools["ark_visual"]
+        self.assertFalse(visual["configured"])
+        self.assertEqual(visual["configuration"]["status"], "blocked_by_plan_rules")
+        self.assertIn("Agent Plan", visual["configuration"]["blocked_reason"])
+        for identifier in ("ark_image", "ark_video", "doubao_speech", "seed_audio"):
             tool = tools[identifier]
             self.assertTrue(tool["implemented"])
             self.assertTrue(tool["configured"])
@@ -80,25 +84,31 @@ class ToolchainTest(unittest.TestCase):
         self.assertIn("不验证模型权限", report["meaning"]["configured"])
 
     def test_missing_credentials_are_pending_with_zero_exit(self):
-        with mock.patch.dict(os.environ, {name: "" for name in T.ENV_NAMES}):
+        blank = {name: "" for name in (*T.ENV_NAMES, *T.credentials.RETIRED)}
+        with mock.patch.dict(os.environ, blank):
             code, report, err = self.report()
         self.assertEqual(code, 0, err)
         for identifier in ("ark_image", "ark_video", "ark_visual", "doubao_speech", "seed_audio"):
             tool = self.tools(report)[identifier]
             self.assertFalse(tool["configured"])
-            self.assertEqual(tool["configuration"]["status"], "pending")
+            self.assertEqual(tool["configuration"]["status"],
+                             "blocked_by_plan_rules" if identifier == "ark_visual" else "pending")
             self.assertEqual(tool["configuration"]["present_env_names"], [])
             self.assertIn("source ~/.zshenv", tool["configuration"]["missing_hint"])
         for identifier in ("procedural_audio", "queue", "recipes", "craft", "sequence", "ffmpeg", "ffprobe"):
             self.assertIn(identifier, self.tools(report))
         self.assertEqual(report["errors"], [])
-        with mock.patch.dict(os.environ, {name: "" for name in T.ENV_NAMES}):
+        with mock.patch.dict(os.environ, blank):
             code, out, _ = self.cli()
         self.assertEqual(code, 0)
         self.assertIn("configuration=pending", out)
-        self.assertIn("HUO_SHAN_API_KEY|ARK_API_KEY", out)
-        self.assertIn("DOUBAO_SPEECH_API_KEY", out)
-        self.assertIn("DOUBAO_MEDIAKIT_API_KEY", out)
+        self.assertIn("ARK_AGENT_PLAN_API_KEY", out)
+        with mock.patch.dict(os.environ, {**blank, "HUO_SHAN_API_KEY": "old-session-key"}):
+            code, report, err = self.report()
+        hint = self.tools(report)["ark_image"]["configuration"]
+        self.assertIn("已更换", hint["missing_hint"])
+        self.assertEqual(hint["retired_env_names_present"], ["HUO_SHAN_API_KEY"])
+        self.assertNotIn("old-session-key", json.dumps(report, ensure_ascii=False))
         self.assertIn("~/.zshenv", out)
 
     def test_actual_same_project_schema_success_and_sha_evidence_counts(self):
@@ -262,7 +272,7 @@ class ToolchainTest(unittest.TestCase):
                 code, out, err = self.cli(*args)
                 self.assertEqual(code, 0, err)
                 self.assertNotIn(secret, out + err)
-            self.assertIn("DOUBAO_SPEECH_API_KEY", self.cli("--json")[1])
+            self.assertIn("ARK_AGENT_PLAN_API_KEY", self.cli("--json")[1])
         after = {str(path.relative_to(self.root)): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
         self.assertEqual(before, after)
         self.assertFalse(self.library.exists())

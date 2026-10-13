@@ -11,6 +11,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import vsc_credentials as credentials
 import vsc_series_db as db
 from vsc_series import SeriesError, _artifact_document, build_shot_context, series_state, stamp
 from vsc_provider import AudioRequest, ImageRequest, VideoRequest
@@ -24,7 +25,9 @@ def register_provider(project, name, modalities, auth_ref=None, base_url=None, r
     if not name or not modalities or any(m not in REQUEST_TYPES for m in modalities):
         raise SeriesError("Provider 名称与模态必须明确")
     if auth_ref and not auth_ref.startswith("env:"):
-        raise SeriesError("auth_ref 只能指向环境变量，例如 env:ARK_API_KEY")
+        raise SeriesError(f"auth_ref 只能指向环境变量，例如 env:{credentials.KEY_ENV}")
+    if auth_ref and auth_ref[4:] in credentials.RETIRED:
+        raise SeriesError(credentials.changed(auth_ref[4:]))
     with project_lock(Path(project)), db.connect(project) as connection:
         connection.execute("INSERT INTO providers VALUES (?,?,?,?,?,?,?)",
             (name, db.canonical(sorted(set(modalities))), base_url, auth_ref, 1, rate_limit, stamp()))

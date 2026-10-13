@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """豆包 Seed-Audio 1.0 可选 MediaKit 适配器；默认 dry run，--execute 才付费提交。
 
-凭证默认只读 DOUBAO_MEDIAKIT_API_KEY。POST 不重试，保存任务编号后可继续 GET 查询。
+凭证默认读取统一的方舟 Agent Plan 专属 key（ARK_AGENT_PLAN_API_KEY）；旧变量已停用，遇到时提示 API Key 已更换。
+POST 不重试，保存任务编号后可继续 GET 查询。
 仅生成完整音频候选，不承诺精确时长、不自动分轨、不进行人声分离。
 """
 import argparse
@@ -21,6 +22,7 @@ import urllib.error
 import urllib.request
 
 import consistency
+import vsc_credentials as credentials
 from doubao_speech import (NoRedirect, SAFE_ID, SpeechError, digest_json, generation_lock,
                            probe_audio, project_path, sha256, stamp, write_json)
 
@@ -37,16 +39,7 @@ class AudioError(SpeechError):
 
 
 def api_key(env_name):
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", env_name):
-        raise AudioError("--key-env 只接受环境变量名，不接受密钥字面值")
-    key = os.environ.get(env_name, "").strip()
-    if not key:
-        raise AudioError(f"缺少 MediaKit 凭证环境变量 {env_name}；请先检查 ~/.zshenv 中的对应 export 配置，"
-                         "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量；"
-                         "不自动回退到方舟密钥")
-    if any(ord(char) < 32 for char in key):
-        raise AudioError("MediaKit 凭证含非法控制字符")
-    return key
+    return credentials.read_key(env_name, AudioError)
 
 
 def call(path, key, payload=None):
@@ -93,6 +86,8 @@ def plan(args):
         raise AudioError("--poll-interval 范围为 0 到 60 秒")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.key_env):
         raise AudioError("--key-env 只接受环境变量名")
+    if args.key_env in credentials.RETIRED:
+        raise AudioError(credentials.changed(args.key_env))
     payload = {"api": "doubao.audio_generation", "maas_params": {"model": MODEL, "text_prompt": prompt,
         "audio_config": {"format": "mp3", "sample_rate": 48000, "pitch_rate": 0, "speech_rate": 0, "loudness_rate": 0}}}
     binding = {"project_id": project_id, "kind": "audio", "purpose": "asset", "asset_kind": args.asset_kind,
@@ -392,7 +387,7 @@ def parser():
     command.add_argument("--max-chars", type=int, required=True, help="单次提示词字符上限，不等于计费金额预算")
     command.add_argument("--max-polls", type=int, default=30, help="本轮GET次数上限，可重跑续查同一任务")
     command.add_argument("--poll-interval", type=float, default=5, help="查询间隔秒数，0到60")
-    command.add_argument("--key-env", default="DOUBAO_MEDIAKIT_API_KEY", help="显式凭证环境变量名，不自动fallback")
+    command.add_argument("--key-env", default=credentials.KEY_ENV, help="鉴权环境变量名（默认统一的方舟 Agent Plan key）；旧变量已停用，不自动fallback")
     command.add_argument('--budget-reservation')
     mode = command.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")

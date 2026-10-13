@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """豆包语音合成 2.0 HTTP 单向流适配器。默认预检，--execute 才会提交一次付费请求。
 
-仅从 DOUBAO_SPEECH_API_KEY 读取新版语音凭证；不使用方舟 key，不自动重试。
+默认读取统一的方舟 Agent Plan 专属 key（ARK_AGENT_PLAN_API_KEY）并走套餐语音路由 agent-plan；
+旧变量已停用，遇到时提示 API Key 已更换。不自动重试。
 同名任务先落盘绑定，再提交。未完成、失败或输出损坏时禁止自动重新提交。
 """
 import argparse
@@ -26,6 +27,7 @@ import urllib.request
 import uuid
 
 import consistency
+import vsc_credentials as credentials
 
 ENDPOINT = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
 ENDPOINTS = {"speech": ENDPOINT, "agent-plan": "https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional"}
@@ -55,17 +57,8 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def api_key(env_name="DOUBAO_SPEECH_API_KEY"):
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", env_name):
-        raise SpeechError("--key-env 只接受环境变量名，不接受密钥字面值")
-    key = os.environ.get(env_name, "").strip()
-    if not key:
-        raise SpeechError(f"缺少语音凭证环境变量 {env_name}；请先检查 ~/.zshenv 中的对应 export 配置，"
-                          "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量；"
-                          "默认不回退到方舟密钥")
-    if any(ord(char) < 32 for char in key):
-        raise SpeechError("语音凭证含非法控制字符")
-    return key
+def api_key(env_name=credentials.KEY_ENV):
+    return credentials.read_key(env_name, SpeechError)
 
 
 def project_path(project, value):
@@ -136,7 +129,7 @@ def plan(args):
         raise SpeechError("project_id 必须是非空字符串")
     if not SAFE_ID.fullmatch(args.name):
         raise SpeechError("--name 必须以字母或数字开头，只含字母、数字、点、下划线、连字符（最多128字）")
-    service = getattr(args, "service", "speech")
+    service = getattr(args, "service", "agent-plan")
     if service not in ENDPOINTS:
         raise SpeechError("未知语音服务；仅支持 speech 或 agent-plan")
     if service == "agent-plan" and args.resource_id != "seed-tts-2.0":
@@ -144,6 +137,8 @@ def plan(args):
     out = project_path(project, args.out)
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.key_env):
         raise SpeechError("--key-env 只接受环境变量名，不接受密钥字面值")
+    if args.key_env in credentials.RETIRED:
+        raise SpeechError(credentials.changed(args.key_env))
     if args.text_file:
         text = project_path(project, args.text_file).read_text("utf-8")
     else:
@@ -438,7 +433,7 @@ def parser():
     text = synth.add_mutually_exclusive_group(required=True)
     text.add_argument("--text")
     text.add_argument("--text-file", help="作品内 UTF-8 文本相对路径")
-    synth.add_argument("--service", choices=tuple(ENDPOINTS), default="speech", help="speech 为普通语音服务；agent-plan 为方舟套餐专属接口，不自动切换")
+    synth.add_argument("--service", choices=tuple(ENDPOINTS), default="agent-plan", help="agent-plan 为方舟套餐专属接口（默认，配合统一 key）；speech 为普通语音服务，不自动切换")
     synth.add_argument("--speaker", required=True)
     synth.add_argument("--context", action="append", default=[], help="2.0预置音色的情绪/表达指令，可重复")
     synth.add_argument("--resource-id", choices=("seed-tts-2.0", "seed-icl-2.0"), default="seed-tts-2.0")
@@ -452,7 +447,7 @@ def parser():
     synth.add_argument('--line-id'); synth.add_argument('--screenplay'); synth.add_argument('--acting-choice')
     synth.add_argument('--lip-sync-intent', choices=('required', 'offscreen', 'voiceover'))
     synth.add_argument("--max-chars", type=int, required=True, help="本次文本字符预算上限（含标点空白）")
-    synth.add_argument("--key-env", default="DOUBAO_SPEECH_API_KEY", help="显式选择语音鉴权环境变量（仅变量名）；不会自动回退")
+    synth.add_argument("--key-env", default=credentials.KEY_ENV, help="鉴权环境变量名（默认统一的方舟 Agent Plan key）；旧变量已停用，不会自动回退")
     mode = synth.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--execute", action="store_true", help="明确提交一次可能计费的请求，无自动重试")

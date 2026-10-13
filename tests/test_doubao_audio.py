@@ -34,7 +34,7 @@ class AudioTests(unittest.TestCase):
         self.project.mkdir()
         (self.project / "vsc.json").write_text(json.dumps({"project_id": "audio-test"}), "utf-8")
         self.key = "private-mediakit-test-key"
-        patch = mock.patch.dict(os.environ, {"DOUBAO_MEDIAKIT_API_KEY": self.key}, clear=True)
+        patch = mock.patch.dict(os.environ, {audio.credentials.KEY_ENV: self.key}, clear=True)
         patch.start()
         self.addCleanup(patch.stop)
         patch = mock.patch.object(audio, "call", side_effect=AssertionError("unexpected network attempt"))
@@ -79,19 +79,22 @@ class AudioTests(unittest.TestCase):
         self.remote.assert_not_called()
         self.probe.assert_not_called()
 
-    def test_credentials_do_not_implicitly_fallback(self):
+    def test_retired_credentials_report_the_change_and_explicit_names_still_work(self):
         os.environ.clear()
-        os.environ["HUO_SHAN_API_KEY"] = "ark-only"
+        os.environ["DOUBAO_MEDIAKIT_API_KEY"] = "old-mediakit-key"
         self.assertTrue(audio.generate(self.args())["dry_run"])
-        with self.assertRaisesRegex(audio.AudioError, "DOUBAO_MEDIAKIT_API_KEY") as error:
+        with self.assertRaisesRegex(audio.AudioError, "已更换") as error:
             audio.generate(self.args("--execute"))
-        self.assertIn("~/.zshenv", str(error.exception))
+        self.assertIn(audio.credentials.KEY_ENV, str(error.exception))
         self.assertIn("source ~/.zshenv", str(error.exception))
+        with self.assertRaisesRegex(audio.AudioError, "已更换"):
+            audio.generate(self.args("--key-env", "HUO_SHAN_API_KEY"))
         self.remote.assert_not_called()
         self.assertFalse((self.project / "06-素材/声音/BGM-01-任务.json").exists())
+        os.environ["TEAM_AUDIO_KEY"] = "explicit-key"
         self.replies({"success": True, "task_id": TASK_ID}, completed())
-        audio.generate(self.args("--execute", "--key-env", "HUO_SHAN_API_KEY"))
-        self.assertEqual(self.remote.call_args_list[0].args[1], "ark-only")
+        audio.generate(self.args("--execute", "--key-env", "TEAM_AUDIO_KEY"))
+        self.assertEqual(self.remote.call_args_list[0].args[1], "explicit-key")
         with self.assertRaisesRegex(audio.AudioError, "环境变量名"):
             audio.generate(self.args("--key-env", "actual secret literal"))
 

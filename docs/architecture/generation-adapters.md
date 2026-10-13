@@ -37,7 +37,7 @@ VSC 核心不依赖模型供应商 SDK。需要上游项目的能力时，把它
 
 ## 豆包适配器
 
-[`scripts/volc_ark.py`](../../scripts/volc_ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读环境变量 `HUO_SHAN_API_KEY` 或 `ARK_API_KEY`。执行前应有本项目已批准输入、预算和授权。
+[`scripts/volc_ark.py`](../../scripts/volc_ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读 `ARK_AGENT_PLAN_API_KEY`（方舟 Agent Plan 专属 key），默认走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`，可用 `ARK_BASE_URL` 改为该域名 `/api/` 下的其他路径。套餐规则禁止用该 key 直接调用文本生成与向量化模型，因此视觉检查只能预检和读取已有报告。执行前应有本项目已批准输入、预算和授权。
 
 ```bash
 # 一次生成规范资产图；模型需已在账号开通。
@@ -72,13 +72,13 @@ python3 -B scripts/volc_ark.py inspect --project projects/示例作品 \
 
 | 工具 | 能力与凭证 | 2026-10-11 验证状态 |
 |---|---|---|
-| [`doubao_speech.py`](../../scripts/doubao_speech.py) | 豆包语音合成 2.0，固定 `speaker`、情绪 context、已有合法复刻音色合成；默认只读 `DOUBAO_SPEECH_API_KEY` | 离线协议及真实本地媒体检查通过。音色列表探测与普通合成返回 HTTP 401；专属 Agent Plan 合成返回 45000010／底层 AuthenticationError 401。均未取得成功 TTS 音频；不能报告当前账号语音可用。 |
-| [`doubao_audio.py`](../../scripts/doubao_audio.py) | 经 MediaKit 调用 Seed-Audio 1.0，异步生成音乐／环境／音效候选；默认只读 `DOUBAO_MEDIAKIT_API_KEY` | 离线协议、续接与真实本地媒体检查通过。当前有效 MediaKit key 未配置，尚无线上的成功音频与效果证据。 |
+| [`doubao_speech.py`](../../scripts/doubao_speech.py) | 豆包语音合成 2.0，固定 `speaker`、情绪 context、已有合法复刻音色合成；默认读取 `ARK_AGENT_PLAN_API_KEY` 并走 `agent-plan` 路由 | 离线协议及真实本地媒体检查通过。音色列表探测与普通合成返回 HTTP 401；专属 Agent Plan 合成返回 45000010／底层 AuthenticationError 401。均未取得成功 TTS 音频；不能报告当前账号语音可用。 |
+| [`doubao_audio.py`](../../scripts/doubao_audio.py) | 经 MediaKit 调用 Seed-Audio 1.0，异步生成音乐／环境／音效候选；默认读取 `ARK_AGENT_PLAN_API_KEY`（套餐是否覆盖 MediaKit 尚未验证） | 离线协议、续接与真实本地媒体检查通过。当前有效 MediaKit key 未配置，尚无线上的成功音频与效果证据。 |
 | [`procedural_audio.py`](../../scripts/procedural_audio.py) | 标准库离线原创合成，无凭证、无外部采样；wind/rain/cloth/footsteps/ceramic/bell/music_pad | 可离线生产声音候选。它是本地程序合成，不是豆包模型结果；仍须试听、按场景选择和混音。 |
 
-语音普通服务默认 `--service speech`；方舟 Agent Plan 专属凭证显式传 `--service agent-plan`，端点随请求绑定，不自动猜测或回退。两个远程声音工具默认 dry run，显式 `--execute` 才可能付费。`--max-chars` 限文本或提示词字符数，不能当作人民币费用或生成时长上限。Seed-Audio 的“约十秒”“无对白”只属于提示词要求；工具不保证精确时长，也不自动分轨或分离人声。TTS 的相同 `speaker` 只能绑定供应商音色 ID，不能代替跨镜声线、情绪、口型与表演审听。
+语音默认 `--service agent-plan`，配合统一 key；普通语音服务须显式 `--service speech`，并用 `--key-env` 指定具备权限的其他变量。端点随请求绑定，不自动猜测或回退。两个远程声音工具默认 dry run，显式 `--execute` 才可能付费。`--max-chars` 限文本或提示词字符数，不能当作人民币费用或生成时长上限。Seed-Audio 的“约十秒”“无对白”只属于提示词要求；工具不保证精确时长，也不自动分轨或分离人声。TTS 的相同 `speaker` 只能绑定供应商音色 ID，不能代替跨镜声线、情绪、口型与表演审听。
 
-官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)允许给方舟／IAM key 扩展其他云产品权限。语音或 MediaKit 适配器可用 `--key-env HUO_SHAN_API_KEY` 显式选择现有环境变量，但不会自动 fallback；具备方舟图像／视频权限不证明语音或 MediaKit 权限。当前语音 401 不应绕过，也不能外推为所有账号或接口都不支持。
+官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)允许给方舟／IAM key 扩展其他云产品权限。语音或 MediaKit 适配器可用 `--key-env 变量名` 显式选择其他未停用的环境变量，但不会自动 fallback；具备方舟图像／视频权限不证明语音或 MediaKit 权限。当前语音 401 不应绕过，也不能外推为所有账号或接口都不支持。
 
 ```bash
 # 只核对请求；不需要 key、不提交生成。

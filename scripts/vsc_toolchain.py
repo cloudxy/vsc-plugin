@@ -9,19 +9,22 @@ from pathlib import Path
 
 import consistency as C
 import volc_ark as A
+import vsc_credentials as credentials
 import vsc_library as L
 
 ROOT = Path(__file__).resolve().parent.parent
 FORMAT = "vsc.toolchain-readiness/v1"
-ENV_NAMES = ("HUO_SHAN_API_KEY", "ARK_API_KEY", "DOUBAO_SPEECH_API_KEY", "DOUBAO_MEDIAKIT_API_KEY")
+ENV_NAMES = (credentials.KEY_ENV,)
+# Agent Plan 规则禁止用该 key 直接调用文本生成模型；视觉检查虽已实现，但不能用统一 key 提交。
+BLOCKED = {"ark_visual": credentials.TEXT_MODELS_FORBIDDEN}
 IGNORED_DIRS = {"废弃", ".vsc-production", "09-台账", "10-记忆", "node_modules", "build"}
 # provider/kind 仅用于分类已经核验的项目证据，不能据配置推定权限。
 TOOLS = (
-    ("ark_image", "豆包图像", "volc_ark.py", ENV_NAMES[:2], "volcengine_ark", "image"),
-    ("ark_video", "豆包视频", "volc_ark.py", ENV_NAMES[:2], "volcengine_ark", "video"),
-    ("ark_visual", "豆包视觉检查", "volc_ark.py", ENV_NAMES[:2], None, None),
-    ("doubao_speech", "豆包语音", "doubao_speech.py", (ENV_NAMES[2],), "doubao_speech", "audio"),
-    ("seed_audio", "SeedAudio", "doubao_audio.py", (ENV_NAMES[3],), "doubao_audio", "audio"),
+    ("ark_image", "豆包图像", "volc_ark.py", ENV_NAMES, "volcengine_ark", "image"),
+    ("ark_video", "豆包视频", "volc_ark.py", ENV_NAMES, "volcengine_ark", "video"),
+    ("ark_visual", "豆包视觉检查", "volc_ark.py", ENV_NAMES, None, None),
+    ("doubao_speech", "豆包语音", "doubao_speech.py", ENV_NAMES, "doubao_speech", "audio"),
+    ("seed_audio", "SeedAudio", "doubao_audio.py", ENV_NAMES, "doubao_audio", "audio"),
     ("procedural_audio", "本地原创程序声音", "procedural_audio.py", (), "vsc_procedural_audio", "audio"),
     ("queue", "有界生产队列", "vsc_production.py", (), None, None),
     ("recipes", "原生制作规格", "vsc_recipes.py", (), None, None),
@@ -171,7 +174,7 @@ def library_inventory(root, errors):
 
 def redact(value):
     """报告不包含密钥值；即使不可信证据把密钥写进字段，也只报告掩码。"""
-    secrets = [os.environ[name] for name in ENV_NAMES if os.environ.get(name)]
+    secrets = [os.environ[name] for name in (*ENV_NAMES, *credentials.RETIRED) if os.environ.get(name)]
     if isinstance(value, str):
         for secret in sorted(secrets, key=len, reverse=True):
             value = value.replace(secret, "[REDACTED]")
@@ -194,13 +197,16 @@ def readiness(project, library=None):
                    if provider and entry["provider"] == provider and entry["kind"] == kind]
         visual = [entry["report"] for entry in evidence["verified_visual_reports"]
                   if identifier == "ark_visual" and entry["provider"] == "volcengine_ark"]
+        blocked = BLOCKED.get(identifier)
         tools.append({"id": identifier, "label": label, "script": "scripts/" + script,
-            "implemented": (ROOT / "scripts" / script).is_file(), "configured": bool(present) if names else True,
-            "configuration": {"status": "present" if present else "pending" if names else "not_required",
+            "implemented": (ROOT / "scripts" / script).is_file(),
+            "configured": False if blocked else bool(present) if names else True,
+            "configuration": {"status": "blocked_by_plan_rules" if blocked else "present" if present
+                              else "pending" if names else "not_required",
                               "any_env_names": list(names), "present_env_names": present,
-                              "missing_hint": ("当前进程未读取到凭证；请先到 ~/.zshenv 查找对应 export 配置，"
-                                  "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量。"
-                                  if names and not present else None)},
+                              "retired_env_names_present": credentials.stale_names() if names else [],
+                              "blocked_reason": blocked,
+                              "missing_hint": (credentials.key_problem() if names and not present else None)},
             "permission_verification": "not_probed", "verified_candidates": {"count": len(records), "records": records},
             "verified_visual_reports": {"count": len(visual), "reports": visual}, "human_review": "pending"})
     for name in ("ffmpeg", "ffprobe"):

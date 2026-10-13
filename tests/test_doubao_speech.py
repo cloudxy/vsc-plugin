@@ -56,7 +56,7 @@ class SpeechTests(unittest.TestCase):
         self.project.mkdir()
         (self.project / "vsc.json").write_text(json.dumps({"project_id": "speech-test"}), "utf-8")
         self.key = "private-speech-test-key"
-        env = mock.patch.dict(os.environ, {"DOUBAO_SPEECH_API_KEY": self.key}, clear=True)
+        env = mock.patch.dict(os.environ, {speech.credentials.KEY_ENV: self.key}, clear=True)
         env.start()
         self.addCleanup(env.stop)
         # Every live-path test has an explicit offline transport. A missed fixture fails closed.
@@ -96,36 +96,39 @@ class SpeechTests(unittest.TestCase):
         self.remote.assert_not_called()
         self.probe.assert_not_called()
 
-    def test_default_is_dry_run_and_key_does_not_fallback(self):
+    def test_default_is_dry_run_and_retired_keys_report_the_change(self):
         self.assertTrue(speech.synthesize(self.args())["dry_run"])
         os.environ.clear()
-        os.environ["HUO_SHAN_API_KEY"] = "ark-only"
-        with self.assertRaisesRegex(speech.SpeechError, "DOUBAO_SPEECH_API_KEY") as error:
+        os.environ["HUO_SHAN_API_KEY"] = "old-ark-key"
+        with self.assertRaisesRegex(speech.SpeechError, "已更换") as error:
             speech.synthesize(self.args("--execute"))
-        self.assertIn("~/.zshenv", str(error.exception))
+        self.assertIn(speech.credentials.KEY_ENV, str(error.exception))
         self.assertIn("source ~/.zshenv", str(error.exception))
+        for retired in ("DOUBAO_SPEECH_API_KEY", "HUO_SHAN_API_KEY"):
+            with self.assertRaisesRegex(speech.SpeechError, "已更换"):
+                speech.synthesize(self.args("--key-env", retired))
         self.remote.assert_not_called()
         self.assertFalse((self.project / "06-素材/声音/VOICE-01-任务.json").exists())
 
     def test_explicit_key_env_and_no_literal_key(self):
         os.environ.clear()
-        os.environ["HUO_SHAN_API_KEY"] = "explicit-iam-key"
+        os.environ["TEAM_SPEECH_KEY"] = "explicit-iam-key"
         self.response(frame(0, wav_bytes()), frame(20000000))
-        speech.synthesize(self.args("--execute", "--key-env", "HUO_SHAN_API_KEY"))
+        speech.synthesize(self.args("--execute", "--key-env", "TEAM_SPEECH_KEY"))
         headers = {k.lower(): v for k, v in self.remote.call_args.args[0].headers.items()}
         self.assertEqual(headers["x-api-key"], "explicit-iam-key")
         with self.assertRaisesRegex(speech.SpeechError, "环境变量名"):
             speech.synthesize(self.args("--key-env", "literal secret key"))
 
-    def test_agent_plan_uses_explicit_official_route_and_cannot_resume_as_standard_service(self):
+    def test_agent_plan_is_default_route_and_cannot_resume_as_standard_service(self):
         self.response(frame(0, wav_bytes()), frame(20000000))
-        record = speech.synthesize(self.args("--execute", "--service", "agent-plan"))
+        record = speech.synthesize(self.args("--execute"))
         self.assertEqual(self.remote.call_args.args[0].full_url, speech.ENDPOINTS["agent-plan"])
         self.assertEqual(record["engine"]["provider"], "doubao_speech")
         os.environ.clear()
         self.assertEqual(speech.synthesize(self.args("--execute", "--service", "agent-plan")), record)
         with self.assertRaisesRegex(speech.SpeechError, "输入或预算已改变"):
-            speech.synthesize(self.args("--execute"))
+            speech.synthesize(self.args("--execute", "--service", "speech"))
         self.remote.assert_called_once()
 
     def test_agent_plan_does_not_guess_clone_support_or_retry_auth_with_other_route(self):
@@ -153,7 +156,7 @@ class SpeechTests(unittest.TestCase):
         self.assertEqual(record["outputs"][0]["voice"], "zh_female_vv_uranus_bigtts")
         self.assertEqual(record["engine"]["params"]["resource_id"], "seed-tts-2.0")
         request = self.remote.call_args.args[0]
-        self.assertEqual(request.full_url, speech.ENDPOINT)
+        self.assertEqual(request.full_url, speech.ENDPOINTS["agent-plan"])
         headers = {k.lower(): v for k, v in request.headers.items()}
         self.assertEqual(headers["x-api-resource-id"], "seed-tts-2.0")
         self.assertEqual(headers["x-control-require-usage-tokens-return"], "*")
@@ -294,9 +297,9 @@ class SpeechTests(unittest.TestCase):
         with self.assertRaisesRegex(speech.SpeechError, "不一致"):
             speech.synthesize(self.args("--entity", "CHAR-1", "--bible", "bible.json", "--speaker", "changed"))
         with self.assertRaisesRegex(speech.SpeechError, "不支持 context_texts"):
-            speech.synthesize(self.args("--resource-id", "seed-icl-2.0", "--context", "悲伤"))
-        clone = speech.synthesize(self.args("--resource-id", "seed-icl-2.0", "--speaker", "S_existing_licensed",
-                                           "--model", "seed-tts-2.0-standard"))
+            speech.synthesize(self.args("--service", "speech", "--resource-id", "seed-icl-2.0", "--context", "悲伤"))
+        clone = speech.synthesize(self.args("--service", "speech", "--resource-id", "seed-icl-2.0", "--speaker",
+                                           "S_existing_licensed", "--model", "seed-tts-2.0-standard"))
         self.assertEqual(clone["binding"]["payload"]["req_params"]["model"], "seed-tts-2.0-standard")
         self.assertNotIn("additions", clone["binding"]["payload"]["req_params"])
 
