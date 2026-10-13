@@ -16,7 +16,7 @@ python3 -B scripts/vsc_state.py object add projects/作品名 --kind episode --i
 
 一个反复出现的地点先登记稳定 `asset` 身份和空间规格：布局、门窗、固定地标、摄影轴线、光向及允许的日夜状态。选择场景母版后，按机位派生 `location_view`；复杂合成的背景、前景、道具、人像、遮罩和调色各保留父素材与变换参数，最终合成图登记为新媒体版本。多次生成完整背景只用于探索或局部修复；不同透视的背景不要直接拼成一个空间。需要明显视差时，用分层深度或简单 3D 布景，并在预演与相邻镜头检查空间关系。
 
-人物、服装与声音分别使用稳定资产身份和当前变体；台词行 ID、voice／speaker 版本、发音表和场景声学处理在已批准文档中固定。导入本地素材会计算 SHA、完整解码并检查声明模态。批准媒体用途后，AI 才能把它当参考。示意：
+人物、服装与声音分别使用稳定资产身份和当前变体；台词行 ID 在已批准剧本中固定，voice／speaker 绑定在已批准资产库中固定。发音表和场景声学处理尚无专用契约字段，系统不会校验或自动应用，须在声线试点中定义并人工审听。导入本地素材会计算 SHA、完整解码并检查声明模态。批准媒体用途后，AI 才能把它当参考。示意：
 
 ```bash
 python3 -B scripts/vsc_series.py import-media PROJECT --id LOC-Cafe-Master-v1 --file /path/to/master.png --modality image --rights owned --origin '人工选定母版'
