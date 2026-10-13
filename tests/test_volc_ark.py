@@ -54,11 +54,22 @@ class InputTest(unittest.TestCase):
             remote.assert_not_called()
         with mock.patch.dict(A.os.environ, {}, clear=True):
             self.assertEqual(A.base_url(), "https://ark.cn-beijing.volces.com/api/plan/v3")
-        for bad in ("http://ark.cn-beijing.volces.com/api/v3", "https://example.com/api/v3", "https://ark.cn-beijing.volces.com/v3"):
+        for bad in ("http://ark.cn-beijing.volces.com/api/v3", "https://example.com/api/v3",
+                    "https://ark.cn-beijing.volces.com/v3", "https://ark.cn-beijing.volces.com/api/v3",
+                    "https://ark.cn-beijing.volces.com/api/plan/v3/other"):
             with mock.patch.dict(A.os.environ, {"ARK_BASE_URL": bad}, clear=True), self.assertRaises(A.ArkError):
                 A.base_url()
-        with mock.patch.dict(A.os.environ, {"ARK_BASE_URL": "https://ark.cn-beijing.volces.com/api/v3/"}, clear=True):
-            self.assertEqual(A.base_url(), "https://ark.cn-beijing.volces.com/api/v3")
+        with mock.patch.dict(A.os.environ, {"ARK_BASE_URL": A.PLAN_BASE + "/"}, clear=True):
+            self.assertEqual(A.base_url(), A.PLAN_BASE)
+
+    def test_personal_plan_video_tier_preflight_is_offline(self):
+        for tier in ("", "small", "medium", "enterprise"):
+            with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": tier}, clear=True), \
+                    self.assertRaisesRegex(A.ArkError, "Large/Max"):
+                A.require_personal_video_tier()
+        for tier in ("large", "max"):
+            with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": tier}, clear=True):
+                A.require_personal_video_tier()
 
     def test_agent_plan_key_never_calls_text_models(self):
         with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_API_KEY": "plan"}, clear=True), \
@@ -142,6 +153,9 @@ class GenerateTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.project = Path(self.temp.name)
+        tier_patch = mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": "large"})
+        tier_patch.start()
+        self.addCleanup(tier_patch.stop)
         (self.project / "vsc.json").write_text(json.dumps({"project_id": json.loads(BIBLE.read_text("utf-8"))["project_id"]}), "utf-8")
         self.calls = []
         key_patch = mock.patch.object(A, "api_key", return_value="offline-test-key")

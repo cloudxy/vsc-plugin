@@ -45,7 +45,7 @@ python3 -B scripts/vsc_series.py link-boundary PROJECT --from-shot EP001-LAST --
 
 ## 统一生成任务入口
 
-`vsc_provider.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。`vsc_volc_provider.py` 已按此接口实现火山方舟图像和视频的提交、查询与结果解析，凭证只读统一的方舟 Agent Plan 专属 key `ARK_AGENT_PLAN_API_KEY`，默认地址 `https://ark.cn-beijing.volces.com/api/plan/v3`（可用 `ARK_BASE_URL` 改为该域名 `/api/` 下的路径，图像／视频接口在套餐地址上尚未实测）；模型能力、默认参数、版本与路由由 `vsc_series_jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。
+`vsc_provider.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。`vsc_volc_provider.py` 已按此接口实现火山方舟图像和视频的提交、查询与结果解析，凭证只读统一的方舟 Agent Plan 专属 key `ARK_AGENT_PLAN_API_KEY`，地址固定为 `https://ark.cn-beijing.volces.com/api/plan/v3`；个人版视频新提交在预算预留前核对本机声明的 Large/Max 档位，图像／视频接口在线效果仍未实测。模型能力、默认参数、版本与路由由 `vsc_series_jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。套餐能力和 AFP 预算边界见 [Agent Plan 个人版对照](../architecture/ark-agent-plan-personal.md)。
 
 ```bash
 python3 -B scripts/vsc_series_jobs.py provider-add PROJECT --name volc_ark --modality image --modality video --modality audio --auth-ref env:ARK_AGENT_PLAN_API_KEY

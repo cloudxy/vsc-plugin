@@ -13,7 +13,7 @@ X 是本地文件、https 链接或 asset://<素材 ID>。本地文件若正是�
 inspect 写 vsc.visual-check/v1；两者都放在输出旁边。视觉检查只作提醒，不能代替人工批准。
 
 密钥只从 ARK_AGENT_PLAN_API_KEY（火山方舟 Agent 版本的 API Key）读取，不打印、不落盘；找不到时提示配置该 key。
-默认走套餐专属地址，ARK_BASE_URL 只能改成 https://ark.cn-beijing.volces.com/api/ 下的路径。套餐规则禁止用该 key
+默认走套餐专属地址，ARK_BASE_URL 只能设为 https://ark.cn-beijing.volces.com/api/plan/v3。套餐规则禁止用该 key
 直接调用文本生成模型，因此 inspect 只能预检和读取已有报告，不再发起新提交。提交生成任务不自动重试，避免重复计费；
 视频任务的编号先写入 <名称>-任务.json，中断后重跑同一命令会续接查询，不会重新提交。
 """
@@ -42,7 +42,7 @@ from pathlib import Path
 import consistency
 import vsc_credentials as credentials
 
-PLAN_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3"
+PLAN_BASE = credentials.PLAN_BASE
 TEXT_PATHS = ("/chat/completions", "/responses", "/completions", "/embeddings", "/embeddings/multimodal")
 IMAGE_MODEL = "doubao-seedream-5-0-flash-260915"
 VIDEO_MODEL = "doubao-seedance-2-5-260628"
@@ -97,13 +97,18 @@ def api_key():
 
 
 def base_url():
-    """Agent Plan keys only work on the plan's dedicated base URL; overrides stay on the official Ark host."""
+    """Keep the Agent Plan key on its documented OpenAI-compatible data plane."""
     value = os.environ.get("ARK_BASE_URL", PLAN_BASE).strip().rstrip("/")
-    parsed = urllib.parse.urlsplit(value)
-    if (parsed.scheme != "https" or parsed.netloc != "ark.cn-beijing.volces.com" or not parsed.path.startswith("/api/")
-            or parsed.query or parsed.fragment):
-        raise ArkError("ARK_BASE_URL 只能是 https://ark.cn-beijing.volces.com/api/ 下的地址")
+    if value != PLAN_BASE:
+        raise ArkError("Agent Plan 专属 key 只能使用 ARK_BASE_URL=" + PLAN_BASE)
     return value
+
+
+def require_personal_video_tier():
+    """A local declaration for preflight; only the provider can confirm entitlement."""
+    tier = os.environ.get("ARK_AGENT_PLAN_TIER", "").strip().lower()
+    if tier not in ("large", "max"):
+        raise ArkError("Agent Plan 个人版视频生成需 Large/Max 档；请在 ~/.zshenv 配置 ARK_AGENT_PLAN_TIER=large 或 max，并核对实际订阅")
 
 
 def call(path, payload=None, attempts=None):
@@ -486,6 +491,9 @@ def submit_once(task_file, task, path, payload, out, args):
     if task_file.exists():
         reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交结果未知"
         raise ArkError(reason + "；不能自动重提，请先人工核查平台任务与账单")
+    base_url()
+    if task["record"]["kind"] == "video":
+        require_personal_video_tier()
     key = api_key()  # 本地缺密钥不留下可能已提交的凭证。
     check_budget_authorization(args, task["record"]["kind"])
     record = task["record"]

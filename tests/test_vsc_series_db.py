@@ -66,6 +66,25 @@ class SeriesDatabase(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_agent_plan_video_tier_is_checked_before_budget_reservation(self):
+        from vsc_volc_provider import VolcArkVideoProvider
+        adapter = VolcArkVideoProvider("symbolic-video", lambda value: value, "720p", "9:16",
+                                       transport=lambda *_: self.fail("must not call provider"))
+        job = {"status": "created", "provider": "volc_ark", "modality": "video"}
+        with patch.dict("os.environ", {"ARK_AGENT_PLAN_TIER": "medium"}), \
+                patch.object(dispatch, "_load", return_value=({}, job, {}, {"scope": "EP1"})), \
+                patch.object(dispatch, "gate_problems", return_value=[]), \
+                patch.object(jobs, "adapter_for_job", return_value=adapter), \
+                patch.object(budget, "reserve") as reserve:
+            with self.assertRaisesRegex(RuntimeError, "Large/Max"):
+                dispatch.submit_job(self.project, "J-test")
+            reserve.assert_not_called()
+
+    def test_agent_plan_provider_registration_rejects_wrong_endpoint(self):
+        with self.assertRaisesRegex(vsc_series.SeriesError, "专属 Base URL"):
+            jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY",
+                                   "https://ark.cn-beijing.volces.com/api/v3")
+
     def _artifact(self, state, kind, data, scope="EP1", depends=()):
         aid = f"A-{len(state['artifacts']) + 1}"
         path = self.project / "artifacts" / (aid + ".json")
