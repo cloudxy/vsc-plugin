@@ -26,8 +26,6 @@ def register_provider(project, name, modalities, auth_ref=None, base_url=None, r
         raise SeriesError("Provider 名称与模态必须明确")
     if auth_ref and not auth_ref.startswith("env:"):
         raise SeriesError(f"auth_ref 只能指向环境变量，例如 env:{credentials.KEY_ENV}")
-    if auth_ref and auth_ref[4:] in credentials.RETIRED:
-        raise SeriesError(credentials.changed(auth_ref[4:]))
     with project_lock(Path(project)), db.connect(project) as connection:
         connection.execute("INSERT INTO providers VALUES (?,?,?,?,?,?,?)",
             (name, db.canonical(sorted(set(modalities))), base_url, auth_ref, 1, rate_limit, stamp()))

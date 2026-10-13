@@ -40,7 +40,7 @@ Windows 上克隆前需开启开发者模式，并设置 `git config --global co
 
 | 调用方 | 需要查找的变量 |
 | --- | --- |
-| 方舟图像／视频、豆包语音、MediaKit Seed-Audio | `ARK_AGENT_PLAN_API_KEY`（方舟 Agent Plan 专属 key）；语音与 Seed-Audio 也可用 `--key-env` 显式指定其他未停用的变量 |
+| 方舟图像／视频、豆包语音、MediaKit Seed-Audio | `ARK_AGENT_PLAN_API_KEY`（火山方舟 Agent 版本的 API Key）；语音与 Seed-Audio 也可用 `--key-env` 显式指定其他变量 |
 | 方舟视觉检查等文本模型 | 不可用：套餐规则禁止用 Agent Plan key 直接调用文本生成与向量化模型 |
 | GitHub、OSS 等其他本机工具 | `GITHUB_PERSONAL_ACCESS_TOKEN`、`OSS_ACCESS_KEY`、`OSS_SECRET_KEY` 等对应变量 |
 
@@ -52,7 +52,7 @@ source ~/.zshenv
 [[ -n ${ARK_AGENT_PLAN_API_KEY:-} ]] && print '已加载' || print '未加载，请检查 ~/.zshenv'
 ```
 
-`HUO_SHAN_API_KEY`、`ARK_API_KEY`、`DOUBAO_SPEECH_API_KEY`、`DOUBAO_MEDIAKIT_API_KEY` 已于 2026-10-13 停用。进程仍带着这些旧变量时，脚本会提示“API Key 已更换”并只读 `ARK_AGENT_PLAN_API_KEY`；重开终端即可清除。方舟图像／视频默认走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`，官方给出其他地址时用 `ARK_BASE_URL` 指定（只接受该域名 `/api/` 下的路径）。
+找不到 `ARK_AGENT_PLAN_API_KEY` 时，脚本提示配置火山方舟 Agent 版本（Agent Plan）的 API Key。方舟图像／视频默认走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`，官方给出其他地址时用 `ARK_BASE_URL` 指定（只接受该域名 `/api/` 下的路径）。
 
 然后从这个 shell 重新启动工具。已经运行的进程不会因此更新自身环境；其他 shell、图形应用和任务调度器也需要显式传入对应变量。`.zshenv` 的默认加载规则见 [zsh 官方说明](https://zsh.sourceforge.io/Doc/Release/Files.html)。
 

@@ -29,7 +29,7 @@ python3 scripts/vsc_kernel.py contract validate vsc.sound-cue-sheet/v1 ./07-后�
 
 已有可选声音入口：`scripts/doubao_speech.py synthesize`（默认走统一 Agent Plan key 的 `--service agent-plan` 路由） 按供应商 speaker 生成对白／声音参考并支持情绪 context，可用 `--entity/--bible` 核对人物绑定；`scripts/doubao_audio.py generate` 经 MediaKit 生成 music/ambience/sfx 候选。两者默认 dry run，显式 `--execute` 才可能付费，须给出 `--max-chars`；Seed-Audio 的 `--max-polls` 只限制本轮查询次数，“约十秒”等提示词不能保证实际时长，不提供自动分轨或人声分离。
 
-制作前运行 `python3 -B scripts/vsc_toolchain.py --project <作品目录> --json`，分别核对实现、凭证配置与当前作品候选证据。诊断不探测网络权限、不进行审听或批准。TTS 与 Seed-Audio 默认读 `ARK_AGENT_PLAN_API_KEY`（旧变量已停用并提示已更换）；可用 `--key-env <环境变量名>` 显式选择其他未停用的 key，不能由方舟图像／视频可用推定声音权限。2026-10-11 当前语音音色列表探测为 HTTP 401，MediaKit key 未配置，尚无成功豆包声音实测。
+制作前运行 `python3 -B scripts/vsc_toolchain.py --project <作品目录> --json`，分别核对实现、凭证配置与当前作品候选证据。诊断不探测网络权限、不进行审听或批准。TTS 与 Seed-Audio 默认读 `ARK_AGENT_PLAN_API_KEY`（找不到时提示配置火山方舟 Agent 版本的 API Key）；可用 `--key-env <环境变量名>` 显式选择其他 key，不能由方舟图像／视频可用推定声音权限。2026-10-11 当前语音音色列表探测为 HTTP 401，MediaKit key 未配置，尚无成功豆包声音实测。
 
 离线声音可用 `scripts/procedural_audio.py --preset wind|rain|cloth|footsteps|ceramic|bell|music_pad`，固定 seed 和参数可复现。它不使用豆包模型或外部采样，输出仍需按 Cue 的叙事功能、对白空间和声音接点试听。所有声音候选写 `kind=audio`、`purpose=asset` 的生成记录，人工确认后用 `vsc_library.py promote/use` 复用并保留来源与授权。使用说明见[生成适配器边界](../../docs/architecture/generation-adapters.md)、[豆包语音](../../docs/architecture/doubao-speech.md)和[Seed-Audio](../../docs/architecture/doubao-audio.md)。
 

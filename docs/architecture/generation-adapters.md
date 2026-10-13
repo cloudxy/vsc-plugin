@@ -78,7 +78,7 @@ python3 -B scripts/volc_ark.py inspect --project projects/示例作品 \
 
 语音默认 `--service agent-plan`，配合统一 key；普通语音服务须显式 `--service speech`，并用 `--key-env` 指定具备权限的其他变量。端点随请求绑定，不自动猜测或回退。两个远程声音工具默认 dry run，显式 `--execute` 才可能付费。`--max-chars` 限文本或提示词字符数，不能当作人民币费用或生成时长上限。Seed-Audio 的“约十秒”“无对白”只属于提示词要求；工具不保证精确时长，也不自动分轨或分离人声。TTS 的相同 `speaker` 只能绑定供应商音色 ID，不能代替跨镜声线、情绪、口型与表演审听。
 
-官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)允许给方舟／IAM key 扩展其他云产品权限。语音或 MediaKit 适配器可用 `--key-env 变量名` 显式选择其他未停用的环境变量，但不会自动 fallback；具备方舟图像／视频权限不证明语音或 MediaKit 权限。当前语音 401 不应绕过，也不能外推为所有账号或接口都不支持。
+官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)允许给方舟／IAM key 扩展其他云产品权限。语音或 MediaKit 适配器可用 `--key-env 变量名` 显式选择其他环境变量，但不会自动 fallback；具备方舟图像／视频权限不证明语音或 MediaKit 权限。当前语音 401 不应绕过，也不能外推为所有账号或接口都不支持。
 
 ```bash
 # 只核对请求；不需要 key、不提交生成。

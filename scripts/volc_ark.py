@@ -12,7 +12,7 @@ X 是本地文件、https 链接或 asset://<素材 ID>。本地文件若正是�
 方舟只信任未经改动的原始产物（见 TRUST），转成 Base64 可能失去信任。每次生成写一份 vsc.generation-record/v1，
 inspect 写 vsc.visual-check/v1；两者都放在输出旁边。视觉检查只作提醒，不能代替人工批准。
 
-密钥只从 ARK_AGENT_PLAN_API_KEY（方舟 Agent Plan 专属 key）读取，不打印、不落盘；旧变量已停用，遇到时提示已更换。
+密钥只从 ARK_AGENT_PLAN_API_KEY（火山方舟 Agent 版本的 API Key）读取，不打印、不落盘；找不到时提示配置该 key。
 默认走套餐专属地址，ARK_BASE_URL 只能改成 https://ark.cn-beijing.volces.com/api/ 下的路径。套餐规则禁止用该 key
 直接调用文本生成模型，因此 inspect 只能预检和读取已有报告，不再发起新提交。提交生成任务不自动重试，避免重复计费；
 视频任务的编号先写入 <名称>-任务.json，中断后重跑同一命令会续接查询，不会重新提交。
