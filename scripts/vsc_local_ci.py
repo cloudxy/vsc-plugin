@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VSC 本地 CI：维护者把改动提交并推送 main 前，在本机运行。
+"""VSC 本地 CI：完成修改后，在最终推送 main 前运行一次。
 
 vendor/、projects/ 与 library/ 只存在于维护者本机，线上环境无法复现，因此 VSC 不使用线上 CI。依次检查：
 
