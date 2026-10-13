@@ -69,6 +69,11 @@ class WrapTest(unittest.TestCase):
         lines = SUB.wrap_text("一二三四五六七八。", FixedWidthFont(), 80)
         self.assertFalse(any(line[0] in SUB.LINE_START_PUNCTUATION for line in lines))
 
+    def test_ellipsis_stays_together_with_preceding_character(self):
+        lines = SUB.wrap_text("一二三四五六七八……", FixedWidthFont(), 80)
+        self.assertEqual(lines, ["一二三四五六七", "八……"])
+        self.assertFalse(any(line[0] in SUB.LINE_START_PUNCTUATION for line in lines))
+
     def test_english_words_wrap_on_spaces(self):
         self.assertEqual(SUB.wrap_text("hold it tight", FixedWidthFont(), 80), ["hold it", "tight"])
 
