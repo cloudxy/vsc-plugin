@@ -1,6 +1,6 @@
-# 数据库连续短剧工作流（v0.13.0）
+# 数据库连续短剧工作流（v0.14.0）
 
-适用范围：新建的 60 集以上系列项目，每集约 3 分钟。作品题材、画幅、预算、声源权利、责任人和具体供应商模型仍由项目负责人决定。本版本提供本地关系库、素材索引、按镜上下文及离线任务入口；没有验证方舟在线生成，也没有自动保证“一次生成即成片”。
+适用范围：新建的 60 集以上系列项目，每集约 3 分钟。作品题材、画幅、预算、声源权利、责任人和具体供应商模型仍由项目负责人决定。本版本提供本地关系库、素材索引、按镜上下文及统一任务执行入口；没有验证方舟在线生成，也没有自动保证“一次生成即成片”。
 
 ## 建立项目与固定创作版本
 
@@ -43,7 +43,7 @@ python3 -B scripts/vsc_series.py validate-context PROJECT /tmp/SH001-context.jso
 python3 -B scripts/vsc_series.py link-boundary PROJECT --from-shot EP001-LAST --to-shot EP002-FIRST --strategy continuous --by '负责人' --reason '同一动作接续'
 ```
 
-## 离线生成任务入口
+## 统一生成任务入口
 
 `vsc_provider.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。`vsc_volc_provider.py` 已按此接口实现火山方舟图像和视频的提交、查询与结果解析；模型能力、默认参数、版本与路由由 `vsc_series_jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。
 
@@ -54,7 +54,26 @@ python3 -B scripts/vsc_series_jobs.py route-set PROJECT --modality image --purpo
 python3 -B scripts/vsc_series_jobs.py plan PROJECT --run A-RUN --request /path/to/request.json --candidate 1
 ```
 
-这里的模型标识、版本和尺寸映射必须按真实账号能力填写；示例命令只注册本地配置，不访问供应商。相同 run、镜头、用途、候选和输入再次计划会返回原 job；变更输入须新建候选。任务状态事件保留 `created → submission_unknown → submitted/running → succeeded/failed`，外部 task ID 只进任务表。`adapter_for_job()` 只从固定任务快照构造火山图像或视频适配器，不提交请求。实际调度器须在提交前重新验证上下文、审批、能力、权属与共享预算，先持久化提交意图，再调用 Provider，未知提交结果先对账，不能盲目重发。现有供应商专用 CLI 尚未迁入这个任务入口；音频对应独立语音服务，不能冒充方舟接口。实际调用、回调／轮询、成本与临时 URL 转存仍需后续脚本和真实样本验证。
+这里的模型标识、版本和尺寸映射必须按真实账号能力填写；示例命令只注册本地配置，不访问供应商。相同 run、镜头、用途、候选和输入再次计划会返回原 job；变更输入须新建候选。任务状态事件保留 `created → submission_unknown → submitted/running → succeeded/failed`，外部 task ID 只进任务表。`adapter_for_job()` 只从固定任务快照构造火山图像或视频适配器，不提交请求。
+
+`production_run` 的 `series_batch.jobs` 列出每个**完整逻辑请求**和正整数 `candidate_no`；`plan_sha256` 是该 `series_batch` 的规范 JSON SHA；`operations` 对每项使用 `series:<shot_id>:<purpose>:<candidate_no>`，上限使用原生单位（图片 `remote_jobs:1, images:1`；视频还用 `video_seconds`；音频用 `audio_jobs` 与 `speech_chars`）。`approved_inputs` 与 run 依赖必须一一对应，含本镜的全部上下文版本和已批准 animatic。run 审核检查当前上下文、参考媒体及跨集边界。随后先用 `vsc_budget.py configure` 配置项目共享预算，再 `plan`，最后由下列入口执行：
+
+```bash
+python3 -B scripts/vsc_series_dispatch.py submit PROJECT --job J-ID
+python3 -B scripts/vsc_series_dispatch.py resume PROJECT --job J-ID
+```
+
+`submit` 复核批准 run、当前上下文、animatic Gate 和预算，在付费 POST 前登记不可重提的提交意图。视频返回外部 ID 后，`resume` 按原 ID 查询；同步结果直接解析。成功结果立即转存到项目 `.vsc-media/` 并校验解码与 SHA；重复恢复先核对已入库字节，避免临时 URL 过期后再次下载。平台 URL 仅在任务原始响应中保留用于故障恢复，媒体表的原始 URI 去掉签名参数，业务镜头只引用稳定媒体 ID。提交响应未知时保守占用预算，须人工核对平台任务及账单，不能重发。预算金额与实际计费用量在无供应商账单时保持未知。
+
+新生成素材初始权属为 `unknown`，经人审确认后才可绑定制作用途：
+
+```bash
+python3 -B scripts/vsc_series.py decide-media-rights PROJECT J-ID-output-1 --rights owned --by '负责人' --reason '核对生成来源与使用权'
+python3 -B scripts/vsc_series.py bind-media PROJECT --id B-SH001-TAKE --target SH001 --media J-ID-output-1 --role video_take
+python3 -B scripts/vsc_series.py decide-binding PROJECT B-SH001-TAKE --status approved --by '负责人' --reason '画面与前后镜头连贯'
+```
+
+当前 CLI 以 `resume` 提供轮询兜底；没有 webhook 服务端、自动队列、账号级限流或自动重试。音频统一请求与任务表已就绪，火山语音服务映射尚未验证；现有供应商专用 CLI 未迁入此入口。本次只用注入的本地假 Provider 验证了批准 run → 预算 → 提交意图 → 状态恢复 → 转存 → 权属审核链，**没有访问火山方舟**。首次真实调用、实际 URL 时效、平台成本与成片效果须待用户提供脚本及项目素材后验证。
 
 ## 扩到 60 集前的验收
 

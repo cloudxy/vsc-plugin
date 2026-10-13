@@ -103,6 +103,10 @@ def reserve_many(project, run_id, operations):
                 source = json.loads((Path(project) / batch['path']).read_text('utf-8'))
                 job = next((j for j in source['jobs'] if f"{j['kind']}:{j['args']['out']}/{j['args']['name']}" == operation), {})
                 pending[identifier]['shot_id'] = job.get('args', {}).get('shot')
+            elif run.get('series_batch'):
+                from vsc_series_run import operation as series_operation
+                job = next((j for j in run['series_batch']['jobs'] if series_operation(j) == operation), {})
+                pending[identifier]['shot_id'] = job.get('request', {}).get('shot_id')
             else:
                 binding = run.get('audio_request', {}).get('binding', {})
                 pending[identifier]['line_id'] = binding.get('inputs', {}).get('line_id')
@@ -135,7 +139,12 @@ def check_authorization(project, reservation_id, operation, required=None, reque
         run = json.loads((Path(project) / artifact['path']).read_text('utf-8'))
         if request is None:
             raise BudgetError('正式付费提交必须核对请求参数')
-        if run.get('audio_request'):
+        if run.get('series_batch'):
+            from vsc_series_run import operation as series_operation
+            planned = next((entry for entry in run['series_batch']['jobs'] if series_operation(entry) == operation), None)
+            if planned is None or request != planned['request']:
+                raise BudgetError('系列请求与已批准 run 的固定任务不一致')
+        elif run.get('audio_request'):
             if request != run['audio_request']['binding']:
                 raise BudgetError('音频请求与已批准 run 的绑定不一致')
         else:

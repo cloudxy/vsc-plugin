@@ -27,8 +27,13 @@ def validation_errors(data):
     for key in ('project_id', 'scope', 'plan_sha256'):
         if not isinstance(data.get(key), str) or not data[key]:
             errors.append(key + ' 必须非空')
-    if not data.get('audio_request') and (not isinstance(data.get('batch'), dict) or not all(data['batch'].get(k) for k in ('path', 'sha256'))):
+    if sum(bool(data.get(key)) for key in ('batch', 'audio_request', 'series_batch')) != 1:
+        errors.append('batch、audio_request、series_batch 必须且只能提供一种')
+    if data.get('batch') and (not isinstance(data['batch'], dict) or not all(data['batch'].get(k) for k in ('path', 'sha256'))):
         errors.append('batch 必须绑定 path / sha256')
+    if data.get('series_batch') and (not isinstance(data['series_batch'], dict) or not isinstance(data['series_batch'].get('jobs'), list)
+                                     or not data['series_batch']['jobs']):
+        errors.append('series_batch 必须含非空 jobs 数组')
     if not isinstance(data.get('approved_inputs'), list) or not data['approved_inputs']:
         errors.append('approved_inputs 必须列明确版本')
     if not isinstance(data.get('review_after'), list):
@@ -47,6 +52,9 @@ def validation_errors(data):
 def project_errors(data, project, state, item):
     errors = validation_errors(data)
     if errors: return errors
+    if data.get('series_batch'):
+        from vsc_series_run import project_errors as series_errors
+        return series_errors(data, project, state, item)
     if data.get('audio_request'):
         from vsc_audio_run import project_errors as audio_errors
         return audio_errors(data, project, state, item)
@@ -125,6 +133,8 @@ def import_candidate(project, run_item, job, record):
 
 def execute(project, identifier, runner=None):
     state, item, data = load_run(project, identifier)
+    if data.get('series_batch'):
+        raise ValueError('系列数据库正式任务须使用 vsc_series_dispatch.py，不可走旧批次队列')
     if data.get('audio_request'):
         from vsc_audio_run import execute as execute_audio
         return execute_audio(project, identifier)
