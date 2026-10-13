@@ -228,6 +228,21 @@ def build_shot_context(project, shot_id):
     return context
 
 
+def covered_script_units(project, shot_id):
+    """Return this shot's approved screenplay coverage without changing visual ShotContext."""
+    state = series_state(project)
+    episode, _ = _scope(state, shot_id)
+    artifact, coverage = _select(project, state, "vsc.coverage_plan", episode,
+        lambda doc: any(shot_id == shot.get("id") for scene in doc.get("scenes", [])
+            for sequence_row in scene.get("sequences", []) for shot in sequence_row.get("shots", [])))
+    units = {unit for scene in coverage.get("scenes", [])
+        for sequence_row in scene.get("sequences", []) for shot in sequence_row.get("shots", [])
+        if shot.get("id") == shot_id for unit in shot.get("screenplay_unit_ids", [])}
+    reference = {"id": artifact["id"], "type": artifact["type"],
+                 "sha256": artifact["sha256"], "scope": artifact.get("scope", "project")}
+    return reference, units
+
+
 def link_boundary(project, from_shot, to_shot, strategy, by, reason, replace=False):
     if strategy not in ("continuous", "intentional_jump") or not by.strip() or not reason.strip():
         raise SeriesError("跨集衔接必须选策略并记录负责人及理由")
@@ -368,6 +383,12 @@ def bind_media(project, binding_id, target_id, media_id, role, variant=None):
                          ("dialogue_dry", "voice_sample", "ambience", "music", "sfx") else "image")
     if role in ("video_take", "dialogue_dry") and objects[target_id]["kind"] != "shot":
         raise SeriesError("视频候选与对白干声只能绑定镜头")
+    if role == "dialogue_dry":
+        context = build_shot_context(project, target_id)
+        _, covered_units = covered_script_units(project, target_id)
+        if not isinstance(variant, str) or variant not in covered_units or not any(
+                line.get("id") == variant for line in context["script_scene"].get("dialogue", [])):
+            raise SeriesError("对白干声须用 variant 指明当前镜头覆盖的已批准台词行 ID")
     if role in ("first_frame", "last_frame", "identity_face", "costume", "location_master", "location_view", "composition", "prop") and objects[target_id]["kind"] == "shot" and role not in ("first_frame", "last_frame", "composition", "prop"):
         raise SeriesError("镜头只允许绑定首尾帧、构图或道具图；身份与地点须绑定 asset")
     with project_lock(Path(project)):
@@ -377,6 +398,11 @@ def bind_media(project, binding_id, target_id, media_id, role, variant=None):
                 raise SeriesError("媒体 ID 不存在")
             if media["modality"] != expected_modality:
                 raise SeriesError(f"{role} 需要 {expected_modality} 素材")
+            if role == "dialogue_dry":
+                origin = connection.execute("SELECT j.request FROM generated_assets g "
+                    "JOIN generation_jobs j ON j.id=g.job_id WHERE g.media_id=?", (media_id,)).fetchone()
+                if origin and json.loads(origin["request"])["logical_request"].get("script_line_ids") != [variant]:
+                    raise SeriesError("干声生成任务绑定的台词行与选片行不一致")
             connection.execute("INSERT INTO media_bindings VALUES (?,?,?,?,?,?,?,?,?)",
                 (binding_id, target_id, role, variant, media_id, "draft", None, None, stamp()))
 

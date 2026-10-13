@@ -70,6 +70,11 @@ def generation_record(project, job_id, adapter=None):
     available = {entry["media_id"]: entry for entry in frozen["reference_media"]}
     assets = {item["id"] for item in state["objects"] if item["kind"] == "asset"}
     inputs = {"prompt": logical["prompt"], "context_sha256": frozen["context_sha256"], "references": []}
+    voice_binding = frozen.get("voice_binding") if job["modality"] == "audio" else None
+    if voice_binding:
+        inputs.update({"line_id": voice_binding["line_id"], "entity": voice_binding["entity_id"],
+                       "text": logical["prompt"],
+                       "pronunciations": voice_binding["voice"].get("pronunciations", [])})
     with db.connect(project) as connection:
         rows = connection.execute("SELECT g.media_id,m.modality,m.path,m.sha256,m.metadata FROM generated_assets g "
             "JOIN media_assets m ON m.id=g.media_id WHERE g.job_id=?", (job_id,)).fetchall()
@@ -94,6 +99,11 @@ def generation_record(project, job_id, adapter=None):
         if not path.is_relative_to(root) or not path.is_file() or sha256(path) != row["sha256"]:
             raise SeriesError("已转存媒体字节失效：" + media_id)
         output = {"id": media_id, "path": row["path"], "sha256": row["sha256"]}
+        if voice_binding:
+            output.update({"line_id": voice_binding["line_id"], "entity": voice_binding["entity_id"],
+                           "voice": voice_binding["voice"]["voice"],
+                           "speaker": voice_binding["voice"]["voice"],
+                           "resource_id": voice_binding["voice"].get("resource_id", "seed-tts-2.0")})
         if job["modality"] == "video" and generated.modality == "image":
             output["role"] = "last_frame"
         probe = json.loads(row["metadata"]).get("probe", {})
@@ -125,8 +135,10 @@ def generation_record(project, job_id, adapter=None):
     record = {"format": "vsc.generation-record/v1", "project_id": state["project_id"],
         "kind": job["modality"], "purpose": "asset" if logical["purpose"].startswith("asset_") else "candidate",
         "shot_id": shot_id, "inputs": inputs,
-        "engine": {"provider": job["provider"], "model": job["model"], "version": job["model_version"],
-                   "params": logical.get("params", {}), "defaults": frozen["default_params"]},
+        "engine": {"provider": voice_binding["voice"]["engine"] if voice_binding else job["provider"],
+                   "series_provider": job["provider"], "model": job["model"], "version": job["model_version"],
+                   "params": {**logical.get("params", {}), **({"resource_id": voice_binding["voice"].get("resource_id", "seed-tts-2.0")}
+                       if voice_binding else {})}, "defaults": frozen["default_params"]},
         "budget": {"billable": True, "usage": run["operations"][frozen["operation"]],
                    "usage_basis": "approved_bound", "currency_status": "unknown"},
         "submitted_at": submitted, "finished_at": finished, "status": "succeeded",

@@ -61,6 +61,8 @@ class GeneratedAsset:
     temporary_uri: str | None = None
     inline_bytes: bytes | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    local_path: str | None = None
+    sha256: str | None = None
 
 
 class ImageProvider(Protocol):

@@ -59,7 +59,7 @@ def project_errors(data, project, state, item):
             request = job['request']
             if request.get('format') != 'vsc.generation-request/v1':
                 raise ValueError('请求格式无效')
-            from vsc_series_jobs import REQUEST_TYPES
+            from vsc_series_jobs import REQUEST_TYPES, audio_binding
             modality = request.get('modality')
             if modality not in REQUEST_TYPES:
                 raise ValueError('请求模态无效')
@@ -83,6 +83,10 @@ def project_errors(data, project, state, item):
                     raise ValueError('镜头参考或跨集边界尚未就绪')
                 if not {(ref['id'], ref['sha256']) for ref in context['input_versions']} <= pinned:
                     raise ValueError('镜头上下文输入未全部钉在 run 批准版本中')
+                if modality == 'audio':
+                    _, coverage_ref = audio_binding(project, context, logical)
+                    if (coverage_ref['id'], coverage_ref['sha256']) not in pinned:
+                        raise ValueError('对白覆盖计划未钉在 run 批准版本中')
                 media = {ref['media_id']: ref for ref in context['media_references']}
                 if any(ref not in media for ref in logical.reference_media_ids):
                     raise ValueError('请求引用了未批准的镜头媒体')

@@ -5,6 +5,7 @@ Adapters are injected for offline tests. A real submit is possible only through
 an approved series_batch run and the shared native-unit budget ledger.
 """
 import argparse
+import shutil
 import json
 import sqlite3
 import sys
@@ -16,7 +17,7 @@ import vsc_budget as budget
 import vsc_series_db as db
 import vsc_series_jobs as jobs
 from vsc_provider import JobHandle
-from vsc_series import SeriesError, _artifact_document, build_shot_context, import_media, series_state, sha256
+from vsc_series import SeriesError, _artifact_document, build_shot_context, covered_script_units, import_media, series_state, sha256
 from vsc_state import gate_problems
 
 # Provider transports raise RuntimeError subclasses (for example volc_ark.ArkError).
@@ -50,6 +51,11 @@ def _load(project, job_id, current=True):
         context = build_shot_context(project, job["target_id"])
         if context["sha256"] != job["context_sha256"]:
             raise SeriesError("镜头上下文已改变；不得提交旧任务")
+        if job["modality"] == "audio":
+            reference, covered = covered_script_units(project, job["target_id"])
+            line_id = frozen.get("voice_binding", {}).get("line_id")
+            if reference not in frozen["input_versions"] or line_id not in covered:
+                raise SeriesError("对白覆盖计划已改变；不得提交旧音频任务")
     return state, job, frozen, run
 
 
@@ -113,10 +119,22 @@ def finalize_job(project, job_id, adapter=None, download=None):
                     raise SeriesError("已转存生成素材失效：" + media_id)
                 stored.append({"media_id": media_id, "sha256": prior["sha256"], "path": prior["path"]})
                 continue
-            suffix = ".mp4" if output.modality == "video" else ".wav" if output.modality == "audio" else ".png"
+            suffix = (".mp4" if output.modality == "video" else
+                      Path(output.local_path).suffix if output.modality == "audio" and output.local_path else
+                      ".wav" if output.modality == "audio" else ".png")
             source = Path(work) / f"output-{index}{suffix}"
             if output.inline_bytes is not None:
                 source.write_bytes(output.inline_bytes)
+            elif output.local_path:
+                staged = (root / output.local_path).resolve()
+                if (not output.local_path.startswith(f".vsc-staging/{job_id}.")
+                        or not staged.is_relative_to(root / ".vsc-staging")
+                        or not staged.is_file() or staged.is_symlink()
+                        or not output.sha256 or sha256(staged) != output.sha256):
+                    raise SeriesError("音频暂存文件缺失、越界或摘要不符")
+                shutil.copyfile(staged, source)
+                if sha256(source) != output.sha256:
+                    raise SeriesError("音频暂存文件在复制期间发生变化")
             elif output.temporary_uri:
                 download(output.temporary_uri, source)
             else:
@@ -126,6 +144,16 @@ def finalize_job(project, job_id, adapter=None, download=None):
                 f"generated:{job_id}", job_id=job_id, original_uri=stable))
     _settle_unknown(project, job_id, "已转存并校验生成任务 " + job_id)
     jobs.mark_transferred(project, job_id, [item["media_id"] for item in stored])
+    for output in outputs:
+        if output.local_path:
+            try:
+                staged = (root / output.local_path).resolve()
+                if (output.local_path.startswith(f".vsc-staging/{job_id}.")
+                        and staged.is_relative_to(root / ".vsc-staging") and staged.is_file()
+                        and not staged.is_symlink() and sha256(staged) == output.sha256):
+                    staged.unlink()
+            except OSError:
+                pass  # Transfer is durable; a stale staging file is only cleanup work.
     return stored
 
 
@@ -146,14 +174,15 @@ def submit_job(project, job_id, adapter=None, download=None):
     state, job, frozen, run = _load(project, job_id)
     if job["status"] != "created":
         raise SeriesError("任务已有提交意图或结果；只能恢复／对账，不得重提")
-    if job["modality"] == "audio" and adapter is None:
-        raise SeriesError("音频服务适配器尚未配置")
     gaps = gate_problems(Path(project), state, "animatic", run["scope"])
     if gaps:
         raise SeriesError("正式制作质量门未通过：" + "；".join(gaps))
     adapter = adapter or jobs.adapter_for_job(project, job_id)
+    logical_request = _request(frozen, job["modality"])
     if job["provider"] == "volc_ark":
-        from vsc_volc_provider import VolcArkImageProvider, VolcArkVideoProvider
+        from vsc_volc_provider import VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider
+        if isinstance(adapter, VolcArkAudioProvider):
+            adapter.preflight(logical_request)
         if isinstance(adapter, (VolcArkImageProvider, VolcArkVideoProvider)):
             import volc_ark
             volc_ark.base_url()  # Reject a standard pay-as-you-go endpoint before reserving budget.
@@ -167,7 +196,7 @@ def submit_job(project, job_id, adapter=None, download=None):
     budget.check_authorization(project, reservation, operation, bound, request=frozen["logical_request"])
     jobs.record_status(project, job_id, "submission_unknown", details={"reservation_id": reservation})
     try:
-        handle = adapter.submit(_request(frozen, job["modality"]))
+        handle = adapter.submit(logical_request)
     except BaseException:
         _settle_unknown(project, job_id, "提交响应未知；不得自动重提，先核对平台任务和账单")
         raise
