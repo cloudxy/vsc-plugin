@@ -79,7 +79,7 @@ def resolve_style(bible_path=None, overrides=None):
     return style, source + ("+args" if explicit else "")
 
 PUNCTUATIONS = ("?", ",", ".", "、", ";", ":", "!", "…", "？", "，", "。", "；", "：", "！", "...", "،", "؛", "؟")
-LINE_START_PUNCTUATION = "，。！？；：、,.!?;:)]}）】》」』”’"
+LINE_START_PUNCTUATION = "，。！？；：、,.!?;:…)]}）】》」』”’"
 
 
 def split_by_punctuation(text):
@@ -211,14 +211,23 @@ def wrap_text(text, font, max_width):
         return right - left
 
     def split_long(token):
-        lines, current = [], ""
+        # Keep a closing mark (including both halves of an ellipsis) with the
+        # preceding character. A character-only split can strand punctuation
+        # on a line by itself even when the next line has ample room.
+        units = []
         for char in token:
-            candidate = current + char
+            if char in LINE_START_PUNCTUATION and units:
+                units[-1] += char
+            else:
+                units.append(char)
+        lines, current = [], ""
+        for unit in units:
+            candidate = current + unit
             if width(candidate) <= max_width or not current:
                 current = candidate
                 continue
             lines.append(current)
-            current = char
+            current = unit
         if current:
             lines.append(current)
         return lines
@@ -240,8 +249,12 @@ def wrap_text(text, font, max_width):
     if current:
         lines.append(current)
     for index in range(1, len(lines)):
-        if lines[index] and lines[index][0] in LINE_START_PUNCTUATION and len(lines[index - 1]) > 1:
-            candidate = lines[index - 1][-1] + lines[index]
-            if width(candidate) <= max_width:
-                lines[index], lines[index - 1] = candidate, lines[index - 1][:-1]
+        if lines[index] and lines[index][0] in LINE_START_PUNCTUATION:
+            previous = lines[index - 1]
+            anchor = len(previous) - 1
+            while anchor > 0 and previous[anchor] in LINE_START_PUNCTUATION:
+                anchor -= 1
+            candidate = previous[anchor:] + lines[index]
+            if anchor > 0 and width(candidate) <= max_width:
+                lines[index], lines[index - 1] = candidate, previous[:anchor]
     return [line.strip() for line in lines if line.strip()]

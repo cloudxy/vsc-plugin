@@ -5,6 +5,7 @@
 """
 import shutil
 import importlib.util
+import json
 import subprocess
 import tempfile
 import unittest
@@ -32,6 +33,28 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("[0:v][1:v]overlay=x=10:y=20:enable='between(t,0.200,1.000)'[v1]", graph)
         self.assertIn("[v1][2:v]overlay=x=5:y=6:enable='between(t,2.000,3.500)'[v2]", graph)
         self.assertEqual(command[command.index("-map") + 1], "[v2]")
+
+
+@unittest.skipUnless(importlib.util.find_spec("PIL") and SB.DEFAULT_FONT.is_file(), "字幕排版测试需要本机 Pillow 与 noto-sans-sc")
+class RenderLayoutTest(unittest.TestCase):
+    def render_cues(self, texts):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "job.json"
+            path.write_text(json.dumps({"directory": temp, "width": 1080, "height": 1920,
+                                        "style": dict(STYLE, font=str(SB.DEFAULT_FONT), font_size=60),
+                                        "cues": [{"text": value, "start": 0, "end": 1} for value in texts]}, ensure_ascii=False), "utf-8")
+            SB.render(path)
+            return json.loads(path.read_text("utf-8"))["cues"]
+
+    def test_long_chinese_cue_uses_two_safe_lines_without_orphan_marks(self):
+        cues = self.render_cues(["这句话包含较长的前半句，接着还有一段后半句……"])
+        self.assertEqual(len(cues[0]["lines"]), 2)
+        self.assertTrue(cues[0]["lines"][-1].endswith("……"))
+        self.assertFalse(any(line[0] in SB.subtitles.LINE_START_PUNCTUATION for line in cues[0]["lines"]))
+
+    def test_paragraph_requiring_three_lines_is_rejected_with_cue_number(self):
+        with self.assertRaisesRegex(SB.subtitles.SubtitleError, "第 1 条字幕"):
+            self.render_cues(["这段对白太长，需要按真正的语音停顿重新拆分字幕。" * 4])
 
 
 class StyleTest(unittest.TestCase):

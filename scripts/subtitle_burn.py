@@ -29,6 +29,8 @@ FONT_SOURCE = "noto-sans-sc"
 DEFAULT_FONT = VENDOR / FONT_SOURCE / "Sans" / "SubsetOTF" / "SC" / "NotoSansSC-Bold.otf"
 POSITIONS = consistency.POSITIONS
 DEFAULT_STYLE = subtitles.DEFAULT_STYLE
+MAX_WIDTH_RATIO = 0.82
+MAX_LINES = 2
 
 
 class BurnError(RuntimeError):
@@ -88,11 +90,14 @@ def render(job_path):
     background = style.get("background")
     pad_x = int(style["font_size"] * (0.4 if style.get("rounded") else 0.6)) if background else 0
     pad_y = int(style["font_size"] * 0.35)
-    max_width = max(1, int(width * 0.9) - 2 * pad_x)
+    safe_width = int(width * MAX_WIDTH_RATIO)
+    max_width = max(1, safe_width - 2 * pad_x - 2 * stroke)
     for index, cue in enumerate(job["cues"]):
         lines = subtitles.wrap_text(cue["text"], font, max_width) or [cue["text"]]
         widths = [font.getbbox(line)[2] - font.getbbox(line)[0] for line in lines]
-        image_width = min(int(width * 0.9), max(widths) + 2 * pad_x + 2 * stroke)
+        if len(lines) > MAX_LINES or any(line[0] in subtitles.LINE_START_PUNCTUATION for line in lines if line) or max(widths) > max_width:
+            raise subtitles.SubtitleError([f"第 {index + 1} 条字幕无法排入 {MAX_LINES} 行／画幅宽度 {MAX_WIDTH_RATIO:.0%}；请在 SRT 中按语音停顿拆成多条并核对时码，或调整已批准字幕样式"])
+        image_width = max(widths) + 2 * pad_x + 2 * stroke
         image_height = len(lines) * line_height + (len(lines) - 1) * interline + 2 * pad_y + 2 * stroke
         image = Image.new("RGBA", (image_width, image_height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
@@ -107,7 +112,7 @@ def render(job_path):
             y += line_height + interline
         path = Path(job["directory"]) / f"cue-{index:04d}.png"
         image.save(path)
-        cue.update(png=str(path), x=int((width - image_width) / 2),
+        cue.update(png=str(path), lines=lines, x=int((width - image_width) / 2),
                    y=int(placement(style["position"], style["custom_position"], height, image_height)))
     Path(job_path).write_text(json.dumps(job, ensure_ascii=False), "utf-8")
 
@@ -168,7 +173,10 @@ def burn(video, srt, output, style, run=subprocess.run):
 
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "render":
-        render(sys.argv[2])
+        try:
+            render(sys.argv[2])
+        except subtitles.SubtitleError as exc:
+            raise SystemExit(f"错误：{exc}") from exc
         return
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
