@@ -14,6 +14,9 @@ from _paths import ROOT
 import vsc_series
 import vsc_series_db as db
 import vsc_series_jobs as jobs
+import vsc_series_dispatch as dispatch
+import vsc_budget as budget
+from vsc_provider import GeneratedAsset, JobHandle, JobStatus
 from vsc_state import project_state, save
 
 
@@ -27,7 +30,7 @@ class SeriesDatabase(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def _artifact(self, state, kind, data, scope="EP1"):
+    def _artifact(self, state, kind, data, scope="EP1", depends=()):
         aid = f"A-{len(state['artifacts']) + 1}"
         path = self.project / "artifacts" / (aid + ".json")
         path.parent.mkdir(exist_ok=True)
@@ -35,7 +38,8 @@ class SeriesDatabase(unittest.TestCase):
         path.write_bytes(content)
         item = {"id": aid, "type": kind, "stage": "synthetic", "scope": scope,
                 "path": str(path.relative_to(self.project)), "sha256": hashlib.sha256(content).hexdigest(),
-                "status": "approved", "depends_on": [], "dependency_versions": {},
+                "status": "approved", "depends_on": [item["id"] for item in depends],
+                "dependency_versions": {item["id"]: item["sha256"] for item in depends},
                 "decision": {"by": "synthetic fixture", "note": "test only", "at": "2026-10-13"}}
         state["artifacts"].append(item)
         return item
@@ -66,10 +70,8 @@ class SeriesDatabase(unittest.TestCase):
             {"id": "SC1", "actions": [{"id": "AC1", "text": "Enters"}],
              "dialogue": [{"id": "L1", "speaker": "char", "text": "Hello"}]}]})
         style = self._artifact(state, "vsc.visual_bible", {"format": "vsc.visual-bible/v1", "palette": ["warm"]})
-        refs = [{"id": item["id"], "sha256": item["sha256"]} for item in (bible, scene, plan, script, style)]
-        run = self._artifact(state, "vsc.production_run", {"format": "vsc.production-run/v1", "approved_inputs": refs})
         save(self.project, state)
-        return run
+        return bible, scene, plan, script, style
 
     def _reference(self, media_id, target, role, variant=None):
         content = b"synthetic-media-" + media_id.encode()
@@ -130,7 +132,7 @@ class SeriesDatabase(unittest.TestCase):
             self.assertEqual(db.load_state(self.project), original)
 
     def test_snapshot_index_context_and_idempotent_plan(self):
-        run = self._shot_fixture()
+        inputs = self._shot_fixture()
         with db.connect(self.project) as connection:
             self.assertEqual(connection.execute("SELECT text FROM script_lines WHERE line_id='L1'").fetchone()[0], "Hello")
             self.assertEqual(connection.execute("SELECT outcome FROM approval_decisions WHERE id='artifact:A-1'").fetchone()[0], "approved")
@@ -145,6 +147,20 @@ class SeriesDatabase(unittest.TestCase):
             request = {"format": "vsc.generation-request/v1", "modality": "image", "shot_id": "SH1",
                 "purpose": "shot_keyframe", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
                 "reference_media_ids": ["face-day", "room"], "width": 1080, "height": 1920}
+            state = project_state(self.project)
+            animatic = self._artifact(state, "vsc.animatic", {"format": "vsc.animatic/v1", "synthetic": True})
+            batch = {"jobs": [{"request": request, "candidate_no": 1}]}
+            operation = "series:SH1:shot_keyframe:1"
+            run = self._artifact(state, "vsc.production_run", {
+                "format": "vsc.production-run/v1", "project_id": state["project_id"], "scope": "EP1",
+                "series_batch": batch, "plan_sha256": db.digest(batch),
+                "approved_inputs": [{"id": item["id"], "sha256": item["sha256"]} for item in (*inputs, animatic)],
+                "review_after": [], "operations": {operation: {"remote_jobs": 1, "images": 1}}},
+                depends=(*inputs, animatic))
+            save(self.project, state)
+            from vsc_series_run import project_errors as series_run_errors
+            self.assertEqual(series_run_errors(json.loads(db.artifact_document(self.project, run["id"])),
+                self.project, project_state(self.project), run), [])
             jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_API_KEY")
             jobs.register_model(self.project, "volc_ark", "model-1", "symbolic-model", "image", "fixed-version",
                 {"purposes": ["shot_keyframe"], "reference_media": True},
@@ -205,6 +221,85 @@ class SeriesDatabase(unittest.TestCase):
                 self.assertEqual(connection.execute("SELECT count(*) FROM continuity_edges WHERE status='superseded'").fetchone()[0], 1)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_approved_series_job_dispatch_resume_transfer_and_rights(self):
+        inputs = self._shot_fixture()
+        self._reference("face-day", "char", "identity_face", "day")
+        self._reference("room", "loc", "location_master")
+        with patch.object(vsc_series, "validate_artifact", return_value=[]):
+            context = vsc_series.build_shot_context(self.project, "SH1")
+            request = {"format": "vsc.generation-request/v1", "modality": "image", "shot_id": "SH1",
+                "purpose": "shot_keyframe", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
+                "reference_media_ids": ["face-day", "room"], "width": 1080, "height": 1920}
+            state = project_state(self.project)
+            animatic = self._artifact(state, "vsc.animatic", {"format": "vsc.animatic/v1", "synthetic": True})
+            batch = {"jobs": [{"request": request, "candidate_no": 1}]}
+            operation = "series:SH1:shot_keyframe:1"
+            run = self._artifact(state, "vsc.production_run", {
+                "format": "vsc.production-run/v1", "project_id": state["project_id"], "scope": "EP1",
+                "series_batch": batch, "plan_sha256": db.digest(batch),
+                "approved_inputs": [{"id": item["id"], "sha256": item["sha256"]} for item in (*inputs, animatic)],
+                "review_after": [], "operations": {operation: {"remote_jobs": 1, "images": 1}}},
+                depends=(*inputs, animatic))
+            save(self.project, state)
+            jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_API_KEY")
+            jobs.register_model(self.project, "volc_ark", "model-1", "symbolic-model", "image", "fixed-version",
+                {"purposes": ["shot_keyframe"], "reference_media": True},
+                {"size_map": {"1080x1920": "2K"}})
+            jobs.set_route(self.project, "image", "shot_keyframe", "model-1")
+            job_id = jobs.plan_job(self.project, run["id"], request)["job_id"]
+            budget.configure(self.project, {"remote_jobs": 1, "images": 1}, "fixture", "offline test")
+            image = Path(self.temp.name) / "result.png"
+            result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+                "color=c=red:s=32x32", "-frames:v", "1", str(image)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            class FakeAdapter:
+                submits = 0
+                polls = 0
+
+                def submit(self, req):
+                    self.submits += 1
+                    return JobHandle("volc_ark", "symbolic-model", "external-1")
+
+                def poll(self, handle):
+                    self.polls += 1
+                    return JobStatus("succeeded", raw={"data": [{"url": "https://example.invalid/x.png?sig=secret"}]})
+
+                def parse_result(self, raw):
+                    return [GeneratedAsset("image", temporary_uri=raw["data"][0]["url"])]
+
+            fake = FakeAdapter()
+            downloads = []
+
+            def download(url, target):
+                downloads.append(url)
+                shutil.copyfile(image, target)
+
+            with patch("vsc_artifacts.validate_artifact", return_value=[]), patch.object(dispatch, "gate_problems", return_value=[]):
+                self.assertEqual(dispatch.submit_job(self.project, job_id, fake)["status"], "submitted")
+                with self.assertRaises(vsc_series.SeriesError):
+                    dispatch.submit_job(self.project, job_id, fake)
+                completed = dispatch.resume_job(self.project, job_id, fake, download)
+                self.assertEqual(completed["status"], "succeeded")
+                self.assertEqual(dispatch.resume_job(self.project, job_id, fake, download)["assets"], completed["assets"])
+            self.assertEqual(fake.submits, 1)
+            self.assertEqual(fake.polls, 1)
+            self.assertEqual(len(downloads), 1)
+            media_id = completed["assets"][0]["media_id"]
+            with db.connect(self.project) as connection:
+                media = connection.execute("SELECT rights FROM media_assets WHERE id=?", (media_id,)).fetchone()
+                generated = connection.execute("SELECT original_uri FROM generated_assets WHERE media_id=?", (media_id,)).fetchone()
+            self.assertEqual(media["rights"], "unknown")
+            self.assertEqual(generated["original_uri"], "https://example.invalid/x.png")
+            vsc_series.bind_media(self.project, "B-result", "SH1", media_id, "composition")
+            with self.assertRaises(vsc_series.SeriesError):
+                vsc_series.decide_binding(self.project, "B-result", "approved", "fixture", "candidate")
+            vsc_series.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed output")
+            vsc_series.decide_binding(self.project, "B-result", "approved", "fixture", "candidate")
+            with budget.ledger(self.project) as ledger:
+                self.assertEqual(next(iter(ledger["reservations"].values()))["status"], "usage_unknown")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_media_copy_rights_and_binding_decisions(self):
         state = project_state(self.project)
         state["objects"].append({"id": "loc", "kind": "asset"})
@@ -223,8 +318,22 @@ class SeriesDatabase(unittest.TestCase):
             vsc_series.decide_binding(self.project, "B2", "approved", "fixture", "duplicate")
         vsc_series.retire_binding(self.project, "B1", "fixture", "new version")
         vsc_series.decide_binding(self.project, "B2", "approved", "fixture", "replacement")
+        state = project_state(self.project)
+        state["objects"].extend([
+            {"id": "EP1", "kind": "episode"}, {"id": "SC1", "kind": "scene", "parent": "EP1"},
+            {"id": "SQ1", "kind": "sequence", "parent": "SC1"},
+            {"id": "SH1", "kind": "shot", "parent": "SQ1"},
+        ])
+        save(self.project, state)
+        video = Path(self.temp.name) / "take.mp4"
+        result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+            "color=c=red:s=32x32:r=24", "-t", "1", "-c:v", "mpeg4", str(video)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        vsc_series.import_media(self.project, "take-1", video, "video", "owned", "fixture")
+        vsc_series.bind_media(self.project, "B-take", "SH1", "take-1", "video_take")
+        vsc_series.decide_binding(self.project, "B-take", "approved", "fixture", "selected")
         with db.connect(self.project) as connection:
-            self.assertEqual(connection.execute("SELECT count(*) FROM media_binding_decisions").fetchone()[0], 3)
+            self.assertEqual(connection.execute("SELECT count(*) FROM media_binding_decisions").fetchone()[0], 4)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Offline model registry and idempotent job planning for the series Profile.
 
-No adapter is invoked here. A later dispatcher consumes created jobs through
+No adapter is invoked here. The dispatcher consumes created jobs through
 vsc_provider's modality contract after budget reservation and capability checks.
 """
 import argparse
@@ -122,6 +122,12 @@ def plan_job(project, run_id, request, candidate_no=1):
     pinned = {(item["id"], item["sha256"]) for item in run.get("approved_inputs", [])}
     if not {(item["id"], item["sha256"]) for item in context["input_versions"]} <= pinned:
         raise SeriesError("production_run 未钉住镜头上下文的全部已批准版本")
+    from vsc_series_run import operation as series_operation
+    matches = [entry for entry in run.get("series_batch", {}).get("jobs", [])
+               if entry.get("candidate_no") == candidate_no and entry.get("request") == request]
+    if len(matches) != 1:
+        raise SeriesError("请求与候选编号须原样列入已批准 series_batch")
+    operation_key = series_operation(matches[0])
     with project_lock(Path(project)), db.connect(project) as connection:
         row = connection.execute("SELECT m.* FROM provider_routes r JOIN provider_models m ON m.id=r.model_id "
             "JOIN providers p ON p.name=r.provider WHERE r.modality=? AND r.purpose=? AND r.enabled=1 "
@@ -144,7 +150,7 @@ def plan_job(project, run_id, request, candidate_no=1):
             raise SeriesError("请求图片尺寸超过模型能力")
         if modality == "audio" and logical.voice_media_id and not capabilities.get("voice_reference", False):
             raise SeriesError("路由模型不支持声音参考")
-        frozen = {"logical_request": request, "context_sha256": context["sha256"],
+        frozen = {"logical_request": request, "operation": operation_key, "context_sha256": context["sha256"],
                   "input_versions": context["input_versions"], "reference_media": context["media_references"],
                   "provider": row["provider"], "model": row["model_key"], "model_version": row["model_version"],
                   "default_params": json.loads(row["default_params"]), "capabilities": capabilities}
@@ -174,8 +180,8 @@ def plan_job(project, run_id, request, candidate_no=1):
 TRANSITIONS = {
     "created": {"submission_unknown", "failed"},
     "submission_unknown": {"submitted", "running", "succeeded", "failed"},
-    "submitted": {"running", "succeeded", "failed"},
-    "running": {"succeeded", "failed"},
+    "submitted": {"submitted", "running", "succeeded", "failed"},
+    "running": {"running", "succeeded", "failed"},
     "succeeded": set(), "failed": set(),
 }
 

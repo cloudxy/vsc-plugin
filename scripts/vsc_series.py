@@ -20,7 +20,8 @@ from vsc_state import project_lock, project_state, write_json
 
 MEDIA_ROLES = (
     "identity_face", "costume", "location_master", "location_view", "composition",
-    "first_frame", "last_frame", "prop", "voice_sample", "ambience", "music", "sfx",
+    "first_frame", "last_frame", "prop", "video_take", "dialogue_dry",
+    "voice_sample", "ambience", "music", "sfx",
 )
 RIGHTS = ("owned", "licensed", "analysis_only", "unknown")
 MODALITIES = ("image", "video", "audio")
@@ -284,8 +285,16 @@ def import_media(project, media_id, source, modality, rights, origin, parents=()
     target = storage / (digest_value + suffix)
     with project_lock(root):
         with db.connect(root) as connection:
-            if connection.execute("SELECT 1 FROM media_assets WHERE id=?", (media_id,)).fetchone():
-                raise SeriesError("媒体 ID 已存在，不覆盖原素材")
+            old = connection.execute("SELECT sha256,path,modality FROM media_assets WHERE id=?", (media_id,)).fetchone()
+            if old:
+                linked = job_id and connection.execute("SELECT 1 FROM generated_assets WHERE job_id=? AND media_id=?",
+                    (job_id, media_id)).fetchone()
+                old_path = (root / old["path"]).resolve()
+                if (not linked or old["sha256"] != digest_value or old["modality"] != modality
+                        or not old_path.is_relative_to(root) or not old_path.is_file()
+                        or sha256(old_path) != digest_value):
+                    raise SeriesError("媒体 ID 已存在且无法核对为同一任务产物")
+                return {"media_id": media_id, "sha256": digest_value, "path": old["path"]}
             for parent in parents:
                 if not connection.execute("SELECT 1 FROM media_assets WHERE id=?", (parent,)).fetchone():
                     raise SeriesError(f"派生来源不存在：{parent}")
@@ -293,7 +302,8 @@ def import_media(project, media_id, source, modality, rights, origin, parents=()
                 raise SeriesError("派生素材须说明 --relation")
             if job_id:
                 job = connection.execute("SELECT modality,status FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
-                if not job or job["status"] != "succeeded" or job["modality"] != modality:
+                ancillary = job and job["modality"] == "video" and modality == "image"
+                if not job or job["status"] != "succeeded" or (job["modality"] != modality and not ancillary):
                     raise SeriesError("生成素材须关联已成功且模态一致的任务")
             if original_uri and ("?" in original_uri or "#" in original_uri):
                 raise SeriesError("原始 URI 不可包含签名参数或片段")
@@ -324,6 +334,27 @@ def import_media(project, media_id, source, modality, rights, origin, parents=()
     return {"media_id": media_id, "sha256": digest_value, "path": str(target.relative_to(root))}
 
 
+def decide_media_rights(project, media_id, rights, by, reason):
+    """Record a human rights decision before a generated candidate can be bound."""
+    series_state(project)
+    if rights not in RIGHTS or not by.strip() or not reason.strip():
+        raise SeriesError("媒体权属决定须有有效分类、选择人和理由")
+    root = Path(project).resolve()
+    with project_lock(root), db.connect(root) as connection:
+        row = connection.execute("SELECT path,sha256,rights FROM media_assets WHERE id=?", (media_id,)).fetchone()
+        if not row:
+            raise SeriesError("媒体 ID 不存在")
+        path = (root / row["path"]).resolve()
+        if not path.is_relative_to(root) or not path.is_file() or sha256(path) != row["sha256"]:
+            raise SeriesError("媒体文件或 SHA 已失效")
+        if row["rights"] == rights:
+            raise SeriesError("媒体权属未变化")
+        connection.execute("UPDATE media_assets SET rights=? WHERE id=?", (rights, media_id))
+        connection.execute("INSERT INTO approval_decisions VALUES (?,?,?,?,?,?)",
+            ("media-rights:" + uuid.uuid4().hex, "media_rights", media_id, rights, by,
+             db.canonical({"previous": row["rights"], "reason": reason, "at": stamp()})))
+
+
 def bind_media(project, binding_id, target_id, media_id, role, variant=None):
     state = series_state(project)
     objects = {item["id"]: item for item in state["objects"]}
@@ -331,7 +362,10 @@ def bind_media(project, binding_id, target_id, media_id, role, variant=None):
         raise SeriesError("媒体只能绑定已登记 asset 或 shot")
     if role not in MEDIA_ROLES:
         raise SeriesError("未知媒体用途角色")
-    expected_modality = "audio" if role in ("voice_sample", "ambience", "music", "sfx") else "image"
+    expected_modality = ("video" if role == "video_take" else "audio" if role in
+                         ("dialogue_dry", "voice_sample", "ambience", "music", "sfx") else "image")
+    if role in ("video_take", "dialogue_dry") and objects[target_id]["kind"] != "shot":
+        raise SeriesError("视频候选与对白干声只能绑定镜头")
     if role in ("first_frame", "last_frame", "identity_face", "costume", "location_master", "location_view", "composition", "prop") and objects[target_id]["kind"] == "shot" and role not in ("first_frame", "last_frame", "composition", "prop"):
         raise SeriesError("镜头只允许绑定首尾帧、构图或道具图；身份与地点须绑定 asset")
     with project_lock(Path(project)):
@@ -431,6 +465,9 @@ def main(argv=None):
     command.add_argument("--by", required=True); command.add_argument("--reason", required=True)
     command = sub.add_parser("retire-binding"); command.add_argument("project"); command.add_argument("id")
     command.add_argument("--by", required=True); command.add_argument("--reason", required=True)
+    command = sub.add_parser("decide-media-rights"); command.add_argument("project"); command.add_argument("id")
+    command.add_argument("--rights", choices=RIGHTS, required=True)
+    command.add_argument("--by", required=True); command.add_argument("--reason", required=True)
     command = sub.add_parser("media-list"); command.add_argument("project"); command.add_argument("--target")
     command = sub.add_parser("repair-mirror"); command.add_argument("project")
     command = sub.add_parser("validate-context"); command.add_argument("project"); command.add_argument("file")
@@ -463,6 +500,9 @@ def main(argv=None):
         elif args.command == "retire-binding":
             retire_binding(args.project, args.id, args.by, args.reason)
             print("OK 旧媒体绑定已退役")
+        elif args.command == "decide-media-rights":
+            decide_media_rights(args.project, args.id, args.rights, args.by, args.reason)
+            print("OK 媒体权属决定已记录")
         elif args.command == "media-list":
             series_state(args.project)
             with db.connect(args.project) as connection:
