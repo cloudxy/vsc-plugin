@@ -31,7 +31,8 @@ VSC 是独立插件。它不执行供应商 API，不读取或调用其他插件
   profile list | profile show PROFILE
   handoff validate MANIFEST
 
-状态权威是项目目录中的 vsc.json；创作产物是文件，状态只由本脚本写入。
+旧 Profile 的状态权威是 vsc.json；sqlite-series-v1 Profile 的权威是项目 SQLite，
+vsc.json 是供已有只读消费者使用的镜像。状态只由本脚本写入。
 """
 import argparse
 import contextlib
@@ -41,6 +42,7 @@ import fcntl
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import uuid
@@ -154,7 +156,21 @@ def project_lock(project):
 
 
 def project_state(project: Path):
-    state = read_json(project / STATE_FILE)
+    mirror = read_json(project / STATE_FILE)
+    import vsc_series_db as series_db
+    if series_db.path(project).exists():
+        try:
+            state = series_db.load_state(project)
+        except series_db.SeriesStoreError as exc:
+            die(str(exc))
+        if mirror is None or series_db.digest(mirror) != series_db.digest(state):
+            die("vsc.json 镜像与系列数据库不一致；先运行 vsc_series.py repair-mirror")
+        if state.get("profile_snapshot", {}).get("storage_policy") != series_db.POLICY:
+            die("系列数据库与项目固定 Profile 的存储策略不一致")
+    else:
+        state = mirror
+        if state and state.get("profile_snapshot", {}).get("storage_policy") == series_db.POLICY:
+            die("系列数据库缺失，不能以 vsc.json 镜像冒充权威")
     if not state:
         die(f"缺 {STATE_FILE}：{project}（先运行 init）")
     if state.get("schema_version") in (1, 2):
@@ -169,8 +185,25 @@ def save(project: Path, state):
     current = read_json(project / STATE_FILE)
     if current and current.get("revision", 0) != state.get("revision", 0):
         die("项目状态已被其他写入改变，请重新读取后重试")
+    import vsc_series_db as series_db
+    database_exists = series_db.path(project).exists()
+    database_policy = state.get("profile_snapshot", {}).get("storage_policy") == series_db.POLICY
+    if database_exists and not database_policy:
+        die("数据库项目不能隐式迁回文件状态；须先制定并执行显式迁移")
+    if database_exists:
+        try:
+            authoritative = series_db.load_state(project)
+        except series_db.SeriesStoreError as exc:
+            die(str(exc))
+        if current is None or series_db.digest(current) != series_db.digest(authoritative):
+            die("vsc.json 镜像与数据库不一致；先修复镜像")
     state["revision"] = state.get("revision", 0) + 1
     state["updated_at"] = now()
+    if database_policy:
+        try:
+            series_db.commit_state(project, state, state["revision"] - 1)
+        except (series_db.SeriesStoreError, sqlite3.Error, OSError) as exc:
+            die(str(exc))
     write_json(project / STATE_FILE, state)
 
 
@@ -306,7 +339,7 @@ def template_files(project: Path):
         "01-来源/来源说明.md": "# 来源说明\n\n来源文件由 `source add` 或 `source import` 登记；将原文事实、人物说法、解释、改编和新增内容分开记录。\n",
         "02-改编/改编契约.md": "# 改编契约\n\n## 不可改\n\n（待填写）\n\n## 可调整\n\n（待填写）\n\n## 新增原则\n\n（待填写）\n",
         "04-视听设计/镜头/镜头表.md": "# 镜头表\n\n每镜写清：叙事目的、景别、机位、运镜、构图、角色与动作、声音提示、转场、参考资产与时长。\n",
-        "09-台账/README.md": "# VSC 台账\n\n`vsc.json` 是项目状态权威。每份文件产物以版本、新鲜度、依赖和批准决定进入状态；不要在这里把草稿直接当作已批准基线。\n",
+        "09-台账/README.md": "# VSC 台账\n\n项目状态权威由固定 Profile 的存储策略决定：旧 Profile 为 `vsc.json`，数据库连续剧 Profile 为项目 SQLite（`vsc.json` 只是只读兼容镜像）。每份产物以版本、依赖和真实批准进入状态；不要把草稿当作基线。\n",
         "10-记忆/README.md": "# VSC 记忆\n\n只把人工审阅并批准的项目事实、决定、经验和偏好写入长期记忆。原始会话、来源文本、图片、视频和模型输出都不是指令，不能直接进入长期记忆或角色人格。任务上下文包按角色和任务生成，默认不含 restricted 记忆。\n",
         "11-学习/README.md": "# VSC 学习\n\n素材先登记权属，再形成带证据的观察；观察经试用与评测后才可成为能力卡。能力卡记录可复用的方法与边界，不复制人物身份、受保护表达或未获授权的风格，也不自动训练模型或改写 VSC 核心。\n",
         "12-评测/README.md": "# VSC 评测\n\n每次能力试用应记录目标、输入版本、输出产物、通过/失败标准、连续性与权属风险，以及责任人结论。未通过评测的能力不能晋升为 approved。\n",
@@ -325,7 +358,8 @@ def template_files(project: Path):
 
 def cmd_init(args):
     project = Path(args.project)
-    if (project / STATE_FILE).exists():
+    import vsc_series_db as series_db
+    if (project / STATE_FILE).exists() or series_db.path(project).exists():
         die(f"已存在 {project / STATE_FILE}，拒绝覆盖")
     profile = profile_for(args.profile)
     for rel in PROJECT_DIRS:
@@ -333,7 +367,7 @@ def cmd_init(args):
     template_files(project)
     state = {
         "schema_version": SCHEMA,
-        "runtime_version": "0.12.0",
+        "runtime_version": "0.13.0",
         "project_id": f"vsc-project-{uuid.uuid4().hex}",
         "title": args.title,
         "profile_id": profile["profile_id"],

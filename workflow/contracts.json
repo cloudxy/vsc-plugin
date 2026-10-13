@@ -3,6 +3,21 @@
   "version": "2.0",
   "contracts": [
     {
+      "format": "vsc.shot-context/v1",
+      "owner": "数据库连续短剧镜头上下文",
+      "template": null,
+      "validator": {
+        "script": "scripts/vsc_series.py",
+        "arguments": ["validate-context-file"]
+      }
+    },
+    {
+      "format": "vsc.generation-request/v1",
+      "owner": "数据库连续短剧统一生成请求",
+      "template": null,
+      "validator": null
+    },
+    {
       "format": "vsc.creative-brief/v1",
       "owner": "创作委托",
       "artifact_types": [
