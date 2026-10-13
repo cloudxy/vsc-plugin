@@ -79,16 +79,14 @@ class AudioTests(unittest.TestCase):
         self.remote.assert_not_called()
         self.probe.assert_not_called()
 
-    def test_retired_credentials_report_the_change_and_explicit_names_still_work(self):
+    def test_missing_key_asks_for_agent_plan_key_and_explicit_names_still_work(self):
         os.environ.clear()
-        os.environ["DOUBAO_MEDIAKIT_API_KEY"] = "old-mediakit-key"
+        os.environ["DOUBAO_MEDIAKIT_API_KEY"] = "other-mediakit-key"
         self.assertTrue(audio.generate(self.args())["dry_run"])
-        with self.assertRaisesRegex(audio.AudioError, "已更换") as error:
+        with self.assertRaisesRegex(audio.AudioError, "火山方舟 Agent 版本") as error:
             audio.generate(self.args("--execute"))
         self.assertIn(audio.credentials.KEY_ENV, str(error.exception))
         self.assertIn("source ~/.zshenv", str(error.exception))
-        with self.assertRaisesRegex(audio.AudioError, "已更换"):
-            audio.generate(self.args("--key-env", "HUO_SHAN_API_KEY"))
         self.remote.assert_not_called()
         self.assertFalse((self.project / "06-素材/声音/BGM-01-任务.json").exists())
         os.environ["TEAM_AUDIO_KEY"] = "explicit-key"

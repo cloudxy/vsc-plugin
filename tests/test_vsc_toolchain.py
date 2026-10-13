@@ -84,7 +84,7 @@ class ToolchainTest(unittest.TestCase):
         self.assertIn("不验证模型权限", report["meaning"]["configured"])
 
     def test_missing_credentials_are_pending_with_zero_exit(self):
-        blank = {name: "" for name in (*T.ENV_NAMES, *T.credentials.RETIRED)}
+        blank = {name: "" for name in T.ENV_NAMES}
         with mock.patch.dict(os.environ, blank):
             code, report, err = self.report()
         self.assertEqual(code, 0, err)
@@ -103,12 +103,7 @@ class ToolchainTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("configuration=pending", out)
         self.assertIn("ARK_AGENT_PLAN_API_KEY", out)
-        with mock.patch.dict(os.environ, {**blank, "HUO_SHAN_API_KEY": "old-session-key"}):
-            code, report, err = self.report()
-        hint = self.tools(report)["ark_image"]["configuration"]
-        self.assertIn("已更换", hint["missing_hint"])
-        self.assertEqual(hint["retired_env_names_present"], ["HUO_SHAN_API_KEY"])
-        self.assertNotIn("old-session-key", json.dumps(report, ensure_ascii=False))
+        self.assertIn("火山方舟 Agent 版本", out)
         self.assertIn("~/.zshenv", out)
 
     def test_actual_same_project_schema_success_and_sha_evidence_counts(self):

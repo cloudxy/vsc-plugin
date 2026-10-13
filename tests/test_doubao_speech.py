@@ -96,17 +96,14 @@ class SpeechTests(unittest.TestCase):
         self.remote.assert_not_called()
         self.probe.assert_not_called()
 
-    def test_default_is_dry_run_and_retired_keys_report_the_change(self):
+    def test_default_is_dry_run_and_missing_key_asks_for_agent_plan_key(self):
         self.assertTrue(speech.synthesize(self.args())["dry_run"])
         os.environ.clear()
-        os.environ["HUO_SHAN_API_KEY"] = "old-ark-key"
-        with self.assertRaisesRegex(speech.SpeechError, "已更换") as error:
+        os.environ["HUO_SHAN_API_KEY"] = "other-ark-key"
+        with self.assertRaisesRegex(speech.SpeechError, "火山方舟 Agent 版本") as error:
             speech.synthesize(self.args("--execute"))
         self.assertIn(speech.credentials.KEY_ENV, str(error.exception))
         self.assertIn("source ~/.zshenv", str(error.exception))
-        for retired in ("DOUBAO_SPEECH_API_KEY", "HUO_SHAN_API_KEY"):
-            with self.assertRaisesRegex(speech.SpeechError, "已更换"):
-                speech.synthesize(self.args("--key-env", retired))
         self.remote.assert_not_called()
         self.assertFalse((self.project / "06-素材/声音/VOICE-01-任务.json").exists())
 

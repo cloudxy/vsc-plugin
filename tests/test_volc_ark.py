@@ -41,15 +41,15 @@ class InputTest(unittest.TestCase):
         with mock.patch.dict(A.os.environ, {}, clear=True), \
                 mock.patch.object(A.Path, "read_text", side_effect=AssertionError("must not read shell config")), \
                 mock.patch.object(A.urllib.request, "urlopen") as remote:
-            with self.assertRaisesRegex(A.ArkError, "ARK_AGENT_PLAN_API_KEY.*~/.zshenv") as error:
+            with self.assertRaisesRegex(A.ArkError, "火山方舟 Agent 版本.*ARK_AGENT_PLAN_API_KEY") as error:
                 A.call("/images/generations", {"prompt": "offline"})
             self.assertIn("source ~/.zshenv", str(error.exception))
             remote.assert_not_called()
 
-    def test_retired_key_names_report_the_change_and_plan_base_is_default(self):
-        with mock.patch.dict(A.os.environ, {"HUO_SHAN_API_KEY": "old"}, clear=True), \
+    def test_other_ark_variables_are_ignored_and_plan_base_is_default(self):
+        with mock.patch.dict(A.os.environ, {"HUO_SHAN_API_KEY": "other"}, clear=True), \
                 mock.patch.object(A.urllib.request, "urlopen") as remote:
-            with self.assertRaisesRegex(A.ArkError, "已更换.*ARK_AGENT_PLAN_API_KEY"):
+            with self.assertRaisesRegex(A.ArkError, "火山方舟 Agent 版本"):
                 A.call("/images/generations", {"prompt": "offline"})
             remote.assert_not_called()
         with mock.patch.dict(A.os.environ, {}, clear=True):

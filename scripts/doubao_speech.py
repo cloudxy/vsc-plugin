@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """豆包语音合成 2.0 HTTP 单向流适配器。默认预检，--execute 才会提交一次付费请求。
 
-默认读取统一的方舟 Agent Plan 专属 key（ARK_AGENT_PLAN_API_KEY）并走套餐语音路由 agent-plan；
-旧变量已停用，遇到时提示 API Key 已更换。不自动重试。
+默认读取火山方舟 Agent 版本的 API Key（ARK_AGENT_PLAN_API_KEY）并走套餐语音路由 agent-plan；
+找不到时提示配置该 key。不自动重试。
 同名任务先落盘绑定，再提交。未完成、失败或输出损坏时禁止自动重新提交。
 """
 import argparse
@@ -137,8 +137,6 @@ def plan(args):
     out = project_path(project, args.out)
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.key_env):
         raise SpeechError("--key-env 只接受环境变量名，不接受密钥字面值")
-    if args.key_env in credentials.RETIRED:
-        raise SpeechError(credentials.changed(args.key_env))
     if args.text_file:
         text = project_path(project, args.text_file).read_text("utf-8")
     else:
@@ -447,7 +445,7 @@ def parser():
     synth.add_argument('--line-id'); synth.add_argument('--screenplay'); synth.add_argument('--acting-choice')
     synth.add_argument('--lip-sync-intent', choices=('required', 'offscreen', 'voiceover'))
     synth.add_argument("--max-chars", type=int, required=True, help="本次文本字符预算上限（含标点空白）")
-    synth.add_argument("--key-env", default=credentials.KEY_ENV, help="鉴权环境变量名（默认统一的方舟 Agent Plan key）；旧变量已停用，不会自动回退")
+    synth.add_argument("--key-env", default=credentials.KEY_ENV, help="鉴权环境变量名（默认火山方舟 Agent 版本的 API Key）；不会自动回退")
     mode = synth.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--execute", action="store_true", help="明确提交一次可能计费的请求，无自动重试")

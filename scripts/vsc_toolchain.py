@@ -174,7 +174,7 @@ def library_inventory(root, errors):
 
 def redact(value):
     """报告不包含密钥值；即使不可信证据把密钥写进字段，也只报告掩码。"""
-    secrets = [os.environ[name] for name in (*ENV_NAMES, *credentials.RETIRED) if os.environ.get(name)]
+    secrets = [os.environ[name] for name in ENV_NAMES if os.environ.get(name)]
     if isinstance(value, str):
         for secret in sorted(secrets, key=len, reverse=True):
             value = value.replace(secret, "[REDACTED]")
@@ -204,7 +204,6 @@ def readiness(project, library=None):
             "configuration": {"status": "blocked_by_plan_rules" if blocked else "present" if present
                               else "pending" if names else "not_required",
                               "any_env_names": list(names), "present_env_names": present,
-                              "retired_env_names_present": credentials.stale_names() if names else [],
                               "blocked_reason": blocked,
                               "missing_hint": (credentials.key_problem() if names and not present else None)},
             "permission_verification": "not_probed", "verified_candidates": {"count": len(records), "records": records},

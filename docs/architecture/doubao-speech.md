@@ -27,9 +27,9 @@
 
 ## 凭证与提交
 
-默认读取 `ARK_AGENT_PLAN_API_KEY`。`DOUBAO_SPEECH_API_KEY`、`HUO_SHAN_API_KEY`、`ARK_API_KEY` 已停用，作为 `--key-env` 或残留在进程中时提示“API Key 已更换”。普通语音接口须显式 `--service speech`。不接受密钥命令行字面值、不保存凭证。
+默认读取 `ARK_AGENT_PLAN_API_KEY`，找不到时提示配置火山方舟 Agent 版本的 API Key。普通语音接口须显式 `--service speech`。不接受密钥命令行字面值、不保存凭证。
 
-官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)说明，方舟或 IAM 创建的 API Key 可通过所属 IAM 用户的权限策略扩展到豆包语音。因此具备语音权限的其他 key 可配置为未停用的变量名，再通过 `--key-env 变量名` 显式使用；这个参数只接受环境变量名，不检查、不授予云端权限。
+官方 [IAM API Key 最佳实践](https://docs.volcengine.com/docs/ark/iam-api-key-best-practices?lang=zh)说明，方舟或 IAM 创建的 API Key 可通过所属 IAM 用户的权限策略扩展到豆包语音。因此具备语音权限的其他 key 可配置为其他变量名，再通过 `--key-env 变量名` 显式使用；这个参数只接受环境变量名，不检查、不授予云端权限。
 
 默认是 dry run，不需要 key、`ffprobe` 或 `ffmpeg`，不写作品产物：
 
