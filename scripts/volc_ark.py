@@ -104,13 +104,6 @@ def base_url():
     return value
 
 
-def require_personal_video_tier():
-    """A local declaration for preflight; only the provider can confirm entitlement."""
-    tier = os.environ.get("ARK_AGENT_PLAN_TIER", "").strip().lower()
-    if tier not in ("large", "max"):
-        raise ArkError("Agent Plan 个人版视频生成需 Large/Max 档；请在 ~/.zshenv 配置 ARK_AGENT_PLAN_TIER=large 或 max，并核对实际订阅")
-
-
 def call(path, payload=None, attempts=None):
     """调用方舟接口。提交（有 payload）只发一次，查询失败时重试。"""
     problem = credentials.text_model_problem() if path.split("?", 1)[0].rstrip("/") in TEXT_PATHS else None
@@ -492,8 +485,6 @@ def submit_once(task_file, task, path, payload, out, args):
         reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交结果未知"
         raise ArkError(reason + "；不能自动重提，请先人工核查平台任务与账单")
     base_url()
-    if task["record"]["kind"] == "video":
-        require_personal_video_tier()
     key = api_key()  # 本地缺密钥不留下可能已提交的凭证。
     check_budget_authorization(args, task["record"]["kind"])
     record = task["record"]

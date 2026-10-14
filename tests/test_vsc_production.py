@@ -36,9 +36,6 @@ class QueueTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        tier_patch = mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": "large"})
-        tier_patch.start()
-        self.addCleanup(tier_patch.stop)
         self.project = Path(self.temp.name)
         (self.project / "vsc.json").write_text(json.dumps({"project_id": "test-project"}))
         for name, template in (("bible.json", "asset-bible.json"), ("state.json", "scene-state.json")):

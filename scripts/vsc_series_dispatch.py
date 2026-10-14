@@ -186,8 +186,6 @@ def submit_job(project, job_id, adapter=None, download=None):
         if isinstance(adapter, (VolcArkImageProvider, VolcArkVideoProvider)):
             import volc_ark
             volc_ark.base_url()  # Reject a standard pay-as-you-go endpoint before reserving budget.
-            if job["modality"] == "video":
-                volc_ark.require_personal_video_tier()
     operation = frozen["operation"]
     bound = run["operations"][operation]
     reservation = budget.reserve(project, job["run_artifact_id"], operation, bound)

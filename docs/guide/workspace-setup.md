@@ -52,7 +52,7 @@ source ~/.zshenv
 [[ -n ${ARK_AGENT_PLAN_API_KEY:-} ]] && print '已加载' || print '未加载，请检查 ~/.zshenv'
 ```
 
-找不到 `ARK_AGENT_PLAN_API_KEY` 时，脚本提示配置火山方舟 Agent 版本（Agent Plan）的 API Key。方舟图像／视频只走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`；如设置 `ARK_BASE_URL`，也必须是这个地址。个人版视频提交前还需在 `~/.zshenv` 声明实际档位 `ARK_AGENT_PLAN_TIER=large` 或 `max`。这只用于本地预检，不证明订阅有效或模型有权限；Small、Medium 不支持视频生成。
+找不到 `ARK_AGENT_PLAN_API_KEY` 时，脚本提示配置火山方舟 Agent 版本（Agent Plan）的 API Key。方舟图像／视频只走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`；如设置 `ARK_BASE_URL`，也必须是这个地址。套餐档位和可用模型以火山方舟当前订阅为准，工作流不做本地档位声明或预检；无权限时以平台返回的错误为准。
 
 然后从这个 shell 重新启动工具。已经运行的进程不会因此更新自身环境；其他 shell、图形应用和任务调度器也需要显式传入对应变量。`.zshenv` 的默认加载规则见 [zsh 官方说明](https://zsh.sourceforge.io/Doc/Release/Files.html)。
 

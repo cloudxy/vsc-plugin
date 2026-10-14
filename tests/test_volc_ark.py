@@ -62,15 +62,6 @@ class InputTest(unittest.TestCase):
         with mock.patch.dict(A.os.environ, {"ARK_BASE_URL": A.PLAN_BASE + "/"}, clear=True):
             self.assertEqual(A.base_url(), A.PLAN_BASE)
 
-    def test_personal_plan_video_tier_preflight_is_offline(self):
-        for tier in ("", "small", "medium", "enterprise"):
-            with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": tier}, clear=True), \
-                    self.assertRaisesRegex(A.ArkError, "Large/Max"):
-                A.require_personal_video_tier()
-        for tier in ("large", "max"):
-            with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": tier}, clear=True):
-                A.require_personal_video_tier()
-
     def test_agent_plan_key_never_calls_text_models(self):
         with mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_API_KEY": "plan"}, clear=True), \
                 mock.patch.object(A.urllib.request, "urlopen") as remote:
@@ -153,9 +144,6 @@ class GenerateTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.project = Path(self.temp.name)
-        tier_patch = mock.patch.dict(A.os.environ, {"ARK_AGENT_PLAN_TIER": "large"})
-        tier_patch.start()
-        self.addCleanup(tier_patch.stop)
         (self.project / "vsc.json").write_text(json.dumps({"project_id": json.loads(BIBLE.read_text("utf-8"))["project_id"]}), "utf-8")
         self.calls = []
         key_patch = mock.patch.object(A, "api_key", return_value="offline-test-key")

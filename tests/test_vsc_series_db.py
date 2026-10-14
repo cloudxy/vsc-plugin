@@ -69,22 +69,6 @@ class SeriesDatabase(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_agent_plan_video_tier_is_checked_before_budget_reservation(self):
-        from vsc_volc_provider import VolcArkVideoProvider
-        adapter = VolcArkVideoProvider("symbolic-video", lambda value: value, "720p", "9:16",
-                                       transport=lambda *_: self.fail("must not call provider"))
-        job = {"status": "created", "provider": "volc_ark", "modality": "video"}
-        with patch.dict("os.environ", {"ARK_AGENT_PLAN_TIER": "medium"}), \
-                patch.object(dispatch, "_load", return_value=({}, job, {"logical_request": {
-                    "shot_id": "SH1", "purpose": "shot_video", "context_sha256": "a", "prompt": "move"}},
-                    {"scope": "EP1"})), \
-                patch.object(dispatch, "gate_problems", return_value=[]), \
-                patch.object(jobs, "adapter_for_job", return_value=adapter), \
-                patch.object(budget, "reserve") as reserve:
-            with self.assertRaisesRegex(RuntimeError, "Large/Max"):
-                dispatch.submit_job(self.project, "J-test")
-            reserve.assert_not_called()
-
     def test_audio_provider_rejects_unsupported_request_before_budget(self):
         from vsc_volc_provider import VolcArkAudioProvider, VolcAdapterError
         binding = {"line_id": "L1", "entity_id": "char", "voice": {
