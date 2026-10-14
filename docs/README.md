@@ -8,7 +8,8 @@
 |---|---|
 | [2026-10-11 短剧／短视频工作流深度审查](plans/2026-10-11-vsc-workflow-review.md) | 16 类问题、离线复现证据、7 个实施工作包与真实制作验收；工程改造见实施记录 |
 | [2026-10-12 实施记录](plans/2026-10-12-vsc-workflow-implementation.md) | 工作包、回归证据与真实制作验收边界 |
-| [项目浏览器方案](plans/2026-10-14-project-browser.md) | VSC 内置只读网页、旧项目与系列数据库兼容、文案和素材可视化；尚未实现 |
+| [项目资源面板与 PostgreSQL 升级方案](plans/2026-10-14-project-resource-panel-postgresql.md) | VSC 内置项目页、资源关系权威、兼容与显式迁移；候选方案，尚未实现 |
+| [项目浏览器首版方案](plans/2026-10-14-project-browser.md) | 只读网页需求的历史候选设计，已由资源面板方案扩展 |
 
 ## guide · 使用与维护
 
