@@ -66,6 +66,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [v0.18.3](releases/v0.18.3.md) | 去掉套餐档位的本地声明与视频预检 |
 | [v0.17.1](releases/v0.17.1.md) | 缺少火山 key 时只提示配置火山方舟 Agent 版本 API Key |
 | [v0.17.2](releases/v0.17.2.md) | Agent Plan 个人版专属地址与视频档位离线预检，明确 AFP 和语音能力边界 |
 | [v0.17.0](releases/v0.17.0.md) | 火山凭证统一为方舟 Agent Plan 专属 key，旧变量提示已更换 |
