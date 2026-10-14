@@ -105,6 +105,28 @@ class StateTest(unittest.TestCase):
         self.assertTrue(any("没有变体 烧毁" in error for error in errors))
         self.assertTrue(any("路人 不在资产库中" in error for error in errors))
 
+    def test_shot_location_overrides_only_that_shot_and_must_be_a_location(self):
+        value, places = state(), bible()
+        places["entities"].append({"id": "场景-门外-v1", "kind": "location", "name": "门外楼道",
+                                   "identity": ["窄楼道"], "variants": {"default": "昏暗"}})
+        value["scenes"][0]["shots"][0]["location_id"] = "场景-门外-v1"
+        self.assertEqual(C.state_errors(value, places), [])
+        derived = C.derive(value)
+        self.assertEqual(derived["SH-001"]["location_id"], "场景-门外-v1")
+        self.assertEqual(derived["SH-002"]["location_id"], "场景-客厅-v1")
+        self.assertEqual(C.anchor_pack(places, value, "SH-001")["location"]["name"], "门外楼道")
+        value["scenes"][0]["shots"][0]["location_id"] = "主角"
+        self.assertTrue(any("不是资产库中的地点" in e for e in C.state_errors(value, places)))
+
+    def test_in_frame_lists_unique_present_entities(self):
+        value = state()
+        value["scenes"][0]["shots"][0]["in_frame"] = ["主角", "主角"]
+        self.assertTrue(any("in_frame" in e for e in C.state_errors(value, BIBLE)))
+        value["scenes"][0]["shots"][0]["in_frame"] = ["路人"]
+        self.assertTrue(any("不在场" in e for e in C.state_errors(value, BIBLE)))
+        value["scenes"][0]["shots"][0]["in_frame"] = []
+        self.assertEqual(C.state_errors(value, BIBLE), [])
+
     def test_shot_ids_are_unique_across_scenes(self):
         value = state()
         second = copy.deepcopy(value["scenes"][0])
@@ -149,6 +171,22 @@ class AnchorTest(unittest.TestCase):
         self.assertIn("封口撕开，信纸露出一角", exit_text)
         self.assertNotIn("本镜变化", exit_text)
         self.assertIn("封口完好", C.anchor_text(pack, "entry"))
+
+    def test_in_frame_keeps_off_frame_entities_out_of_the_prompt(self):
+        self.assertNotIn("off_frame", C.anchor_pack(BIBLE, STATE, "SH-002"))
+        value = state()
+        value["scenes"][0]["shots"][1]["in_frame"] = ["信封"]
+        pack = C.anchor_pack(BIBLE, value, "SH-002")
+        self.assertEqual(set(pack["entities"]), {"信封"})
+        self.assertEqual(pack["off_frame"], [{"id": "主角", "name": "主角"}])
+        self.assertNotIn("主角", pack["changes"]["entities"])
+        text = C.anchor_text(pack)
+        self.assertIn("画外在场、不得入画：主角。", text)
+        self.assertNotIn("短发", text)
+        self.assertIn("旧信封变为封口撕开，信纸露出一角", text)
+        # 在场不等于入画：状态照常推导，画外的人仍可被听见。
+        self.assertEqual(C.derive(value)["SH-002"]["exit"]["entities"]["主角"]["pose"], "站起")
+        self.assertIn("主角", C.audio_pack(BIBLE, value, "SH-002")["entities"])
 
     def test_sha_changes_only_when_this_shot_is_affected(self):
         base = C.pack_sha256(C.anchor_pack(BIBLE, STATE, "SH-002"))

@@ -371,6 +371,16 @@ def state_errors(data, bible=None):
             camera = shot.get("camera")
             if camera is not None and (not isinstance(camera, dict) or any(not text(v) for v in camera.values())):
                 errors.append(f"{shot_id}.camera 必须是摄影描述对象；屏幕方向不能写作人物世界朝向")
+            if "location_id" in shot:
+                # 场内个别镜头在别处（如屋内一镜、闪回），只覆盖该镜地点，状态照常沿场推导。
+                if not text(shot["location_id"]):
+                    errors.append(f"{shot_id or shot_label}.location_id 必须是非空字符串")
+                elif bible is not None and index.get(shot["location_id"], {}).get("kind") != "location":
+                    reference.append(f"{shot_id}.location_id {shot['location_id']} 不是资产库中的地点")
+            frame = shot.get("in_frame")
+            if "in_frame" in shot and (not isinstance(frame, list) or len(set(map(str, frame))) != len(frame)
+                                       or any(not isinstance(x, str) or not SAFE_ID.fullmatch(x) for x in frame)):
+                errors.append(f"{shot_id or shot_label}.in_frame 必须是不重复的实体 ID 数组")
             changes = shot.get("changes", {})
             if not isinstance(changes, dict) or set(changes) - {"environment", "entities"}:
                 errors.append(f"{shot_id or shot_label}.changes 只能含 environment 与 entities")
@@ -382,6 +392,9 @@ def state_errors(data, bible=None):
     for shot_id, item in derive(data).items():
         for moment in ("entry", "exit"):
             _consistency_errors(item[moment], f"{shot_id} {'入点' if moment == 'entry' else '出点'}", bible, reference)
+        for entity_id in item.get("in_frame", []):
+            if entity_id not in item["entry"]["entities"] and entity_id not in item["exit"]["entities"]:
+                reference.append(f"{shot_id}.in_frame 的 {entity_id} 在此镜不在场")
     return reference
 
 
@@ -396,9 +409,12 @@ def derive(data):
         for shot in scene["shots"]:
             entry = copy.deepcopy(state)
             _apply(state, shot.get("changes", {}))
-            result[shot["id"]] = {"scene": scene["id"], "location_id": scene["location_id"], "entry": entry, "exit": copy.deepcopy(state)}
+            result[shot["id"]] = {"scene": scene["id"], "location_id": shot.get("location_id", scene["location_id"]),
+                                  "entry": entry, "exit": copy.deepcopy(state)}
             if shot.get("camera"):
                 result[shot["id"]]["camera"] = copy.deepcopy(shot["camera"])
+            if "in_frame" in shot:
+                result[shot["id"]]["in_frame"] = list(shot["in_frame"])
     return result
 
 
@@ -423,6 +439,14 @@ def anchor_pack(bible, state, shot_id):
         return result
 
     present = sorted(set(item["entry"]["entities"]) | set(item["exit"]["entities"]))
+    framed = item.get("in_frame")
+    off_frame = []
+    if framed is not None:
+        # 在场不等于入画：画外实体只留编号与名称，不给外观与状态，免得被写进提示词。
+        off_frame = [{"id": entity_id, "name": index.get(entity_id, {}).get("name", entity_id)}
+                     for entity_id in present if entity_id not in framed]
+        present = [entity_id for entity_id in present if entity_id in framed]
+        changes = {**changes, "entities": {key: value for key, value in changes.get("entities", {}).items() if key in framed}}
     entities = {}
     for entity_id in present:
         variants = {item[moment]["entities"][entity_id].get("variant", "default") for moment in MOMENTS
@@ -446,6 +470,8 @@ def anchor_pack(bible, state, shot_id):
     }
     if item.get("camera"):
         pack["camera"] = item["camera"]
+    if framed is not None:
+        pack["off_frame"] = off_frame
     return pack
 
 
@@ -496,6 +522,8 @@ def anchor_text(pack, moment=None):
              f"{describe(location)}；{'、'.join(str(v) for v in pack['environment'][state_moment].values())}。"]
     if pack.get("camera"):
         lines.append("摄影：" + "；".join(f"{key}={value}" for key, value in pack["camera"].items()) + "。")
+    if pack.get("off_frame"):
+        lines.append("画外在场、不得入画：" + "、".join(item["name"] for item in pack["off_frame"]) + "。")
     order = {kind: rank for rank, kind in enumerate(("character", "creature", "vehicle", "prop", "object"))}
     for entity_id, info in sorted(pack["entities"].items(), key=lambda item: (order.get(item[1].get("kind"), 9), item[0])):
         if info.get("kind") == "location":
