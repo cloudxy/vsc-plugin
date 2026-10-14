@@ -15,6 +15,8 @@ PLAN_BASE = "https://ark.cn-beijing.volces.com/api/plan/v3"
 RELOAD = "在启动工具的 zsh 中执行 source ~/.zshenv 后重启工具；其他启动方式须显式传入环境变量"
 TEXT_MODELS_FORBIDDEN = ("方舟 Agent Plan 规则：文本生成模型及向量化模型不可用于 API 调用；"
                          f"{KEY_ENV} 只用于图片、视频与语音生成，视觉检查和图生文请改为人工审看")
+# 平台以这些状态拒绝 key 本身；套餐档位与模型权限只认平台返回，不在本地预判。
+PERMISSION_STATUSES = (401, 403)
 
 
 def missing(env_name=KEY_ENV):
@@ -39,6 +41,15 @@ def read_key(env_name=KEY_ENV, error=RuntimeError):
     if problem:
         raise error(problem)
     return os.environ[env_name].strip()
+
+
+def permission_denied(status, service, env_name=KEY_ENV):
+    """User-facing text when the provider rejects the key; None for other HTTP statuses."""
+    if status not in PERMISSION_STATUSES:
+        return None
+    holder = f"{env_name} 对应的 key" if env_name else "当前使用的 key"
+    return (f"HTTP {status}：{holder}没有{service}的权限，请自行核对该 key 的服务开通、套餐与模型权限；"
+            "工作流不会自动换 key 或重试")
 
 
 def text_model_problem():

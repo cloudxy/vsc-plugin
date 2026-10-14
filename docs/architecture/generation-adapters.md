@@ -37,7 +37,7 @@ VSC 核心不依赖模型供应商 SDK。需要上游项目的能力时，把它
 
 ## 豆包适配器
 
-[`scripts/volc_ark.py`](../../scripts/volc_ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读 `ARK_AGENT_PLAN_API_KEY`（方舟 Agent Plan 专属 key），图像／视频只走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`。套餐规则禁止用该 key 直接调用文本生成与向量化模型，因此视觉检查只能预检和读取已有报告。执行前应有本项目已批准输入、预算和授权。套餐边界与尚未接入能力见 [Agent Plan 个人版对照](ark-agent-plan-personal.md)。
+[`scripts/volc_ark.py`](../../scripts/volc_ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读 `ARK_AGENT_PLAN_API_KEY`（方舟 Agent Plan 专属 key），图像／视频只走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`。套餐规则禁止用该 key 直接调用文本生成与向量化模型，因此视觉检查只能预检和读取已有报告。平台以 401／403 拒绝时，统一提示 key 没有该服务权限、请用户自行核对，不自动换 key 或重试（文案见 `scripts/vsc_credentials.py`）。执行前应有本项目已批准输入、预算和授权。套餐边界与尚未接入能力见 [Agent Plan 个人版对照](ark-agent-plan-personal.md)。
 
 ```bash
 # 一次生成规范资产图；模型需已在账号开通。

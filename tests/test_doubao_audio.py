@@ -255,6 +255,14 @@ class AudioTests(unittest.TestCase):
         response.__enter__.return_value.read.assert_called_once_with(audio.MAX_RESPONSE_BYTES + 1)
         opener.open.assert_called_once()
 
+    def test_http_permission_denial_asks_user_to_check_key_without_retry(self):
+        opener = mock.Mock()
+        opener.open.side_effect = urllib.error.HTTPError(audio.BASE + audio.SUBMIT, 401, "denied", {}, io.BytesIO())
+        with mock.patch.object(urllib.request, "build_opener", return_value=opener), \
+                self.assertRaisesRegex(audio.AudioError, "没有Seed-Audio（MediaKit）的权限，请自行核对"):
+            ORIGINAL_CALL(audio.SUBMIT, self.key, {"api": "doubao.audio_generation"})
+        opener.open.assert_called_once()
+
     def test_resume_refuses_mutated_original_record_and_bad_response_snapshot(self):
         self.replies({"success": True, "task_id": TASK_ID}, completed())
         record = audio.generate(self.args("--execute"))

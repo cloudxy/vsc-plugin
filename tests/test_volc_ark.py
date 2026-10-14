@@ -546,6 +546,13 @@ class GenerateTest(unittest.TestCase):
                 A.call("/images/generations", {"prompt": "test"})
         self.assertEqual(caught.exception.status_code, 403)
         self.assertNotIn("offline-test-key", str(caught.exception))
+        self.assertIn("没有方舟图像／视频接口的权限，请自行核对", str(caught.exception))
+        busy = A.urllib.error.HTTPError("https://fake", 503, "busy", {}, io.BytesIO(b"busy"))
+        with mock.patch.object(A.urllib.request, "urlopen", side_effect=busy):
+            with self.assertRaises(A.ArkHTTPError) as caught:
+                A.call("/images/generations", {"prompt": "test"})
+        self.assertTrue(str(caught.exception).startswith("HTTP 503:"))
+        self.assertNotIn("权限", str(caught.exception))
         with mock.patch.object(A.urllib.request, "urlopen", side_effect=TimeoutError("response lost")) as urlopen:
             with self.assertRaises(A.ArkError):
                 A.call("/images/generations", {"prompt": "test"}, attempts=3)

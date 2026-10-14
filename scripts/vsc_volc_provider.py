@@ -15,11 +15,13 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Callable
+import urllib.error
 import urllib.request
 import uuid
 
 import doubao_speech as speech
 import volc_ark
+import vsc_credentials as credentials
 from vsc_provider import AudioRequest, GeneratedAsset, ImageRequest, JobHandle, JobStatus, VideoRequest
 
 
@@ -201,8 +203,14 @@ class VolcArkAudioProvider:
         with (tempfile.TemporaryFile(mode="w+", encoding="utf-8") as journal,
               tempfile.TemporaryFile(mode="w+b") as audio):
             record = {"engine": {}, "budget": {"usage": {}}}
-            with speech.open_stream(request) as response:
-                speech.stream_audio(response, audio, journal, record, key)
+            try:
+                with speech.open_stream(request) as response:
+                    speech.stream_audio(response, audio, journal, record, key)
+            except urllib.error.HTTPError as exc:
+                denied = credentials.permission_denied(exc.code, "豆包语音合成")
+                if denied:
+                    raise VolcAdapterError(denied) from None
+                raise
             audio.seek(0)
             return audio.read(), record["budget"]["usage"]
 

@@ -406,7 +406,10 @@ def synthesize(args):
                 raise SpeechError("生成记录无效：" + "；".join(errors))
             temporary.replace(target)
         except (SpeechError, OSError, ValueError, urllib.error.URLError, http.client.HTTPException) as exc:
-            message = f"HTTP {exc.code}" if isinstance(exc, urllib.error.HTTPError) else str(exc)
+            if isinstance(exc, urllib.error.HTTPError):
+                message = credentials.permission_denied(exc.code, "豆包语音合成", args.key_env) or f"HTTP {exc.code}"
+            else:
+                message = str(exc)
             record.update(status="failed", finished_at=stamp(), outputs=[], errors=[message.replace(key, "[REDACTED]")[:1000]])
             task["status"] = "failed"
             raise SpeechError(record["errors"][0] + "；同名任务不会自动重试") from None
