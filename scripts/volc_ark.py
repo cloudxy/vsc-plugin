@@ -125,7 +125,9 @@ def call(path, payload=None, attempts=None):
                 return json.load(response)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", "replace").replace(key, "[REDACTED]")
-            raise ArkHTTPError(exc.code, f"HTTP {exc.code}: {body[:800]}") from None
+            denied = credentials.permission_denied(exc.code, "方舟图像／视频接口")
+            message = f"{denied}。平台返回：{body[:800]}" if denied else f"HTTP {exc.code}: {body[:800]}"
+            raise ArkHTTPError(exc.code, message) from None
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as exc:
             if attempt == attempts - 1:
                 raise ArkError(f"网络错误：{str(exc).replace(key, '[REDACTED]')}") from None

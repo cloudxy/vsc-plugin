@@ -54,7 +54,8 @@ def call(path, key, payload=None):
                 raise AudioError("MediaKit 响应超过安全上限")
             result = json.loads(body)
     except urllib.error.HTTPError as exc:
-        raise AudioError(f"MediaKit HTTP {exc.code}；不自动重试") from None
+        denied = credentials.permission_denied(exc.code, "Seed-Audio（MediaKit）", None)
+        raise AudioError(denied or f"MediaKit HTTP {exc.code}；不自动重试") from None
     except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         raise AudioError(str(exc).replace(key, "[REDACTED]")) from None
     except (ValueError, UnicodeError):

@@ -133,7 +133,7 @@ class SpeechTests(unittest.TestCase):
             speech.synthesize(self.args("--execute", "--service", "agent-plan", "--resource-id", "seed-icl-2.0", "--model", "seed-tts-2.0-standard"))
         self.remote.assert_not_called()
         self.remote.side_effect = urllib.error.HTTPError(speech.ENDPOINTS["agent-plan"], 401, "denied", {}, io.BytesIO())
-        with self.assertRaisesRegex(speech.SpeechError, "HTTP 401"):
+        with self.assertRaisesRegex(speech.SpeechError, "HTTP 401：.*没有豆包语音合成的权限，请自行核对"):
             speech.synthesize(self.args("--execute", "--service", "agent-plan"))
         self.remote.assert_called_once()
         self.assertEqual(self.remote.call_args.args[0].full_url, speech.ENDPOINTS["agent-plan"])
