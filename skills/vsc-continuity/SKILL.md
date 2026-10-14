@@ -16,7 +16,7 @@ description: "Use when VSC needs to preserve character, scene, action, camera, l
 
 对 6–8 秒片段，优先生成一个动作/信息单元，而非硬把完整场景塞进一段。下一镜的入点应以当前出点的末帧、参考资产和同一状态契约为依据；若无法稳定接上，先增加反应镜、手部/道具特写、环境插镜或声音桥，而不是反复要求模型“无缝”。
 
-同场各镜的状态不要逐镜手写：每场戏写一份基线，每个镜头只写本镜内发生的变化，保存为 `vsc.scene-state/v1`（模板 `templates/scene-state.json`）。连续性计划的人物键使用资产库 ID、`costume_id` 使用变体名，再用 `python3 -B scripts/consistency.py check --bible <资产库> --state <状态时间线> --continuity <连续性计划>` 核对三者一致。
+同场各镜的状态不要逐镜手写：每场戏写一份基线，每个镜头只写本镜内发生的变化，保存为 `vsc.scene-state/v1`（模板 `templates/scene-state.json`）。场内个别镜头在别处（如一镜在屋内、一段闪回）时，在该镜写 `location_id`，只覆盖这一镜的地点，状态照常沿场推导；在场不等于入画，空镜、单人镜和插入镜在该镜写 `in_frame`（入画实体 ID 数组），锚点只描述入画实体，画外在场者只以名称列为「不得入画」，声音锚点不受影响。连续性计划的人物键使用资产库 ID、`costume_id` 使用变体名，再用 `python3 -B scripts/consistency.py check --bible <资产库> --state <状态时间线> --continuity <连续性计划>` 核对三者一致。
 
 跨集或跨场另写 `vsc.sequence-links/v1`，绑定状态版本、首尾镜头、叙事接收、声音桥、保持项和变化理由。运行 `scripts/vsc_sequence.py check <计划> --project <作品>` 核对，登记后依赖明确的状态版本。见[集、场衔接](../../docs/guide/reuse-and-search.md#集场衔接)。
 
