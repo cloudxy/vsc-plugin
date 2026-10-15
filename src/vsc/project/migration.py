@@ -204,7 +204,10 @@ def inventory(project):
         raise MigrationError("旧状态格式无效")
     facts, issues = [], []
     profile = state.get("profile_snapshot")
-    if not isinstance(profile, dict) or _digest(profile) != state.get("profile_sha256"):
+    # Legacy state.profile_digest predates the compact canonical JSON used by
+    # relational snapshots. Both formats are fixed historical evidence.
+    profile_hashes = {_digest(profile), hashlib.sha256(json.dumps(profile, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()} if isinstance(profile, dict) else set()
+    if not isinstance(profile, dict) or state.get("profile_sha256") not in profile_hashes:
         issues.append("源项目缺少可核实的固定 Profile 合同；须先显式恢复历史规则")
     for field in ("objects", "artifacts", "sources", "decisions"):
         if not isinstance(state.get(field, []), list) or any(not isinstance(row, dict) for row in state.get(field, [])):
@@ -227,10 +230,10 @@ def inventory(project):
         for item in rows:
             add("sqlite:" + table + ":" + _digest(item), "sqlite:" + table, item, table == "project_state")
     files = []
-    ignored = {"vsc.json", ".vsc-series.sqlite3", ".vsc-series.sqlite3-wal", ".vsc-series.sqlite3-shm", ".vsc.lock", MARKER, POINTER, ".DS_Store"}
+    ignored = {"vsc.json", ".vsc-series.sqlite3", ".vsc-series.sqlite3-wal", ".vsc-series.sqlite3-shm", ".vsc.lock", MARKER, POINTER}
     for path in sorted(project.rglob("*")):
         relative = path.relative_to(project)
-        if relative.parts[0] == CONTROL or "__pycache__" in relative.parts or relative.as_posix() in ignored:
+        if relative.parts[0] == CONTROL or relative.as_posix() in ignored:
             continue
         if path.is_symlink():
             issues.append("存在符号链接须先明确转存：" + relative.as_posix())
@@ -280,7 +283,7 @@ def preview(project, manifest=None):
             if fact["archival"]:
                 manifest["mappings"][fact["key"]] = {"targets": [{"table": "artifact_versions", "key": {"project_id": target_id, "id": archive_id}}]}
     gaps = _coverage(manifest, snapshot)
-    return {"manifest": manifest, "gaps": gaps, "ready": not gaps,
+    return {"manifest": manifest, "gaps": gaps, "issues": snapshot["issues"], "ready": not gaps,
             "source": snapshot["source"], "counts": {"facts": len(snapshot["facts"]), "files": len(snapshot["files"])}}
 
 
@@ -305,6 +308,12 @@ def _coverage(manifest, snapshot):
     for key in set(mappings) - set(facts):
         gaps.append("映射引用不存在的旧事实：" + key)
     return gaps
+
+
+def prepare(project, actor, **options):
+    """Build a typed legacy manifest without freezing or changing authority."""
+    from vsc.project.migration_prepare import prepare as prepare_manifest
+    return prepare_manifest(project, actor, **options)
 
 
 def _mapped(manifest, domain, legacy_id):
@@ -491,11 +500,19 @@ def validate_manifest(project, manifest, snapshot=None):
                 body = {}
             structured = {"vsc.asset_bible": "asset_spec_versions", "vsc.scene_state": "state_versions",
                           "vsc.timeline": "timeline_versions", "vsc.selected_takes": "binding_decisions"}
+            unindexed = mapping.get("classification") == "legacy_unindexed"
+            if unindexed:
+                if payload.get("status") == "approved" or artifact.get("parser_version") != "legacy-unindexed/v1":
+                    raise MigrationError("已批准产物不能绕过正式关系索引", "approved_unindexed")
+                if any(row.get("artifact_id") == artifact["id"] for row in tables.get("current_artifact_versions", [])):
+                    raise MigrationError("未索引的历史草稿不能成为当前执行版本")
+                if any(row.get("artifact_id") == artifact["id"] for row in tables.get("timeline_versions", [])):
+                    raise MigrationError("未索引的历史草稿不能冻结为时间线")
             if payload.get("type") in structured:
                 required_table = structured[payload["type"]]
-                if not tables.get(required_table):
+                if not unindexed and not tables.get(required_table):
                     raise MigrationError("结构化产物尚未建立关系索引：" + required_table)
-            if payload.get("type") == "vsc.screenplay":
+            if payload.get("type") == "vsc.screenplay" and not unindexed:
                 for scene in body.get("scenes", []):
                     for line in scene.get("dialogue", []):
                         if not any(row.get("script_version_id") == artifact["id"] and row.get("line_key") == line.get("id")
@@ -587,6 +604,78 @@ def validate_manifest(project, manifest, snapshot=None):
         raise MigrationError("迁移决定必须使用全项目唯一的正整数顺序")
     if project_row.get("decision_sequence", 0) < max_decision:
         raise MigrationError("项目决定序号不能落后于导入历史")
+    # Reviews do not select takes, but a migrated human review still needs the
+    # same fixed actor/outcome/input/output evidence as the original decision.
+    original_reviews = snapshot["state"].get("production_reviews", [])
+    candidates_by_id = {row["id"]: row for row in tables.get("binding_candidates", [])}
+    slots_by_id = {row["id"]: row for row in tables.get("binding_slots", [])}
+    media_by_id = {row["id"]: row for row in tables.get("media_items", [])}
+    blobs_by_id = {row["id"]: row for row in tables.get("media_blobs", [])}
+    artifacts_by_id = {row["id"]: row for row in tables.get("artifact_versions", [])}
+    review_contexts = {}
+    reviewed_outputs = set()
+    for row in tables.get("media_reviews", []):
+        if row.get("reviewer_type") != "human":
+            continue
+        proof = row.get("evidence", {}).get("legacy_review")
+        proof_index = row.get("evidence", {}).get("legacy_review_index")
+        if (row.get("criteria_version") != "legacy-production-review/v1" or not isinstance(proof_index, int)
+                or isinstance(proof_index, bool) or not 0 <= proof_index < len(original_reviews)
+                or proof != original_reviews[proof_index]):
+            raise MigrationError("人工素材审核缺少完整原证据", "review_evidence_missing")
+        expected = {"accepted": "pass", "rejected": "fail"}.get(proof.get("outcome"))
+        candidate = candidates_by_id.get(row.get("candidate_id"), {})
+        slot = slots_by_id.get(candidate.get("slot_id"), {})
+        media = media_by_id.get(candidate.get("media_id"), {})
+        blob = blobs_by_id.get(media.get("blob_id"), {})
+        run = artifacts_by_id.get(_mapped(manifest, "artifacts", proof.get("run_id")), {})
+        if (row.get("reviewer") != proof.get("by") or row.get("reason") != proof.get("reason", "")
+                or row.get("outcome") != expected or row.get("context_sha256") != proof.get("run_sha256")
+                or candidate.get("spec_version_id") != _mapped(manifest, "artifacts", proof.get("run_id"))
+                or slot.get("role") != "legacy_review" or slot.get("slot_key") != str(proof.get("run_id")) + ":" + str(proof.get("job_id"))
+                or run.get("sha256") != proof.get("run_sha256")
+                or proof.get("outputs_sha256", {}).get(media.get("name")) != blob.get("sha256")):
+            raise MigrationError("人工素材审核与原操作人、结论或固定输出不符", "review_evidence_mismatch")
+        context_key = proof.get("run_id"), proof.get("job_id")
+        if context_key not in review_contexts:
+            try:
+                run_document = json.loads(run["document"])
+                batch_ref = run_document["batch"]
+                inventory_files = {item["path"]: item for item in snapshot["files"]}
+                batch_path = batch_ref["path"]
+                if inventory_files.get(batch_path, {}).get("sha256") != batch_ref["sha256"]:
+                    batch_path = next(item["path"] for item in snapshot["files"] if item["sha256"] == batch_ref["sha256"])
+                batch = _read(_safe(project, batch_path))
+                old_job = next(item for item in batch["jobs"] if item["id"] == proof["job_id"])
+                journal_path = ".vsc-production/" + str(batch["id"]) + ".json"
+                journal = _read(_safe(project, journal_path)) if journal_path in inventory_files else {}
+                entry = journal.get("jobs", {}).get(proof["job_id"])
+                target_code = old_job.get("args", {}).get("shot")
+                review_contexts[context_key] = entry, target_code
+            except (KeyError, StopIteration, ValueError):
+                raise MigrationError("人工素材审核的原运行批次或任务证据缺失", "review_evidence_missing") from None
+        entry, target_code = review_contexts[context_key]
+        if row.get("evidence", {}).get("journal") != entry:
+            raise MigrationError("人工素材审核的固定输入输出台账被改写", "review_evidence_mismatch")
+        if target_code and slot.get("target_object_id") != _mapped(manifest, "objects", target_code):
+            raise MigrationError("人工素材审核的原镜头归属被改写", "review_evidence_mismatch")
+        if row.get("created_at") and proof.get("at"):
+            original_time = datetime.fromisoformat(proof["at"].replace("Z", "+00:00"))
+            if original_time.tzinfo is None and row["created_at"].tzinfo is not None:
+                from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+                try:
+                    original_time = original_time.replace(tzinfo=ZoneInfo(manifest["preparation"]["source_timezone"]))
+                except (KeyError, ZoneInfoNotFoundError, ValueError):
+                    raise MigrationError("原无时区时间需要明确源时间约定", "review_evidence_mismatch") from None
+            if row["created_at"] != original_time:
+                raise MigrationError("原人工审核时间不能改变", "review_evidence_mismatch")
+        reviewed_key = proof_index, media.get("name")
+        if reviewed_key in reviewed_outputs:
+            raise MigrationError("原人工审核被重复导入", "review_evidence_mismatch")
+        reviewed_outputs.add(reviewed_key)
+    expected_reviews = {(index, path) for index, proof in enumerate(original_reviews) for path in proof.get("outputs_sha256", {})}
+    if reviewed_outputs != expected_reviews:
+        raise MigrationError("原人工素材审核缺少逐输出关系索引", "review_evidence_missing")
     # All local blob locations must be the original, hashed bytes under a named root.
     blobs = {row["id"]: row for row in tables.get("media_blobs", [])}
     storage_root = Path(manifest.get("media_root", project.parent)).resolve()
@@ -689,10 +778,11 @@ def _where(table, row):
 
 
 def _insert_rows(conn, tables):
-    from sqlalchemy import insert, select
+    from sqlalchemy import insert, select, update
     from vsc.adapters.persistence.postgres.schema import metadata
     # Foreign-key order is determined by the schema; deferred mask references are
     # allowed by that exact schema. No arbitrary SQL is accepted in the manifest.
+    finalized = []
     for table in metadata.sorted_tables:
         for row in tables.get(table.name, []):
             existing = conn.execute(select(table).where(_where(table, row))).mappings().first()
@@ -702,7 +792,16 @@ def _insert_rows(conn, tables):
                 if any(_serial(existing[key]) != _serial(value) for key, value in row.items()):
                     raise MigrationError("共享供应商或Blob身份冲突", "shared_conflict")
             else:
-                conn.execute(insert(table).values(**row))
+                inserted = row
+                if table.name == "media_operations" and row.get("status") in {"succeeded", "failed"}:
+                    # The ordinary operation guards apply to migration too:
+                    # insert its fixed input/output graph before finalizing it.
+                    inserted = dict(row, status="created")
+                    finalized.append(row)
+                conn.execute(insert(table).values(**inserted))
+    operation_table = metadata.tables["media_operations"]
+    for row in finalized:
+        conn.execute(update(operation_table).where(_where(operation_table, row)).values(status=row["status"]))
 
 
 def import_manifest(project, manifest_path, store, actor):
@@ -751,6 +850,8 @@ def _compare_rows(conn, tables):
 
 
 def _equal(actual, expected):
+    if isinstance(actual, datetime) and isinstance(expected, datetime):
+        return actual == expected
     if isinstance(actual, Decimal):
         try:
             return actual == Decimal(str(expected))
@@ -811,7 +912,7 @@ def cutover(project, manifest_path, store, database_env, actor):
         return {"pointer": pointer, "status": "cut_over"}
 
 
-def migrate(project, action, manifest_path=None, store=None, database_env="VSC_DATABASE_URL", actor=None):
+def migrate(project, action, manifest_path=None, store=None, database_env="VSC_DATABASE_URL", actor=None, **prepare_options):
     project = Path(project).resolve()
     if manifest_path:
         location = Path(manifest_path).resolve()
@@ -821,6 +922,8 @@ def migrate(project, action, manifest_path=None, store=None, database_env="VSC_D
         return status(project)
     if action == "preview":
         return preview(project, _read(manifest_path) if manifest_path and Path(manifest_path).is_file() else None)
+    if action == "prepare":
+        return prepare(project, actor, **prepare_options)
     if not actor or not actor.strip():
         raise MigrationError("迁移写入需要实际操作人")
     if not manifest_path:
@@ -849,17 +952,29 @@ def migrate(project, action, manifest_path=None, store=None, database_env="VSC_D
 def migration_parser(subparsers):
     parser = subparsers.add_parser("migrate", help="显式旧权威迁移；缺口未补全不切换")
     parser.add_argument("project")
-    parser.add_argument("action", choices=("preview", "backup", "freeze", "import", "compare", "cutover", "status"))
+    parser.add_argument("action", choices=("preview", "prepare", "backup", "freeze", "import", "compare", "cutover", "status"))
     parser.add_argument("--manifest")
-    parser.add_argument("--out", help="preview 清单输出路径；拒绝覆盖")
+    parser.add_argument("--out", help="preview/prepare 清单输出路径；拒绝覆盖")
     parser.add_argument("--by", dest="actor")
+    parser.add_argument("--work-code", help="显式单部技术容器编号；不从目录推断结构")
+    parser.add_argument("--structure", help="显式父级/资产类型映射 JSON 文件")
+    parser.add_argument("--media-root", default=argparse.SUPPRESS, help="已转存的受控媒体根目录")
+    parser.add_argument("--media-prefix", help="受控副本对象键前缀，指定media-root时默认blobs")
+    parser.add_argument("--archive-media", action="store_true", help="prepare 流式转存并校验所有原字节；保留源文件")
+    parser.add_argument("--source-timezone", default="Asia/Shanghai", help="旧无时区时间的明确解释约定；原字符串保留审计")
     parser.add_argument("--database-env", default=argparse.SUPPRESS)
     return parser
 
 
 def run_migration_args(args, store=None):
-    result = migrate(args.project, args.action, args.manifest, store, getattr(args, "database_env", "VSC_DATABASE_URL"), args.actor)
-    if args.action == "preview" and args.out:
+    options = {}
+    if args.action == "prepare":
+        media_root = getattr(args, "media_root", None)
+        options = {"work_code": getattr(args, "work_code", None), "structure": _read(args.structure) if getattr(args, "structure", None) else None,
+                   "media_root": media_root, "media_prefix": getattr(args, "media_prefix", None) or ("blobs" if media_root else None),
+                   "archive_media": getattr(args, "archive_media", False), "source_timezone": getattr(args, "source_timezone", "Asia/Shanghai")}
+    result = migrate(args.project, args.action, args.manifest, store, getattr(args, "database_env", "VSC_DATABASE_URL"), args.actor, **options)
+    if args.action in ("preview", "prepare") and args.out:
         path = Path(args.out)
         project = Path(args.project).resolve()
         if path.resolve().is_relative_to(project) and path.resolve().relative_to(project).parts[0] != CONTROL:

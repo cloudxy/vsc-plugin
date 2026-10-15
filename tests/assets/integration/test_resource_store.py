@@ -344,6 +344,16 @@ class PostgresResourceTest(unittest.TestCase):
         self.write("decide_artifact", {"artifact_id": row["id"], "reason": "批准逐镜状态"})
         before = self.service.compile_shot_context(self.p, objects["shot"], "shot_keyframe")
         self.assertTrue(before["ready"], before["gaps"])
+        # Migrated historical review slots remain queryable without becoming
+        # required production inputs or changing a shot's fixed context.
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres import schema as S
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.binding_slots).values(project_id=self.p, id=str(uuid.uuid4()),
+                target_object_id=objects["shot"], role="legacy_review", slot_key="legacy:run:task"))
+        historical = self.service.compile_shot_context(self.p, objects["shot"], "shot_keyframe")
+        self.assertTrue(historical["ready"], historical["gaps"])
+        self.assertEqual(historical["sha256"], before["sha256"])
         unchanged = copy.deepcopy(bible)
         unchanged["entities"].append({"id": "OTHER", "kind": "character", "name": "另一人物", "identity": ["长发"], "variants": {"default": "红衣"}})
         save_bible(unchanged)

@@ -21,7 +21,19 @@ python3 -B scripts/vsc_resources.py migrate "projects/作品名" preview --out "
 
 预览读取旧权威、已登记产物及所有项目文件，生成固定摘要、事实清单、UUID 映射和缺口列表。不会修改旧 JSON/SQLite。清单放在项目的 `.vsc-migration/` 中或项目目录外，避免清单自身成为待迁移素材。
 
-在清单中补全类型映射后，依次执行：
+迁移预览会报告尚未完成的类型映射。
+
+受支持的旧 JSON 项目可使用 `prepare` 准备类型化清单。必须显式指定单部工程容器及受控媒体根；它复制并核验素材，不改写原文件，也不执行冻结或切换：
+
+```bash
+.venv/bin/python -B scripts/vsc_resources.py migrate "projects/作品名" prepare --by "实际操作人" --work-code W001 --source-timezone Asia/Shanghai --media-root "$VSC_MEDIA_ROOT" --archive-media --out "projects/作品名/.vsc-migration/manifest.json"
+```
+
+准备器从登记对象、固定版本正文、来源、生成输入输出及审核证据建立关系；原结构缺失的素材保持未绑定。无法建立执行关系的未批准草稿标记 `legacy_unindexed`，只保留历史原文，不能成为已冻结时间线。历史审核候选不会自动成为正式选片。准备结果有缺口时先处理缺口，不能直接切换；未知权利保留未知。
+
+`--source-timezone` 明确旧版无时区时间的解释约定；应与来源工作区一致。清单保留原字符串和解释约定，类型化时间使用明确偏移，原文件与正文摘要不变。
+
+完整清单准备并核对后，依次执行：
 
 ```bash
 python3 -B scripts/vsc_resources.py migrate "projects/作品名" backup --manifest "projects/作品名/.vsc-migration/manifest.json" --by "实际操作人"

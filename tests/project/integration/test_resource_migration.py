@@ -12,26 +12,11 @@ from unittest.mock import patch
 import uuid
 
 from support.paths import ROOT
+from support.fixtures.migration import legacy, setup_postgres, teardown_postgres
 from vsc.project import migration as M
 
 HAS_DB = all(importlib.util.find_spec(name) for name in ("sqlalchemy", "psycopg", "alembic"))
 TEST_URL = os.environ.get("VSC_TEST_DATABASE_URL")
-
-
-def legacy(root, sqlite=False):
-    root.mkdir(parents=True, exist_ok=True)
-    profile = {"profile_id": "vsc.synthetic", "version": "1", "stages": []}
-    if sqlite:
-        profile["storage_policy"] = "sqlite-series-v1"
-    state = {"schema_version": 3, "project_id": "legacy-project", "revision": 4,
-             "title": "迁移测试", "owner": "source-owner", "profile_id": profile["profile_id"],
-             "profile_version": "1", "profile_snapshot": profile, "profile_sha256": M._digest(profile),
-             "objects": [], "artifacts": [], "sources": [], "decisions": [], "events": []}
-    M._write(root / "vsc.json", state)
-    if sqlite:
-        from vsc.adapters.persistence.sqlite import series
-        series.commit_state(root, state, 3)
-    return state
 
 
 class LegacyInventoryTest(unittest.TestCase):
@@ -70,29 +55,11 @@ class LegacyInventoryTest(unittest.TestCase):
 class PostgresMigrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from alembic import command
-        from alembic.config import Config
-        from sqlalchemy import create_engine, text
-        from vsc.adapters.persistence.postgres.store import PostgresResourceStore
-        cls.schema = "vsc_migration_test_" + uuid.uuid4().hex
-        url = TEST_URL.replace("postgresql://", "postgresql+psycopg://", 1)
-        cls.admin = create_engine(url)
-        with cls.admin.begin() as conn:
-            conn.execute(text('CREATE SCHEMA "' + cls.schema + '"'))
-        cls.engine = create_engine(url, connect_args={"options": "-csearch_path=" + cls.schema})
-        config = Config(str(ROOT / "migrations/postgres/alembic.ini"))
-        with cls.engine.begin() as conn:
-            config.attributes["connection"] = conn
-            command.upgrade(config, "head")
-        cls.store = PostgresResourceStore(engine=cls.engine)
+        setup_postgres(cls, ROOT, TEST_URL)
 
     @classmethod
     def tearDownClass(cls):
-        from sqlalchemy import text
-        cls.engine.dispose()
-        with cls.admin.begin() as conn:
-            conn.execute(text('DROP SCHEMA "' + cls.schema + '" CASCADE'))
-        cls.admin.dispose()
+        teardown_postgres(cls)
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
