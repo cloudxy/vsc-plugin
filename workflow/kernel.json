@@ -304,7 +304,10 @@
       ],
       "profile_stages": [],
       "contracts": [],
-      "vendor_skill_stage": "architecture"
+      "vendor_skill_stage": "architecture",
+      "maintenance_skills": [
+        "vsc-schema-review"
+      ]
     }
   ]
 }

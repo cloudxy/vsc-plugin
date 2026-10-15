@@ -8,7 +8,8 @@
 tests/
   run.py                  # 薄命令入口
   config.json             # 测试模块归属、分层、显式输入与共享影响策略
-  assets/integration/     # 素材登记、复用与权属
+  assets/unit/            # 应用校验与受控存储
+  assets/integration/     # 素材登记、复用、权属与真实 PostgreSQL
   kernel/integration/     # 内核路由、宿主入口与派生视图
   knowledge/
     unit/                 # 轻量检索
@@ -23,6 +24,8 @@ tests/
   production/
     unit/                 # Provider 契约、凭证与语音规则
     integration/          # 生成任务、预算、恢复、声音与选片
+  project/unit/           # 权威指针、冻结与固定 Profile Gate
+  project/integration/    # 网页、PostgreSQL、显式迁移
   project/system/         # 状态、批准、迁移与全流程
   story/
     unit/                 # 身份、状态、锚点和连续性规则
@@ -112,4 +115,10 @@ python3 -B tests/run.py --test post.integration.test_media_qa --durations 10 --r
 | 审片范围、镜头／片段 ID、legacy／sample、成片版本 | `post/unit/test_media_review.py`；真实 structured 完整审片和篡改复检在 `post/integration/test_media_qa.py` |
 | 生产／正式运行／检查三组媒体样本 | 共用 `support/fixtures/media.py` 的单进程字节工厂，工作目录仍各自创建 |
 
-更完整的模块与 PostgreSQL 改造仍以[资源面板升级提案](../docs/plans/2026-10-15-project-resource-panel-engineering-upgrade.md)为候选；本次只实施测试工程调整。
+后续模块与 PostgreSQL 改造已按[工程升级方案](../docs/plans/2026-10-15-project-resource-panel-engineering-upgrade.md)实施，见[资源面板指南](../docs/guide/resource-panel.md)。原测试整理的对应记录保留。
+
+## 可选数据库与网页验证
+
+核心测试使用标准库；网页／PostgreSQL 专项使用 `uv sync --locked --all-extras` 声明的依赖。`VSC_TEST_DATABASE_URL` 必须显式指向允许创建临时 schema 的测试实例，测试自行创建随机 schema 并清理。缺少变量或依赖会报告 skipped，不能当作真实数据库验证通过。新预览专项使用实际 FFmpeg／Poppler；离线 Provider 替身不产生线上计费。
+
+影响分析覆盖 `src/vsc/`、`tools/maintenance/` 与兼容 `scripts/`。修改期间只运行受影响模块；最终提交／推送由钩子运行一次全量，不额外重复。

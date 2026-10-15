@@ -3,7 +3,7 @@
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 带声预演 → 图像／视频／声音候选 → 获选素材 → 剪辑、混音 → 审片与交付**。
 
 <!-- vsc:view version -->
-当前版本：**v0.20.0**，各版本变化见 [版本记录](docs/releases/)。
+当前版本：**v0.21.0**，各版本变化见 [版本记录](docs/releases/)。
 <!-- /vsc:view -->
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
@@ -147,7 +147,7 @@ python3 -B scripts/vsc_toolchain.py --project ./projects/作品名 --json
 
 `doctor`、契约校验和测试通过提供结构与行为证据。叙事理解、表演、情绪、口型、声音及审美仍须具名负责人观看／审听；具体回归与验收边界见 [v0.12.0 实施记录](docs/plans/2026-10-12-vsc-workflow-implementation.md)。
 
-尚未实现的方向包括 3D、向量检索、云端媒体存储、完整货币费用账本、逐帧人脸／服装／道具／声纹比对、可视化时间线、真实观众实验与发布集成、模型训练／微调，以及从全部台账自动生成时间线的编译器。
+尚未验证的方向包括 3D、向量检索、真实 S3/MinIO 部署、完整货币费用账本、逐帧人脸／服装／道具／声纹比对、可视化时间线、真实观众实验与发布集成、模型训练／微调，以及从全部台账自动生成时间线的编译器。
 
 下一步优先用一条 60 秒原创短片或一集小说短剧，验证来源、带声预演、正式运行、获选镜头、混音与完整人工审片的真实制作链。
 
@@ -178,3 +178,7 @@ python3 -B scripts/vsc_local_ci.py
 ## 许可证
 
 VSC 自身代码和文档采用 [MIT License](LICENSE)。第三方来源的许可证与使用须知见 [第三方声明](vendor/THIRD_PARTY.md)，原则见 [Vendor 治理](docs/governance/vendor-governance.md)。
+
+## 内建资源面板（v0.21.0）
+
+通过 `uv sync --locked --all-extras` 安装，运行 `.venv/bin/vsc-panel` 浏览本机项目文案、素材与关系。PostgreSQL 新项目可管理用途候选、人工审查、正式选择、来源和生成输入，旧项目默认只读、不自动迁移。见 [资源面板指南](docs/guide/resource-panel.md)、[工程目录](docs/guide/code-structure.md)及 [v0.21.0](docs/releases/v0.21.0.md)。

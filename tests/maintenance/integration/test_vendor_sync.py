@@ -13,9 +13,7 @@ from pathlib import Path
 from support.paths import SCRIPTS
 from support.fixtures.vendor import refresh_policy
 SYNC_PATH = SCRIPTS / "vendor_sync.py"
-SPEC = importlib.util.spec_from_file_location("vendor_sync", SYNC_PATH)
-SYNC = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(SYNC)
+import vendor_sync as SYNC
 
 
 def declared_source(**changes):

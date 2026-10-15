@@ -12,9 +12,7 @@ from pathlib import Path
 
 from support.paths import SCRIPTS
 SCRIPT = SCRIPTS / "vsc_local_ci.py"
-SPEC = importlib.util.spec_from_file_location("vsc_local_ci", SCRIPT)
-LOCAL_CI = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(LOCAL_CI)
+import vsc_local_ci as LOCAL_CI
 
 
 def git(root, *args):

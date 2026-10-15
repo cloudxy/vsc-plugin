@@ -125,13 +125,16 @@ def resolve_selectors(selectors, config):
 
 def module_paths(root):
     paths = {}
-    for folder in ("scripts", "tests"):
+    # src contains importable domain packages; tools keeps engineering utilities
+    # out of product domains. Legacy scripts remain independent alias nodes.
+    for folder, prefix in (("scripts", ""), ("tests", ""), ("src", ""), ("tools", "tools")):
         base = root / folder
         for path in base.rglob("*.py"):
             if "__pycache__" in path.parts:
                 continue
             parts = path.relative_to(base).with_suffix("").parts
-            name = ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+            components = parts[:-1] if parts[-1] == "__init__" else parts
+            name = ".".join(([prefix] if prefix else []) + list(components))
             if name:
                 paths[name] = path.relative_to(root).as_posix()
     return paths
@@ -158,8 +161,12 @@ def dependency_graph(root, config):
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 # CLI filenames and spec_from_file_location are real dependencies too.
                 name = node.value
+                # Compatibility wrappers and lazy plugins name their canonical
+                # module explicitly rather than using a Python import statement.
+                if name in paths:
+                    reverse[paths[name]].add(relative)
                 if name.endswith(".py"):
-                    candidate = name if name.startswith(("scripts/", "tests/")) else "scripts/" + name
+                    candidate = name if name.startswith(("scripts/", "tests/", "src/", "tools/")) else "scripts/" + name
                     if candidate in paths.values():
                         reverse[candidate].add(relative)
         for name in imports:

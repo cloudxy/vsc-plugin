@@ -11,9 +11,7 @@ from pathlib import Path
 
 from support.paths import SCRIPTS
 from support.fixtures.plans import remotion_plan as plan
-SPEC = importlib.util.spec_from_file_location("remotion_plan", SCRIPTS / "remotion_plan.py")
-REMOTION = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(REMOTION)
+import remotion_plan as REMOTION
 
 
 class TestRemotionPlan(unittest.TestCase):

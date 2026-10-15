@@ -1,0 +1,149 @@
+"""CLI and AI entry to the same resource use cases as the built-in panel."""
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+from vsc.bootstrap import service_from_environment
+
+WRITE_ACTIONS = {
+    "create_object", "create_artifact", "decide_artifact", "register_media", "propose_binding", "record_review",
+    "select_candidate", "reject_candidate", "retire_binding", "decide_media_lifecycle", "decide_rights",
+    "record_media_check", "create_media_operation", "create_preview_job", "create_generation_job",
+    "update_generation_job", "freeze_timeline", "freeze_render", "configure_budget",
+}
+
+
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="VSC 资源关系与固定镜头输入")
+    parser.add_argument("--database-env", default="VSC_DATABASE_URL")
+    parser.add_argument("--media-root")
+    sub = parser.add_subparsers(dest="command", required=True)
+    from vsc.project.migration import migration_parser, run_migration_args
+    migration_parser(sub)
+    sub.add_parser("projects")
+    create = sub.add_parser("create")
+    create.add_argument("--name", required=True)
+    create.add_argument("--by", required=True)
+    create.add_argument("--directory", help="建立本地 PostgreSQL 权威指针，不写 JSON 状态副本")
+    for name in ("tree", "artifacts", "media", "status", "budget"):
+        p = sub.add_parser(name)
+        p.add_argument("project_id")
+    context = sub.add_parser("context")
+    context.add_argument("project_id")
+    context.add_argument("shot_id")
+    context.add_argument("--purpose")
+    asset_context = sub.add_parser("asset-context")
+    asset_context.add_argument("project_id")
+    asset_context.add_argument("asset_id")
+    asset_context.add_argument("--purpose", default="asset_ref")
+    artifact = sub.add_parser("artifact")
+    artifact.add_argument("project_id")
+    artifact.add_argument("artifact_id")
+    export = sub.add_parser("render-export")
+    export.add_argument("project_id")
+    export.add_argument("timeline_id")
+    export.add_argument("--out", required=True)
+    export.add_argument("--remotion-out", help="同时准备含固定媒体的本地 Remotion 工程")
+    apply = sub.add_parser("apply")
+    apply.add_argument("project_id")
+    apply.add_argument("action", choices=sorted(WRITE_ACTIONS))
+    apply.add_argument("--payload", required=True, help="UTF-8 JSON 文件")
+    apply.add_argument("--expected-revision", required=True, type=int)
+    apply.add_argument("--key", required=True)
+    apply.add_argument("--by", required=True)
+    upload = sub.add_parser("stage")
+    upload.add_argument("file")
+    gate = sub.add_parser("gate")
+    gate.add_argument("project_id")
+    gate.add_argument("stage")
+    gate.add_argument("--scope")
+    registry = sub.add_parser("registry")
+    registry.add_argument("kind", choices=["provider", "model", "route"])
+    registry.add_argument("--payload", required=True)
+    registry.add_argument("--by", required=True)
+    worker = sub.add_parser("worker", help="显式执行一个已授权生成任务；可能调用在线 Provider")
+    worker.add_argument("--project-id")
+    worker.add_argument("--poll", action="store_true")
+    worker.add_argument("--resume", help="只恢复已有成功响应的输出转存，不重复提交")
+    previews = sub.add_parser("preview-worker")
+    previews.add_argument("--project-id")
+    previews.add_argument("--maximum", type=int, default=20)
+    previews.add_argument("--retry-failed", action="store_true")
+    previews.add_argument("--stale-after-seconds", type=int, default=300)
+    args = parser.parse_args(argv)
+    from vsc.assets.resource_service import ResourceError
+    service = None
+    try:
+        if args.command == "migrate":
+            if args.action in ("import", "compare", "cutover"):
+                service = service_from_environment(args.database_env, args.media_root)
+            result = run_migration_args(args, service.store if service else None)
+        elif args.command == "stage":
+            from vsc.adapters.storage.local.store import LocalStorage
+            storage = LocalStorage(args.media_root or os.environ.get("VSC_MEDIA_ROOT", ".vsc-resource-media"))
+            with Path(args.file).open("rb") as stream:
+                result = storage.stage_upload(stream, Path(args.file).name)
+        else:
+            service = service_from_environment(args.database_env, args.media_root)
+            if args.command == "projects":
+                result = service.list_projects()
+            elif args.command == "create":
+                from vsc.project.pg_workflow import create_project
+                result = create_project(service, args.name, args.by, args.directory, args.database_env)
+            elif args.command == "tree":
+                result = service.get_project_tree(args.project_id)
+            elif args.command == "artifacts":
+                result = service.list_artifacts(args.project_id)
+            elif args.command == "media":
+                result = service.list_resources(args.project_id)
+            elif args.command == "budget":
+                result = service.budget_status(args.project_id)
+            elif args.command == "context":
+                result = service.compile_shot_context(args.project_id, args.shot_id, args.purpose)
+            elif args.command == "asset-context":
+                result = service.compile_asset_context(args.project_id, args.asset_id, args.purpose)
+            elif args.command == "artifact":
+                result = service.get_artifact_version(args.project_id, args.artifact_id)
+            elif args.command == "render-export":
+                from vsc.post.resource_export import export_render_package
+                result = export_render_package(service, args.project_id, args.timeline_id, args.out)
+                if args.remotion_out:
+                    from vsc.post.resource_export import scaffold_render_package
+                    result["editor"] = scaffold_render_package(args.out, args.remotion_out)
+            elif args.command == "registry":
+                result = getattr(service, "register_" + args.kind)(json.loads(Path(args.payload).read_text("utf-8")), actor=args.by)
+            elif args.command == "worker":
+                from vsc.production.resource_worker import ResourceWorker
+                from vsc.adapters.providers.volc_ark.resource_factory import volc_ark_factory
+                from vsc.adapters.storage.transfer import download_https
+                worker = ResourceWorker(service, volc_ark_factory, download=download_https)
+                if args.resume and not args.project_id:
+                    raise ResourceError("恢复转存需要 --project-id")
+                result = worker.finalize(args.project_id, args.resume) if args.resume else worker.run_once(args.project_id, poll=args.poll)
+            elif args.command == "preview-worker":
+                from vsc.post.previews import PreviewWorker
+                result = PreviewWorker(service, service.storage).run_pending(project_id=args.project_id, maximum=args.maximum,
+                    retry_failed=args.retry_failed, stale_after_seconds=args.stale_after_seconds)
+            elif args.command in {"status", "gate"}:
+                from vsc.project.pg_workflow import workflow_status, check_gate
+                result = workflow_status(service, args.project_id) if args.command == "status" else check_gate(service, args.project_id, args.stage, args.scope)
+            else:
+                payload = json.loads(Path(args.payload).read_text("utf-8"))
+                result = getattr(service, args.action)(args.project_id, payload, expected_revision=args.expected_revision,
+                    idempotency_key=args.key, actor=args.by)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        if args.command == "gate" and not result["passed"]:
+            raise SystemExit(1)
+    except (ResourceError, OSError, ValueError) as error:
+        print(json.dumps({"error": getattr(error, "code", "invalid_input"), "message": str(error)}, ensure_ascii=False), file=sys.stderr)
+        raise SystemExit(1)
+    finally:
+        if service:
+            service.store.close()
+
+
+if __name__ == "__main__":
+    main()

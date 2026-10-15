@@ -126,6 +126,28 @@ class TestEngineering(unittest.TestCase):
         selected, _ = runner.affected_modules(["tests/support/fixture.py"], self.config, self.root)
         self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two", "sample.unit.test_reexport"})
 
+    def test_src_aliases_and_maintenance_tools_keep_dependency_identity(self):
+        files = {
+            "src/vsc/__init__.py": "",
+            "src/vsc/domain/__init__.py": "",
+            "src/vsc/domain/base.py": "VALUE = 1\n",
+            "scripts/base.py": "expose(__name__, 'vsc.domain.base', globals())\n",
+            "tools/__init__.py": "",
+            "tools/maintenance/__init__.py": "",
+            "tools/maintenance/check.py": "from vsc.domain.base import VALUE\n",
+            "tests/sample/unit/test_other.py": "from tools.maintenance import check\n",
+        }
+        for relative, source in files.items():
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(source)
+        selected, _ = runner.affected_modules(["src/vsc/domain/base.py"], self.config, self.root)
+        self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two", "sample.unit.test_cli", "sample.unit.test_other"})
+        selected, _ = runner.affected_modules(["tools/maintenance/check.py"], self.config, self.root)
+        self.assertEqual(set(selected), {"sample.unit.test_other"})
+        selected, _ = runner.affected_modules(["src/vsc/domain/__init__.py"], self.config, self.root)
+        self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two", "sample.unit.test_cli", "sample.unit.test_other"})
+
     def test_shared_config_selects_all_and_docs_select_none(self):
         selected, _ = runner.affected_modules(["tests/config.json"], self.config, self.root)
         self.assertEqual(set(selected), set(self.config["modules"]))

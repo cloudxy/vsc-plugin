@@ -7,11 +7,34 @@
     "system"
   ],
   "modules": {
+    "assets.integration.test_resource_store": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "migrations/postgres/**",
+        "src/vsc/assets/resource_service.py"
+      ]
+    },
     "assets.integration.test_vsc_library": {
       "owner": "assets",
       "layer": "integration",
       "sources": [
         "scripts/vsc_library.py"
+      ]
+    },
+    "assets.unit.test_resource_service": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/resource_service.py"
+      ]
+    },
+    "assets.unit.test_resource_storage": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/storage/**"
       ]
     },
     "kernel.integration.test_vsc_hosts": {
@@ -114,6 +137,15 @@
         "scripts/media_qa.py"
       ]
     },
+    "post.integration.test_previews": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/post/previews.py",
+        "src/vsc/adapters/storage/**",
+        "src/vsc/adapters/media/**"
+      ]
+    },
     "post.integration.test_remotion_plan": {
       "owner": "post",
       "layer": "integration",
@@ -190,6 +222,20 @@
       "layer": "integration",
       "sources": [
         "scripts/procedural_audio.py"
+      ]
+    },
+    "production.integration.test_resource_worker": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/persistence/postgres/**",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/adapters/storage/**",
+        "tests/support/fixtures/resources.py",
+        "tests/support/fixtures/postgres.py",
+        "src/vsc/post/resource_export.py",
+        "src/vsc/post/remotion_plan.py"
       ]
     },
     "production.integration.test_temp_voice": {
@@ -286,6 +332,50 @@
         "scripts/vsc_volc_provider.py"
       ]
     },
+    "project.integration.test_pg_state_bridge": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/cli/pg_state.py",
+        "src/vsc/project/pg_workflow.py",
+        "src/vsc/project/state.py",
+        "src/vsc/adapters/persistence/postgres/**",
+        "src/vsc/assets/projections.py"
+      ]
+    },
+    "project.integration.test_resource_migration": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/project/migration.py",
+        "src/vsc/project/pg_workflow.py",
+        "src/vsc/adapters/persistence/postgres/**",
+        "src/vsc/adapters/persistence/sqlite/series.py",
+        "src/vsc/interfaces/cli/resources.py",
+        "migrations/postgres/**"
+      ]
+    },
+    "project.integration.test_resource_panel": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/web/**",
+        "src/vsc/project/resource_catalog.py",
+        "src/vsc/adapters/persistence/legacy_json/panel.py",
+        "src/vsc/adapters/persistence/sqlite/panel.py"
+      ]
+    },
+    "project.integration.test_resource_panel_postgres": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/web/**",
+        "src/vsc/project/resource_catalog.py",
+        "src/vsc/adapters/storage/local/**",
+        "src/vsc/adapters/persistence/postgres/**",
+        "tests/support/fixtures/postgres.py"
+      ]
+    },
     "project.system.test_vsc_integrity": {
       "owner": "project",
       "layer": "system",
@@ -313,6 +403,13 @@
       "sources": [
         "scripts/vsc_state.py",
         "scripts/vsc_delivery.py"
+      ]
+    },
+    "project.unit.test_pg_workflow": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/project/pg_workflow.py"
       ]
     },
     "story.integration.test_consistency": {
@@ -348,6 +445,17 @@
       "layer": "unit",
       "sources": [
         "scripts/consistency.py"
+      ]
+    },
+    "testing.unit.test_package_layout": {
+      "owner": "testing",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/compat.py",
+        "src/vsc/bootstrap.py",
+        "src/vsc/module-map.json",
+        "scripts/*.py",
+        "tools/maintenance/*.py"
       ]
     },
     "testing.unit.test_test_runner": {

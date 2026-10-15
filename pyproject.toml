@@ -1,5 +1,67 @@
+[build-system]
+requires = ["setuptools==80.10.2", "wheel==0.48.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "vsc-workflow"
-version = "0.19.2"
+version = "0.21.0"
+description = "Provider-neutral short drama workflow and resource panel"
 requires-python = ">=3.9"
 dependencies = []
+
+[project.optional-dependencies]
+web = ["fastapi==0.128.8", "uvicorn==0.39.0"]
+postgres = ["sqlalchemy>=2.0,<3", "psycopg[binary]>=3.1,<4", "alembic>=1.13,<2"]
+storage = ["boto3>=1.34,<2"]
+media = ["Pillow==11.3.0"]
+test = ["httpx==0.28.1"]
+
+[project.scripts]
+vsc = "vsc.project.state:main"
+vsc-panel = "vsc.interfaces.web.__main__:main"
+vsc-resources = "vsc.interfaces.cli.resources:main"
+vsc-schema = "vsc.project.schema_review:main"
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["vsc", "vsc.*", "tools", "tools.maintenance", "tools.maintenance.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"vsc" = ["module-map.json"]
+"vsc.interfaces.web" = ["templates/*", "static/*"]
+
+[tool.setuptools.data-files]
+"share/vsc-workflow/workflow" = ["workflow/README.md", "workflow/contracts.json", "workflow/hosts.json", "workflow/kernel.json", "workflow/library.json", "workflow/production-v2.md", "workflow/roles.json"]
+"share/vsc-workflow/profiles" = ["profiles/brand-story.json", "profiles/engineered-serial.json", "profiles/engineered-short.json", "profiles/light-short.json", "profiles/narrative-base.json", "profiles/novel-serial.json", "profiles/series-db.json", "profiles/series-pg.json"]
+"share/vsc-workflow/templates" = ["templates/adaptation-map.json", "templates/animatic.json", "templates/asset-bible.json", "templates/continuity-plan.json", "templates/coverage-plan.json", "templates/creative-brief.json", "templates/delivery-manifest.json", "templates/episode-beats.json", "templates/generation-record.json", "templates/library-item.json", "templates/mix.json", "templates/production-batch.json", "templates/production-run.json", "templates/remotion-render-plan.json", "templates/sample-review.json", "templates/scene-state.json", "templates/screenplay.json", "templates/selected-takes.json", "templates/sequence-links.json", "templates/sound-cue-sheet.json", "templates/source-map.json", "templates/timeline.json", "templates/visual-bible.json", "templates/visual-check.json"]
+"share/vsc-workflow/skills/vsc" = ["skills/vsc/SKILL.md"]
+"share/vsc-workflow/skills/vsc/references" = ["skills/vsc/references/source-handoff.md"]
+"share/vsc-workflow/skills/vsc-adapt" = ["skills/vsc-adapt/SKILL.md"]
+"share/vsc-workflow/skills/vsc-architecture" = ["skills/vsc-architecture/SKILL.md"]
+"share/vsc-workflow/skills/vsc-assets" = ["skills/vsc-assets/SKILL.md"]
+"share/vsc-workflow/skills/vsc-continuity" = ["skills/vsc-continuity/SKILL.md"]
+"share/vsc-workflow/skills/vsc-direct" = ["skills/vsc-direct/SKILL.md"]
+"share/vsc-workflow/skills/vsc-learn" = ["skills/vsc-learn/SKILL.md"]
+"share/vsc-workflow/skills/vsc-post" = ["skills/vsc-post/SKILL.md"]
+"share/vsc-workflow/skills/vsc-produce" = ["skills/vsc-produce/SKILL.md"]
+"share/vsc-workflow/skills/vsc-remotion" = ["skills/vsc-remotion/SKILL.md"]
+"share/vsc-workflow/skills/vsc-schema-review" = ["skills/vsc-schema-review/SKILL.md"]
+"share/vsc-workflow/skills/vsc-script" = ["skills/vsc-script/SKILL.md"]
+"share/vsc-workflow/skills/vsc-sound" = ["skills/vsc-sound/SKILL.md"]
+"share/vsc-workflow/skills/vsc-vendor" = ["skills/vsc-vendor/SKILL.md"]
+"share/vsc-workflow/agents" = ["agents/adaptation-editor.md", "agents/asset-director.md", "agents/continuity-supervisor.md", "agents/director.md", "agents/editor.md", "agents/generation-producer.md", "agents/music-supervisor.md", "agents/orchestrator.md", "agents/post-reviewer.md", "agents/remotion-composer.md", "agents/screenwriter.md", "agents/story-analyst.md"]
+"share/vsc-workflow/commands" = ["commands/vsc-adapt.md", "commands/vsc-architecture.md", "commands/vsc-assets.md", "commands/vsc-continuity.md", "commands/vsc-direct.md", "commands/vsc-learn.md", "commands/vsc-post.md", "commands/vsc-produce.md", "commands/vsc-remotion.md", "commands/vsc-script.md", "commands/vsc-sound.md", "commands/vsc-vendor.md", "commands/vsc.md"]
+"share/vsc-workflow/knowledge" = ["knowledge/asset-recipes.json", "knowledge/craft.json"]
+"share/vsc-workflow/scripts" = ["scripts/README.md", "scripts/consistency.py", "scripts/doubao_audio.py", "scripts/doubao_speech.py", "scripts/jianying_draft.py", "scripts/jianying_export.py", "scripts/media_qa.py", "scripts/procedural_audio.py", "scripts/remotion_plan.py", "scripts/subtitle_burn.py", "scripts/subtitles.py", "scripts/temp_voice.py", "scripts/vendor_bundle.py", "scripts/vendor_review.py", "scripts/vendor_skills.py", "scripts/vendor_sync.py", "scripts/vendor_watch.py", "scripts/volc_ark.py", "scripts/vsc-vendor-maintenance.sh", "scripts/vsc_artifacts.py", "scripts/vsc_audio_run.py", "scripts/vsc_budget.py", "scripts/vsc_craft.py", "scripts/vsc_credentials.py", "scripts/vsc_delivery.py", "scripts/vsc_handoffs.py", "scripts/vsc_hosts.py", "scripts/vsc_impact.py", "scripts/vsc_kernel.py", "scripts/vsc_learning.py", "scripts/vsc_library.py", "scripts/vsc_local_ci.py", "scripts/vsc_performance.py", "scripts/vsc_pre_commit.py", "scripts/vsc_production.py", "scripts/vsc_provider.py", "scripts/vsc_recipes.py", "scripts/vsc_resources.py", "scripts/vsc_run.py", "scripts/vsc_schema.py", "scripts/vsc_search.py", "scripts/vsc_sequence.py", "scripts/vsc_series.py", "scripts/vsc_series_db.py", "scripts/vsc_series_dispatch.py", "scripts/vsc_series_export.py", "scripts/vsc_series_jobs.py", "scripts/vsc_series_query.py", "scripts/vsc_series_run.py", "scripts/vsc_series_selection.py", "scripts/vsc_sources.py", "scripts/vsc_state.py", "scripts/vsc_story.py", "scripts/vsc_toolchain.py", "scripts/vsc_views.py", "scripts/vsc_volc_provider.py"]
+"share/vsc-workflow/docs/adr" = ["docs/adr/0001-workflow-kernel.md", "docs/adr/0002-approved-versions-and-controlled-trials.md", "docs/adr/0003-production-handoffs-and-approved-runs.md", "docs/adr/0004-series-relational-authority.md", "docs/adr/0005-postgres-resource-authority.md", "docs/adr/README.md"]
+"share/vsc-workflow/docs/guide" = ["docs/guide/asset-recipes.md", "docs/guide/cli.md", "docs/guide/code-structure.md", "docs/guide/maintenance.md", "docs/guide/production-batch.md", "docs/guide/production-v2.md", "docs/guide/resource-migration.md", "docs/guide/resource-panel.md", "docs/guide/resource-schema.md", "docs/guide/reuse-and-search.md", "docs/guide/series-db.md", "docs/guide/workspace-setup.md"]
+"share/vsc-workflow/docs/governance" = ["docs/governance/production-evidence.md", "docs/governance/vendor-governance.md", "docs/governance/vendor-updates.md"]
+"share/vsc-workflow/docs/design" = ["docs/design/continuity-and-sound.md", "docs/design/creative-production.md", "docs/design/engineering-production.md", "docs/design/memory-and-learning.md", "docs/design/profiles-and-validation.md", "docs/design/remotion.md"]
+"share/vsc-workflow/docs/architecture" = ["docs/architecture/ark-agent-plan-personal.md", "docs/architecture/doubao-audio.md", "docs/architecture/doubao-speech.md", "docs/architecture/generation-adapters.md", "docs/architecture/kernel-refactor.md", "docs/architecture/reference-architecture.md"]
+"share/vsc-workflow/docs/releases" = ["docs/releases/v0.10.md", "docs/releases/v0.11.1.md", "docs/releases/v0.11.md", "docs/releases/v0.12.0.md", "docs/releases/v0.13.0.md", "docs/releases/v0.13.1.md", "docs/releases/v0.14.0.md", "docs/releases/v0.15.0.md", "docs/releases/v0.16.0.md", "docs/releases/v0.17.0.md", "docs/releases/v0.17.1.md", "docs/releases/v0.17.2.md", "docs/releases/v0.18.0.md", "docs/releases/v0.18.1.md", "docs/releases/v0.18.2.md", "docs/releases/v0.18.3.md", "docs/releases/v0.18.4.md", "docs/releases/v0.19.0.md", "docs/releases/v0.19.1.md", "docs/releases/v0.19.2.md", "docs/releases/v0.2.md", "docs/releases/v0.20.0.md", "docs/releases/v0.21.0.md", "docs/releases/v0.9.md"]
+"share/vsc-workflow/migrations/postgres" = ["migrations/postgres/alembic.ini", "migrations/postgres/env.py", "migrations/postgres/script.py.mako"]
+"share/vsc-workflow/migrations/postgres/versions" = ["migrations/postgres/versions/0001_resource_graph.py"]
+"share/vsc-workflow" = ["AGENTS.md", "GLOSSARY.md"]
+"share/vsc-workflow/vendor" = ["vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"]
+"share/vsc-workflow/tools/maintenance" = ["tools/maintenance/*.sh", "tools/maintenance/README.md"]
