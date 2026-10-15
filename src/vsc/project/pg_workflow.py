@@ -1,4 +1,5 @@
 """Fixed Profile gates over the PostgreSQL resource authority."""
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -63,6 +64,32 @@ def validate_contract(document, artifact_type, policy="production-v2"):
         return content_errors(path, artifact_type, policy)
 
 
+def _migrated_legacy_profile(service, project_id, profile, artifacts):
+    """Recognize immutable migration evidence, not arbitrary custom Profiles."""
+    if profile.get("storage_policy") == "postgres-series-v1" or profile.get("profile_id") == "vsc.series-pg":
+        return False
+    legacy_rows = [row for row in artifacts if row.get("parser_version") == "legacy-relations/v1"]
+    snapshots = [row for row in artifacts if row.get("artifact_type") == "vsc.legacy-snapshot/v1"
+                 and row.get("parser_version") == "vsc-migration/v1" and row.get("stage") == "migration"]
+    if not legacy_rows or len(snapshots) != 1:
+        return False
+    fixed = service.get_artifact_version(project_id, snapshots[0]["id"])
+    document = fixed.get("document")
+    try:
+        snapshot = json.loads(document) if isinstance(document, (str, bytes)) else document
+        state, source = snapshot["state"], snapshot["source"]
+        digest = hashlib.sha256(json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        original_shas = {row["sha256"] for row in state.get("artifacts", [])}
+        return (snapshot.get("format") == "vsc.legacy-snapshot/v1"
+                and source.get("authority") in {"legacy-json", "sqlite-series-v1"}
+                and source.get("state_sha256") == digest
+                and source.get("legacy_project_id") == state.get("project_id")
+                and state.get("profile_snapshot") == profile
+                and any(row.get("sha256") in original_shas for row in legacy_rows))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def check_gate(service, project_id, stage_id, scope=None):
     project = service.get_project(project_id)
     profile = project["profile_snapshot"]
@@ -84,6 +111,7 @@ def check_gate(service, project_id, stage_id, scope=None):
     if scope and not any(node["id"] == scope and node["kind"] == "episode" for node in service.get_project_tree(project_id)["nodes"]):
         raise ResourceError("Gate 范围必须是已登记的集", "invalid_scope")
     artifacts = service.list_artifacts(project_id, object_id=scope)["items"]
+    legacy_gate = _migrated_legacy_profile(service, project_id, profile, artifacts)
     gaps, pins = [], []
     if stage_index >= 1:
         sources = service.list_sources(project_id)
@@ -93,15 +121,23 @@ def check_gate(service, project_id, stage_id, scope=None):
     for owner_index, owner_stage, artifact_type in requirements:
         candidates = [a for a in artifacts if a["artifact_type"] == artifact_type and a.get("stage") == owner_stage
                       and a.get("current") and a.get("approved") and (owner_index >= scoped_index or a.get("project_wide", True))]
-        if len(candidates) != 1:
+        if not candidates or not legacy_gate and len(candidates) != 1:
             gaps.append({"code": "missing_or_conflicting_artifact", "artifact_type": artifact_type, "count": len(candidates)})
             continue
-        artifact = service.get_artifact_version(project_id, candidates[0]["id"])
-        errors = validate_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"))
-        if errors:
-            gaps.append({"code": "invalid_contract", "artifact_id": artifact["id"], "errors": errors})
+        valid, invalid = [], []
+        # Logical streams remain distinct. Deterministic validation retains all
+        # valid pins while preserving the legacy Profile's any-valid Gate.
+        for candidate in sorted(candidates, key=lambda row: (str(row.get("created_at") or ""), row.get("artifact_key", ""), row["id"])):
+            artifact = service.get_artifact_version(project_id, candidate["id"])
+            errors = validate_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"))
+            if errors:
+                invalid.append({"code": "invalid_contract", "artifact_id": artifact["id"], "errors": errors})
+            else:
+                valid.append({"id": artifact["id"], "sha256": artifact["sha256"]})
+        if valid:
+            pins.extend(valid)
         else:
-            pins.append({"id": artifact["id"], "sha256": artifact["sha256"]})
+            gaps.extend(invalid)
     return {"stage": stage_id, "scope": scope, "passed": not gaps, "gaps": gaps, "artifacts": pins, "revision": project["revision"]}
 
 

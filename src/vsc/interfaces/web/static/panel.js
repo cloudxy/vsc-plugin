@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(), previewCapabilities: {}};
+const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeRequest: 0};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
@@ -39,13 +39,21 @@ async function loadProjects() {
   await selectProject($('projects').value);
 }
 async function selectProject(id) {
-  state.project = id; state.object = null; state.offset = 0; state.comparisons.clear(); updateCompare();
+  if (state.project !== id) {
+    state.expandedNodes.clear(); state.object = null;
+  }
+  state.project = id; state.offset = 0; state.comparisons.clear(); updateCompare();
+  const request = ++state.treeRequest;
   const data = await api(`${base()}/tree`);
+  if (request !== state.treeRequest || state.project !== id) return;
   const project = data.project || {}; state.revision = data.revision ?? project.revision ?? 0;
   state.writable=project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
   $('heading').textContent = project.name || project.title || '项目资源';
   $('project-meta').replaceChildren(el('p', 'hint', `${project.storage_policy || '关系库'} · r${state.revision} · ${project.read_only ? '只读' : '共享服务'}`));
-  $('scope-label').textContent = '全部项目内容'; renderTree(data.nodes || []);
+  const selected = (data.nodes || []).find(node => node.id === state.object);
+  if (!selected) { state.object = null; state.offset = 0; }
+  $('scope-label').textContent = selected ? `${names[selected.kind] || selected.kind} · ${selected.title || selected.id}` : '全部项目内容';
+  renderTree(data.nodes || []);
   if (data.gaps?.length) notice(data.gaps.join('\n'));
   await Promise.all([loadResources(), loadArtifacts()]);
 }
@@ -53,18 +61,64 @@ function renderTree(nodes) {
   $('tree').replaceChildren();
   const lookup = new Map(nodes.map(node => [node.id, node]));
   const sorted = [...nodes].sort((a,b) => (a.ordinal || 0) - (b.ordinal || 0));
-  const visited = new Set();
-  function add(node, depth) {
-    if (visited.has(node.id)) return; visited.add(node.id);
-    const button = el('button', `tree-item tree-depth-${Math.min(depth,5)}`); button.dataset.id = node.id;
-    button.append(el('span', 'tree-kind', names[node.kind] || node.kind), el('span', '', node.title || node.display_code || node.id));
-    button.addEventListener('click', guard(async () => { state.object = node.id; state.offset = 0; $('scope-label').textContent = `${names[node.kind] || node.kind} · ${node.title || node.id}`; $('tree').querySelectorAll('.tree-item').forEach(row => row.classList.toggle('active', row.dataset.id === node.id)); await Promise.all([loadResources(), loadArtifacts()]); }));
-    $('tree').append(button);
-    for (const child of sorted.filter(row => row.parent_id === node.id)) add(child, depth+1);
+  const children = new Map();
+  for (const node of sorted) {
+    if (!children.has(node.parent_id)) children.set(node.parent_id, []);
+    children.get(node.parent_id).push(node);
   }
-  for (const node of sorted.filter(row => !row.parent_id || !lookup.has(row.parent_id))) add(node,0);
-  for (const node of sorted) if (!visited.has(node.id)) add(node,0);
-  if (!nodes.length) $('tree').append(el('p', 'hint', '未建立部、集、场、镜组或镜头关系。'));
+  for (const id of state.expandedNodes) if (!lookup.has(id) || !children.has(id)) state.expandedNodes.delete(id);
+  const visited = new Set();
+  const roots = el('ul', 'tree-roots');
+  function add(node, container) {
+    if (visited.has(node.id)) return; visited.add(node.id);
+    const item = el('li', 'tree-node');
+    const row = el('div', 'tree-row');
+    const branch = children.get(node.id) || [];
+    const button = el('button', 'tree-item'); button.type = 'button'; button.dataset.id = node.id;
+    button.classList.toggle('active', state.object === node.id);
+    if (state.object === node.id) button.setAttribute('aria-current', 'true');
+    button.setAttribute('aria-controls', 'resources artifacts');
+    button.append(el('span', 'tree-kind', names[node.kind] || node.kind), el('span', '', node.title || node.display_code || node.id));
+    button.addEventListener('click', guard(async () => {
+      state.object = node.id; state.offset = 0; $('scope-label').textContent = `${names[node.kind] || node.kind} · ${node.title || node.id}`;
+      $('tree').querySelectorAll('.tree-item').forEach(control => {
+        const selected = control.dataset.id === node.id;
+        control.classList.toggle('active', selected);
+        if (selected) control.setAttribute('aria-current', 'true'); else control.removeAttribute('aria-current');
+      });
+      await Promise.all([loadResources(), loadArtifacts()]);
+    }));
+    item.append(row);
+    if (branch.length) {
+      const group = el('ul', 'tree-children'); group.id = `tree-children-${encodeURIComponent(node.id)}`;
+      const toggle = el('button', 'tree-toggle'); toggle.type = 'button'; toggle.dataset.id = node.id;
+      toggle.setAttribute('aria-controls', group.id);
+      const setExpanded = (expanded) => {
+        if (expanded) state.expandedNodes.add(node.id); else state.expandedNodes.delete(node.id);
+        group.hidden = !expanded;
+        toggle.setAttribute('aria-expanded', String(expanded));
+        toggle.setAttribute('aria-label', `${expanded ? '收拢' : '展开'} ${node.title || node.display_code || node.id}`);
+        toggle.textContent = expanded ? '▾' : '▸';
+      };
+      setExpanded(state.expandedNodes.has(node.id));
+      toggle.addEventListener('click', () => setExpanded(!state.expandedNodes.has(node.id)));
+      toggle.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+          event.preventDefault(); setExpanded(event.key === 'ArrowRight');
+        }
+      });
+      row.append(toggle, button); item.append(group);
+      for (const child of branch) add(child, group);
+    } else {
+      const spacer = el('span', 'tree-toggle-spacer'); spacer.setAttribute('aria-hidden', 'true');
+      row.append(spacer, button);
+    }
+    container.append(item);
+  }
+  for (const node of sorted.filter(row => !row.parent_id || !lookup.has(row.parent_id))) add(node, roots);
+  for (const node of sorted) if (!visited.has(node.id)) add(node, roots);
+  if (nodes.length) $('tree').append(roots);
+  else $('tree').append(el('p', 'hint', '未建立部、集、场、镜组或镜头关系。'));
 }
 async function loadResources() {
   const params = new URLSearchParams({offset: state.offset, limit: state.limit});
@@ -180,7 +234,7 @@ async function openArtifact(id) {
 function updateCompare(){$('compare-count').textContent=state.comparisons.size;}
 $('compare-open').addEventListener('click',guard(async()=>{$('compare-grid').replaceChildren();for(const media of state.comparisons.values()){const section=el('section');section.append(el('h3','',media.name || media.id),await player(media),facts('用途与来源',{bindings:media.bindings || [],rights:media.rights,sha256:media.sha256}));$('compare-grid').append(section);}if(!state.comparisons.size)$('compare-grid').append(el('p','empty','先在素材卡中勾选需要比较的候选。'));$('compare-dialog').showModal();}));
 $('projects').addEventListener('change',guard(()=>selectProject($('projects').value)));
-$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('scope-label').textContent='全部项目内容';$('tree').querySelectorAll('.active').forEach(row=>row.classList.remove('active'));await Promise.all([loadResources(),loadArtifacts()]);}));
+$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('scope-label').textContent='全部项目内容';$('tree').querySelectorAll('.tree-item').forEach(row=>{row.classList.remove('active');row.removeAttribute('aria-current');});await Promise.all([loadResources(),loadArtifacts()]);}));
 $('filters').addEventListener('submit',guard(async event=>{event.preventDefault();state.offset=0;await loadResources();}));
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));

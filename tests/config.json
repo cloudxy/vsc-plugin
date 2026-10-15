@@ -343,12 +343,27 @@
         "src/vsc/assets/projections.py"
       ]
     },
+    "project.integration.test_migration_prepare": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/project/migration.py",
+        "src/vsc/project/migration_prepare.py",
+        "src/vsc/project/migration_relations.py",
+        "tests/support/fixtures/migration.py",
+        "src/vsc/assets/projections.py",
+        "src/vsc/production/production.py",
+        "src/vsc/adapters/persistence/postgres/**",
+        "src/vsc/interfaces/cli/resources.py"
+      ]
+    },
     "project.integration.test_resource_migration": {
       "owner": "project",
       "layer": "integration",
       "sources": [
         "src/vsc/project/migration.py",
         "src/vsc/project/pg_workflow.py",
+        "tests/support/fixtures/migration.py",
         "src/vsc/adapters/persistence/postgres/**",
         "src/vsc/adapters/persistence/sqlite/series.py",
         "src/vsc/interfaces/cli/resources.py",
@@ -374,6 +389,27 @@
         "src/vsc/adapters/storage/local/**",
         "src/vsc/adapters/persistence/postgres/**",
         "tests/support/fixtures/postgres.py"
+      ]
+    },
+    "project.unit.test_migration_post": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/project/migration_post.py",
+        "src/vsc/project/migration_prepare.py",
+        "src/vsc/project/migration_relations.py",
+        "src/vsc/project/migration.py"
+      ]
+    },
+    "project.unit.test_resource_navigation": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/static/panel.css",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/resource_navigation.test.cjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
       ]
     },
     "project.system.test_vsc_integrity": {

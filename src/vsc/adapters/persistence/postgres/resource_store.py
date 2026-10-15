@@ -1248,7 +1248,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     gaps.append({"code": "state_spec_identity_mismatch", "asset_id": entity["asset_id"]})
                 extra_artifact_ids.add(spec["artifact_id"])
         slots = conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
-            S.binding_slots.c.target_object_id.in_([shot_id] + sorted(asset_ids)))).mappings().all()
+            S.binding_slots.c.target_object_id.in_([shot_id] + sorted(asset_ids)),
+            S.binding_slots.c.role.in_(tuple(ROLE_MATRIX)))).mappings().all()
         spec_by_identity = {r["asset_id"]: r["spec_version_id"] for r in entity_refs if r["spec_version_id"]}
         for asset_id, fixed in fixed_asset_refs.items():
             if asset_id not in asset_ids:

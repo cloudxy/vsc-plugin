@@ -2,11 +2,33 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from support.paths import ROOT
 from vsc.assets.resource_service import ResourceError
 from vsc.project.pg_workflow import authority_pointer, check_gate, legacy_write_guard
+from vsc.project.migration import _digest
+
+
+def migrated_gate_service():
+    profile = {"profile_id": "synthetic-legacy", "stages": [{"id": "design", "required": ["plain-spec"]}]}
+    state = {"project_id": "legacy-project", "profile_snapshot": profile,
+             "artifacts": [{"sha256": "sha-a"}, {"sha256": "sha-b"}]}
+    snapshot = {"format": "vsc.legacy-snapshot/v1", "state": state,
+        "source": {"authority": "legacy-json", "legacy_project_id": "legacy-project", "state_sha256": _digest(state)}}
+    rows = [{"id": "b", "artifact_key": "right-stream", "artifact_type": "plain-spec", "stage": "design", "approved": True,
+                "current": True, "parser_version": "legacy-relations/v1", "sha256": "sha-b", "created_at": "2026-01-02"},
+            {"id": "a", "artifact_key": "left-stream", "artifact_type": "plain-spec", "stage": "design", "approved": True,
+                "current": True, "parser_version": "legacy-relations/v1", "sha256": "sha-a", "created_at": "2026-01-01"},
+            {"id": "snapshot", "artifact_type": "vsc.legacy-snapshot/v1", "stage": "migration", "parser_version": "vsc-migration/v1"}]
+    versions = {"a": {"id": "a", "sha256": "sha-a", "document": "valid-a"},
+                "b": {"id": "b", "sha256": "sha-b", "document": "valid-b"},
+                "snapshot": {"id": "snapshot", "document": json.dumps(snapshot)}}
+    service = Mock()
+    service.get_project.return_value = {"revision": 10, "profile_snapshot": profile}
+    service.list_artifacts.return_value = {"items": rows}
+    service.get_artifact_version.side_effect = lambda project, version: versions[version]
+    return service, versions
 
 
 class AuthorityAndGateTests(unittest.TestCase):
@@ -65,3 +87,43 @@ class AuthorityAndGateTests(unittest.TestCase):
         service.list_sources.return_value = []
         result = check_gate(service, "p", "post")
         self.assertEqual({gap["code"] for gap in result["gaps"]}, {"source_required", "missing_or_conflicting_artifact"})
+
+    def test_migrated_legacy_gate_keeps_all_valid_independent_stream_pins(self):
+        service, versions = migrated_gate_service()
+        with patch("vsc.project.pg_workflow.validate_contract", return_value=[]) as validate:
+            gate = check_gate(service, "p", "design")
+        self.assertTrue(gate["passed"])
+        self.assertEqual(gate["artifacts"], [{"id": "a", "sha256": "sha-a"}, {"id": "b", "sha256": "sha-b"}])
+        self.assertEqual([call.args[0] for call in validate.call_args_list], ["valid-a", "valid-b"])
+        versions["a"]["document"] = "invalid-a"
+        with patch("vsc.project.pg_workflow.validate_contract", side_effect=lambda doc, *_: ["original contract error"] if doc == "invalid-a" else []):
+            gate = check_gate(service, "p", "design")
+        self.assertTrue(gate["passed"])
+        self.assertEqual(gate["artifacts"], [{"id": "b", "sha256": "sha-b"}])
+
+    def test_new_pg_and_unmigrated_custom_profile_keep_strict_conflict_rule(self):
+        for variant in ("series-pg", "custom", "tampered-proof"):
+            with self.subTest(variant=variant):
+                service, versions = migrated_gate_service()
+                if variant == "series-pg":
+                    service.get_project.return_value["profile_snapshot"]["storage_policy"] = "postgres-series-v1"
+                    service.get_project.return_value["profile_snapshot"]["profile_id"] = "vsc.series-pg"
+                elif variant == "custom":
+                    service.list_artifacts.return_value["items"] = service.list_artifacts.return_value["items"][:2]
+                else:
+                    snapshot = json.loads(versions["snapshot"]["document"])
+                    snapshot["source"]["state_sha256"] = "wrong"
+                    versions["snapshot"]["document"] = json.dumps(snapshot)
+                with patch("vsc.project.pg_workflow.validate_contract") as validate:
+                    gate = check_gate(service, "p", "design")
+                self.assertEqual(gate["gaps"], [{"code": "missing_or_conflicting_artifact", "artifact_type": "plain-spec", "count": 2}])
+                validate.assert_not_called()
+
+    def test_migrated_legacy_gate_reports_original_contract_errors_when_all_streams_invalid(self):
+        service, _ = migrated_gate_service()
+        with patch("vsc.project.pg_workflow.validate_contract", side_effect=lambda doc, *_: ["invalid: " + doc]):
+            gate = check_gate(service, "p", "design")
+        self.assertFalse(gate["passed"])
+        self.assertFalse(gate["artifacts"])
+        self.assertEqual(gate["gaps"], [{"code": "invalid_contract", "artifact_id": "a", "errors": ["invalid: valid-a"]},
+            {"code": "invalid_contract", "artifact_id": "b", "errors": ["invalid: valid-b"]}])
