@@ -9,8 +9,8 @@ import unittest
 from unittest import mock
 
 from _paths import ROOT
-import test_vsc_production as media_fixture
-from test_vsc_budget import FixedRunFixture
+from support.production import ProductionFixture
+from support.project import FixedRunFixture
 import vsc_artifacts as artifacts
 import vsc_budget as budget
 import vsc_production as production
@@ -18,13 +18,9 @@ import vsc_run as formal
 import vsc_state as state_module
 
 
-class FormalRunTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        media_fixture.QueueTest.setUpClass.__func__(cls)
-
+class FormalRunTest(ProductionFixture, unittest.TestCase):
     def setUp(self):
-        media_fixture.QueueTest.setUp(self)
+        super().setUp()
         self.fixture = FixedRunFixture(self.project)
         self.batch["jobs"] = self.batch["jobs"][:2]
         self.batch["jobs"][0]["args"].update(purpose="candidate", shot="SH-001", moment="entry",
@@ -50,11 +46,6 @@ class FormalRunTest(unittest.TestCase):
         for module in (formal, artifacts, state_module):
             patch = mock.patch.object(module, "validate_artifact", side_effect=self.fixture.validator)
             patch.start(); self.addCleanup(patch.stop)
-
-    fake_call = media_fixture.QueueTest.fake_call
-    fake_download = media_fixture.QueueTest.fake_download
-    video = media_fixture.QueueTest.video
-    runner = media_fixture.QueueTest.runner
 
     def read_state(self):
         return state_module.project_state(self.project)
