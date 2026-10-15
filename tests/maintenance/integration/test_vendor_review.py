@@ -8,9 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from support.paths import SCRIPTS
-SPEC = importlib.util.spec_from_file_location("vendor_review", SCRIPTS / "vendor_review.py")
-REVIEW = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(REVIEW)
+import vendor_review as REVIEW
 
 
 def write(root, relative, content):

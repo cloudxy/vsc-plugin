@@ -35,7 +35,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 2. 缺信息时**不要扔问卷**：基于已有内容给出一项推荐与 1–2 个明确备选，并每轮只收敛一个会改变后续工作的决定。
 3. 按用途推荐 Profile：`python3 -B scripts/vsc_state.py profile list` 列出各 Profile 的 `use_case`。
    需要固定资产、声音计划、状态时间线与集／场衔接的新项目，可选 `vsc.engineered-short` 或 `vsc.engineered-serial`；具体执行见[工程化制作](../../docs/design/engineering-production.md)。
-   需要以关系库存放剧本／资产版本与制作关系、按镜编译固定 AI 上下文的 60 集以上新项目，选 `vsc.series-db`；操作见[数据库连续短剧指南](../../docs/guide/series-db.md)。旧作品须显式迁移，不自动切换权威。
+   需要关系库、资源面板审查和按镜固定 AI 输入的 60 集以上新项目，选 `vsc.series-pg`，见[资源面板指南](../../docs/guide/resource-panel.md)。已有 SQLite 连续剧继续 `vsc.series-db`，见[数据库连续短剧指南](../../docs/guide/series-db.md)。旧作品须显式迁移，不自动切换权威。
 4. 通过 `vsc_state.py init` 建项目；解释下一关要产生什么、为何需要它、由谁决定。
 5. 根据阶段安排专业角色，回收成果后登记为 artifact；未批准产物不能偷偷流入下一关。
 
@@ -45,7 +45,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 直达命令、route 与主要角色以内核为准：`python3 -B scripts/vsc_kernel.py routes`（工作流根目录 `AGENTS.md` 的路由表由它生成）。
 
-仍先读 `vsc.json`、相关已批准产物和所指镜头／场次；只补影响该环节的依赖，避免重做无关阶段。
+先用状态入口读取真实权威：PG 项目通过 `.vsc-postgres.json` 指针与共享资源接口，旧项目通过 JSON／SQLite。再读相关已批准产物和所指镜头／场次，只补影响该环节的依赖。
 
 ## 编排规则
 

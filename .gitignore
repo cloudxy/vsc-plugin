@@ -8,6 +8,13 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
+# Python packaging and isolated development environments.
+/build/
+/dist/
+*.egg-info/
+/.venv/
+/.vsc-resource-media/
+
 # 作品目录与跨作品素材库为本地创作数据，不进入 VSC 源码仓库。
 /projects/
 /library/

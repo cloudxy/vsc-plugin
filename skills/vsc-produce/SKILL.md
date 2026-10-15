@@ -43,6 +43,8 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 ## 制作交接 v2
 
+PostgreSQL 项目通过 `vsc_resources.py context` 和 `create_generation_job` 固定输入，已批准 run 逐项授权请求；明确 `worker` 提交、`worker --poll` 查询、`worker --resume` 恢复转存。候选输出经面板检查、人审和用途选择后才供下游消费。不得绕过任务库直接运行低层供应商脚本，PG 失败时不得回退旧权威。见[资源面板指南](../../docs/guide/resource-panel.md)。
+
 新规则付费制作必须走已批准 production-run、相应 Gate 和项目共享预算；批次 plan hash 不是人工批准。成功先导入 draft，关键候选真实审阅后下游才续跑；最终选择另交 selected-takes。
 
 规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。

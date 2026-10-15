@@ -7,9 +7,7 @@ from pathlib import Path
 
 from support.paths import SCRIPTS
 SCRIPT = SCRIPTS / "vendor_skills.py"
-SPEC = importlib.util.spec_from_file_location("vendor_skills", SCRIPT)
-VENDOR_SKILLS = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(VENDOR_SKILLS)
+import vendor_skills as VENDOR_SKILLS
 
 
 class TestVendorSkills(unittest.TestCase):

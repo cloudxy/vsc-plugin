@@ -30,6 +30,8 @@ VSC 通过本机作品（`projects/`）发现问题，再改进 VSC 本身。本
 
 ## 制作交接 v2
 
+修改关系模型、资源用途、生成输入或数据库迁移时，先读取维护子路由 [vsc-schema-review](../vsc-schema-review/SKILL.md)，执行结构检查与相关真实数据库测试。资源面板属于内建应用，Skill 只定义维护 SOP。
+
 production-v2 的规范、显式迁移和验证入口见新增内核协议。维护时保留旧 Profile 快照和真实批准；新 DAG 验证缓存仅单次操作有效，不跨命令掩盖 SHA 漂移。
 
 规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。
