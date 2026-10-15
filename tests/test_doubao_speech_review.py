@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 from _paths import ROOT  # noqa: F401
-from test_vsc_budget import FixedRunFixture
+from support.project import FixedRunFixture
 import consistency
 import doubao_speech as speech
 import vsc_artifacts as artifacts

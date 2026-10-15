@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from _paths import SCRIPTS
@@ -101,6 +102,24 @@ class TestProjects(unittest.TestCase):
             self.assertEqual(len(projects), 2)
             self.assertEqual(len(problems), 1)
             self.assertIn("旧版", problems[0])
+
+
+class TestFullTestGate(unittest.TestCase):
+    def test_final_gate_runs_configured_full_suite_and_propagates_failures(self):
+        for code in (0, 1, 2):
+            with self.subTest(exit_code=code):
+                completed = subprocess.CompletedProcess([], code,
+                    stdout="TEST RESULT: methods=3 subtests=2\nDURATION 0.1s sample.test\n",
+                    stderr="Ran 3 tests in 0.1s\n" + ("OK" if code == 0 else "FAILED"))
+                with mock.patch.object(LOCAL_CI, "run", return_value=completed) as invoke:
+                    detail, problems = LOCAL_CI.check_tests()
+                args = invoke.call_args.args
+                self.assertEqual(Path(args[2]), SCRIPTS.parent / "tests/run.py")
+                self.assertIn("--all", args)
+                self.assertEqual(bool(problems), code != 0)
+                self.assertIn("Ran 3 tests", detail)
+                if code == 0:
+                    self.assertIn("DURATION", detail)
 
 
 if __name__ == "__main__":

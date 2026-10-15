@@ -11,81 +11,12 @@ from pathlib import Path
 from unittest import mock
 
 from _paths import ROOT
+from support.production import ProductionFixture
 import volc_ark as A
 import vsc_production as P
 
 
-class QueueTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.media_temp = tempfile.TemporaryDirectory()
-        cls.addClassCleanup(cls.media_temp.cleanup)
-        folder = Path(cls.media_temp.name)
-        for name in ("frame.png", "frame.jpeg"):
-            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=red:size=16x16",
-                            "-frames:v", "1", str(folder / name)], check=True)
-        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=blue:size=16x16:rate=5",
-                        "-t", "0.4", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(folder / "clip.mp4")], check=True)
-        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440",
-                        "-t", "0.1", str(folder / "voice.wav")], check=True)
-        cls.png = (folder / "frame.png").read_bytes()
-        cls.jpeg = (folder / "frame.jpeg").read_bytes()
-        cls.mp4 = (folder / "clip.mp4").read_bytes()
-        cls.wav = (folder / "voice.wav").read_bytes()
-
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.project = Path(self.temp.name)
-        (self.project / "vsc.json").write_text(json.dumps({"project_id": "test-project"}))
-        for name, template in (("bible.json", "asset-bible.json"), ("state.json", "scene-state.json")):
-            value = json.loads((ROOT / "templates" / template).read_text())
-            value["project_id"] = "test-project"
-            (self.project / name).write_text(json.dumps(value))
-        self.batch = {"format": P.FORMAT, "project_id": "test-project", "id": "batch-1", "max_remote_jobs": 3,
-                      "max_attempts": 3, "budget": {"max_images": 1, "max_video_seconds": 10}, "jobs": [
-                          {"id": "image", "kind": "image", "depends_on": [], "args": {
-                              "out": "takes", "name": "image", "prompt": "--literal $(do-not-run)", "purpose": "asset"}},
-                          self.video("first", "SH-001", ["image"], {"job": "image", "output": "image"}),
-                          self.video("second", "SH-002", ["first"], {"job": "first", "output": "last_frame"})]}
-        self.calls, self.argv, self.fail_download = [], [], None
-
-    def video(self, identifier, shot, dependencies, first):
-        return {"id": identifier, "kind": "video", "depends_on": dependencies, "args": {
-            "out": "takes", "name": identifier, "prompt": "走向门口", "shot": shot, "bible": {"path": "bible.json"},
-            "state": {"path": "state.json"}, "first_frame_ref": first, "duration": 5, "no_audio": True}}
-
-    def fake_call(self, path, payload=None):
-        self.calls.append((path, payload))
-        if path == "/images/generations":
-            return {"data": [{"url": "https://fake/image"}], "usage": {"images": 1}}
-        if path == "/contents/generations/tasks":
-            return {"id": "task-" + str(sum(item[0] == path for item in self.calls))}
-        return {"status": "succeeded", "content": {"video_url": "https://fake/" + path.split("/")[-1],
-                                                      "last_frame_url": "https://fake/last-" + path.split("/")[-1]},
-                "usage": {"seconds": 5}, "duration": 5}
-
-    def fake_download(self, url, target):
-        if self.fail_download and self.fail_download in url:
-            self.fail_download = None
-            raise A.ArkError("offline interrupted download")
-        target.write_bytes(self.mp4 if target.suffix == ".mp4" else self.jpeg if target.suffix == ".jpeg" else self.png)
-
-    def runner(self, argv):
-        self.argv.append(argv)
-        with mock.patch.object(A, "api_key", return_value="offline-test-key"), \
-                mock.patch.object(A, "call", side_effect=self.fake_call), mock.patch.object(A, "download", side_effect=self.fake_download):
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                code = A.main(argv)
-        if code:
-            raise RuntimeError("adapter failed")
-
-    def plan(self, batch=None):
-        return P.build_plan(self.project, batch or self.batch)
-
-    def run_queue(self, plan=None):
-        plan = plan or self.plan()
-        return P.run(self.project, plan, plan["plan_sha256"], self.runner)
+class QueueTest(ProductionFixture, unittest.TestCase):
 
     def test_real_args_dependency_last_frame_and_no_duplicate_generation(self):
         self.batch["jobs"].reverse()

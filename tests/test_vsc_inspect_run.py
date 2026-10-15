@@ -4,8 +4,8 @@ import json
 import unittest
 from unittest import mock
 from _paths import ROOT
-from test_vsc_budget import FixedRunFixture
-import test_vsc_production as media_fixture
+from support.project import FixedRunFixture
+from support.production import ProductionFixture
 import vsc_artifacts as artifacts
 import vsc_audio_run as single
 import vsc_budget as budget
@@ -15,12 +15,9 @@ import vsc_state as state_module
 import volc_ark as ark
 
 
-class InspectionRun(unittest.TestCase):
-    video=media_fixture.QueueTest.video
-    @classmethod
-    def setUpClass(cls): media_fixture.QueueTest.setUpClass.__func__(cls)
+class InspectionRun(ProductionFixture, unittest.TestCase):
     def setUp(self):
-        media_fixture.QueueTest.setUp(self)
+        super().setUp()
         self.fixture=FixedRunFixture(self.project)
         self.bible=self.fixture.register('vsc.asset_bible',json.loads((self.project/'bible.json').read_text()),stage='animatic')
         self.scene=self.fixture.register('vsc.scene_state',json.loads((self.project/'state.json').read_text()),stage='animatic')

@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from _paths import freeze_legacy_profile, SCRIPTS
+from support.legacy import freeze_legacy_profile
+from _paths import SCRIPTS
 STATE = str(SCRIPTS / "vsc_state.py")
 
 

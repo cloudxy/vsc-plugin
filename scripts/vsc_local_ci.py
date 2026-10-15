@@ -4,7 +4,7 @@
 vendor/、projects/ 与 library/ 只存在于维护者本机，线上环境无法复现，因此 VSC 不使用线上 CI。依次检查：
 
   doctor    工作流内核与物理入口
-  tests     tests/test_*.py 全部测试
+  tests     tests/run.py --all：检查测试配置并递归运行全部测试
   vendor    锁定文件、已安装版本与各阶段路由的上游 Skill
   projects  projects/ 中每个作品仍能被当前状态机读取
   library   本机素材库每个条目字段有效、文件与 SHA-256 一致
@@ -55,8 +55,11 @@ def check_doctor():
 
 
 def check_tests():
-    result = run(sys.executable, "-B", "-m", "unittest", "discover", "-s", str(TESTS), "-p", "test_*.py")
+    result = run(sys.executable, "-B", str(TESTS / "run.py"), "--all", "--durations", "5")
     summary = next((line for line in result.stderr.splitlines() if line.startswith("Ran ")), "")
+    if result.returncode == 0:
+        timings = [line for line in result.stdout.splitlines() if line.startswith(("TEST RESULT:", "DURATION "))]
+        summary += "".join("\n             " + line for line in timings)
     return summary, tail(result) if result.returncode else []
 
 

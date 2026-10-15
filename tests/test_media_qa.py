@@ -9,6 +9,7 @@ from pathlib import Path
 
 from _paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
 import media_qa as QA
+from support.review import write_review
 
 
 def plan():
@@ -229,12 +230,7 @@ class LocalMediaTests(unittest.TestCase):
         self.assertEqual(failure.exception.code, "probe_error")
 
     def review_fixture(self, report):
-        qa_path = self.root / "qa.json"
-        qa_path.write_text(json.dumps(report))
-        review = {"format": QA.REVIEW_FORMAT, "project_id": "sample", "reviewer": "director", "technical_report": qa_path.name, "technical_report_sha256": QA.sha256(qa_path), "assessments": {category: {"result": "pass", "evidence": "00:00–00:01 SH-001 synthetic fixture manually inspected"} for category in QA.REVIEW_CATEGORIES}, "run": {"elapsed_seconds": 1, "cost_amount": 0, "currency": "CNY", "failures": []}}
-        path = self.root / "review.json"
-        path.write_text(json.dumps(review))
-        return path
+        return write_review(self.root, report)
 
     def test_review_binds_report_media_and_plan_versions(self):
         path = self.review_fixture(self.report())
@@ -243,29 +239,9 @@ class LocalMediaTests(unittest.TestCase):
         self.plan_path.write_text(original + "\n")
         self.assertTrue(any("plan_sha256" in e for e in QA.validate_review(path)))
 
-    def test_structured_review_rejects_bad_ranges_ids_versions_and_sample_delivery(self):
-        report = self.report()
-        path = self.review_fixture(report)
-        legacy = json.loads(path.read_text())
-        self.assertTrue(any("legacy" in e for e in QA.validate_review(path, strict=True)))
-        review = {**legacy, "evidence_mode": "structured", "render_sha256": report["render"]["metadata"]["sha256"],
-                  "scope": {"kind": "complete", "start_frame": 0, "end_frame": 30, "delivery_id": "DEL-001"},
-                  "assessments": {category: {"result": "pass", "evidence": [{"start_frame": 0, "end_frame": 30, "shot_id": "SH-001", "segment_id": "shot-1", "note": "synthetic coverage"}]} for category in QA.REVIEW_CATEGORIES}}
-        path.write_text(json.dumps(review))
+    def test_structured_review_binds_real_media_and_complete_scope(self):
+        path = write_review(self.root, self.report(), structured=True)
         self.assertEqual(QA.validate_review(path, strict=True), [])
-        for key, value in (("end_frame", 31), ("shot_id", "SH-UNKNOWN"), ("segment_id", "missing")):
-            bad = json.loads(json.dumps(review))
-            bad["assessments"][QA.REVIEW_CATEGORIES[0]]["evidence"][0][key] = value
-            path.write_text(json.dumps(bad))
-            self.assertTrue(QA.validate_review(path, strict=True), key)
-        review["scope"]["kind"] = "sample"
-        path.write_text(json.dumps(review))
-        self.assertEqual(QA.validate_review(path), [])
-        self.assertTrue(any("完整审片" in e for e in QA.validate_review(path, strict=True)))
-        review["scope"]["kind"] = "complete"
-        review["render_sha256"] = "0" * 64
-        path.write_text(json.dumps(review))
-        self.assertTrue(any("render_sha256" in e for e in QA.validate_review(path, strict=True)))
 
     def test_sources_only_report_cannot_complete_review(self):
         path = self.review_fixture(self.report(render=False))

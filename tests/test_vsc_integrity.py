@@ -11,7 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from _paths import freeze_legacy_profile, ROOT
+from support.legacy import freeze_legacy_profile
+from _paths import ROOT
 import vsc_state as state_module
 
 CLI = ROOT / "scripts" / "vsc_state.py"
@@ -98,18 +99,23 @@ class Integrity(unittest.TestCase):
         self.ok("context", "build", self.project, "--role", "director", "--task", "按原批准目标设计镜头", "--artifact", identifier)
         self.assertEqual(json.loads(self.version(identifier).read_text("utf-8"))["audience"], "悬疑短片观众")
 
-    def test_changed_version_is_rejected_by_gate_and_context(self):
+    def test_changed_or_deleted_version_is_rejected_by_gate_and_context(self):
         identifier, _ = self.add()
         self.approve(identifier)
-        self.version(identifier).write_text("{}", encoding="utf-8")
-        self.assertIn("版本内容已变化", self.bad("gate", "check", self.project, "brief"))
-        self.assertIn("版本内容已变化", self.bad("context", "build", self.project, "--role", "director", "--task", "镜头", "--artifact", identifier))
-
-    def test_deleted_version_is_rejected(self):
-        identifier, _ = self.add()
-        self.approve(identifier)
-        self.version(identifier).unlink()
-        self.assertIn("版本文件不存在", self.bad("gate", "check", self.project, "brief"))
+        path = self.version(identifier)
+        original = path.read_bytes()
+        for mode, expected in (("changed", "版本内容已变化"), ("deleted", "版本文件不存在")):
+            with self.subTest(mode=mode):
+                try:
+                    if mode == "changed":
+                        path.write_text("{}", encoding="utf-8")
+                    else:
+                        path.unlink()
+                    self.assertIn(expected, self.bad("gate", "check", self.project, "brief"))
+                    self.assertIn(expected, self.bad("context", "build", self.project, "--role", "director",
+                                                   "--task", "镜头", "--artifact", identifier))
+                finally:
+                    path.write_bytes(original)
 
     def test_dependency_rejection_invalidates_downstream(self):
         identifier, _ = self.add()

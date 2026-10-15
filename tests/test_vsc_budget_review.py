@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from _paths import ROOT  # noqa: F401
-from test_vsc_budget import FixedRunFixture
+from support.project import FixedRunFixture
 import vsc_artifacts as artifacts
 import vsc_audio_run as audio_run
 import vsc_budget as budget

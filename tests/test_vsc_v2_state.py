@@ -48,7 +48,7 @@ class CurrentState(unittest.TestCase):
         self.cli('artifact','decide-bundle',self.project,'--item',aid+':'+item['sha256'],'--status','approved','--by','fixture','--reason','checked')
         self.assertEqual(self.state()['artifacts'][0]['status'],'approved')
     def test_migration_preview_does_not_write_and_stale_preview_fails(self):
-        from _paths import freeze_legacy_profile
+        from support.legacy import freeze_legacy_profile
         freeze_legacy_profile(self.project); original=(self.project/'vsc.json').read_bytes()
         preview=json.loads(self.cli('profile','migrate',self.project,'--profile','vsc.engineered-short'))
         self.assertEqual((self.project/'vsc.json').read_bytes(),original)
