@@ -61,7 +61,7 @@ python3 -B scripts/vsc_production.py status projects/作品/production-batch.jso
 ## 离线验证
 
 ```sh
-python3 -B tests/test_vsc_production.py
+python3 -B tests/run.py --test production.integration.test_vsc_production
 ```
 
 19 项离线测试使用真实方舟参数解析、记录流程以及 `ffmpeg` 生成的 PNG、JPEG、MP4、WAV，替换网络与下载，不产生付费调用。覆盖首尾帧依赖、多模态参考的图片 1 文本请求、下载恢复、结果已落盘而 journal 回写失败、未知提交状态、参数/输入/输出漂移、预算与调用次数、循环与路径逃逸、库素材来源清单、批次锁、记录与任务篡改、错误媒体和全部输出目录祖先预检。

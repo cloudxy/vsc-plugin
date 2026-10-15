@@ -7,7 +7,7 @@
 ```bash
 git config core.hooksPath .githooks                      # 每个克隆一次：提交前同步 origin/main，最终推送时运行全量 CI
 python3 -B tests/run.py --files scripts/subtitles.py --list  # 先查看变更影响范围
-python3 -B tests/run.py --test test_subtitles             # 修改期间只跑受影响的测试（示例）
+python3 -B tests/run.py --test post.unit.test_subtitles   # 修改期间只跑受影响的测试（示例）
 python3 -B scripts/vsc_local_ci.py                       # 仅未启用 pre-push 钩子时，在最终推送前手动运行一次
 ```
 

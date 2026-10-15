@@ -63,7 +63,7 @@ python3 -B scripts/vsc_recipes.py install --all
 
 ```sh
 python3 -B scripts/vsc_recipes.py validate
-python3 -B tests/test_vsc_recipes.py
+python3 -B tests/run.py --test knowledge.integration.test_vsc_recipes
 ```
 
 离线测试覆盖 taxonomy、schema、搜索、素材库 API 安装、重复安装、版本与内容冲突、全量预检、中文与空格路径、非法路径和符号链接越界。测试只写临时素材库。
