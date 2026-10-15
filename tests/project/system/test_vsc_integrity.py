@@ -356,5 +356,91 @@ class Integrity(unittest.TestCase):
         self.assertIn("失效", self.bad("gate", "check", self.project, "delivery"))
 
 
+class CompatibleBibleRevision(unittest.TestCase):
+    """A bible revision that keeps entity identities must not invalidate approved consumers."""
+
+    def setUp(self):
+        import vsc_artifacts
+        self.artifacts = vsc_artifacts
+        self.temp = tempfile.TemporaryDirectory(prefix="vsc-bible-")
+        self.project = Path(self.temp.name)
+        self.state = {"project_id": "fixture", "profile_snapshot": {}, "artifacts": [], "objects": [
+            {"id": "EP-001", "kind": "episode", "parent": None},
+            {"id": "EP-001-SC-001", "kind": "scene", "parent": "EP-001"},
+            {"id": "SEQ-001", "kind": "sequence", "parent": "EP-001-SC-001"},
+            {"id": "SH-001", "kind": "shot", "parent": "SEQ-001"},
+            {"id": "SH-002", "kind": "shot", "parent": "SEQ-001"}]}
+        self.bible = json.loads((ROOT / "templates" / "asset-bible.json").read_text("utf-8"))
+        self.bible["project_id"] = "fixture"
+        for entity in self.bible["entities"]:
+            entity["references"] = []
+        first = self.register("vsc.asset_bible", self.bible)
+        for identifier in ("主角", "场景-客厅-v1"):
+            self.state["objects"].append({"id": identifier, "kind": "asset", "parent": None, "artifact": first["id"]})
+        plan = json.loads((ROOT / "templates" / "continuity-plan.json").read_text("utf-8"))
+        plan["project_id"] = "fixture"
+        for shot in plan["shots"]:
+            shot["reference_asset_ids"] = ["主角", "场景-客厅-v1"]
+        self.plan = self.register("vsc.shot_plan", plan, depends=[first])
+        self.plan["asset_versions"] = {key: {"id": first["id"], "sha256": first["sha256"]} for key in ("主角", "场景-客厅-v1")}
+        self.note = self.register("vsc.learning_sample", "不是 JSON 的说明", depends=[first], suffix=".md")
+        self.first = first
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def register(self, kind, value, depends=(), suffix=".json"):
+        identifier = f"A-{len(self.state['artifacts']) + 1:04d}"
+        path = self.project / "v" / f"{identifier}{suffix}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value, ensure_ascii=False) if suffix == ".json" else value, "utf-8")
+        item = {"id": identifier, "type": kind, "stage": "design", "scope": "project", "status": "approved",
+                "path": str(path.relative_to(self.project)), "sha256": self.artifacts.digest(path),
+                "depends_on": [d["id"] for d in depends], "dependency_versions": {d["id"]: d["sha256"] for d in depends}}
+        self.state["artifacts"].append(item)
+        return item
+
+    def revise(self, change):
+        value = copy.deepcopy(self.bible)
+        change({entity["id"]: entity for entity in value["entities"]})
+        current = next(a for a in self.state["artifacts"] if a["type"] == "vsc.asset_bible" and not a.get("superseded_by"))
+        revised = self.register("vsc.asset_bible", value)
+        current["superseded_by"], revised["supersedes"] = revised["id"], current["id"]
+        return revised
+
+    def problems(self, item):
+        return self.artifacts.validate_artifact(self.project, self.state, item)
+
+    def test_unchanged_identities_keep_consumers_valid(self):
+        self.assertEqual(self.problems(self.plan), [])
+
+        def additions(entities):
+            entities["信封"]["variants"]["信封-湿"] = "被雨打湿"
+            entities["主角"]["generation"]["prompt"] = "只改外观描述措辞"
+        self.revise(additions)
+        self.assertEqual(self.problems(self.plan), [])
+        self.assertEqual(self.problems(self.note), [])
+
+    def test_identity_change_invalidates_only_consumers_that_use_it(self):
+        self.revise(lambda entities: entities["信封"]["identity"].append("有邮戳"))
+        self.assertEqual(self.problems(self.plan), [], "计划没有用到信封")
+        self.assertTrue(any("替代" in p for p in self.problems(self.note)), "读不出内容的使用方从严判断")
+
+    def test_changed_identity_or_variant_of_used_entity_invalidates(self):
+        self.revise(lambda entities: entities["主角"]["identity"].append("戴眼镜"))
+        problems = self.problems(self.plan)
+        self.assertTrue(any("参考资产 主角" in p for p in problems), problems)
+        self.assertTrue(any(p.startswith(f"依赖 {self.first['id']}") for p in problems), problems)
+
+    def test_rewritten_existing_variant_is_not_compatible(self):
+        self.revise(lambda entities: entities["主角"]["variants"].update({"主角-风衣-v1": "浅色短风衣"}))
+        self.assertTrue(any("参考资产 主角" in p for p in self.problems(self.plan)))
+
+    def test_unapproved_successor_does_not_count(self):
+        revised = self.revise(lambda entities: None)
+        revised["status"] = "draft"
+        self.assertTrue(any("没有有效已批准版本" in p for p in self.problems(self.plan)))
+
+
 if __name__ == "__main__":
     unittest.main()

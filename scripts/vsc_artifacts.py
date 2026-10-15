@@ -152,6 +152,67 @@ def in_scope(objects, object_id, scope):
     return scope == "project"
 
 
+def _bible_rows(project, artifact):
+    try:
+        data = json.loads((Path(project) / artifact["path"]).read_text("utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
+    return {row["id"]: row for key in ("entities", "styles", "sounds") for row in (data.get(key) or [])
+            if isinstance(row, dict) and isinstance(row.get("id"), str)}
+
+
+def _same_identity(old, new):
+    """Kind and identity unchanged, and every existing variant keeps its key and description."""
+    if new is None or old.get("kind") != new.get("kind") or old.get("identity") != new.get("identity"):
+        return False
+    return all((new.get("variants") or {}).get(key) == value for key, value in (old.get("variants") or {}).items())
+
+
+def _document_ids(project, item):
+    """Every string key or value in a consumer document; None when it is not JSON."""
+    try:
+        data = json.loads((Path(project) / item["path"]).read_text("utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
+    found, pending = set(), [data]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            found.update(key for key in value if isinstance(key, str))
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, str):
+            found.add(value)
+    return found
+
+
+def compatible_bible_successor(project, state, bible, used_ids=None):
+    """The approved current asset bible that replaced ``bible`` without changing what a consumer uses.
+
+    A revision that only adds references, entities, variants or sounds, or edits prompts and notes, leaves the
+    identity of existing entities intact, so consumers pinned to the older version stay valid. Changing an
+    entity's kind, identity or an existing variant invalidates only consumers that mention that entity.
+    ``used_ids`` None means every entity of the old version.
+    """
+    if bible.get("type") != "vsc.asset_bible" or not bible.get("superseded_by"):
+        return None
+    by_id = {artifact["id"]: artifact for artifact in state["artifacts"]}
+    current, seen = bible, set()
+    while current.get("superseded_by"):
+        if current["id"] in seen or current["superseded_by"] not in by_id:
+            return None
+        seen.add(current["id"])
+        current = by_id[current["superseded_by"]]
+    if current.get("type") != "vsc.asset_bible" or current.get("status") != "approved":
+        return None
+    before, after = _bible_rows(project, bible), _bible_rows(project, current)
+    if before is None or after is None:
+        return None
+    ids = before if used_ids is None else [identifier for identifier in used_ids if identifier in before]
+    return current if all(_same_identity(before[i], after.get(i)) for i in ids) else None
+
+
 def reference_errors(project, state, item, visited=None, cache=None):
     objects = object_index(state)
     scope = item.get("scope", "project")
@@ -180,15 +241,20 @@ def reference_errors(project, state, item, visited=None, cache=None):
         elif kind == "asset":
             binding = item.get('asset_versions', {}).get(identifier, {})
             bound = next((x for x in state["artifacts"] if x["id"] == binding.get('id', obj.get("artifact"))), None)
-            if not bound or bound.get("status") != "approved" or bound.get("superseded_by"):
+            # A compatible asset-bible revision keeps this pin valid (see compatible_bible_successor).
+            compatible = bool(bound and bound.get("superseded_by")
+                              and compatible_bible_successor(project, state, bound, [identifier]))
+            if not bound or bound.get("status") != "approved" or (bound.get("superseded_by") and not compatible):
                 errors.append(f"参考资产 {identifier} 没有有效已批准版本")
             elif binding and binding.get('sha256') != bound.get('sha256'):
                 errors.append(f'参考资产 {identifier} 固定绑定 SHA 不一致')
             elif not (Path(project) / bound["path"]).is_file() or digest(Path(project) / bound["path"]) != bound.get("sha256"):
                 errors.append(f"参考资产 {identifier} 的版本文件失效")
             else:
+                replaced = f"版本已被 {bound.get('superseded_by')} 替代"
                 errors.extend(f"参考资产 {identifier}：{problem}" for problem in
-                              validate_artifact(project, state, bound, visited=visited, _cache=cache))
+                              validate_artifact(project, state, bound, visited=visited, _cache=cache)
+                              if not (compatible and problem == replaced))
 
     fmt = data.get("format")
     if fmt in ('vsc.source-map/v1', 'vsc.episode-beats/v1', 'vsc.visual-bible/v1'):
@@ -344,6 +410,9 @@ def validate_artifact(project, state, item, require_approved=True, visited=None,
         # their record/output checks still run. Other draft deps never pass.
         candidate = item['type'] == 'vsc.selected_takes' and dependency['type'] == 'vsc.generation_record'
         nested = validate_artifact(project, state, dependency, require_approved=not candidate, visited=visited, _cache=cache)
+        if dependency.get("type") == "vsc.asset_bible" and dependency.get("superseded_by") and \
+                compatible_bible_successor(project, state, dependency, _document_ids(project, item)):
+            nested = [problem for problem in nested if problem != f"版本已被 {dependency['superseded_by']} 替代"]
         errors.extend(f"依赖 {ref}：{problem}" for problem in nested)
     cache[cache_key] = list(errors)
     return errors
