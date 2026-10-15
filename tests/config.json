@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "framework": "unittest",
   "layers": [
     "unit",
@@ -7,120 +7,70 @@
     "system"
   ],
   "modules": {
-    "test_consistency": {
-      "owner": "story",
+    "assets.integration.test_vsc_library": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_library.py"
+      ]
+    },
+    "kernel.integration.test_vsc_hosts": {
+      "owner": "kernel",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_hosts.py"
+      ]
+    },
+    "kernel.integration.test_vsc_kernel": {
+      "owner": "kernel",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_kernel.py"
+      ]
+    },
+    "kernel.integration.test_vsc_views": {
+      "owner": "kernel",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_views.py"
+      ]
+    },
+    "knowledge.integration.test_vsc_learning": {
+      "owner": "knowledge",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_learning.py"
+      ]
+    },
+    "knowledge.integration.test_vsc_recipes": {
+      "owner": "knowledge",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_recipes.py"
+      ]
+    },
+    "knowledge.unit.test_vsc_search": {
+      "owner": "knowledge",
       "layer": "unit",
       "sources": [
-        "scripts/consistency.py"
-      ],
-      "overrides": {
-        "KernelTest": "integration",
-        "RecordTest.test_check_reports_invalid_record_before_indexing": "integration"
-      }
-    },
-    "test_doubao_audio": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/doubao_audio.py"
+        "scripts/vsc_search.py"
       ]
     },
-    "test_doubao_speech": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/doubao_speech.py"
-      ]
-    },
-    "test_doubao_speech_review": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/doubao_speech.py",
-        "scripts/vsc_audio_run.py"
-      ]
-    },
-    "test_jianying_export": {
-      "owner": "post",
-      "layer": "integration",
-      "sources": [
-        "scripts/jianying_export.py"
-      ]
-    },
-    "test_media_qa": {
-      "owner": "post",
-      "layer": "integration",
-      "sources": [
-        "scripts/media_qa.py"
-      ],
-      "overrides": {
-        "FaultTests": "unit"
-      }
-    },
-    "test_procedural_audio": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/procedural_audio.py"
-      ]
-    },
-    "test_remotion_plan": {
-      "owner": "post",
-      "layer": "integration",
-      "sources": [
-        "scripts/remotion_plan.py"
-      ]
-    },
-    "test_sequence_artifacts": {
-      "owner": "story",
-      "layer": "system",
-      "sources": [
-        "scripts/vsc_state.py"
-      ]
-    },
-    "test_subtitle_burn": {
-      "owner": "post",
-      "layer": "integration",
-      "sources": [
-        "scripts/subtitle_burn.py"
-      ]
-    },
-    "test_subtitles": {
-      "owner": "post",
-      "layer": "unit",
-      "sources": [
-        "scripts/subtitles.py"
-      ]
-    },
-    "test_temp_voice": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/temp_voice.py"
-      ]
-    },
-    "test_vendor_review": {
+    "maintenance.integration.test_vendor_review": {
       "owner": "maintenance",
       "layer": "integration",
       "sources": [
         "scripts/vendor_review.py"
       ]
     },
-    "test_vendor_skills": {
-      "owner": "maintenance",
-      "layer": "unit",
-      "sources": [
-        "scripts/vendor_skills.py"
-      ]
-    },
-    "test_vendor_sync": {
+    "maintenance.integration.test_vendor_sync": {
       "owner": "maintenance",
       "layer": "integration",
       "sources": [
         "scripts/vendor_sync.py"
       ]
     },
-    "test_vendor_watch": {
+    "maintenance.integration.test_vendor_watch": {
       "owner": "maintenance",
       "layer": "integration",
       "sources": [
@@ -128,107 +78,14 @@
         "scripts/vsc-vendor-maintenance.sh"
       ]
     },
-    "test_volc_ark": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/volc_ark.py"
-      ]
-    },
-    "test_vsc_budget": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_budget.py"
-      ]
-    },
-    "test_vsc_budget_review": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_budget.py",
-        "scripts/vsc_audio_run.py"
-      ]
-    },
-    "test_vsc_credentials": {
-      "owner": "production",
-      "layer": "unit",
-      "sources": [
-        "scripts/vsc_credentials.py"
-      ]
-    },
-    "test_vsc_delivery": {
-      "owner": "post",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_delivery.py"
-      ]
-    },
-    "test_vsc_handoffs": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_handoffs.py"
-      ]
-    },
-    "test_vsc_hosts": {
-      "owner": "kernel",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_hosts.py"
-      ]
-    },
-    "test_vsc_inspect_run": {
-      "owner": "production",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_run.py",
-        "scripts/vsc_audio_run.py"
-      ]
-    },
-    "test_vsc_integrity": {
-      "owner": "project",
-      "layer": "system",
-      "sources": [
-        "scripts/vsc_state.py"
-      ]
-    },
-    "test_vsc_kernel": {
-      "owner": "kernel",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_kernel.py"
-      ]
-    },
-    "test_vsc_learning": {
-      "owner": "knowledge",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_learning.py"
-      ]
-    },
-    "test_vsc_library": {
-      "owner": "assets",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_library.py"
-      ]
-    },
-    "test_vsc_local_ci": {
+    "maintenance.integration.test_vsc_local_ci": {
       "owner": "maintenance",
       "layer": "integration",
       "sources": [
         "scripts/vsc_local_ci.py"
       ]
     },
-    "test_vsc_performance": {
-      "owner": "story",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_performance.py"
-      ]
-    },
-    "test_vsc_pre_commit": {
+    "maintenance.system.test_vsc_pre_commit": {
       "owner": "maintenance",
       "layer": "system",
       "sources": [
@@ -236,84 +93,221 @@
         ".githooks/pre-commit"
       ]
     },
-    "test_vsc_production": {
+    "maintenance.unit.test_vendor_skills": {
+      "owner": "maintenance",
+      "layer": "unit",
+      "sources": [
+        "scripts/vendor_skills.py"
+      ]
+    },
+    "post.integration.test_jianying_export": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "scripts/jianying_export.py"
+      ]
+    },
+    "post.integration.test_media_qa": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "scripts/media_qa.py"
+      ]
+    },
+    "post.integration.test_remotion_plan": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "scripts/remotion_plan.py"
+      ]
+    },
+    "post.integration.test_subtitle_burn": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "scripts/subtitle_burn.py"
+      ]
+    },
+    "post.integration.test_vsc_delivery": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_delivery.py"
+      ]
+    },
+    "post.unit.test_media_qa": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "scripts/media_qa.py"
+      ]
+    },
+    "post.unit.test_media_review": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "scripts/media_qa.py"
+      ]
+    },
+    "post.unit.test_render_plan": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "scripts/remotion_plan.py"
+      ]
+    },
+    "post.unit.test_subtitles": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "scripts/subtitles.py"
+      ]
+    },
+    "production.integration.test_doubao_audio": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/doubao_audio.py"
+      ]
+    },
+    "production.integration.test_doubao_speech": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/doubao_speech.py"
+      ]
+    },
+    "production.integration.test_doubao_speech_review": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/doubao_speech.py",
+        "scripts/vsc_audio_run.py"
+      ]
+    },
+    "production.integration.test_procedural_audio": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/procedural_audio.py"
+      ]
+    },
+    "production.integration.test_temp_voice": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/temp_voice.py"
+      ]
+    },
+    "production.integration.test_volc_ark": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/volc_ark.py"
+      ]
+    },
+    "production.integration.test_vsc_budget": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_budget.py"
+      ]
+    },
+    "production.integration.test_vsc_budget_review": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_budget.py",
+        "scripts/vsc_audio_run.py"
+      ]
+    },
+    "production.integration.test_vsc_handoffs": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_handoffs.py"
+      ]
+    },
+    "production.integration.test_vsc_inspect_run": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_run.py",
+        "scripts/vsc_audio_run.py"
+      ]
+    },
+    "production.integration.test_vsc_production": {
       "owner": "production",
       "layer": "integration",
       "sources": [
         "scripts/vsc_production.py"
       ]
     },
-    "test_vsc_recipes": {
-      "owner": "knowledge",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_recipes.py"
-      ]
-    },
-    "test_vsc_run": {
+    "production.integration.test_vsc_run": {
       "owner": "production",
       "layer": "integration",
       "sources": [
         "scripts/vsc_run.py"
       ]
     },
-    "test_vsc_search": {
-      "owner": "knowledge",
-      "layer": "unit",
-      "sources": [
-        "scripts/vsc_search.py"
-      ]
-    },
-    "test_vsc_sequence": {
-      "owner": "story",
-      "layer": "integration",
-      "sources": [
-        "scripts/vsc_sequence.py"
-      ]
-    },
-    "test_vsc_series_db": {
+    "production.integration.test_vsc_series_db": {
       "owner": "production",
       "layer": "integration",
       "sources": [
         "scripts/vsc_series_db.py"
       ]
     },
-    "test_vsc_state": {
-      "owner": "project",
-      "layer": "system",
-      "sources": [
-        "scripts/vsc_state.py"
-      ]
-    },
-    "test_vsc_toolchain": {
+    "production.integration.test_vsc_toolchain": {
       "owner": "production",
       "layer": "integration",
       "sources": [
         "scripts/vsc_toolchain.py"
       ]
     },
-    "test_vsc_v2_state": {
-      "owner": "project",
-      "layer": "system",
+    "production.unit.test_voice_validation": {
+      "owner": "production",
+      "layer": "unit",
       "sources": [
-        "scripts/vsc_state.py"
+        "scripts/consistency.py",
+        "scripts/vsc_volc_provider.py"
       ]
     },
-    "test_vsc_views": {
-      "owner": "kernel",
-      "layer": "integration",
+    "production.unit.test_vsc_credentials": {
+      "owner": "production",
+      "layer": "unit",
       "sources": [
-        "scripts/vsc_views.py"
+        "scripts/vsc_credentials.py"
       ]
     },
-    "test_vsc_volc_provider": {
+    "production.unit.test_vsc_volc_provider": {
       "owner": "production",
       "layer": "unit",
       "sources": [
         "scripts/vsc_volc_provider.py"
       ]
     },
-    "test_vsc_workflow_v2": {
+    "project.system.test_vsc_integrity": {
+      "owner": "project",
+      "layer": "system",
+      "sources": [
+        "scripts/vsc_state.py"
+      ]
+    },
+    "project.system.test_vsc_state": {
+      "owner": "project",
+      "layer": "system",
+      "sources": [
+        "scripts/vsc_state.py"
+      ]
+    },
+    "project.system.test_vsc_v2_state": {
+      "owner": "project",
+      "layer": "system",
+      "sources": [
+        "scripts/vsc_state.py"
+      ]
+    },
+    "project.system.test_vsc_workflow_v2": {
       "owner": "project",
       "layer": "system",
       "sources": [
@@ -321,33 +315,46 @@
         "scripts/vsc_delivery.py"
       ]
     },
-    "unit.test_media_review": {
-      "owner": "post",
-      "layer": "unit",
+    "story.integration.test_consistency": {
+      "owner": "story",
+      "layer": "integration",
       "sources": [
-        "scripts/media_qa.py"
+        "scripts/consistency.py"
       ]
     },
-    "unit.test_render_plan": {
-      "owner": "post",
-      "layer": "unit",
+    "story.integration.test_vsc_performance": {
+      "owner": "story",
+      "layer": "integration",
       "sources": [
-        "scripts/remotion_plan.py"
+        "scripts/vsc_performance.py"
       ]
     },
-    "unit.test_test_runner": {
-      "owner": "test-engineering",
+    "story.integration.test_vsc_sequence": {
+      "owner": "story",
+      "layer": "integration",
+      "sources": [
+        "scripts/vsc_sequence.py"
+      ]
+    },
+    "story.system.test_sequence_artifacts": {
+      "owner": "story",
+      "layer": "system",
+      "sources": [
+        "scripts/vsc_state.py"
+      ]
+    },
+    "story.unit.test_consistency": {
+      "owner": "story",
+      "layer": "unit",
+      "sources": [
+        "scripts/consistency.py"
+      ]
+    },
+    "testing.unit.test_test_runner": {
+      "owner": "testing",
       "layer": "unit",
       "sources": [
         "tests/support/runner.py"
-      ]
-    },
-    "unit.test_voice_validation": {
-      "owner": "production",
-      "layer": "unit",
-      "sources": [
-        "scripts/consistency.py",
-        "scripts/vsc_volc_provider.py"
       ]
     }
   },
@@ -365,7 +372,7 @@
         "tests/config.json",
         "tests/run.py",
         "tests/support/runner.py",
-        "tests/_paths.py",
+        "tests/support/paths.py",
         "pyproject.toml"
       ],
       "owners": "all"
@@ -395,7 +402,7 @@
       "owners": [
         "kernel",
         "maintenance",
-        "test-engineering"
+        "testing"
       ]
     }
   ],
@@ -407,5 +414,179 @@
     "LICENSE",
     ".gitignore",
     "tests/README.md"
-  ]
+  ],
+  "aliases": {
+    "test_consistency": [
+      "story.unit.test_consistency",
+      "story.integration.test_consistency"
+    ],
+    "test_doubao_audio": [
+      "production.integration.test_doubao_audio"
+    ],
+    "test_doubao_speech": [
+      "production.integration.test_doubao_speech"
+    ],
+    "test_doubao_speech_review": [
+      "production.integration.test_doubao_speech_review"
+    ],
+    "test_jianying_export": [
+      "post.integration.test_jianying_export"
+    ],
+    "test_media_qa": [
+      "post.integration.test_media_qa",
+      "post.unit.test_media_qa"
+    ],
+    "test_procedural_audio": [
+      "production.integration.test_procedural_audio"
+    ],
+    "test_remotion_plan": [
+      "post.integration.test_remotion_plan"
+    ],
+    "test_sequence_artifacts": [
+      "story.system.test_sequence_artifacts"
+    ],
+    "test_subtitle_burn": [
+      "post.integration.test_subtitle_burn"
+    ],
+    "test_subtitles": [
+      "post.unit.test_subtitles"
+    ],
+    "test_temp_voice": [
+      "production.integration.test_temp_voice"
+    ],
+    "test_vendor_review": [
+      "maintenance.integration.test_vendor_review"
+    ],
+    "test_vendor_skills": [
+      "maintenance.unit.test_vendor_skills"
+    ],
+    "test_vendor_sync": [
+      "maintenance.integration.test_vendor_sync"
+    ],
+    "test_vendor_watch": [
+      "maintenance.integration.test_vendor_watch"
+    ],
+    "test_volc_ark": [
+      "production.integration.test_volc_ark"
+    ],
+    "test_vsc_budget": [
+      "production.integration.test_vsc_budget"
+    ],
+    "test_vsc_budget_review": [
+      "production.integration.test_vsc_budget_review"
+    ],
+    "test_vsc_credentials": [
+      "production.unit.test_vsc_credentials"
+    ],
+    "test_vsc_delivery": [
+      "post.integration.test_vsc_delivery"
+    ],
+    "test_vsc_handoffs": [
+      "production.integration.test_vsc_handoffs"
+    ],
+    "test_vsc_hosts": [
+      "kernel.integration.test_vsc_hosts"
+    ],
+    "test_vsc_inspect_run": [
+      "production.integration.test_vsc_inspect_run"
+    ],
+    "test_vsc_integrity": [
+      "project.system.test_vsc_integrity"
+    ],
+    "test_vsc_kernel": [
+      "kernel.integration.test_vsc_kernel"
+    ],
+    "test_vsc_learning": [
+      "knowledge.integration.test_vsc_learning"
+    ],
+    "test_vsc_library": [
+      "assets.integration.test_vsc_library"
+    ],
+    "test_vsc_local_ci": [
+      "maintenance.integration.test_vsc_local_ci"
+    ],
+    "test_vsc_performance": [
+      "story.integration.test_vsc_performance"
+    ],
+    "test_vsc_pre_commit": [
+      "maintenance.system.test_vsc_pre_commit"
+    ],
+    "test_vsc_production": [
+      "production.integration.test_vsc_production"
+    ],
+    "test_vsc_recipes": [
+      "knowledge.integration.test_vsc_recipes"
+    ],
+    "test_vsc_run": [
+      "production.integration.test_vsc_run"
+    ],
+    "test_vsc_search": [
+      "knowledge.unit.test_vsc_search"
+    ],
+    "test_vsc_sequence": [
+      "story.integration.test_vsc_sequence"
+    ],
+    "test_vsc_series_db": [
+      "production.integration.test_vsc_series_db"
+    ],
+    "test_vsc_state": [
+      "project.system.test_vsc_state"
+    ],
+    "test_vsc_toolchain": [
+      "production.integration.test_vsc_toolchain"
+    ],
+    "test_vsc_v2_state": [
+      "project.system.test_vsc_v2_state"
+    ],
+    "test_vsc_views": [
+      "kernel.integration.test_vsc_views"
+    ],
+    "test_vsc_volc_provider": [
+      "production.unit.test_vsc_volc_provider"
+    ],
+    "test_vsc_workflow_v2": [
+      "project.system.test_vsc_workflow_v2"
+    ],
+    "unit.test_media_review": [
+      "post.unit.test_media_review"
+    ],
+    "unit.test_render_plan": [
+      "post.unit.test_render_plan"
+    ],
+    "unit.test_test_runner": [
+      "testing.unit.test_test_runner"
+    ],
+    "unit.test_voice_validation": [
+      "production.unit.test_voice_validation"
+    ]
+  },
+  "path_aliases": {
+    "tests/_paths.py": [
+      "tests/support/paths.py"
+    ],
+    "tests/support/legacy.py": [
+      "tests/support/fixtures/legacy.py"
+    ],
+    "tests/support/media.py": [
+      "tests/support/fixtures/media.py"
+    ],
+    "tests/support/plans.py": [
+      "tests/support/fixtures/plans.py"
+    ],
+    "tests/support/production.py": [
+      "tests/support/fixtures/production.py"
+    ],
+    "tests/support/project.py": [
+      "tests/support/fixtures/project.py"
+    ],
+    "tests/support/review.py": [
+      "tests/support/fixtures/review.py"
+    ],
+    "tests/unit/__init__.py": [
+      "tests/post/unit/test_media_review.py",
+      "tests/post/unit/test_render_plan.py",
+      "tests/testing/unit/test_test_runner.py",
+      "tests/production/unit/test_voice_validation.py"
+    ]
+  }
 }

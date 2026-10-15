@@ -71,7 +71,7 @@ python3 -B scripts/vsc_library.py use MUSIC-01 --project projects/目标作品
 测试替代网络，不调用付费 API。本次未配置有效 MediaKit key，没有线上成功证据；模型开通、跨服务权限、真实输出内容、质量与收费均未实测。已知方舟 key 的其他服务验证结果不能作为 MediaKit 可用证据，也不会触发本适配器自动尝试。
 
 ```bash
-python3 -B -m unittest discover -s tests -p test_doubao_audio.py -v
+python3 -B tests/run.py --test production.integration.test_doubao_audio -v
 ```
 
 真实媒体测试在缺少 `ffprobe`/`ffmpeg` 时明确跳过；实际 `--execute` 则在工具缺失时拒绝提交。

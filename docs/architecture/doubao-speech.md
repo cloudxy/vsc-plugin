@@ -93,7 +93,7 @@ python3 -B scripts/vsc_library.py use VOICE-library-01 \
 ## 离线复验
 
 ```bash
-python3 -B -m unittest discover -s tests -p test_doubao_speech.py -v
+python3 -B tests/run.py --test production.integration.test_doubao_speech -v
 ```
 
 测试不会调用供应商。真实媒体用例在缺少 `ffprobe`/`ffmpeg` 时明确跳过；实际 `--execute` 则在工具缺失时拒绝提交。

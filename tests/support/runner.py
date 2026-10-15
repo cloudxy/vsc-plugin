@@ -10,7 +10,7 @@ import sys
 import time
 import unittest
 
-ROOT = Path(__file__).resolve().parents[2]
+from support.paths import ROOT
 TESTS = ROOT / "tests"
 CONFIG = TESTS / "config.json"
 
@@ -46,20 +46,15 @@ def discover(root=ROOT):
 
 def read_config(path=CONFIG):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if data.get("version") != 1 or not isinstance(data.get("modules"), dict):
-        raise ConfigurationError("tests/config.json 需要 version=1 与 modules")
+    if data.get("version") != 2 or not isinstance(data.get("modules"), dict):
+        raise ConfigurationError("tests/config.json 需要 version=2 与 modules")
     return data
 
 
 def metadata(case, config):
     module = case.__class__.__module__
     rule = config["modules"][module]
-    suffix = case.id()[len(module) + 1:]
-    layer = rule.get("layer")
-    for selector, override in sorted(rule.get("overrides", {}).items(), key=lambda item: len(item[0])):
-        if suffix == selector or suffix.startswith(selector + "."):
-            layer = override
-    return {"owner": rule["owner"], "layer": layer}
+    return {"owner": rule["owner"], "layer": rule["layer"]}
 
 
 def validate_config(cases, config, root=ROOT):
@@ -76,18 +71,56 @@ def validate_config(cases, config, root=ROOT):
     for module, rule in config["modules"].items():
         if not isinstance(rule.get("owner"), str) or not rule["owner"] or rule.get("layer") not in layers:
             raise ConfigurationError(f"{module}: 缺少有效 owner/layer")
+        parts = module.split(".")
+        if (len(parts) != 3 or parts[:2] != [rule["owner"], rule["layer"]] or
+                not all(part.isidentifier() for part in parts) or not parts[2].startswith("test_")):
+            raise ConfigurationError(f"{module}: 测试路径必须为 <owner>/<layer>/test_*.py，并与配置一致")
+        if "overrides" in rule:
+            raise ConfigurationError(f"{module}: 混合层级须拆为独立文件，不再使用 overrides")
+        path = root / "tests" / (module.replace(".", "/") + ".py")
+        if not path.is_file():
+            raise ConfigurationError(f"测试文件不存在：{path}")
+        for package in (path.parent, path.parent.parent):
+            if not (package / "__init__.py").is_file():
+                raise ConfigurationError(f"测试目录缺少包标记：{package}/__init__.py")
         for pattern in rule.get("sources", []):
             if not list(root.glob(pattern)):
                 raise ConfigurationError(f"{module}: source 不存在：{pattern}")
-        for selector, layer in rule.get("overrides", {}).items():
-            if layer not in layers or not any(identity == module + "." + selector or
-                    identity.startswith(module + "." + selector + ".") for identity in ids):
-                raise ConfigurationError(f"{module}: override 无匹配或 layer 无效：{selector}")
+        reject_test_imports(path)
+    for path in (root / "tests/support").rglob("*.py"):
+        reject_test_imports(path)
+    for alias, targets in config.get("aliases", {}).items():
+        if alias in declared or not isinstance(targets, list) or not targets or any(target not in declared for target in targets):
+            raise ConfigurationError(f"测试选择别名无效：{alias}")
+    for old, targets in config.get("path_aliases", {}).items():
+        if not isinstance(targets, list) or not targets or any(not (root / target).is_file() for target in targets):
+            raise ConfigurationError(f"迁移路径别名无效：{old}")
     for consumer, sources in config.get("dependencies", {}).items():
         for relative in [consumer, *sources]:
             if not (root / relative).is_file():
                 raise ConfigurationError(f"依赖文件不存在：{relative}")
     return Counter(metadata(case, config)["layer"] for case in cases)
+
+
+def reject_test_imports(path):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or "", *(alias.name for alias in node.names)] if isinstance(node, ast.ImportFrom) else []
+        if any(any(part.startswith("test_") for part in name.split(".")) for name in names):
+            raise ConfigurationError(f"{path}: 禁止导入其他测试模块；公共夹具应放在 support/")
+
+
+def resolve_selectors(selectors, config):
+    """Old module IDs remain CLI aliases; canonical imports use domain/layer paths."""
+    resolved = {}
+    aliases = config.get("aliases", {})
+    for selector in selectors:
+        matches = [alias for alias in aliases if selector == alias or selector.startswith(alias + ".")]
+        if matches:
+            alias = max(matches, key=len)
+            resolved[selector] = [target + selector[len(alias):] for target in aliases[alias]]
+        else:
+            resolved[selector] = [selector]
+    return resolved
 
 
 def module_paths(root):
@@ -177,6 +210,14 @@ def affected_modules(changed, config, root=ROOT):
                     if item.get("owners") == "all" or rule["owner"] in item.get("owners", []):
                         reasons[paths[module]].add(relative)
                         queue.append(paths[module])
+        elif relative in config.get("path_aliases", {}):
+            for target in config["path_aliases"][relative]:
+                reasons[target].add(relative)
+                queue.append(target)
+        elif relative.startswith("tests/") and relative.endswith(".py") and relative[6:-3].replace("/", ".") in config.get("aliases", {}):
+            for module in config["aliases"][relative[6:-3].replace("/", ".")]:
+                reasons[paths[module]].add(relative)
+                queue.append(paths[module])
         elif relative in reverse or relative in paths.values():
             reasons[relative].add(relative)
             queue.append(relative)
@@ -234,7 +275,7 @@ def main(argv=None):
     selection.add_argument("--changed", action="store_true", help="当前暂存/未暂存/未跟踪变更")
     selection.add_argument("--since", help="相对 Git revision 的变更（含当前工作区）")
     selection.add_argument("--files", nargs="+", help="显式变更路径")
-    selection.add_argument("--test", nargs="+", help="测试模块、类或方法 ID")
+    selection.add_argument("--test", nargs="+", help="领域、层级、模块、类或方法 ID；支持旧模块别名")
     selection.add_argument("--layer", help="配置中的 unit/integration/system 分组")
     selection.add_argument("--check-config", action="store_true", help="只检查配置覆盖")
     parser.add_argument("--list", action="store_true", help="只列出选择及其原因")
@@ -259,10 +300,12 @@ def main(argv=None):
             if ignored:
                 print("非运行时变更（另做文档/引用检查）：" + ", ".join(ignored))
         elif args.test:
-            for selector in args.test:
-                if not any(case.id() == selector or case.id().startswith(selector + ".") for case in cases):
+            selections = resolve_selectors(args.test, config)
+            for selector, targets in selections.items():
+                if not any(case.id() == target or case.id().startswith(target + ".") for case in cases for target in targets):
                     raise ConfigurationError(f"测试选择无匹配：{selector}")
-            selected = [case for case in cases if any(case.id() == item or case.id().startswith(item + ".") for item in args.test)]
+            targets = {target for values in selections.values() for target in values}
+            selected = [case for case in cases if any(case.id() == target or case.id().startswith(target + ".") for target in targets)]
         elif args.layer:
             if args.layer not in config["layers"]:
                 raise ConfigurationError(f"未知 layer：{args.layer}")
