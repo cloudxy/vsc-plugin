@@ -115,7 +115,7 @@ python3 -B tests/run.py --test post.integration.test_media_qa --durations 10 --r
 | 审片范围、镜头／片段 ID、legacy／sample、成片版本 | `post/unit/test_media_review.py`；真实 structured 完整审片和篡改复检在 `post/integration/test_media_qa.py` |
 | 生产／正式运行／检查三组媒体样本 | 共用 `support/fixtures/media.py` 的单进程字节工厂，工作目录仍各自创建 |
 
-后续模块与 PostgreSQL 改造已按[工程升级方案](../docs/plans/2026-10-15-project-resource-panel-engineering-upgrade.md)实施，见[资源面板指南](../docs/guide/resource-panel.md)。原测试整理的对应记录保留。
+后续模块与 PostgreSQL 改造的当前用法见[资源面板指南](../docs/guide/resource-panel.md)。原测试整理的对应记录保留。
 
 ## 可选数据库与网页验证
 
