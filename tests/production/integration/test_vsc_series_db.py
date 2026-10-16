@@ -318,6 +318,18 @@ class SeriesDatabase(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return job_id, context, image
 
+    def test_legacy_queue_rejects_unfixed_video_audio_reference(self):
+        with patch.object(vsc_series, "validate_artifact", return_value=[]):
+            self._shot_fixture()
+            self._reference("face-day", "char", "identity_face", "day")
+            self._reference("room", "loc", "location_master")
+            context = vsc_series.build_shot_context(self.project, "SH1")
+            request = {"format": "vsc.generation-request/v1", "modality": "video", "shot_id": "SH1",
+                "purpose": "reference_video", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
+                "reference_media_ids": ["face-day", "room"], "reference_audio_media_ids": ["unfixed-audio"]}
+            with self.assertRaisesRegex(vsc_series.SeriesError, "PostgreSQL"):
+                jobs.plan_job(self.project, "unreached-run", request)
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_approved_series_job_dispatch_resume_transfer_and_rights(self):
         with patch.object(vsc_series, "validate_artifact", return_value=[]):

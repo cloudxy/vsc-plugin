@@ -55,7 +55,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if version != "0001_resource_graph":
+                if version != "0002_review_delegation":
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
                 return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
         except SQLAlchemyError as exc:
@@ -258,6 +258,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             wide = bool(payload.get("project_wide", not scopes))
             if wide == bool(scopes):
                 raise ResourceError("项目级范围与对象范围互斥且必须指定其一", "invalid_scope")
+            if payload.get("artifact_type") == "vsc.review_delegation":
+                from vsc.assets.review_delegation import errors
+                if errors(document) or document.get("project_id") != p or wide:
+                    raise ResourceError("委托需要有效固定政策与明确项目内对象范围", "invalid_delegation")
             artifact_key = required(payload, "artifact_key")
             supersedes_id = checked_id(payload["supersedes_id"]) if payload.get("supersedes_id") else None
             if supersedes_id:
@@ -450,6 +454,11 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             p = project["id"]
             artifact = self._one(conn, S.artifact_versions, p, required(payload, "artifact_id"))
             outcome = payload.get("outcome", "approve")
+            if artifact["artifact_type"] == "vsc.review_delegation":
+                from vsc.assets.review_delegation import document, errors
+                policy = document(artifact["document"])
+                if errors(policy) or actor != policy["grantor_actor"] or actor == policy["delegate_actor"]:
+                    raise ResourceError("委托政策只能由固定的真实委托人批准或撤销", "delegation_grantor_required")
             if outcome == "approve":
                 if artifact["supersedes_id"]:
                     current = conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
@@ -855,16 +864,61 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             review = conn.execute(select(S.media_reviews).where(S.media_reviews.c.project_id == p,
                 S.media_reviews.c.candidate_id == candidate["id"], S.media_reviews.c.reviewer_type == "human")
                 .order_by(S.media_reviews.c.project_revision.desc(), S.media_reviews.c.id.desc()).limit(1)).mappings().first()
-            if not review or review["outcome"] != "pass":
+            delegation = None
+            if payload.get("delegation_artifact_id"):
+                if review and review["outcome"] != "pass":
+                    raise ResourceError("委托不能覆盖人工拒绝或修改要求", "human_review_veto")
+                delegation = self._delegated_selection(conn, p, candidate, slot, payload, actor)
+            elif payload.get("review_id"):
+                raise ResourceError("指定AI审查必须同时指定委托政策", "delegation_required")
+            elif not review or review["outcome"] != "pass":
                 raise ResourceError("选择前需要本用途的人工审查通过", "human_review_required")
             row_id = new_id()
             conn.execute(insert(S.binding_decisions).values(project_id=p, id=row_id, slot_id=slot["id"],
                 candidate_id=candidate["id"], outcome="select", **self._decision(conn, project, actor, required(payload, "reason"))))
+            if delegation:
+                conn.execute(insert(S.binding_selection_delegations).values(project_id=p, decision_id=row_id,
+                    slot_id=slot["id"], candidate_id=candidate["id"], **delegation))
             conn.execute(pg_insert(S.current_bindings).values(project_id=p, slot_id=slot["id"], candidate_id=candidate["id"], decision_id=row_id)
                 .on_conflict_do_update(index_elements=[S.current_bindings.c.project_id, S.current_bindings.c.slot_id],
                     set_={"candidate_id": candidate["id"], "decision_id": row_id}))
             return {"id": row_id, "decision_id": row_id, "slot_id": slot["id"], "candidate_id": candidate["id"], "outcome": "select"}
         return self._mutate(project_id, "select_candidate", payload, actor=actor, callback=work, **kw)
+
+    def _delegated_selection(self, conn, p, candidate, slot, payload, actor):
+        from vsc.assets.review_delegation import TYPE, document, errors
+        artifact = self._one(conn, S.artifact_versions, p, required(payload, "delegation_artifact_id"))
+        if artifact["artifact_type"] != TYPE:
+            raise ResourceError("固定委托政策类型无效", "invalid_delegation")
+        policy = document(artifact["document"])
+        if errors(policy) or policy["project_id"] != p:
+            raise ResourceError("固定委托政策无效", "invalid_delegation")
+        approval = self._latest(conn, S.artifact_decisions, p, "artifact_id", artifact["id"])
+        if (not approval or approval["outcome"] != "approve" or approval["actor"] != policy["grantor_actor"]
+                or not self._artifact_approved(conn, p, artifact["id"])):
+            raise ResourceError("委托政策未获得有效委托人批准", "delegation_unapproved")
+        if policy["delegate_actor"] != actor or actor == policy["grantor_actor"]:
+            raise ResourceError("操作人不是固定受托人", "delegation_actor_mismatch")
+        if datetime.fromisoformat(policy["expires_at"].replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+            raise ResourceError("委托已经到期", "delegation_expired")
+        scopes = conn.execute(select(S.artifact_object_scopes.c.object_id).where(
+            S.artifact_object_scopes.c.project_id == p, S.artifact_object_scopes.c.artifact_id == artifact["id"])).scalars()
+        allowed_objects = set()
+        for scope in scopes:
+            allowed_objects.update(self._descendant_ids(conn, p, scope))
+        if artifact["project_wide"] or slot["target_object_id"] not in allowed_objects or slot["role"] not in policy["allowed_roles"]:
+            raise ResourceError("用途或对象超出委托范围", "delegation_scope_mismatch")
+        review = self._one(conn, S.media_reviews, p, required(payload, "review_id"))
+        latest = conn.execute(select(S.media_reviews).where(S.media_reviews.c.project_id == p,
+            S.media_reviews.c.candidate_id == candidate["id"], S.media_reviews.c.reviewer == actor,
+            S.media_reviews.c.reviewer_type == "ai").order_by(S.media_reviews.c.project_revision.desc(),
+                S.media_reviews.c.id.desc()).limit(1)).mappings().first()
+        if (review["candidate_id"] != candidate["id"] or review["reviewer"] != actor
+                or review["reviewer_type"] != "ai" or review["outcome"] != "pass"
+                or not latest or latest["id"] != review["id"]
+                or review["context_sha256"] != candidate["context_sha256"]):
+            raise ResourceError("委托选择需要本人对同一固定候选的最新AI审查通过", "delegation_review_mismatch")
+        return {"review_id": review["id"], "delegation_artifact_id": artifact["id"], "approval_decision_id": approval["id"]}
 
     def reject_candidate(self, project_id, payload, actor, **kw):
         def work(conn, project):
@@ -1041,6 +1095,16 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                       "revision": project["revision"], "offset": offset, "limit": limit, "totals": {
                           "candidates": conn.execute(select(func.count()).select_from(candidate_query.subquery())).scalar_one(),
                           "current_bindings": conn.execute(select(func.count()).select_from(current_query.subquery())).scalar_one()}}
+            delegation_query = select(S.binding_selection_delegations, S.media_reviews.c.reviewer,
+                S.media_reviews.c.reviewer_type).select_from(S.binding_selection_delegations.join(S.binding_candidates,
+                    and_(S.binding_selection_delegations.c.project_id == S.binding_candidates.c.project_id,
+                         S.binding_selection_delegations.c.candidate_id == S.binding_candidates.c.id)).join(S.media_reviews,
+                    and_(S.binding_selection_delegations.c.project_id == S.media_reviews.c.project_id,
+                         S.binding_selection_delegations.c.review_id == S.media_reviews.c.id))).where(
+                    S.binding_selection_delegations.c.project_id == p, S.binding_candidates.c.media_id == media_id)
+            result["totals"]["selection_delegations"] = conn.execute(select(func.count()).select_from(delegation_query.subquery())).scalar_one()
+            result["selection_delegations"] = [dict(r) for r in conn.execute(delegation_query.order_by(
+                S.binding_selection_delegations.c.decision_id).offset(offset).limit(limit)).mappings()]
             for label, table in (("operation_inputs", S.operation_inputs), ("job_inputs", S.job_input_media),
                     ("job_outputs", S.job_outputs), ("timeline_items", S.timeline_item_media),
                     ("render_inputs", S.render_inputs), ("render_outputs", S.render_outputs)):
@@ -1143,6 +1207,51 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         context["sha256"] = context_digest(clean(context))
         return context
 
+    @staticmethod
+    def _context_plan_applies(artifact, object_keys):
+        """Honor explicit plan ownership in migrated project-wide artifacts."""
+        try:
+            document = json.loads(artifact["document"])
+        except (ValueError, UnicodeDecodeError):
+            return True
+        if not isinstance(document, dict) or document.get("format") not in {
+                "vsc.continuity-plan/v1", "vsc.sound-cue-sheet/v1"}:
+            return True
+        for kind in ("scene", "sequence"):
+            owner = document.get(kind + "_id")
+            if owner and owner not in object_keys[kind]:
+                return False
+        if document.get("format") == "vsc.continuity-plan/v1" and isinstance(document.get("shots"), list):
+            return any(row.get("id") in object_keys["shot"] for row in document["shots"] if isinstance(row, dict))
+        return True
+
+    def _compatible_context_specs(self, conn, p, first, second):
+        """Compare approved bible revisions without replacing either fixed pin."""
+        if first["asset_id"] != second["asset_id"]:
+            return False
+        if first["artifact_id"] == second["artifact_id"]:
+            return True
+        artifacts = [self._one(conn, S.artifact_versions, p, spec["artifact_id"]) for spec in (first, second)]
+        if artifacts[0]["artifact_key"] != artifacts[1]["artifact_key"]:
+            return False
+        old, new = sorted(artifacts, key=lambda row: row["version"])
+        alias = self._one(conn, S.creative_objects, p, first["asset_id"])["display_code"]
+        rows = []
+        for artifact in (old, new):
+            try:
+                document = json.loads(artifact["document"])
+            except (ValueError, UnicodeDecodeError):
+                return False
+            if not isinstance(document, dict) or document.get("format") != "vsc.asset-bible/v1":
+                return False
+            matches = [row for key in ("entities", "styles", "sounds") for row in document.get(key, [])
+                       if isinstance(row, dict) and row.get("id") in {first["asset_id"], alias}]
+            if len(matches) != 1:
+                return False
+            rows.append(matches[0])
+        from vsc.project.artifacts import _same_identity
+        return _same_identity(*rows)
+
     def _compile_context(self, conn, project, shot_id, purpose=None):
         p = project["id"]
         shot = self._one(conn, S.shots, p, shot_id)
@@ -1163,7 +1272,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             or_(S.artifact_versions.c.project_wide.is_(True), S.artifact_versions.c.id.in_(
                 select(S.artifact_object_scopes.c.artifact_id).where(S.artifact_object_scopes.c.project_id == p,
                     S.artifact_object_scopes.c.object_id.in_(ancestor_ids)))))).mappings().all()
-        approved = [dict(a) for a in artifacts if self._artifact_approved(conn, p, a["id"])]
+        object_keys = {kind: {row["id"], self._one(conn, S.creative_objects, p, row["id"])["display_code"]}
+                       for kind, row in (("scene", scene), ("sequence", sequence), ("shot", shot))}
+        approved = [dict(a) for a in artifacts if self._context_plan_applies(a, object_keys)
+                    and self._artifact_approved(conn, p, a["id"])]
         gaps, selected_artifacts = [], []
         by_key = {}
         for artifact in approved:
@@ -1175,14 +1287,6 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             else:
                 selected_artifacts.append(versions[0])
         artifact_ids = [a["id"] for a in selected_artifacts]
-        fixed_asset_refs = {}
-        for ref in conn.execute(select(S.artifact_asset_spec_refs).where(S.artifact_asset_spec_refs.c.project_id == p,
-                S.artifact_asset_spec_refs.c.artifact_id.in_(artifact_ids))).mappings():
-            spec = self._one(conn, S.asset_spec_versions, p, ref["spec_version_id"])
-            previous = fixed_asset_refs.get(ref["asset_id"])
-            if previous and previous["artifact_id"] != spec["artifact_id"]:
-                gaps.append({"code": "asset_version_conflict", "asset_id": ref["asset_id"]})
-            fixed_asset_refs[ref["asset_id"]] = spec
         coverage_rows = conn.execute(select(S.shot_line_coverage, S.script_lines.c.text,
             S.script_lines.c.line_key, S.script_lines.c.speaker_id, S.script_lines.c.script_version_id)
             .select_from(S.shot_line_coverage.join(S.script_lines,
@@ -1251,15 +1355,33 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             S.binding_slots.c.target_object_id.in_([shot_id] + sorted(asset_ids)),
             S.binding_slots.c.role.in_(tuple(ROLE_MATRIX)))).mappings().all()
         spec_by_identity = {r["asset_id"]: r["spec_version_id"] for r in entity_refs if r["spec_version_id"]}
+        fixed_asset_refs = {}
+        references = conn.execute(select(S.artifact_asset_spec_refs, S.artifact_versions.c.version)
+            .select_from(S.artifact_asset_spec_refs.join(S.asset_spec_versions, and_(
+                S.artifact_asset_spec_refs.c.project_id == S.asset_spec_versions.c.project_id,
+                S.artifact_asset_spec_refs.c.spec_version_id == S.asset_spec_versions.c.id)).join(S.artifact_versions, and_(
+                S.asset_spec_versions.c.project_id == S.artifact_versions.c.project_id,
+                S.asset_spec_versions.c.artifact_id == S.artifact_versions.c.id)))
+            .where(S.artifact_asset_spec_refs.c.project_id == p,
+                   S.artifact_asset_spec_refs.c.artifact_id.in_(artifact_ids),
+                   S.artifact_asset_spec_refs.c.asset_id.in_(sorted(asset_ids)))
+            .order_by(S.artifact_versions.c.version, S.artifact_asset_spec_refs.c.spec_version_id)).mappings()
+        conflicted_assets = set()
+        for ref in references:
+            spec = self._one(conn, S.asset_spec_versions, p, ref["spec_version_id"])
+            previous = fixed_asset_refs.setdefault(ref["asset_id"], spec)
+            if not self._compatible_context_specs(conn, p, previous, spec):
+                conflicted_assets.add(ref["asset_id"])
+            extra_artifact_ids.add(spec["artifact_id"])
         for asset_id, fixed in fixed_asset_refs.items():
-            if asset_id not in asset_ids:
-                continue
             existing = self._one(conn, S.asset_spec_versions, p, spec_by_identity[asset_id]) if asset_id in spec_by_identity else None
-            if existing and existing["artifact_id"] != fixed["artifact_id"]:
-                gaps.append({"code": "asset_version_conflict", "asset_id": asset_id})
+            if existing and not self._compatible_context_specs(conn, p, existing, fixed):
+                conflicted_assets.add(asset_id)
             else:
                 spec_by_identity.setdefault(asset_id, fixed["id"])
-            extra_artifact_ids.add(fixed["artifact_id"])
+                if existing:
+                    fixed_asset_refs[asset_id] = existing
+        gaps.extend({"code": "asset_version_conflict", "asset_id": asset_id} for asset_id in sorted(conflicted_assets))
         ranked_slots = {}
         for slot in slots:
             if slot["role"] in POST_ROLES:
@@ -1387,6 +1509,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     if audio:
                         selected.update({k: entity[k] for k in ("voice", "sound") if k in entity})
                     entities.append(selected)
+                if not entities:
+                    continue
                 fragment = {"entities": entities}
             elif fmt == "vsc.scene-state/v1":
                 from vsc.story.consistency import derive

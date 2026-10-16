@@ -33,6 +33,7 @@ class VideoRequest(BaseRequest):
     duration_ms: int = 5000
     first_frame_media_id: str | None = None
     last_frame_media_id: str | None = None
+    reference_audio_media_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

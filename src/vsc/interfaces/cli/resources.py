@@ -21,6 +21,8 @@ def main(argv=None):
     parser.add_argument("--database-env", default="VSC_DATABASE_URL")
     parser.add_argument("--media-root")
     sub = parser.add_subparsers(dest="command", required=True)
+    delegation = sub.add_parser("validate-delegation-file")
+    delegation.add_argument("file")
     from vsc.project.migration import migration_parser, run_migration_args
     migration_parser(sub)
     sub.add_parser("projects")
@@ -74,6 +76,13 @@ def main(argv=None):
     previews.add_argument("--retry-failed", action="store_true")
     previews.add_argument("--stale-after-seconds", type=int, default=300)
     args = parser.parse_args(argv)
+    if args.command == "validate-delegation-file":
+        from vsc.assets.review_delegation import errors
+        problems = errors(Path(args.file).read_bytes())
+        print(json.dumps({"passed": not problems, "errors": problems}, ensure_ascii=False))
+        if problems:
+            raise SystemExit(1)
+        return
     from vsc.assets.resource_service import ResourceError
     service = None
     try:

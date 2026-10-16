@@ -67,6 +67,8 @@ def project_errors(data, project, state, item):
                                                  if key not in ('format', 'modality')})
             if not isinstance(logical.prompt, str) or not logical.prompt.strip() or not isinstance(logical.params, dict):
                 raise ValueError('提示词或参数对象无效')
+            if getattr(logical, 'reference_audio_media_ids', ()):
+                raise ValueError('独立视频音频参考目前须使用PostgreSQL固定用途与任务接口')
             if any(key in logical.params for key in ('provider', 'model', 'external_task_id', 'base_url', 'auth_ref')):
                 raise ValueError('逻辑请求包含供应商参数')
             if not isinstance(logical.reference_media_ids, (list, tuple)) or not all(

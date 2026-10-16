@@ -31,6 +31,7 @@ ROLE_MATRIX = {
     "composition": ({"shot"}, {"image"}),
     "first_frame": ({"shot"}, {"image"}),
     "last_frame": ({"shot"}, {"image"}),
+    "reference_audio": ({"shot"}, {"audio"}),
     "prop": ({"asset", "shot"}, {"image"}),
     "video_take": ({"shot"}, {"video"}),
     "dialogue_dry": ({"shot"}, {"audio"}),
@@ -284,6 +285,8 @@ class ResourceService:
 
     def select_candidate(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
+        if payload.get("delegation_artifact_id") and self.storage is None:
+            raise ResourceError("委托选择必须核验受控存储实际字节", "delegation_storage_required")
         if self.storage is not None:
             candidate = self.store.get_binding_candidate(project_id, required(payload, "candidate_id"))
             self._verify_media(project_id, candidate["media_id"])

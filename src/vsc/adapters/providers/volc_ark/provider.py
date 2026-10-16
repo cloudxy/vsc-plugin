@@ -98,14 +98,17 @@ class VolcArkVideoProvider:
         first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
         last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
         refs = [self.media_url(media_id) for media_id in req.reference_media_ids]
+        audio_refs = [self.media_url(media_id) for media_id in req.reference_audio_media_ids]
         # The existing Ark contract distinguishes hard first/last frames from
         # reference mode. Never silently weaken a hard frame to a reference.
-        if (first or last) and refs:
+        if (first or last) and (refs or audio_refs):
             raise VolcAdapterError("硬首尾帧与其他参考图不可混用；先调整统一镜头规格")
-        content = volc_ark.video_content(req.prompt, first=first, last=last, images=refs)
+        content = volc_ark.video_content(req.prompt, first=first, last=last, images=refs, audios=audio_refs)
         payload = {"model": self.model, "content": content, "resolution": self.resolution,
-                   "ratio": self.ratio, "duration": req.duration_ms // 1000,
+                   "duration": req.duration_ms // 1000,
                    "generate_audio": self.generate_audio, "return_last_frame": True, "watermark": False}
+        if not first:
+            payload["ratio"] = self.ratio
         raw = self.transport("/contents/generations/tasks", payload)
         task_id = raw.get("id") if isinstance(raw, dict) else None
         if not isinstance(task_id, str) or not task_id:

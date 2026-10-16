@@ -3,6 +3,16 @@
   "version": "2.0",
   "contracts": [
     {
+      "format": "vsc.review-delegation/v1",
+      "owner": "显式委托素材选择",
+      "artifact_types": ["vsc.review_delegation"],
+      "template": null,
+      "validator": {
+        "script": "scripts/vsc_resources.py",
+        "arguments": ["validate-delegation-file"]
+      }
+    },
+    {
       "format": "vsc.shot-context/v1",
       "owner": "数据库连续短剧镜头上下文",
       "template": null,

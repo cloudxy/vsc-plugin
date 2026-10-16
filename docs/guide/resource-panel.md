@@ -64,6 +64,8 @@ PostgreSQL 可选依赖与 FFmpeg/ffprobe 是新生产路径的运行依赖；PD
 
 模型注册通过 `registry provider|model|route --payload FILE --by 人员`。业务请求使用统一图像／视频／音频契约，不包含 SDK 参数或临时 URL。模型版本、能力、默认参数、批准的运行计划、固定媒体和版本关系都会进入任务快照。
 
+视频的音频参考使用独立 `reference_audio` 用途绑定与 `reference_audio_media_ids` 请求字段，模型须声明 `reference_audio` 能力。图像参考字段不能夹带音频；参考模式可组合图像和音频，硬首尾帧模式保持独立。视频是否生成原声由固定模型默认参数决定，不能在后期同时播放独立对白与重复的生成对白。
+
 正式 Profile 还要求先通过 `apply PROJECT_UUID configure_budget` 配置项目原生单位额度，输入为 `{"limits":{"remote_jobs":100,"images":30,"video_seconds":120,"speech_chars":2000,"audio_jobs":30,"vision_jobs":0},"reason":"经负责人确认的试点上限"}`。`budget PROJECT_UUID` 查询占用；实际提交在项目锁内预留，未知结果继续占用。实际用量和货币成本没有证据时保留未知，不把上限当实测值。
 
 ```bash
@@ -84,6 +86,14 @@ PostgreSQL 可选依赖与 FFmpeg/ffprobe 是新生产路径的运行依赖；PD
 首个人物参考图／场景母版从已批准身份规格编译 `asset-context`，无需已有自身参考；图像资产任务显式给 `asset_id`，镜头任务给 `shot_id`，数据库约束二选一。资产准备守剧本 Gate，镜头生产守预演 Gate，两者都需要正式 run 和预算。声音复刻能力没有实现时仍保持不可用。
 
 已冻结时间线通过 `render-export PROJECT_UUID TIMELINE_UUID --out DIRECTORY` 导出可迁移的渲染输入包，媒体按固定选择决定与 SHA 复制，原批准计划中的字幕、转场和样式保留。可加 `--remotion-out EDITOR_DIRECTORY` 一并准备含固定媒体的 Remotion 工程，或用 `remotion_plan.py scaffold PLAN OUTPUT` 接续已有编辑器。导出是只读投影，成功不代表浏览器渲染或人工审片已经通过。
+
+## 显式委托 AI 选择素材
+
+默认正式选择仍要求同一用途的人工审查通过。用户可另行批准 `vsc.review_delegation` 产物，契约为 `vsc.review-delegation/v1`，明确 `project_id`、`grantor_actor`、`delegate_actor`、`allowed_roles`、带时区的 `expires_at`、`action: "select_candidate"` 与 `final_release_authorized: false`。登记必须给出 `object_ids`，不得使用项目级隐含范围；层级对象覆盖其后代，资产身份须显式列出。只有固定委托人能够批准或撤销政策，受托 AI 不能自批。
+
+受托人调用 `record_review` 时保留 `reviewer_type: "ai"`，并固定与候选一致的 `context_sha256`；调用 `select_candidate` 时显式传入 `candidate_id`、`delegation_artifact_id`、`review_id` 和 `reason`。服务核验受控存储实际字节、权利、技术检查、政策批准、有效期、对象和用途范围，以及本人最新 AI 审查。人工拒绝或要求修改会阻断委托选择。缺少委托时，AI 审查不能替代人工审查。
+
+`binding_selection_delegations` 的一行表示一次选择决定使用的固定委托政策、批准决定与 AI 审查，主键是项目和选择决定，所有对象关联采用项目内复合外键且记录不可变。`get_media_usage` 的 `selection_delegations` 可逆查这些证据。操作授权、AI 审查和实际人工观看分别记录；该政策不授予最终发布权，也不形成成片人审通过事实。已有数据库需显式升级到 `0002_review_delegation`，旧批准与选择历史保持原样。
 
 ## 旧项目迁移与权威切换
 
