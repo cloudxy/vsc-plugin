@@ -1,7 +1,7 @@
 # ADR 0004：连续短剧的关系库权威与镜头上下文
 
 - 状态：已采纳，v0.13.0；适用于新建或显式迁移至 `vsc.series-db` 的项目。
-- 依据：[60 集以上工作流升级方案](../plans/2026-10-13-serial-drama-workflow-upgrade.md)与 [drama-skills 对标](../plans/2026-10-13-drama-skills-benchmark.md)。
+- 操作说明：[系列关系指南](../guide/series-db.md)。
 
 60 集以上、每集约 3 分钟的制作需要跨集追踪剧本、人物、地点、声音、镜头、候选和选择。原 `vsc.json` 足以表达状态，但不适合让 AI 按关系检索大量固定版本。采用新的 Profile，保持 production-v2 的阶段、依赖、批准与交付 Gate，同时将项目状态的唯一写入权威改为 `.vsc-series.sqlite3`。`vsc.json` 是旧只读消费者的派生镜像；摘要不一致时阻断操作，`repair-mirror` 只从数据库恢复镜像。旧 Profile 继续以 JSON 为权威，不能静默切换。
 

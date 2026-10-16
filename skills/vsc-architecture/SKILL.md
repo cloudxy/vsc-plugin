@@ -14,7 +14,7 @@ python3 scripts/vendor_skills.py --resolve architecture
 
 若 `mattpocock-skills` 已安装，直接阅读其中的 `improve-codebase-architecture`，以及其要求的 `codebase-design`、`grilling` 和 `domain-modeling` 原始 Skill。它们为 VSC 的架构审查提供方法，不会覆盖 VSC 的术语、ADR、权属、人工批准或 Vendor 生命周期规则。
 
-审查前先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题；区分“已有实现”“候选方案”“尚未实现”。临时审计、探索稿与中间产物写入系统临时目录；形成需要执行或持续维护的方案后，保存到 `docs/plans/` 并更新 `docs/README.md` 索引，明确候选／已实施状态。公开方案仅含可公开的通用结论，作品私有证据留在本机；维护方案不冒充作品交付物。
+审查前先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题；区分“已有实现”“候选方案”“尚未实现”。临时审计、探索稿与中间产物写入系统临时目录；形成需要执行或持续维护的方案后，保存到本机 `docs/plans/`，明确候选／已实施状态；该目录受 Git 忽略，计划及其索引不提交、不打包、不写入公开文档索引。只有用户明确要求发布的规范或使用说明才单独整理到公开文档；维护方案不冒充作品交付物。
 
 上游 Skill 的更新必须先经过 `vendor/.reviews/` 中的分析。新增 Skill 在显式路由前不能使用；被删除的已路由 Skill 不得静默消失，须在报告中决定保留已批准快照、替换路由或退役。
 

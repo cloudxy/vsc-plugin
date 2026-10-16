@@ -2,17 +2,6 @@
 
 文档按读者分组。工作流的事实来源是 [`workflow/`](../workflow/README.md)；文档解释它，不另立规则。
 
-## plans · 审查与改进方案
-
-| 文档 | 内容 |
-|---|---|
-| [创作体系、质量效率与后台资源升级方案（10 月 16 日）](plans/2026-10-16-vsc-creative-production-upgrade.md) | 当前候选方案：双主线创作升级、官方调用与简化更新、资源配置、无限画布；附完整方案和交互示意，尚未实施 |
-| [2026-10-11 短剧／短视频工作流深度审查](plans/2026-10-11-vsc-workflow-review.md) | 16 类问题、离线复现证据、7 个实施工作包与真实制作验收；工程改造见实施记录 |
-| [2026-10-12 实施记录](plans/2026-10-12-vsc-workflow-implementation.md) | 工作包、回归证据与真实制作验收边界 |
-| [工程结构与资源审查面板升级方案（10 月 15 日）](plans/2026-10-15-project-resource-panel-engineering-upgrade.md) | 当前候选方案：模块拆分、FastAPI、规范化关系与关联表、素材审查、建表 Skill 和分阶段验收；尚未实施 |
-| [项目资源面板与 PostgreSQL 首版方案（10 月 14 日）](plans/2026-10-14-project-resource-panel-postgresql.md) | 历史候选设计，已由 10 月 15 日方案扩展 |
-| [项目浏览器首版方案](plans/2026-10-14-project-browser.md) | 只读网页需求的历史候选设计，已由资源面板方案扩展 |
-
 ## guide · 使用与维护
 
 | 文档 | 内容 |

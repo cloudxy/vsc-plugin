@@ -2,7 +2,7 @@
 
 - 状态：已采纳（2026-10-15，用户批准实施工程升级方案）
 - 前序：[ADR-0004](0004-series-relational-authority.md)
-- 设计：[工程升级方案](../plans/2026-10-15-project-resource-panel-engineering-upgrade.md)
+- 操作说明：[资源面板指南](../guide/resource-panel.md)
 
 ## 决定
 

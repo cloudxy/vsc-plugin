@@ -34,4 +34,4 @@ VSC_CI_SCOPE=targeted VSC_CI_TESTS="maintenance.integration.test_vsc_local_ci" g
 
 定向模式仍执行内核、相关测试、跟踪文件和链接检查，失败会阻止推送；不是跳过钩子。显式 `VSC_CI_SCOPE=full` 或手动运行 `scripts/vsc_local_ci.py` 保留全量方式。不要把范围明确的小修改扩大为全仓库测试，也不要用定向模式掩盖影响不明的改动。
 
-临时审计与探索稿放 `tmp`；需要执行、持续维护的方案放 `docs/plans/`，并更新文档索引。
+临时审计与探索稿放 `tmp`；需要执行、持续维护的方案放本机 `docs/plans/`。该目录受 Git 忽略，计划与索引不提交、不打包；公开文档不链接其中的文件。
