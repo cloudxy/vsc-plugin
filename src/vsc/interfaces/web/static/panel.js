@@ -48,11 +48,9 @@ async function selectProject(id) {
   if (request !== state.treeRequest || state.project !== id) return;
   const project = data.project || {}; state.revision = data.revision ?? project.revision ?? 0;
   state.writable=project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
-  $('heading').textContent = project.name || project.title || '项目资源';
   $('project-meta').replaceChildren(el('p', 'hint', `${project.storage_policy || '关系库'} · r${state.revision} · ${project.read_only ? '只读' : '共享服务'}`));
   const selected = (data.nodes || []).find(node => node.id === state.object);
   if (!selected) { state.object = null; state.offset = 0; }
-  $('scope-label').textContent = selected ? `${names[selected.kind] || selected.kind} · ${selected.title || selected.id}` : '全部项目内容';
   renderTree(data.nodes || []);
   if (data.gaps?.length) notice(data.gaps.join('\n'));
   await Promise.all([loadResources(), loadArtifacts()]);
@@ -80,7 +78,7 @@ function renderTree(nodes) {
     button.setAttribute('aria-controls', 'resources artifacts');
     button.append(el('span', 'tree-kind', names[node.kind] || node.kind), el('span', '', node.title || node.display_code || node.id));
     button.addEventListener('click', guard(async () => {
-      state.object = node.id; state.offset = 0; $('scope-label').textContent = `${names[node.kind] || node.kind} · ${node.title || node.id}`;
+      state.object = node.id; state.offset = 0;
       $('tree').querySelectorAll('.tree-item').forEach(control => {
         const selected = control.dataset.id === node.id;
         control.classList.toggle('active', selected);
@@ -234,7 +232,7 @@ async function openArtifact(id) {
 function updateCompare(){$('compare-count').textContent=state.comparisons.size;}
 $('compare-open').addEventListener('click',guard(async()=>{$('compare-grid').replaceChildren();for(const media of state.comparisons.values()){const section=el('section');section.append(el('h3','',media.name || media.id),await player(media),facts('用途与来源',{bindings:media.bindings || [],rights:media.rights,sha256:media.sha256}));$('compare-grid').append(section);}if(!state.comparisons.size)$('compare-grid').append(el('p','empty','先在素材卡中勾选需要比较的候选。'));$('compare-dialog').showModal();}));
 $('projects').addEventListener('change',guard(()=>selectProject($('projects').value)));
-$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('scope-label').textContent='全部项目内容';$('tree').querySelectorAll('.tree-item').forEach(row=>{row.classList.remove('active');row.removeAttribute('aria-current');});await Promise.all([loadResources(),loadArtifacts()]);}));
+$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(row=>{row.classList.remove('active');row.removeAttribute('aria-current');});await Promise.all([loadResources(),loadArtifacts()]);}));
 $('filters').addEventListener('submit',guard(async event=>{event.preventDefault();state.offset=0;await loadResources();}));
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));

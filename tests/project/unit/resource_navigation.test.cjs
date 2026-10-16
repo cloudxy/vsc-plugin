@@ -110,5 +110,7 @@ test('late responses from another project cannot restore its navigation state', 
   await first;
   assert.equal(app.panel.state.project, 'B');
   assert.deepEqual(visible(app), ['work', 'asset']);
-  assert.equal(app.document.getElementById('heading').textContent, 'B');
+  assert.equal(app.panel.state.revision, projects.get('B').revision);
+  assert.equal(app.document.getElementById('heading'), null);
+  assert.equal(app.document.getElementById('scope-label'), null);
 });
