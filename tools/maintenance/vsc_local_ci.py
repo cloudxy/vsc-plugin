@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""VSC 本地 CI：完成修改后，在最终推送 main 前运行一次。
+"""VSC 本地 CI：按改动范围在最终推送前验证。
+
+--pre-push 读取 Git 推送引用：纯文档只检查跟踪文件和链接；
+VSC_CI_SCOPE=targeted 用于明确的小修改，可用 VSC_CI_TESTS 指定相关测试。
+其他改动默认全量；不带 --pre-push 的手动调用保持全量。
 
 vendor/、projects/ 与 library/ 只存在于维护者本机，线上环境无法复现，因此 VSC 不使用线上 CI。依次检查：
 
@@ -55,8 +59,8 @@ def check_doctor():
     return "", doctor_problems()
 
 
-def check_tests():
-    result = run(sys.executable, "-B", str(TESTS / "run.py"), "--all", "--durations", "5")
+def check_tests(selection=("--all",)):
+    result = run(sys.executable, "-B", str(TESTS / "run.py"), *selection, "--durations", "5")
     summary = next((line for line in result.stderr.splitlines() if line.startswith("Ran ")), "")
     if result.returncode == 0:
         timings = [line for line in result.stdout.splitlines() if line.startswith(("TEST RESULT:", "DURATION "))]
@@ -208,10 +212,57 @@ CHECKS = (
 )
 
 
+def push_paths(lines):
+    """Use the actual remote tips supplied by Git, including every pushed ref."""
+    paths = set()
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 4:
+            raise ValueError("无效的 pre-push 引用记录")
+        _, local, _, remote = fields
+        if set(local) == {"0"}:
+            continue
+        if set(remote) == {"0"}:
+            return None  # New remote history has no reliable comparison baseline.
+        result = run("git", "diff", "--name-only", "--no-renames", "-z", remote, local)
+        if result.returncode:
+            raise ValueError("无法读取推送差异：" + "\n".join(tail(result)))
+        paths.update(path for path in result.stdout.split("\0") if path)
+    return sorted(paths)
+
+
+def scoped_checks(paths, scope="auto", selectors=()):
+    if scope not in ("auto", "targeted", "full"):
+        raise ValueError("VSC_CI_SCOPE 必须为 auto、targeted 或 full")
+    docs_only = paths is not None and all(
+        path.startswith("docs/") or path in ("README.md", "GLOSSARY.md", "tests/README.md")
+        for path in paths)
+    if scope == "full" or (scope == "auto" and not docs_only):
+        return "full", CHECKS
+    if scope == "auto":
+        return "docs", tuple(item for item in CHECKS if item[0] in ("tracked", "links"))
+    if not selectors and not paths:
+        raise ValueError("定向检查需要推送差异或明确的 VSC_CI_TESTS")
+    selection = ("--test", *selectors) if selectors else ("--files", *paths)
+    return "targeted", (
+        ("doctor", check_doctor), ("tests", lambda: check_tests(selection)),
+        ("tracked", check_tracked), ("links", check_links))
+
+
 def main():
-    argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--pre-push", action="store_true")
+    args = parser.parse_args()
+    mode, checks = "full", CHECKS
+    if args.pre_push:
+        try:
+            mode, checks = scoped_checks(push_paths(sys.stdin), os.environ.get("VSC_CI_SCOPE", "auto"),
+                                         os.environ.get("VSC_CI_TESTS", "").split())
+        except ValueError as exc:
+            parser.error(str(exc))
+    print(f"LOCAL CI SCOPE: {mode}", flush=True)
     failed = 0
-    for name, check in CHECKS:
+    for name, check in checks:
         detail, problems = check()
         print(f"{'FAIL' if problems else 'PASS'} {name:<9} {detail}".rstrip(), flush=True)
         for problem in problems:
