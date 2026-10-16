@@ -1,5 +1,30 @@
 # Vendor 候选更新与 Skill 生命周期
 
+## 资源配置页：检查后一次决定
+
+`scripts/vsc_provider_sync.py` 与内建资源配置页共用同一实现。点击“检查官方更新”显示当前和最新固定 commit；
+点击“更新”就是本次采用授权，后台完成下载、资源包验证、差异分析和切换。“不更新”直接保留当前版本。
+这条入口不额外创建人工审核步骤；下文的独立候选审查入口仍供用户只想分析、暂不采用时使用。
+
+```bash
+python3 scripts/vsc_provider_sync.py check --tool volcengine-ark-cli
+python3 scripts/vsc_provider_sync.py update --tool volcengine-ark-cli --revision <完整commit> --actor <真实操作人>
+```
+
+CLI 更新通过 `VSC_DATABASE_URL`（可用 `--database-env` 指定变量名）确认任务状态；网页复用已连接的 PostgreSQL。
+未连接任务权威、存在待提交／在途／提交结果未知任务时拒绝切换；新建任务与切换通过同一数据库锁协调。
+当前版本暂存在本机，完整新 Git 树先通过候选资源包校验，再切换目录和固定 revision；失败回滚两者。
+中断事务留有恢复日志，下次更新先恢复旧版本。并发更新使用本机锁，下载期间基线改变时拒绝覆盖。
+已引用 Skill 删除或资源引用不完整直接使更新失败；原版本继续可用。结构检查不代表创作方法或线上生成效果已验证。
+
+官方来源已核实：[Ark CLI 官方仓库](https://github.com/volcengine/ark-cli) 与
+[Agent Plan 视觉模型文档](https://docs.volcengine.com/docs/ark/agent-plan-personal-visual-models?lang=en)。
+Git 更新只安装官方仓库里的 Skill 源码，**不安装 npm CLI、执行依赖或接通新的生产执行器**。
+官方独立 Skill 分发站、ZIP／npm 发布包尚未适配。已有登记 Git vendor 可用同一更新流程，但界面明确其来源身份，
+不会因出现在资源页就被标为模型供应商官方工具。OpenAI 宿主图像工具明确显示“宿主管理”，不承诺本地更新或回退。
+更新报告保存在 `vendor/.reviews/`，包含这次操作人和采用范围；新 Skill 不会自动获得 VSC 阶段路由。
+凭证、账号、套餐和付费策略不随工具更新改变，也不进行付费生成实测。
+
 ## 目标
 
 VSC 要持续发现开源项目的新能力，但“上游最新”不能直接等同于“VSC 当前可安全、可用地采用”。因此更新分成两个状态：
@@ -71,7 +96,7 @@ bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plug
 
 改项目代码不能替代删除宿主任务。已有安装应在用户授权下移除 ZCode 中指向 VSC 工作区或 VSC 维护入口的任务；核对系统 crontab／launchd 是否存在同类任务，不动其他插件任务。保留历史运行记录、审查报告、已安装 Vendor 和可复用缓存；无需为这次模式切换重新下载来源。候选快照恢复与显式采用仍遵守上述完整性与审批边界。
 
-## 采用流程
+## 独立候选审查的采用流程
 
 1. 阅读 `vendor/.reviews/<source>-<candidate>.md` 和必要的原始 `SKILL.md` diff。
 2. 记录兼容性、权属、运行环境、路由和删除处置结论。
@@ -79,4 +104,4 @@ bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plug
 4. 执行 `python3 scripts/vendor_sync.py --install <source>`，使 active Vendor 与固定 revision 一致。
 5. 执行 `python3 scripts/vendor_sync.py --write-declaration`、`python3 scripts/vsc_kernel.py doctor` 和相关测试；再决定是否提交 VSC 配置变更。
 
-任何候选分析失败、下载失败或未完成审查时，当前 active Vendor 保持不变。
+独立候选流程中，分析失败、下载失败或未决定采用时，当前 active Vendor 保持不变。资源配置页使用本文开头的一次更新决定，由后台完成必要检查，不再叠加此手工流程。

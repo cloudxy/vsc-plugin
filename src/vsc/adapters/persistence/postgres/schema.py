@@ -314,6 +314,18 @@ current_bindings = Table("current_bindings", metadata, uid("project_id", nullabl
     ForeignKeyConstraint(["project_id", "slot_id", "candidate_id", "decision_id"],
                          ["binding_decisions.project_id", "binding_decisions.slot_id", "binding_decisions.candidate_id", "binding_decisions.id"]))
 
+# One immutable adoption fact per selection decision and source trial run.
+# A processed take can have several trial origins; do not collapse that M:N.
+binding_trial_adoptions = Table("binding_trial_adoptions", metadata,
+    uid("project_id", nullable=False), uid("decision_id", nullable=False),
+    uid("run_version_id", nullable=False), uid("animatic_version_id", nullable=False),
+    uid("animatic_approval_id", nullable=False),
+    PrimaryKeyConstraint("project_id", "decision_id", "run_version_id"),
+    ForeignKeyConstraint(["project_id", "decision_id"], ["binding_decisions.project_id", "binding_decisions.id"]),
+    ForeignKeyConstraint(["project_id", "run_version_id"], ["artifact_versions.project_id", "artifact_versions.id"]),
+    ForeignKeyConstraint(["project_id", "animatic_version_id", "animatic_approval_id"],
+                         ["artifact_decisions.project_id", "artifact_decisions.artifact_id", "artifact_decisions.id"]))
+
 providers = Table("providers", metadata, Column("id", Text, primary_key=True),
     Column("name", Text, nullable=False), Column("modality", Text, nullable=False),
     Column("base_url", Text, nullable=False), Column("auth_ref", Text, nullable=False),
@@ -325,11 +337,22 @@ provider_models = Table("provider_models", metadata, uid(primary_key=True),
     Column("default_params", JSONB, nullable=False), Column("cost_rule", JSONB, nullable=False),
     Column("enabled", Boolean, nullable=False), UniqueConstraint("provider_id", "model_key", "model_version"),
     UniqueConstraint("id", "provider_id", "model_version", "modality"))
+provider_configurations = Table("provider_configurations", metadata,
+    Column("provider_id", Text, ForeignKey("providers.id"), primary_key=True),
+    Column("supplier", Text, nullable=False), Column("product", Text, nullable=False),
+    Column("plan", Text, nullable=False), Column("region", Text, nullable=False),
+    Column("execution", Text, nullable=False), Column("tool_id", Text),
+    Column("previous_model_id", UUID(as_uuid=False), ForeignKey("provider_models.id"), unique=True),
+    Column("actor", Text, nullable=False), stamp())
 provider_routes = Table("provider_routes", metadata, uid(primary_key=True),
     Column("modality", Text, nullable=False), Column("purpose", Text, nullable=False),
     Column("preferred_provider", Text, ForeignKey("providers.id"), nullable=False),
     Column("fallback_provider", Text, ForeignKey("providers.id")),
-    Column("priority", Integer, nullable=False), Column("enabled", Boolean, nullable=False))
+    Column("priority", Integer, nullable=False), Column("enabled", Boolean, nullable=False),
+    Column("preferred_model_id", UUID(as_uuid=False)), Column("preferred_model_version", Text),
+    ForeignKeyConstraint(["preferred_model_id", "preferred_provider", "preferred_model_version", "modality"],
+        ["provider_models.id", "provider_models.provider_id", "provider_models.model_version", "provider_models.modality"]),
+    CheckConstraint("(preferred_model_id IS NULL) = (preferred_model_version IS NULL)", name="model_version_pair"))
 generation_jobs = project_table("generation_jobs", *ref("artifact_versions", "run_version_id"),
     *ref("shots", "shot_id", nullable=True), *ref("asset_identities", "asset_id", nullable=True),
     Column("purpose", Text, nullable=False), Column("modality", Text, nullable=False),
@@ -451,6 +474,7 @@ for table_name, fields in {
     "binding_slots": ("target_object_id",), "binding_candidates": ("media_id", "slot_id"),
     "media_reviews": ("candidate_id",), "binding_decisions": ("candidate_id",),
     "binding_selection_delegations": ("delegation_artifact_id", "review_id"),
+    "binding_trial_adoptions": ("run_version_id", "animatic_version_id"),
     "job_input_media": ("media_id",), "job_input_versions": ("artifact_id",),
     "job_outputs": ("media_id",), "generation_jobs": ("status", "shot_id", "asset_id"),
     "artifact_asset_spec_refs": ("asset_id", "spec_version_id"),
@@ -462,13 +486,14 @@ for table_name, fields in {
         Index("ix_%s_project_%s" % (table_name, field), table.c.project_id, table.c[field])
 
 APPEND_ONLY_TABLES = (
+    "provider_configurations",
     "budget_limit_versions",
     "project_revisions", "command_receipts", "artifact_versions", "artifact_dependencies",
     "artifact_object_scopes", "artifact_decisions", "asset_spec_versions", "artifact_asset_spec_refs", "script_lines",
     "shot_line_coverage", "state_versions", "state_entity_refs", "continuity_edges",
     "media_blobs", "media_items", "source_versions", "media_sources", "rights_decisions",
     "media_lifecycle_decisions", "media_checks", "library_reuses", "binding_candidates",
-    "media_reviews", "binding_decisions", "binding_selection_delegations", "job_events", "job_input_media", "job_input_versions",
+    "media_reviews", "binding_decisions", "binding_selection_delegations", "binding_trial_adoptions", "job_events", "job_input_media", "job_input_versions",
     "job_outputs", "voice_spec_versions", "character_voice_bindings", "timeline_versions",
     "timeline_items", "timeline_item_media", "render_versions", "render_inputs", "render_outputs",
 )

@@ -1,0 +1,23 @@
+{
+  "format": "vsc.quality-plan/v1",
+  "project_id": "replace-project-id",
+  "repeated_failure_limit": 2,
+  "requirements": [
+    {
+      "id": "required-variant",
+      "priority": "must",
+      "criterion": "该用途使用批准规格中的资产变体",
+      "tolerance": "变体必须精确一致；其他画面容差见对应规格",
+      "source": {"path": "approved-spec.json", "sha256": "", "pointer": "/variant"},
+      "bindings": [{"input_id": "frozen-request", "pointer": "/variant", "equals_source": true}]
+    }
+  ],
+  "inputs": [
+    {"id": "frozen-request", "channel": "request", "ref": {"path": "request.json", "sha256": ""}}
+  ],
+  "risks": [
+    {"id": "representative-interaction", "hypothesis": "当前方法可完成本用途的手物接触", "stop_condition": "达到已约定轮数或 run 预算即停止原路线", "evaluation_ref": null}
+  ],
+  "attempts": [],
+  "review_reuse": []
+}

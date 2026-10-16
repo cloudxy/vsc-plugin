@@ -1,0 +1,12 @@
+{
+  "trial_id": "TR-请替换为已有受控试用",
+  "context_sha256": "请替换为试用上下文完整摘要",
+  "method_sha256": "请替换为受控试用方法完整摘要",
+  "hypothesis": "请填写本次小样要检验的具体能力假设",
+  "criteria": "请填写可观察的必要条件、容差与有效区间",
+  "stop_condition": "请填写轮数、预算或明确失败时停止原路线的条件",
+  "max_remote_jobs": 2,
+  "allowed_shot_ids": ["请填写限定镜头ID"],
+  "allowed_asset_ids": ["请填写全部入画实体与地点的资产ID"],
+  "output_use": "preproduction_only"
+}

@@ -70,14 +70,14 @@ class BudgetRepository:
                     S.job_budget_reservations.c.status != "released")).mappings()]})
 
     def _reserve_budget(self, conn, project, job):
-        if project.get("profile_snapshot", {}).get("contract_policy") != "production-v2":
+        run = self._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
+        document = json.loads(run["document"])
+        if project.get("profile_snapshot", {}).get("contract_policy") != "production-v2" and document.get("phase") != "trial":
             return
         limits = self._limits(conn, project["id"])
         requested = native_units(job["request_payload"])
         if not set(requested) <= set(limits):
             raise ResourceError("正式项目须先配置全部所需原生单位预算", "budget_not_configured")
-        run = self._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
-        document = json.loads(run["document"])
         operation = "%s:%s:%s:%s" % ("asset" if job.get("asset_id") else "series",
             job.get("asset_id") or job["shot_id"], job["purpose"], job["candidate_no"])
         bound = document.get("operations", {}).get(operation)

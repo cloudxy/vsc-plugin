@@ -5,6 +5,8 @@ description: "Edit VSC takes into a timeline with sound, music, subtitles, revie
 
 # VSC 后期
 
+按[可用区间与定向复核](../vsc/references/creative-production.md)滚动完成局部粗剪，优先检查动作／反应覆盖、节奏和声音接点。局部缺陷先比较保留区间、裁切、合成、替换、调整剪辑与重生；用 `scripts/vsc_quality.py check` 汇总区间并集及分单位成本、主动工时与等待。未知审美不得写通过；审查复用仍需现行批准与依赖检查。
+
 在时间线中表达真正的剪切、转场、对白、音效、BGM、字幕、调色与混音，而不是把多个片段伪装成一条连续镜头。审片分开检查：叙事理解、人物/空间/声音连续性、技术交付和素材用途。问题优先退回造成问题的最早阶段；交付清单必须列明选中的版本、规格、授权范围与责任人的最终决定。
 
 按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `post` 阶段；所有上游命令仍以 VSC 已批准的时间线、文件路径和输出规格为准。

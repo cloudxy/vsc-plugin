@@ -50,5 +50,7 @@
   "vendor_sync": "tools.maintenance.vendor_sync",
   "vendor_watch": "tools.maintenance.vendor_watch",
   "vsc_local_ci": "tools.maintenance.vsc_local_ci",
-  "vsc_pre_commit": "tools.maintenance.vsc_pre_commit"
+  "vsc_pre_commit": "tools.maintenance.vsc_pre_commit",
+  "vsc_quality": "vsc.production.quality_plan",
+  "vsc_provider_sync": "tools.maintenance.provider_sync"
 }

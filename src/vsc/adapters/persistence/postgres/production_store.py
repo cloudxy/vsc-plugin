@@ -3,13 +3,14 @@ from datetime import datetime, timedelta, timezone
 import json
 import re
 import uuid
-from sqlalchemy import and_, func, insert, or_, select, update
+from sqlalchemy import and_, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from vsc.assets.resource_service import Conflict, NotFound, ResourceError, required
 from . import schema as S
 from .values import checked_id, clean, digest, new_id
 from vsc.production.run_authorization import authorize_run, normalize_request, validate_capabilities
+from .production_guard import validate_guard, validate_submission
 
 
 class ProductionRepository:
@@ -73,6 +74,7 @@ class ProductionRepository:
         row_id = checked_id(payload.get("id", str(uuid.uuid5(uuid.NAMESPACE_URL, "vsc:route:%s:%s:%s" % (modality, purpose, priority)))))
         values = {"id": row_id, "modality": modality, "purpose": purpose, "priority": priority,
                   "preferred_provider": required(payload, "preferred_provider"),
+                  "preferred_model_id": None, "preferred_model_version": None,
                   "fallback_provider": payload.get("fallback_provider"), "enabled": bool(payload.get("enabled", True))}
         try:
             with self.engine.begin() as conn:
@@ -115,6 +117,9 @@ class ProductionRepository:
         job["events"] = [dict(r) for r in conn.execute(select(S.job_events).where(
             S.job_events.c.project_id == p, S.job_events.c.job_id == job_id).order_by(S.job_events.c.created_at, S.job_events.c.id)).mappings()]
         job["provider"] = dict(conn.execute(select(S.providers).where(S.providers.c.id == job["provider_id"])).mappings().one())
+        identity = conn.execute(select(S.provider_configurations).where(S.provider_configurations.c.provider_id == job["provider_id"])).mappings().first()
+        if identity:
+            job["provider"]["configuration"] = dict(identity)
         job["model"] = dict(conn.execute(select(S.provider_models).where(S.provider_models.c.id == job["model_id"])).mappings().one())
         job["revision"] = project["revision"]
         return job
@@ -171,6 +176,7 @@ class ProductionRepository:
             if (job["status"] != "created" or job["claim_owner"] != worker or not job["claim_until"]
                     or job["claim_until"] <= datetime.now(timezone.utc)):
                 raise Conflict("提交任务的worker租约无效", "worker_lease_conflict")
+            validate_submission(self, conn, project, job)
             self._reserve_budget(conn, project, job)
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"])
                 .values(status="submission_unknown", attempt=job["attempt"] + 1, updated_at=datetime.now(timezone.utc)))
@@ -181,6 +187,7 @@ class ProductionRepository:
 
     def create_generation_job(self, project_id, payload, **kw):
         def work(conn, project):
+            conn.execute(text("SELECT pg_advisory_xact_lock_shared(867530916)"))
             p = project["id"]
             shot_id = checked_id(payload["shot_id"]) if payload.get("shot_id") else None
             asset_id = checked_id(payload["asset_id"]) if payload.get("asset_id") else None
@@ -197,11 +204,19 @@ class ProductionRepository:
             run = self._one(conn, S.artifact_versions, p, required(payload, "run_version_id"))
             if not self._artifact_approved(conn, p, run["id"]):
                 raise ResourceError("运行版本未批准", "run_unapproved")
-            model_id = checked_id(required(payload, "model_id"))
-            model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == model_id)).mappings().first()
+            model_id = payload.get("model_id")
+            if not model_id:
+                route = conn.execute(select(S.provider_routes).where(S.provider_routes.c.enabled,
+                    S.provider_routes.c.modality == payload.get("modality"), S.provider_routes.c.purpose == payload.get("purpose"),
+                    S.provider_routes.c.preferred_model_id.is_not(None)).order_by(S.provider_routes.c.priority, S.provider_routes.c.id).limit(1)).mappings().first()
+                if not route:
+                    raise ResourceError("需要显式 model_id 或适用的默认配置", "model_default_missing")
+                model_id = route["preferred_model_id"]
+            model_id = checked_id(model_id)
+            model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == model_id).with_for_update(read=True)).mappings().first()
             if not model or not model["enabled"]:
                 raise ResourceError("模型未注册或未启用", "model_unavailable")
-            provider = conn.execute(select(S.providers).where(S.providers.c.id == model["provider_id"])).mappings().one()
+            provider = conn.execute(select(S.providers).where(S.providers.c.id == model["provider_id"]).with_for_update(read=True)).mappings().one()
             if not provider["enabled"] or model["modality"] != payload.get("modality"):
                 raise ResourceError("Provider 或模型模态不可用", "model_unavailable")
             request = dict(required(payload, "request_payload"))
@@ -224,6 +239,7 @@ class ProductionRepository:
                 version = self._one(conn, S.artifact_versions, p, artifact_id)
                 if version["sha256"] != sha or not self._artifact_approved(conn, p, artifact_id):
                     raise ResourceError("run固定上游版本摘要或批准失效", "run_inputs_mismatch")
+            validate_guard(self, conn, project, run, context=context)
             voice_binding = validate_capabilities(dict(model), request, context)
             if voice_binding:
                 request["voice_binding"] = voice_binding
@@ -265,6 +281,7 @@ class ProductionRepository:
             if status not in allowed[job["status"]]:
                 raise Conflict("生成任务状态转换不允许", "invalid_job_transition")
             if job["status"] == "created" and status in {"submitted", "submission_unknown"}:
+                validate_submission(self, conn, project, job)
                 self._reserve_budget(conn, project, job)
             if job["status"] == "submission_unknown" and not payload.get("recovery_evidence"):
                 raise ResourceError("未知提交结果必须提供恢复证据，禁止直接重提", "recovery_evidence_required")

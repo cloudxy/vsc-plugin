@@ -1,12 +1,32 @@
 """Resolve a frozen resource job to the Ark provider implementation."""
 import base64
+from dataclasses import replace
 from vsc.assets.resource_service import ResourceError
+
+
+class ConfiguredArkProvider:
+    """Keep registry account IDs out of the vendor's transport handle identity."""
+    def __init__(self, adapter, provider_id):
+        self.adapter, self.provider_id = adapter, provider_id
+
+    def __getattr__(self, name):
+        return getattr(self.adapter, name)
+
+    def submit(self, request):
+        return replace(self.adapter.submit(request), provider=self.provider_id)
+
+    def poll(self, handle):
+        if handle.provider != self.provider_id:
+            raise ResourceError("任务不属于此配置", "invalid_provider_config")
+        return self.adapter.poll(replace(handle, provider="volc_ark"))
 
 def volc_ark_factory(job, storage):
     """Translate registered model defaults to the first provider implementation."""
     from vsc.adapters.providers import credentials
     from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider
-    if job["provider_id"] != "volc_ark":
+    identity = job["provider"].get("configuration", {})
+    configured_ark = (identity.get("supplier"), identity.get("product"), identity.get("plan"), identity.get("execution")) == ("volcengine", "ark", "agent-plan", "api")
+    if job["provider_id"] != "volc_ark" and not configured_ark:
         raise ResourceError("此 Provider 尚未安装适配器", "adapter_unavailable")
     if job["provider"]["base_url"].rstrip("/") != credentials.PLAN_BASE or job["provider"]["auth_ref"] != credentials.KEY_ENV:
         raise ResourceError("方舟必须使用已配置的 Agent Plan 凭证引用与地址", "invalid_provider_config")
@@ -26,11 +46,11 @@ def volc_ark_factory(job, storage):
         raise ResourceError("当前方舟适配器未声明这些逻辑参数映射，禁止静默忽略", "unsupported_params")
     if job["modality"] == "image":
         sizes = defaults.get("size_map", {})
-        return VolcArkImageProvider(model, media_url, lambda w, h: sizes.get(str(w) + "x" + str(h)))
+        return ConfiguredArkProvider(VolcArkImageProvider(model, media_url, lambda w, h: sizes.get(str(w) + "x" + str(h))), job["provider_id"])
     if job["modality"] == "video":
         if not defaults.get("resolution") or not defaults.get("ratio"):
             raise ResourceError("视频模型需要 resolution 和 ratio 映射", "invalid_model_defaults")
-        return VolcArkVideoProvider(model, media_url, defaults["resolution"], defaults["ratio"], defaults.get("generate_audio", False))
+        return ConfiguredArkProvider(VolcArkVideoProvider(model, media_url, defaults["resolution"], defaults["ratio"], defaults.get("generate_audio", False)), job["provider_id"])
     binding = job["request_payload"].get("voice_binding")
     voice_defaults = {key: value for key, value in defaults.items() if key in {"format", "sample_rate", "speech_rate"}}
-    return VolcArkAudioProvider(model, storage.root, "J-" + job["id"].replace("-", ""), binding, voice_defaults)
+    return ConfiguredArkProvider(VolcArkAudioProvider(model, storage.root, "J-" + job["id"].replace("-", ""), binding, voice_defaults), job["provider_id"])

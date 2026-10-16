@@ -23,4 +23,15 @@ description: "Use when the user wants to assess, install, manually check updates
 
 ## 审查候选更新
 
-候选更新的机制与采用流程见 [Vendor 候选更新](../../docs/governance/vendor-updates.md)。用户要求语义审查时，阅读指定报告与必要的资源 diff，写同名 `.assessment.md`：已引用 Skill 是否兼容、新增 Skill 是否值得路由、删除引用的处置建议，以及环境与测试要求。审查没有采用权限：不改 `vendor/<source>`、`sources.lock.json`、路由，也不执行候选内容。不要把“上游有新提交”当作“已批准升级”。
+资源配置页的工具更新使用简化入口 `python3 scripts/vsc_provider_sync.py check`。
+显示当前／最新固定版本后，用户点击“更新”或运行
+`python3 scripts/vsc_provider_sync.py update --tool <ID> --revision <检查所得commit> --actor <操作人>`
+即为本次采用授权；后台下载、分析、校验和切换，不再要求第二轮人工确认。
+“不更新”保持原状，无需执行命令。当前支持官方 Ark CLI 的 Git Skill 源码及已安装的登记 Git 来源；
+后者单独标明来源身份，不能冒称模型供应商官方包。官方源码更新不等于 npm CLI、运行依赖或生产执行器已接通。
+宿主内置工具由宿主管理；其他分发格式明确返回尚不支持。
+下载／结构兼容检查失败保留旧版；已引用 Skill 被删除时本次更新失败并保留旧版，不再添加人工审批队列。
+更新不执行候选代码、不调用生成模型、不更改凭证与套餐；在途任务或提交未知时等待结束后重试。
+检查依赖网络但不调用模型鉴权，模型列表刷新与工具版本更新分别报告。
+
+候选更新的机制与采用流程见 [Vendor 候选更新](../../docs/governance/vendor-updates.md)。用户只要求语义审查时，阅读指定报告与必要的资源 diff，写同名 `.assessment.md`：已引用 Skill 是否兼容、新增 Skill 是否值得路由、删除引用的处置建议，以及环境与测试要求。仅审查没有采用权限：不改 `vendor/<source>`、`sources.lock.json`、路由，也不执行候选内容。用户已点击更新时沿用上面的单次采用授权，不再要求额外批准。

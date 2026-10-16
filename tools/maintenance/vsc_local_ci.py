@@ -150,7 +150,9 @@ def check_recipes():
 def tracked_problems(paths):
     problems = []
     for path in paths:
-        if path.startswith("projects/"):
+        if path.startswith("docs/plans/"):
+            problems.append(f"本地执行计划被 Git 跟踪：{path}")
+        elif path.startswith("projects/"):
             problems.append(f"作品数据被 Git 跟踪：{path}")
         elif path.startswith("library/"):
             problems.append(f"素材库内容被 Git 跟踪：{path}")

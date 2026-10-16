@@ -16,6 +16,8 @@ from starlette.concurrency import run_in_threadpool
 from vsc.adapters.persistence.legacy_json.panel import CatalogError, TEXT_SUFFIXES
 from vsc.project.resource_catalog import ResourceCatalog
 from vsc.assets.resource_service import ResourceError
+from vsc.interfaces.web.resource_graph import install_graph_routes
+from vsc.interfaces.web.resource_settings import register_resource_settings
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -241,6 +243,8 @@ def create_app(config=None, catalog=None, service=None):
 
     for path, action in actions.items():
         router.add_api_route("/{project_id}/" + path, write_endpoint(action), methods=["POST"], name=action)
+    install_graph_routes(router, catalog, etag)
     app.include_router(router)
+    register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")
     return app

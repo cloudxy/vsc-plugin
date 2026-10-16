@@ -104,9 +104,11 @@ class Document {
 function createPanel(root, projects, treeOverride = null) {
   const folder = path.join(root, 'src/vsc/interfaces/web');
   const document = new Document(fs.readFileSync(path.join(folder, 'templates/index.html'), 'utf8'));
-  const requests = [];
-  const fetch = async url => {
+  const requests = [], writes = [];
+  document.getElementById('media-dialog').close = () => {};
+  const fetch = async (url, options={}) => {
     requests.push(url);
+    if(options.method==='POST'){writes.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({revision:2})};}
     // Keep automatic startup pending; cases drive the real project selection.
     if (url === '/api/v1/session') return new Promise(() => {});
     let value;
@@ -121,10 +123,10 @@ function createPanel(root, projects, treeOverride = null) {
     }
     return {ok: true, status: 200, json: async () => value};
   };
-  const context = vm.createContext({document, fetch, URLSearchParams, console, Map, Set});
+  const context = vm.createContext({document, fetch, URLSearchParams, console, Map, Set, crypto:require('node:crypto').webcrypto});
   const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8');
-  vm.runInContext(source + '\nglobalThis.panel = {state, renderTree, selectProject, loadProjects};', context, {filename: 'panel.js'});
-  return {document, requests, panel: context.panel};
+  vm.runInContext(source + '\nglobalThis.panel = {state, renderTree, selectProject, loadProjects, reviewForm};', context, {filename: 'panel.js'});
+  return {document, requests, writes, panel: context.panel};
 }
 
 module.exports = {createPanel};

@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeRequest: 0};
+const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeRequest: 0, resourceRequest: 0, artifactRequest: 0, view: 'media'};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
@@ -27,6 +27,38 @@ function lineagePanel(media,lineage) {
 }
 function size(bytes) { if (bytes == null) return '未知大小'; return bytes > 1048576 ? `${(bytes/1048576).toFixed(1)} MB` : `${(bytes/1024).toFixed(1)} KB`; }
 
+let resourceCanvas = null, resourceSettings = null;
+async function loadCanvas(focus = null) {
+  if (!state.project || state.view !== 'canvas') return;
+  if (!resourceCanvas) {
+    const {createResourceCanvas} = await import('./canvas.js');
+    if (!resourceCanvas) resourceCanvas = createResourceCanvas($('resource-canvas'), {
+      onSelect: guard(async node => {
+        if (node.kind === 'media') await openMedia(node.entity_id);
+        else if (['artifact','artifact_version'].includes(node.kind)) { await switchView('artifacts'); await openArtifact(node.entity_id); }
+      }), onError: error => notice(error.message || String(error)),
+    });
+  }
+  if (state.view === 'canvas') await resourceCanvas.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader', focus});
+}
+async function switchView(view, focus = null) {
+  state.view = view;
+  for (const [tab, target] of [['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
+    $(target).hidden = tab !== view; $(`tab-${tab}`).setAttribute('aria-selected', String(tab === view));
+  }
+  if (view === 'canvas') await loadCanvas(focus);
+}
+async function openResourceSettings() {
+  if (!resourceSettings) {
+    const {createResourceSettings} = await import('./resource-settings.js');
+    resourceSettings = createResourceSettings($('resource-settings-dialog'), {api, session:()=>({actor:state.actor,csrf:state.csrf}), onNotice:notice});
+  }
+  await resourceSettings.open();
+}
+async function loadScope() {
+  await Promise.all([loadResources(), loadArtifacts(), loadCanvas()]);
+}
+
 async function loadProjects() {
   const data = await api('/api/v1/projects');
   $('projects').replaceChildren();
@@ -40,9 +72,9 @@ async function loadProjects() {
 }
 async function selectProject(id) {
   if (state.project !== id) {
-    state.expandedNodes.clear(); state.object = null;
+    state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'});
   }
-  state.project = id; state.offset = 0; state.comparisons.clear(); updateCompare();
+  state.project = id; state.offset = 0; state.resourceRequest++; state.artifactRequest++; state.comparisons.clear(); updateCompare();
   const request = ++state.treeRequest;
   const data = await api(`${base()}/tree`);
   if (request !== state.treeRequest || state.project !== id) return;
@@ -53,7 +85,7 @@ async function selectProject(id) {
   if (!selected) { state.object = null; state.offset = 0; }
   renderTree(data.nodes || []);
   if (data.gaps?.length) notice(data.gaps.join('\n'));
-  await Promise.all([loadResources(), loadArtifacts()]);
+  await loadScope();
 }
 function renderTree(nodes) {
   $('tree').replaceChildren();
@@ -84,7 +116,7 @@ function renderTree(nodes) {
         control.classList.toggle('active', selected);
         if (selected) control.setAttribute('aria-current', 'true'); else control.removeAttribute('aria-current');
       });
-      await Promise.all([loadResources(), loadArtifacts()]);
+      await loadScope();
     }));
     item.append(row);
     if (branch.length) {
@@ -119,10 +151,11 @@ function renderTree(nodes) {
   else $('tree').append(el('p', 'hint', '未建立部、集、场、镜组或镜头关系。'));
 }
 async function loadResources() {
+  const request=++state.resourceRequest, project=state.project, object=state.object;
   const params = new URLSearchParams({offset: state.offset, limit: state.limit});
   for (const key of ['modality','registration','query','role','status']) if ($(key).value) params.set(key, $(key).value);
   if (state.object) params.set('object_id', state.object);
-  const data = await api(`${base()}/media?${params}`); state.total = data.total; state.revision = data.revision ?? state.revision;
+  const data = await api(`${base()}/media?${params}`); if(request!==state.resourceRequest || project!==state.project || object!==state.object)return; state.total = data.total; state.revision = data.revision ?? state.revision;
   $('resources').replaceChildren();
   for (const media of data.items) $('resources').append(resourceCard(media));
   if (!data.items.length) $('resources').append(el('p', 'empty', '此范围没有已关联素材。可切换至“全部项目内容”查看未登记文件。'));
@@ -142,6 +175,7 @@ function resourceCard(media) {
   if (media.integrity === 'mismatch') badges.append(badge('mismatch', 'danger'));
   if (media.deprecated) badges.append(badge('已停用', 'danger'));
   body.append(badges, el('div', 'hint', size(media.size_bytes)));
+  const graphButton=el('button','card-graph','在画布中查看');graphButton.type='button';graphButton.addEventListener('click',guard(()=>switchView('canvas',`media:${media.id}`)));body.append(graphButton);
   const actions = el('div', 'card-actions'); const label = el('label'); const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = state.comparisons.has(media.id);
   checkbox.addEventListener('change', () => { if (checkbox.checked) { if (state.comparisons.size >= 4) { checkbox.checked = false; notice('最多并排比较 4 个候选。'); return; } state.comparisons.set(media.id,media); } else state.comparisons.delete(media.id); updateCompare(); });
   label.append(checkbox,document.createTextNode('比较')); const detail = el('button', '', '详情'); detail.addEventListener('click', guard(() => openMedia(media.id))); actions.append(label,detail); body.append(actions); card.append(thumb,body); return card;
@@ -168,6 +202,8 @@ async function player(media) {
 async function openMedia(id) {
   const [media,lineage,usage] = await Promise.all([api(`${base()}/media/${encodeURIComponent(id)}`),api(`${base()}/media/${encodeURIComponent(id)}/lineage`),api(`${base()}/media/${encodeURIComponent(id)}/usage`)]);
   if(usage.candidates)media.candidates=(media.candidates || []).map(candidate=>({...candidate,...usage.candidates.find(row=>row.id===candidate.id)}));
+  media.trial_sources=usage.trial_sources || [];
+  if(media.trial_sources.length){const versions=await api(`${base()}/artifacts`);media.trial_animatics=(versions.items || versions || []).filter(row=>['animatic','vsc.animatic'].includes(row.type || row.artifact_type) && (row.approved===true || row.status==='approved'));}
   state.revision=media.revision ?? state.revision;
   $('media-title').textContent = media.name || media.id; $('media-detail').replaceChildren(await player(media));
   const download=el('a','','下载原文件'); download.href=mediaUrl(id)+'?download=true'; $('media-detail').append(download);
@@ -182,10 +218,11 @@ function reviewForm(media) {
   if(!candidates.length){field.append(el('p','hint','该素材尚无用途候选；先在对应镜头提出用途绑定。'));form.append(field);return form;}
   const action=el('select'); for(const [value,label] of [['reviews','记录审查意见'],['binding-decisions','选择此候选'],['binding-rejections','拒绝此候选'],['binding-retirements','退役当前用途']]){const option=el('option','',label);option.value=value;action.append(option);}
   const outcome=el('select'); for(const [value,label] of [['pass','通过'],['needs_changes','需要修改'],['fail','不通过']]){const option=el('option','',label);option.value=value;outcome.append(option);}
-  const reason=el('textarea');reason.placeholder='说明用途、连续性、读法或决定依据';reason.required=true;
+  const reason=el('textarea');reason.placeholder=media.trial_sources?.length?'说明试片符合正式用途的依据，或本次审查／参考用途的理由':'说明用途、连续性、读法或决定依据';reason.required=true;
+  const adoption=el('div');adoption.hidden=true;const animatic=el('select');animatic.setAttribute('aria-label','试片正式采用的预演版本');const empty=el('option','','请选择已批准预演（仅正式采用需要）');empty.value='';animatic.append(empty);for(const row of media.trial_animatics || []){const opt=el('option','',`${row.name || row.artifact_key || '预演'} · ${row.id}`);opt.value=row.id;animatic.append(opt);}if(media.trial_sources?.length){adoption.append(el('p','hint','此素材含试片来源。用于正式剪辑时选择已批准预演，并在决定理由中说明采用依据；参考用途可继续试用。'),animatic);action.addEventListener('change',()=>{adoption.hidden=action.value!=='binding-decisions';});}
   const label=el('label');const check=el('input');check.type='checkbox';label.append(check,document.createTextNode('我确认这是本人对当前用途作出的决定'));
-  const button=el('button','','提交');button.type='submit';field.append(candidate,action,outcome,reason,label,button);form.append(field);
-  form.addEventListener('submit',guard(async event=>{event.preventDefault();const choice=candidates.find(row=>(row.candidate_id || row.id)===candidate.value);let payload={candidate_id:candidate.value,reason:reason.value};if(action.value==='reviews')payload={...payload,outcome:outcome.value,reviewer_type:'human',criteria_version:'panel-human-v1'};if(action.value==='binding-retirements')payload={slot_id:choice.slot_id,reason:reason.value};const result=await api(`${base()}/${action.value}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,confirmed:check.checked,expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('media-dialog').close();await loadResources();notice('操作已记录；历史版本与决定保留。');}));
+  const button=el('button','','提交');button.type='submit';field.append(candidate,action,outcome,reason,adoption,label,button);form.append(field);
+  form.addEventListener('submit',guard(async event=>{event.preventDefault();const choice=candidates.find(row=>(row.candidate_id || row.id)===candidate.value);let payload={candidate_id:candidate.value,reason:reason.value};if(action.value==='binding-decisions' && animatic.value)payload.trial_adoption={reason:reason.value,animatic_version_id:animatic.value};if(action.value==='reviews')payload={...payload,outcome:outcome.value,reviewer_type:'human',criteria_version:'panel-human-v1'};if(action.value==='binding-retirements')payload={slot_id:choice.slot_id,reason:reason.value};const result=await api(`${base()}/${action.value}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,confirmed:check.checked,expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('media-dialog').close();await loadResources();notice('操作已记录；历史版本与决定保留。');}));
   return form;
 }
 function bindingForm(media) {
@@ -217,7 +254,9 @@ function previewForm(media) {
   form.addEventListener('submit',guard(async event=>{event.preventDefault();const result=await api(`${base()}/preview-jobs`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{media_id:media.id,purpose:select.value,recipe_version:state.previewCapabilities.recipe_version},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;notice(result.status==='failed'?'该预览任务此前失败，请查看错误并明确请求重试。':result.status==='succeeded'?'此配方已有完成的预览副本，刷新状态即可查看。':'预览任务已持久入队，等待本机执行器。完成后刷新状态即可查看。');}));return form;
 }
 async function loadArtifacts() {
+  const request=++state.artifactRequest, project=state.project, object=state.object;
   const data=await api(`${base()}/artifacts${state.object ? '?object_id='+encodeURIComponent(state.object) : ''}`);
+  if(request!==state.artifactRequest || project!==state.project || object!==state.object)return;
   const rows=Array.isArray(data) ? data : data.items || []; $('artifacts').replaceChildren();
   for(const artifact of [...rows].reverse()){const button=el('button','artifact-item',artifact.type || artifact.name || artifact.id);button.append(el('small','',`${artifact.id} · ${names[artifact.status] || artifact.status || '固定版本'}`));if(artifact.integrity==='mismatch' || artifact.availability==='missing')button.append(badge(artifact.integrity==='mismatch'?'mismatch':'missing','danger'));button.addEventListener('click',guard(()=>openArtifact(artifact.id)));$('artifacts').append(button);}
   if(!rows.length)$('artifacts').append(el('p','empty','此范围未建立文案版本关系。'));
@@ -232,12 +271,13 @@ async function openArtifact(id) {
 function updateCompare(){$('compare-count').textContent=state.comparisons.size;}
 $('compare-open').addEventListener('click',guard(async()=>{$('compare-grid').replaceChildren();for(const media of state.comparisons.values()){const section=el('section');section.append(el('h3','',media.name || media.id),await player(media),facts('用途与来源',{bindings:media.bindings || [],rights:media.rights,sha256:media.sha256}));$('compare-grid').append(section);}if(!state.comparisons.size)$('compare-grid').append(el('p','empty','先在素材卡中勾选需要比较的候选。'));$('compare-dialog').showModal();}));
 $('projects').addEventListener('change',guard(()=>selectProject($('projects').value)));
-$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(row=>{row.classList.remove('active');row.removeAttribute('aria-current');});await Promise.all([loadResources(),loadArtifacts()]);}));
+$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(row=>{row.classList.remove('active');row.removeAttribute('aria-current');});await loadScope();}));
 $('filters').addEventListener('submit',guard(async event=>{event.preventDefault();state.offset=0;await loadResources();}));
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const tab of ['media','artifacts'])$(`tab-${tab}`).addEventListener('click',()=>{$('media-view').hidden=tab!=='media';$('artifact-view').hidden=tab!=='artifacts';$('tab-media').setAttribute('aria-selected',String(tab==='media'));$('tab-artifacts').setAttribute('aria-selected',String(tab==='artifacts'));});
+for(const tab of ['media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
+$('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
 $('session-open').addEventListener('click',()=>$('session-dialog').showModal());

@@ -38,8 +38,13 @@ def validation_errors(data):
         errors.append('approved_inputs 必须列明确版本')
     if not isinstance(data.get('review_after'), list):
         errors.append('review_after 必须是数组')
-    if data.get('phase', 'production') not in ('asset', 'production'):
-        errors.append('phase 必须为asset或production')
+    if data.get('phase', 'production') not in ('asset', 'production', 'trial'):
+        errors.append('phase 必须为asset、production或trial')
+    from vsc.production.run_trial import validation_errors as trial_validation
+    errors.extend(trial_validation(data))
+    if 'quality_plan' in data and (not isinstance(data['quality_plan'], dict)
+            or not all(data['quality_plan'].get(key) for key in ('path', 'sha256'))):
+        errors.append('quality_plan 必须固定 path / sha256')
     if not isinstance(data.get('operations'), dict) or not data['operations']:
         errors.append('operations 必须给出每个操作的原生单位')
     else:
@@ -54,10 +59,15 @@ def project_errors(data, project, state, item):
     if errors: return errors
     if data.get('series_batch'):
         from vsc.production.series_run import project_errors as series_errors
-        return series_errors(data, project, state, item)
+        from vsc.production.series_run import operation as series_operation
+        from vsc.production.run_quality import quality_errors
+        return series_errors(data, project, state, item) + quality_errors(data, project, state, item,
+            {series_operation(job): job['request'] for job in data['series_batch']['jobs']})
     if data.get('audio_request'):
         from vsc.production.audio_run import project_errors as audio_errors
-        return audio_errors(data, project, state, item)
+        from vsc.production.run_quality import quality_errors
+        return audio_errors(data, project, state, item) + quality_errors(data, project, state, item,
+            {key: data['audio_request']['binding'] for key in data['operations']})
     if data['scope'] != item.get('scope', 'project'):
         errors.append('run scope 与登记范围不一致')
     try:
@@ -82,7 +92,7 @@ def project_errors(data, project, state, item):
             if not artifact or artifact.get('sha256') != ref.get('sha256') or ref['id'] not in item.get('depends_on', []):
                 errors.append('approved_inputs 必须是 run 明确依赖的固定产物')
             else: approved.append(artifact)
-        prerequisite = 'vsc.asset_bible' if data.get('phase') == 'asset' else 'vsc.animatic'
+        prerequisite = 'vsc.asset_bible' if data.get('phase') in ('asset', 'trial') else 'vsc.animatic'
         if not any(a['type'] == prerequisite for a in approved):
             errors.append('正式制作缺已批准输入：' + prerequisite)
         if data.get('phase') == 'asset' and any(j['kind'] != 'image' or j['args']['purpose'] != 'asset' for j in plan['jobs']):
@@ -93,7 +103,12 @@ def project_errors(data, project, state, item):
             for key in ('bible', 'state'):
                 if key in job['args'] and plan['inputs_sha256'].get(job['args'][key]['path']) not in pinned:
                     errors.append(key + ' 未绑定 approved_inputs 的版本')
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+        from vsc.production.run_trial import project_errors as trial_errors
+        errors.extend(trial_errors(data, project, state, item, plan, approved))
+        from vsc.production.run_quality import quality_errors
+        batch = production.read(path)
+        errors.extend(quality_errors(data, project, state, item, {j['id']: j['args'] for j in batch['jobs']}))
+    except (OSError, ValueError, KeyError, TypeError, production.ProductionError) as exc:
         errors.append('正式 run 预检失败：' + str(exc))
     return errors
 
@@ -125,6 +140,16 @@ def import_candidate(project, run_item, job, record):
                 'sha256': sha, 'scope': run_item['scope'], 'status': 'draft', 'decision': None,
                 'depends_on': [run_item['id']], 'dependency_versions': {run_item['id']: run_item['sha256']},
                 'created_at': now(), 'run_id': run_item['id'], 'job_id': job['id']}
+        run_data = production.read(Path(project) / run_item['path'])
+        if run_data.get('phase') == 'trial':
+            item['production_phase'] = 'trial'
+            item['trial_id'] = run_data['trial']['trial_id']
+            # Existing capability evaluate requires the output to retain all
+            # pilot inputs directly, not just an opaque dependency on this run.
+            for ref in run_data['approved_inputs']:
+                if ref['id'] not in item['depends_on']:
+                    item['depends_on'].append(ref['id'])
+                    item['dependency_versions'][ref['id']] = ref['sha256']
         state['artifacts'].append(item)
         append_event(state, 'candidate_imported', artifact_id=identifier, run_id=run_item['id'], job_id=job['id'])
         save(Path(project), state)
@@ -139,9 +164,13 @@ def execute(project, identifier, runner=None):
         from vsc.production.audio_run import execute as execute_audio
         return execute_audio(project, identifier)
     from vsc.project.state import gate_problems, project_state
-    gate = 'script' if data.get('phase') == 'asset' else 'animatic'
+    gate = 'script' if data.get('phase') in ('asset', 'trial') else 'animatic'
     gaps = gate_problems(Path(project), state, gate, None if data['scope'] == 'project' else data['scope'])
     if gaps: raise ValueError('正式制作质量门未满足：' + '；'.join(gaps))
+    # Keep the new opt-in guards explicit even if load_run is adapted by a host.
+    if data.get('quality_plan') or data.get('phase') == 'trial':
+        problems = project_errors(data, project, state, item)
+        if problems: raise ValueError('run 制作前检查未满足：' + '；'.join(problems))
     plan = production.build_plan(project, production.read(Path(project) / data['batch']['path']))
     held = budget.reserve_many(project, identifier, {operation(j): job_units(j) for j in plan['jobs']})
     reservations = {j['id']: held[operation(j)] for j in plan['jobs']}
@@ -179,7 +208,9 @@ def main():
     parser.add_argument('command', choices=('validate', 'plan', 'plan-audio', 'plan-request', 'execute', 'review'))
     parser.add_argument('file_or_id'); parser.add_argument('--project'); parser.add_argument('--scope', default='project')
     parser.add_argument('--input', action='append', default=[]); parser.add_argument('--review-after', action='append', default=[])
-    parser.add_argument('--phase', choices=('asset','production'), default='production')
+    parser.add_argument('--phase', choices=('asset','production','trial'), default='production')
+    parser.add_argument('--trial-spec', help='trial 规格 JSON；复用既有 pilot 上下文与 run 批准')
+    parser.add_argument('--quality-plan', help='固定质量检查包；绑定本次 plan_sha256 与全部任务')
     parser.add_argument('--job'); parser.add_argument('--by'); parser.add_argument('--reason'); parser.add_argument('--outcome', choices=('accepted','rejected'))
     args = parser.parse_args()
     try:
@@ -191,6 +222,17 @@ def main():
         if args.command in ('plan', 'plan-audio', 'plan-request'):
             from vsc.project.state import project_state
             state = project_state(Path(args.project))
+            extras = {}
+            if args.phase == 'trial':
+                if args.command != 'plan' or not args.trial_spec or not args.quality_plan:
+                    raise ValueError('trial 使用 plan 并明确 --trial-spec 与 --quality-plan')
+                extras['trial'] = production.read(args.trial_spec)
+            elif args.trial_spec:
+                raise ValueError('--trial-spec 仅用于 --phase trial')
+            if args.quality_plan:
+                quality_path = Path(args.quality_plan).resolve()
+                extras['quality_plan'] = {'path': str(quality_path.relative_to(Path(args.project).resolve())),
+                                          'sha256': digest(quality_path)}
             if args.command in ('plan-audio','plan-request'):
                 from vsc.production.audio_run import prepare
                 from vsc.adapters.providers.speech.tts import digest_json
@@ -199,7 +241,7 @@ def main():
                 refs = [{'id': a['id'], 'sha256': a['sha256']} for a in state['artifacts'] if a['id'] in args.input]
                 print(json.dumps({'format': FORMAT, 'project_id': state['project_id'], 'scope': args.scope, 'phase':args.phase,
                     'audio_request': {**request, 'binding': binding}, 'plan_sha256': digest_json(binding),
-                    'approved_inputs': refs, 'review_after': [], 'operations': {op: bound}}, ensure_ascii=False, indent=2))
+                    'approved_inputs': refs, 'review_after': [], 'operations': {op: bound}, **extras}, ensure_ascii=False, indent=2))
                 return 0
             batch = Path(args.file_or_id).resolve()
             relative = str(batch.relative_to(Path(args.project).resolve()))
@@ -208,7 +250,7 @@ def main():
             print(json.dumps({'format': FORMAT, 'project_id': state['project_id'], 'scope': args.scope, 'phase':args.phase,
                   'batch': {'path': relative, 'sha256': digest(batch)}, 'plan_sha256': plan['plan_sha256'],
                   'approved_inputs': refs, 'review_after': args.review_after,
-                  'operations': {operation(j): job_units(j) for j in plan['jobs']}}, ensure_ascii=False, indent=2))
+                  'operations': {operation(j): job_units(j) for j in plan['jobs']}, **extras}, ensure_ascii=False, indent=2))
         elif args.command == 'execute':
             print(json.dumps(execute(args.project, args.file_or_id), ensure_ascii=False, indent=2))
         else:

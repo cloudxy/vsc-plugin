@@ -35,7 +35,8 @@
       "sources": [
         "src/vsc/adapters/persistence/postgres/*.py",
         "migrations/postgres/**",
-        "src/vsc/assets/resource_service.py"
+        "src/vsc/assets/resource_service.py",
+        "tests/support/fixtures/resource_store.py"
       ]
     },
     "assets.integration.test_vsc_library": {
@@ -521,6 +522,92 @@
       "layer": "unit",
       "sources": [
         "tests/support/runner.py"
+      ]
+    },
+    "production.unit.test_quality_plan": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/quality_plan.py",
+        "templates/quality-plan.json"
+      ]
+    },
+    "production.unit.test_resource_settings": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/resource_settings.py"
+      ]
+    },
+    "assets.integration.test_resource_settings": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "migrations/postgres/**",
+        "src/vsc/production/resource_settings.py",
+        "src/vsc/interfaces/web/resource_settings.py",
+        "tools/maintenance/provider_sync.py"
+      ]
+    },
+    "assets.unit.test_resource_graph": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/resource_graph.py",
+        "src/vsc/interfaces/web/static/canvas.js",
+        "tests/support/fixtures/frontend/resource_canvas_dom.cjs"
+      ]
+    },
+    "assets.integration.test_resource_graph": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/resource_graph.py",
+        "src/vsc/interfaces/web/resource_graph.py",
+        "tests/support/fixtures/resource_store.py"
+      ]
+    },
+    "maintenance.integration.test_provider_sync": {
+      "owner": "maintenance",
+      "layer": "integration",
+      "sources": [
+        "tools/maintenance/provider_sync.py",
+        "scripts/vsc_provider_sync.py",
+        "tools/maintenance/vendor_*.py"
+      ]
+    },
+    "project.integration.test_resource_settings_api": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/web/resource_settings.py",
+        "src/vsc/production/resource_settings.py"
+      ]
+    },
+    "production.integration.test_vsc_trial_run": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/run.py",
+        "src/vsc/production/run_quality.py",
+        "src/vsc/production/run_trial.py",
+        "src/vsc/production/quality_plan.py",
+        "src/vsc/production/handoffs.py"
+      ]
+    },
+    "production.integration.test_pg_trial_quality": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/production_guard.py",
+        "src/vsc/adapters/persistence/postgres/production_store.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "migrations/postgres/versions/0004_trial_adoptions.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/production/run_quality.py",
+        "tests/support/fixtures/resource_store.py"
       ]
     }
   },

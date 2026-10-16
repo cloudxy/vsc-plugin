@@ -114,3 +114,23 @@ test('late responses from another project cannot restore its navigation state', 
   assert.equal(app.document.getElementById('heading'), null);
   assert.equal(app.document.getElementById('scope-label'), null);
 });
+
+
+test('trial adoption accompanies one normal selection without extra approval requests', async () => {
+  const app=createPanel(root,new Map([['A',project('A')]]));
+  await app.panel.selectProject('A');
+  app.panel.state.actor='synthetic-human';app.panel.state.csrf='synthetic-csrf';
+  const form=app.panel.reviewForm({candidates:[{id:'candidate',role:'video_take',slot_id:'slot'}],
+    trial_sources:[{id:'trial-run'}],trial_animatics:[{id:'animatic',name:'approved preview'}]});
+  const selects=form.querySelectorAll('select'), action=selects[1], animatic=selects[3];
+  assert.equal(animatic.parentElement.hidden,true);
+  action.value='binding-decisions';await action.dispatch('change');
+  assert.equal(animatic.parentElement.hidden,false);
+  animatic.value='animatic';form.querySelectorAll('textarea')[0].value='trial meets the final shot';
+  form.querySelectorAll('input')[0].checked=true;
+  await form.dispatch('submit');
+  assert.equal(app.writes.length,1);
+  assert.equal(app.writes[0].url,'/api/v1/projects/A/binding-decisions');
+  assert.deepEqual(app.writes[0].body.payload.trial_adoption,{reason:'trial meets the final shot',animatic_version_id:'animatic'});
+  assert.equal(app.writes[0].body.confirmed,true);
+});

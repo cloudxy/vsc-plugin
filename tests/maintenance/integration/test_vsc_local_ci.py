@@ -34,9 +34,10 @@ class TestTracked(unittest.TestCase):
             "vendor/inkos/README.md",
             ".claude/settings.local.json",
             "docs/.DS_Store",
+            "docs/plans/local-plan.md",
             "scripts/__pycache__/vsc_state.cpython-39.pyc",
         ])
-        self.assertEqual(len(problems), 6)
+        self.assertEqual(len(problems), 7)
         self.assertIn("作品数据", problems[0])
         self.assertIn("素材库内容", problems[1])
         self.assertIn("vendor 源码", problems[2])
