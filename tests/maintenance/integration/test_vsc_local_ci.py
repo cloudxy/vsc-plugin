@@ -120,5 +120,59 @@ class TestFullTestGate(unittest.TestCase):
                     self.assertIn("DURATION", detail)
 
 
+class TestScopedGate(unittest.TestCase):
+    def test_document_push_does_not_run_code_tests(self):
+        mode, checks = LOCAL_CI.scoped_checks(["docs/plans/plan.html", "docs/README.md"])
+        self.assertEqual(mode, "docs")
+        self.assertEqual([name for name, _ in checks], ["tracked", "links"])
+
+    def test_code_and_unknown_baseline_keep_full_default(self):
+        for paths in (["src/vsc/example.py"], ["skills/vsc/SKILL.md"], None):
+            with self.subTest(paths=paths):
+                mode, checks = LOCAL_CI.scoped_checks(paths)
+                self.assertEqual(mode, "full")
+                self.assertEqual(checks, LOCAL_CI.CHECKS)
+        self.assertEqual(LOCAL_CI.scoped_checks(["docs/README.md"], "full")[0], "full")
+
+    def test_small_fix_uses_selected_tests_and_preserves_failure(self):
+        mode, checks = LOCAL_CI.scoped_checks(["src/vsc/example.py"], "targeted", ["post.unit.test_subtitles"])
+        self.assertEqual(mode, "targeted")
+        for code in (0, 1, 2):
+            with self.subTest(code=code):
+                completed = subprocess.CompletedProcess([], code, "", "OK" if code == 0 else "FAILED")
+                with mock.patch.object(LOCAL_CI, "run", return_value=completed) as invoke:
+                    _, problems = dict(checks)["tests"]()
+                self.assertIn("--test", invoke.call_args.args)
+                self.assertIn("post.unit.test_subtitles", invoke.call_args.args)
+                self.assertNotIn("--all", invoke.call_args.args)
+                self.assertEqual(bool(problems), code != 0)
+
+    def test_targeted_without_explicit_tests_uses_changed_paths(self):
+        _, checks = LOCAL_CI.scoped_checks(["src/vsc/example.py"], "targeted")
+        with mock.patch.object(LOCAL_CI, "check_tests", return_value=("", [])) as invoke:
+            dict(checks)["tests"]()
+        invoke.assert_called_once_with(("--files", "src/vsc/example.py"))
+        for scope, paths in (("skip", []), ("targeted", None)):
+            with self.assertRaises(ValueError):
+                LOCAL_CI.scoped_checks(paths, scope)
+
+    def test_actual_push_diff_includes_deletions_and_multiple_refs(self):
+        result = subprocess.CompletedProcess([], 0, "docs/removed.md\0src/changed.py\0", "")
+        with mock.patch.object(LOCAL_CI, "run", return_value=result) as invoke:
+            paths = LOCAL_CI.push_paths(["refs/heads/main abc refs/heads/main def\n",
+                                         "refs/heads/other ghi refs/heads/other jkl\n"])
+        self.assertEqual(paths, ["docs/removed.md", "src/changed.py"])
+        self.assertEqual(invoke.call_count, 2)
+        self.assertIn("--no-renames", invoke.call_args.args)
+        self.assertEqual(invoke.call_args.args[-2:], ("jkl", "ghi"))
+        self.assertIsNone(LOCAL_CI.push_paths(["ref abc ref " + "0" * 40]))
+        self.assertEqual(LOCAL_CI.push_paths(["ref " + "0" * 40 + " ref abc"]), [])
+        with self.assertRaises(ValueError):
+            LOCAL_CI.push_paths(["invalid"])
+        with mock.patch.object(LOCAL_CI, "run", return_value=subprocess.CompletedProcess([], 1, "", "bad ref")):
+            with self.assertRaises(ValueError):
+                LOCAL_CI.push_paths(["ref abc ref def"])
+
+
 if __name__ == "__main__":
     unittest.main()
