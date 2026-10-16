@@ -462,6 +462,8 @@ def project_errors(data, project, state, item, validate_callback=None):
             for identifier in sorted(dialogue - spoken):
                 p.errors.append('覆盖缺失对白声音Cue：' + identifier)
     elif fmt == "vsc.selected-takes/v1":
+        from vsc.production.run_trial import adoption_errors
+        p.errors.extend(adoption_errors(data, project, state, item))
         selections = set()
         for row in data["items"]:
             p.media(row["media"], "选择 " + row["id"])

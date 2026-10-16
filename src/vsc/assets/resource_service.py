@@ -354,7 +354,12 @@ class ResourceService:
                 raise ResourceError("固定输入实物或上下文有缺口，不能生成", "context_gaps")
             if gated:
                 from vsc.project.pg_workflow import check_gate
-                gate = check_gate(self, project_id, "script" if asset else "animatic",
+                run = self.store.get_artifact_version(project_id, required(payload, "run_version_id"))
+                try:
+                    trial = json.loads(run["document"]).get("phase") == "trial"
+                except (ValueError, TypeError, AttributeError) as exc:
+                    raise ResourceError("运行包必须是固定结构文档", "invalid_production_run") from exc
+                gate = check_gate(self, project_id, "script" if asset or trial else "animatic",
                     scope=payload.get("episode_id") if asset else context["ancestors"][1])
                 if not gate["passed"]:
                     raise ResourceError("正式制作前序Gate尚未通过", "production_gate_failed")

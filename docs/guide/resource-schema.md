@@ -16,7 +16,6 @@
 | media_operations | project_id, id | project_id → projects |
 | project_revisions | project_id, revision | project_id → projects |
 | provider_models | id | provider_id → providers |
-| provider_routes | id | fallback_provider → providers; preferred_provider → providers |
 | source_versions | project_id, id | project_id → projects |
 | artifact_decisions | project_id, id | project_id → projects; project_id,artifact_id → artifact_versions |
 | artifact_dependencies | project_id, artifact_id, dependency_id | project_id,artifact_id → artifact_versions; project_id,dependency_id → artifact_versions |
@@ -30,6 +29,8 @@
 | operation_inputs | project_id, id | project_id → projects; project_id,media_id → media_items; project_id,operation_id → media_operations; project_id,operation_id,mask_input_id → operation_inputs |
 | operation_outputs | project_id, id | project_id → projects; project_id,media_id → media_items; project_id,operation_id → media_operations |
 | preview_jobs | project_id, id | project_id → projects; project_id,media_id → media_items |
+| provider_configurations | provider_id | previous_model_id → provider_models; provider_id → providers |
+| provider_routes | id | fallback_provider → providers; preferred_model_id,preferred_provider,preferred_model_version,modality → provider_models; preferred_provider → providers |
 | rights_decisions | project_id, id | project_id → projects; project_id,media_id → media_items; project_id,source_id → source_versions |
 | works | project_id, id | project_id → projects; project_id,id,object_kind → creative_objects |
 | asset_spec_versions | project_id, id | project_id → projects; project_id,artifact_id → artifact_versions; project_id,asset_id → asset_identities |
@@ -59,6 +60,8 @@
 | binding_candidates | project_id, id | project_id → projects; project_id,media_id → media_items; project_id,slot_id → binding_slots; project_id,spec_version_id → artifact_versions |
 | binding_decisions | project_id, id | project_id → projects; project_id,slot_id → binding_slots; project_id,slot_id,candidate_id → binding_candidates |
 | media_reviews | project_id, id | project_id → projects; project_id,candidate_id → binding_candidates; project_id,check_id → media_checks; project_id,project_revision → project_revisions |
+| binding_selection_delegations | project_id, decision_id | project_id,candidate_id,review_id → media_reviews; project_id,delegation_artifact_id,approval_decision_id → artifact_decisions; project_id,slot_id,candidate_id,decision_id → binding_decisions |
+| binding_trial_adoptions | project_id, decision_id, run_version_id | project_id,animatic_version_id,animatic_approval_id → artifact_decisions; project_id,decision_id → binding_decisions; project_id,run_version_id → artifact_versions |
 | current_bindings | project_id, slot_id | project_id,slot_id,candidate_id → binding_candidates; project_id,slot_id,candidate_id,decision_id → binding_decisions |
 | job_input_media | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,binding_decision_id → binding_decisions; project_id,job_id → generation_jobs; project_id,media_id → media_items; project_id,media_id,blob_id → media_items |
 | render_inputs | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,binding_decision_id → binding_decisions; project_id,media_id → media_items; project_id,media_id,blob_id → media_items; project_id,render_id → render_versions |
@@ -66,6 +69,8 @@
 
 ```mermaid
 erDiagram
+    artifact_decisions ||--o{ binding_selection_delegations : "references"
+    artifact_decisions ||--o{ binding_trial_adoptions : "references"
     artifact_decisions ||--o{ current_artifact_versions : "references"
     artifact_versions ||--o{ artifact_asset_spec_refs : "references"
     artifact_versions ||--o{ artifact_decisions : "references"
@@ -74,6 +79,7 @@ erDiagram
     artifact_versions ||--o{ artifact_versions : "references"
     artifact_versions ||--o{ asset_spec_versions : "references"
     artifact_versions ||--o{ binding_candidates : "references"
+    artifact_versions ||--o{ binding_trial_adoptions : "references"
     artifact_versions ||--o{ character_voice_bindings : "references"
     artifact_versions ||--o{ continuity_edges : "references"
     artifact_versions ||--o{ current_artifact_versions : "references"
@@ -99,6 +105,8 @@ erDiagram
     binding_candidates ||--o{ binding_decisions : "references"
     binding_candidates ||--o{ current_bindings : "references"
     binding_candidates ||--o{ media_reviews : "references"
+    binding_decisions ||--o{ binding_selection_delegations : "references"
+    binding_decisions ||--o{ binding_trial_adoptions : "references"
     binding_decisions ||--o{ current_bindings : "references"
     binding_decisions ||--o{ job_input_media : "references"
     binding_decisions ||--o{ render_inputs : "references"
@@ -147,6 +155,7 @@ erDiagram
     media_items ||--o{ voice_spec_versions : "references"
     media_operations ||--o{ operation_inputs : "references"
     media_operations ||--o{ operation_outputs : "references"
+    media_reviews ||--o{ binding_selection_delegations : "references"
     operation_inputs ||--o{ operation_inputs : "references"
     project_revisions ||--o{ media_checks : "references"
     project_revisions ||--o{ media_reviews : "references"
@@ -199,7 +208,10 @@ erDiagram
     projects ||--o{ voice_spec_versions : "references"
     projects ||--o{ works : "references"
     provider_models ||--o{ generation_jobs : "references"
+    provider_models ||--o{ provider_configurations : "references"
+    provider_models ||--o{ provider_routes : "references"
     providers ||--o{ generation_jobs : "references"
+    providers ||--o{ provider_configurations : "references"
     providers ||--o{ provider_models : "references"
     providers ||--o{ provider_routes : "references"
     render_versions ||--o{ render_inputs : "references"

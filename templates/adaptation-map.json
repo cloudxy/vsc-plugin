@@ -10,7 +10,7 @@
         "end": 1
       },
       "fact_or_claim": "写清原文事实、人物说法或明确的不确定项。",
-      "narrative_function": "它在原故事中制造什么信息、冲突或期待。",
+      "narrative_function": "请填写来源中的因果、意象／感官关联或事实信息功能。",
       "source_id": "S-0001",
       "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "claim_kind": "fact"
@@ -19,11 +19,11 @@
   "episodes": [
     {
       "id": "EP-001",
-      "logline": "用人物、目标、阻碍和代价写一句可验证的集概念。",
-      "opening_hook": "开场几秒给观众的问题、反差或危险。",
-      "exit_hook": "集尾留下需要继续观看才能回答的问题或行动。",
-      "ending_function": "cliffhanger",
-      "ending": "集尾留下需要继续观看才能回答的问题或行动。"
+      "logline": "请填写本集／单条的因果行动、意象体验或信息主张。",
+      "opening_hook": "请填写开场建立的视点、关注或问题，不必制造反差或危险。",
+      "exit_hook": "请填写与 ending_function 一致的结尾表达；不强制悬念。",
+      "ending_function": "closure",
+      "ending": "请填写闭合、余韵、行动或悬念的具体表达，并相应选择 ending_function。"
     }
   ],
   "screen_units": [
@@ -34,11 +34,11 @@
         "SRC-001"
       ],
       "scene_id": "EP-001-SC-001",
-      "visible_action": "写观众能看见或听见的行动，不写纯心理描写。",
-      "character_goal": "角色此刻要达成什么。",
-      "obstacle": "谁或什么阻止他/她。",
-      "turn": "场景结尾发生的策略、关系或信息变化。",
-      "audience_information": "观众因这场而新知道什么。",
+      "visible_action": "请填写可见／可听行动、意象或事实表达，不写纯心理描写。",
+      "character_goal": "请填写角色即时意图；非人物中心段落说明不适用及本段用途。",
+      "obstacle": "请填写目标的具体阻力；不适用时说明理由，不强造对抗。",
+      "turn": "请填写策略、关系、信息或感官情绪的变化与关联。",
+      "audience_information": "请填写观众获得的信息、理解或感受。",
       "origin": "source"
     }
   ]

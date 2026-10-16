@@ -55,7 +55,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if version != "0002_review_delegation":
+                if version != "0004_trial_adoptions":
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
                 return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
         except SQLAlchemyError as exc:
@@ -873,9 +873,16 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 raise ResourceError("指定AI审查必须同时指定委托政策", "delegation_required")
             elif not review or review["outcome"] != "pass":
                 raise ResourceError("选择前需要本用途的人工审查通过", "human_review_required")
+            from .production_guard import validate_adoption
+            trial_adoptions = validate_adoption(self, conn, project, candidate, slot, payload)
             row_id = new_id()
+            reason = required(payload, "reason")
+            if trial_adoptions:
+                reason += "\n试片正式采用：" + payload["trial_adoption"]["reason"].strip()
             conn.execute(insert(S.binding_decisions).values(project_id=p, id=row_id, slot_id=slot["id"],
-                candidate_id=candidate["id"], outcome="select", **self._decision(conn, project, actor, required(payload, "reason"))))
+                candidate_id=candidate["id"], outcome="select", **self._decision(conn, project, actor, reason)))
+            for adoption in trial_adoptions:
+                conn.execute(insert(S.binding_trial_adoptions).values(project_id=p, decision_id=row_id, **adoption))
             if delegation:
                 conn.execute(insert(S.binding_selection_delegations).values(project_id=p, decision_id=row_id,
                     slot_id=slot["id"], candidate_id=candidate["id"], **delegation))
@@ -1105,6 +1112,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             result["totals"]["selection_delegations"] = conn.execute(select(func.count()).select_from(delegation_query.subquery())).scalar_one()
             result["selection_delegations"] = [dict(r) for r in conn.execute(delegation_query.order_by(
                 S.binding_selection_delegations.c.decision_id).offset(offset).limit(limit)).mappings()]
+            from .production_guard import trial_sources
+            origins = trial_sources(conn, p, media_id)
+            result["totals"]["trial_sources"] = len(origins)
+            result["trial_sources"] = origins[offset:offset + limit]
             for label, table in (("operation_inputs", S.operation_inputs), ("job_inputs", S.job_input_media),
                     ("job_outputs", S.job_outputs), ("timeline_items", S.timeline_item_media),
                     ("render_inputs", S.render_inputs), ("render_outputs", S.render_outputs)):

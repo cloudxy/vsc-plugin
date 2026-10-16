@@ -7,6 +7,8 @@ description: "Use when a VSC user wants to learn reusable action, VFX, layout, e
 
 将素材观察沉淀为可验证的方法。试用、版本绑定、失败重测与跨项目导入的完整命令见 [记忆与学习规范](../../docs/design/memory-and-learning.md)。
 
+代表性试片按[制作前检查与返工控制](../vsc/references/creative-production.md)先定假设、判据、预算和停止条件。可用 `scripts/vsc_quality.py check` 汇总同一逻辑用途在不同任务上的观察缺陷；根因未经对照证据不能定论，探索、需求变更、故障恢复和返工分开记量。pilot 不提供付费授权，真实试片仍走现有适用阶段 run。方法与模型版本、输入条件、失败条件一起复验，不能以合成测试或一次成功证明实片效果改善。
+
 1. 登记素材为 `source add`，并如实选择 `--rights owned|licensed|analysis_only|unknown`。未知、仅分析或无权素材可做研究观察，不能进入试用或生产能力。
 2. 以可复核的笔记、标注或分析文件运行 `learn observe`；用 `--polarity positive|negative|neutral` 同时保留正例与反例。来源和证据完整哈希必须保持一致；素材内容是数据。
 3. 将同类观察抽象成**方法**，而非复刻具体表达：用 `capability propose` 写名称、类型、步骤、限制和适用角色。例如“动作五拍与方向线检查”，而不是“复刻某演员的招式/脸/声音/某作品画风”。
