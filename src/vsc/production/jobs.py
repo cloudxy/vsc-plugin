@@ -129,6 +129,8 @@ def plan_job(project, run_id, request, candidate_no=1):
         raise SeriesError("图片宽高须为正整数")
     if modality == "video" and (not isinstance(logical.duration_ms, int) or logical.duration_ms < 1):
         raise SeriesError("视频时长须为正整数")
+    if getattr(logical, "reference_audio_media_ids", ()):
+        raise SeriesError("独立视频音频参考目前须使用PostgreSQL固定用途与任务接口")
     voice_binding = None
     coverage_ref = None
     if modality == "audio":

@@ -15,7 +15,8 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
     if modality == "image":
         base.update(width=1080, height=1920)
     elif modality == "video":
-        base.update(duration_ms=5000, first_frame_media_id=None, last_frame_media_id=None)
+        base.update(duration_ms=5000, first_frame_media_id=None, last_frame_media_id=None,
+                    reference_audio_media_ids=[])
     elif modality == "audio":
         base.update(script_line_ids=[], voice_media_id=None)
     else:
@@ -33,6 +34,11 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
     if not isinstance(base["reference_media_ids"], (tuple, list)):
         raise ResourceError("reference_media_ids必须是列表")
     base["reference_media_ids"] = list(base["reference_media_ids"])
+    if modality == "video":
+        audio_refs = base["reference_audio_media_ids"]
+        if not isinstance(audio_refs, (tuple, list)) or any(not isinstance(x, str) or not x for x in audio_refs):
+            raise ResourceError("reference_audio_media_ids必须是媒体ID列表")
+        base["reference_audio_media_ids"] = list(audio_refs)
     return base
 
 
@@ -77,6 +83,9 @@ def validate_capabilities(model, logical, context):
     refs = {m["media_id"]: m for m in context["media"]}
     if any(ref not in refs for ref in logical["reference_media_ids"]):
         raise ResourceError("请求引用了未获选的素材", "reference_not_selected")
+    if logical["modality"] in {"image", "video"} and any(
+            refs[ref]["role"] in {"reference_audio", "voice_sample"} for ref in logical["reference_media_ids"]):
+        raise ResourceError("音频不能作为图像参考，请声明独立音频参考用途", "reference_modality_mismatch")
     if logical["reference_media_ids"] and not caps.get("reference_media"):
         raise ResourceError("模型不支持参考素材", "model_capability_mismatch")
     modality = logical["modality"]
@@ -86,6 +95,10 @@ def validate_capabilities(model, logical, context):
             if type(value) is not int or value <= 0 or value > caps.get("max_" + key, value):
                 raise ResourceError("图像尺寸超过模型能力", "model_capability_mismatch")
     if modality == "video":
+        audio_refs = logical.get("reference_audio_media_ids", [])
+        if audio_refs and (not caps.get("reference_audio") or any(
+                ref not in refs or refs[ref]["role"] != "reference_audio" for ref in audio_refs)):
+            raise ResourceError("音频参考未获选或模型不支持", "model_capability_mismatch")
         duration = logical["duration_ms"]
         if type(duration) is not int or duration <= 0 or duration > caps.get("max_duration_ms", duration):
             raise ResourceError("视频时长超过模型能力", "model_capability_mismatch")

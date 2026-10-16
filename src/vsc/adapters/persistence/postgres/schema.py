@@ -285,6 +285,7 @@ media_reviews = project_table("media_reviews", *ref("binding_candidates", "candi
     Column("context_sha256", String(64)), Column("outcome", Text, nullable=False),
     Column("reason", Text, nullable=False), Column("evidence", JSONB, nullable=False), stamp(),
     Column("project_revision", BigInteger, nullable=False),
+    UniqueConstraint("project_id", "candidate_id", "id"),
     ForeignKeyConstraint(["project_id", "project_revision"], ["project_revisions.project_id", "project_revisions.revision"], deferrable=True, initially="DEFERRED"),
     CheckConstraint("reviewer_type IN ('human','ai','tool')", name="reviewer_type"),
     CheckConstraint("outcome IN ('pass','fail','needs_changes')", name="outcome"))
@@ -294,6 +295,17 @@ binding_decisions = project_table("binding_decisions", *ref("binding_slots", "sl
                          ["binding_candidates.project_id", "binding_candidates.slot_id", "binding_candidates.id"]),
     UniqueConstraint("project_id", "slot_id", "candidate_id", "id"),
     CheckConstraint("outcome IN ('select','reject','retire')", name="outcome"))
+binding_selection_delegations = Table("binding_selection_delegations", metadata,
+    uid("project_id", nullable=False), uid("decision_id", nullable=False),
+    uid("slot_id", nullable=False), uid("candidate_id", nullable=False), uid("review_id", nullable=False),
+    uid("delegation_artifact_id", nullable=False), uid("approval_decision_id", nullable=False),
+    PrimaryKeyConstraint("project_id", "decision_id"),
+    ForeignKeyConstraint(["project_id", "slot_id", "candidate_id", "decision_id"],
+        ["binding_decisions.project_id", "binding_decisions.slot_id", "binding_decisions.candidate_id", "binding_decisions.id"]),
+    ForeignKeyConstraint(["project_id", "candidate_id", "review_id"],
+        ["media_reviews.project_id", "media_reviews.candidate_id", "media_reviews.id"]),
+    ForeignKeyConstraint(["project_id", "delegation_artifact_id", "approval_decision_id"],
+        ["artifact_decisions.project_id", "artifact_decisions.artifact_id", "artifact_decisions.id"]))
 current_bindings = Table("current_bindings", metadata, uid("project_id", nullable=False),
     uid("slot_id", nullable=False), uid("candidate_id", nullable=False), uid("decision_id", nullable=False),
     PrimaryKeyConstraint("project_id", "slot_id"),
@@ -438,6 +450,7 @@ for table_name, fields in {
     "operation_outputs": ("operation_id",), "media_renditions": ("media_id",),
     "binding_slots": ("target_object_id",), "binding_candidates": ("media_id", "slot_id"),
     "media_reviews": ("candidate_id",), "binding_decisions": ("candidate_id",),
+    "binding_selection_delegations": ("delegation_artifact_id", "review_id"),
     "job_input_media": ("media_id",), "job_input_versions": ("artifact_id",),
     "job_outputs": ("media_id",), "generation_jobs": ("status", "shot_id", "asset_id"),
     "artifact_asset_spec_refs": ("asset_id", "spec_version_id"),
@@ -455,7 +468,7 @@ APPEND_ONLY_TABLES = (
     "shot_line_coverage", "state_versions", "state_entity_refs", "continuity_edges",
     "media_blobs", "media_items", "source_versions", "media_sources", "rights_decisions",
     "media_lifecycle_decisions", "media_checks", "library_reuses", "binding_candidates",
-    "media_reviews", "binding_decisions", "job_events", "job_input_media", "job_input_versions",
+    "media_reviews", "binding_decisions", "binding_selection_delegations", "job_events", "job_input_media", "job_input_versions",
     "job_outputs", "voice_spec_versions", "character_voice_bindings", "timeline_versions",
     "timeline_items", "timeline_item_media", "render_versions", "render_inputs", "render_outputs",
 )

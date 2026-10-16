@@ -7,6 +7,28 @@
     "system"
   ],
   "modules": {
+    "assets.integration.test_review_delegation": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/review_delegation.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "migrations/postgres/**",
+        "workflow/contracts.json",
+        "src/vsc/interfaces/cli/resources.py"
+      ]
+    },
+    "assets.integration.test_shot_context_asset_specs": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/project/artifacts.py",
+        "templates/continuity-plan.json",
+        "templates/sound-cue-sheet.json"
+      ]
+    },
     "assets.integration.test_resource_store": {
       "owner": "assets",
       "layer": "integration",

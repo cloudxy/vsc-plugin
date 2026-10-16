@@ -44,6 +44,7 @@ class ResourceWorker:
         request = request_type(**values)
         fixed = {item["media_id"] for item in job["input_media"]}
         used = set(request.reference_media_ids)
+        used.update(getattr(request, "reference_audio_media_ids", ()))
         used.update(value for value in (getattr(request, "first_frame_media_id", None),
             getattr(request, "last_frame_media_id", None), getattr(request, "voice_media_id", None)) if value)
         if used - fixed:
