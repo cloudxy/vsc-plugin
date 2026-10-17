@@ -41,6 +41,7 @@ Windows 上克隆前需开启开发者模式，并设置 `git config --global co
 | 调用方 | 需要查找的变量 |
 | --- | --- |
 | 方舟图像／视频、豆包语音、MediaKit Seed-Audio | `ARK_AGENT_PLAN_API_KEY`（火山方舟 Agent 版本的 API Key）；语音与 Seed-Audio 也可用 `--key-env` 显式指定其他变量 |
+| xAI Grok 图像／图生视频（订阅路线） | 无环境变量：凭证是 grok CLI 登录态 `~/.grok/auth.json`（终端运行 `grok` 按提示登录生成，过期重新登录刷新）；不配置也不读取 `XAI_API_KEY` |
 | 方舟视觉检查等文本模型 | 不可用：套餐规则禁止用 Agent Plan key 直接调用文本生成与向量化模型 |
 | GitHub、OSS 等其他本机工具 | `GITHUB_PERSONAL_ACCESS_TOKEN`、`OSS_ACCESS_KEY`、`OSS_SECRET_KEY` 等对应变量 |
 
@@ -56,7 +57,7 @@ source ~/.zshenv
 
 然后从这个 shell 重新启动工具。已经运行的进程不会因此更新自身环境；其他 shell、图形应用和任务调度器也需要显式传入对应变量。`.zshenv` 的默认加载规则见 [zsh 官方说明](https://zsh.sourceforge.io/Doc/Release/Files.html)。
 
-生成适配器仍只读取进程环境，缺少时会给出位置和加载提醒，不自行读取或执行 shell 文件。工具链就绪诊断在文本及 JSON 输出中提供缺钥指引，不把配置提醒当作权限验证，也不改变退出码。不要用 `cat ~/.zshenv`、打印变量值或整份环境输出来排查。已经读取到密钥但平台返回 401／403 时，方舟图像视频、豆包语音、Seed-Audio 和系列调度都会明确提示“该 key 没有对应服务的权限，请自行核对服务开通、套餐与模型权限”，并附平台原始返回；工作流不自动换 key、不重试。
+生成适配器仍只读取进程环境，缺少时会给出位置和加载提醒，不自行读取或执行 shell 文件。Grok 订阅路线是唯一例外：它读取 grok CLI 自己维护的登录态文件（`~/.grok/auth.json`，权限由 grok CLI 管理），同样只核对存在性与时效，不打印 key 值；订阅登录、宿主授权与按量 `XAI_API_KEY` 互相分开，不自动混用或回退。工具链就绪诊断在文本及 JSON 输出中提供缺钥指引，不把配置提醒当作权限验证，也不改变退出码。不要用 `cat ~/.zshenv`、打印变量值或整份环境输出来排查。已经读取到密钥但平台返回 401／403 时，方舟图像视频、豆包语音、Seed-Audio 和系列调度都会明确提示“该 key 没有对应服务的权限，请自行核对服务开通、套餐与模型权限”，并附平台原始返回；工作流不自动换 key、不重试。
 
 ## 验证
 

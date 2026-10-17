@@ -348,6 +348,22 @@
         "src/vsc/adapters/providers/credentials.py"
       ]
     },
+    "production.unit.test_vsc_grok_credentials": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/providers/xai_grok/credentials.py"
+      ]
+    },
+    "production.unit.test_vsc_grok_provider": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/providers/xai_grok/provider.py",
+        "src/vsc/adapters/providers/xai_grok/resource_factory.py",
+        "src/vsc/adapters/providers/worker_factory.py"
+      ]
+    },
     "production.unit.test_vsc_volc_provider": {
       "owner": "production",
       "layer": "unit",
@@ -655,6 +671,13 @@
         "src/vsc/interfaces/cli/workbench.py",
         "scripts/assets/workbench.py",
         "tests/support/fixtures/workbench_scale.py"
+      ]
+    },
+    "production.integration.test_grok_cli": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "scripts/providers/xai/grok.py"
       ]
     },
     "production.integration.test_official_ark_sdk": {

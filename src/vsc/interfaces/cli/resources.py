@@ -126,9 +126,9 @@ def main(argv=None):
                 result = getattr(service, "register_" + args.kind)(json.loads(Path(args.payload).read_text("utf-8")), actor=args.by)
             elif args.command == "worker":
                 from vsc.production.resource_worker import ResourceWorker
-                from vsc.adapters.providers.volc_ark.resource_factory import volc_ark_factory
+                from vsc.adapters.providers.worker_factory import worker_adapter_factory
                 from vsc.adapters.storage.transfer import download_https
-                worker = ResourceWorker(service, volc_ark_factory, download=download_https)
+                worker = ResourceWorker(service, worker_adapter_factory, download=download_https)
                 if args.resume and not args.project_id:
                     raise ResourceError("恢复转存需要 --project-id")
                 result = worker.finalize(args.project_id, args.resume) if args.resume else worker.run_once(args.project_id, poll=args.poll)

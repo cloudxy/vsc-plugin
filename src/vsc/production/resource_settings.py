@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from vsc.assets.resource_service import ResourceError
 from vsc.adapters.providers.credentials import KEY_ENV, PLAN_BASE, RELOAD
+from vsc.adapters.providers.xai_grok import credentials as grok_credentials
 
 PURPOSES = [
     {"id": "identity_ref", "label": "参考图", "modality": "image"},
@@ -33,11 +34,22 @@ PRESETS = [dict(id="volcengine-agent-plan", label="火山 Agent Plan", name="火
     supplier="volcengine", product="ark", plan="agent-plan", region="cn-beijing", execution="api",
     modality="image", model_key="", model_version="", base_url=PLAN_BASE, auth_ref=KEY_ENV,
     capabilities={"purposes": ["identity_ref", "first_frame", "last_frame"], "reference_media": True},
-    default_params={"size_map": {"1080x1920": "1440x2560"}}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
+    default_params={"size_map": {"1080x1920": "1440x2560"}}, enabled=False),
+    dict(id="xai-grok-imagine-image", label="Grok Imagine 图像（订阅登录）", name="Grok Imagine 图像（订阅登录）",
+    supplier="xai", product="grok-imagine", plan="subscription", region="global", execution="api",
+    modality="image", model_key="grok-imagine-image-2.0", model_version="", base_url=grok_credentials.API_BASE, auth_ref="",
+    capabilities={"purposes": ["identity_ref", "first_frame", "last_frame"], "reference_media": False},
+    default_params={"ratio_map": {"1080x1920": "9:16", "1920x1080": "16:9", "1080x1080": "1:1"}, "resolution": "2k"}, enabled=False),
+    dict(id="xai-grok-imagine-video", label="Grok Imagine 图生视频（订阅登录）", name="Grok Imagine 图生视频（订阅登录）",
+    supplier="xai", product="grok-imagine", plan="subscription", region="global", execution="api",
+    modality="video", model_key="grok-imagine-video-1.5", model_version="", base_url=grok_credentials.API_BASE, auth_ref="",
+    capabilities={"purposes": ["image_to_video"], "reference_media": False, "first_frame": True, "last_frame": False,
+                  "max_duration_ms": 15000},
+    default_params={"resolution": "480p"}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
     product="", plan="", region="", execution="api", modality="image", model_key="", model_version="",
     base_url="", auth_ref=auth, capabilities={"purposes": []}, default_params={}, enabled=False)
     for supplier, label, auth in [("alibaba", "阿里（待接入）", "DASHSCOPE_API_KEY"),
-        ("xai", "xAI（待接入）", "XAI_API_KEY"), ("openai", "OpenAI API（待接入）", "OPENAI_API_KEY")]]
+        ("openai", "OpenAI API（待接入）", "OPENAI_API_KEY")]]
 SECRET_FIELDS = re.compile(r"(^|_)(api_?key|secret|password|token|authorization|credential)(_|$)", re.I)
 
 
@@ -55,6 +67,14 @@ def safe_parameters(value):
 
 
 def adapter_available(row):
+    if row.get("supplier") == "xai":
+        model = row.get("model_key", "")
+        family_matches = ((row.get("modality") == "image" and model.startswith("grok-imagine-image-"))
+            or (row.get("modality") == "video" and model.startswith("grok-imagine-video-")))
+        return (row.get("product") == "grok-imagine" and row.get("plan") == "subscription"
+            and row.get("execution") == "api" and row.get("modality") in {"image", "video"}
+            and row.get("base_url", "").rstrip("/") == grok_credentials.API_BASE
+            and not row.get("auth_ref") and family_matches)
     model = row.get("model_key", "")
     family_matches = ((row.get("modality") == "image" and model.startswith("doubao-seedream-"))
         or (row.get("modality") == "video" and model.startswith("doubao-seedance-"))
@@ -86,7 +106,8 @@ def validate_configuration(payload):
     auth = value.get("auth_ref", "")
     if not isinstance(auth, str) or (auth and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", auth)):
         raise ResourceError("auth_ref 只接受环境变量名", "invalid_auth_ref")
-    if value["execution"] != "host_tool" and not auth:
+    login_authorized = value["supplier"] == "xai" and value["plan"] == "subscription"
+    if value["execution"] != "host_tool" and not login_authorized and not auth:
         raise ResourceError("需要凭证环境变量引用", "invalid_auth_ref")
     base = value.get("base_url", "")
     if not isinstance(base, str):
@@ -111,6 +132,13 @@ def validate_configuration(payload):
         family = {"image": "doubao-seedream-", "video": "doubao-seedance-", "audio": "seed-tts-"}[value["modality"]]
         if not value["model_key"].startswith(family):
             raise ResourceError("模型与多模态用途不匹配；不能用套餐凭证测试文本或向量模型", "invalid_model_family")
+    if value["supplier"] == "xai":
+        family = {"image": "grok-imagine-image-", "video": "grok-imagine-video-"}.get(value["modality"])
+        if (value["product"] != "grok-imagine" or value["plan"] != "subscription" or value["execution"] != "api"
+                or value["base_url"] != grok_credentials.API_BASE or value.get("auth_ref")):
+            raise ResourceError("Grok 订阅路线须为 grok-imagine/subscription/api 与官方端点，凭证走 grok 登录态（不使用环境变量）", "invalid_provider_config")
+        if not family or not value["model_key"].startswith(family):
+            raise ResourceError("模型与多模态用途不匹配；Grok 订阅路线只接 Imagine 文生图与首帧图生视频", "invalid_model_family")
     if value["enabled"] and not adapter_available(value):
         raise ResourceError("此执行路线尚未接通，可停用保存为待配置", "adapter_unavailable")
     if value["enabled"] and not purposes:
@@ -131,7 +159,25 @@ def validate_configuration(payload):
             raise ResourceError("官方 SDK 视频需要 resolution、ratio 与布尔 generate_audio 映射", "invalid_model_defaults")
         from vsc.adapters.providers.volc_ark.official_sdk import verify_runtime
         verify_runtime(value["default_params"].get("sdk_runtime"))
+    if value["enabled"] and value["supplier"] == "xai":
+        defaults = value["default_params"]
+        if value["modality"] == "image":
+            ratios = defaults.get("ratio_map")
+            if (not isinstance(ratios, dict) or not ratios
+                    or any(not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", key) or not isinstance(ratio, str) or not ratio.strip()
+                           for key, ratio in ratios.items()) or defaults.get("resolution") not in ("1k", "2k")):
+                raise ResourceError("Grok 图像需要尺寸到画幅的 ratio_map 与 1k/2k resolution 映射", "invalid_model_defaults")
+        if value["modality"] == "video" and defaults.get("resolution") not in ("480p", "720p", "1080p"):
+            raise ResourceError("Grok 视频需要 480p/720p/1080p resolution 映射", "invalid_model_defaults")
     return value
+
+
+def credential_present(row):
+    """Env reference first; the Grok subscription route reads the grok CLI login state instead."""
+    auth = row.get("auth_ref")
+    if auth:
+        return bool(os.environ.get(auth))
+    return grok_credentials.login_present()
 
 
 def public_configuration(row):
@@ -143,7 +189,7 @@ def public_configuration(row):
         status = "host_managed"
     elif not row["adapter_available"]:
         status = "not_connected"
-    elif not row.get("auth_ref") or not os.environ.get(row["auth_ref"]):
+    elif not credential_present(row):
         status = "not_loaded"
     else:
         status = "loaded_unverified"
@@ -243,9 +289,12 @@ class ResourceSettings:
                 row["connection_status"] = "runtime_unavailable"
                 runtime_message = str(exc) + "。"
         return {"id": model_id, "status": row["connection_status"], "scope": "local_configuration_and_environment_presence",
-            "credential_loaded": bool(row.get("auth_ref") and os.environ.get(row["auth_ref"])),
+            "credential_loaded": credential_present(row),
             "generation_verified": False, "quota": "unknown", "message":
-            runtime_message + "仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。配置位置 ~/.zshenv；" + RELOAD}
+            runtime_message + ("仅检查配置与登录态文件是否存在；未调用模型，未验证生成权限。Grok 订阅路线凭证来自 grok CLI 登录态（"
+                               + str(grok_credentials.LOGIN_FILE) + "），缺失时在终端运行 grok 按提示登录。"
+                               if row.get("supplier") == "xai" and not row.get("auth_ref")
+                               else "仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。配置位置 ~/.zshenv；" + RELOAD)}
 
     def models(self, model_id):
         row = self._repository().get(model_id)

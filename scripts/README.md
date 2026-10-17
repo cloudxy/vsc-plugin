@@ -9,7 +9,7 @@
 | `story/` | 剧本与叙事、镜头衔接、连续性校验 | `script.py`、`sequence.py`、`scripts/story/consistency.py` |
 | `assets/` | 素材库、资源登记与场镜关系查阅 | `library.py`、`resources.py`、`workbench.py` |
 | `production/` | 计划、运行、任务、调度、预算与质量 | `plan.py`、`run.py`、`jobs.py`、`quality.py` |
-| `providers/<服务方>/` | 供应商直接调用；新增供应商拥有独立目录 | `volcengine/ark.py`、`volcengine/speech.py`、`volcengine/audio.py` |
+| `providers/<服务方>/` | 供应商直接调用；新增供应商拥有独立目录 | `volcengine/ark.py`、`volcengine/speech.py`、`volcengine/audio.py`、`xai/grok.py` |
 | `media/` | 本机媒体检查、工具检查与临时声轨 | `qa.py`、`toolchain.py`、`scripts/media/temp_voice.py`、`scripts/media/procedural_audio.py` |
 | `post/` | 选片、剪辑导出、字幕与交付 | `selection.py`、`export.py`、`scripts/post/remotion_plan.py`、`delivery.py` |
 | `knowledge/` | 创作方法、规格、学习与检索 | `craft.py`、`recipes.py`、`learning.py`、`search.py` |

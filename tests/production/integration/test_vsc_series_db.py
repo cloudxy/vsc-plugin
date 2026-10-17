@@ -94,6 +94,60 @@ class SeriesDatabase(unittest.TestCase):
             jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY",
                                    "https://ark.cn-beijing.volces.com/api/v3")
 
+    def test_grok_subscription_registration_pins_login_and_endpoint(self):
+        with self.assertRaisesRegex(context_module.SeriesError, "登录态"):
+            jobs.register_provider(self.project, "xai_grok", ["image"], "env:XAI_API_KEY")
+        with self.assertRaisesRegex(context_module.SeriesError, "官方端点"):
+            jobs.register_provider(self.project, "xai_grok", ["image"], None, "https://api.example.com/v1")
+        jobs.register_provider(self.project, "xai_grok", ["image", "video"])
+        with db.connect(self.project) as connection:
+            row = connection.execute("SELECT base_url, auth_ref FROM providers WHERE name='xai_grok'").fetchone()
+        self.assertEqual((row[0], row[1]), ("https://api.x.ai/v1", None))
+
+    def test_grok_submit_requires_login_before_budget(self):
+        import vsc.adapters.providers.xai_grok.credentials as grok_credentials
+        job = {"status": "created", "provider": "xai_grok", "modality": "video"}
+        frozen = {"logical_request": {"shot_id": "SH1", "purpose": "video_clip", "context_sha256": "a",
+                   "prompt": "movement", "format": "vsc.generation-request/v1", "modality": "video"},
+                  "operation": "op"}
+        with patch.object(dispatch, "_load", return_value=({}, job, frozen, {"scope": "EP1"})), \
+                patch.object(dispatch, "gate_problems", return_value=[]), \
+                patch.object(jobs, "adapter_for_job", return_value=object()), \
+                patch.object(budget, "reserve") as reserve, \
+                patch.object(grok_credentials, "LOGIN_FILE", Path("/nonexistent/auth.json")):
+            with self.assertRaisesRegex(context_module.SeriesError, "grok"):
+                dispatch.submit_job(self.project, "J-xai")
+            reserve.assert_not_called()
+
+    def test_grok_image_job_resolves_subscription_adapter(self):
+        inputs = self._shot_fixture()
+        self._reference("face-day", "char", "identity_face", "day")
+        self._reference("room", "loc", "location_master")
+        with patch.object(context_module, "validate_artifact", return_value=[]):
+            context = context_module.build_shot_context(self.project, "SH1")
+            request = {"format": "vsc.generation-request/v1", "modality": "image", "shot_id": "SH1",
+                "purpose": "shot_keyframe", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
+                "reference_media_ids": [], "width": 1080, "height": 1920}
+            state = project_state(self.project)
+            animatic = self._artifact(state, "vsc.animatic", {"format": "vsc.animatic/v1", "synthetic": True})
+            batch = {"jobs": [{"request": request, "candidate_no": 1}]}
+            operation = "series:SH1:shot_keyframe:1"
+            run = self._artifact(state, "vsc.production_run", {
+                "format": "vsc.production-run/v1", "project_id": state["project_id"], "scope": "EP1",
+                "series_batch": batch, "plan_sha256": db.digest(batch),
+                "approved_inputs": [{"id": item["id"], "sha256": item["sha256"]} for item in (*inputs, animatic)],
+                "review_after": [], "operations": {operation: {"remote_jobs": 1, "images": 1}}},
+                depends=(*inputs, animatic))
+            save(self.project, state)
+            jobs.register_provider(self.project, "xai_grok", ["image"])
+            jobs.register_model(self.project, "xai_grok", "model-g", "grok-imagine-image-2.0", "image", "fixed-version",
+                {"purposes": ["shot_keyframe"]}, {"ratio_map": {"1080x1920": "9:16"}, "resolution": "2k"})
+            jobs.set_route(self.project, "image", "shot_keyframe", "model-g")
+            planned = jobs.plan_job(self.project, run["id"], request)
+            from vsc.adapters.providers.xai_grok.provider import GrokImageProvider
+            self.assertIsInstance(jobs.adapter_for_job(self.project, planned["job_id"], transport=lambda *_: None),
+                                  GrokImageProvider)
+
     def _artifact(self, state, kind, data, scope="EP1", depends=()):
         aid = f"A-{len(state['artifacts']) + 1}"
         path = self.project / "artifacts" / (aid + ".json")

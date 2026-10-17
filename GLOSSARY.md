@@ -11,6 +11,7 @@
 | 候选 take | 图像、视频或音频的候选输出，需人工选择才成为下游基线 | 自动批准的成片 |
 | 角色（role） | 具有稳定身份、人格、权限、记忆范围和交付物的工作视角 | 某个具体人、供应商账号或可任意改写的提示词 |
 | 宿主（host） | 读取本仓库并执行 VSC 的 AI 客户端，如 Codex、Claude Code、Grok Build、Kimi Code、ZCode | VSC 角色或生成供应商 |
+| 生成供应商（supplier） | 外部图像／视频／音频生成服务方，如火山引擎、xAI；Grok Imagine 订阅路线与其同名宿主 Grok Build 是两回事，授权与计费分开识别 | 宿主客户端或 VSC 角色 |
 | 宿主入口 | 宿主发现技能、角色与命令的目录或文件；由 `workflow/hosts.json` 声明、`scripts/kernel/hosts.py` 生成 | 规范正文所在位置或可手改的副本 |
 | 命令（command） | 宿主发现并进入 VSC 能力的用户入口 | 工作流的事实来源 |
 | Skill | 宿主执行某一能力时读取的工作方法入口 | JSON 契约或供应商 SDK |

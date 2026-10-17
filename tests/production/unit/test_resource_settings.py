@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 from vsc.assets.resource_service import ResourceError
-from vsc.production.resource_settings import ResourceSettings, public_configuration, validate_configuration
+from vsc.production.resource_settings import PRESETS, ResourceSettings, public_configuration, validate_configuration
 from support.fixtures.resource_settings import configuration
 
 
@@ -32,9 +32,44 @@ class ResourceSettingsTest(unittest.TestCase):
                         configuration(modality="audio", model_key="seed-tts-2.0", capabilities={"purposes": ["sfx"]})):
             with self.assertRaises(ResourceError):
                 validate_configuration(payload)
-        future = configuration(supplier="xai", product="api", plan="usage", region="global", auth_ref="XAI_API_KEY",
-            base_url="https://api.x.ai/v1", model_key="future", enabled=False)
+        future = configuration(supplier="alibaba", product="dashscope", plan="api", region="cn-beijing",
+            auth_ref="DASHSCOPE_API_KEY", base_url="https://dashscope.example.com", model_key="future", enabled=False)
         self.assertEqual("not_connected", public_configuration(validate_configuration(future))["connection_status"])
+
+    def test_xai_grok_subscription_route_requires_official_shape_and_login_state(self):
+        import tempfile
+        from pathlib import Path
+        from vsc.adapters.providers.xai_grok import credentials as grok_credentials
+        grok_image = dict(supplier="xai", product="grok-imagine", plan="subscription", region="global",
+            execution="api", base_url="https://api.x.ai/v1", auth_ref="", model_key="grok-imagine-image-2.0",
+            default_params={"ratio_map": {"1080x1920": "9:16"}, "resolution": "2k"})
+        for override in (dict(product="api", plan="usage", auth_ref="XAI_API_KEY", model_key="future"),
+                         dict(auth_ref="XAI_API_KEY"),
+                         dict(base_url="https://api.example.com/v1"),
+                         dict(modality="video", model_key="grok-imagine-image-2.0"),
+                         dict(default_params={"resolution": "2k"}),
+                         dict(default_params={"ratio_map": {"1080x1920": "9:16"}, "resolution": "4k"})):
+            with self.assertRaises(ResourceError):
+                validate_configuration(configuration(**{**grok_image, **override}))
+        grok_video = dict(supplier="xai", product="grok-imagine", plan="subscription", region="global",
+            execution="api", base_url="https://api.x.ai/v1", auth_ref="", model_key="grok-imagine-video-1.5",
+            modality="video", capabilities={"purposes": ["image_to_video"]},
+            default_params={"resolution": "480p"})
+        with self.assertRaises(ResourceError):
+            validate_configuration(configuration(**dict(grok_video, default_params={"resolution": "4k"})))
+        with tempfile.TemporaryDirectory() as temp:
+            missing = Path(temp) / "auth.json"
+            with patch.object(grok_credentials, "LOGIN_FILE", missing):
+                row = public_configuration(validate_configuration(configuration(**grok_image)))
+                self.assertTrue(row["adapter_available"])
+                self.assertEqual("not_loaded", row["connection_status"])
+            login = Path(temp) / "login.json"
+            login.write_text('{"https://auth.x.ai::u": {"key": "grok-login-secret-value", "expires_at": "2999-01-01T00:00:00Z"}}', "utf-8")
+            with patch.object(grok_credentials, "LOGIN_FILE", login):
+                row = public_configuration(validate_configuration(configuration(**grok_image)))
+                self.assertEqual("loaded_unverified", row["connection_status"])
+                self.assertNotIn("grok-login-secret-value", json.dumps(row))
+        self.assertTrue({"xai-grok-imagine-image", "xai-grok-imagine-video"} <= {preset["id"] for preset in PRESETS})
 
     def test_sdk_snapshot_is_server_owned_and_missing_sdk_only_allows_draft(self):
         from unittest.mock import Mock
