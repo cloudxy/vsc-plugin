@@ -747,6 +747,21 @@
         "src/vsc/production/production.py",
         "src/vsc/adapters/providers/xai_grok/spec.py"
       ]
+    },
+    "post.unit.test_subtitle_display": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/post/subtitles.py",
+        "src/vsc/adapters/media/qa.py"
+      ]
+    },
+    "production.integration.test_batch_economy": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/production.py"
+      ]
     }
   },
   "dependencies": {

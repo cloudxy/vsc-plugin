@@ -258,3 +258,62 @@ def wrap_text(text, font, max_width):
             if anchor > 0 and width(candidate) <= max_width:
                 lines[index], lines[index - 1] = candidate, previous[:anchor]
     return [line.strip() for line in lines if line.strip()]
+
+
+# ---------- B4-01：显示派生与交付前纯检查（预览/烧录/导出共用） ----------
+
+# 数字、小数、百分号、常见单位与间距标记整体保留，不因无标点化破坏语义。
+_KEEP_TOKEN = re.compile(r"\d+(?:[.,]\d+)*%?(?:多岁|多岁|余|几)?|[A-Za-z]+(?:/\d+(?:[.,]\d+)?)?")
+_DISPLAY_DROP = "，。！？；：、""''（）()【】[]《》〈〉…—·,!?;:\"'"
+
+def display_text(line):
+    """显示文本：中文对白/旁白去掉句读标点，数字、单位、拉丁词整体保义（B4-01）。
+
+    不改原稿：这只是派生视图，烧录、预览与导出使用同一结果。
+    """
+    if not isinstance(line, str):
+        raise SubtitleError(["显示文本必须是字符串"])
+    kept, output = _KEEP_TOKEN.findall(line), []
+    cursor = 0
+    for token in _KEEP_TOKEN.finditer(line):
+        output.append(line[cursor:token.start()].translate(str.maketrans("", "", _DISPLAY_DROP)))
+        output.append(token.group())
+        cursor = token.end()
+    output.append(line[cursor:].translate(str.maketrans("", "", _DISPLAY_DROP)))
+    return "".join(output).strip()
+
+
+def check_overlaps(items):
+    """相邻 cue 重叠/乱序检查；items 为 [(start_seconds, end_seconds, id), ...]。"""
+    errors, previous = [], None
+    for start, end, identifier in items:
+        if end <= start:
+            errors.append(f"字幕 {identifier} 结束不晚于开始")
+        if previous is not None and start < previous[1] - 1e-6:
+            errors.append(f"字幕 {identifier} 与 {previous[2]} 重叠或乱序")
+        previous = (start, end, identifier)
+    return errors
+
+
+def check_coverage(subtitle_texts, script_texts):
+    """缺字检查：每句台词的显示文本须出现在字幕显示文本整体中（空白不参与比较）。"""
+    corpus = re.sub(r"\s+", "", "".join(display_text(text) for text in subtitle_texts))
+    missing = []
+    for index, text in enumerate(script_texts):
+        shown = re.sub(r"\s+", "", display_text(text))
+        if shown and shown not in corpus:
+            missing.append({"index": index, "text": text, "display": shown})
+    return missing
+
+
+class _UnitFont:
+    """无字体环境的等宽近似：CJK 全宽 1 单位，拉丁/数字/空白 0.5 单位。"""
+    def getbbox(self, value):
+        width = sum(1.0 if ord(char) > 0x2E7F else 0.5 for char in value)
+        return (0, 0, width, 1)
+
+
+def check_layout(text, font, max_width, max_lines=2):
+    """行数/宽度纯检查（与烧录同一 wrap 规则），供预览与导出在渲染前复用。"""
+    lines = wrap_text(display_text(text), font or _UnitFont(), max_width)
+    return {"lines": len(lines), "ok": len(lines) <= max_lines, "rendered": lines}

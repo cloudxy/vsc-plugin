@@ -633,10 +633,39 @@ def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, 
         return journal
 
 
+def preview(project, plan):
+    """B3-05：只读执行预览——逐任务列 将执行/将复用/已完成 与预计用量；不写任何文件。"""
+    project = Path(project).resolve()
+    journal_file = journal_path(project, plan["id"])
+    journal = read(journal_file) if journal_file.is_file() else {"jobs": {}}
+    entries = []
+    for job in plan["jobs"]:
+        entry = journal.get("jobs", {}).get(job["id"])
+        state = "execute"
+        note = ""
+        if entry is not None and entry.get("status") == "succeeded":
+            try:
+                state = "reuse" if completed(project, job) is not None else "verify"
+                note = "" if state == "reuse" else "journal 已成功但完成校验未过，须人工核查"
+            except (ProductionError, ark.ArkError, OSError, ValueError):
+                state, note = "verify", "完成校验失败，须人工核查"
+        elif entry is not None and entry.get("attempts", 0) >= plan["max_attempts"]:
+            state, note = "blocked", "已达 max_attempts，不再次调用"
+        missing = [relative for relative in plan["inputs_sha256"]
+                   if not path_in(project, relative).is_file()]
+        entries.append({"job": job["id"], "kind": job["kind"], "state": state, "note": note,
+                        "missing_inputs": missing})
+    return {"format": "vsc.production-preview/v1", "plan_sha256": plan["plan_sha256"],
+            "usage_bound": plan["usage_bound"], "jobs": entries,
+            "missing_inputs": sorted({relative for entry in entries for relative in entry["missing_inputs"]}),
+            "meaning": {"execute": "将调用平台生成", "reuse": "已有成功记录且校验通过，跳过付费调用",
+                        "verify": "有历史记录但需人工核查", "blocked": "达到尝试上限"}}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("validate", "plan", "run", "status"):
+    for command in ("validate", "plan", "run", "status", "preview"):
         child = sub.add_parser(command)
         child.add_argument("batch")
         child.add_argument("--project", required=True)
@@ -646,7 +675,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         plan = build_plan(args.project, read(args.batch))
-        result = plan
+        result = preview(args.project, plan) if args.command == "preview" else plan
         if args.command == "run" and args.execute:
             result = run(args.project, plan, args.plan_hash)
         elif args.command == "status":

@@ -9,7 +9,7 @@ def write_review(root, report, structured=False):
     root = Path(root)
     qa_path = root / "qa.json"
     qa_path.write_text(json.dumps(report), encoding="utf-8")
-    review = {"format": QA.REVIEW_FORMAT, "project_id": "sample", "reviewer": "synthetic reviewer",
+    review = {"format": QA.REVIEW_FORMAT, "project_id": "sample", "reviewer": "synthetic reviewer", "review_method": "human_full_play",
               "technical_report": qa_path.name, "technical_report_sha256": QA.sha256(qa_path),
               "assessments": {category: {"result": "pass", "evidence": "SH-001 synthetic evidence"}
                               for category in QA.REVIEW_CATEGORIES},

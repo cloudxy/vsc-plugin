@@ -195,6 +195,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       links.append(button(name, () => fn?.(id)));
     };
     if (key === 'shots' || row.kind === 'shot' || key === 'assets') link('object', row.object_id || row.id, key === 'assets' ? '查看资产用途' : '进入镜头');
+    if (key === 'shots' && row.id) links.append(button('查看覆盖剧本行', () => drill('coverage', row.id)));
     for (const [field, name] of [['shot_id', '定位镜头'], ['asset_id', '定位资产'], ['speaker_id', '定位人物'], ['voice_id','定位声线身份'],['scene_id', '定位场次'], ['target_object_id', '定位用途对象']]) link('object', row[field], name);
     for (const field of ['artifact_id', 'script_version_id', 'coverage_version_id', 'evidence_version_id', 'scope_version_id','method_artifact_id','criteria_artifact_id','trial_run_id','subtitle_version_id','lipsync_version_id']) link('artifact', row[field], '阅读固定文案');
     for (const field of ['media_id', 'reference_media_id', 'selected_media_id']) link('media', row[field], field === 'selected_media_id' ? '播放当前采用' : '预览素材');

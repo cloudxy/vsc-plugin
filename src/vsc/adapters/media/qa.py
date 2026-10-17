@@ -18,6 +18,7 @@ from vsc.post.remotion_plan import frame_rate, load_plan, validate
 
 FORMAT = "vsc.media-qa/v1"
 REVIEW_FORMAT = "vsc.sample-review/v1"
+REVIEW_METHODS = ("tool_probe", "ai_static_frame", "ai_with_audio", "human_full_play")
 REVIEW_CATEGORIES = ("story_and_motivation", "physical_continuity", "emotional_continuity", "edit_coverage", "dialogue_and_music")
 
 
@@ -451,6 +452,14 @@ def validate_review(review_path, strict=False):
         errors.append("evidence_mode 必须为 structured 或 legacy")
     if strict and not structured:
         errors.append("legacy 文本审片不可用于严格新交付；需要 structured 证据")
+    # B4-03：检查方法显式分类；正式全片审片必须是真人完整观看，静帧/AI/工具不能替代。
+    method = review.get("review_method")
+    if method is not None and method not in REVIEW_METHODS:
+        errors.append("review_method 必须为 " + "/".join(REVIEW_METHODS))
+    if strict and method is None:
+        errors.append("正式审片必须声明 review_method（工具/AI静帧/AI含音频/真人完整观看须分开）")
+    if strict and method is not None and method != "human_full_play":
+        errors.append("正式全片审片必须是真人完整观看（human_full_play）；静帧、AI 或工具证据另行归档")
     scope = review.get("scope", {})
     composition = plan.get("composition") if isinstance(plan, dict) else None
     duration = composition.get("duration_in_frames", 0) if isinstance(composition, dict) else 0
@@ -563,3 +572,36 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def delivery_checklist(reviews, qa_reports, visual_checks=None):
+    """B4-03/B4-04：按检查方法汇总交付证据——工具/AI静帧/真人完整观看分开，缺项显式列出。
+
+    reviews: [{review_method, scope_complete, reviewer, render_sha256}]
+    qa_reports: [{passed, real_adapter, render_sha256}]
+    visual_checks: [{advisory}]  # AI 静帧检查永远只是提醒
+    """
+    checklist = {
+        "technical_qa": {"method": "tool_probe", "status": "missing", "count": 0},
+        "ai_static_review": {"method": "ai_static_frame", "status": "missing", "count": 0, "advisory_only": True},
+        "human_full_play": {"method": "human_full_play", "status": "missing", "count": 0},
+    }
+    for report in qa_reports or []:
+        if report.get("passed") and report.get("real_adapter"):
+            checklist["technical_qa"]["count"] += 1
+    if checklist["technical_qa"]["count"]:
+        checklist["technical_qa"]["status"] = "present"
+    for check in visual_checks or []:
+        checklist["ai_static_review"]["count"] += 1
+    if checklist["ai_static_review"]["count"]:
+        checklist["ai_static_review"]["status"] = "present"
+    for review in reviews or []:
+        if review.get("review_method") == "human_full_play" and review.get("scope_complete") and review.get("reviewer"):
+            checklist["human_full_play"]["count"] += 1
+    if checklist["human_full_play"]["count"]:
+        checklist["human_full_play"]["status"] = "present"
+    # AI 静帧只是提醒，正式交付要求 技术QA + 真人完整观看 两项在场。
+    checklist["formal_delivery_ready"] = all(checklist[key]["status"] == "present"
+                                              for key in ("technical_qa", "human_full_play"))
+    checklist["meaning"] = "present 只证明证据存在；AI 静帧永远 advisory，不构成通过；正式全片仍须真人完整观看"
+    return checklist

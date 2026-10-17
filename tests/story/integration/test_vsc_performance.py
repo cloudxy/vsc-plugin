@@ -96,6 +96,24 @@ class Performance(unittest.TestCase):
         self.assertEqual(project_sound_errors(self.sound_data, self.f.project, self.f.state, self.sound), [])
         self.assertEqual(self.errors(), [])
 
+    def test_same_take_bound_to_two_dialogue_segments_requires_reuse_declaration(self):
+        # 取既有对白绑定（fixture A1/A2 之外再复制一个绑定同一获选 item 的对白 segment）
+        timeline = copy.deepcopy(self.timeline_data)
+        audio_bindings = [b for b in timeline.get("bindings", []) if b.get("audio_role") in {"dialogue", "narration"}]
+        self.assertTrue(audio_bindings)
+        clone = dict(audio_bindings[0])
+        clone["segment_id"] = clone["segment_id"] + "-reuse"
+        timeline["bindings"] = list(timeline.get("bindings", [])) + [clone]
+        timeline["render_plan"]["segments"].append(dict(
+            timeline["render_plan"]["segments"][[s["id"] for s in timeline["render_plan"]["segments"]].index(clone["segment_id"].replace("-reuse", ""))],
+            id=clone["segment_id"]))
+        errors = timeline_performance_errors(timeline, self.f.project, self.f.state, timeline)
+        self.assertTrue(any("重复绑定" in error for error in errors), errors)
+        clone["reuse_declared"] = True  # 显式声明跨镜复用后不再视为悄悄复制
+        timeline["bindings"][-1] = clone
+        errors = timeline_performance_errors(timeline, self.f.project, self.f.state, timeline)
+        self.assertFalse(any("重复绑定" in error for error in errors), errors)
+
     def test_silent_plan_and_silent_timeline_add_no_dialogue_requirements(self):
         self.assertEqual(project_sound_errors({"dialogue_cues": []}, self.f.project, self.f.state, {}), [])
         self.assertEqual(timeline_performance_errors(self.f.timeline_data, self.f.project, self.f.state, self.f.timeline), [])
