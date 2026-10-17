@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""volc_ark.py 自测：不联网，用假的接口与下载模拟火山方舟。运行：python3 -B tests/run.py --test production.integration.test_volc_ark"""
+"""scripts/providers/volcengine/ark.py 自测：不联网，用假的接口与下载模拟火山方舟。运行：python3 -B tests/run.py --test production.integration.test_volc_ark"""
 import contextlib
 import datetime
 import io
@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 from support.paths import ROOT
-import consistency as C
-import volc_ark as A
+import vsc.story.consistency as C
+import vsc.adapters.providers.volc_ark.api as A
 
 BIBLE = ROOT / "templates/asset-bible.json"
 STATE = ROOT / "templates/scene-state.json"
@@ -323,7 +323,7 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("audio_anchors_sha256", silent["inputs"])  # 声音参考仍是声音消费者。
 
     def test_paid_post_uses_budget_reservation_once_but_resume_does_not(self):
-        import vsc_budget
+        import vsc.production.budget as vsc_budget
         argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "budget", "--shot", "SH-001", "--prompt", "动作",
                 "--budget-reservation", "BR-offline-fixture"]
         with mock.patch.object(vsc_budget, "check_authorization") as check:
@@ -715,7 +715,7 @@ class InspectionBudgetTest(unittest.TestCase):
         self.assertFalse(list(self.project.glob("*-尝试.json")))
 
     def test_agent_plan_policy_refuses_new_submission_before_key_budget_or_attempt(self):
-        import vsc_budget
+        import vsc.production.budget as vsc_budget
         self.text_models.return_value = A.credentials.TEXT_MODELS_FORBIDDEN
         with mock.patch.object(A, "api_key") as key, mock.patch.object(A, "call") as remote, \
                 mock.patch.object(vsc_budget, "check_authorization") as budget:
@@ -735,7 +735,7 @@ class InspectionBudgetTest(unittest.TestCase):
         self.assertFalse(list(self.project.glob("*-尝试.json")))
 
     def test_budget_receives_binding_and_valid_report_is_read_only_reused(self):
-        import vsc_budget
+        import vsc.production.budget as vsc_budget
         args = self.args("--budget-reservation", "BR-test")
         binding = A.prepare_inspection(args)[0]
         with mock.patch.object(vsc_budget, "check_authorization") as budget, \
@@ -781,7 +781,7 @@ class InspectionBudgetTest(unittest.TestCase):
             self.assertEqual(A.inspect(changed), second)
 
     def test_unknown_submit_persists_evidence_and_cannot_repost_same_reservation(self):
-        import vsc_budget
+        import vsc.production.budget as vsc_budget
         for index, failure in enumerate((A.ArkError("response lost offline-test-key"), KeyboardInterrupt())):
             media = self.project / f"unknown{index}.png"
             media.write_bytes(PNG)

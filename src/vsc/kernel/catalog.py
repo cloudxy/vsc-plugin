@@ -10,7 +10,7 @@ workflow/ 是阶段、角色和跨模块格式的唯一事实来源。本脚本�
   contract list [--json]
   contract validate FORMAT FILE
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 import subprocess

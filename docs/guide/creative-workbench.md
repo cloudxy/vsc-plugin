@@ -15,9 +15,9 @@ HTTP：`GET /api/v1/projects/{project_id}/workbench`（沿面板既有鉴权与�
 CLI 使用同一应用接口：
 
 ```sh
-python3 -B scripts/vsc_workbench.py PROJECT_ID --object-id SHOT_ID --section overview
-python3 -B scripts/vsc_workbench.py PROJECT_ID --section materials --query 杯子 --limit 24
-python3 -B scripts/vsc_workbench.py PROJECT_ID --section cue_shots --entity-id CUE_ID
+python3 -B scripts/assets/workbench.py PROJECT_ID --object-id SHOT_ID --section overview
+python3 -B scripts/assets/workbench.py PROJECT_ID --section materials --query 杯子 --limit 24
+python3 -B scripts/assets/workbench.py PROJECT_ID --section cue_shots --entity-id CUE_ID
 ```
 
 `VSC_DATABASE_URL` 未加载时仍可读旧项目；声明 PG 权威的项目拒绝回退。命令不显示连接信息。返回 `scope`、`ancestors`、`summary`、`sections`、`gaps`、`warnings`。每个集合区分 `scope_total`、`filtered_total`、`loaded_count`，并给出 `next_offset`、`truncated`。PG 查询使用一次只读 repeatable-read 快照；传入过期 revision 返回冲突，调用方应重新刷新。
@@ -54,7 +54,7 @@ python3 -B scripts/vsc_workbench.py PROJECT_ID --section cue_shots --entity-id C
 保存为 payload.json 后沿既有写入口登记：
 
 ```sh
-python3 -B scripts/vsc_resources.py apply PROJECT_ID create_artifact \
+python3 -B scripts/assets/resources.py apply PROJECT_ID create_artifact \
   --payload payload.json --expected-revision REVISION --key UNIQUE_COMMAND_KEY --by ACTOR
 ```
 

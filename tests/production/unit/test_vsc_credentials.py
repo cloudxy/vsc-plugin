@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 
 from support.paths import ROOT  # noqa: F401 - add scripts to import path
-import vsc_credentials as credentials
+import vsc.adapters.providers.credentials as credentials
 
 
 class CredentialPolicy(unittest.TestCase):

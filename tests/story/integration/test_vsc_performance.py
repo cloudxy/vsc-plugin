@@ -12,8 +12,8 @@ from pathlib import Path
 
 from support.paths import ROOT
 from support.fixtures.handoffs import Fixture
-from vsc_handoffs import digest, project_errors
-from vsc_performance import project_sound_errors, timeline_performance_errors
+from vsc.production.handoffs import digest, project_errors
+from vsc.story.performance import project_sound_errors, timeline_performance_errors
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires local FFmpeg")
@@ -107,7 +107,7 @@ class Performance(unittest.TestCase):
             self.assertTrue(project_sound_errors(data, self.f.project, self.f.state, self.sound), key)
 
     def test_strict_artifact_runtime_calls_spoken_line_contract(self):
-        from vsc_artifacts import reference_errors
+        from vsc.project.artifacts import reference_errors
         self.f.state["profile_snapshot"] = {"contract_policy": "production-v2"}
         self.assertEqual(reference_errors(self.f.project, self.f.state, self.sound), [])
         data = copy.deepcopy(self.sound_data)

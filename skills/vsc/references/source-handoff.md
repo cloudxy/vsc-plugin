@@ -24,7 +24,7 @@ VSC 是独立插件。它不关心小说、剧本或素材来自哪个工具，�
 
 ## 导入规则
 
-1. 用 `python3 scripts/vsc_state.py handoff validate <manifest>` 校验结构，再 `source import` 登记其路径与 SHA。
+1. 用 `python3 scripts/project/state.py handoff validate <manifest>` 校验结构，再 `source import` 登记其路径与 SHA。
 2. 导入只登记来源，不自动把外部内容变成 VSC 的已批准剧本、镜头或资产。VSC 的故事分析和改编角色必须先审阅并产出本项目 artifact。
 3. 原文事实、人物说法、解释、改编、新增和待定应保持可区分。人物说法不自动成为世界事实。
 4. 旧交接包不可覆盖。来源变化、范围变化或改编边界变化时，由来源方产生新 revision；VSC 重新导入并评估受影响的下游版本。

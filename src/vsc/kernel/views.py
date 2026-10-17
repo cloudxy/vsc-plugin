@@ -6,7 +6,7 @@
 
 标记块形如 <!-- vsc:view NAME --> … <!-- /vsc:view -->，块内内容由本脚本生成，勿手改。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 import re
@@ -88,7 +88,7 @@ def view_problems(root=ROOT):
         documents = rendered(root)
     except (HostError, OSError, KeyError, json.JSONDecodeError) as exc:
         return [f"文档视图无法渲染：{exc}"]
-    return [f"文档视图已过期：{relative}（运行 python3 -B scripts/vsc_views.py sync）"
+    return [f"文档视图已过期：{relative}（运行 python3 -B scripts/kernel/views.py sync）"
             for relative, (current, expected) in documents.items() if current != expected]
 
 

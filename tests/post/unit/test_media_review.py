@@ -6,8 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from support.paths import SCRIPTS  # noqa: F401
-import media_qa as QA
+import vsc.adapters.media.qa as QA
 from support.fixtures.review import write_review
 
 

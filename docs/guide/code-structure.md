@@ -15,12 +15,18 @@
 | `src/vsc/interfaces/` | CLI 和内置 FastAPI 资源面板 |
 | `migrations/postgres/` | PostgreSQL 的唯一版本化迁移历史 |
 | `tools/maintenance/` | Vendor、本地 CI、Git 提交检查等工程维护工具 |
-| `scripts/` | 已发布命令的兼容入口 |
+| `scripts/<职责>/` | 实际 CLI 入口；加载工作区并直接调用所属模块的 `main` |
 | `tests/<领域>/<层级>/` | 按责任和验证边界组织的测试 |
 
-`scripts/` 保留原命令路径、参数和退出码。原模块名和领域包导入指向同一个模块对象；原调用方的全局补丁和缓存不会出现两份。`src/vsc/module-map.json` 记录兼容路径。新增功能进入领域模块，由 CLI 或 Web 接口调用。
+`scripts/` 顶层只放职责索引。命令按 `kernel/project/story/assets/production/providers/media/post/knowledge/maintenance` 分组，供应商命令再按实际服务方分目录。完整入口表见 [scripts 索引](../../scripts/README.md)。命令通过明确的 Python import 指向实现，不维护另一份旧模块映射。
 
-系列项目的原 `vsc_series.py` 已拆分为 `production/context.py`、`assets/registry.py`、`story/boundaries.py` 和 `interfaces/cli/series.py`；`production/series.py` 保留旧 API。资产身份与参考规格在 `assets/specification.py`，场景状态及镜头连续性在 `story/consistency.py`。
+文件归属由其负责的规则决定：固定镜头上下文属于 `production/context.py`，素材登记属于 `assets/registry.py`，跨镜衔接属于 `story/boundaries.py`，命令参数编排属于 `interfaces/cli/series.py`。调用方和测试直接导入这些模块。资产身份与参考规格在 `assets/specification.py`，场景状态及镜头连续性在 `story/consistency.py`。库模块不再在 scripts 中建立无命令行为的文件。
+
+工作流声明、运行接口与实现各自维护自己的职责：`workflow/` 保存共享路由及契约，`profiles/` 保存阶段策略，`templates/` 保存交换格式样本，`skills/` 和 `agents/` 保存专业执行方法。宿主发现入口由 `scripts/kernel/hosts.py` 从这些来源生成。`migrations/` 只保存版本化数据库迁移；项目、素材字节、vendor 源码与本机状态分别归入其既有私有目录。
+
+新增文件须明确所属目录、消费者和验证范围。共享代码应进入真正拥有规则的模块，禁止通过根目录转发文件或动态 facade 横跨多个领域。`tools/maintenance/` 只承担工程维护；可见命令统一归 `scripts/maintenance/`。测试只把源码根和工作区根加入 Python 路径，按领域／层级使用当前模块 ID。
+
+v0.25.0 直接切换到分组命令路径，旧顶层脚本、模块别名、series 动态 facade 和旧测试选择别名均已删除。调用方应使用本文及 CLI 指南中的当前路径；安装包保持相同目录层级。作品固定版本、人工决定与存储权威沿既有协议保持。
 
 ## 依赖
 
@@ -34,6 +40,8 @@ uv sync --locked --extra web --extra postgres --extra test
 
 可用 `uv build --wheel` 构建安装包。安装包包含 Python 模块及只读工作流声明、模板和 PostgreSQL 迁移。使用完整创作工作区时，设置 `VSC_WORKFLOW_ROOT` 指向本仓库根目录，以复用宿主入口、本机 Vendor 和现有作品。密钥仍由进程环境传入，不能写入包或作品。
 
+独立安装包包含根说明、插件版本声明和派生视图。首次使用其工作流声明时运行 `python -B -m vsc.kernel.hosts sync` 生成宿主发现入口，再运行 `python -B -m vsc.kernel.catalog doctor`；它们按当前工作流根定位，不依赖终端所在目录。完整工作区按 `VSC_WORKFLOW_ROOT` 选定根目录后执行相同检查。
+
 ## 验证
 
 修改时根据源文件选择受影响测试：
@@ -43,4 +51,4 @@ python3 -B tests/run.py --files src/vsc/production/context.py --list
 python3 -B tests/run.py --files src/vsc/production/context.py
 ```
 
-测试影响分析同时识别领域包、维护工具、兼容入口、共享夹具和动态契约校验器。最后提交并推送时才执行一次全量本地 CI，详见 [维护指南](maintenance.md)。
+测试影响分析同时识别领域包、维护工具、分组入口、共享夹具和动态契约校验器。脚本拥有独立 `scripts` 命名空间，避免与测试的领域包混淆；布局测试阻止顶层入口或动态别名重新堆积。最后提交并推送时才执行一次全量本地 CI，详见 [维护指南](maintenance.md)。

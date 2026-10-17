@@ -2,13 +2,13 @@
 
 ## 资源配置页：检查后一次决定
 
-`scripts/vsc_provider_sync.py` 与内建资源配置页共用同一实现。点击“检查官方更新”显示当前和最新固定 commit 或包版本摘要；
+`scripts/maintenance/provider_sync.py` 与内建资源配置页共用同一实现。点击“检查官方更新”显示当前和最新固定 commit 或包版本摘要；
 点击“更新”就是本次采用授权，后台完成下载、资源包验证、差异分析和切换。“不更新”直接保留当前版本。
 这条入口不额外创建人工审核步骤；下文的独立候选审查入口仍供用户只想分析、暂不采用时使用。
 
 ```bash
-python3 scripts/vsc_provider_sync.py check --tool volcengine-ark-cli
-python3 scripts/vsc_provider_sync.py update --tool volcengine-ark-cli --revision <完整commit> --actor <真实操作人>
+python3 scripts/maintenance/provider_sync.py check --tool volcengine-ark-cli
+python3 scripts/maintenance/provider_sync.py update --tool volcengine-ark-cli --revision <完整commit> --actor <真实操作人>
 ```
 
 CLI 更新通过 `VSC_DATABASE_URL`（可用 `--database-env` 指定变量名）确认任务状态；网页复用已连接的 PostgreSQL。
@@ -53,10 +53,10 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 | 模块 | 职责 |
 | --- | --- |
 | `vendor/sources.lock.json` | 来源、当前固定 revision、许可证和候选更新策略；schema 4。 |
-| `scripts/vsc-vendor-maintenance.sh` | 用户按需运行的单次入口，透传退出码；不创建定时任务或常驻后台。`--plan` 不联网、不写入。 |
-| `scripts/vendor_watch.py` | 下载固定基线和 HEAD 候选，保存完整 Skill 资源包及分析状态、校验完整性、按每来源 90 天/3 份清理。 |
-| `scripts/vendor_bundle.py` | 共用资源包模块：Skill 子树、递归本地引用及根许可证/依赖声明；拒绝越界、符号链接与超限。 |
-| `scripts/vendor_review.py` | 对比 Skill 资源包而非仅正文，输出机器 JSON 与人读 Markdown；不更新任何活跃内容。 |
+| `scripts/maintenance/vendor_maintenance.sh` | 用户按需运行的单次入口，透传退出码；不创建定时任务或常驻后台。`--plan` 不联网、不写入。 |
+| `scripts/maintenance/vendor_watch.py` | 下载固定基线和 HEAD 候选，保存完整 Skill 资源包及分析状态、校验完整性、按每来源 90 天/3 份清理。 |
+| `tools/maintenance/vendor_bundle.py` | 共用资源包模块：Skill 子树、递归本地引用及根许可证/依赖声明；拒绝越界、符号链接与超限。 |
+| `scripts/maintenance/vendor_review.py` | 对比 Skill 资源包而非仅正文，输出机器 JSON 与人读 Markdown；不更新任何活跃内容。 |
 | `vendor/.reviews/` | 本机报告目录，不进入 Git。 |
 | 手动调用 `/vsc-vendor` | 根据用户指定报告与必要 diff，补充“可否继续引用/是否值得新增路由/删除处置”的语义评估；没有采用权限。 |
 | 责任人 | 判断语义/兼容性、决定是否采用候选、是否新增路由、是否保留删除 Skill。 |
@@ -66,12 +66,12 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 | 变化 | 默认结论 | 必须的下一步 |
 | --- | --- | --- |
 | `changed_referenced_skill` | 阻止自动采用 | 检查方法、输入/输出、运行环境、权限和 VSC 契约；通过后才更新 revision。 |
-| `new_skill` | `unrouted_pending_review` | 评估是否补足 VSC 能力；若采用，显式添加 Vendor 路由、运行环境与测试，运行 `vsc_kernel.py doctor`。 |
+| `new_skill` | `unrouted_pending_review` | 评估是否补足 VSC 能力；若采用，显式添加 Vendor 路由、运行环境与测试，运行 `scripts/kernel/catalog.py doctor`。 |
 | `deleted_referenced_skill` | 保留当前活跃版本 | 在“保留最后批准快照 / 替换路由 / 退役”中作决定；不能让当前路由悄然变成缺失文件。 |
 
 每条 Skill 变化同时列出具体资源变化。正文没变但 `rules.md`、脚本、参考、资产、LICENSE、NOTICE 或依赖声明变化时，也必须审查。报告格式升级为 `vsc.vendor-skill-analysis/v2`，原 `change_count`、变化分类与路由处置字段保留；`before_sha256`/`after_sha256` 现在是资源包散列，详细文件证据见 `resources`/`bundles`。
 
-`vendor_review.py` 不会声称能仅凭文件散列判断创作方法是否合理。它准确报告结构变化和当前路由影响，并把语义判断留给负责审查的人或用户手动调用的 `/vsc-vendor`。脚本不自动启动模型。
+`scripts/maintenance/vendor_review.py` 不会声称能仅凭文件散列判断创作方法是否合理。它准确报告结构变化和当前路由影响，并把语义判断留给负责审查的人或用户手动调用的 `/vsc-vendor`。脚本不自动启动模型。
 
 ## 资源包、失败恢复与保留边界
 
@@ -89,12 +89,12 @@ VSC 要持续发现开源项目的新能力，但“上游最新”不能直接�
 
 ```bash
 # 只验证配置并预览来源、数据目录和保留策略；不联网、不写入、不清理
-bash scripts/vsc-vendor-maintenance.sh --plan
+bash scripts/maintenance/vendor_maintenance.sh --plan
 # 一次检查全部来源，或只检查一个来源
-bash scripts/vsc-vendor-maintenance.sh
-bash scripts/vsc-vendor-maintenance.sh --source mattpocock-skills
+bash scripts/maintenance/vendor_maintenance.sh
+bash scripts/maintenance/vendor_maintenance.sh --source mattpocock-skills
 # 复用原中央维护目录中的已有缓存与候选；不会启动调度
-bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plugin-updater
+bash scripts/maintenance/vendor_maintenance.sh --maintenance-root /absolute/path/to/plugin-updater
 ```
 
 执行后检查退出码与本次输出；退出码非零时记录失败，不报告成功。结构报告在 `vendor/.reviews/<source>-<revision>.md` 和对应 JSON 中。需要语义评估时手动调用 `/vsc-vendor 审查候选报告 <报告路径>`，读取报告及候选/基线中必要的原始 Skill 与支持资源，将评估写为同名 `.assessment.md`：已路由 Skill 是否仍可引用、每个新增 Skill 是否值得路由及理由、每个已删除引用应保留/替换/退役的建议、所需运行环境与测试。它不得编辑 `vendor/<source>`、`sources.lock.json`、VSC 路由、角色或命令，也不得执行候选中的脚本。
@@ -103,7 +103,7 @@ bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plug
 
 ## 旧中央入口与任务迁移
 
-项目不再提供中央定时入口部署器。已有的 `~/.zcode/plugin-updater/scripts/vsc-vendor-maintenance.sh` 与 `vsc-vendor-watch.py` 若是转发项目脚本的薄入口，可保留为手动兼容命令；文件存在不代表有定时任务。推荐直接调用项目入口。
+项目不再提供中央定时入口部署器。已有的 `~/.zcode/plugin-updater/scripts/maintenance/vendor_maintenance.sh` 与 `vsc-vendor-watch.py` 若是转发项目脚本的薄入口，可保留为手动兼容命令；文件存在不代表有定时任务。推荐直接调用项目入口。
 
 改项目代码不能替代删除宿主任务。已有安装应在用户授权下移除 ZCode 中指向 VSC 工作区或 VSC 维护入口的任务；核对系统 crontab／launchd 是否存在同类任务，不动其他插件任务。保留历史运行记录、审查报告、已安装 Vendor 和可复用缓存；无需为这次模式切换重新下载来源。候选快照恢复与显式采用仍遵守上述完整性与审批边界。
 
@@ -112,7 +112,7 @@ bash scripts/vsc-vendor-maintenance.sh --maintenance-root /absolute/path/to/plug
 1. 阅读 `vendor/.reviews/<source>-<candidate>.md` 和必要的原始 `SKILL.md` diff。
 2. 记录兼容性、权属、运行环境、路由和删除处置结论。
 3. 明确将 `sources.lock.json` 中该来源的 40 位 `revision` 改为已批准候选。
-4. 执行 `python3 scripts/vendor_sync.py --install <source>`，使 active Vendor 与固定 revision 一致。
-5. 执行 `python3 scripts/vendor_sync.py --write-declaration`、`python3 scripts/vsc_kernel.py doctor` 和相关测试；再决定是否提交 VSC 配置变更。
+4. 执行 `python3 scripts/maintenance/vendor_sync.py --install <source>`，使 active Vendor 与固定 revision 一致。
+5. 执行 `python3 scripts/maintenance/vendor_sync.py --write-declaration`、`python3 scripts/kernel/catalog.py doctor` 和相关测试；再决定是否提交 VSC 配置变更。
 
 独立候选流程中，分析失败、下载失败或未决定采用时，当前 active Vendor 保持不变。资源配置页使用本文开头的一次更新决定，由后台完成必要检查，不再叠加此手工流程。

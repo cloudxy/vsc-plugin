@@ -5,7 +5,7 @@
 升级前保留数据库备份；确认没有在途任务后执行：
 
 ```bash
-.venv/bin/python -B scripts/vsc_schema.py migrate --database-env VSC_DATABASE_URL
+.venv/bin/python -B scripts/project/schema.py migrate --database-env VSC_DATABASE_URL
 ```
 
 随后重新启动面板。迁移仅增加配置与试片采用关系，不把已有候选或创作决定改为批准。
@@ -28,8 +28,8 @@
 同一入口也提供命令行：
 
 ```bash
-python3 -B scripts/vsc_provider_sync.py check --tool volcengine-ark-cli
-python3 -B scripts/vsc_provider_sync.py update --tool volcengine-ark-cli --revision FULL_COMMIT --actor ACTUAL_OPERATOR
+python3 -B scripts/maintenance/provider_sync.py check --tool volcengine-ark-cli
+python3 -B scripts/maintenance/provider_sync.py update --tool volcengine-ark-cli --revision FULL_COMMIT --actor ACTUAL_OPERATOR
 ```
 
 `FULL_COMMIT` 使用检查结果的完整提交号，操作者填写真实身份。数据库连接默认读取 `VSC_DATABASE_URL`。脚本不会执行候选源码、安装 npm CLI、发起模型测试或自动更新宿主工具。

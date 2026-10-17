@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """只读制作工具就绪诊断：文件实现、配置存在性、项目候选证据与待人工审阅分别报告。"""
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 import os
@@ -21,16 +21,16 @@ BLOCKED = {"ark_visual": credentials.TEXT_MODELS_FORBIDDEN}
 IGNORED_DIRS = {"废弃", ".vsc-production", "09-台账", "10-记忆", "node_modules", "build"}
 # provider/kind 仅用于分类已经核验的项目证据，不能据配置推定权限。
 TOOLS = (
-    ("ark_image", "豆包图像", "volc_ark.py", ENV_NAMES, "volcengine_ark", "image"),
-    ("ark_video", "豆包视频", "volc_ark.py", ENV_NAMES, "volcengine_ark", "video"),
-    ("ark_visual", "豆包视觉检查", "volc_ark.py", ENV_NAMES, None, None),
-    ("doubao_speech", "豆包语音", "doubao_speech.py", ENV_NAMES, "doubao_speech", "audio"),
-    ("seed_audio", "SeedAudio", "doubao_audio.py", ENV_NAMES, "doubao_audio", "audio"),
-    ("procedural_audio", "本地原创程序声音", "procedural_audio.py", (), "vsc_procedural_audio", "audio"),
-    ("queue", "有界生产队列", "vsc_production.py", (), None, None),
-    ("recipes", "原生制作规格", "vsc_recipes.py", (), None, None),
-    ("craft", "创作方法卡", "vsc_craft.py", (), None, None),
-    ("sequence", "镜头续接", "vsc_sequence.py", (), None, None),
+    ("ark_image", "豆包图像", "providers/volcengine/ark.py", ENV_NAMES, "volcengine_ark", "image"),
+    ("ark_video", "豆包视频", "providers/volcengine/ark.py", ENV_NAMES, "volcengine_ark", "video"),
+    ("ark_visual", "豆包视觉检查", "providers/volcengine/ark.py", ENV_NAMES, None, None),
+    ("doubao_speech", "豆包语音", "providers/volcengine/speech.py", ENV_NAMES, "doubao_speech", "audio"),
+    ("seed_audio", "SeedAudio", "providers/volcengine/audio.py", ENV_NAMES, "doubao_audio", "audio"),
+    ("procedural_audio", "本地原创程序声音", "media/procedural_audio.py", (), "vsc_procedural_audio", "audio"),
+    ("queue", "有界生产队列", "production/plan.py", (), None, None),
+    ("recipes", "原生制作规格", "knowledge/recipes.py", (), None, None),
+    ("craft", "创作方法卡", "knowledge/craft.py", (), None, None),
+    ("sequence", "镜头续接", "story/sequence.py", (), None, None),
 )
 
 

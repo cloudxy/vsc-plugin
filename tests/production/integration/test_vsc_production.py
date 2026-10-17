@@ -12,8 +12,8 @@ from unittest import mock
 
 from support.paths import ROOT
 from support.fixtures.production import ProductionFixture
-import volc_ark as A
-import vsc_production as P
+import vsc.adapters.providers.volc_ark.api as A
+import vsc.production.production as P
 
 
 class QueueTest(ProductionFixture, unittest.TestCase):

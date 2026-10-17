@@ -13,9 +13,9 @@
 ```mermaid
 flowchart LR
   H[commands / skills / agents<br/>宿主入口] --> K[workflow/<br/>内核唯一事实来源]
-  K --> Q[scripts/vsc_kernel.py<br/>route · contract · doctor]
-  Q --> S[scripts/vsc_state.py<br/>状态、审批、记忆、Gate]
-  Q --> R[scripts/remotion_plan.py<br/>帧级渲染计划]
+  K --> Q[scripts/kernel/catalog.py<br/>route · contract · doctor]
+  Q --> S[scripts/project/state.py<br/>状态、审批、记忆、Gate]
+  Q --> R[scripts/post/remotion_plan.py<br/>帧级渲染计划]
   K --> P[profiles/<br/>业务顺序与 Gate]
   S --> I[项目目录与 vsc.json]
   Q -. 可替换实现 .-> A[adapters / vendor]
@@ -24,7 +24,7 @@ flowchart LR
 - `workflow/kernel.json`：阶段、命令、Skill、角色、Profile 阶段覆盖、跨模块契约和 Vendor Skill 路由。
 - `workflow/roles.json`：12 个可发现角色的唯一角色卡；包括此前只存在于状态机的总编排器。不存在文件的三个旧角色名不再路由。
 - `workflow/contracts.json`：6 个版本化格式的模板与校验器接口。
-- `scripts/vsc_kernel.py`：稳定的 `route`、`contract validate` 与 `doctor` 接口；底层状态机或 Remotion 实现可以演进而不让调用者重学命令。
+- `scripts/kernel/catalog.py`：稳定的 `route`、`contract validate` 与 `doctor` 接口；底层状态机或 Remotion 实现可以演进而不让调用者重学命令。
 - `vendor/sources.lock.json`：第三方的机器可读真相；`vendor/THIRD_PARTY.md` 从它生成，而非在仓库根目录手工复制列表。
 
 ## 扩展规则
@@ -32,7 +32,7 @@ flowchart LR
 新增能力时按此顺序：先定义角色/契约，再在 `kernel.json` 建立阶段；新增对应 command、Skill、Agent、模板或实现；最后运行：
 
 ```bash
-python3 scripts/vsc_kernel.py doctor
+python3 scripts/kernel/catalog.py doctor
 ```
 
 `doctor` 会检查每个命令、Skill、Agent、Profile 阶段、模板与校验器是否真的存在并对齐。这使“改一个地方、检查整个接缝”成为高杠杆操作，同时保持业务 Profile 和供应商适配器可替换。

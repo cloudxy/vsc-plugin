@@ -6,7 +6,7 @@ stays bound to its pinned versions; plan and submit re-check each job against
 the current context, so a later selection on one shot cannot void the batch.
 """
 from vsc.adapters.persistence.sqlite import series as db
-from vsc.production.series import _scope, build_shot_context
+from vsc.production.context import _scope, build_shot_context
 
 
 def operation(job):

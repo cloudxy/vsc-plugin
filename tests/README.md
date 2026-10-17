@@ -36,7 +36,7 @@ tests/
     runner.py             # 发现、配置校验、影响选择、计时、报告
     paths.py              # 唯一仓库根与 scripts 导入引导
     fixtures/             # 公共准备代码；不能导入测试模块
-      consistency.py      # 连续性模板与独立副本工厂
+      scripts/story/consistency.py      # 连续性模板与独立副本工厂
       handoffs.py          # 覆盖、选片、声音与交付文档构造
       legacy.py            # 固定历史 Profile
       project.py           # 项目与固定运行
@@ -58,7 +58,7 @@ tests/
 
 ```bash
 # 先查看影响范围，不运行 setUp、测试方法或媒体生成
-python3 -B tests/run.py --files scripts/subtitles.py --list
+python3 -B tests/run.py --files src/vsc/post/subtitles.py --list
 python3 -B tests/run.py --changed --list
 
 # 运行确定受影响的模块、类或方法
@@ -81,7 +81,7 @@ python3 -B tests/run.py --check-config
 python3 -B tests/run.py --test post.integration.test_media_qa --durations 10 --report /tmp/vsc-test-report.json
 ```
 
-原选择名（如 `--test test_subtitles`、`--test unit.test_render_plan`）通过配置中的 `aliases` 映射到新模块，具体类／方法后缀也可保留；拆分文件的旧名会覆盖原来两层的全部用例。别名只用于命令选择和迁移影响识别，Python 导入统一使用新路径。旧的 `python3 tests/test_*.py` 文件路径已移除；新文档使用统一入口。标准 `python3 -B -m unittest discover -s tests` 仍递归发现新目录，维护和门禁用统一入口同时检查配置。
+选择使用当前领域／层级／模块 ID，例如 `--test post.unit.test_subtitles`，可继续限定类和方法。旧模块名、旧文件路径和选择别名已移除，配置不接受 `aliases` 或 `path_aliases`。Python 导入直接使用源码包。标准 `python3 -B -m unittest discover -s tests` 仍递归发现领域目录，维护和门禁使用统一入口检查配置。
 
 `--changed` 取 `HEAD` 到当前工作区的暂存／未暂存差异及未跟踪文件。多个路径取影响并集；导入的公共夹具改变时包含其所有消费者。纯文档变更列出无需代码测试的原因，仍须做对应链接／引用检查。
 
@@ -93,7 +93,7 @@ python3 -B tests/run.py --test post.integration.test_media_qa --durations 10 --r
 
 完成改动后按范围执行最终门禁：纯文案做内容、链接和格式检查；用户指定功能点位的小修改使用 `VSC_CI_SCOPE=targeted`，可用 `VSC_CI_TESTS` 指定相关模块／方法，不要求全量。未指定测试时按推送差异选择。跨模块、契约、关系模型或影响不明的改动运行一次全量；启用钩子时不提前重复。具体命令见[维护与本地验证](../docs/guide/maintenance.md)。
 
-配置 v2 要求每个发现到的测试模块有领域归属和层级，模块路径与配置一致，别名目标存在，每个测试 ID 唯一。新增文件没有配置、移动后残留旧配置、平铺回根目录或发现导入失败，都会阻止运行。测试文件和公共夹具禁止导入其他 `test_*` 模块；需要共享的准备逻辑进入 `support/fixtures/`。测试运行器的失败退出码和配置错误会传递给本地 CI。
+配置 v2 要求每个发现到的测试模块有领域归属和层级，模块路径与配置一致，每个测试 ID 唯一。新增文件没有配置、移动后残留旧配置、平铺回根目录或发现导入失败，都会阻止运行。测试文件和公共夹具禁止导入其他 `test_*` 模块；需要共享的准备逻辑进入 `support/fixtures/`。测试运行器的失败退出码和配置错误会传递给本地 CI。
 
 输出分别列出测试方法数与 `subTest` 场景数。合并方法后场景仍逐一执行、失败时带名称；不要用方法数下降宣称覆盖等价或性能提升。耗时报告包含总耗时、每方法耗时、跳过数量和选择原因；类级夹具与运行器开销反映在总耗时中，不计入某个方法。
 
@@ -121,4 +121,4 @@ python3 -B tests/run.py --test post.integration.test_media_qa --durations 10 --r
 
 核心测试使用标准库；网页／PostgreSQL 专项使用 `uv sync --locked --all-extras` 声明的依赖。`VSC_TEST_DATABASE_URL` 必须显式指向允许创建临时 schema 的测试实例，测试自行创建随机 schema 并清理。缺少变量或依赖会报告 skipped，不能当作真实数据库验证通过。新预览专项使用实际 FFmpeg／Poppler；离线 Provider 替身不产生线上计费。
 
-影响分析覆盖 `src/vsc/`、`tools/maintenance/` 与兼容 `scripts/`。修改期间只运行受影响模块；最终提交／推送按改动范围由钩子验证，不额外重复。
+影响分析覆盖 `src/vsc/`、`tools/maintenance/` 与分组 `scripts/`。入口和测试领域包采用独立命名空间；修改期间只运行受影响模块，最终提交／推送按改动范围由钩子验证，不额外重复。

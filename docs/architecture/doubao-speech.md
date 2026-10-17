@@ -1,6 +1,6 @@
 # 豆包语音合成适配器
 
-`scripts/doubao_speech.py` 是 VSC 自有的标准库 HTTP 客户端，接入豆包语音合成 2.0 的单向流接口。产物是 `kind=audio`、`purpose=asset` 的候选声音资产；音色相同不代表表演、情绪或声线听感已通过人工确认。脚本不做 ASR、实时对话、上传训练音频或创建复刻音色。普通服务与方舟 Agent Plan 专属服务必须显式选择，不从密钥外形猜测，不因鉴权失败自动换端点。
+`scripts/providers/volcengine/speech.py` 是 VSC 自有的标准库 HTTP 客户端，接入豆包语音合成 2.0 的单向流接口。产物是 `kind=audio`、`purpose=asset` 的候选声音资产；音色相同不代表表演、情绪或声线听感已通过人工确认。脚本不做 ASR、实时对话、上传训练音频或创建复刻音色。普通服务与方舟 Agent Plan 专属服务必须显式选择，不从密钥外形猜测，不因鉴权失败自动换端点。
 
 ## 已验证与尚未验证
 
@@ -34,7 +34,7 @@
 默认是 dry run，不需要 key、`ffprobe` 或 `ffmpeg`，不写作品产物：
 
 ```bash
-python3 -B scripts/doubao_speech.py synthesize \
+python3 -B scripts/providers/volcengine/speech.py synthesize \
   --project projects/示例作品 --out 06-素材/声音 --name VOICE-01 \
   --text '你好，今天还好吗？' --speaker zh_female_vv_uranus_bigtts \
   --context '用温柔、克制的语气说话。' --max-chars 20 --dry-run
@@ -47,7 +47,7 @@ python3 -B scripts/doubao_speech.py synthesize \
 已有合法授权的复刻音色仅参与合成，例如：
 
 ```bash
-python3 -B scripts/doubao_speech.py synthesize \
+python3 -B scripts/providers/volcengine/speech.py synthesize \
   --project projects/示例作品 --name VOICE-clone-01 --text '你好。' \
   --resource-id seed-icl-2.0 --speaker S_existing_licensed \
   --model seed-tts-2.0-standard --max-chars 10 --dry-run
@@ -79,12 +79,12 @@ python3 -B scripts/doubao_speech.py synthesize \
 生成后使用现有素材库入口：
 
 ```bash
-python3 -B scripts/vsc_library.py promote \
+python3 -B scripts/assets/library.py promote \
   --project projects/示例作品 \
   --record projects/示例作品/06-素材/声音/VOICE-01-生成记录.json \
   --kind voice --id VOICE-library-01 --name '角色声音候选' --summary '待人工审听的声音参考'
 
-python3 -B scripts/vsc_library.py use VOICE-library-01 \
+python3 -B scripts/assets/library.py use VOICE-library-01 \
   --project projects/目标作品 --bible projects/目标作品/04-视听设计/资产库.json --entity CHAR-01
 ```
 

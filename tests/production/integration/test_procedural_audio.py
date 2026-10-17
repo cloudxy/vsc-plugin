@@ -7,8 +7,8 @@ import wave
 from pathlib import Path
 
 from support.paths import ROOT
-import consistency as C
-import procedural_audio as P
+import vsc.story.consistency as C
+import vsc.adapters.media.procedural_audio as P
 
 
 class ProceduralAudioTest(unittest.TestCase):

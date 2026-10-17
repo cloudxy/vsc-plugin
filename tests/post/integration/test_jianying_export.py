@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""jianying_export.py 自测。映射不依赖外部工具；真实写入需要 ffmpeg/ffprobe。
+"""scripts/post/jianying.py 自测。映射不依赖外部工具；真实写入需要 ffmpeg/ffprobe。
 
 运行：python3 -B tests/run.py --test post.integration.test_jianying_export
 """
@@ -9,8 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from support.paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
-import jianying_export as JY
+import vsc.adapters.editors.jianying_export as JY
 
 
 def plan():

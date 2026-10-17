@@ -10,8 +10,8 @@ from pathlib import Path
 from unittest import mock
 
 from support.paths import ROOT
-import vsc_library as L
-import vsc_recipes as R
+import vsc.assets.library as L
+import vsc.knowledge.recipes as R
 
 
 class RecipeTest(unittest.TestCase):

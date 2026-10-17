@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/adaptation-editor.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/adaptation-editor.md
 name = "adaptation-editor"
 description = "Design an auditable screen adaptation and episode beats from approved source understanding."
 developer_instructions = '''

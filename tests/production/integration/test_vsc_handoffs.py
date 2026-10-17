@@ -8,7 +8,7 @@ from pathlib import Path
 
 from support.paths import ROOT
 from support.fixtures.handoffs import Fixture
-from vsc_handoffs import digest, project_errors, selections_for, validation_errors
+from vsc.production.handoffs import digest, project_errors, selections_for, validation_errors
 
 
 

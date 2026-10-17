@@ -23,8 +23,8 @@ class TestPreCommit(unittest.TestCase):
         self.git(self.base, "init", "--bare", "-b", "main", str(self.remote))
         self.git(self.base, "clone", str(self.remote), str(self.upstream))
         self.configure(self.upstream)
-        for relative in (".githooks/pre-commit", "scripts/vsc_pre_commit.py", "src/vsc/__init__.py",
-                         "src/vsc/compat.py", "tools/__init__.py", "tools/maintenance/__init__.py",
+        for relative in (".githooks/pre-commit", "scripts/maintenance/pre_commit.py", "src/vsc/__init__.py",
+                         "tools/__init__.py", "tools/maintenance/__init__.py",
                          "tools/maintenance/vsc_pre_commit.py"):
             target = self.upstream / relative
             target.parent.mkdir(parents=True, exist_ok=True)

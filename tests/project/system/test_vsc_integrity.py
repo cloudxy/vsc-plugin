@@ -13,9 +13,9 @@ from unittest.mock import patch
 
 from support.fixtures.legacy import freeze_legacy_profile
 from support.paths import ROOT
-import vsc_state as state_module
+import vsc.project.state as state_module
 
-CLI = ROOT / "scripts" / "vsc_state.py"
+CLI = ROOT / "scripts" / "project/state.py"
 
 
 class Integrity(unittest.TestCase):
@@ -286,7 +286,7 @@ class Integrity(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "real media integration needs FFmpeg")
     def test_delivery_binds_real_media_and_relative_review_resources(self):
-        import media_qa
+        import vsc.adapters.media.qa as media_qa
         self.objects()
         media_root = self.root / "media"
         media_root.mkdir()
@@ -360,7 +360,7 @@ class CompatibleBibleRevision(unittest.TestCase):
     """A bible revision that keeps entity identities must not invalidate approved consumers."""
 
     def setUp(self):
-        import vsc_artifacts
+        import vsc.project.artifacts as vsc_artifacts
         self.artifacts = vsc_artifacts
         self.temp = tempfile.TemporaryDirectory(prefix="vsc-bible-")
         self.project = Path(self.temp.name)

@@ -12,11 +12,11 @@ from unittest import mock
 
 from support.paths import ROOT  # noqa: F401
 from support.fixtures.project import FixedRunFixture
-import vsc_artifacts as artifacts
-import vsc_audio_run as audio_run
-import vsc_budget as budget
-import vsc_production as production
-import vsc_run as formal
+import vsc.project.artifacts as artifacts
+import vsc.production.audio_run as audio_run
+import vsc.production.budget as budget
+import vsc.production.production as production
+import vsc.production.run as formal
 
 
 @unittest.skipUnless(shutil.which("ffprobe") and shutil.which("ffmpeg"), "Production preflight requires local FFmpeg tools")
@@ -126,7 +126,7 @@ class BudgetReviewTest(unittest.TestCase):
         self.assertEqual(data["reservations"][speech_res]["line_id"], "DL-001")
         self.assertTrue(all(item["currency_cost"] is None for item in data["reservations"].values()))
         output = io.StringIO()
-        with mock.patch.object(sys, "argv", ["vsc_budget.py", "status", "--project", str(self.project)]), contextlib.redirect_stdout(output):
+        with mock.patch.object(sys, "argv", ["production/budget.py", "status", "--project", str(self.project)]), contextlib.redirect_stdout(output):
             self.assertEqual(budget.main(), 0)
         exported = json.loads(output.getvalue())
         self.assertEqual({key: exported[key] for key in groups}, groups)

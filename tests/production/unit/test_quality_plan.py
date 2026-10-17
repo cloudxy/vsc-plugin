@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 from support.paths import SCRIPTS
-import vsc_quality as quality
+import vsc.production.quality_plan as quality
 
 
 class QualityPlanTests(unittest.TestCase):
@@ -196,13 +196,13 @@ class QualityPlanTests(unittest.TestCase):
         path = self.root / "plan.json"
         path.write_text(json.dumps(self.plan))
         before = {p.name: p.read_bytes() for p in self.root.iterdir()}
-        proc = subprocess.run([sys.executable, str(SCRIPTS / "vsc_quality.py"), "check", str(path)],
+        proc = subprocess.run([sys.executable, str(SCRIPTS / "production/quality.py"), "check", str(path)],
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout)["quality_result"], "unknown")
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.iterdir()})
         path.write_text("{}")
-        proc = subprocess.run([sys.executable, str(SCRIPTS / "vsc_quality.py"), "check", str(path)],
+        proc = subprocess.run([sys.executable, str(SCRIPTS / "production/quality.py"), "check", str(path)],
                               capture_output=True, text=True)
         self.assertEqual(proc.returncode, 2)
 

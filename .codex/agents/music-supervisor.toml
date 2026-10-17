@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/music-supervisor.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/music-supervisor.md
 name = "music-supervisor"
 description = "Design VSC narrative music and sound cue sheets, ambience continuity and audio bridges across AI-generated clips."
 developer_instructions = '''

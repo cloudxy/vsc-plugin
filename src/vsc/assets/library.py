@@ -16,7 +16,7 @@
 每个条目是 library/<种类>/<ID>/item.json（vsc.library-item/v1）及同目录下的文件。授权状态为 unknown 的素材
 不能用进作品；commercial 未确认为 yes 时，use 会提醒商用前须核验授权。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import contextlib
 import datetime

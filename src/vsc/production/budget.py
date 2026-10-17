@@ -126,7 +126,7 @@ def check_authorization(project, reservation_id, operation, required=None, reque
     with ledger(project) as data:
         item = data['reservations'].get(reservation_id)
         if not item or item['operation'] != operation or item['status'] != 'reserved':
-            raise BudgetError('付费提交缺有效共享预算预留；查看 vsc_budget.py status 和已批准 production_run')
+            raise BudgetError('付费提交缺有效共享预算预留；查看 scripts/production/budget.py status 和已批准 production_run')
         if required and any(units(required)[k] > item['bound'][k] for k in UNITS):
             raise BudgetError('请求超过预留原生单位')
         # Recheck upstream approval at submission, not merely at reservation.

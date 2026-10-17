@@ -9,7 +9,7 @@ from pathlib import Path
 
 from support.fixtures.legacy import freeze_legacy_profile
 from support.paths import SCRIPTS
-STATE = str(SCRIPTS / "vsc_state.py")
+STATE = str(SCRIPTS / "project/state.py")
 
 
 def run(*args):

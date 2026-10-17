@@ -34,7 +34,7 @@ VSC 是独立插件。它不执行供应商 API，不读取或调用其他插件
 旧 Profile 的状态权威是 vsc.json；sqlite-series-v1 Profile 的权威是项目 SQLite，
 vsc.json 是供已有只读消费者使用的镜像。状态只由本脚本写入。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import contextlib
 import copy
@@ -171,7 +171,7 @@ def project_state(project: Path):
         except series_db.SeriesStoreError as exc:
             die(str(exc))
         if mirror is None or series_db.digest(mirror) != series_db.digest(state):
-            die("vsc.json 镜像与系列数据库不一致；先运行 vsc_series.py repair-mirror")
+            die("vsc.json 镜像与系列数据库不一致；先运行 scripts/production/series.py repair-mirror")
         if state.get("profile_snapshot", {}).get("storage_policy") != series_db.POLICY:
             die("系列数据库与项目固定 Profile 的存储策略不一致")
     else:

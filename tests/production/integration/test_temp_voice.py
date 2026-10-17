@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""temp_voice.py 自测：不联网，用假的执行器模拟 edge-tts 进程。运行：python3 -B tests/run.py --test production.integration.test_temp_voice"""
+"""scripts/media/temp_voice.py 自测：不联网，用假的执行器模拟 edge-tts 进程。运行：python3 -B tests/run.py --test production.integration.test_temp_voice"""
 import json
 import subprocess
 import tempfile
@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from support.paths import ROOT as TV_ROOT
-import temp_voice as TV
+import vsc.adapters.media.temp_voice as TV
 
 
 class LinesTest(unittest.TestCase):

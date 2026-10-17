@@ -24,13 +24,13 @@ description: "Prepare editable local Remotion compositions from selected VSC tak
 3. 将计划保存为 `vsc.remotion-render-plan/v1`，使用 `templates/remotion-render-plan.json` 为起点，并运行：
 
 ```bash
-python3 scripts/vsc_kernel.py contract validate vsc.remotion-render-plan/v1 ./07-后期/remotion-render-plan.json
+python3 scripts/kernel/catalog.py contract validate vsc.remotion-render-plan/v1 ./07-后期/remotion-render-plan.json
 ```
 
 4. 通过校验后，生成一个**本地** Remotion 项目；脚手架不安装 npm 依赖、不复制 Remotion 源码：
 
 ```bash
-python3 scripts/remotion_plan.py scaffold ./07-后期/remotion-render-plan.json ./07-后期/remotion
+python3 scripts/post/remotion_plan.py scaffold ./07-后期/remotion-render-plan.json ./07-后期/remotion
 ```
 
 5. 将计划引用的素材按相同相对路径放入 `remotion/public/`。用户决定后才在该目录运行 `npm install`、`npm run typecheck`、`npm run studio` 和渲染命令。脚手架已生成不等于依赖已安装或成片已验证。
@@ -44,7 +44,7 @@ python3 scripts/remotion_plan.py scaffold ./07-后期/remotion-render-plan.json 
 
 ## 真媒体证据与人工审片
 
-运行 `python3 scripts/media_qa.py check <plan> <public-dir> --render <final.mp4> --output <new-report.json>`，检查真实源范围和成片元数据；未安装 ffprobe 应说明依赖并停在未验证状态。使用 `templates/sample-review.json` 绑定报告 hash，填写五类具名审片与时间码证据，再运行 `python3 scripts/media_qa.py review <review.json>`。媒体、计划变更后必须重新检查。故障适配器仅测试失败路径，不能作为真实制作证据。
+运行 `python3 scripts/media/qa.py check <plan> <public-dir> --render <final.mp4> --output <new-report.json>`，检查真实源范围和成片元数据；未安装 ffprobe 应说明依赖并停在未验证状态。使用 `templates/sample-review.json` 绑定报告 hash，填写五类具名审片与时间码证据，再运行 `python3 scripts/media/qa.py review <review.json>`。媒体、计划变更后必须重新检查。故障适配器仅测试失败路径，不能作为真实制作证据。
 
 进行媒体检查或样片审查时读取 [专业证据链](../../docs/governance/production-evidence.md)，其中包含字段语义、适配器、审片标准和验证边界。技术检查不替代人物、情绪、剧情、声音的人工判断。将通过的报告登记为 `vsc.media_qa`、具名审片登记为 `vsc.sample_review`；delivery Gate 需要后者批准，连续剧按集检查。
 

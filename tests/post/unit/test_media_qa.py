@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from support.paths import ROOT
-import media_qa as QA
+import vsc.adapters.media.qa as QA
 from support.fixtures.plans import media_qa_plan as plan
 
 

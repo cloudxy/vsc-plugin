@@ -1,14 +1,14 @@
 # 维护与本地验证
 
-维护流程见 [vsc-architecture](../../skills/vsc-architecture/SKILL.md)；本地 CI 的检查项见 [`scripts/vsc_local_ci.py`](../../scripts/vsc_local_ci.py) 的说明。本页说明本机钩子与常用命令。
+维护流程见 [vsc-architecture](../../skills/vsc-architecture/SKILL.md)；本地 CI 的检查项见 [`scripts/maintenance/local_ci.py`](../../scripts/maintenance/local_ci.py) 的说明。本页说明本机钩子与常用命令。
 
 ## 启用与常用命令
 
 ```bash
 git config core.hooksPath .githooks                      # 每个克隆一次：提交前同步 origin/main，推送时按改动范围验证
-python3 -B tests/run.py --files scripts/subtitles.py --list  # 先查看变更影响范围
+python3 -B tests/run.py --files src/vsc/post/subtitles.py --list  # 先查看变更影响范围
 python3 -B tests/run.py --test post.unit.test_subtitles   # 修改期间只跑受影响的测试（示例）
-python3 -B scripts/vsc_local_ci.py                       # 跨模块或影响不明且未启用钩子时，最终推送前手动运行一次
+python3 -B scripts/maintenance/local_ci.py                       # 跨模块或影响不明且未启用钩子时，最终推送前手动运行一次
 ```
 
 测试分组、公共夹具、影响配置、耗时报告和新增测试要求见[测试工程](../../tests/README.md)。统一入口保留 `unittest`，最终本地 CI 通过 `--all` 检查测试配置并递归运行全部测试。
@@ -32,6 +32,6 @@ VSC_CI_SCOPE=targeted git push origin main
 VSC_CI_SCOPE=targeted VSC_CI_TESTS="maintenance.integration.test_vsc_local_ci" git push origin main
 ```
 
-定向模式仍执行内核、相关测试、跟踪文件和链接检查，失败会阻止推送；不是跳过钩子。显式 `VSC_CI_SCOPE=full` 或手动运行 `scripts/vsc_local_ci.py` 保留全量方式。不要把范围明确的小修改扩大为全仓库测试，也不要用定向模式掩盖影响不明的改动。
+定向模式仍执行内核、相关测试、跟踪文件和链接检查，失败会阻止推送；不是跳过钩子。显式 `VSC_CI_SCOPE=full` 或手动运行 `scripts/maintenance/local_ci.py` 保留全量方式。不要把范围明确的小修改扩大为全仓库测试，也不要用定向模式掩盖影响不明的改动。
 
 临时审计与探索稿放 `tmp`；需要执行、持续维护的方案放本机 `docs/plans/`。该目录受 Git 忽略，计划与索引不提交、不打包；公开文档不链接其中的文件。

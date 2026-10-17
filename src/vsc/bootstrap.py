@@ -1,4 +1,4 @@
-"""Locate workspace-owned workflow declarations and compatible CLI entries."""
+"""Locate workspace declarations and commands owned by a scripts subdirectory."""
 import os
 from pathlib import Path
 import sys
@@ -13,10 +13,12 @@ def repository_root():
     raise RuntimeError("找不到 VSC workflow/kernel.json；请设置 VSC_WORKFLOW_ROOT 指向工作流根目录")
 
 
-def script_path(name):
-    if Path(name).name != name or not name.endswith(".py"):
-        raise ValueError("CLI entry must be a Python basename")
-    return repository_root() / "scripts" / name
+def script_path(relative):
+    entry = Path(relative)
+    if (entry.is_absolute() or len(entry.parts) < 2 or ".." in entry.parts
+            or entry.suffix != ".py" or "\\" in str(relative)):
+        raise ValueError("CLI entry must be a grouped relative Python path")
+    return repository_root() / "scripts" / entry
 
 
 def service_from_environment(database_env="VSC_DATABASE_URL", media_root=None):

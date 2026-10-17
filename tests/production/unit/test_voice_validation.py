@@ -5,9 +5,8 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from support.paths import SCRIPTS  # noqa: F401
-import consistency
-import vsc_volc_provider as provider
+import vsc.story.consistency as consistency
+import vsc.adapters.providers.volc_ark.provider as provider
 
 
 class VoiceValidation(unittest.TestCase):

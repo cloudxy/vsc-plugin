@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/generation-producer.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/generation-producer.md
 name = "generation-producer"
 description = "Plan and operate provider-neutral image, image-to-video and audio candidate production under approved VSC specifications."
 developer_instructions = '''

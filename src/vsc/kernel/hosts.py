@@ -8,7 +8,7 @@ workflow/hosts.json 声明每个宿主读取哪些入口。本脚本从 skills/�
   sync            生成或更新全部入口，删除多余的生成项
   check           只检查不写入；入口与来源不一致时退出码为 1
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 import os
@@ -20,7 +20,7 @@ FORMAT = "vsc.hosts/v1"
 SOURCES = {"link": ("skills", "agents"), "codex-toml": ("agents",), "plugin-command": ("stages",)}
 SOURCE_LABELS = {"skills": "技能", "agents": "角色", "stages": "命令"}
 FORMAT_LABELS = {"link": "软链接", "codex-toml": "Codex TOML", "plugin-command": "插件命令"}
-GENERATED = "由 scripts/vsc_hosts.py 生成，勿手改"
+GENERATED = "由 scripts/kernel/hosts.py 生成，勿手改"
 
 
 class HostError(ValueError):
@@ -246,7 +246,7 @@ def main():
                 print("HOST ENTRIES: FAIL")
                 for problem in problems:
                     print(f"  - {problem}")
-                print("运行 python3 -B scripts/vsc_hosts.py sync 从来源重新生成")
+                print("运行 python3 -B scripts/kernel/hosts.py sync 从来源重新生成")
                 raise SystemExit(1)
             print(f"HOST ENTRIES: PASS  hosts={len(load_hosts()[0])} entries={len(expected()[1])}")
     except HostError as exc:

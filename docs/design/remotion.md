@@ -21,8 +21,8 @@ VSC 改编/剧本/ShotPlan/连续性/声音
 运行：
 
 ```bash
-python3 scripts/vendor_sync.py --install remotion
-python3 scripts/vendor_skills.py --resolve post
+python3 scripts/maintenance/vendor_sync.py --install remotion
+python3 scripts/maintenance/vendor_skills.py --resolve post
 ```
 
 下载内容不进入 VSC Git 仓库；用户决定是否在本机为生成的 Composition 安装 Node/npm 依赖。VSC 不替任何人判断 Remotion 的许可或商业使用资格。
@@ -32,8 +32,8 @@ python3 scripts/vendor_skills.py --resolve post
 `vsc.remotion-render-plan/v1` 是 VSC 与 Remotion 的边界。它定义 Composition 的画幅、帧率、时长，以及视频、图片、音频、字幕和文字片段的开始帧、时长与来源。视觉片段必须回指 `source_shot_id`，以避免剪辑阶段脱离 VSC 连续性计划。
 
 ```bash
-python3 scripts/vsc_kernel.py contract validate vsc.remotion-render-plan/v1 templates/remotion-render-plan.json
-python3 scripts/remotion_plan.py scaffold templates/remotion-render-plan.json /tmp/vsc-remotion-example
+python3 scripts/kernel/catalog.py contract validate vsc.remotion-render-plan/v1 templates/remotion-render-plan.json
+python3 scripts/post/remotion_plan.py scaffold templates/remotion-render-plan.json /tmp/vsc-remotion-example
 ```
 
 脚手架生成 `src/`、`public/`、`package.json` 与计划副本，不会执行 `npm install`。将选定素材放入 `public/` 后，用户可在生成目录运行 `npm install`、`npm run studio` 预演；只有明确要求导出时才运行 `npm run render -- <composition-id> <output.mp4>`。

@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/remotion-composer.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/remotion-composer.md
 name = "remotion-composer"
 description = "Compile approved VSC editorial decisions into editable Remotion compositions, previews and render plans."
 developer_instructions = '''

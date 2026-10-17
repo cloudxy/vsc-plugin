@@ -5,7 +5,7 @@ commit 9fa69e022d4add41205ee385207561df8796b3f1。
 
 VSC 的改动：日志改用标准库 logging；NarratoAI 的 VideoClipParams 换成下方的 SubtitleStyle；
 SRT 时间解析从其 script_subtitle 模块移入本文件；删除按解说脚本组装草稿的入口
-（_resolve_item_audio_file、write_plaintext_jianying_draft），组装由 jianying_export.py 完成。
+（_resolve_item_audio_file、write_plaintext_jianying_draft），组装由 scripts/post/jianying.py 完成。
 其余构件保持上游实现。上游的 MIT 许可声明如下，随本文件保留：
 
 MIT License

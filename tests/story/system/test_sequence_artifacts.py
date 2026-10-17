@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from support.paths import ROOT
-import vsc_artifacts as A
+import vsc.project.artifacts as A
 
 
 class SequenceArtifactTest(unittest.TestCase):

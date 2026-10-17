@@ -159,7 +159,7 @@ def import_candidate(project, run_item, job, record):
 def execute(project, identifier, runner=None):
     state, item, data = load_run(project, identifier)
     if data.get('series_batch'):
-        raise ValueError('系列数据库正式任务须使用 vsc_series_dispatch.py，不可走旧批次队列')
+        raise ValueError('系列数据库正式任务须使用 scripts/production/dispatch.py，不可走旧批次队列')
     if data.get('audio_request'):
         from vsc.production.audio_run import execute as execute_audio
         return execute_audio(project, identifier)

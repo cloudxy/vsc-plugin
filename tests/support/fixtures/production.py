@@ -8,8 +8,8 @@ from unittest import mock
 
 from support.paths import ROOT
 from support.fixtures.media import production_media
-import volc_ark as A
-import vsc_production as P
+import vsc.adapters.providers.volc_ark.api as A
+import vsc.production.production as P
 
 
 class ProductionFixture:

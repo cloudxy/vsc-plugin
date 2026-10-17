@@ -4,12 +4,12 @@
 
 | 能力或限制 | 官方个人版规则 | VSC 当前实现与边界 |
 |---|---|---|
-| 图像／视频接口 | 专属 API Key 与 `https://ark.cn-beijing.volces.com/api/plan/v3`；其他方舟 key 不可混用 | `volc_ark.py` 和系列适配器已统一 key 与地址。新任务提交前拒绝标准 `/api/v3`，Provider 登记也拒绝该地址。没有线上成功响应证据。 |
+| 图像／视频接口 | 专属 API Key 与 `https://ark.cn-beijing.volces.com/api/plan/v3`；其他方舟 key 不可混用 | `scripts/providers/volcengine/ark.py` 和系列适配器已统一 key 与地址。新任务提交前拒绝标准 `/api/v3`，Provider 登记也拒绝该地址。没有线上成功响应证据。 |
 | 模型范围 | 支持模型随套餐和更新变化；Seedance 2.5、2.0 mini 的 Large/Max 限制见官方更新 | `provider_models` 保存能力、模型版本与用途。登记时应以当前账号控制台模型清单核实，再填精确 model key；不因同名系列或普通方舟模型可用就推断套餐可用。没有自动线上模型发现。 |
 | AFP 用量 | 图像按成功张数及模型系数；视频按消耗 token/10000 乘系数；TTS 按文本字符数/10000 乘系数。模型、分辨率、输入视频与活动可改变系数 | 现有 `production_run` 预算是 `images`、`video_seconds`、`speech_chars` 等**本地原生上限**，不是 AFP 额度。`cost_rule` 仅供登记，目前没有逐任务 AFP 预测、平台余额查询或额度占用；不能把秒数直接换成 AFP。结果用量与账单需要之后对账。 |
-| 语音 | 官方个人版包含 Seed TTS 2.0 与 ASR 2.0，TTS 用专属语音路由和 `seed-tts-2.0` 资源 ID | 系列统一 `AudioProvider` 已离线接入预置音色 TTS：已批准台词行、覆盖镜头、人物音色和发音提示固定在任务中；同步响应经解码和 SHA 校验入库。`doubao_speech.py` 的独立 CLI 仍在。系列线上认证尚未验证；ASR、角色声线自动比对、声音复刻未接通。相同 speaker ID 仍须人工审听。 |
-| 音乐／音效 | 个人版官方已核实列表没有证明 MediaKit Seed-Audio 1.0 纳入 Agent Plan 权益 | `doubao_audio.py` 是独立 MediaKit 适配，不得把共享的环境变量名称当成套餐可用证明；在账号权限和计费模式核实前，不把它排入系列套餐批量任务。 |
-| 文本／向量 | 套餐 key 的文本与向量模型不能直接用于普通业务 API | `volc_ark.py` 对相应路径拒绝；`inspect` 不发起新请求。AI 素材索引以本地关系库的批准绑定和 SHA 为准，语义检索只作候选发现。 |
+| 语音 | 官方个人版包含 Seed TTS 2.0 与 ASR 2.0，TTS 用专属语音路由和 `seed-tts-2.0` 资源 ID | 系列统一 `AudioProvider` 已离线接入预置音色 TTS：已批准台词行、覆盖镜头、人物音色和发音提示固定在任务中；同步响应经解码和 SHA 校验入库。`scripts/providers/volcengine/speech.py` 的独立 CLI 仍在。系列线上认证尚未验证；ASR、角色声线自动比对、声音复刻未接通。相同 speaker ID 仍须人工审听。 |
+| 音乐／音效 | 个人版官方已核实列表没有证明 MediaKit Seed-Audio 1.0 纳入 Agent Plan 权益 | `scripts/providers/volcengine/audio.py` 是独立 MediaKit 适配，不得把共享的环境变量名称当成套餐可用证明；在账号权限和计费模式核实前，不把它排入系列套餐批量任务。 |
+| 文本／向量 | 套餐 key 的文本与向量模型不能直接用于普通业务 API | `scripts/providers/volcengine/ark.py` 对相应路径拒绝；`inspect` 不发起新请求。AI 素材索引以本地关系库的批准绑定和 SHA 为准，语义检索只作候选发现。 |
 
 ## 对 60 集、每集约 3 分钟制作的影响
 

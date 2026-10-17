@@ -1,6 +1,6 @@
 # PostgreSQL 资源表字典
 
-由 `scripts/vsc_schema.py describe` 生成；表定义与迁移是规范。
+由 `scripts/project/schema.py describe` 生成；表定义与迁移是规范。
 
 | 表 | 一行的键／粒度 | 关系外键 |
 | --- | --- | --- |

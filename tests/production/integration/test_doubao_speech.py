@@ -14,9 +14,8 @@ from unittest import mock
 import urllib.error
 import wave
 
-from support.paths import SCRIPTS  # noqa: F401
-import consistency
-import doubao_speech as speech
+import vsc.story.consistency as consistency
+import vsc.adapters.providers.speech.tts as speech
 
 
 def wav_bytes():

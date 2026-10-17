@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/story-analyst.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/story-analyst.md
 name = "story-analyst"
 description = "Extract auditable story facts, claims, chronology, character relations and unresolved questions from VSC source material."
 developer_instructions = '''

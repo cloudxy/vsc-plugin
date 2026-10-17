@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """原生制作规格包：list/search/show/validate/install；离线规格，不是已生成媒体。"""
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import hashlib
 import json
