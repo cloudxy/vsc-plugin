@@ -8,6 +8,7 @@
 |---|---|
 | [AI 客户端接入](guide/workspace-setup.md) | Codex、Claude Code、Grok Build、Kimi Code、ZCode 的入口与验证 |
 | [资源配置与画布](guide/resource-settings.md) | 全局模型配置、默认用途、官方更新与素材关系 |
+| [创作工作台](guide/creative-workbench.md) | 场镜资料、资产使用实例、跨镜声音、专业动作与关系查阅 |
 | [命令行使用](guide/cli.md) | 新建项目、登记与批准、契约校验、记忆与学习、Profile、外部交接 |
 | [素材复用与检索](guide/reuse-and-search.md) | 跨作品素材库、公开创作方法、内容查找与集／场衔接 |
 | [制作规格包](guide/asset-recipes.md) | 20 类可复用规格，区分文本规格与实际媒体 |
@@ -59,6 +60,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [v0.24.0](releases/v0.24.0.md) | 创作关系工作台、大规模查阅、专业制作接续与官方 SDK |
 | [v0.23.0](releases/v0.23.0.md) | 专业创作、返工控制、资源配置与无限画布 |
 | [v0.20.0](releases/v0.20.0.md) | 资产设定兼容修订不再让已批准产物失效 |
 | [v0.19.2](releases/v0.19.2.md) | 测试目录按领域／层级重组，结构检查与旧选择名兼容 |

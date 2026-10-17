@@ -18,6 +18,8 @@ from vsc.project.resource_catalog import ResourceCatalog
 from vsc.assets.resource_service import ResourceError
 from vsc.interfaces.web.resource_graph import install_graph_routes
 from vsc.interfaces.web.resource_settings import register_resource_settings
+from vsc.interfaces.web.workbench import install_workbench_routes
+from vsc.interfaces.web.resource_impact import install_impact_routes
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -244,6 +246,8 @@ def create_app(config=None, catalog=None, service=None):
     for path, action in actions.items():
         router.add_api_route("/{project_id}/" + path, write_endpoint(action), methods=["POST"], name=action)
     install_graph_routes(router, catalog, etag)
+    install_workbench_routes(router, catalog, etag)
+    install_impact_routes(router, catalog, etag)
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

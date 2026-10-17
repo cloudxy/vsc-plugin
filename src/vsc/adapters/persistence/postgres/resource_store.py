@@ -55,7 +55,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if version != "0004_trial_adoptions":
+                if version != "0005_creative_relations":
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
                 return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
         except SQLAlchemyError as exc:
@@ -391,6 +391,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     from_shot_id=checked_id(required(edge, "from_shot_id")), to_shot_id=checked_id(required(edge, "to_shot_id")),
                     exit_state_id=checked_id(required(edge, "exit_state_id")), entry_state_id=checked_id(required(edge, "entry_state_id")),
                     evidence_version_id=artifact_id, strategy=required(edge, "strategy")))
+            from .creative_relations import project_relations
+            project_relations(self, conn, p, artifact_id, document, payload.get("dependency_ids", []))
+            from .quality_relations import project_quality_document
+            project_quality_document(self, conn, p, artifact_id, document)
             return {"id": artifact_id, "artifact_key": artifact_key, "version": version, "sha256": sha}
         return self._mutate(project_id, "create_artifact", payload, callback=work, **kw)
 
@@ -1276,7 +1280,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 "vsc.creative_brief", "vsc.adaptation_plan", "vsc.episode_beats", "vsc.screenplay",
                 "vsc.coverage_plan", "vsc.shot_plan", "vsc.continuity_plan", "vsc.scene_state",
                 "vsc.asset_bible", "vsc.visual_bible", "vsc.animatic", "vsc.sequence_links",
-                "vsc.sound_plan", "vsc.sound_cue_sheet", "shot_plan", "shot-plan", "shot_design", "shot-design",
+                "creative-relations", "vsc.sound_plan", "vsc.sound_cue_sheet", "shot_plan", "shot-plan", "shot_design", "shot-design",
                 "scene-state", "scene_state", "asset-bible", "asset_bible", "screenplay", "coverage-plan",
                 "coverage_plan", "voice-spec", "voice_spec", "voice-bindings", "continuity-plan", "animatic", "visual-bible"}),
             S.artifact_versions.c.id.in_(select(S.current_artifact_versions.c.artifact_id).where(S.current_artifact_versions.c.project_id == p)),
@@ -1505,7 +1509,16 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             fmt = doc.get("format") if isinstance(doc, dict) else None
             kind = artifact["artifact_type"]
             fragment = doc
-            if fmt == "vsc.asset-bible/v1":
+            if fmt == "vsc.creative-relations/v1":
+                uses = [u for u in doc.get("instances", []) if u.get("shot_id") == shot_id or (not u.get("shot_id") and u.get("scene_id") == scene_id)]
+                keys = {u["key"] for u in uses}
+                fragment = {"instances": uses, "interactions": [x for x in doc.get("interactions", []) if x.get("subject") in keys or x.get("object") in keys],
+                    "performances": [x for x in doc.get("performances", []) if shot_id in x.get("shot_ids", []) and (audio or x.get("domain") != "voice")]}
+                if audio:
+                    fragment["cues"] = [x for x in doc.get("cues", []) if any(c.get("shot_id") == shot_id for c in x.get("shots", []))]
+                if not any(fragment.values()):
+                    continue
+            elif fmt == "vsc.asset-bible/v1":
                 entities = []
                 for entity in doc.get("entities", []):
                     if entity["id"] not in asset_keys:

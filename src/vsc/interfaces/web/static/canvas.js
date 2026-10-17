@@ -1,16 +1,17 @@
 /* Disposable resource graph view. No action here writes production facts. */
 const NS = 'http://www.w3.org/2000/svg';
-const NAMES = {object:'创作对象', media:'素材', artifact:'文案版本', source:'来源版本', operation:'加工过程', job:'生成过程', slot:'用途槽位', timeline:'时间线', item:'剪辑片段', render:'渲染过程'};
-const LAYERS = {source:0, artifact:0, object:1, media:2, operation:3, job:3, slot:4, item:5, timeline:6, render:7};
+const NAMES = {object:'创作对象', media:'素材', artifact:'文案版本', source:'来源版本', operation:'加工过程', job:'生成过程', slot:'用途槽位', timeline:'时间线', item:'剪辑片段', render:'渲染过程', line:'剧本行', script_line:'剧本行', state:'状态版本', voice:'声线版本', instance:'使用实例', cue:'声音提示', performance:'动作与特效'};
+const LAYERS = {source:0, artifact:0, line:1, script_line:1, object:2, state:2, voice:2, instance:3, cue:3, performance:3, media:4, operation:5, job:5, slot:6, item:7, timeline:8, render:9};
 const W = 206, H = 90;
 function element(tag, text, cls) { const el = document.createElement(tag); if(text !== undefined) el.textContent = text; if(cls) el.className = cls; return el; }
 function svg(tag, attributes = {}, text) { const el = document.createElementNS(NS, tag); Object.entries(attributes).forEach(([k,v]) => el.setAttribute(k, String(v))); if(text !== undefined) el.textContent = text; return el; }
 function finite(value) { return Number.isFinite(value) && Math.abs(value) < 1e8; }
 
-export function createResourceCanvas(container, {onSelect = () => {}, onError = () => {}} = {}) {
+export function createResourceCanvas(container, {onSelect = () => {}, onScope=()=>{},onCollection=()=>{},onError = () => {}} = {}) {
   let current = null, graph = {nodes:[], edges:[]}, nodes = new Map(), positions = {}, selected = null;
   let camera = {x:0,y:0,w:1200,h:650}, abort = null, sequence = 0, disposed = false, offset = 0;
   let hiddenKinds = new Set(), highlight = new Set(), drag = null, moved = false, saveTimer = null, hasSavedLayout = false;
+  let mode = 'creative', comparisonSource=null;
   const host = element('div', undefined, 'resource-canvas');
   const toolbar = element('div', undefined, 'canvas-toolbar');
   const search = element('input'); search.type='search'; search.placeholder='搜索当前已加载节点'; search.setAttribute('aria-label','搜索画布节点');
@@ -23,13 +24,22 @@ export function createResourceCanvas(container, {onSelect = () => {}, onError = 
   const edgeLayer=svg('g'), nodeLayer=svg('g'); scene.append(edgeLayer,nodeLayer);
   const minimap=svg('svg',{class:'canvas-minimap',viewBox:'0 0 1200 650',role:'img','aria-label':'画布小地图，点击定位'});
   const details=element('aside',undefined,'canvas-details'); details.setAttribute('aria-label','关系详情');
-  body.append(scene,minimap,details); host.append(toolbar,groups,status,body); container.replaceChildren(host);
+  const overview=element('div',undefined,'canvas-overview');overview.hidden=true;
+  body.append(scene,minimap,details); host.append(toolbar,groups,status,overview,body); container.replaceChildren(host);
   function button(label, fn) { const b=element('button',label); b.type='button'; b.addEventListener('click',fn); toolbar.append(b); return b; }
   toolbar.append(search);
+  const modes=element('select');modes.setAttribute('aria-label','关系视图');
+  for(const [value,label] of [['creative','创作关联'],['production','制作来源'],['usage','采用与用料'],['impact','版本与影响']]){const o=element('option',label);o.value=value;modes.append(o);}modes.value=mode;toolbar.append(modes);
+  modes.addEventListener('change',()=>{mode=modes.value;selected=null;highlight.clear();offset=0;if(!current?.overview)request({offset:'0'});});
+  button('全范围检索',searchEverywhere);
   button('定位', searchFocus); button('适应范围',fit); button('−',()=>zoom(1.25)); button('+',()=>zoom(.8));
   button('上游一层',()=>expand('upstream')); button('下游一层',()=>expand('downstream'));
   button('突出上游',()=>mark('upstream')); button('突出下游',()=>mark('downstream'));
   button('清除突出',()=>{highlight.clear();render();}); button('重置布局',()=>{positions={};layout();fit();scheduleSave();});
+  button('影响报告',()=>impactReport(selected));
+  button('标记原版本',()=>{if(!selected){status.textContent='先选择要比较的原版本。';return;}comparisonSource=selected;status.textContent='已标记原版本；选择替换版本后比较影响，不会改动正式采用。';});
+  button('比较替换影响',()=>impactReport(comparisonSource,selected));
+  button('项目分组概览',()=>{onScope(null);return load({...current,objectId:null,focus:null,overview:true});});
   const previous=button('上一页',()=>page(Math.max(0,offset-100))), next=button('下一页',()=>page(graph.next_offset));
   search.addEventListener('keydown',e=>{if(e.key==='Enter') searchFocus();});
 
@@ -86,11 +96,36 @@ export function createResourceCanvas(container, {onSelect = () => {}, onError = 
   }
   function showDetails(value, edge=false) {
     details.replaceChildren(element('h3',edge?value.label:value.label || NAMES[value.kind]));
-    const pre=element('pre',JSON.stringify(edge?value.evidence:{type:NAMES[value.kind],id:value.entity_id,...value.summary},null,2));details.append(pre);
+    if(!edge){
+      const summary=value.summary || {}, labels={kind:'对象类型',modality:'素材格式',status:'状态',role:'用途',line_kind:'内容类型',text:'内容',version:'版本',duration_ms:'实际时长（毫秒）',asset_kind:'资产类型',instance_key:'使用实例',cue_kind:'声音类型',performance_kind:'动作／特效类型',variant_key:'状态／外观'};
+      const dl=element('dl',undefined,'canvas-facts');for(const [key,label] of Object.entries(labels))if(summary[key]!=null){dl.append(element('dt',label),element('dd',String(summary[key])));}details.append(dl);
+      const renditions=summary.renditions || [],purpose=summary.preview_purpose || ({image:'thumbnail',video:'poster',audio:'waveform'}[summary.modality]);
+      if(value.kind==='media'&&purpose&&(summary.preview_available===true||renditions.some(r=>r.purpose===purpose))){const preview=element('img');preview.loading='lazy';preview.alt=value.label || '素材预览';preview.className='canvas-preview';preview.src='/api/v1/projects/'+encodeURIComponent(current.projectId)+'/media/'+encodeURIComponent(value.entity_id)+'/preview?purpose='+encodeURIComponent(purpose);preview.addEventListener('error',()=>preview.remove(),{once:true});details.append(preview);}
+    }
+    const evidence=element('details');evidence.append(element('summary','固定引用与关系证据'),element('pre',JSON.stringify(edge?value.evidence:{type:NAMES[value.kind],id:value.entity_id,...value.summary},null,2)));details.append(evidence);
     if(edge) details.append(element('p','来源 → 使用者／产出；证据来自当前查询快照。'));
-    else if(['media','artifact'].includes(value.kind)) {
+    else if(['media','artifact','object'].includes(value.kind)) {
       const open=element('button','打开详情');open.type='button';open.addEventListener('click',()=>onSelect(value));details.append(open);
     }
+    if(!edge&&value.summary?.artifact_id){const b=element('button','查看关联文案');b.type='button';b.addEventListener('click',()=>onSelect({kind:'artifact',entity_id:value.summary.artifact_id}));details.append(b);}
+  }
+  async function impactReport(source,replacement){
+    if(!source||!current?.projectId){status.textContent='先选择要追踪的节点；替换比较还需标记原版本。';return;}
+    abort?.abort();abort=new AbortController();const ticket=++sequence,project=current.projectId;
+    const params=new URLSearchParams({source,depth:'4',limit:'100'});if(replacement)params.set('replacement',replacement);
+    if(graph.revision!=null)params.set('revision',String(graph.revision));status.textContent='正在查询实际消费者与影响证据…';
+    try{const response=await fetch('/api/v1/projects/'+encodeURIComponent(project)+'/impact?'+params,{credentials:'same-origin',signal:abort.signal});const data=await response.json();if(ticket!==sequence||disposed)return;if(!response.ok)throw new Error(data.message||data.detail||'影响查询失败');if(data.project_id!==project)throw new Error('影响响应与项目不一致');details.replaceChildren(element('h3','影响报告'));if(data.comparison)details.append(element('p',data.comparison.reason||''));const labels={affected_pending_review:'受影响，待复核',unaffected:'有证据表明本项不受影响',unknown:'影响尚未确定'};for(const row of data.consumers || []){const card=element('section',undefined,'canvas-impact-item'),b=element('button',row.label||row.entity_id);b.type='button';b.addEventListener('click',()=>focus(row.id));card.append(b,element('p',(labels[row.classification]||row.classification)+' · '+(row.direct===true?'直接使用':typeof row.distance==='number'?'间接使用':'关联范围待核实')+' · '+row.reason));details.append(card);}for(const message of data.warnings || [])details.append(element('p',message));if(data.truncated)details.append(element('p','报告已截断，未展示部分的影响仍未知；可缩小范围继续查询。'));if(!(data.consumers || []).length)details.append(element('p','当前范围没有查到已登记的实际消费者；尚未登记的关系仍无法判断。'));status.textContent='影响报告基于快照 '+data.revision+'；复核结果与具体修复另行记录。';}catch(error){if(ticket!==sequence||disposed||error.name==='AbortError')return;status.textContent=error.message;onError(error);}
+  }
+  async function loadGrouping(){
+    abort?.abort();abort=new AbortController();const ticket=++sequence,project=current.projectId;overview.replaceChildren();overview.hidden=false;body.hidden=true;groups.replaceChildren();previous.disabled=next.disabled=true;
+    status.textContent='正在读取项目分组概览…';
+    try{const response=await fetch('/api/v1/projects/'+encodeURIComponent(project)+'/workbench?section=overview&limit=24',{credentials:'same-origin',signal:abort.signal});const data=await response.json();if(ticket!==sequence||disposed)return;if(!response.ok)throw new Error(data.message||data.detail||'分组读取失败');if(data.project_id!==project)throw new Error('分组项目不一致');overview.append(element('h3','选择创作范围查看关系'));const grid=element('div',undefined,'canvas-overview-grid');for(const row of data.sections?.children?.items || []){const card=element('button',(row.title||row.display_code||row.id));card.type='button';card.append(element('small',row.kind==='asset'?'资产身份':({work:'部',episode:'集',scene:'场',sequence:'镜组',shot:'镜头'}[row.kind]||row.kind)));card.addEventListener('click',()=>{current.objectId=row.id;current.overview=false;onScope(row.id);overview.hidden=true;body.hidden=false;offset=0;request({offset:'0'});});grid.append(card);}overview.append(grid);const labels={shots:'镜头',lines:'剧本与台词',assets:'资产',instances:'使用实例',cues:'声音',performances:'动作与特效',bindings:'采用与候选',materials:'素材',versions:'文案版本'};const totals=element('div',undefined,'canvas-overview-grid');for(const [key,name]of Object.entries(labels)){const count=data.summary?.[key];if(typeof count!=='number')continue;const b=element('button',name+' · '+count);b.type='button';b.addEventListener('click',()=>onCollection(key));totals.append(b);}overview.append(element('p','资料按范围与用途展开；候选和历史在需要时加载。全范围检索可定位未加载对象。'),totals);status.textContent='项目聚合快照 '+data.revision+'；选择左侧结构可逐层进入场镜。';}catch(error){if(ticket!==sequence||disposed||error.name==='AbortError')return;status.textContent=error.message;onError(error);}
+  }
+  async function searchEverywhere(){
+    const q=search.value.trim();if(!q||!current?.projectId)return;
+    abort?.abort();abort=new AbortController();const ticket=++sequence,project=current.projectId;
+    status.textContent='正在检索全项目已登记资料…';
+    try{const response=await fetch('/api/v1/projects/'+encodeURIComponent(project)+'/workbench?'+new URLSearchParams({section:'overview',query:q,limit:'12'}),{credentials:'same-origin',signal:abort.signal});const data=await response.json();if(ticket!==sequence||disposed)return;if(!response.ok)throw new Error(data.message||data.detail||'检索失败');if(data.project_id!==project)throw new Error('检索项目不一致');current.overview=false;overview.hidden=true;body.hidden=false;details.replaceChildren(element('h3','全项目检索结果'));let count=0;const kinds={children:'object',shots:'object',assets:'object',lines:'line',instances:'instance',cues:'cue',performances:'performance',versions:'artifact',bindings:'slot',materials:'media'};for(const [key,kind]of Object.entries(kinds)){for(const row of data.sections?.[key]?.items || []){const b=element('button',(NAMES[kind]||key)+' · '+(row.title||row.name||row.text||row.label||row.id));b.type='button';b.addEventListener('click',()=>focus(kind+':'+row.id));details.append(b);count++;}}status.textContent=count?'已找到 '+count+' 项摘要，点击定位；更多结果可在创作工作台按类型分页。':'全项目未找到匹配的已登记资料。';}catch(error){if(ticket!==sequence||disposed||error.name==='AbortError')return;status.textContent=error.message;onError(error);}
   }
   function mark(direction) {
     if(!selected)return;
@@ -158,8 +193,8 @@ export function createResourceCanvas(container, {onSelect = () => {}, onError = 
   async function request(options,{merge=false}={}) {
     if(!current || disposed)return;
     abort?.abort();abort=new AbortController();const ticket=++sequence, context={...current};
-    const params=new URLSearchParams({depth:'2',limit:'100',...options});
-    if(context.objectId)params.set('object_id',context.objectId);
+    const params=new URLSearchParams({depth:'2',limit:'100',mode,...options});
+    if(context.objectId&&!options.focus)params.set('object_id',context.objectId);
     if(merge && graph.revision!==undefined)params.set('revision',String(graph.revision));
     status.textContent='正在读取已登记关系…';
     try {
@@ -181,13 +216,17 @@ export function createResourceCanvas(container, {onSelect = () => {}, onError = 
   }
   async function load(context) {
     save();clearTimeout(saveTimer);abort?.abort();sequence++;
-    current={projectId:context.projectId,objectId:context.objectId || null,userId:context.userId || null,focus:context.focus || null};
+    if(!context.projectId||current?.projectId!==context.projectId)comparisonSource=null;
+    current={projectId:context.projectId,objectId:context.objectId || null,userId:context.userId || null,focus:context.focus || null,overview:!!context.overview};
     graph={nodes:[],edges:[]};nodes=new Map();selected=null;highlight.clear();offset=0;details.replaceChildren();restore();render();
-    if(!current.projectId){status.textContent='选择作品后查看已登记关系。';return;}
+    if(!current.projectId){status.textContent='选择作品后查看已登记关系。';overview.hidden=true;body.hidden=false;return;}
+    if(current.overview&&!current.objectId&&!current.focus)return loadGrouping();
+    overview.hidden=true;body.hidden=false;
     return request(current.focus?{focus:current.focus}:{offset:'0'});
   }
   async function focus(id) {
     if(!current?.projectId)return;
+    current.overview=false;overview.hidden=true;body.hidden=false;
     selected=id;
     if(nodes.has(id)){hiddenKinds.delete(nodes.get(id).kind);render();center(id);showDetails(nodes.get(id));return;}
     current.focus=id;offset=0;return request({focus:id});

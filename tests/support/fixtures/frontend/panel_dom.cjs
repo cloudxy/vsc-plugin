@@ -33,6 +33,7 @@ class Element {
   get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
   set id(value) { this.attributes.set('id', value); }
   get id() { return this.attributes.get('id') || ''; }
+  get childElementCount() { return this.children.length; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
@@ -63,6 +64,8 @@ class Element {
     }
     return result;
   }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  remove() { if(this.parentElement)this.parentElement.children=this.parentElement.children.filter(child=>child!==this);this.parentElement=null; }
   addEventListener(type, callback) {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
     this.listeners.get(type).push(callback);
@@ -105,7 +108,7 @@ function createPanel(root, projects, treeOverride = null) {
   const folder = path.join(root, 'src/vsc/interfaces/web');
   const document = new Document(fs.readFileSync(path.join(folder, 'templates/index.html'), 'utf8'));
   const requests = [], writes = [];
-  document.getElementById('media-dialog').close = () => {};
+  for(const dialog of document.querySelectorAll('dialog'))dialog.close = () => {};
   const fetch = async (url, options={}) => {
     requests.push(url);
     if(options.method==='POST'){writes.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({revision:2})};}
@@ -115,18 +118,21 @@ function createPanel(root, projects, treeOverride = null) {
     if (url === '/api/v1/projects') value = {items: [...projects.values()].map(data => data.project)};
     else if (url === '/api/v1/preview-capabilities') value = {};
     else {
-      const match = url.match(/^\/api\/v1\/projects\/([^/]+)\/(tree|media|artifacts)(?:\?|$)/);
+      const match = url.match(/^\/api\/v1\/projects\/([^/]+)\/(tree|media|artifacts|workbench)(?:\?|$)/);
       if (!match) throw new Error('Unexpected fixture request: ' + url);
       const project = projects.get(decodeURIComponent(match[1]));
       if (match[2] === 'tree') value = treeOverride ? await treeOverride(match[1], project) : project;
+      else if(match[2]==='workbench'){const params=new URL(url,'http://fixture').searchParams;value={project_id:match[1],revision:project.revision,scope:project.nodes.find(row=>row.id===params.get('object_id'))||null,sections:{},summary:{},gaps:[],warnings:[],ancestors:[]};}
       else value = {items: [], total: 0, revision: project.revision};
     }
     return {ok: true, status: 200, json: async () => value};
   };
-  const context = vm.createContext({document, fetch, URLSearchParams, console, Map, Set, crypto:require('node:crypto').webcrypto});
-  const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8');
+  const memory=new Map();
+  const context = vm.createContext({document, fetch, URLSearchParams, URL, AbortController, console, Map, Set,setTimeout,clearTimeout,localStorage:{getItem:key=>memory.get(key),setItem:(key,value)=>memory.set(key,value)},crypto:require('node:crypto').webcrypto});
+  vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench')+';globalThis.createCreativeWorkbench=createCreativeWorkbench;})()',context,{filename:'workbench.js'});
+  const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
   vm.runInContext(source + '\nglobalThis.panel = {state, renderTree, selectProject, loadProjects, reviewForm};', context, {filename: 'panel.js'});
   return {document, requests, writes, panel: context.panel};
 }
 
-module.exports = {createPanel};
+module.exports = {createPanel,Document,Element};

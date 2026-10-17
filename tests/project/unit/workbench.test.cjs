@@ -1,0 +1,50 @@
+const assert=require('node:assert/strict');
+const {test}=require('node:test');
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const {Document}=require('../../support/fixtures/frontend/panel_dom.cjs');
+function fixture(){
+  const document=new Document(''),container=document.createElement('section');document.body.append(container);
+  const memory=new Map(),requests=[],pending=[],opened=[],errors=[];
+  const context=vm.createContext({document,URLSearchParams,AbortController,console,localStorage:{getItem:k=>memory.get(k),setItem:(k,v)=>memory.set(k,v)},fetch:(url,options)=>{requests.push({url,options});return new Promise(resolve=>pending.push(resolve));}});
+  vm.runInContext(fs.readFileSync(path.join(process.env.VSC_TEST_ROOT,'src/vsc/interfaces/web/static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench'),context);
+  const bench=context.createCreativeWorkbench(container,{onObject:id=>opened.push(['object',id]),onMedia:id=>opened.push(['media',id]),onArtifact:id=>opened.push(['artifact',id]),onGraph:id=>opened.push(['graph',id]),onError:error=>errors.push(error.message)});
+  const respond=(data,ok=true)=>{assert.ok(pending.length);pending.shift()({ok,json:async()=>data});};
+  return {bench,container,memory,requests,pending,opened,errors,respond,find:text=>container.querySelectorAll('button').find(b=>b.textContent===text)};
+}
+function doc(project,section='lines',items=[],extra={}){return {project_id:project,revision:4,scope:{id:'shot-1',kind:'shot',title:'镜头一'},ancestors:[],summary:{[section]:items.length},sections:{[section]:{items,total:items.length,scope_total:items.length,next_offset:null}},gaps:[],warnings:[],read_only:true,...extra};}
+test('late workbench response cannot restore another project, abort and errors preserve read-only state',async()=>{
+  const a=fixture();const old=a.bench.load({projectId:'old',objectId:'old-shot',userId:'alice'});a.container.querySelectorAll('select').find(e=>e.getAttribute('aria-label')==='资料类型').value='dialogue';const fresh=a.bench.load({projectId:'new',objectId:'shot-1',userId:'alice'});
+  const first=a.pending.shift();a.respond(doc('new','lines',[{id:'new-line',title:'new-private',text:'新内容'}]));await fresh;
+  first({ok:true,json:async()=>doc('old','lines',[{id:'old-line',title:'stale-old'}])});await old;
+  assert.ok(a.container.textContent.includes('new-private'));assert.ok(!a.container.textContent.includes('stale-old'));assert.equal(a.requests[0].options.signal.aborted,true);
+  assert.equal(new URL(a.requests[1].url,'http://fixture').searchParams.has('kind'),false);
+  const reload=a.bench.refresh();a.respond({message:'快照冲突'},false);await reload;
+  assert.ok(a.container.textContent.includes('快照冲突'));assert.ok(a.find('重新读取当前范围'));assert.ok(a.requests.every(r=>!r.options.method));a.bench.destroy();
+});
+test('project aggregates expose on-demand collections without claiming they are empty',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','materials',[],{scope:null,summary:{materials:50000},sections:{materials:{items:[],total:50000,scope_total:50000,load_on_demand:true,next_offset:0,truncated:true}}}));await p;
+  assert.ok(!a.container.textContent.includes('当前范围尚未登记创作资料'));assert.ok(a.container.textContent.includes('已登记 50000 项'));
+  p=a.find('查看全部').click();assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'materials');a.respond(doc('p','materials',[{id:'media-1',title:'第一页'}]));await p;
+  assert.ok(a.container.textContent.includes('第一页'));a.bench.destroy();
+});
+test('full-scope search and version-pinned pagination cross loaded-page boundary',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
+  p=a.bench.focus('lines');a.respond(doc('p','lines',[{id:'line',title:'台词'}],{sections:{lines:{items:[{id:'line',title:'台词'}],total:25,scope_total:40,next_offset:24}}}));await p;
+  p=a.find('下一页').click();let params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;assert.equal(params.get('offset'),'24');assert.equal(params.get('revision'),'4');
+  a.respond(doc('p','lines',[{id:'line25',title:'最后一条'}]));await p;
+  const input=a.container.querySelectorAll('input').find(n=>n.type==='search'),whole=a.container.querySelectorAll('input').find(n=>n.type==='checkbox');input.value='未加载资料';whole.checked=true;
+  p=a.container.querySelectorAll('form')[0].dispatch('submit');params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;assert.equal(params.get('query'),'未加载资料');assert.equal(params.has('object_id'),false);assert.equal(params.get('offset'),'0');
+  a.respond(doc('p','lines',[{id:'outside',title:'全范围命中'}]));await p;assert.ok(a.container.textContent.includes('全范围命中'));assert.ok(a.container.textContent.includes('全项目'));
+  a.bench.destroy();
+});
+test('line coverage and media references use typed identities while text remains plain',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','lines',[{id:'line-7',title:'旁白',text:'<script>private-text</script>',artifact_id:'fixed-script'}]));await p;
+  assert.equal(a.container.querySelectorAll('script').length,0);assert.ok(a.container.textContent.includes('<script>private-text</script>'));
+  await a.find('阅读固定文案').click();assert.deepEqual(a.opened[0],['artifact','fixed-script']);
+  p=a.find('查看覆盖镜头').click();const params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;assert.equal(params.get('section'),'coverage');assert.equal(params.get('entity_id'),'line-7');
+  a.respond(doc('p','coverage',[{id:'coverage-1',title:'覆盖镜头二',shot_id:'shot-2',line_id:'line-7',start_char:0,end_char:6}]));await p;
+  await a.find('定位镜头').click();assert.deepEqual(a.opened.at(-1),['object','shot-2']);assert.ok(a.container.textContent.includes('文字起点'));
+  p=a.bench.focus('materials');a.respond(doc('p','materials',[{id:'media-1',media_id:'media-1',title:'声音候选',duration_ms:4200}]));await p;
+  await a.find('预览素材').click();assert.deepEqual(a.opened.at(-1),['media','media-1']);
+  assert.ok([...a.memory.values()].every(v=>!v.includes('private-text')&&!v.includes('声音候选')&&!v.includes('revision')));a.bench.destroy();
+});

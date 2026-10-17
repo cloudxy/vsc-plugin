@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeRequest: 0, resourceRequest: 0, artifactRequest: 0, view: 'media'};
+const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0,compareRequest:0, view: 'workbench'};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
@@ -27,7 +27,30 @@ function lineagePanel(media,lineage) {
 }
 function size(bytes) { if (bytes == null) return '未知大小'; return bytes > 1048576 ? `${(bytes/1048576).toFixed(1)} MB` : `${(bytes/1024).toFixed(1)} KB`; }
 
-let resourceCanvas = null, resourceSettings = null;
+let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null;
+async function loadWorkbench() {
+  if (!state.project || state.view !== 'workbench') return;
+  if (!creativeWorkbench) {
+    const {createCreativeWorkbench} = await import('./workbench.js');
+    if (!creativeWorkbench) creativeWorkbench = createCreativeWorkbench($('creative-workbench'), {
+      onObject: async id => { state.view = 'workbench'; await selectObject(id); },
+      onMedia: openMedia,
+      onCompare: async id=>{if(state.comparisons.has(id))return;if(state.comparisons.size>=4)throw new Error('最多并排比较4个候选。');const project=state.project,media=await api(`${base()}/media/${encodeURIComponent(id)}`);if(project!==state.project)throw new Error('项目已切换，请重新选择候选。');state.comparisons.set(id,media);updateCompare();},
+      onArtifact: async id => { await switchView('artifacts'); await openArtifact(id); },
+      onGraph: focus => switchView('canvas', focus), onError: error => notice(error.message),
+    });
+  }
+  if (state.view === 'workbench') await creativeWorkbench.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader'});
+}
+async function selectObject(id) {
+  state.object = id; state.offset = 0;
+  const lookup = new Map(state.treeNodes.map(row => [row.id, row]));
+  let parent = lookup.get(id)?.parent_id; const visited = new Set();
+  while (parent && !visited.has(parent)) { visited.add(parent); state.expandedNodes.add(parent); parent = lookup.get(parent)?.parent_id; }
+  if(state.treeMode==='paged')$('tree').querySelectorAll('.tree-item').forEach(control=>{const selected=control.dataset.id===id;control.classList.toggle('active',selected);if(selected)control.setAttribute('aria-current','true');else control.removeAttribute('aria-current');});
+  else renderTree(state.treeNodes);
+  await switchView(state.view);
+}
 async function loadCanvas(focus = null) {
   if (!state.project || state.view !== 'canvas') return;
   if (!resourceCanvas) {
@@ -36,17 +59,22 @@ async function loadCanvas(focus = null) {
       onSelect: guard(async node => {
         if (node.kind === 'media') await openMedia(node.entity_id);
         else if (['artifact','artifact_version'].includes(node.kind)) { await switchView('artifacts'); await openArtifact(node.entity_id); }
-      }), onError: error => notice(error.message || String(error)),
+        else if (node.kind === 'object') { state.view = 'workbench'; await selectObject(node.entity_id); }
+      }),onScope:id=>{state.object=id;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(b=>{const chosen=b.dataset.id===id;b.classList.toggle('active',chosen);if(chosen)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');});},
+      onCollection:guard(async section=>{await switchView('workbench');await creativeWorkbench.focus(section);}),onError: error => notice(error.message || String(error)),
     });
   }
-  if (state.view === 'canvas') await resourceCanvas.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader', focus});
+  if (state.view === 'canvas') await resourceCanvas.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader', focus,overview:!state.object&&!focus});
 }
 async function switchView(view, focus = null) {
   state.view = view;
-  for (const [tab, target] of [['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
+  for (const [tab, target] of [['workbench','creative-workbench'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
     $(target).hidden = tab !== view; $(`tab-${tab}`).setAttribute('aria-selected', String(tab === view));
   }
   if (view === 'canvas') await loadCanvas(focus);
+  else if (view === 'workbench') await loadWorkbench();
+  else if (view === 'media') await loadResources();
+  else if (view === 'artifacts') await loadArtifacts();
 }
 async function openResourceSettings() {
   if (!resourceSettings) {
@@ -56,11 +84,12 @@ async function openResourceSettings() {
   await resourceSettings.open();
 }
 async function loadScope() {
-  await Promise.all([loadResources(), loadArtifacts(), loadCanvas()]);
+  await switchView(state.view);
 }
 
 async function loadProjects() {
   const data = await api('/api/v1/projects');
+  state.projectRows=new Map(data.items.map(row=>[row.id,row]));
   $('projects').replaceChildren();
   for (const project of data.items) {
     const option = el('option', '', project.name + (project.unavailable ? ' · 权威不可用' : ''));
@@ -72,20 +101,48 @@ async function loadProjects() {
 }
 async function selectProject(id) {
   if (state.project !== id) {
-    state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'});
+    state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});
+    state.mediaRequest++;state.documentRequest++;state.compareRequest++;$('media-dialog').close();$('compare-dialog').close();$('document').replaceChildren();
   }
   state.project = id; state.offset = 0; state.resourceRequest++; state.artifactRequest++; state.comparisons.clear(); updateCompare();
   const request = ++state.treeRequest;
-  const data = await api(`${base()}/tree`);
+  const paged=state.projectRows.get(id)?.storage_policy==='postgres-series-v1';
+  const data = await api(paged?`${base()}/workbench?section=children&limit=60`:`${base()}/tree`);
   if (request !== state.treeRequest || state.project !== id) return;
-  const project = data.project || {}; state.revision = data.revision ?? project.revision ?? 0;
+  const project = (paged?state.projectRows.get(id):data.project) || {}; state.revision = data.revision ?? project.revision ?? 0;
   state.writable=project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
   $('project-meta').replaceChildren(el('p', 'hint', `${project.storage_policy || '关系库'} · r${state.revision} · ${project.read_only ? '只读' : '共享服务'}`));
   const selected = (data.nodes || []).find(node => node.id === state.object);
-  if (!selected) { state.object = null; state.offset = 0; }
-  renderTree(data.nodes || []);
+  if (!paged && !selected) { state.object = null; state.offset = 0; }
+  state.treeMode=paged?'paged':'legacy';state.treeNodes = data.nodes || [];
+  if(paged)renderPagedTree(data,id,request);else renderTree(state.treeNodes);
   if (data.gaps?.length) notice(data.gaps.join('\n'));
   await loadScope();
+}
+function renderPagedTree(data,projectId,treeTicket){
+  const nav=$('tree');nav.replaceChildren();const root=el('ul','tree-roots');nav.append(root);
+  const alive=()=>state.project===projectId&&state.treeRequest===treeTicket;
+  function appendPage(page,container,parentId=null){
+    const value=page.sections?.children || {items:[]};
+    for(const node of value.items){
+      if(!state.treeNodes.some(row=>row.id===node.id))state.treeNodes.push(node);
+      const item=el('li','tree-node'),row=el('div','tree-row'),b=el('button','tree-item');b.type='button';b.dataset.id=node.id;
+      b.classList.toggle('active',state.object===node.id);if(state.object===node.id)b.setAttribute('aria-current','true');
+      b.append(el('span','tree-kind',names[node.kind]||node.kind),el('span','',node.title||node.display_code||node.id));
+      b.addEventListener('click',guard(()=>selectObject(node.id)));row.append(b);item.append(row);container.append(item);
+      if(['work','episode','scene','sequence'].includes(node.kind)){
+        const toggle=el('button','tree-toggle','▸'),group=el('ul','tree-children');toggle.type='button';group.id='tree-children-'+encodeURIComponent(node.id);group.hidden=true;
+        toggle.setAttribute('aria-controls',group.id);toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-label','展开 '+(node.title||node.id));
+        row.replaceChildren(toggle,b);item.append(group);let loaded=false,loading=false;
+        const expand=async expanded=>{group.hidden=!expanded;toggle.textContent=expanded?'▾':'▸';toggle.setAttribute('aria-expanded',String(expanded));toggle.setAttribute('aria-label',(expanded?'收拢 ':'展开 ')+(node.title||node.id));if(expanded)state.expandedNodes.add(node.id);else state.expandedNodes.delete(node.id);if(expanded&&!loaded&&!loading){loading=true;group.replaceChildren(el('li','hint','正在读取子级…'));try{const value=await api(`/api/v1/projects/${encodeURIComponent(projectId)}/workbench?`+new URLSearchParams({section:'children',object_id:node.id,limit:'60'}));if(!alive())return;group.replaceChildren();appendPage(value,group,node.id);loaded=true;}catch(error){if(alive())group.replaceChildren(el('li','hint',error.message+'；收拢后再次展开可重试。'));}finally{loading=false;}}};
+        toggle.addEventListener('click',guard(()=>expand(group.hidden)));toggle.addEventListener('keydown',guard(async event=>{if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();await expand(event.key==='ArrowRight');}}));
+        if(state.expandedNodes.has(node.id))expand(true);
+      }else row.replaceChildren(el('span','tree-toggle-spacer'),b);
+    }
+    if(value.next_offset!=null){const li=el('li','tree-more'),more=el('button','',`继续显示 · 已加载 ${value.next_offset} / ${value.total}`);more.type='button';more.addEventListener('click',guard(async()=>{more.disabled=true;try{const params=new URLSearchParams({section:'children',limit:'60',offset:String(value.next_offset),revision:String(page.revision)});if(parentId)params.set('object_id',parentId);const next=await api(`/api/v1/projects/${encodeURIComponent(projectId)}/workbench?${params}`);if(!alive())return;li.remove();appendPage(next,container,parentId);}finally{more.disabled=false;}}));li.append(more);container.append(li);}
+    if(!value.items.length)container.append(el('li','hint','此范围尚无登记的子级。'));
+  }
+  appendPage(data,root);
 }
 function renderTree(nodes) {
   $('tree').replaceChildren();
@@ -107,28 +164,30 @@ function renderTree(nodes) {
     const button = el('button', 'tree-item'); button.type = 'button'; button.dataset.id = node.id;
     button.classList.toggle('active', state.object === node.id);
     if (state.object === node.id) button.setAttribute('aria-current', 'true');
-    button.setAttribute('aria-controls', 'resources artifacts');
+    button.setAttribute('aria-controls', 'creative-workbench resources artifacts');
     button.append(el('span', 'tree-kind', names[node.kind] || node.kind), el('span', '', node.title || node.display_code || node.id));
     button.addEventListener('click', guard(async () => {
-      state.object = node.id; state.offset = 0;
-      $('tree').querySelectorAll('.tree-item').forEach(control => {
-        const selected = control.dataset.id === node.id;
-        control.classList.toggle('active', selected);
-        if (selected) control.setAttribute('aria-current', 'true'); else control.removeAttribute('aria-current');
-      });
-      await loadScope();
+      await selectObject(node.id);
     }));
     item.append(row);
     if (branch.length) {
       const group = el('ul', 'tree-children'); group.id = `tree-children-${encodeURIComponent(node.id)}`;
       const toggle = el('button', 'tree-toggle'); toggle.type = 'button'; toggle.dataset.id = node.id;
       toggle.setAttribute('aria-controls', group.id);
+      let rendered = 0, moreItem = null;
+      const renderMore = () => {
+        if (moreItem) moreItem.remove();
+        const end = Math.min(branch.length, rendered + 60);
+        while (rendered < end) add(branch[rendered++], group);
+        if (rendered < branch.length) { moreItem=el('li','tree-more');const moreButton=el('button','',`继续显示 ${Math.min(60,branch.length-rendered)} 项 · 还有 ${branch.length-rendered} 项`);moreButton.type='button';moreButton.addEventListener('click',renderMore);moreItem.append(moreButton);group.append(moreItem); }
+      };
       const setExpanded = (expanded) => {
         if (expanded) state.expandedNodes.add(node.id); else state.expandedNodes.delete(node.id);
         group.hidden = !expanded;
         toggle.setAttribute('aria-expanded', String(expanded));
         toggle.setAttribute('aria-label', `${expanded ? '收拢' : '展开'} ${node.title || node.display_code || node.id}`);
         toggle.textContent = expanded ? '▾' : '▸';
+        if (expanded && !rendered) renderMore();
       };
       setExpanded(state.expandedNodes.has(node.id));
       toggle.addEventListener('click', () => setExpanded(!state.expandedNodes.has(node.id)));
@@ -138,15 +197,15 @@ function renderTree(nodes) {
         }
       });
       row.append(toggle, button); item.append(group);
-      for (const child of branch) add(child, group);
     } else {
       const spacer = el('span', 'tree-toggle-spacer'); spacer.setAttribute('aria-hidden', 'true');
       row.append(spacer, button);
     }
     container.append(item);
   }
-  for (const node of sorted.filter(row => !row.parent_id || !lookup.has(row.parent_id))) add(node, roots);
-  for (const node of sorted) if (!visited.has(node.id)) add(node, roots);
+  const rootNodes=sorted.filter(row=>!row.parent_id||!lookup.has(row.parent_id));let rootCount=0,moreRoots=null;
+  const addRoots=()=>{if(moreRoots)moreRoots.remove();const end=Math.min(rootNodes.length,rootCount+60);while(rootCount<end)add(rootNodes[rootCount++],roots);if(rootCount<rootNodes.length){moreRoots=el('li','tree-more');const moreButton=el('button','',`更多顶层范围 · 还有 ${rootNodes.length-rootCount} 项`);moreButton.addEventListener('click',addRoots);moreRoots.append(moreButton);roots.append(moreRoots);}};
+  addRoots();
   if (nodes.length) $('tree').append(roots);
   else $('tree').append(el('p', 'hint', '未建立部、集、场、镜组或镜头关系。'));
 }
@@ -166,7 +225,7 @@ async function loadResources() {
 function resourceCard(media) {
   const card = el('article', 'resource-card'); const thumb = el('button', 'thumbnail'); thumb.setAttribute('aria-label', `查看 ${media.name || media.id}`);
   const thumbnailPurpose={image:'thumbnail',video:'poster',audio:'waveform',document:'document_pages'}[media.modality];
-  if ((media.modality === 'image' || hasRendition(media,thumbnailPurpose)) && media.availability !== 'missing' && media.integrity !== 'mismatch') { const image = el('img'); image.loading = 'lazy'; image.alt = media.name || media.id; image.src = hasRendition(media,thumbnailPurpose)?previewUrl(media.id,thumbnailPurpose):mediaUrl(media.id); thumb.append(image); }
+  if (hasRendition(media,thumbnailPurpose) && media.availability !== 'missing' && media.integrity !== 'mismatch') { const image = el('img'); image.loading = 'lazy'; image.alt = media.name || media.id; image.src = hasRendition(media,thumbnailPurpose)?previewUrl(media.id,thumbnailPurpose):mediaUrl(media.id); thumb.append(image); }
   else thumb.textContent = ({video: '▶', audio: '♪', text: '文', document: '▤'})[media.modality] || '▧';
   thumb.addEventListener('click', guard(() => openMedia(media.id)));
   const body = el('div', 'card-body'); body.append(el('div', 'card-name', media.name || media.id));
@@ -200,15 +259,18 @@ async function player(media) {
   return wrapper;
 }
 async function openMedia(id) {
-  const [media,lineage,usage] = await Promise.all([api(`${base()}/media/${encodeURIComponent(id)}`),api(`${base()}/media/${encodeURIComponent(id)}/lineage`),api(`${base()}/media/${encodeURIComponent(id)}/usage`)]);
+  const project=state.project, request=++state.mediaRequest, root=base();
+  const [media,lineage,usage] = await Promise.all([api(`${root}/media/${encodeURIComponent(id)}`),api(`${root}/media/${encodeURIComponent(id)}/lineage`),api(`${root}/media/${encodeURIComponent(id)}/usage`)]);
+  if(project!==state.project || request!==state.mediaRequest)return;
   if(usage.candidates)media.candidates=(media.candidates || []).map(candidate=>({...candidate,...usage.candidates.find(row=>row.id===candidate.id)}));
   media.trial_sources=usage.trial_sources || [];
-  if(media.trial_sources.length){const versions=await api(`${base()}/artifacts`);media.trial_animatics=(versions.items || versions || []).filter(row=>['animatic','vsc.animatic'].includes(row.type || row.artifact_type) && (row.approved===true || row.status==='approved'));}
+  if(media.trial_sources.length){const versions=await api(`${root}/artifacts`);if(project!==state.project || request!==state.mediaRequest)return;media.trial_animatics=(versions.items || versions || []).filter(row=>['animatic','vsc.animatic'].includes(row.type || row.artifact_type) && (row.approved===true || row.status==='approved'));}
   state.revision=media.revision ?? state.revision;
-  $('media-title').textContent = media.name || media.id; $('media-detail').replaceChildren(await player(media));
+  const playback=await player(media); if(project!==state.project || request!==state.mediaRequest)return;
+  $('media-title').textContent = media.name || media.id; $('media-detail').replaceChildren(playback);
   const download=el('a','','下载原文件'); download.href=mediaUrl(id)+'?download=true'; $('media-detail').append(download);
   const panels=el('div','detail-grid'); panels.append(facts('规格与可用性',{id:media.id,modality:media.modality,sha256:media.sha256,size_bytes:media.size_bytes,width:media.width,height:media.height,duration_ms:media.duration_ms,sample_rate:media.sample_rate,availability:media.availability,integrity:media.integrity,rights:media.rights,deprecated:media.deprecated}),lineagePanel(media,lineage),facts('用途与下游引用',usage),facts('审查与决定',{checks:media.checks || [],reviews:media.reviews || [],decisions:media.decisions || [],bindings:media.bindings || []})); $('media-detail').append(panels);
-  if(state.writable){const jobs=await api(`${base()}/preview-jobs?media_id=${encodeURIComponent(media.id)}`);const panel=facts('持久预览任务',jobs);if(state.actor)for(const job of jobs.items || [])if(job.status==='failed'){const button=el('button','',`明确重试 ${job.purpose}`);button.addEventListener('click',guard(async()=>{const result=await api(`${base()}/preview-retries`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{job_id:job.id},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('media-dialog').close();await openMedia(media.id);notice('失败任务已重新排队，等待本机预览执行器。');}));panel.append(button);}$('media-detail').append(panel);}
+  if(state.writable){const jobs=await api(`${root}/preview-jobs?media_id=${encodeURIComponent(media.id)}`);if(project!==state.project || request!==state.mediaRequest)return;const panel=facts('持久预览任务',jobs);if(state.actor)for(const job of jobs.items || [])if(job.status==='failed'){const button=el('button','',`明确重试 ${job.purpose}`);button.addEventListener('click',guard(async()=>{const result=await api(`${base()}/preview-retries`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{job_id:job.id},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('media-dialog').close();await openMedia(media.id);notice('失败任务已重新排队，等待本机预览执行器。');}));panel.append(button);}$('media-detail').append(panel);}
   if (state.actor && state.writable && media.registered !== false) $('media-detail').append(previewForm(media),bindingForm(media),reviewForm(media),mediaAuditForm(media));
   $('media-dialog').showModal();
 }
@@ -262,21 +324,22 @@ async function loadArtifacts() {
   if(!rows.length)$('artifacts').append(el('p','empty','此范围未建立文案版本关系。'));
 }
 async function openArtifact(id) {
-  const artifact=await api(`${base()}/artifacts/${encodeURIComponent(id)}`);const header=el('header');header.append(el('h2','',artifact.type || artifact.name || artifact.id),el('p','hint',`${artifact.id} · ${names[artifact.status] || artifact.status || ''} · ${names[artifact.integrity] || '固定内容'}`));
+  const project=state.project, request=++state.documentRequest;
+  const artifact=await api(`${base()}/artifacts/${encodeURIComponent(id)}`);if(project!==state.project || request!==state.documentRequest)return;const header=el('header');header.append(el('h2','',artifact.type || artifact.name || artifact.id),el('p','hint',`${artifact.id} · ${names[artifact.status] || artifact.status || ''} · ${names[artifact.integrity] || '固定内容'}`));
   let content=artifact.content ?? artifact.document ?? '';if(typeof content !== 'string')content=pretty(content);
   let structured=false;try{const value=JSON.parse(content);content=pretty(value);structured=true;}catch{}
   $('document').replaceChildren(header,el('pre',structured?'structured':'readable',content || '内容缺失或超过内置阅读限额。'));
   if(artifact.integrity==='mismatch')$('document').prepend(el('p','badge danger','该固定版本的文件摘要变化，当前仅供诊断浏览，不能正式消费。'));
 }
 function updateCompare(){$('compare-count').textContent=state.comparisons.size;}
-$('compare-open').addEventListener('click',guard(async()=>{$('compare-grid').replaceChildren();for(const media of state.comparisons.values()){const section=el('section');section.append(el('h3','',media.name || media.id),await player(media),facts('用途与来源',{bindings:media.bindings || [],rights:media.rights,sha256:media.sha256}));$('compare-grid').append(section);}if(!state.comparisons.size)$('compare-grid').append(el('p','empty','先在素材卡中勾选需要比较的候选。'));$('compare-dialog').showModal();}));
+$('compare-open').addEventListener('click',guard(async()=>{const project=state.project,ticket=++state.compareRequest,sections=[];for(const media of state.comparisons.values()){const section=el('section');section.append(el('h3','',media.name||media.id),await player(media),facts('用途与来源',{bindings:media.bindings||[],rights:media.rights,sha256:media.sha256}));if(project!==state.project||ticket!==state.compareRequest)return;sections.push(section);}if(project!==state.project||ticket!==state.compareRequest)return;$('compare-grid').replaceChildren(...sections);if(!sections.length)$('compare-grid').append(el('p','empty','先在素材卡或工作台中选择需要比较的候选。'));$('compare-dialog').showModal();}));
 $('projects').addEventListener('change',guard(()=>selectProject($('projects').value)));
-$('all-objects').addEventListener('click',guard(async()=>{state.object=null;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(row=>{row.classList.remove('active');row.removeAttribute('aria-current');});await loadScope();}));
+$('all-objects').addEventListener('click',guard(()=>selectObject(null)));
 $('filters').addEventListener('submit',guard(async event=>{event.preventDefault();state.offset=0;await loadResources();}));
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const tab of ['media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
+for(const tab of ['workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
 $('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));

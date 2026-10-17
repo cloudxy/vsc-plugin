@@ -47,6 +47,10 @@ function surface(){return container.all(e=>e.className==='canvas-surface')[0];}
   await clickSurface.dispatch('pointerup',{clientX:100,clientY:100,pointerId:1});
   assert.equal(opened.length,0);
   await find('打开详情').dispatch('click');assert.equal(opened[0].entity_id,'b');
+  container.all(e=>e.tagName==='input')[0].value='sound';
+  const searched=find('全范围检索').dispatch('click');respond({project_id:'new',revision:4,sections:{materials:{items:[{id:'sound-id',title:'sound material'}]}}});await searched;
+  assert.ok(find('素材 · sound material'));
+  const soundFocus=find('素材 · sound material').dispatch('click');respond(graph('new','sound-id'));await soundFocus;
   const focus=canvas.focus('media:outside-page');assert.ok(requests.at(-1).url.includes('focus=media%3Aoutside-page'));
   respond(graph('new','outside-page'));await focus;
   const expand=find('下游一层').dispatch('click');assert.ok(requests.at(-1).url.includes('revision=4'));assert.ok(requests.at(-1).url.includes('direction=downstream'));

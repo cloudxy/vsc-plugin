@@ -461,6 +461,88 @@ preview_jobs = project_table("preview_jobs", *ref("media_items", "media_id"),
     UniqueConstraint("project_id", "media_id", "purpose", "request_sha256"))
 
 # Foreign-key traversal and pagination indexes: inverse usage must not scan JSON.
+# Creative projections: every row belongs to one immutable relation document.
+# Stable identity stays in asset_identities; repeated physical uses have separate IDs.
+asset_use_instances = project_table("asset_use_instances", *ref("artifact_versions", "artifact_id"),
+    *ref("asset_identities", "asset_id"), *ref("asset_spec_versions", "spec_version_id", nullable=True),
+    *ref("state_versions", "state_id", nullable=True), *ref("scenes", "scene_id"),
+    *ref("shots", "shot_id", nullable=True), Column("instance_key", Text, nullable=False),
+    Column("label", Text, nullable=False), Column("state", JSONB, nullable=False),
+    ForeignKeyConstraint(["project_id", "asset_id", "spec_version_id"],
+        ["asset_spec_versions.project_id", "asset_spec_versions.asset_id", "asset_spec_versions.id"]),
+    UniqueConstraint("project_id", "artifact_id", "instance_key"))
+instance_interactions = project_table("instance_interactions", *ref("artifact_versions", "artifact_id"),
+    *ref("asset_use_instances", "subject_id"), *ref("asset_use_instances", "object_id"),
+    Column("relation", Text, nullable=False), Column("hand", Text),
+    Column("parameters", JSONB, nullable=False),
+    CheckConstraint("subject_id <> object_id", name="distinct_instances"),
+    CheckConstraint("relation IN ('holds','wears','touches','supports','targets','restores','consumes')", name="relation"))
+script_line_dispositions = project_table("script_line_dispositions", *ref("artifact_versions", "artifact_id"),
+    *ref("script_lines", "line_id"), Column("reason", Text, nullable=False),
+    Column("disposition", Text, nullable=False),
+    CheckConstraint("disposition IN ('omit','defer')", name="disposition"),
+    UniqueConstraint("project_id", "artifact_id", "line_id"))
+execution_instances = project_table("execution_instances", *ref("artifact_versions", "artifact_id"),
+    *ref("artifact_versions", "method_artifact_id", nullable=True), *ref("script_lines", "line_id", nullable=True),
+    *ref("voice_spec_versions", "voice_spec_id", nullable=True),
+    Column("execution_key", Text, nullable=False), Column("label", Text, nullable=False),
+    Column("domain", Text, nullable=False), Column("parameters", JSONB, nullable=False),
+    CheckConstraint("domain IN ('combat','dance','vfx','voice','acting','action')", name="domain"),
+    UniqueConstraint("project_id", "artifact_id", "execution_key"))
+execution_shots = project_table("execution_shots", *ref("execution_instances", "execution_id"),
+    *ref("shots", "shot_id"), UniqueConstraint("project_id", "execution_id", "shot_id"))
+execution_participants = project_table("execution_participants", *ref("execution_instances", "execution_id"),
+    *ref("asset_use_instances", "instance_id"), Column("role", Text, nullable=False),
+    UniqueConstraint("project_id", "execution_id", "instance_id", "role"))
+execution_materials = project_table("execution_materials", *ref("execution_instances", "execution_id"),
+    *ref("media_items", "media_id"), Column("role", Text, nullable=False),
+    UniqueConstraint("project_id", "execution_id", "media_id", "role"))
+execution_slots = project_table("execution_slots", *ref("execution_instances", "execution_id"),
+    *ref("binding_slots", "slot_id"), Column("role", Text, nullable=False),
+    UniqueConstraint("project_id", "execution_id", "slot_id", "role"))
+sound_cues = project_table("sound_cues", *ref("artifact_versions", "artifact_id"),
+    *ref("creative_objects", "scope_object_id"), *ref("script_lines", "line_id", nullable=True),
+    *ref("voice_spec_versions", "voice_spec_id", nullable=True),
+    *ref("execution_instances", "execution_id", nullable=True),
+    *ref("artifact_versions", "subtitle_version_id", nullable=True), *ref("artifact_versions", "lipsync_version_id", nullable=True),
+    Column("cue_key", Text, nullable=False), Column("label", Text, nullable=False),
+    Column("cue_kind", Text, nullable=False), Column("parameters", JSONB, nullable=False),
+    CheckConstraint("cue_kind IN ('dialogue','narration','ambience','foley','sfx','music','silence')", name="cue_kind"),
+    UniqueConstraint("project_id", "artifact_id", "cue_key"))
+cue_shots = project_table("cue_shots", *ref("sound_cues", "cue_id"), *ref("shots", "shot_id"),
+    Column("start_ms", Integer), Column("end_ms", Integer),
+    CheckConstraint("(start_ms IS NULL AND end_ms IS NULL) OR (start_ms IS NOT NULL AND end_ms IS NOT NULL AND start_ms >= 0 AND end_ms > start_ms)", name="range"),
+    UniqueConstraint("project_id", "cue_id", "shot_id"))
+cue_slots = project_table("cue_slots", *ref("sound_cues", "cue_id"), *ref("binding_slots", "slot_id"),
+    UniqueConstraint("project_id", "cue_id", "slot_id"))
+cue_timeline_items = project_table("cue_timeline_items", *ref("sound_cues", "cue_id"),
+    *ref("timeline_items", "item_id"), UniqueConstraint("project_id", "cue_id", "item_id"))
+
+quality_observations = project_table("quality_observations", *ref("artifact_versions", "artifact_id"),
+    *ref("generation_jobs", "job_id"), *ref("media_items", "media_id", nullable=True),
+    *ref("artifact_versions", "method_artifact_id", nullable=True), *ref("artifact_versions", "criteria_artifact_id"),
+    Column("result", Text, nullable=False), Column("defect_code", Text), Column("observation", Text, nullable=False),
+    Column("position", JSONB, nullable=False), Column("effort_seconds", Integer), Column("wait_seconds", Integer),
+    Column("cost_amount", Numeric(20,6)), Column("cost_unit", Text), Column("cost_basis", Text, nullable=False),
+    CheckConstraint("result IN ('usable','failed','unknown')", name="result"),
+    CheckConstraint("cost_basis IN ('actual','estimate','unknown')", name="cost_basis"),
+    CheckConstraint("(effort_seconds IS NULL OR effort_seconds >= 0) AND (wait_seconds IS NULL OR wait_seconds >= 0) AND (cost_amount IS NULL OR cost_amount >= 0)", name="nonnegative"))
+method_evaluations = project_table("method_evaluations", *ref("artifact_versions", "artifact_id"),
+    *ref("artifact_versions", "method_artifact_id"), *ref("artifact_versions", "trial_run_id"),
+    *ref("media_items", "baseline_media_id"), *ref("media_items", "output_media_id"),
+    *ref("artifact_versions", "criteria_artifact_id"), Column("result", Text, nullable=False),
+    Column("environment_sha256", String(64), nullable=False),
+    CheckConstraint("result IN ('pass','fail','unknown')", name="result"))
+
+CREATIVE_TABLES = ("quality_observations", "method_evaluations", "asset_use_instances", "instance_interactions", "script_line_dispositions",
+    "execution_instances", "execution_shots", "execution_participants", "execution_materials", "execution_slots",
+    "sound_cues", "cue_shots", "cue_slots", "cue_timeline_items")
+for _name in CREATIVE_TABLES:
+    _tab = metadata.tables[_name]
+    for _col in _tab.c:
+        if _col.name.endswith("_id") and _col.name != "project_id":
+            Index("ix_%s_project_%s" % (_name, _col.name), _tab.c.project_id, _col)
+
 for table_name, fields in {
     "project_revisions": ("action",),
     "job_budget_reservations": ("status",),
@@ -485,7 +567,7 @@ for table_name, fields in {
     for field in fields:
         Index("ix_%s_project_%s" % (table_name, field), table.c.project_id, table.c[field])
 
-APPEND_ONLY_TABLES = (
+APPEND_ONLY_TABLES = CREATIVE_TABLES + (
     "provider_configurations",
     "budget_limit_versions",
     "project_revisions", "command_receipts", "artifact_versions", "artifact_dependencies",

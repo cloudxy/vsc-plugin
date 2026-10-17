@@ -36,6 +36,31 @@ class ResourceSettingsTest(unittest.TestCase):
             base_url="https://api.x.ai/v1", model_key="future", enabled=False)
         self.assertEqual("not_connected", public_configuration(validate_configuration(future))["connection_status"])
 
+    def test_sdk_snapshot_is_server_owned_and_missing_sdk_only_allows_draft(self):
+        from unittest.mock import Mock
+        settings = ResourceSettings()
+        settings.repository = Mock()
+        settings.repository.save.side_effect = lambda payload, actor: payload
+        data = configuration(execution="official_sdk", enabled=False, default_params={"sdk_runtime": {"sha256": "user-supplied"}})
+        with patch("vsc.adapters.providers.volc_ark.official_sdk.runtime_snapshot", return_value={"sha256": "server-fixed"}):
+            self.assertEqual({"sha256": "server-fixed"}, settings.save(data, "human")["default_params"]["sdk_runtime"])
+        with patch("vsc.adapters.providers.volc_ark.official_sdk.runtime_snapshot", side_effect=ResourceError("missing", "sdk_unavailable")):
+            self.assertNotIn("sdk_runtime", settings.save(data, "human")["default_params"])
+            with self.assertRaises(ResourceError):
+                settings.save(dict(data, enabled=True), "human")
+
+    def test_enabled_sdk_configuration_rechecks_fixed_environment(self):
+        data = configuration(execution="official_sdk")
+        data["default_params"]["sdk_runtime"] = {"sha256": "old"}
+        with patch("vsc.adapters.providers.volc_ark.official_sdk.verify_runtime", side_effect=ResourceError("changed", "sdk_runtime_changed")):
+            with self.assertRaises(ResourceError) as caught:
+                validate_configuration(data)
+            self.assertEqual("sdk_runtime_changed", caught.exception.code)
+        with patch("vsc.adapters.providers.volc_ark.official_sdk.verify_runtime", return_value={}):
+            with self.assertRaises(ResourceError) as caught:
+                validate_configuration(configuration(execution="official_sdk", default_params={}))
+            self.assertEqual("invalid_model_defaults", caught.exception.code)
+
     def test_configured_provider_handles_preserve_account_identity(self):
         from vsc.adapters.providers.volc_ark.resource_factory import ConfiguredArkProvider
         from vsc.production.providers import JobHandle

@@ -1,7 +1,8 @@
-"""User-invoked official tool checks and one-decision, staged Git adoption.
+"""User-invoked official tool checks and one-decision staged adoption.
 
 No generated-media request, package script or candidate code is executed. Host
 managed tools and unsupported distribution types explicitly remain unsupported.
+Git Skills and the registered official npm package use separate fixed snapshots.
 """
 import argparse
 from contextlib import contextmanager, nullcontext
@@ -17,7 +18,7 @@ import subprocess
 import tempfile
 
 from vsc.bootstrap import repository_root
-from tools.maintenance import vendor_bundle, vendor_review, vendor_sync, vendor_watch
+from tools.maintenance import vendor_bundle, vendor_review, vendor_sync, vendor_watch, official_packages
 
 OFFICIAL = {"volcengine-ark-cli": {"id": "volcengine-ark-cli", "type": "git",
     "url": "https://github.com/volcengine/ark-cli.git", "license_spdx": "Apache-2.0",
@@ -89,11 +90,20 @@ class ProviderSync:
                 "已登记 Git 来源，未声明为模型供应商官方工具" if supported else "此来源尚未安装或分发格式尚不支持"}
 
     def list(self):
-        return {"tools": [self._tool(source) for source in self._sources().values()] + [dict(HOST)]}
+        return {"tools": [self._tool(source) for source in self._sources().values()] + [self._package_tool(), dict(HOST)]}
+
+    def _package_tool(self, check=False):
+        try:
+            return official_packages.check(self.work) if check else official_packages.tool(self.work)
+        except Exception:
+            return {"id": official_packages.TOOL_ID, "name": "Ark CLI 官方分发包（交互参考）",
+                "source_kind": "official_npm", "status": "check_failed", "can_update": False,
+                "current_revision": None, "latest_revision": None,
+                "message": "官方包来源检查失败或固定环境改变；未切换版本"}
 
     def check(self, tool_id=None):
         sources = self._sources()
-        if tool_id and tool_id != HOST["id"] and tool_id not in sources:
+        if tool_id and tool_id not in (HOST["id"], official_packages.TOOL_ID) and tool_id not in sources:
             raise SyncError("工具不存在")
         def check_one(source):
             key = source["id"]
@@ -117,6 +127,8 @@ class ProviderSync:
         selected = [source for key, source in sources.items() if not tool_id or key == tool_id]
         with ThreadPoolExecutor(max_workers=4) as pool:
             result = list(pool.map(check_one, selected))
+        if tool_id in (None, official_packages.TOOL_ID):
+            result.append(self._package_tool(check=True))
         if tool_id in (None, HOST["id"]):
             result.append(dict(HOST))
         return {"tools": result}
@@ -161,6 +173,14 @@ class ProviderSync:
     def update(self, tool_id, expected_revision, actor):
         if tool_id == HOST["id"]:
             raise SyncError(HOST["message"])
+        if tool_id == official_packages.TOOL_ID:
+            with (self.task_guard() if self.task_guard else nullcontext()), self._locked():
+                if self.active_jobs is None or self.active_jobs(tool_id):
+                    raise SyncError("未连接任务权威或存在在途任务；未切换工具版本")
+                try:
+                    return official_packages.adopt(self.work, expected_revision, actor, self.active_jobs)
+                except official_packages.PackageError as exc:
+                    raise SyncError(str(exc)) from None
         if not actor or not re.fullmatch(r"[0-9a-f]{40}", str(expected_revision)):
             raise SyncError("更新需要人工操作身份和检查所得固定版本")
         with (self.task_guard() if self.task_guard else nullcontext()), self._locked():
@@ -244,7 +264,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="官方工具：检查 → 更新／不更新（不更新无需执行命令）")
     parser.add_argument("action", choices=["check", "update"])
     parser.add_argument("--tool")
-    parser.add_argument("--revision", help="检查返回的完整 commit")
+    parser.add_argument("--revision", help="检查返回的固定 commit 或包版本摘要")
     parser.add_argument("--actor", help="执行更新的真实操作人")
     parser.add_argument("--database-env", default="VSC_DATABASE_URL")
     args = parser.parse_args(argv)

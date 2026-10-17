@@ -198,8 +198,10 @@ class ResourcePanelTests(unittest.TestCase):
         body = {"expected_revision": 0, "idempotency_key": "register-1", "payload": {"sha256": "forged", "object_key": "../private"}}
         self.assertEqual(client.post("/api/v1/projects/p/media", json=body, headers=headers).status_code, 422)
         body["payload"]["staged_upload"] = upload.json()["staged_upload"]
+        body["payload"]["name"] = "镜头旁白·第一版"
         self.assertEqual(client.post("/api/v1/projects/p/media", json=body, headers=headers).status_code, 200)
         self.assertEqual(store.call[1]["sha256"], hashlib.sha256("真实字节".encode()).hexdigest())
+        self.assertEqual(store.call[1]["name"], "镜头旁白·第一版")
         self.assertTrue(store.call[1]["object_key"].startswith("blobs/"))
         self.assertEqual(client.post("/api/v1/projects/p/uploads", content=b"x" * 101, headers=headers).status_code, 413)
         client.close()

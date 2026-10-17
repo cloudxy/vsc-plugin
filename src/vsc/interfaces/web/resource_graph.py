@@ -8,6 +8,6 @@ def install_graph_routes(router, catalog, etag):
 
     @router.get("/{project_id}/graph")
     def query(project_id: str, request: Request, object_id: str = None, focus: str = None,
-              direction: str = "both", depth: int = 2, limit: int = 100, offset: int = 0, revision: int = None):
+              direction: str = "both", depth: int = 2, limit: int = 100, offset: int = 0, revision: int = None, mode: str = "production"):
         return etag(request, graph.query(project_id, object_id=object_id, focus=focus,
-                    direction=direction, depth=depth, limit=limit, offset=offset, revision=revision))
+                    direction=direction, depth=depth, limit=limit, offset=offset, revision=revision, mode=mode))

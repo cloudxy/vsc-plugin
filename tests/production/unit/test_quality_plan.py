@@ -13,6 +13,22 @@ import vsc_quality as quality
 
 
 class QualityPlanTests(unittest.TestCase):
+    def test_repair_compares_actual_consumers_and_does_not_reuse_new_media_review(self):
+        from vsc.production.repair import compare_repairs
+        plan = {'media_id': 'fixed-media', 'generated_seconds': 8, 'options': [
+            {'kind': 'retain_interval', 'reason': 'keep valid opening', 'intervals': [[0, 2], [1, 3]], 'estimated_active_seconds': 10},
+            {'kind': 'local_edit', 'reason': 'repair prop only', 'estimated_costs': [{'unit': 'CNY', 'amount': 1}]}]}
+        usage = {'media_id': 'fixed-media', 'revision': 5, 'timeline_items': [{'id': 'actual-item'}], 'totals': {'timeline_items': 1}}
+        report = compare_repairs(plan, usage)
+        self.assertEqual(report['choices'][0]['retained_seconds'], 3)
+        self.assertEqual(report['choices'][1]['frozen_consumers_to_review']['timeline_items'], [{'id': 'actual-item'}])
+        self.assertFalse(report['choices'][1]['media_review_reusable'])
+        self.assertIsNone(report['choices'][0]['actual_cost'])
+        usage['totals']['timeline_items'] = 2
+        self.assertEqual(compare_repairs(plan, usage)['status'], 'incomplete')
+        plan['options'][0]['intervals'] = [[0, 9]]
+        self.assertEqual(compare_repairs(plan, usage)['status'], 'blocked')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -91,7 +107,7 @@ class QualityPlanTests(unittest.TestCase):
         self.assertEqual(result["quality_result"], "unknown")
 
     def test_failure_limit_survives_new_task_and_version(self):
-        self.plan["attempts"] = [self.attempt("a", "task-a"), self.attempt("b", "task-b")]
+        self.plan["attempts"] = [self.attempt("a", "task-a"), self.attempt("b", "task-b", method="renamed method")]
         result = quality.check(self.plan, self.root)
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["rework"][0]["recommendation"], "stop_and_compare_routes")

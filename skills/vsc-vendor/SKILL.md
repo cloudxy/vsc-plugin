@@ -25,11 +25,14 @@ description: "Use when the user wants to assess, install, manually check updates
 
 资源配置页的工具更新使用简化入口 `python3 scripts/vsc_provider_sync.py check`。
 显示当前／最新固定版本后，用户点击“更新”或运行
-`python3 scripts/vsc_provider_sync.py update --tool <ID> --revision <检查所得commit> --actor <操作人>`
+`python3 scripts/vsc_provider_sync.py update --tool <ID> --revision <检查所得固定版本> --actor <操作人>`
 即为本次采用授权；后台下载、分析、校验和切换，不再要求第二轮人工确认。
 “不更新”保持原状，无需执行命令。当前支持官方 Ark CLI 的 Git Skill 源码及已安装的登记 Git 来源；
-后者单独标明来源身份，不能冒称模型供应商官方包。官方源码更新不等于 npm CLI、运行依赖或生产执行器已接通。
-宿主内置工具由宿主管理；其他分发格式明确返回尚不支持。
+后者单独标明来源身份，不能冒称模型供应商官方包。另支持 `volcengine-ark-cli-release` 官方 npm 分发包的
+SHA-512／平台 SHA-256 校验下载及原子指针切换；保留旧版本，不运行 postinstall／bootstrap／CLI，不加入 PATH。
+官方包的来源与字节校验不等于签名验证或封闭代码审计，CLI 保持交互／方法参考，不能冒称自动生产执行器。
+受控生产的 `official_sdk` 使用固定且已离线核验的官方 Python SDK，独立于 Skill／CLI 更新，沿既有任务与预算执行。
+宿主内置工具由宿主管理；独立 Skill 站点与其他未登记分发格式明确返回尚不支持。
 下载／结构兼容检查失败保留旧版；已引用 Skill 被删除时本次更新失败并保留旧版，不再添加人工审批队列。
 更新不执行候选代码、不调用生成模型、不更改凭证与套餐；在途任务或提交未知时等待结束后重试。
 检查依赖网络但不调用模型鉴权，模型列表刷新与工具版本更新分别报告。

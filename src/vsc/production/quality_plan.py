@@ -181,8 +181,8 @@ def check(plan, root, *, read_ref=None):
             unknowns.append(f"{label}: 缺少代表性实片评测，不能据此扩大生产")
             continue
         evaluation = evidence.read(risk["evaluation_ref"], f"{label} evaluation", structured=True)
-        if not isinstance(evaluation, dict) or evaluation.get("format") != "vsc.capability-evaluation/v2":
-            problems.append(f"{label}: 需引用既有 capability-evaluation/v2")
+        if not isinstance(evaluation, dict) or evaluation.get("format") not in {"vsc.capability-evaluation/v2", "vsc.method-evaluation/v1"}:
+            problems.append(f"{label}: 需引用 capability-evaluation/v2 或关系方法评测 vsc.method-evaluation/v1")
         elif evaluation.get("result") != "pass":
             unknowns.append(f"{label}: 评测尚未通过")
         else:
@@ -217,9 +217,11 @@ def check(plan, root, *, read_ref=None):
             unknowns.append(f"{aid}: 可用性未知")
         if result in ("usable", "failed"):
             evidence.read(attempt.get("assessment_ref"), f"{aid} assessment")
-        key = tuple(str(attempt.get(f, "")) for f in ("logical_shot_id", "purpose", "method"))
-        group = groups.setdefault(key, {"logical_shot_id": key[0], "purpose": key[1], "method": key[2],
+        key = tuple(str(attempt.get(f, "")) for f in ("logical_shot_id", "purpose"))
+        group = groups.setdefault(key, {"logical_shot_id": key[0], "purpose": key[1], "methods": [],
             "attempt_ids": [], "failure_counts": defaultdict(int), "unknown_count": 0})
+        if attempt.get('method') not in group['methods']:
+            group['methods'].append(attempt.get('method'))
         group["attempt_ids"].append(aid)
         group["unknown_count"] += int(result == "unknown")
         defects = _rows(attempt, "defects", problems)
@@ -343,18 +345,34 @@ def check(plan, root, *, read_ref=None):
 
 
 def main(argv=None):
+    from vsc.assets.resource_service import ResourceError
     parser = argparse.ArgumentParser(description="只读检查规格输入覆盖、同类返工及审查复用；不授权生成")
-    parser.add_argument("command", choices=["check"])
+    parser.add_argument("command", choices=["check", "repair"])
     parser.add_argument("plan", type=Path)
     parser.add_argument("--root", type=Path, help="证据根目录，默认检查包所在目录")
+    parser.add_argument('--project-id')
+    parser.add_argument('--database-env', default='VSC_DATABASE_URL')
     args = parser.parse_args(argv)
     try:
-        report = check(json.loads(args.plan.read_text(encoding="utf-8")), args.root or args.plan.parent)
-    except (OSError, ValueError) as exc:
+        plan = json.loads(args.plan.read_text(encoding='utf-8'))
+        if args.command == 'repair':
+            if not args.project_id:
+                raise ValueError('repair 需要 --project-id；影响范围从关系库读取')
+            from vsc.bootstrap import service_from_environment
+            from vsc.production.repair import compare_repairs
+            from vsc.adapters.persistence.postgres.resource_graph import query_graph
+            service = service_from_environment(database_env=args.database_env)
+            usage = service.get_media_usage(args.project_id, plan.get('media_id'), limit=1000)
+            impact = query_graph(service.store, args.project_id, focus='media:' + plan['media_id'],
+                direction='downstream', mode='impact', depth=8, limit=300, revision=usage['revision'])
+            report = compare_repairs(plan, usage, impact)
+        else:
+            report = check(plan, args.root or args.plan.parent)
+    except (OSError, ValueError, ResourceError) as exc:
         print(json.dumps({"status": "blocked", "problems": [str(exc)]}, ensure_ascii=False))
         return 2
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
-    return 2 if report["status"] == "blocked" else 1 if report["status"] == "review_required" else 0
+    return 2 if report["status"] == "blocked" else 1 if report["status"] in {'review_required', 'incomplete'} else 0
 
 
 if __name__ == "__main__":

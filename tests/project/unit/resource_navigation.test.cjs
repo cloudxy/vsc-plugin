@@ -38,7 +38,7 @@ test('selection filters content without expanding; disclosure never changes sele
   await control(app, 'tree-item', 'work').click();
   assert.equal(app.panel.state.object, 'work');
   assert.equal(control(app, 'tree-toggle', 'work').getAttribute('aria-expanded'), 'false');
-  assert.ok(app.requests.some(url => url.includes('/media?') && url.includes('object_id=work')));
+  assert.ok(app.requests.some(url => url.includes('/workbench?') && url.includes('object_id=work')));
   const count = app.requests.length;
   await control(app, 'tree-toggle', 'work').click();
   assert.equal(app.panel.state.object, 'work');
@@ -113,6 +113,16 @@ test('late responses from another project cannot restore its navigation state', 
   assert.equal(app.panel.state.revision, projects.get('B').revision);
   assert.equal(app.document.getElementById('heading'), null);
   assert.equal(app.document.getElementById('scope-label'), null);
+});
+
+test('large branches create a bounded page of controls instead of every shot', async () => {
+  const many=[...chain.slice(0,4),...Array.from({length:12000},(_,i)=>({id:'shot-'+i,kind:'shot',title:'镜头 '+i,parent_id:'sequence',ordinal:i}))];
+  const app=createPanel(root,new Map([['A',project('A',many)]]));await app.panel.selectProject('A');
+  assert.equal(app.document.getElementById('tree').querySelectorAll('.tree-item').length,1);
+  for(const id of ['work','episode','scene','sequence'])await control(app,'tree-toggle',id).click();
+  assert.equal(app.document.getElementById('tree').querySelectorAll('.tree-item').length,64);
+  const more=app.document.getElementById('tree').querySelectorAll('button').find(b=>b.textContent.includes('继续显示'));
+  assert.ok(more);await more.click();assert.equal(app.document.getElementById('tree').querySelectorAll('.tree-item').length,124);
 });
 
 

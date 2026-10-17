@@ -6,10 +6,12 @@ responses are disposable views and cannot write resource or approval facts.
 from .resource_service import Conflict, NotFound, ResourceError
 
 
-KINDS = frozenset({"object", "media", "artifact", "source", "operation", "job", "slot", "timeline", "item", "render"})
+KINDS = frozenset({"object", "media", "artifact", "source", "operation", "job", "slot", "timeline", "item", "render", "line", "state", "voice", "instance", "cue", "performance"})
 
 
-def validate_query(object_id=None, focus=None, direction="both", depth=2, limit=100, offset=0, revision=None):
+def validate_query(object_id=None, focus=None, direction="both", depth=2, limit=100, offset=0, revision=None, mode="production"):
+    if mode not in {"production", "creative", "usage", "impact"}:
+        raise ResourceError("关系视图不合法", "invalid_graph_query")
     if direction not in {"both", "upstream", "downstream"}:
         raise ResourceError("关系方向应为 both、upstream 或 downstream", "invalid_graph_query")
     for name, value, low, high in (("depth", depth, 0, 8), ("limit", limit, 1, 300), ("offset", offset, 0, 1000000)):
@@ -21,7 +23,7 @@ def validate_query(object_id=None, focus=None, direction="both", depth=2, limit=
         raise ResourceError("聚焦展开请增加节点限额或展开边界节点，不使用概览分页", "invalid_graph_query")
     if revision is not None and (type(revision) is not int or revision < 0):
         raise ResourceError("快照 revision 不合法", "invalid_graph_query")
-    return dict(object_id=object_id, focus=focus, direction=direction, depth=depth, limit=limit, offset=offset, revision=revision)
+    return dict(object_id=object_id, focus=focus, direction=direction, depth=depth, limit=limit, offset=offset, revision=revision, mode=mode)
 
 
 class ResourceGraph:
@@ -38,7 +40,7 @@ class ResourceGraph:
         return query_graph(self.catalog.service.store, project_id, **options)
 
 
-def legacy_graph(reader, project_id, object_id, focus, direction, depth, limit, offset, revision):
+def legacy_graph(reader, project_id, object_id, focus, direction, depth, limit, offset, revision, mode="production"):
     """Legacy media stays read-only; expose only its explicit binding evidence.
 
     Legacy readers have no snapshot transaction across filesystem inventory and
