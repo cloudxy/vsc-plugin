@@ -307,12 +307,13 @@ def adapter_for_job(project, job_id, transport=None):
             ratios = defaults.get("ratio_map", {})
             if not isinstance(ratios, dict):
                 raise SeriesError("Grok 图片模型须配置 ratio_map")
-            return GrokImageProvider(job["model"], lambda width, height: ratios.get(f"{width}x{height}"),
+            return GrokImageProvider(job["model"], media_url, lambda width, height: ratios.get(f"{width}x{height}"),
                 defaults.get("resolution", "2k"), transport)
         if job["modality"] == "video":
             if not defaults.get("resolution"):
                 raise SeriesError("Grok 视频模型须配置 resolution")
-            return GrokVideoProvider(job["model"], media_url, defaults["resolution"], transport)
+            return GrokVideoProvider(job["model"], media_url, defaults["resolution"],
+                defaults.get("ratio", ""), transport)
         raise SeriesError("Grok 订阅路线未接音频适配器")
     if job["provider"] != "volc_ark":
         raise SeriesError("此 Provider 尚无系列任务适配器")

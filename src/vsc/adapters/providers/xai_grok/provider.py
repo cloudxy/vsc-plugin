@@ -4,6 +4,12 @@
 Construction and parsing are local. submit/poll are the only network seams, and
 the caller must durably mark submission intent and reserve budget beforehand.
 This module does not dispatch jobs or import temporary result URLs itself.
+
+Video modes on grok-imagine-video-1.5 (official spec): text-to-video, image-to-video
+(``image`` pins the first frame), reference-to-video (up to 14 ``reference_images``,
+``image`` may combine with references and then takes the pinned first frame,
+``last_frame`` pins the closing frame). Preset voice references and mid-clip
+keyframes exist on the platform but are not wired here.
 """
 from __future__ import annotations
 import base64
@@ -19,11 +25,12 @@ class GrokAdapterError(ValueError):
 
 
 class GrokImageProvider:
-    """Synchronous text-to-image on the subscription login route."""
+    """Synchronous text-to-image and reference-guided edits on the subscription login route."""
 
-    def __init__(self, model: str, ratio_for: Callable[[int, int], str], resolution: str = "2k",
-                 transport=None):
+    def __init__(self, model: str, media_url: Callable[[str], str], ratio_for: Callable[[int, int], str],
+                 resolution: str = "2k", transport=None):
         self.model = model
+        self.media_url = media_url
         self.ratio_for = ratio_for
         self.resolution = resolution
         self.transport = transport or grok.call
@@ -31,13 +38,20 @@ class GrokImageProvider:
     def submit(self, req: ImageRequest) -> JobHandle:
         if req.width < 1 or req.height < 1 or not req.prompt.strip():
             raise GrokAdapterError("图像规格缺宽高或提示词")
-        if req.reference_media_ids:
-            raise GrokAdapterError("Grok 订阅图像路线未接参考图编辑；先按统一规格出图，不要夹带参考素材")
-        ratio = self.ratio_for(req.width, req.height)
-        if not isinstance(ratio, str) or not ratio:
-            raise GrokAdapterError("此图像尺寸没有已配置的 Grok 画幅映射")
-        payload = grok.image_payload(self.model, req.prompt, ratio, self.resolution, 1)
-        raw = self.transport("/images/generations", payload)
+        references = list(req.reference_media_ids)
+        if len(references) > 5:
+            raise GrokAdapterError("Grok 图像编辑一次最多 5 张源图")
+        if references:
+            # /v1/images/edits：单源图 image，多源图 images 合成；提示词只写要改的内容。
+            payload = grok.edit_payload(self.model, req.prompt, [self.media_url(m) for m in references])
+            path = "/images/edits"
+        else:
+            ratio = self.ratio_for(req.width, req.height)
+            if not isinstance(ratio, str) or not ratio:
+                raise GrokAdapterError("此图像尺寸没有已配置的 Grok 画幅映射")
+            payload = grok.image_payload(self.model, req.prompt, ratio, self.resolution, 1)
+            path = "/images/generations"
+        raw = self.transport(path, payload)
         if not isinstance(raw, dict):
             raise GrokAdapterError("Grok 图像响应不是对象；提交结果须按未知处理并对账")
         return JobHandle("xai_grok", self.model, None, raw)
@@ -75,25 +89,44 @@ class GrokImageProvider:
 
 
 class GrokVideoProvider:
-    """First-frame-anchored image-to-video; the ratio always follows the source image."""
+    """Text-to-video, first/last-frame pinning and reference-to-video on the Imagine API.
 
-    def __init__(self, model: str, media_url: Callable[[str], str], resolution: str, transport=None):
+    Modes (chosen by the frozen request): ``image`` alone is image-to-video with the
+    first frame anchored; ``reference_images`` (1–14) guide identity/scene without
+    pinning; ``image`` + references keeps the pinned first frame (prompt then numbers
+    it <IMAGE_0> and references from <IMAGE_1>); ``last_frame`` pins the closing
+    frame and may combine with references; prompt-only is text-to-video.
+    """
+
+    REFERENCE_LIMIT = 14
+    REFERENCE_RESOLUTIONS = ("480p", "720p")
+    FRAME_RESOLUTIONS = ("480p", "720p", "1080p")
+
+    def __init__(self, model: str, media_url: Callable[[str], str], resolution: str,
+                 ratio: str = "", transport=None):
         self.model = model
         self.media_url = media_url
         self.resolution = resolution
+        self.ratio = ratio or ""
         self.transport = transport or grok.call
 
     def submit(self, req: VideoRequest) -> JobHandle:
         if req.duration_ms < 1000 or req.duration_ms % 1000 or req.duration_ms > 15000 or not req.prompt.strip():
             raise GrokAdapterError("Grok 视频时长须为 1–15 整秒且提示词非空")
-        if req.last_frame_media_id:
-            raise GrokAdapterError("Grok 图生视频不支持尾帧锁定；尾帧需求请单独出图")
-        if req.reference_media_ids or req.reference_audio_media_ids:
-            raise GrokAdapterError("Grok 视频路线仅支持首帧锚定，不接其他参考素材")
-        if not req.first_frame_media_id:
-            raise GrokAdapterError("Grok 视频路线需要首帧（图生视频）")
-        payload = grok.video_payload(self.model, req.prompt, self.media_url(req.first_frame_media_id),
-                                     req.duration_ms // 1000, self.resolution)
+        if req.reference_audio_media_ids:
+            raise GrokAdapterError("Grok 视频的 reference_audios 只接平台预置 voice_id，不能传音频素材文件")
+        first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
+        last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
+        references = [self.media_url(media_id) for media_id in req.reference_media_ids]
+        if len(references) > self.REFERENCE_LIMIT:
+            raise GrokAdapterError(f"Grok 参考模式一次最多 {self.REFERENCE_LIMIT} 张参考图")
+        reference_mode = bool(references)
+        if reference_mode and self.resolution not in self.REFERENCE_RESOLUTIONS:
+            raise GrokAdapterError("Grok 参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
+        if not reference_mode and self.resolution not in self.FRAME_RESOLUTIONS:
+            raise GrokAdapterError("Grok 视频分辨率须为 480p、720p 或 1080p")
+        payload = grok.video_payload(self.model, req.prompt, first, req.duration_ms // 1000, self.resolution,
+                                     last_frame=last, reference_images=references, aspect_ratio=self.ratio)
         raw = self.transport("/videos/generations", payload)
         task_id = raw.get("request_id") if isinstance(raw, dict) else None
         if not isinstance(task_id, str) or not task_id:

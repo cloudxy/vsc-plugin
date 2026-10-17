@@ -1,6 +1,6 @@
-# xAI Grok Imagine 订阅路线（2026-10-17）
+# xAI Grok Imagine 订阅路线（2026-10-17；能力面按官方文档 2026-10-17 核对）
 
-用户账号以**订阅＋登录授权**使用 xAI Grok：在终端运行 `grok`（xAI 官方 CLI）完成浏览器登录后，`~/.grok/auth.json` 内按账号保存带时效的 `key`，VSC 用它作为 Bearer 调官方 REST 平台 `https://api.x.ai/v1` 的图像与视频接口。该登录态由 grok CLI 在使用中自动刷新；VSC 只读本地文件，不联网验证、不刷新、不回显密钥值。
+用户账号以**订阅＋登录授权**使用 xAI Grok：在终端运行 `grok`（xAI 官方 CLI）完成浏览器登录后，`~/.grok/auth.json` 内按账号保存带时效的 `key`，VSC 用它作为 Bearer 调官方 REST 平台 `https://api.x.ai/v1`。该登录态由 grok CLI 在使用中自动刷新；VSC 只读本地文件，不联网验证、不刷新、不回显密钥值。
 
 ## 建模与授权边界
 
@@ -11,25 +11,32 @@
 | 与按量 API 分开 | 独立 `XAI_API_KEY`（按量计费）是另一条未接通路线，不与订阅混用，也不互相回退（401／403 不自动换凭证或重试） |
 | 与宿主分开 | Grok Build 宿主的内置 `image_gen`／`image_edit` 等工具属于宿主授权（`host_tool` 语义），与本文 REST 订阅路线分开识别，不互相冒用 |
 
-## 能力与限制（按 2026-10 核实的接口）
+## 官方能力面与 VSC 实现（[Imagine 总览](https://docs.x.ai/developers/model-capabilities/imagine)、[参考生视频](https://docs.x.ai/developers/model-capabilities/video/reference-to-video)、[图生视频](https://docs.x.ai/developers/model-capabilities/video/image-to-video)）
 
-| 能力 | 说明 |
-|---|---|
-| 文生图 | `POST /v1/images/generations`；`model`（`grok-imagine-image-2.0`／`grok-imagine-image-quality` 等）、`prompt`、`n`（1–10）、`aspect_ratio`（默认 `9:16`）、`resolution`（`1k`／`2k`，默认 `2k`）。同步返回 `data[].url`（临时链接，须立即转存）。多图编辑端点 `/v1/images/edits` 未接 |
-| 图生视频 | `POST /v1/videos/generations` 提交（返回 `request_id`），`GET /v1/videos/{request_id}` 轮询；`status` 为 `pending`／`done`／`failed`／`expired`。默认模型 `grok-imagine-video-1.5`，`image` 为首帧（本地图走 data URI），`duration` 1–15 整秒（默认 6），`resolution` `480p`（默认）／`720p`／`1080p`；**不传 `aspect_ratio`**（画幅跟随源图，强行另设会拉伸）。完成后读 `video.url`／`video.duration`，视频自带音轨。不支持尾帧锁定、参考图与参考音频混用；纯文生视频不作为默认路线 |
-| 请求标头 | 必须带浏览器 `User-Agent`，否则平台网关（Cloudflare）回 403／1010；适配器统一注入 |
-| 时效 | 结果 URL 是临时的，成功后立即下载并登记 SHA；官方未公布 URL 有效期，记录按保守 1 小时标注 `source_url_expires_at`，仅作元数据 |
+模型：`grok-imagine-image-2.0`（生成＋编辑）、`grok-imagine-video-1.5`（全功能视频）、`grok-imagine-video`（旧版，功能子集）。
+
+| 能力 | 官方规格 | VSC 实现 |
+|---|---|---|
+| 文生图 | `POST /v1/images/generations`；`model/prompt/n(1–10)/aspect_ratio/resolution(1k,2k)/response_format` | ✅ 脚本 `image`（无 `--ref`）与任务库图像适配器的默认模式 |
+| 图像编辑／多图合成 | `POST /v1/images/edits`；单源图 `image:{url,type:image_url}`，多源图 `images`（**最多 5 张**：换装、风格迁移、多主体合成）；提示词只写要改的内容 | ✅ 脚本 `image --ref`（1–5 张）与图像适配器 `reference_media_ids`（用途 `image_edit`）；本地文件走 data URI |
+| 首帧图生视频 | `image:{url}` 单独出现即首帧锚定；时长 ≤15s（1.5）；1.5 支持原生 1080p | ✅ 脚本 `video --first-frame` 与视频适配器 `first_frame_media_id`；分辨率 480p/720p/1080p |
+| 尾帧钉定 | `last_frame:{url}`；可单独使用（平台生成开场并落在该画面），也可与 `image` 组成首尾帧插值，或再叠加参考 | ✅ 脚本 `video --last-frame` 与适配器 `last_frame_media_id` |
+| 参考生视频 | `reference_images:[{url},…]` **最多 14 张**（1.5）；可与 `image` 组合——`image` 成为钉定首帧，提示词占位符 `<IMAGE_0>` 归首帧、参考图从 `<IMAGE_1>` 起编号；无首帧时参考图从 `<IMAGE_0>` 起。提示词按位置指位（人物来自 `<IMAGE_1>`、商品来自 `<IMAGE_2>`）。参考模式分辨率上限 **720p** | ✅ 脚本 `video --ref-image`（1–14）与适配器 `reference_media_ids`；超过 14 张、或参考模式请求 1080p 在提交前拒绝 |
+| 预置声音参考 | `reference_audios:[{voice_id},…]` 最多 3 个（1.5），只接平台预置 voice_id（如 `eve`）；自定义音频参考仅限受信伙伴 | ❌ 未接——VSC 的声音资产是媒体文件而非平台预置 voice_id，语义不同；不把音频素材塞进该字段 |
+| 中段关键帧 | `keyframes:[{image:{url},timestamp_s},…]` 最多 4 个（1.5），时间戳须严格在片内并对齐 1/3 秒网格 | ❌ 未接（VSC 请求契约暂无中段关键帧字段）；有需求时按固定契约扩展 |
+| 视频编辑／续接 | `grok-imagine-video` 模型支持既有视频编辑与从尾帧续接 | ❌ 未接（VSC 候选制作从规格生成；成片处理走后期链） |
+| 画幅 | 视频可传 `aspect_ratio`；图生视频场景下强行另设会把源图拉伸 | 图生视频默认不传（跟随首帧）；参考／文生模式可用脚本 `--ratio`／模型默认参数 `ratio` 显式指定 |
+| 结果时效 | 视频 URL 临时，须立即转存；官方未公布时效 | 成功后立即下载并登记 SHA，记录按保守 1 小时标注 `source_url_expires_at` |
+| 计费口径 | 图像按张；编辑计输入＋输出张；视频按秒×分辨率 | 订阅额度内通常无边际费用；账本只记 `images`／`video_seconds` 原生用量，不做金额换算 |
 
 ## VSC 实现位置
 
-- 独立脚本：`scripts/providers/xai/grok.py`（`src/vsc/adapters/providers/xai_grok/api.py`）——图像／视频各写一份 `vsc.generation-record/v1`（`engine.provider=xai_grok`）、任务文件 `vsc.grok-task/v1`、提交意图先行、断点续查不重提、共享预算 `images`／`video_seconds`。
-- 任务库适配器：`src/vsc/adapters/providers/xai_grok/provider.py` 实现 `ImageProvider`／`VideoProvider`；`resource_factory.py` 供 PostgreSQL worker，`src/vsc/adapters/providers/worker_factory.py` 按任务登记的供应商分发（方舟与 Grok）。
-- series 栈：`jobs.py` 的 `xai_grok` Provider 登记（登录态授权、固定端点）与适配器分支；`dispatch.py` 提交前核对登录态，缺失时在预留预算前失败。
-- 资源面板：预设 `Grok Imagine 图像（订阅登录）`／`Grok Imagine 图生视频（订阅登录）` 默认停用；启用须声明用途与模型版本，图像用途默认 `ratio_map`（尺寸→画幅）加 `resolution`，视频须 `480p`／`720p`／`1080p`。按项目把用途默认绑定到 Grok 后，新任务才走该路线。
-- 就绪诊断：`scripts/media/toolchain.py` 的 `grok_image`／`grok_video` 行按登录态文件报 `present`／`pending`，不读环境变量。
+- 独立脚本：`scripts/providers/xai/grok.py`（`src/vsc/adapters/providers/xai_grok/api.py`）——图像（文生图／编辑合成）、视频（首帧／尾帧／参考／文生）各写一份 `vsc.generation-record/v1`（`engine.provider=xai_grok`）、任务文件 `vsc.grok-task/v1`、提交意图先行、断点续查不重提、共享预算 `images`／`video_seconds`；参考图按出现顺序做语义摘要（data URI → 内容 SHA）。
+- 任务库适配器：`src/vsc/adapters/providers/xai_grok/provider.py` 实现 `ImageProvider`／`VideoProvider`；模式由冻结请求字段决定（首帧/尾帧/参考图/纯文本），非法组合（参考模式 1080p、>14 参考图、音频素材冒充 voice_id）在传输前拒绝。`resource_factory.py` 供 PostgreSQL worker，`worker_factory.py` 按登记供应商分发。
+- series 栈：`jobs.py` 的 `xai_grok` Provider 登记（登录态授权、固定端点）与适配器分支；`dispatch.py` 提交前核对登录态。
+- 资源面板：预设 `Grok Imagine 图像（订阅登录）`（用途 `identity_ref/image_edit/first_frame/last_frame`，参考媒体 ≤5）、`Grok Imagine 图生视频（订阅登录）`（用途 `image_to_video`，首尾帧＋参考媒体 ≤14，最长 15s）默认停用；按项目启用并绑定用途默认。
+- 就绪诊断：`scripts/media/toolchain.py` 的 `grok_image`／`grok_video` 行按登录态文件报 `present`／`pending`。
 
 ## 验证边界
 
-离线验证已完成：凭证读取与缺失提示、请求映射（画幅／分辨率／时长／首帧 data URI）、视频提交→轮询→终态、失败与过期状态、续查不重提、生成记录契约、worker 分发、series 登记不变量（2026-10-17，全部经 FakeTransport，无付费调用）。**真实订阅账号的线上生成尚未实测**：接入后先在单个真实作品小批量试产，核对画质、身份一致性、额度与到账口径，再绑定用途默认；未实测前不得把该路线报告为“已可用于生产”。
-
-计费口径：订阅额度内通常无边际费用，但额度、限速（图像约 6 rps、视频约 10 rps）与订阅档位以账号实际为准；预算账本只记 `images`／`video_seconds` 原生用量，不做金额换算。
+离线验证已完成（2026-10-17，FakeTransport 与离线 CLI，无付费调用）：全部模式的请求组装与负例（编辑 >5 源图、参考 >14 张、参考模式 1080p、音频素材冒充声音参考）、占位符语义摘要、生成记录契约、提交续查不重提、worker 分发、series 登记。**真实订阅账号的线上生成尚未实测**：启用后先在单个真实作品小批量试产（重点验证参考模式的人物身份一致性、占位符指位是否被正确遵守、编辑模式的未改区域稳定性），再绑定用途默认；未实测前不得把该路线报告为“已可用于生产”。

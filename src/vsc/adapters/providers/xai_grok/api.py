@@ -2,14 +2,17 @@
 """xAI Grok Imagine 生成适配器（订阅登录路线）：图像文生图、视频图生视频。只用标准库。
 
   image  --project P --out DIR --name N (--prompt T | --prompt-file F)
-          [--purpose asset|candidate] [--shot S --moment entry|exit --bible B --state S]
-          [--model M] [--aspect-ratio 9:16] [--resolution 1k|2k]
+          [--ref X ...] [--purpose asset|candidate] [--shot S --moment entry|exit --bible B --state S]
+          [--model M] [--aspect-ratio 9:16] [--resolution 1k|2k] [--count 1]
   video  --project P --out DIR --name N --shot S (--prompt T | --prompt-file F)
-          --first-frame X [--bible B --state S] [--model M] [--resolution 480p] [--duration 6]
-          [--dry-run] [--max-polls N] [--deadline-seconds S] [--poll-interval S]
+          [--first-frame X] [--last-frame X] [--ref-image X ...] [--ratio R] [--bible B --state S]
+          [--model M] [--resolution 480p] [--duration 6] [--dry-run] [--max-polls N] [--deadline-seconds S] [--poll-interval S]
 
-X 是本地图片文件或 https 链接；本地图以 data URI 提交。图像只走文生图（不接多图编辑），
-视频只走首帧锚定的图生视频（不接尾帧锁定、参考图与参考音频），画幅跟随首帧、不另行拉伸。
+X 是本地图片文件或 https 链接；本地图以 data URI 提交。图像：无 --ref 走文生图；带 --ref（≤5）
+走 /v1/images/edits 局部编辑或多图合成，提示词只写要改的内容。视频按官方模式组装：--first-frame
+首帧锚定；--ref-image（≤14）参考模式（提示词用 <IMAGE_n> 指位，与首帧同用时首帧占 <IMAGE_0>、参
+考图从 <IMAGE_1> 起编号）；--last-frame 钉定尾帧（可与首帧或参考同用）；都不给则纯文生视频。参考模
+式分辨率最高 720p。图生视频默认画幅跟随源图，参考／文生模式可用 --ratio 显式指定。
 
 密钥只从 grok CLI 订阅登录态（~/.grok/auth.json 的 key）读取，不打印、不落盘；找不到时提示
 在终端运行 grok 完成登录。请求必须带浏览器 User-Agent，否则平台网关回 403。默认端点
@@ -327,14 +330,40 @@ def request_binding(record, payload, semantic=None):
 
 
 def semantic_payload(payload, media_inputs):
-    """运输地址可过期；本地输入的语义固定为内容 SHA，媒体角色仍由原 payload 保留。"""
+    """运输地址可过期；本地输入的语义固定为内容 SHA，媒体角色仍由原 payload 保留。
+
+    media_inputs 顺序须与 payload 中出现的顺序一致：首帧、尾帧，然后参考图。
+    """
     normalized = json.loads(json.dumps(payload, ensure_ascii=False))
     media_inputs = iter(media_inputs)
-    if isinstance(normalized.get("image"), dict) and "url" in normalized["image"]:
+
+    def swap(holder):
         _, item = next(media_inputs)
-        if item:
-            normalized["image"]["url"] = "sha256:" + item["sha256"]
+        if item and isinstance(holder, dict) and isinstance(holder.get("url"), str):
+            holder["url"] = "sha256:" + item["sha256"]
+
+    if isinstance(normalized.get("image"), dict):
+        swap(normalized["image"])
+    if isinstance(normalized.get("last_frame"), dict):
+        swap(normalized["last_frame"])
+    for holder in normalized.get("reference_images") or []:
+        swap(holder)
     return normalized
+
+
+def truncate_payload(payload):
+    """dry-run 展示用：所有 data URI 只留前 40 字符。"""
+    shown = json.loads(json.dumps(payload, ensure_ascii=False))
+
+    def trim(holder):
+        if isinstance(holder, dict) and isinstance(holder.get("url"), str) and holder["url"].startswith("data:"):
+            holder["url"] = holder["url"][:40] + "…"
+
+    trim(shown.get("image") if isinstance(shown.get("image"), dict) else None)
+    trim(shown.get("last_frame") if isinstance(shown.get("last_frame"), dict) else None)
+    for holder in shown.get("reference_images") or []:
+        trim(holder)
+    return shown
 
 
 def preflight_record(record):
@@ -510,6 +539,13 @@ def image_payload(model, prompt, aspect_ratio, resolution, count):
             "resolution": resolution, "response_format": "url"}
 
 
+def edit_payload(model, prompt, images):
+    """/v1/images/edits：单源图 image、多源图（≤5）images 合成；提示词只写要改的内容。"""
+    if len(images) == 1:
+        return {"model": model, "prompt": prompt, "image": {"url": images[0], "type": "image_url"}}
+    return {"model": model, "prompt": prompt, "images": [{"url": url, "type": "image_url"} for url in images]}
+
+
 def generate_image(args):
     if args.purpose == "candidate" and not (args.shot and args.moment and args.bible and args.state):
         raise GrokError("候选关键帧需要 --shot、--moment、--bible、--state；资产图请用 --purpose asset")
@@ -518,18 +554,31 @@ def generate_image(args):
     if not isinstance(args.count, int) or not 1 <= args.count <= 10:
         raise GrokError("同提示词张数须为 1–10")
     out, prompt = output_dir(args), prompt_of(args)
-    inputs = {"anchors_sha256": anchors(args, args.shot), "references": [], "prompt": prompt}
+    refs = [resolve(value, args.project) for value in args.ref]
+    if len(refs) > 5:
+        raise GrokError("图像编辑一次最多 5 张源图")
+    inputs = {"anchors_sha256": anchors(args, args.shot),
+              "references": [{"source_uri": url, "sha256": item and item["sha256"], "media_type": "image",
+                              "role": "reference_image", "purpose": "identity", "entity_id": None}
+                             for url, item in refs],
+              "prompt": prompt}
     if args.moment:
         inputs["moment"] = args.moment
     started = now()
-    params = {"aspect_ratio": args.aspect_ratio, "resolution": args.resolution, "n": args.count}
+    if refs:
+        params = {"edit": True, "source_images": len(refs), "resolution": args.resolution, "n": args.count}
+        payload = edit_payload(args.model, prompt, [url for url, _ in refs])
+        path = "/images/edits"
+    else:
+        params = {"aspect_ratio": args.aspect_ratio, "resolution": args.resolution, "n": args.count}
+        payload = image_payload(args.model, prompt, args.aspect_ratio, args.resolution, args.count)
+        path = "/images/generations"
     record = base_record(args, "image", args.purpose, args.shot, inputs, {"model": args.model, "params": params}, started)
     preflight_record(record)
-    payload = image_payload(args.model, prompt, args.aspect_ratio, args.resolution, args.count)
     with generation_lock(out, args.name):
-        task_file, task = generation_task(out, args, record, payload, [])
+        task_file, task = generation_task(out, args, record, payload, [], semantic_payload(payload, refs))
         if "result" not in task:
-            result = submit_once(task_file, task, "/images/generations", payload, out, args)
+            result = submit_once(task_file, task, path, payload, out, args)
             if not isinstance(result, dict):
                 raise GrokError("平台图像响应不是对象；提交已有响应，不能安全重提")
             task.update(result=result, generated_at=stamp(generated_at(result, now())))
@@ -569,10 +618,23 @@ def generate_image(args):
 
 # ---------- 视频 ----------
 
-def video_payload(model, prompt, image, duration, resolution):
-    """图生视频：首帧锚定，画幅跟随源图，不另传 aspect_ratio 以免拉伸。"""
-    return {"model": model, "image": {"url": image}, "prompt": prompt,
-            "duration": duration, "resolution": resolution}
+def video_payload(model, prompt, image, duration, resolution, last_frame=None, reference_images=(), aspect_ratio=""):
+    """按官方模式组装 /v1/videos/generations：文生视频、首帧图生视频、参考模式、尾帧钉定。
+
+    image 单独出现即首帧锚定；reference_images（≤14）为参考模式，可与 image 组合
+    （image 成为钉定首帧，提示词占位符从 <IMAGE_1> 起编号）；last_frame 钉定尾帧。
+    图生视频默认不传 aspect_ratio（跟随源图）；参考／文生模式可显式指定。
+    """
+    payload = {"model": model, "prompt": prompt, "duration": duration, "resolution": resolution}
+    if image:
+        payload["image"] = {"url": image}
+    if last_frame:
+        payload["last_frame"] = {"url": last_frame}
+    if reference_images:
+        payload["reference_images"] = [{"url": url} for url in reference_images]
+    if aspect_ratio:
+        payload["aspect_ratio"] = aspect_ratio
+    return payload
 
 
 def poll_limits(args):
@@ -633,28 +695,46 @@ def generate_video(args):
         raise GrokError("视频分辨率须为 480p、720p 或 1080p")
     if not isinstance(args.duration, int) or not MIN_DURATION <= args.duration <= MAX_DURATION:
         raise GrokError(f"视频时长须为 {MIN_DURATION}–{MAX_DURATION} 整秒")
+    if getattr(args, "ratio", "") and args.ratio not in ASPECT_RATIOS:
+        raise GrokError("--ratio 须为平台支持的画幅取值")
     out, prompt = output_dir(args), prompt_of(args)
-    if not args.first_frame:
-        raise GrokError("Grok 视频路线需要 --first-frame（首帧锚定的图生视频）")
-    first = resolve(args.first_frame, args.project)
+    first = resolve(args.first_frame, args.project) if args.first_frame else None
+    last = resolve(args.last_frame, args.project) if args.last_frame else None
+    refs = [resolve(value, args.project) for value in args.ref_image]
+    if len(refs) > 14:
+        raise GrokError("参考模式一次最多 14 张参考图")
+    if refs and args.resolution not in ("480p", "720p"):
+        raise GrokError("参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
+    if not (first or last or refs):
+        print("提醒：未给首帧／尾帧／参考图，将走纯文生视频；镜头可控性弱，不作为默认路线。", file=sys.stderr)
     params = {"resolution": args.resolution, "duration": args.duration}
-    payload = video_payload(args.model, prompt, first[0], args.duration, args.resolution)
+    if getattr(args, "ratio", ""):
+        params["aspect_ratio"] = args.ratio
+    if refs:
+        params["reference_images"] = len(refs)
+    payload = video_payload(args.model, prompt, first and first[0], args.duration, args.resolution,
+                            last_frame=last and last[0], reference_images=[url for url, _ in refs],
+                            aspect_ratio=getattr(args, "ratio", ""))
     state = consistency.load(args.state, consistency.STATE_FORMAT) if args.state else None
-    inputs = {"anchors_sha256": anchors(args, args.shot), "references": [], "prompt": prompt}
-    if first[1]:
+    inputs = {"anchors_sha256": anchors(args, args.shot),
+              "references": [{"source_uri": url, "sha256": item and item["sha256"], "media_type": "image",
+                              "role": "reference_image", "purpose": "identity", "entity_id": None}
+                             for url, item in refs],
+              "prompt": prompt}
+    if first and first[1]:
         inputs["first_frame"] = frame_source(first[1], args.shot, state, args.project)
+    if last and last[1]:
+        inputs["last_frame"] = {**last[1], "from": "generated"}
     if args.dry_run:
-        shown = json.loads(json.dumps(payload))
-        if shown["image"]["url"].startswith("data:"):
-            shown["image"]["url"] = shown["image"]["url"][:40] + "…"
-        print(json.dumps({"payload": shown, "inputs": inputs}, ensure_ascii=False, indent=2))
+        print(json.dumps({"payload": truncate_payload(payload), "inputs": inputs}, ensure_ascii=False, indent=2))
         return None
     started = now()
     record = base_record(args, "video", "candidate", args.shot, inputs, {"model": args.model, "params": params}, started)
     video = out / f"{args.name}.mp4"
     preflight_record(record)
+    media_inputs = ([first] if first else []) + ([last] if last else []) + refs
     with generation_lock(out, args.name):
-        task_file, task = generation_task(out, args, record, payload, [video], semantic_payload(payload, [first]))
+        task_file, task = generation_task(out, args, record, payload, [video], semantic_payload(payload, media_inputs))
         if "id" not in task:
             submission = submit_once(task_file, task, "/videos/generations", payload, out, args)
             task.update(submission=submission, submitted_at=stamp(started))
@@ -725,7 +805,8 @@ def parser():
     made.add_argument("--prompt-file")
     made.add_argument("--budget-reservation", help="正式付费提交使用的共享预算预留 ID")
 
-    image = sub.add_parser("image", parents=[made], help="Grok Imagine 文生图（资产图或关键帧）")
+    image = sub.add_parser("image", parents=[made], help="Grok Imagine 文生图／参考图编辑（资产图或关键帧）")
+    image.add_argument("--ref", action="append", default=[], help="参考／源图（本地图或 https，最多 5 张；给出即走图像编辑）")
     image.add_argument("--purpose", choices=("asset", "candidate"), default="candidate")
     image.add_argument("--shot")
     image.add_argument("--moment", choices=consistency.MOMENTS)
@@ -734,9 +815,13 @@ def parser():
     image.add_argument("--resolution", default="2k")
     image.add_argument("--count", type=int, default=1, help="同一提示词一次出几张（1–10）")
 
-    video = sub.add_parser("video", parents=[made], help="Grok Imagine 首帧锚定图生视频")
+    video = sub.add_parser("video", parents=[made], help="Grok Imagine 视频（首帧／尾帧／参考图／文生模式）")
     video.add_argument("--shot", required=True)
-    video.add_argument("--first-frame", help="首帧图片（本地图或 https；图生视频必填）")
+    video.add_argument("--first-frame", help="首帧图片；与参考图同用时成为钉定首帧（占位符 <IMAGE_0>）")
+    video.add_argument("--last-frame", help="尾帧图片；平台生成过程并落在该画面")
+    video.add_argument("--ref-image", action="append", default=[],
+                       help="参考图（最多 14 张）；提示词用 <IMAGE_n> 指位，身份／场景不钉死首帧")
+    video.add_argument("--ratio", default="", help="画幅（如 9:16）；图生视频默认跟随源图，强行指定可能拉伸")
     video.add_argument("--model", default=VIDEO_MODEL)
     video.add_argument("--resolution", default="480p")
     video.add_argument("--duration", type=int, default=6)

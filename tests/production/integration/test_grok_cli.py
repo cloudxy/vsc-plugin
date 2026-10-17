@@ -70,7 +70,7 @@ class GenerateTest(unittest.TestCase):
 
     def fake_call(self, path, payload=None, attempts=None):
         self.calls.append((path, payload))
-        if path == "/images/generations":
+        if path in ("/images/generations", "/images/edits"):
             return {"data": [{"url": "https://example.invalid/out.png"}], "usage": {"generated_images": 1}}
         if path == "/videos/generations":
             return {"request_id": "grok-req-1"}
@@ -185,12 +185,53 @@ class GenerateTest(unittest.TestCase):
         record = json.loads((self.project / "视频/SH-001-T1-生成记录.json").read_text("utf-8"))
         self.assertEqual(record["inputs"]["prompt"], "动作")
 
-    def test_video_requires_first_frame_and_bounds(self):
+    def test_video_bounds_and_reference_mode_rules(self):
         base = ["video", "--project", str(self.project), "--out", "视频", "--name", "bounds", "--shot", "SH-001", "--prompt", "动作"]
-        for extra in ([], ["--first-frame", str(self.frame), "--duration", "16"],
-                      ["--first-frame", str(self.frame), "--resolution", "4k"]):
+        for extra in (["--first-frame", str(self.frame), "--duration", "16"],
+                      ["--first-frame", str(self.frame), "--resolution", "4k"],
+                      ["--ref-image", str(self.frame), "--resolution", "1080p"]):
             self.assertEqual(self.run_cli(*base, *extra), 1)
         self.assertEqual(self.calls, [])
+        # 纯文生视频可用但只提醒不阻断（镜头可控性弱，不作为默认路线）。
+        self.assertEqual(self.run_cli(*base, "--dry-run"), 0)
+        self.assertEqual(self.calls, [])
+
+    def test_video_reference_mode_dry_run_and_submission(self):
+        other = self.project / "door.png"
+        other.write_bytes(PNG)
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "ref-mode", "--shot", "SH-001",
+                "--prompt", "<IMAGE_0> 的人走向 <IMAGE_1> 的门", "--first-frame", str(self.frame),
+                "--ref-image", str(other), "--resolution", "720p", "--ratio", "9:16"]
+        with mock.patch.object(A, "api_key", side_effect=AssertionError("no key needed")), \
+                contextlib.redirect_stdout(io.StringIO()) as captured:
+            self.assertEqual(A.main([*argv, "--dry-run"]), 0)
+        shown = json.loads(captured.getvalue())
+        self.assertTrue(shown["payload"]["image"]["url"].startswith("data:image/png;base64,"))
+        self.assertTrue(all(row["url"].startswith("data:image/png;base64,") for row in shown["payload"]["reference_images"]))
+        self.assertEqual((shown["payload"]["aspect_ratio"], shown["payload"]["resolution"]), ("9:16", "720p"))
+        self.assertEqual(len(shown["inputs"]["references"]), 1)
+        self.assertEqual(self.run_cli(*argv), 0)
+        payload = self.calls[0][1]
+        self.assertIn("image", payload)
+        self.assertEqual(len(payload["reference_images"]), 1)
+        record = json.loads((self.project / "视频/ref-mode-生成记录.json").read_text("utf-8"))
+        self.assertEqual(record["engine"]["params"]["reference_images"], 1)
+
+    def test_image_reference_edit_uses_edits_endpoint(self):
+        source = self.project / "base.png"
+        source.write_bytes(PNG)
+        self.assertEqual(self.run_cli("image", "--project", str(self.project), "--out", "资产", "--name", "edit-01",
+                                      "--purpose", "asset", "--prompt", "只把外套改成深绿色",
+                                      "--ref", str(source)), 0)
+        path, payload = self.calls[0]
+        self.assertEqual(path, "/images/edits")
+        self.assertEqual(payload["image"]["type"], "image_url")
+        record = json.loads((self.project / "资产/edit-01-生成记录.json").read_text("utf-8"))
+        self.assertEqual(record["engine"]["params"]["edit"], True)
+        self.assertEqual(record["inputs"]["references"][0]["role"], "reference_image")
+        six = ["--ref", str(source)] * 6
+        self.assertEqual(self.run_cli("image", "--project", str(self.project), "--out", "资产", "--name", "edit-02",
+                                      "--purpose", "asset", "--prompt", "超限", *six), 1)
 
 
 if __name__ == "__main__":

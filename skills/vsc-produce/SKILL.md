@@ -32,7 +32,7 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 它还会提醒三种情况：资产图没有登记进资产库；帧追溯不到关键帧记录；人物既没用参考素材，也没用由资产图生成的关键帧。
 
-可选图像与视频工具：`scripts/providers/volcengine/ark.py` 提供豆包图像、视频与视觉检查；`scripts/providers/xai/grok.py` 提供 Grok Imagine 订阅路线的文生图与首帧图生视频。先 dry run 核对视频请求，再在已有预算范围内提交。视觉提醒写 `vsc.visual-check/v1`，不能取代人工选择。供应商 API、密钥、收费、许可和平台策略由适配器及项目策略负责；配置、实测与限制见[生成适配器边界](../../docs/architecture/generation-adapters.md)、[火山 Agent Plan 对照](../../docs/architecture/ark-agent-plan-personal.md)与[xAI Grok 订阅路线](../../docs/architecture/xai-grok-subscription.md)。
+可选图像与视频工具：`scripts/providers/volcengine/ark.py` 提供豆包图像、视频与视觉检查；`scripts/providers/xai/grok.py` 提供 Grok Imagine 订阅路线的全能力面——文生图、参考图编辑／多图合成（`image --ref` ≤5，提示词只写要改的内容），视频四模式（`--first-frame` 首帧锚定、`--last-frame` 尾帧钉定可单独或与首帧组成首尾插值、`--ref-image` 参考生视频 ≤14 张且提示词用 `<IMAGE_n>` 按位指认、纯文生视频非默认）。参考模式适合多人物身份一致、服装道具转移与商品植入镜头；参考模式上限 720p，更高分辨率走首帧图生视频。先 dry run 核对视频请求，再在已有预算范围内提交。视觉提醒写 `vsc.visual-check/v1`，不能取代人工选择。供应商 API、密钥、收费、许可和平台策略由适配器及项目策略负责；配置、实测与限制见[生成适配器边界](../../docs/architecture/generation-adapters.md)、[火山 Agent Plan 对照](../../docs/architecture/ark-agent-plan-personal.md)与[xAI Grok 订阅路线](../../docs/architecture/xai-grok-subscription.md)。
 
 制作前运行 `python3 -B scripts/media/toolchain.py --project <作品目录> --json`。实现存在、默认凭证变量存在、当前作品有有效候选与人工已审阅分别看；该诊断不联网核验权限，`configured=true` 不能当作供应商可用或批准。
 

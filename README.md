@@ -3,7 +3,7 @@
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 带声预演 → 图像／视频／声音候选 → 获选素材 → 剪辑、混音 → 审片与交付**。
 
 <!-- vsc:view version -->
-当前版本：**v0.27.0**，各版本变化见 [版本记录](docs/releases/)。
+当前版本：**v0.28.0**，各版本变化见 [版本记录](docs/releases/)。
 <!-- /vsc:view -->
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
@@ -132,15 +132,27 @@ python3 -B scripts/media/toolchain.py --project ./projects/作品名 --json
 
 ### Grok 订阅路线的授权例外
 
-xAI Grok 的图像／图生视频**接入实现完全在本仓库内**（`src/vsc/adapters/providers/xai_grok/` 与 `scripts/providers/xai/grok.py`，纯 Python 标准库 REST 调用；运行不调用 grok CLI，也不依赖 xAI SDK）。但它的凭证是一个明确例外：**不在本项目内，也不在 `~/.zshenv`**，而是借用 grok CLI 自己维护的订阅登录态文件 `~/.grok/auth.json`：
+xAI Grok 的图像／视频**接入实现完全在本仓库内**（`src/vsc/adapters/providers/xai_grok/` 与 `scripts/providers/xai/grok.py`，纯 Python 标准库 REST 调用；运行不调用 grok CLI，也不依赖 xAI SDK）。但它的凭证是一个明确例外：**不在本项目内，也不在 `~/.zshenv`**，而是借用 grok CLI 自己维护的订阅登录态文件 `~/.grok/auth.json`：
 
 - 在终端运行 `grok` 并按提示完成登录后，该文件由 grok CLI 生成；其中的 key 带时效，grok CLI 在使用中自动刷新。
 - VSC 只读该文件核对存在性与时效：不回显密钥值、不复制进作品或仓库、不联网刷新、不执行 shell 配置。缺失或过期时，提示重新运行 `grok` 登录。
 - 订阅登录授权、Grok Build 宿主工具授权、按量计费 `XAI_API_KEY` 三者分开识别；VSC 的 Grok 路线只读登录态，不使用 `XAI_API_KEY`，401／403 时不自动换凭证或重试。
 
-参数、能力范围与验证边界见 [xAI Grok 订阅路线](docs/architecture/xai-grok-subscription.md)。
+### 生成供应商能力（截至 v0.28.0）
 
-- **图像与视频**：豆包适配器支持资产图、关键帧、图生视频、任务恢复和辅助视觉检查，保留实际输入、用量与输出记录，见 [生成适配器](docs/architecture/generation-adapters.md)。xAI Grok Imagine 订阅路线（文生图与首帧图生视频）已接通面板、任务库与脚本链路，授权方式见上方例外说明；线上生成尚未实测，实测前预设保持停用。
+VSC 供应商中立：同一份任务契约可路由到任一已接通供应商，用途默认按项目在资源面板绑定。当前两条图像／视频路线：
+
+| 能力 | 火山方舟 Agent Plan（豆包） | xAI Grok Imagine（订阅登录） |
+|---|---|---|
+| 凭证 | `ARK_AGENT_PLAN_API_KEY`（`~/.zshenv`） | grok CLI 登录态 `~/.grok/auth.json`（见上方例外） |
+| 图像 | Seedream 文生图＋参考图（≤14 张）、上一张作底图局部编辑 | 文生图（1k/2k，n≤10）＋ `/v1/images/edits` 参考图编辑与**多图合成（≤5 源图）** |
+| 视频输入模式 | 首帧／首尾帧／全模态参考（图＋音） | **首帧锚定**（1080p）／**尾帧钉定**（可单独或与首帧插值）／**参考生视频 ≤14 张**（提示词 `<IMAGE_n>` 按位指认，上限 720p）／文生视频（非默认） |
+| 视频规格 | 480p，时长按模型；返回尾帧接下一镜 | 480p/720p（参考模式）/1080p（首帧模式）；1–15 秒；自带音轨 |
+| 已验证状态 | 已有真实线上候选记录 | 离线契约全绿；真实账号线上生成待小批量实测（实测前预设停用） |
+
+两路线的完整参数、边界与实测表见 [生成适配器](docs/architecture/generation-adapters.md)；Grok 全部模式与官方规格对照见 [xAI Grok 订阅路线](docs/architecture/xai-grok-subscription.md)。
+
+- **图像与视频**：豆包适配器支持资产图、关键帧、图生视频、任务恢复和辅助视觉检查，保留实际输入、用量与输出记录，见 [生成适配器](docs/architecture/generation-adapters.md)。xAI Grok Imagine 订阅路线（v0.28.0 起全能力面：文生图、参考图编辑/多图合成、首帧/尾帧/参考/文生视频）已接通面板、任务库与脚本链路，授权方式见上方例外说明；线上生成尚未实测，实测前预设保持停用。
 - **声音与字幕**：支持预演临时配音、字幕烧录、本地原创环境声／拟音／简约配乐；固定音色语音与 Seed-Audio 适配器的验证状态见下表。
 - **后期工程**：支持剪映草稿导出与 Remotion Composition 脚手架；v2 时间线将获选素材引用与原有帧级渲染计划绑定。Remotion 的源裁切、手柄、分数帧率和音量包络见 [Remotion 指南](docs/design/remotion.md)。
 - **跨作品复用**：提供素材库、34 条公开创作方法、[20 类制作规格](docs/guide/asset-recipes.md)和[统一检索](docs/guide/reuse-and-search.md)。方法试用、评测与跨项目导出绑定版本和权属。
@@ -152,7 +164,7 @@ xAI Grok 的图像／图生视频**接入实现完全在本仓库内**（`src/vs
 | 制作交接、正式运行与共享预算 | 离线回归覆盖完整 CLI 链、关键帧暂停／续跑及三集独立进度 | 真实项目中的创作、表演与制作效果 |
 | 豆包图像／视频／辅助视觉检查 | 已有线上候选记录，验证日期与范围见 [适配器文档](docs/architecture/generation-adapters.md) | 每次使用的账号权限、素材适用性及完整人工审片 |
 | 剧本工作副本与人工确认硬停 | 真实 PostgreSQL 回归覆盖自动保存不产生正式版本、并发冲突、提交→批准→放行与未确认阻断 | 真实浏览器中的编辑手感、撤销重做与长篇分集定位；AI 差异逐处接受 |
-| xAI Grok 订阅路线（图像／图生视频） | 适配器、面板预设与任务库分发已实现并通过离线回归；授权方式见 [Grok 订阅路线](docs/architecture/xai-grok-subscription.md) | 真实订阅账号的线上生成、额度与画质实测；实测前预设停用、不绑默认用途 |
+| xAI Grok 订阅路线（图像编辑／多图合成；视频首尾帧与 ≤14 图参考模式） | 适配器、面板预设与任务库分发已实现并通过离线回归；授权方式见 [Grok 订阅路线](docs/architecture/xai-grok-subscription.md) | 真实订阅账号的线上生成、额度与画质实测（重点：参考模式身份一致与 `<IMAGE_n>` 指位）；实测前预设停用、不绑默认用途 |
 | [固定音色语音](docs/architecture/doubao-speech.md)与 [Seed-Audio](docs/architecture/doubao-audio.md) | 已实现适配器、离线协议与本地媒体验证 | 有效服务凭证下的真实云端合成、音色稳定和审听 |
 | 剪映与 Remotion | 草稿／脚手架导出及字幕、字体、计划版本检查 | 新导出在剪映 UI 的保真回看；Remotion 依赖安装、类型检查、浏览器渲染与回看 |
 | 可迁移交付包 | 已用真实合成媒体完成移动后的复检回归 | 实际作品的授权归档、跨环境工程复现与交付验收 |
