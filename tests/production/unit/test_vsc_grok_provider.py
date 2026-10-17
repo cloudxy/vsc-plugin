@@ -80,7 +80,7 @@ class GrokContract(unittest.TestCase):
     def test_video_reference_mode_pins_first_frame_and_ratio(self):
         transport = FakeTransport([{"request_id": "req-ref"}])
         adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "https://example.invalid/" + media_id,
-                                    "720p", "9:16", transport)
+                                    "720p", "9:16", transport=transport)
         adapter.submit(VideoRequest("SH1", "video_clip", "sha", "<IMAGE_0> 的人走向 <IMAGE_1> 的门", ("door", "hero", "prop"), {}, 6000, "hero"))
         payload = transport.calls[0][1]
         self.assertEqual(payload["image"], {"url": "https://example.invalid/hero"})
@@ -107,6 +107,41 @@ class GrokContract(unittest.TestCase):
         payload = transport.calls[2][1]
         self.assertEqual((payload["image"]["url"], payload["last_frame"]["url"]),
                          ("https://example.invalid/entry", "https://example.invalid/exit"))
+
+    def test_video_keyframes_voices_and_silent_audio(self):
+        transport = FakeTransport([{"request_id": "req-kf"}])
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "https://example.invalid/" + media_id,
+                                    "720p", voice_ids=("eve", "leo"), generate_audio=False, transport=transport)
+        adapter.submit(VideoRequest("SH1", "video_clip", "sha", "<AUDIO_0> 旁白，人物穿过 <IMAGE_1>",
+                                    ("door",), {}, 9000, "hero", keyframes=(("mid1", 3.0), ("mid2", 6.0))))
+        payload = transport.calls[0][1]
+        self.assertEqual([{"voice_id": "eve"}, {"voice_id": "leo"}], payload["reference_audios"])
+        self.assertEqual(payload["keyframes"], [{"image": {"url": "https://example.invalid/mid1"}, "timestamp_s": 3.0},
+                                                {"image": {"url": "https://example.invalid/mid2"}, "timestamp_s": 6.0}])
+        self.assertFalse(payload["generate_audio"])
+        self.assertEqual(payload["duration"], 9)
+
+    def test_video_keyframe_bounds_and_classic_model_rejected_before_transport(self):
+        empty = FakeTransport([])
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: media_id, "720p", transport=empty)
+        with self.assertRaises(GrokAdapterError):  # 时间戳落在片外
+            adapter.submit(VideoRequest("SH1", "video_clip", "sha", "p", (), {}, 6000, "f", keyframes=(("k", 6.0),)))
+        with self.assertRaises(GrokAdapterError):  # 间隔不足 1/3 秒
+            adapter.submit(VideoRequest("SH1", "video_clip", "sha", "p", (), {}, 6000, "f",
+                                         keyframes=(("k1", 2.0), ("k2", 2.1))))
+        with self.assertRaises(GrokAdapterError):  # 预置声音超过 3 个
+            GrokVideoProvider("grok-imagine-video-1.5", lambda m: m, "720p",
+                              voice_ids=("a", "b", "c", "d"), transport=empty)
+        classic = GrokVideoProvider("grok-imagine-video", lambda media_id: media_id, "720p",
+                                    voice_ids=("eve",), transport=empty)
+        with self.assertRaises(GrokAdapterError):  # 经典模型不支持预置声音
+            classic.submit(VideoRequest("SH1", "video_clip", "sha", "p", (), {}, 6000, "f"))
+        classic_plain = GrokVideoProvider("grok-imagine-video", lambda media_id: media_id, "720p", transport=empty)
+        with self.assertRaises(GrokAdapterError):  # 经典模型禁止首帧+参考组合
+            classic_plain.submit(VideoRequest("SH1", "video_clip", "sha", "p", ("r",), {}, 6000, "first"))
+        with self.assertRaises(GrokAdapterError):  # 经典模型时长上限 10s
+            classic_plain.submit(VideoRequest("SH1", "video_clip", "sha", "p", (), {}, 12000, "first"))
+        self.assertEqual(empty.calls, [])
 
     def test_video_failure_states_and_missing_request_id(self):
         transport = FakeTransport([{"status": "failed", "error": {"code": "internal_error"}}])

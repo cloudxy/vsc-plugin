@@ -5,14 +5,20 @@
           [--ref X ...] [--purpose asset|candidate] [--shot S --moment entry|exit --bible B --state S]
           [--model M] [--aspect-ratio 9:16] [--resolution 1k|2k] [--count 1]
   video  --project P --out DIR --name N --shot S (--prompt T | --prompt-file F)
-          [--first-frame X] [--last-frame X] [--ref-image X ...] [--ratio R] [--bible B --state S]
-          [--model M] [--resolution 480p] [--duration 6] [--dry-run] [--max-polls N] [--deadline-seconds S] [--poll-interval S]
+          [--first-frame X] [--last-frame X] [--ref-image X ...] [--keyframe FILE@SEC ...] [--voice-id V ...]
+          [--ratio R] [--no-audio] [--bible B --state S] [--model M] [--resolution 480p] [--duration 6]
+          [--dry-run] [--max-polls N] [--deadline-seconds S] [--poll-interval S]
+  edit   --project P --out DIR --name N --shot S --video V (--prompt T | --prompt-file F) [--dry-run ...]
+  extend --project P --out DIR --name N --shot S --video V [--prompt T] [--dry-run ...]
 
 X 是本地图片文件或 https 链接；本地图以 data URI 提交。图像：无 --ref 走文生图；带 --ref（≤5）
 走 /v1/images/edits 局部编辑或多图合成，提示词只写要改的内容。视频按官方模式组装：--first-frame
 首帧锚定；--ref-image（≤14）参考模式（提示词用 <IMAGE_n> 指位，与首帧同用时首帧占 <IMAGE_0>、参
-考图从 <IMAGE_1> 起编号）；--last-frame 钉定尾帧（可与首帧或参考同用）；都不给则纯文生视频。参考模
-式分辨率最高 720p。图生视频默认画幅跟随源图，参考／文生模式可用 --ratio 显式指定。
+考图从 <IMAGE_1> 起编号）；--last-frame 钉定尾帧（可与首帧或参考同用）；--keyframe（≤4，1.5 系列）
+钉中段帧；--voice-id（≤3）平台预置声音，提示词用 <AUDIO_n> 指位；--no-audio 请求无声视频；都不给
+则纯文生视频。参考模式分辨率最高 720p。图生视频默认画幅跟随源图，参考／文生模式可用 --ratio 显式
+指定。edit／extend 对既有视频做编辑或从结尾续接（输出跟随输入，不可改时长／分辨率／画幅；编辑上限
+约 8.7s、720p）。
 
 密钥只从 grok CLI 订阅登录态（~/.grok/auth.json 的 key）读取，不打印、不落盘；找不到时提示
 在终端运行 grok 完成登录。请求必须带浏览器 User-Agent，否则平台网关回 403。默认端点
@@ -32,6 +38,7 @@ import json
 import math
 import mimetypes
 import os
+import re
 import sys
 import tempfile
 import time
@@ -47,6 +54,7 @@ API_BASE = grok_credentials.API_BASE
 USER_AGENT = grok_credentials.USER_AGENT
 IMAGE_MODEL = "grok-imagine-image-2.0"
 VIDEO_MODEL = "grok-imagine-video-1.5"
+EDIT_MODEL = "grok-imagine-video"  # 官方：视频编辑/续接由经典模型承担（1.5 返回不支持）
 PROVIDER = "xai_grok"
 ASPECT_RATIOS = ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto")
 IMAGE_RESOLUTIONS = ("1k", "2k")
@@ -348,6 +356,10 @@ def semantic_payload(payload, media_inputs):
         swap(normalized["last_frame"])
     for holder in normalized.get("reference_images") or []:
         swap(holder)
+    for holder in normalized.get("keyframes") or []:
+        swap(holder.get("image") if isinstance(holder, dict) else None)
+    if isinstance(normalized.get("video"), dict):
+        swap(normalized["video"])
     return normalized
 
 
@@ -361,8 +373,11 @@ def truncate_payload(payload):
 
     trim(shown.get("image") if isinstance(shown.get("image"), dict) else None)
     trim(shown.get("last_frame") if isinstance(shown.get("last_frame"), dict) else None)
+    trim(shown.get("video") if isinstance(shown.get("video"), dict) else None)
     for holder in shown.get("reference_images") or []:
         trim(holder)
+    for holder in shown.get("keyframes") or []:
+        trim(holder.get("image") if isinstance(holder, dict) else None)
     return shown
 
 
@@ -466,7 +481,8 @@ def check_budget_authorization(args, operation):
             raise GrokError("正式运行缺少预算授权模块，不能提交付费请求") from None
         return
     try:
-        required = {"remote_jobs": 1, "images": getattr(args, "count", 1)} if operation == "image" else {"remote_jobs": 1, "video_seconds": args.duration}
+        required = ({"remote_jobs": 1, "images": getattr(args, "count", 1)} if operation == "image"
+                    else {"remote_jobs": 1, "video_seconds": getattr(args, "duration", 9)})
         vsc_budget.check_authorization(args.project, getattr(args, "budget_reservation", None),
                                        f"{operation}:{args.out}/{args.name}", required, request=vars(args))
     except (ValueError, RuntimeError) as exc:
@@ -618,12 +634,15 @@ def generate_image(args):
 
 # ---------- 视频 ----------
 
-def video_payload(model, prompt, image, duration, resolution, last_frame=None, reference_images=(), aspect_ratio=""):
+def video_payload(model, prompt, image, duration, resolution, last_frame=None, reference_images=(), aspect_ratio="",
+                  keyframes=(), voice_ids=(), generate_audio=True):
     """按官方模式组装 /v1/videos/generations：文生视频、首帧图生视频、参考模式、尾帧钉定。
 
     image 单独出现即首帧锚定；reference_images（≤14）为参考模式，可与 image 组合
-    （image 成为钉定首帧，提示词占位符从 <IMAGE_1> 起编号）；last_frame 钉定尾帧。
-    图生视频默认不传 aspect_ratio（跟随源图）；参考／文生模式可显式指定。
+    （image 成为钉定首帧，提示词占位符从 <IMAGE_1> 起编号）；last_frame 钉定尾帧；
+    keyframes 为 (url, 秒) 中段关键帧（≤4）；voice_ids 为平台预置 voice_id（≤3，提示词用
+    <AUDIO_n> 指位）。图生视频默认不传 aspect_ratio（跟随源图）；参考／文生模式可显式指定。
+    generate_audio=False 请求无声视频。
     """
     payload = {"model": model, "prompt": prompt, "duration": duration, "resolution": resolution}
     if image:
@@ -632,9 +651,38 @@ def video_payload(model, prompt, image, duration, resolution, last_frame=None, r
         payload["last_frame"] = {"url": last_frame}
     if reference_images:
         payload["reference_images"] = [{"url": url} for url in reference_images]
+    if keyframes:
+        payload["keyframes"] = [{"image": {"url": url}, "timestamp_s": seconds} for url, seconds in keyframes]
+    if voice_ids:
+        payload["reference_audios"] = [{"voice_id": voice} for voice in voice_ids]
     if aspect_ratio:
         payload["aspect_ratio"] = aspect_ratio
+    if generate_audio is False:
+        payload["generate_audio"] = False
     return payload
+
+
+def video_operation_payload(model, video, prompt):
+    """/v1/videos/edits 与 /v1/videos/extensions：video 输入，输出跟随输入（不可改时长/分辨率/画幅）。"""
+    payload = {"model": model, "video": {"url": video}}
+    if prompt and prompt.strip():
+        payload["prompt"] = prompt.strip()
+    return payload
+
+
+def resolve_video(value, project):
+    """把本地视频转成 data URI；https 链接原样传入。"""
+    if value.startswith(("https://", "http://")):
+        return value, None
+    path = Path(value)
+    if not path.is_file():
+        raise GrokError(f"视频不存在：{value}")
+    try:
+        shown = str(path.resolve().relative_to(Path(project).resolve()))
+    except ValueError:
+        shown = str(path.resolve())
+    item = {"path": shown, "sha256": sha256(path)}
+    return f"data:{media_type(path)};base64,{base64.b64encode(path.read_bytes()).decode()}", item
 
 
 def poll_limits(args):
@@ -705,21 +753,48 @@ def generate_video(args):
         raise GrokError("参考模式一次最多 14 张参考图")
     if refs and args.resolution not in ("480p", "720p"):
         raise GrokError("参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
-    if not (first or last or refs):
-        print("提醒：未给首帧／尾帧／参考图，将走纯文生视频；镜头可控性弱，不作为默认路线。", file=sys.stderr)
-    params = {"resolution": args.resolution, "duration": args.duration}
+    voice_ids = list(getattr(args, "voice_id", []) or [])
+    if len(voice_ids) > 3 or any(not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", value) for value in voice_ids):
+        raise GrokError("预置声音参考最多 3 个，且必须是平台 voice_id（如 eve）")
+    keyframes = []
+    for value in getattr(args, "keyframe", []) or []:
+        name, _, at_text = value.rpartition("@")
+        try:
+            seconds = float(at_text)
+        except ValueError:
+            raise GrokError(f"--keyframe 需要 文件@秒 形式：{value}") from None
+        if not 0 < seconds < args.duration:
+            raise GrokError(f"关键帧时间戳必须严格落在片内（0–{args.duration}s）：{value}")
+        keyframes.append(resolve(name, args.project) + (seconds,))
+    if len(keyframes) > 4:
+        raise GrokError("中段关键帧最多 4 个")
+    marks = sorted(row[2] for row in keyframes)
+    for before, after in zip(marks, marks[1:]):
+        if after - before < 1 / 3:
+            raise GrokError("关键帧时间戳须彼此间隔至少 1/3 秒")
+    if not (first or last or refs or keyframes or voice_ids):
+        print("提醒：未给首帧／尾帧／参考图／关键帧，将走纯文生视频；镜头可控性弱，不作为默认路线。", file=sys.stderr)
+    params = {"resolution": args.resolution, "duration": args.duration, "generate_audio": not args.no_audio}
     if getattr(args, "ratio", ""):
         params["aspect_ratio"] = args.ratio
     if refs:
         params["reference_images"] = len(refs)
+    if voice_ids:
+        params["reference_voice_ids"] = voice_ids
+    if keyframes:
+        params["keyframes"] = [{"sha256": row[1]["sha256"] if row[1] else None, "timestamp_s": row[2]} for row in keyframes]
     payload = video_payload(args.model, prompt, first and first[0], args.duration, args.resolution,
                             last_frame=last and last[0], reference_images=[url for url, _ in refs],
-                            aspect_ratio=getattr(args, "ratio", ""))
+                            aspect_ratio=getattr(args, "ratio", ""), keyframes=[(row[0], row[2]) for row in keyframes],
+                            voice_ids=voice_ids, generate_audio=not args.no_audio)
     state = consistency.load(args.state, consistency.STATE_FORMAT) if args.state else None
     inputs = {"anchors_sha256": anchors(args, args.shot),
               "references": [{"source_uri": url, "sha256": item and item["sha256"], "media_type": "image",
                               "role": "reference_image", "purpose": "identity", "entity_id": None}
-                             for url, item in refs],
+                             for url, item in refs]
+                            + [{"source_uri": row[0], "sha256": row[1]["sha256"] if row[1] else None,
+                                "media_type": "image", "role": "keyframe", "purpose": "identity",
+                                "timestamp_s": row[2], "entity_id": None} for row in keyframes],
               "prompt": prompt}
     if first and first[1]:
         inputs["first_frame"] = frame_source(first[1], args.shot, state, args.project)
@@ -732,7 +807,8 @@ def generate_video(args):
     record = base_record(args, "video", "candidate", args.shot, inputs, {"model": args.model, "params": params}, started)
     video = out / f"{args.name}.mp4"
     preflight_record(record)
-    media_inputs = ([first] if first else []) + ([last] if last else []) + refs
+    media_inputs = ([first] if first else []) + ([last] if last else []) + refs \
+        + [(row[0], row[1]) for row in keyframes]
     with generation_lock(out, args.name):
         task_file, task = generation_task(out, args, record, payload, [video], semantic_payload(payload, media_inputs))
         if "id" not in task:
@@ -789,6 +865,87 @@ def generate_video(args):
         return write_record(out, args.name, record)
 
 
+def generate_video_operation(args, operation):
+    """/v1/videos/edits 或 /v1/videos/extensions：对既有 take 做编辑或从其结尾续接。
+
+    官方规则：输出跟随输入视频（不可另设时长／分辨率／画幅）；编辑时长上限约 8.7s、分辨率上限 720p。
+    """
+    poll_limits(args)
+    out = args.out and output_dir(args)
+    prompt = (args.prompt or "").strip() or (args.prompt_file and Path(args.prompt_file).read_text("utf-8").strip() or "")
+    if not prompt:
+        raise GrokError(f"视频{ '编辑' if operation == 'edit' else '续接' }需要 --prompt（平台必填：编辑写要改什么，续接写继续发生什么）")
+    video = resolve_video(args.video, args.project)
+    params = {"operation": operation, "source_video": video[1]}
+    payload = video_operation_payload(args.model, video[0], prompt)
+    inputs = {"anchors_sha256": anchors(args, args.shot),
+              "references": [], "video": video[1], "prompt": prompt or None}
+    if args.dry_run:
+        print(json.dumps({"payload": truncate_payload(payload), "inputs": inputs}, ensure_ascii=False, indent=2))
+        return None
+    started = now()
+    record = base_record(args, "video", "candidate", args.shot, inputs, {"model": args.model, "params": params}, started)
+    target = out / f"{args.name}.mp4"
+    preflight_record(record)
+    with generation_lock(out, args.name):
+        task_file, task = generation_task(out, args, record, payload, [target], semantic_payload(payload, [video]))
+        path = {"edit": "/videos/edits", "extend": "/videos/extensions"}[operation]
+        if "id" not in task:
+            submission = submit_once(task_file, task, path, payload, out, args)
+            task.update(submission=submission, submitted_at=stamp(started))
+            task_id = submission.get("request_id") if isinstance(submission, dict) else None
+            if not isinstance(task_id, str) or not consistency.SAFE_ID.fullmatch(task_id):
+                write_json(task_file, task)
+                record.update(finished_at=stamp(now()), errors=[{"error": "平台未返回有效任务编号，不能安全重提"}],
+                              budget={"billable": True, "usage": {"note": "提交已有响应，计费用量待平台核实"}})
+                write_record(out, args.name, record)
+                raise GrokError("平台未返回有效任务编号；已保存提交响应，不能安全重提")
+            task["id"] = task_id
+            record["engine"]["task_id"] = task_id
+            task["record"] = record
+            write_json(task_file, task)
+            print(f"{args.name} 已提交 {task_id}", flush=True)
+        else:
+            record = task["record"]
+            print(f"{args.name} 续接任务 {task['id']}", flush=True)
+        if "result" not in task:
+            poll_task(task_file, task, out, args)
+        result = task["result"]
+        record.update(finished_at=stamp(now()), budget={"billable": result.get("status") == "done",
+                                                        "usage": result.get("usage") or {"note": "平台未返回用量"}})
+        if result.get("status") != "done":
+            record["errors"] = [{"error": json.dumps(result.get("error") or {"status": result.get("status")},
+                                                     ensure_ascii=False)}]
+            write_record(out, args.name, record)
+            raise GrokError(f"{args.name} {operation} 失败：{record['errors'][0]['error']}")
+        remote_success(record, result)
+        record["engine"]["request_sha256"] = digest_json(task["binding"])
+        record["engine"]["payload_sha256"] = task["binding"]["payload_sha256"]
+        if task["binding"].get("semantic_payload_sha256"):
+            record["engine"]["semantic_payload_sha256"] = task["binding"]["semantic_payload_sha256"]
+        write_record(out, args.name, record)
+        made = datetime.datetime.fromisoformat(task["generated_at"])
+        try:
+            content = result.get("video")
+            if not isinstance(content, dict) or not isinstance(content.get("url"), str):
+                raise GrokError("结果缺有效下载 URL")
+            duration = content.get("duration")
+            download_video_output(content["url"], target, record, args,
+                                  {"id": args.name,
+                                   "duration_ms": int(float(duration) * 1000) if duration is not None else None,
+                                   "source_url": content["url"],
+                                   "source_url_expires_at": stamp(made + URL_TTL), "generated_at": stamp(made)})
+        except (GrokError, OSError, KeyError, TypeError, ValueError) as exc:
+            persist_download_failure(out, args, record, exc)
+            task["record"] = record
+            write_json(task_file, task)
+            raise GrokError(f"视频已在平台处理并计费，本地下载未完成：{exc}；相同命令可续接下载") from None
+        record.update(status="succeeded", errors=[])
+        task["record"] = record
+        write_json(task_file, task)
+        return write_record(out, args.name, record)
+
+
 # ---------- 命令行 ----------
 
 def parser():
@@ -822,6 +979,11 @@ def parser():
     video.add_argument("--ref-image", action="append", default=[],
                        help="参考图（最多 14 张）；提示词用 <IMAGE_n> 指位，身份／场景不钉死首帧")
     video.add_argument("--ratio", default="", help="画幅（如 9:16）；图生视频默认跟随源图，强行指定可能拉伸")
+    video.add_argument("--voice-id", action="append", default=[],
+                       help="平台预置声音 voice_id（≤3，如 eve）；提示词用 <AUDIO_n> 指位；音频素材文件不支持")
+    video.add_argument("--keyframe", action="append", default=[],
+                       help="中段关键帧 文件@秒（≤4，1.5 系列；时间戳须在片内且彼此间隔 ≥1/3 秒）")
+    video.add_argument("--no-audio", action="store_true", help="请求无声视频（generate_audio=false）")
     video.add_argument("--model", default=VIDEO_MODEL)
     video.add_argument("--resolution", default="480p")
     video.add_argument("--duration", type=int, default=6)
@@ -829,6 +991,17 @@ def parser():
     video.add_argument("--max-polls", type=int, default=60, help="本轮最多查询次数，续查沿用原任务")
     video.add_argument("--deadline-seconds", type=float, default=900, help="本轮查询时间上限（秒）")
     video.add_argument("--poll-interval", type=float, default=10, help="查询间隔（秒）")
+
+    for name, help_text in (("edit", "编辑既有 take（输出跟随输入；时长上限约 8.7s、720p）"),
+                            ("extend", "从既有 take 的结尾续接成一个片段（输出跟随输入；--prompt 必填）")):
+        sub_command = sub.add_parser(name, parents=[made], help=help_text)
+        sub_command.add_argument("--shot", required=True)
+        sub_command.add_argument("--video", required=True, help="既有视频（本机文件或 https 链接）")
+        sub_command.add_argument("--model", default=EDIT_MODEL)
+        sub_command.add_argument("--dry-run", action="store_true", help="只打印请求与记录输入，不提交")
+        sub_command.add_argument("--max-polls", type=int, default=60)
+        sub_command.add_argument("--deadline-seconds", type=float, default=900)
+        sub_command.add_argument("--poll-interval", type=float, default=10)
 
     return parser
 
@@ -838,6 +1011,8 @@ def main(argv=None):
     try:
         if args.command == "image":
             path = generate_image(args)
+        elif args.command in ("edit", "extend"):
+            path = generate_video_operation(args, args.command)
         else:
             if args.shot and not (args.bible and args.state):
                 print("提醒：未给 --bible/--state，生成记录不会绑定锚点包", file=sys.stderr)

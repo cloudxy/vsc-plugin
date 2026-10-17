@@ -89,32 +89,67 @@ class GrokImageProvider:
 
 
 class GrokVideoProvider:
-    """Text-to-video, first/last-frame pinning and reference-to-video on the Imagine API.
+    """Text-to-video, first/last-frame pinning, keyframes and reference-to-video.
 
     Modes (chosen by the frozen request): ``image`` alone is image-to-video with the
     first frame anchored; ``reference_images`` (1–14) guide identity/scene without
     pinning; ``image`` + references keeps the pinned first frame (prompt then numbers
     it <IMAGE_0> and references from <IMAGE_1>); ``last_frame`` pins the closing
     frame and may combine with references; prompt-only is text-to-video.
+    ``keyframes`` pins up to 4 mid-clip frames at second timestamps; ``voice_ids``
+    carries platform preset voice ids from the provider registry (the DB field for
+    platform resource ids) into ``reference_audios``. last_frame/keyframes/voices
+    and image+reference combination require the 1.5 generation of the model.
     """
 
     REFERENCE_LIMIT = 14
+    VOICE_LIMIT = 3
+    KEYFRAME_LIMIT = 4
     REFERENCE_RESOLUTIONS = ("480p", "720p")
     FRAME_RESOLUTIONS = ("480p", "720p", "1080p")
 
     def __init__(self, model: str, media_url: Callable[[str], str], resolution: str,
-                 ratio: str = "", transport=None):
+                 ratio: str = "", voice_ids=(), generate_audio=True, transport=None):
         self.model = model
         self.media_url = media_url
         self.resolution = resolution
         self.ratio = ratio or ""
+        self.voice_ids = tuple(voice_ids or ())
+        if len(self.voice_ids) > self.VOICE_LIMIT:
+            raise GrokAdapterError(f"Grok 预置声音参考最多 {self.VOICE_LIMIT} 个")
+        self.generate_audio = generate_audio
         self.transport = transport or grok.call
+        self.advanced = "1.5" in model
 
     def submit(self, req: VideoRequest) -> JobHandle:
-        if req.duration_ms < 1000 or req.duration_ms % 1000 or req.duration_ms > 15000 or not req.prompt.strip():
-            raise GrokAdapterError("Grok 视频时长须为 1–15 整秒且提示词非空")
+        maximum_ms = 15000 if self.advanced else 10000
+        if req.duration_ms < 1000 or req.duration_ms % 1000 or req.duration_ms > maximum_ms or not req.prompt.strip():
+            raise GrokAdapterError(f"Grok 视频时长须为 1–{maximum_ms // 1000} 整秒且提示词非空")
         if req.reference_audio_media_ids:
-            raise GrokAdapterError("Grok 视频的 reference_audios 只接平台预置 voice_id，不能传音频素材文件")
+            raise GrokAdapterError("Grok 视频的 reference_audios 只接平台预置 voice_id（登记在模型默认参数 reference_voice_ids），不能传音频素材文件")
+        keyframes = [(self.media_url(media_id), float(seconds)) for media_id, seconds in (req.keyframes or ())]
+        if len(keyframes) > self.KEYFRAME_LIMIT:
+            raise GrokAdapterError(f"Grok 中段关键帧最多 {self.KEYFRAME_LIMIT} 个")
+        if not self.advanced:  # 经典 grok-imagine-video 的官方限制
+            classic_features = []
+            if req.last_frame_media_id:
+                classic_features.append("尾帧钉定")
+            if keyframes:
+                classic_features.append("中段关键帧")
+            if self.voice_ids:
+                classic_features.append("预置声音参考")
+            if req.first_frame_media_id and req.reference_media_ids:
+                classic_features.append("首帧与参考图同用")
+            if classic_features:
+                raise GrokAdapterError("经典 grok-imagine-video 不支持" + "、".join(classic_features) + "；请使用 1.5 系列模型")
+        seconds = req.duration_ms // 1000
+        for _, at in keyframes:
+            if not 0 < at < seconds:
+                raise GrokAdapterError("关键帧时间戳必须严格落在片内（大于 0 且小于时长）")
+        stamps = sorted(at for _, at in keyframes)
+        for before, after in zip(stamps, stamps[1:]):
+            if after - before < 1 / 3:
+                raise GrokAdapterError("关键帧时间戳须彼此间隔至少 1/3 秒")
         first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
         last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
         references = [self.media_url(media_id) for media_id in req.reference_media_ids]
@@ -125,8 +160,10 @@ class GrokVideoProvider:
             raise GrokAdapterError("Grok 参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
         if not reference_mode and self.resolution not in self.FRAME_RESOLUTIONS:
             raise GrokAdapterError("Grok 视频分辨率须为 480p、720p 或 1080p")
-        payload = grok.video_payload(self.model, req.prompt, first, req.duration_ms // 1000, self.resolution,
-                                     last_frame=last, reference_images=references, aspect_ratio=self.ratio)
+        payload = grok.video_payload(self.model, req.prompt, first, seconds, self.resolution,
+                                     last_frame=last, reference_images=references, aspect_ratio=self.ratio,
+                                     keyframes=keyframes, voice_ids=self.voice_ids,
+                                     generate_audio=self.generate_audio)
         raw = self.transport("/videos/generations", payload)
         task_id = raw.get("request_id") if isinstance(raw, dict) else None
         if not isinstance(task_id, str) or not task_id:
