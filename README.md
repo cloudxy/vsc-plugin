@@ -130,7 +130,17 @@ python3 -B scripts/media/toolchain.py --project ./projects/作品名 --json
 
 本工作区的凭证集中在 `~/.zshenv`。若进程未加载变量，在启动工具的 zsh 中执行 `source ~/.zshenv` 后重新启动工具；其他启动方式需显式传入环境变量。具体变量及配置方式见 [客户端与本机配置](docs/guide/workspace-setup.md)。
 
-- **图像与视频**：豆包适配器支持资产图、关键帧、图生视频、任务恢复和辅助视觉检查，保留实际输入、用量与输出记录，见 [生成适配器](docs/architecture/generation-adapters.md)。
+### Grok 订阅路线的授权例外
+
+xAI Grok 的图像／图生视频**接入实现完全在本仓库内**（`src/vsc/adapters/providers/xai_grok/` 与 `scripts/providers/xai/grok.py`，纯 Python 标准库 REST 调用；运行不调用 grok CLI，也不依赖 xAI SDK）。但它的凭证是一个明确例外：**不在本项目内，也不在 `~/.zshenv`**，而是借用 grok CLI 自己维护的订阅登录态文件 `~/.grok/auth.json`：
+
+- 在终端运行 `grok` 并按提示完成登录后，该文件由 grok CLI 生成；其中的 key 带时效，grok CLI 在使用中自动刷新。
+- VSC 只读该文件核对存在性与时效：不回显密钥值、不复制进作品或仓库、不联网刷新、不执行 shell 配置。缺失或过期时，提示重新运行 `grok` 登录。
+- 订阅登录授权、Grok Build 宿主工具授权、按量计费 `XAI_API_KEY` 三者分开识别；VSC 的 Grok 路线只读登录态，不使用 `XAI_API_KEY`，401／403 时不自动换凭证或重试。
+
+参数、能力范围与验证边界见 [xAI Grok 订阅路线](docs/architecture/xai-grok-subscription.md)。
+
+- **图像与视频**：豆包适配器支持资产图、关键帧、图生视频、任务恢复和辅助视觉检查，保留实际输入、用量与输出记录，见 [生成适配器](docs/architecture/generation-adapters.md)。xAI Grok Imagine 订阅路线（文生图与首帧图生视频）已接通面板、任务库与脚本链路，授权方式见上方例外说明；线上生成尚未实测，实测前预设保持停用。
 - **声音与字幕**：支持预演临时配音、字幕烧录、本地原创环境声／拟音／简约配乐；固定音色语音与 Seed-Audio 适配器的验证状态见下表。
 - **后期工程**：支持剪映草稿导出与 Remotion Composition 脚手架；v2 时间线将获选素材引用与原有帧级渲染计划绑定。Remotion 的源裁切、手柄、分数帧率和音量包络见 [Remotion 指南](docs/design/remotion.md)。
 - **跨作品复用**：提供素材库、34 条公开创作方法、[20 类制作规格](docs/guide/asset-recipes.md)和[统一检索](docs/guide/reuse-and-search.md)。方法试用、评测与跨项目导出绑定版本和权属。
@@ -141,6 +151,7 @@ python3 -B scripts/media/toolchain.py --project ./projects/作品名 --json
 |---|---|---|
 | 制作交接、正式运行与共享预算 | 离线回归覆盖完整 CLI 链、关键帧暂停／续跑及三集独立进度 | 真实项目中的创作、表演与制作效果 |
 | 豆包图像／视频／辅助视觉检查 | 已有线上候选记录，验证日期与范围见 [适配器文档](docs/architecture/generation-adapters.md) | 每次使用的账号权限、素材适用性及完整人工审片 |
+| xAI Grok 订阅路线（图像／图生视频） | 适配器、面板预设与任务库分发已实现并通过离线回归；授权方式见 [Grok 订阅路线](docs/architecture/xai-grok-subscription.md) | 真实订阅账号的线上生成、额度与画质实测；实测前预设停用、不绑默认用途 |
 | [固定音色语音](docs/architecture/doubao-speech.md)与 [Seed-Audio](docs/architecture/doubao-audio.md) | 已实现适配器、离线协议与本地媒体验证 | 有效服务凭证下的真实云端合成、音色稳定和审听 |
 | 剪映与 Remotion | 草稿／脚手架导出及字幕、字体、计划版本检查 | 新导出在剪映 UI 的保真回看；Remotion 依赖安装、类型检查、浏览器渲染与回看 |
 | 可迁移交付包 | 已用真实合成媒体完成移动后的复检回归 | 实际作品的授权归档、跨环境工程复现与交付验收 |
