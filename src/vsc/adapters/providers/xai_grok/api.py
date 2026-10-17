@@ -793,7 +793,7 @@ def generate_video(args):
                               "role": "reference_image", "purpose": "identity", "entity_id": None}
                              for url, item in refs]
                             + [{"source_uri": row[0], "sha256": row[1]["sha256"] if row[1] else None,
-                                "media_type": "image", "role": "keyframe", "purpose": "identity",
+                                "media_type": "image", "role": "reference_image", "purpose": "identity",
                                 "timestamp_s": row[2], "entity_id": None} for row in keyframes],
               "prompt": prompt}
     if first and first[1]:
