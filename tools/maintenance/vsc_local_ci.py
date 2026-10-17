@@ -35,7 +35,6 @@ from vsc.knowledge import recipes as vsc_recipes
 from tools.maintenance.vendor_sync import NON_RUNTIME_MODES, installed_problem
 from vsc.kernel.catalog import doctor_problems
 
-HERE = script_path("vsc_local_ci.py").parent
 ROOT = repository_root()
 VENDOR = ROOT / "vendor"
 PROJECTS = ROOT / "projects"
@@ -97,7 +96,7 @@ def route_problems(vendor_root=VENDOR):
 
 
 def check_vendor():
-    result = run(sys.executable, "-B", str(HERE / "vendor_sync.py"), "--check")
+    result = run(sys.executable, "-B", str(script_path("maintenance/vendor_sync.py")), "--check")
     if result.returncode:
         return "", tail(result)
     sources = json.loads((VENDOR / "sources.lock.json").read_text("utf-8"))["sources"]
@@ -110,7 +109,7 @@ def project_problems(projects_root=PROJECTS):
     projects = sorted(state.parent for state in projects_root.glob("*/vsc.json"))
     problems = []
     for project in projects:
-        result = run(sys.executable, "-B", str(HERE / "vsc_state.py"), "status", str(project))
+        result = run(sys.executable, "-B", str(script_path("project/state.py")), "status", str(project))
         if result.returncode:
             problems.append(f"作品 {project.name} 无法被当前状态机读取：{tail(result, 1)[0]}")
     return projects, problems

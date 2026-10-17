@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/director.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/director.md
 name = "director"
 description = "Create VSC visual direction, shot plans, camera movement, transitions and animatic review notes."
 developer_instructions = '''

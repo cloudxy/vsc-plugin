@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 
 from support.paths import SCRIPTS
-import vsc_learning as learning
+import vsc.knowledge.learning as learning
 
 
-STATE = SCRIPTS / "vsc_state.py"
+STATE = SCRIPTS / "project/state.py"
 
 
 class TestRetrieval(unittest.TestCase):

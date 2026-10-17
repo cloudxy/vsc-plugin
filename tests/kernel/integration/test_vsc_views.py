@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""vsc_views.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_views"""
+"""scripts/kernel/views.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_views"""
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from support.paths import ROOT
-import vsc_views as VIEWS
+import vsc.kernel.views as VIEWS
 
 
 class ViewTest(unittest.TestCase):
@@ -41,7 +41,7 @@ class ViewTest(unittest.TestCase):
         kernel = json.loads((self.root / "workflow/kernel.json").read_text("utf-8"))
         kernel["stages"][0]["entry"]["summary"] = "改编与分集"
         (self.root / "workflow/kernel.json").write_text(json.dumps(kernel, ensure_ascii=False), "utf-8")
-        self.assertEqual(VIEWS.view_problems(self.root), ["文档视图已过期：AGENTS.md（运行 python3 -B scripts/vsc_views.py sync）"])
+        self.assertEqual(VIEWS.view_problems(self.root), ["文档视图已过期：AGENTS.md（运行 python3 -B scripts/kernel/views.py sync）"])
 
     def test_missing_block_is_reported(self):
         (self.root / "README.md").write_text("没有标记块\n", "utf-8")

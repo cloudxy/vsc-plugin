@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/orchestrator.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/orchestrator.md
 name = "orchestrator"
 description = "Coordinate VSC roles, project gates and human decisions without impersonating a specialist or approving creative choices."
 developer_instructions = '''

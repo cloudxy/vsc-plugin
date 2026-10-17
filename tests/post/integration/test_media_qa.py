@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support.paths import ROOT, SCRIPTS  # noqa: F401  被测模块位于 scripts/
-import media_qa as QA
+from support.paths import ROOT  # noqa: F401  被测模块位于所属源码包
+import vsc.adapters.media.qa as QA
 from support.fixtures.plans import media_qa_plan as plan
 from support.fixtures.review import write_review
 

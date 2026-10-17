@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from support.paths import SCRIPTS
-import vendor_watch as WATCH
+import tools.maintenance.vendor_watch as WATCH
 from support.fixtures.vendor import refresh_policy
 
 
@@ -166,7 +166,7 @@ class TestVendorWatch(unittest.TestCase):
         stub = self.root / "python-stub"
         stub.write_text("#!/bin/sh\nexit 7\n")
         stub.chmod(0o755)
-        result = subprocess.run(["/bin/bash", str(SCRIPTS / "vsc-vendor-maintenance.sh"),
+        result = subprocess.run(["/bin/bash", str(SCRIPTS / "maintenance/vendor_maintenance.sh"),
                                  "--plugin", str(self.plugin), "--updater-root", str(self.updater)],
                                 env={**os.environ, "VSC_VENDOR_PYTHON": str(stub)}, text=True, capture_output=True)
         self.assertEqual(result.returncode, 7)
@@ -186,7 +186,7 @@ class TestVendorWatch(unittest.TestCase):
         }))
 
     def cli(self, *args, env=None):
-        return subprocess.run(["/bin/bash", str(SCRIPTS / "vsc-vendor-maintenance.sh"),
+        return subprocess.run(["/bin/bash", str(SCRIPTS / "maintenance/vendor_maintenance.sh"),
                                "--plugin", str(self.plugin), *args], cwd=self.root,
                               env=env, text=True, capture_output=True)
 

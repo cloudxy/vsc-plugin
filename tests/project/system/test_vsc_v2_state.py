@@ -14,7 +14,7 @@ class CurrentState(unittest.TestCase):
         self.cli('init',self.project,'--title','synthetic')
     def tearDown(self): self.tmp.cleanup()
     def cli(self,*args,ok=True):
-        result=subprocess.run([sys.executable,'-B',str(ROOT/'scripts/vsc_state.py'),*map(str,args)],capture_output=True,text=True)
+        result=subprocess.run([sys.executable,'-B',str(ROOT/'scripts/project/state.py'),*map(str,args)],capture_output=True,text=True)
         self.assertEqual(result.returncode,0 if ok else 1,result.stdout+result.stderr)
         return result.stdout+result.stderr
     def state(self): return json.loads((self.project/'vsc.json').read_text())
@@ -31,7 +31,7 @@ class CurrentState(unittest.TestCase):
             aid=self.add(kind,stage,'x')
             self.assertIn('JSON',self.cli('artifact','decide',self.project,aid,'--status','approved','--by','fixture',ok=False))
     def test_source_snapshot_survives_working_file_and_locator_is_real(self):
-        from vsc_sources import source_errors,locator_errors
+        from vsc.assets.sources import source_errors,locator_errors
         working=self.file('source.txt','one\ntwo\n')
         self.cli('source','add',self.project,'--kind','original','--file',working,'--rights','owned')
         source=self.state()['sources'][0]; working.unlink()
@@ -68,7 +68,7 @@ class CurrentState(unittest.TestCase):
         obj=self.state()['objects'][0]
         self.assertEqual(obj['artifact'],second); self.assertEqual(obj['binding_history'][0]['artifact'],first)
     def test_invention_does_not_need_a_fabricated_source(self):
-        from vsc_sources import provenance_errors
+        from vsc.assets.sources import provenance_errors
         data={'source_units':[], 'screen_units':[{'origin':'invention','source_refs':[],'decision_ref':'self:invention'}]}
         item={'id':'A-1'}; state={'sources':[], 'decisions':[]}
         self.assertTrue(provenance_errors(data,self.project,state,item))
@@ -77,7 +77,7 @@ class CurrentState(unittest.TestCase):
         self.assertTrue(provenance_errors(data,self.project,state,{'id':'A-2'}))
     def test_dialogue_coverage_requires_a_real_sound_cue(self):
         from support.fixtures.handoffs import Fixture
-        from vsc_handoffs import project_errors
+        from vsc.production.handoffs import project_errors
         (self.root/'fixture').mkdir()
         f=Fixture(self.root/'fixture')
         f.state['profile_snapshot']={'contract_policy':'production-v2'}

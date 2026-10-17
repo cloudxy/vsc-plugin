@@ -13,11 +13,12 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
+from vsc.assets.registry import import_media
 from vsc.production import budget as budget
 from vsc.adapters.persistence.sqlite import series as db
 from vsc.production import jobs as jobs
 from vsc.production.providers import JobHandle
-from vsc.production.series import SeriesError, _artifact_document, build_shot_context, covered_script_units, import_media, series_state, sha256
+from vsc.production.context import SeriesError, _artifact_document, build_shot_context, covered_script_units, series_state, sha256
 from vsc.project.state import gate_problems
 
 # Provider transports raise RuntimeError subclasses (for example volc_ark.ArkError).

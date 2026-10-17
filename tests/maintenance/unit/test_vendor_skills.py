@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""vendor_skills.py 自测。运行：python3 -B tests/run.py --test maintenance.unit.test_vendor_skills"""
+"""scripts/maintenance/vendor_skills.py 自测。运行：python3 -B tests/run.py --test maintenance.unit.test_vendor_skills"""
 import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
 
 from support.paths import SCRIPTS
-SCRIPT = SCRIPTS / "vendor_skills.py"
-import vendor_skills as VENDOR_SKILLS
+SCRIPT = SCRIPTS / "maintenance/vendor_skills.py"
+import tools.maintenance.vendor_skills as VENDOR_SKILLS
 
 
 class TestVendorSkills(unittest.TestCase):

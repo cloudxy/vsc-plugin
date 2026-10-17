@@ -8,7 +8,7 @@
       "artifact_types": ["vsc.review_delegation"],
       "template": null,
       "validator": {
-        "script": "scripts/vsc_resources.py",
+        "script": "scripts/assets/resources.py",
         "arguments": ["validate-delegation-file"]
       }
     },
@@ -17,7 +17,7 @@
       "owner": "数据库连续短剧镜头上下文",
       "template": null,
       "validator": {
-        "script": "scripts/vsc_series.py",
+        "script": "scripts/production/series.py",
         "arguments": ["validate-context-file"]
       }
     },
@@ -35,7 +35,7 @@
       ],
       "template": "templates/creative-brief.json",
       "validator": {
-        "script": "scripts/vsc_artifacts.py",
+        "script": "scripts/project/artifacts.py",
         "arguments": [
           "brief"
         ]
@@ -46,7 +46,7 @@
       "owner": "可复用方法",
       "template": null,
       "validator": {
-        "script": "scripts/vsc_learning.py",
+        "script": "scripts/knowledge/learning.py",
         "arguments": [
           "method",
           "validate"
@@ -61,7 +61,7 @@
       ],
       "template": null,
       "validator": {
-        "script": "scripts/media_qa.py",
+        "script": "scripts/media/qa.py",
         "arguments": [
           "validate-report"
         ]
@@ -75,7 +75,7 @@
       ],
       "template": "templates/sample-review.json",
       "validator": {
-        "script": "scripts/media_qa.py",
+        "script": "scripts/media/qa.py",
         "arguments": [
           "review"
         ]
@@ -86,7 +86,7 @@
       "owner": "外部来源交接",
       "template": null,
       "validator": {
-        "script": "scripts/vsc_state.py",
+        "script": "scripts/project/state.py",
         "arguments": [
           "handoff",
           "validate"
@@ -107,7 +107,7 @@
       "owner": "改编阶段",
       "template": "templates/adaptation-map.json",
       "validator": {
-        "script": "scripts/vsc_state.py",
+        "script": "scripts/project/state.py",
         "arguments": [
           "adaptation",
           "validate"
@@ -123,7 +123,7 @@
       "owner": "连续性阶段",
       "template": "templates/continuity-plan.json",
       "validator": {
-        "script": "scripts/vsc_state.py",
+        "script": "scripts/project/state.py",
         "arguments": [
           "continuity",
           "validate"
@@ -139,7 +139,7 @@
       "owner": "声音阶段",
       "template": "templates/sound-cue-sheet.json",
       "validator": {
-        "script": "scripts/vsc_state.py",
+        "script": "scripts/project/state.py",
         "arguments": [
           "sound",
           "validate"
@@ -154,7 +154,7 @@
       "owner": "Remotion 编排阶段",
       "template": "templates/remotion-render-plan.json",
       "validator": {
-        "script": "scripts/remotion_plan.py",
+        "script": "scripts/post/remotion_plan.py",
         "arguments": [
           "validate"
         ]
@@ -168,7 +168,7 @@
       ],
       "template": "templates/asset-bible.json",
       "validator": {
-        "script": "scripts/consistency.py",
+        "script": "scripts/story/consistency.py",
         "arguments": [
           "bible",
           "validate"
@@ -183,7 +183,7 @@
       ],
       "template": "templates/scene-state.json",
       "validator": {
-        "script": "scripts/consistency.py",
+        "script": "scripts/story/consistency.py",
         "arguments": [
           "state",
           "validate"
@@ -198,7 +198,7 @@
       ],
       "template": "templates/generation-record.json",
       "validator": {
-        "script": "scripts/consistency.py",
+        "script": "scripts/story/consistency.py",
         "arguments": [
           "record",
           "validate"
@@ -213,7 +213,7 @@
       ],
       "template": "templates/visual-check.json",
       "validator": {
-        "script": "scripts/consistency.py",
+        "script": "scripts/story/consistency.py",
         "arguments": [
           "visual",
           "validate"
@@ -225,7 +225,7 @@
       "owner": "跨作品素材库",
       "template": "templates/library-item.json",
       "validator": {
-        "script": "scripts/vsc_library.py",
+        "script": "scripts/assets/library.py",
         "arguments": [
           "validate"
         ]
@@ -236,7 +236,7 @@
       "owner": "公开创作方法库",
       "template": null,
       "validator": {
-        "script": "scripts/vsc_craft.py",
+        "script": "scripts/knowledge/craft.py",
         "arguments": [
           "validate"
         ]
@@ -247,7 +247,7 @@
       "owner": "制作阶段",
       "template": "templates/production-batch.json",
       "validator": {
-        "script": "scripts/vsc_production.py",
+        "script": "scripts/production/plan.py",
         "arguments": [
           "validate"
         ],
@@ -259,7 +259,7 @@
       "owner": "跨作品制作规格",
       "template": null,
       "validator": {
-        "script": "scripts/vsc_recipes.py",
+        "script": "scripts/knowledge/recipes.py",
         "arguments": [
           "validate"
         ]
@@ -273,7 +273,7 @@
       ],
       "template": "templates/sequence-links.json",
       "validator": {
-        "script": "scripts/vsc_sequence.py",
+        "script": "scripts/story/sequence.py",
         "arguments": [
           "validate"
         ]
@@ -288,7 +288,7 @@
       "strict_policy": "production-v2",
       "template": "templates/screenplay.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -303,7 +303,7 @@
       "strict_policy": "production-v2",
       "template": "templates/coverage-plan.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -318,7 +318,7 @@
       "strict_policy": "production-v2",
       "template": "templates/selected-takes.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -333,7 +333,7 @@
       "strict_policy": "production-v2",
       "template": "templates/animatic.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -348,7 +348,7 @@
       "strict_policy": "production-v2",
       "template": "templates/timeline.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -363,7 +363,7 @@
       "strict_policy": "production-v2",
       "template": "templates/mix.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -378,7 +378,7 @@
       "strict_policy": "production-v2",
       "template": "templates/delivery-manifest.json",
       "validator": {
-        "script": "scripts/vsc_handoffs.py",
+        "script": "scripts/production/handoffs.py",
         "arguments": [
           "validate"
         ]
@@ -393,7 +393,7 @@
       "strict_policy": "production-v2",
       "template": "templates/production-run.json",
       "validator": {
-        "script": "scripts/vsc_run.py",
+        "script": "scripts/production/run.py",
         "arguments": [
           "validate"
         ]
@@ -408,7 +408,7 @@
       "strict_policy": "production-v2",
       "template": "templates/source-map.json",
       "validator": {
-        "script": "scripts/vsc_story.py",
+        "script": "scripts/story/script.py",
         "arguments": [
           "validate"
         ]
@@ -423,7 +423,7 @@
       "strict_policy": "production-v2",
       "template": "templates/episode-beats.json",
       "validator": {
-        "script": "scripts/vsc_story.py",
+        "script": "scripts/story/script.py",
         "arguments": [
           "validate"
         ]
@@ -438,7 +438,7 @@
       "strict_policy": "production-v2",
       "template": "templates/visual-bible.json",
       "validator": {
-        "script": "scripts/vsc_story.py",
+        "script": "scripts/story/script.py",
         "arguments": [
           "validate"
         ]

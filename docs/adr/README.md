@@ -9,3 +9,4 @@ ADR 记录已采纳、会影响长期结构的决定。它不是功能清单；�
 | [0003](0003-production-handoffs-and-approved-runs.md) | 制作交接、正式运行、共享预算与显式迁移 | 已采纳 |
 | [0004](0004-series-relational-authority.md) | SQLite 连续短剧关系权威与统一 Provider | 已采纳，旧项目继续适用 |
 | [0005](0005-postgres-resource-authority.md) | PostgreSQL 资源关系、工程模块与内建面板 | 已采纳，新建或显式迁移项目适用 |
+| [0006](0006-command-ownership.md) | 命令按职责分组，消费方直接依赖所属模块 | 已采纳 |

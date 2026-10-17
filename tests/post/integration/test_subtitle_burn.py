@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""subtitle_burn.py 自测。真实烧录需要 uv、ffmpeg 与已安装的 noto-sans-sc；uv 首次拉取 Pillow 需要联网。
+"""scripts/post/subtitle_burn.py 自测。真实烧录需要 uv、ffmpeg 与已安装的 noto-sans-sc；uv 首次拉取 Pillow 需要联网。
 
 运行：python3 -B tests/run.py --test post.integration.test_subtitle_burn
 """
@@ -13,7 +13,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from support.paths import ROOT
-import subtitle_burn as SB
+import vsc.post.subtitle_burn as SB
 
 STYLE = {"font": None, "font_size": 24, "color": "#FFFFFF", "stroke_color": "#000000", "stroke_width": 1.5,
          "position": "bottom", "custom_position": 70.0, "background": None, "rounded": False}

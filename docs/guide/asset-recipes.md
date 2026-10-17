@@ -15,18 +15,18 @@
 所有命令从工作区根目录运行，完全离线，不安装 vendor，不调用生成 API。
 
 ```sh
-python3 -B scripts/vsc_recipes.py list
-python3 -B scripts/vsc_recipes.py search 打斗 --kind fight
-python3 -B scripts/vsc_recipes.py search 沉稳 --kind voice
-python3 -B scripts/vsc_search.py 递物 --in recipes
-python3 -B scripts/vsc_search.py 声音桥 --in all
-python3 -B scripts/vsc_recipes.py show AR-motion-pass-object
-python3 -B scripts/vsc_recipes.py validate
-python3 -B scripts/vsc_recipes.py install AR-motion-pass-object
-python3 -B scripts/vsc_recipes.py install --all
+python3 -B scripts/knowledge/recipes.py list
+python3 -B scripts/knowledge/recipes.py search 打斗 --kind fight
+python3 -B scripts/knowledge/recipes.py search 沉稳 --kind voice
+python3 -B scripts/knowledge/search.py 递物 --in recipes
+python3 -B scripts/knowledge/search.py 声音桥 --in all
+python3 -B scripts/knowledge/recipes.py show AR-motion-pass-object
+python3 -B scripts/knowledge/recipes.py validate
+python3 -B scripts/knowledge/recipes.py install AR-motion-pass-object
+python3 -B scripts/knowledge/recipes.py install --all
 ```
 
-搜索名称、标签、说明及完整规格，支持中文词组；多个查询词共同匹配。`list/search` 可加 `--json`、`--kind`、`--limit`。统一检索的 `--in recipes` 直接读取原生规格，`--in all` 同时查方法卡、本机素材与作品，不要求先安装规格；结果会标注非媒体。另一个规格包使用 `vsc_recipes.py` 的全局参数 `--catalog <JSON>`；`validate <JSON>` 可直接校验输入文件。
+搜索名称、标签、说明及完整规格，支持中文词组；多个查询词共同匹配。`list/search` 可加 `--json`、`--kind`、`--limit`。统一检索的 `--in recipes` 直接读取原生规格，`--in all` 同时查方法卡、本机素材与作品，不要求先安装规格；结果会标注非媒体。另一个规格包使用 `scripts/knowledge/recipes.py` 的全局参数 `--catalog <JSON>`；`validate <JSON>` 可直接校验输入文件。
 
 安装默认写入本机 `library/`，也可用 `install ... --library <目录>` 或 `VSC_LIBRARY` 指定目标。安装调用现有 `vsc_library.add` 与素材库锁，复用条目校验和创建逻辑。全量安装先检查现有 ID 冲突，再创建新条目；相同版本、内容及完整条目属性重复安装返回 `UNCHANGED`，不重复创建或改写。相同 ID 的版本变化、内容变化、手工编辑或已有占位目录都报错并保留已有内容；升级请使用新 ID。目标目录不得通过符号链接越出素材库。
 
@@ -45,7 +45,7 @@ python3 -B scripts/vsc_recipes.py install --all
 
 条目没有媒体文件或 provider refs。素材库里的 `owned`、商用许可只覆盖原创规格文字；未来录制、生成、下载的人脸、音色、字体、音乐或媒体应分别记录来源与许可，不能沿用文字规格的权利结论。`requires_human_selection` 不是批准记录，安装也不批准任何项目产物。
 
-`vsc_library.py use` 不带 `--bible` 时可将规格清单复制进项目供设计参考；加 `--bible` 会拒绝把规格直接登记为实体参考、真实音色或全片字幕样式。字体选择规格不附字体文件，标题卡规格也不附已生成贴片；必须另选合法字体、制作图形并验证交付许可。
+`scripts/assets/library.py use` 不带 `--bible` 时可将规格清单复制进项目供设计参考；加 `--bible` 会拒绝把规格直接登记为实体参考、真实音色或全片字幕样式。字体选择规格不附字体文件，标题卡规格也不附已生成贴片；必须另选合法字体、制作图形并验证交付许可。
 
 ## 制作时如何使用
 
@@ -53,7 +53,7 @@ python3 -B scripts/vsc_recipes.py install --all
 
 动作与打斗规格含安全拍点、起止状态、镜头、时长与逐拍顺序。真实拍摄由现场动作指导确认错位与间距；打斗示例只采用无接触空挥和自主后撤，后期添加打击声。人声规格使用 `<PROJECT_SPEAKER_ID>`，`provider` 与 `voice_id` 为 `null`；选定合法声源后固定角色映射，不能将描述伪装成供应商音色 ID。声音规格明确循环、对白避让、进出点、格式和权利确认要求。
 
-`craft_refs` 仅引用 `knowledge/craft.json` 的方法卡 ID，提供创作方法线索，不复制方法卡全文，也不获得任何素材的权利或项目批准。当前方法库有 34 条卡、14 个来源，可用 `vsc_craft.py show <ID>` 查看概括与来源依据。
+`craft_refs` 仅引用 `knowledge/craft.json` 的方法卡 ID，提供创作方法线索，不复制方法卡全文，也不获得任何素材的权利或项目批准。当前方法库有 34 条卡、14 个来源，可用 `scripts/knowledge/craft.py show <ID>` 查看概括与来源依据。
 
 实际声音制作后，按用途把已选文件收入 `voice/ambience/sfx/music`，保留 provider、model、prompt、原记录与文件 SHA；人声固定实际声源及 speaker 映射，环境底复核循环接缝，拟音复核接触点，音乐复核对白避让与进出点。规格里的分轨、loop 或时长目标必须经真实输出验证，不能沿用为已完成结论。操作与来源继承范围见[声音来源与跨项目复用](reuse-and-search.md#声音来源与跨项目复用)。
 
@@ -62,7 +62,7 @@ python3 -B scripts/vsc_recipes.py install --all
 目录和每条规格均使用三段数字版本。每条必须含安全且唯一的 ID、taxonomy 分类、名称、说明、标签、原创规格权利声明，以及 `fixed/variable/inputs/procedure/acceptance/deliverables` 六个非空数组。校验要求完整覆盖全部分类，并检查动作、声音等专类字段；这只是结构与制作合同检查，实际效果和权利仍需依据媒体证据审阅。
 
 ```sh
-python3 -B scripts/vsc_recipes.py validate
+python3 -B scripts/knowledge/recipes.py validate
 python3 -B tests/run.py --test knowledge.integration.test_vsc_recipes
 ```
 

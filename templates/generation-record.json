@@ -21,7 +21,7 @@
       "from": "previous_exit",
       "shot": "SH-001"
     },
-    "prompt": "由 consistency.py anchors SH-002 --text 改写",
+    "prompt": "由 scripts/story/consistency.py anchors SH-002 --text 改写",
     "negative_prompt": "不改变脸部、发型、服装或道具数量"
   },
   "engine": {

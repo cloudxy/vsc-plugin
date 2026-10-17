@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""subtitles.py 自测。运行：python3 -B tests/run.py --test post.unit.test_subtitles"""
+"""src/vsc/post/subtitles.py 自测。运行：python3 -B tests/run.py --test post.unit.test_subtitles"""
 import unittest
 
-from support.paths import SCRIPTS  # noqa: F401  被测模块位于 scripts/
-import subtitles as SUB
+import vsc.post.subtitles as SUB
 
 
 class FixedWidthFont:

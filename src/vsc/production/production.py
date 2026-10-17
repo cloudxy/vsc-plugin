@@ -122,7 +122,7 @@ def source(project, value, job, jobs, inputs, allow_job=True):
         manifest_path = f"06-素材/素材库/{value['library']}/来源.json"
         manifest = read(fingerprint(project, manifest_path, inputs))
         require(manifest.get("format") == "vsc.library-use/v1" and manifest.get("project_id") == ark.project_id(project)
-                and manifest.get("item_id") == value["library"], "库素材必须先通过 vsc_library.py use 绑定到当前作品")
+                and manifest.get("item_id") == value["library"], "库素材必须先通过 scripts/assets/library.py use 绑定到当前作品")
         matches = [item for item in manifest.get("files", []) if item.get("path") == value["path"]]
         path = fingerprint(project, value["path"], inputs)
         require(len(matches) == 1 and matches[0].get("sha256") == ark.sha256(path), "库素材来源清单不匹配或文件已漂移")
@@ -398,13 +398,13 @@ def resolve_args(project, job, jobs):
 
 
 def default_runner(argv):
-    subprocess.run([sys.executable, str(script_path("volc_ark.py")), *argv], check=True)
+    subprocess.run([sys.executable, str(script_path("providers/volcengine/ark.py")), *argv], check=True)
 
 
 def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, formal=False):
     state = read(Path(project) / 'vsc.json')
     require(formal or state.get('profile_snapshot', {}).get('contract_policy') != 'production-v2',
-            '新项目执行必须经 vsc_run.py，plan hash 不是人工批准')
+            '新项目执行必须经 scripts/production/run.py，plan hash 不是人工批准')
     require(plan_hash == plan["plan_sha256"], "执行 plan hash 与当前计划不一致；请重新 plan 并审阅")
     runner = runner or default_runner
     path = journal_path(project, plan["id"])

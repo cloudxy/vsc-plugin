@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""consistency.py 自测。运行：python3 -B tests/run.py --test story.unit.test_consistency"""
+"""scripts/story/consistency.py 自测。运行：python3 -B tests/run.py --test story.unit.test_consistency"""
 import copy
 import hashlib
 import json
@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support.paths import ROOT, SCRIPTS
-import consistency as C
+from support.paths import ROOT
+import vsc.story.consistency as C
 
 from support.fixtures.consistency import BIBLE, STATE, PLAN, RECORD, bible, state, RecordFixture
 

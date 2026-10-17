@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 
 from support.paths import ROOT
-import vsc_craft as C
-import vsc_search as S
+import vsc.knowledge.craft as C
+import vsc.knowledge.search as S
 
 
 class CraftTest(unittest.TestCase):

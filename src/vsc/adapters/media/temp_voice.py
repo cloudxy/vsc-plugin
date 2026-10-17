@@ -130,7 +130,7 @@ def synthesize(job_path, run=subprocess.run):
     uv = shutil.which("uv")
     if not uv:
         raise VoiceError("需要 uv：https://docs.astral.sh/uv/")
-    result = run([uv, "run", "--no-project", "--python", "3.12", "--with", EDGE_TTS, "python", str(script_path("temp_voice.py")), "worker", str(job_path)],
+    result = run([uv, "run", "--no-project", "--python", "3.12", "--with", EDGE_TTS, "python", str(script_path("media/temp_voice.py")), "worker", str(job_path)],
                  capture_output=True, text=True, timeout=1800)
     if result.returncode:
         raise VoiceError(f"edge-tts 进程失败（exit {result.returncode}）：{(result.stderr or result.stdout).strip()[-500:]}")

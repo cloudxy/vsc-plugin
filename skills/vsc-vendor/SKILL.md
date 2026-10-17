@@ -15,7 +15,7 @@ description: "Use when the user wants to assess, install, manually check updates
 
 ## 下载后直接使用 Skill
 
-下载不是终点。安装完成后运行 `python3 scripts/vendor_skills.py --scan`，在本机生成 `vendor/skill-catalog.json`。当用户进入某个创作或维护阶段，运行 `python3 scripts/vendor_skills.py --resolve adapt|script|direct|assets|produce|sound|post|architecture`：
+下载不是终点。安装完成后运行 `python3 scripts/maintenance/vendor_skills.py --scan`，在本机生成 `vendor/skill-catalog.json`。当用户进入某个创作或维护阶段，运行 `python3 scripts/maintenance/vendor_skills.py --resolve adapt|script|direct|assets|produce|sound|post|architecture`：
 
 1. 对 `guide` 条目，读取输出路径对应的**上游原始** `SKILL.md`，并直接采用其方法；不复制到 VSC 核心。
 2. 对 `runtime: ...` 条目，先检查所列 CLI、MCP、密钥或依赖；就绪后才调用它的原生能力。
@@ -23,9 +23,9 @@ description: "Use when the user wants to assess, install, manually check updates
 
 ## 审查候选更新
 
-资源配置页的工具更新使用简化入口 `python3 scripts/vsc_provider_sync.py check`。
+资源配置页的工具更新使用简化入口 `python3 scripts/maintenance/provider_sync.py check`。
 显示当前／最新固定版本后，用户点击“更新”或运行
-`python3 scripts/vsc_provider_sync.py update --tool <ID> --revision <检查所得固定版本> --actor <操作人>`
+`python3 scripts/maintenance/provider_sync.py update --tool <ID> --revision <检查所得固定版本> --actor <操作人>`
 即为本次采用授权；后台下载、分析、校验和切换，不再要求第二轮人工确认。
 “不更新”保持原状，无需执行命令。当前支持官方 Ark CLI 的 Git Skill 源码及已安装的登记 Git 来源；
 后者单独标明来源身份，不能冒称模型供应商官方包。另支持 `volcengine-ark-cli-release` 官方 npm 分发包的

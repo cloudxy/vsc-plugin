@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-import media_qa as QA
+import vsc.adapters.media.qa as QA
 
 
 def write_review(root, report, structured=False):

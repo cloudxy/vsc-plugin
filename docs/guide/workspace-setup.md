@@ -1,6 +1,6 @@
 # 本工作区的 AI 客户端接入
 
-本仓库自带 AI 客户端接入层：根目录的 `AGENTS.md`、`CLAUDE.md`，以及由 `workflow/hosts.json` 声明、`scripts/vsc_hosts.py` 生成的宿主入口（见下表）。克隆后在客户端打开仓库根目录即可使用，无需另外安装。
+本仓库自带 AI 客户端接入层：根目录的 `AGENTS.md`、`CLAUDE.md`，以及由 `workflow/hosts.json` 声明、`scripts/kernel/hosts.py` 生成的宿主入口（见下表）。克隆后在客户端打开仓库根目录即可使用，无需另外安装。
 
 ## 开始使用
 
@@ -30,7 +30,7 @@
 
 ZCode 的工作区规则入口可以驱动完整本地工作流，但不等于插件管理界面已经安装、启用了该目录。要让 `vsc-workflow` 出现在插件面板：在 ZCode 中进入“设置 → 插件 → 创建 → 添加插件市场”，选择本目录（其中的 `marketplace.json` 会声明本插件），然后在“个人”市场中安装并启用 `vsc-workflow`。修改插件后回到市场源面板刷新，再检查版本和组件。
 
-宿主入口只是发现层，规范正文只在 `skills/`、`agents/` 与 `workflow/` 维护：软链接随原文件更新，Codex 角色 TOML 与 ZCode 命令由来源生成。加载技能时按 `AGENTS.md` 指引读取原始路径，避免从宿主发现目录误解析相对参考文件。新增、删除或改名技能、角色，修改角色卡的 name/description，或修改 `kernel.json` 的阶段入口后，运行 `python3 -B scripts/vsc_hosts.py sync`；未同步的入口会使 doctor 失败。新增宿主时，在 `workflow/hosts.json` 声明它读取的入口，再运行 sync。
+宿主入口只是发现层，规范正文只在 `skills/`、`agents/` 与 `workflow/` 维护：软链接随原文件更新，Codex 角色 TOML 与 ZCode 命令由来源生成。加载技能时按 `AGENTS.md` 指引读取原始路径，避免从宿主发现目录误解析相对参考文件。新增、删除或改名技能、角色，修改角色卡的 name/description，或修改 `kernel.json` 的阶段入口后，运行 `python3 -B scripts/kernel/hosts.py sync`；未同步的入口会使 doctor 失败。新增宿主时，在 `workflow/hosts.json` 声明它读取的入口，再运行 sync。
 
 Windows 上克隆前需开启开发者模式，并设置 `git config --global core.symlinks true`；否则入口链接会被检出为内含目标路径的普通文本文件，客户端无法发现技能。
 
@@ -61,9 +61,9 @@ source ~/.zshenv
 ## 验证
 
 ```bash
-python3 -B scripts/vsc_kernel.py doctor
-python3 -B scripts/vsc_state.py profile list
-python3 -B scripts/vsc_hosts.py list
+python3 -B scripts/kernel/catalog.py doctor
+python3 -B scripts/project/state.py profile list
+python3 -B scripts/kernel/hosts.py list
 python3 -m json.tool marketplace.json >/dev/null
 grok inspect
 ```

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from support.paths import ROOT
 from support.fixtures.handoffs import Fixture
-from vsc_delivery import build_bundle, verify_bundle
+from vsc.post.delivery import build_bundle, verify_bundle
 
 
 class Delivery(unittest.TestCase):
@@ -109,7 +109,7 @@ class Delivery(unittest.TestCase):
 
     def test_fresh_qa_failure_never_becomes_success(self):
         self.build()
-        from media_qa import FaultProbeAdapter
+        from vsc.adapters.media.qa import FaultProbeAdapter
         report = verify_bundle(self.destination, adapter=FaultProbeAdapter("missing_tool"))
         self.assertEqual(report["integrity"], "passed", report)
         self.assertEqual(report["status"], "failed", report)
@@ -127,7 +127,7 @@ class Delivery(unittest.TestCase):
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires local FFmpeg")
     def test_real_synthetic_video_rechecks_after_original_is_deleted(self):
         """Actual decode/spec checks prove portability; no fixture passes for fake bytes."""
-        from media_qa import LocalProbeAdapter, check_plan
+        from vsc.adapters.media.qa import LocalProbeAdapter, check_plan
         f = self.f
         source = self.root / "actual.mp4"
         command = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=24", "-t", "2", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """公开创作方法库：search [词...]、show ID、validate [FILE]。条目是有来源的方法建议，不继承项目批准。"""
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 import sys

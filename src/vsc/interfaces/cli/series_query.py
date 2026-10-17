@@ -12,7 +12,7 @@ from pathlib import Path
 
 from vsc.story import consistency as consistency
 from vsc.adapters.persistence.sqlite import series as db
-from vsc.production.series import SeriesError, _select, build_shot_context, series_state, sha256
+from vsc.production.context import SeriesError, _select, build_shot_context, series_state, sha256
 
 
 def _object(state, identifier, kind):

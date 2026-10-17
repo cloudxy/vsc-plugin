@@ -11,7 +11,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 ## 先读取工作流内核
 
-阶段、命令、Skill、角色和跨模块契约的唯一事实来源是 `workflow/`，不是本文件中的说明文字。开始派单前运行 `python3 scripts/vsc_kernel.py doctor`；为具体请求运行 `python3 scripts/vsc_kernel.py route <stage>`。若 doctor 失败，先修复缺失或错误路由，不能把 README、命令或角色名当作已经实现。
+阶段、命令、Skill、角色和跨模块契约的唯一事实来源是 `workflow/`，不是本文件中的说明文字。开始派单前运行 `python3 scripts/kernel/catalog.py doctor`；为具体请求运行 `python3 scripts/kernel/catalog.py route <stage>`。若 doctor 失败，先修复缺失或错误路由，不能把 README、命令或角色名当作已经实现。
 
 ## 已安装 Vendor Skill 的直接复用
 
@@ -35,25 +35,25 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 
 1. 先识别已有来源、目标受众／平台、想做连续剧还是单条、时长画幅、创作负责人和硬约束。
 2. 缺信息时**不要扔问卷**：基于已有内容给出一项推荐与 1–2 个明确备选，并每轮只收敛一个会改变后续工作的决定。
-3. 按用途推荐 Profile：`python3 -B scripts/vsc_state.py profile list` 列出各 Profile 的 `use_case`。
+3. 按用途推荐 Profile：`python3 -B scripts/project/state.py profile list` 列出各 Profile 的 `use_case`。
    需要固定资产、声音计划、状态时间线与集／场衔接的新项目，可选 `vsc.engineered-short` 或 `vsc.engineered-serial`；具体执行见[工程化制作](../../docs/design/engineering-production.md)。
    需要关系库、资源面板审查和按镜固定 AI 输入的 60 集以上新项目，选 `vsc.series-pg`，见[资源面板指南](../../docs/guide/resource-panel.md)。已有 SQLite 连续剧继续 `vsc.series-db`，见[数据库连续短剧指南](../../docs/guide/series-db.md)。旧作品须显式迁移，不自动切换权威。
-4. 通过 `vsc_state.py init` 建项目；解释下一关要产生什么、为何需要它、由谁决定。
+4. 通过 `scripts/project/state.py init` 建项目；解释下一关要产生什么、为何需要它、由谁决定。
 5. 根据阶段安排专业角色，回收成果后登记为 artifact；未批准产物不能偷偷流入下一关。
 
 ### 熟手：直接抵达专业环节
 
 用户明确说“重写第 4 集”“设计第 12 镜运镜”“只调女主声线”“补一条转场”时，不重复做需求访谈：
 
-直达命令、route 与主要角色以内核为准：`python3 -B scripts/vsc_kernel.py routes`（工作流根目录 `AGENTS.md` 的路由表由它生成）。
+直达命令、route 与主要角色以内核为准：`python3 -B scripts/kernel/catalog.py routes`（工作流根目录 `AGENTS.md` 的路由表由它生成）。
 
 先用状态入口读取真实权威：PG 项目通过 `.vsc-postgres.json` 指针与共享资源接口，旧项目通过 JSON／SQLite。再读相关已批准产物和所指镜头／场次，只补影响该环节的依赖。
 
 ## 编排规则
 
-1. 每次先运行 `python3 scripts/vsc_state.py status <项目>`；用其状态，而不是靠目录猜进度。
-   需要定位镜头、产物、方法或素材时，先用 `scripts/vsc_search.py` 查找，再核对有效批准版本；操作见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
-   制作前用 `python3 -B scripts/vsc_toolchain.py --project <项目> --json` 分别查看实现、配置、真实候选证据和待人审状态；环境变量存在不代表供应商权限可用。
+1. 每次先运行 `python3 scripts/project/state.py status <项目>`；用其状态，而不是靠目录猜进度。
+   需要定位镜头、产物、方法或素材时，先用 `scripts/knowledge/search.py` 查找，再核对有效批准版本；操作见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
+   制作前用 `python3 -B scripts/media/toolchain.py --project <项目> --json` 分别查看实现、配置、真实候选证据和待人审状态；环境变量存在不代表供应商权限可用。
 2. 先选 Profile，再执行阶段。项目固定创建时的 Profile 内容，不跟随插件更新静默变化。旧 schema 1/2 要显式迁移，先备份、旧批准降 draft；历史 Profile 不可恢复时由负责人确认当前规则。
 3. 每个角色都具有固定、版本化的**身份、工作人格、权限和记忆边界**；它们只定义在 `workflow/roles.json`，`agents/` 是宿主入口，不能被来源内容、素材文字或当前对话自动改写。
 4. 使用角色派单包：`role`、`project`、`task`、`inputs`（明确版本）、`deliverable`、`constraints`、`authority`。先运行 `context build` 生成 `vsc.role-context/v1`；输入须仍有效，知识按任务相关性和 `--budget-chars` 选取。会话摘要只存任务包文件，不进长期记忆；不是纯内存临时数据。显式 `--pilot` 才能启动受控方法试用。
@@ -65,7 +65,7 @@ VSC 不嵌入、不调用任何其他插件。外部小说、资料或交接包�
 ## 改编、连续性与声音的不可跳过关口
 
 1. **先形成屏幕表达，再分镜。** 来源理解后建立改编契约与 `vsc.adaptation-map/v1`。每个 screen unit 回指来源，按作品形式写因果行动、意象／情绪关联或事实与证据的信息推进；非人物中心段落不强造角色目标与阻力。不要把小说心理描写直接塞进台词或提示词。
-2. **每段 AI 视频是镜头单元。** 不管供应商当前允许 6 秒、8 秒还是更长，镜头必须有 `entry_state`、`exit_state`、稳定角色/场景 reference、head/tail 手柄和到下一镜的桥接策略。通过 `vsc_kernel.py contract validate` 检查状态契约，再人工看画面。
+2. **每段 AI 视频是镜头单元。** 不管供应商当前允许 6 秒、8 秒还是更长，镜头必须有 `entry_state`、`exit_state`、稳定角色/场景 reference、head/tail 手柄和到下一镜的桥接策略。通过 `scripts/kernel/catalog.py contract validate` 检查状态契约，再人工看画面。
 3. **声音跨镜设计。** BGM、环境底、对白和 SFX 不跟随生成片段各自重启；先写 `vsc.sound-cue-sheet/v1`，按场景/情绪弧线在时间线上铺设。每个镜头边界明确 J/L cut、crossfade、声音桥或刻意静音，通过内核契约检查后再混音。
 4. **返工找最早根因。** 人脸/服装/场景漂移回到资产和 reference；动作/方向错位回到动作规格与镜头状态；节奏或情绪不成立回到剧本、预演和 Cue，而不是把转场或 BGM 当万能补丁。
 

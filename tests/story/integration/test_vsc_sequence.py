@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from support.paths import ROOT, SCRIPTS
-import vsc_sequence as S
+import vsc.story.sequence as S
 
 
 def state():
@@ -228,12 +228,12 @@ class SequenceTest(unittest.TestCase):
         path = self.project / "sequence.json"
         path.write_text(json.dumps(self.plan, ensure_ascii=False), "utf-8")
         for args in (("validate", str(path)), ("check", str(path), "--project", str(self.project))):
-            result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "vsc_sequence.py"), *args],
+            result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "story/sequence.py"), *args],
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("本检查不构成批准", result.stdout)
         self.state_path.unlink()
-        result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "vsc_sequence.py"), "check", str(path),
+        result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "story/sequence.py"), "check", str(path),
                                  "--project", str(self.project)], text=True, capture_output=True)
         self.assertEqual(result.returncode, 1)
         self.assertIn("无法绑定状态文件", result.stderr)

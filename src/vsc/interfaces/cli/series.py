@@ -1,4 +1,4 @@
-"""Compatible SQLite-series CLI over domain use cases."""
+"""SQLite-series commands over context, media registry and story use cases."""
 import argparse
 import json
 import sqlite3

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vsc_library.py 与 vsc_search.py 自测：临时素材库与作品，不联网。运行：python3 -B tests/run.py --test assets.integration.test_vsc_library"""
+"""scripts/assets/library.py 与 scripts/knowledge/search.py 自测：临时素材库与作品，不联网。运行：python3 -B tests/run.py --test assets.integration.test_vsc_library"""
 import contextlib
 import io
 import json
@@ -9,9 +9,9 @@ import unittest
 from pathlib import Path
 
 from support.paths import ROOT
-import consistency as C
-import vsc_library as L
-import vsc_search as S
+import vsc.story.consistency as C
+import vsc.assets.library as L
+import vsc.knowledge.search as S
 
 BIBLE = json.loads((ROOT / "templates/asset-bible.json").read_text("utf-8"))
 PNG = b"\x89PNG\r\n\x1a\n" + b"1" * 32

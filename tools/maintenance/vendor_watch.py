@@ -5,7 +5,7 @@ Run once on demand; no scheduler or background service is installed. Download an
 states: an already downloaded revision with failed/missing analysis is retried on the next invocation.
 No checkout, install, hooks or candidate scripts are executed. Git can fetch only on explicit invocation.
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import datetime
 import fcntl

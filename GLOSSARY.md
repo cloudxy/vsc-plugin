@@ -11,7 +11,7 @@
 | 候选 take | 图像、视频或音频的候选输出，需人工选择才成为下游基线 | 自动批准的成片 |
 | 角色（role） | 具有稳定身份、人格、权限、记忆范围和交付物的工作视角 | 某个具体人、供应商账号或可任意改写的提示词 |
 | 宿主（host） | 读取本仓库并执行 VSC 的 AI 客户端，如 Codex、Claude Code、Grok Build、Kimi Code、ZCode | VSC 角色或生成供应商 |
-| 宿主入口 | 宿主发现技能、角色与命令的目录或文件；由 `workflow/hosts.json` 声明、`vsc_hosts.py` 生成 | 规范正文所在位置或可手改的副本 |
+| 宿主入口 | 宿主发现技能、角色与命令的目录或文件；由 `workflow/hosts.json` 声明、`scripts/kernel/hosts.py` 生成 | 规范正文所在位置或可手改的副本 |
 | 命令（command） | 宿主发现并进入 VSC 能力的用户入口 | 工作流的事实来源 |
 | Skill | 宿主执行某一能力时读取的工作方法入口 | JSON 契约或供应商 SDK |
 | 契约（contract） | 跨模块交换的版本化 JSON 格式、模板和校验接口 | 对作品质量或权属的自动保证 |
@@ -42,7 +42,7 @@
 
 | 词 | 在 VSC 中的含义 |
 | --- | --- |
-| 模块（module） | 同时拥有接口与实现的单元。例如 `workflow/` + `vsc_kernel.py` 是一个工作流内核模块；`vsc_state.py` 是项目状态模块。 |
+| 模块（module） | 同时拥有接口与实现的单元。例如 `workflow/` + `scripts/kernel/catalog.py` 是一个工作流内核模块；`scripts/project/state.py` 是项目状态模块。 |
 | 接口（interface） | 调用方必须依赖的完整约定：路径、格式、字段不变量、命令参数、错误和时序，而不只是函数名。 |
 | 实现（implementation） | 接口背后的具体逻辑，例如改编 JSON 的字段检查、Remotion 脚手架生成。 |
 | 深度（depth） | 一个小接口封装多少复杂度。`contract validate <format> <file>` 比每个 Skill 记住不同脚本和子命令更深。 |

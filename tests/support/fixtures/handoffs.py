@@ -1,8 +1,7 @@
 """Synthetic handoff documents shared by handoff, delivery and performance tests."""
 import json
 from pathlib import Path
-from support.paths import SCRIPTS  # noqa: F401
-from vsc_handoffs import digest, project_errors
+from vsc.production.handoffs import digest, project_errors
 
 
 class Fixture:

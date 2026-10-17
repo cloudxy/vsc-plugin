@@ -46,7 +46,7 @@
 
 高风险方法先在相同用途与代表性条件下试证，复用 `context build --pilot`、`capability evaluate` 的方法、输入、输出、基线和判据版本。pilot 是方法试用状态，不是付费授权；付费试片仍须有适用阶段的已批准 run、预算、停止条件和输出用途。本地图像／视频现可通过下述 `phase=trial` 在 script Gate 后进行有限试片；正式 production 仍要求预演 Gate。数据库项目使用其原权威的试片入口，不能回退本地队列。节奏预演不能证明生成方法可行。
 
-用 `python3 -B scripts/vsc_quality.py check <检查包.json> --root <证据目录>` 检查 `templates/quality-plan.json` 所示只读检查包。它验证文件摘要、规格到输入的明确字段映射，按项目内逻辑镜头＋用途跨任务／版本汇总缺陷，提示停止重复路线，并汇总有效区间、成本和工时。检查包只引用现有证据，不复制批准权威；CLI 不调用供应商、不改变任务状态、不授予执行权。`ready_for_review` 仅表示所列结构检查未发现阻断，实际覆盖语义与审美结果仍未知；不得写成质量通过。
+用 `python3 -B scripts/production/quality.py check <检查包.json> --root <证据目录>` 检查 `templates/quality-plan.json` 所示只读检查包。它验证文件摘要、规格到输入的明确字段映射，按项目内逻辑镜头＋用途跨任务／版本汇总缺陷，提示停止重复路线，并汇总有效区间、成本和工时。检查包只引用现有证据，不复制批准权威；CLI 不调用供应商、不改变任务状态、不授予执行权。`ready_for_review` 仅表示所列结构检查未发现阻断，实际覆盖语义与审美结果仍未知；不得写成质量通过。
 
 同类失败按同一逻辑镜头／用途／缺陷累计，方法版本作为条件保留，不因新 task ID、run 或方法改名清零。阈值事先约定（模板中的两次仅为试点值）；达到轮数或预算上限后先停止原路线，再比较拆镜、换视点、声音表达、裁切、局部编辑、合成与重生。网络重试、计划探索、需求变更分别计量，不伪装成创作失败。先记可观察缺陷；根因标已证实、待检验或已排除并附证据，多项同时修改成功只能证明组合有效。
 
@@ -91,21 +91,21 @@
 
 ## 将检查包接入正式运行与前期试片
 
-本地 `vsc_run.py plan` 增加可选 `--quality-plan PROJECT/quality.json`。输出的 run 固定该文件路径与摘要；旧 run 不加字段仍按旧规则验证。检查包另填 `run_binding={"plan_sha256":"本次批次计划摘要","job_ids":["image","video"]}`；每个 `channel=request` 输入增加 `job_id`，`ref` 直接指向固定 batch 的 `/jobs/0/args` 等位置。每个真实任务至少一项必要要求，来源必须是 run 的已批准输入；工具比对完整请求对象，不能用另一份正确提示词冒充实际提交内容。local、series 和音频运行都通过 run 校验消费该包，缺项、漂移、未知及停止阈值阻断执行。试片允许其明确检验的风险尚未通过；正式制作的风险 pass 必须回查既有版本绑定评测。
+本地 `scripts/production/run.py plan` 增加可选 `--quality-plan PROJECT/quality.json`。输出的 run 固定该文件路径与摘要；旧 run 不加字段仍按旧规则验证。检查包另填 `run_binding={"plan_sha256":"本次批次计划摘要","job_ids":["image","video"]}`；每个 `channel=request` 输入增加 `job_id`，`ref` 直接指向固定 batch 的 `/jobs/0/args` 等位置。每个真实任务至少一项必要要求，来源必须是 run 的已批准输入；工具比对完整请求对象，不能用另一份正确提示词冒充实际提交内容。local、series 和音频运行都通过 run 校验消费该包，缺项、漂移、未知及停止阈值阻断执行。试片允许其明确检验的风险尚未通过；正式制作的风险 pass 必须回查既有版本绑定评测。
 
 本地预演前图像／视频试片按以下顺序执行，复用原有人工决定，不新建审批队列：
 
 1. script Gate 就绪，剧本、资产库、场景状态和有限镜头设计获批；现有能力卡由责任人决定 pilot，并以这些输入运行 `context build --pilot`。
-2. 复制 `templates/production-trial.json`，绑定真实 `TR-ID`、上下文与方法摘要、假设、判据、停止条件、允许的镜头／资产和最大请求数。先用 `vsc_production.py plan` 得到固定批次摘要，填入质量包，按任务逐项映射实际 batch 参数。
-3. `vsc_run.py plan PROJECT/batch.json --project PROJECT --phase trial --trial-spec PROJECT/trial.json --quality-plan PROJECT/quality.json --input A-SCRIPT --input A-BIBLE --input A-STATE --input A-SHOTS` 输出待审 run；补齐 pilot 上下文的其他固定输入，并按已有下游依赖需要填写 `--review-after`。试片本身不增加每条候选都要暂停的规则。
-4. 按原 `artifact add`／`artifact decide` 批准这份 run，再 `vsc_run.py execute RUN-ID --project PROJECT`。只执行明确图像／视频任务；使用项目共享预算，恢复同一任务，不借新编号无限重试。试片图像为镜头候选，资产母版准备仍使用 asset phase。
+2. 复制 `templates/production-trial.json`，绑定真实 `TR-ID`、上下文与方法摘要、假设、判据、停止条件、允许的镜头／资产和最大请求数。先用 `scripts/production/plan.py plan` 得到固定批次摘要，填入质量包，按任务逐项映射实际 batch 参数。
+3. `scripts/production/run.py plan PROJECT/batch.json --project PROJECT --phase trial --trial-spec PROJECT/trial.json --quality-plan PROJECT/quality.json --input A-SCRIPT --input A-BIBLE --input A-STATE --input A-SHOTS` 输出待审 run；补齐 pilot 上下文的其他固定输入，并按已有下游依赖需要填写 `--review-after`。试片本身不增加每条候选都要暂停的规则。
+4. 按原 `artifact add`／`artifact decide` 批准这份 run，再 `scripts/production/run.py execute RUN-ID --project PROJECT`。只执行明确图像／视频任务；使用项目共享预算，恢复同一任务，不借新编号无限重试。试片图像为镜头候选，资产母版准备仍使用 asset phase。
 5. 输出仍为 draft，记录 trial 来源，供预演和方法评测。正式采用时，在正常待批准 `selected-takes` 中写 `trial_adoptions=[{"artifact":{"id":"候选记录ID","sha256":"固定摘要"},"reason":"本用途的采用依据"}]`；须满足 animatic Gate，并由责任人批准此 selected-takes。单有标记、试片成功或 run 的候选审阅不能自动成为正式采用。
 
 PG 可通过 `run_quality.quality_errors(data, project, state, item, requests, read_ref=...)` 直接读取关系库中的固定 artifact 字节，复用全部 SHA 与请求覆盖检查；不写临时权威文件。`requests` 按 run 的稳定任务 ID 映射实际逻辑请求，证据读取器返回原始 bytes。数据库入口仍负责项目隔离、依赖和真实批准校验。
 
 ## PostgreSQL 试片与质量包
 
-PG 项目使用 `vsc_resources.py` 的共享应用接口，当前库须完成 `0005_creative_relations` 迁移。试片授权来自真实批准的 `production-run` 版本及其固定依赖；PG 尚没有本地 `learning.trials` 的同等登记权威，不能仅填写任意 `trial_id` 就称已有 pilot 批准。方法以本项目已批准 `artifact_type=trial-method` 固定，正文必须包含非空 `method`，写明方法及适用条件。该批准说明允许本次有范围的试验，不代表方法已经实片验证。
+PG 项目使用 `scripts/assets/resources.py` 的共享应用接口，当前库须完成 `0005_creative_relations` 迁移。试片授权来自真实批准的 `production-run` 版本及其固定依赖；PG 尚没有本地 `learning.trials` 的同等登记权威，不能仅填写任意 `trial_id` 就称已有 pilot 批准。方法以本项目已批准 `artifact_type=trial-method` 固定，正文必须包含非空 `method`，写明方法及适用条件。该批准说明允许本次有范围的试验，不代表方法已经实片验证。
 
 PG trial 支持**同段落连续 1–8 个镜头的图像／视频候选**，允许多个明确候选编号。`trial.allowed_shot_ids` 列明相邻镜头，`trial.shot_contexts` 是每镜 UUID 到固定上下文 SHA 的映射；每镜只固定一个用途，整个范围先验通过后才允许首个付费候选。旧单镜 `context_sha256` 继续兼容；`allowed_asset_ids` 包含实际入画、持有、服装及地点资产，空场景可为空。资产母版仍走 asset 路线。当前镜头所属集的 script Gate 必须通过，Gate 产物和本镜上下文里的剧本、资产规格、镜头规格全部固定到 run；其他集已批准剧本不能补足本镜缺项。正式 production 仍要求 animatic Gate。
 
@@ -166,7 +166,7 @@ operations = {operation_id: native_units(request)
 
 ### 专业执行规格进入实际请求
 
-整理已有固定资料时，从 [创作工作台](../../../docs/guide/creative-workbench.md) 按场镜查阅剧本覆盖、资产实例、声线、Cue、候选和当前版本；CLI `scripts/vsc_workbench.py` 与后台使用同一查询。缺少关系先说明缺口，再从来源与已批准规格提出增量关系文档，不根据目录猜测、不为不同角色重复复制事实。该文档可和相关规格一起组成固定版本审阅包。
+整理已有固定资料时，从 [创作工作台](../../../docs/guide/creative-workbench.md) 按场镜查阅剧本覆盖、资产实例、声线、Cue、候选和当前版本；CLI `scripts/assets/workbench.py` 与后台使用同一查询。缺少关系先说明缺口，再从来源与已批准规格提出增量关系文档，不根据目录猜测、不为不同角色重复复制事实。该文档可和相关规格一起组成固定版本审阅包。
 
 专业动作／舞蹈／特效／配音用 `artifact_type=creative-relations`、`format=vsc.creative-relations/v1` 的 `performances` 登记，角色、媒体、声线、台词和镜头使用 typed refs。四类规格分别需要五阶段动作与双方／重心、固定音乐和节拍姿态、施受者与分层遮挡、固定台词声线与表演参数。`vsc.production.performance.execution_problems` 在登记事务执行；完整字段见该模块及 `templates/professional-execution.json`。方法须为已批准依赖。
 
@@ -174,7 +174,7 @@ operations = {operation_id: native_units(request)
 
 ### 修复影响比较
 
-`python3 -B scripts/vsc_quality.py repair <修复备选.json> --project-id <UUID>` 从关系库读取该媒体的真实任务、加工、时间线、渲染和当前选择用途。计划包含 `media_id`、实测 `generated_seconds` 与 `options`；每项 `kind=retain_interval|crop|local_edit|composite|replace_asset|edit_cut|regenerate`、`reason`、可选 `intervals`、`estimated_active_seconds`、`estimated_costs=[{unit,amount}]`。报告比较保留区间并集、影响项和估算；实际账单仍未知，不把相同素材的裁段当作完整新用途审查。影响分页不完整时明确 `incomplete`。本入口不执行修复、不替换冻结时间线、不批准新媒体；选择后走既有媒体加工、选片和剪辑登记。审查复用继续逐项检查质量包 `review_reuse` 的固定指纹条件。
+`python3 -B scripts/production/quality.py repair <修复备选.json> --project-id <UUID>` 从关系库读取该媒体的真实任务、加工、时间线、渲染和当前选择用途。计划包含 `media_id`、实测 `generated_seconds` 与 `options`；每项 `kind=retain_interval|crop|local_edit|composite|replace_asset|edit_cut|regenerate`、`reason`、可选 `intervals`、`estimated_active_seconds`、`estimated_costs=[{unit,amount}]`。报告比较保留区间并集、影响项和估算；实际账单仍未知，不把相同素材的裁段当作完整新用途审查。影响分页不完整时明确 `incomplete`。本入口不执行修复、不替换冻结时间线、不批准新媒体；选择后走既有媒体加工、选片和剪辑登记。审查复用继续逐项检查质量包 `review_reuse` 的固定指纹条件。
 
 ### PG 试片正式采用
 

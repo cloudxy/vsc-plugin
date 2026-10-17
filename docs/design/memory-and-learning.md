@@ -119,32 +119,32 @@ pilot/approved --(负责人)------------------------> retired
 
 ```bash
 # 1) 登记已授权的动作视频；VSC 只记录路径与哈希，不复制素材
-python3 scripts/vsc_state.py source add ./projects/追逐 \
+python3 scripts/project/state.py source add ./projects/追逐 \
   --kind video --file ./reference/owned-action.mp4 --rights owned
 
 # 2) 以标注笔记为证据，记录不可信观察
-python3 scripts/vsc_state.py learn observe ./projects/追逐 \
+python3 scripts/project/state.py learn observe ./projects/追逐 \
   --kind action --source S-0001 --file ./notes/action-beats.md \
   --content "动作按起势、交手、受击、停顿、反转五拍拆解；每拍检查屏幕方向。" --polarity positive
 
 # 3) 写出方法与限制，限定给导演使用
-python3 scripts/vsc_state.py capability propose ./projects/追逐 \
+python3 scripts/project/state.py capability propose ./projects/追逐 \
   --name "五拍动作节奏" --kind action --observation O-0001 --role director \
   --method "按五拍拆镜头，并为每拍记录方向线、动作目的和情绪变化。" \
   --limits "只用于拥有或获许可的项目；不得复刻人物、声音或具体作品表达。"
 
 # 4) 开放受控试用。假设已批准输入 A-0010；比较基线 A-0011；
 #    输出 A-0012 depends_on A-0010；报告 A-0013 depends_on A-0011/A-0012。
-python3 scripts/vsc_state.py capability decide ./projects/追逐 C-0001 \
+python3 scripts/project/state.py capability decide ./projects/追逐 C-0001 \
   --status pilot --by "导演"
-python3 scripts/vsc_state.py context build ./projects/追逐 \
+python3 scripts/project/state.py context build ./projects/追逐 \
   --role director --task "用五拍方法设计这场打斗，与原方案比较方向清晰度" \
   --artifact A-0010 --pilot C-0001 --budget-chars 12000
-python3 scripts/vsc_state.py capability evaluate ./projects/追逐 C-0001 \
+python3 scripts/project/state.py capability evaluate ./projects/追逐 C-0001 \
   --context CT-0001 --output A-0012 --baseline A-0011 --evidence A-0013 \
   --criteria "相同输入下，观众能正确指出动作方向，且衔接优于基线" --result pass --by "导演" \
   --note "方向连续、节奏和表意均通过；未出现授权范围外的参考复刻。"
-python3 scripts/vsc_state.py capability decide ./projects/追逐 C-0001 \
+python3 scripts/project/state.py capability decide ./projects/追逐 C-0001 \
   --status approved --by "导演"
 ```
 
@@ -153,12 +153,12 @@ python3 scripts/vsc_state.py capability decide ./projects/追逐 C-0001 \
 项目记忆、来源素材和角色事实保持在原项目。方法跨项目复用通过 `vsc.capability-method/v1`，白名单仅含名称、类别、方法、限制、角色、主题标签与内容摘要。
 
 ```bash
-python3 scripts/vsc_state.py capability export ./projects/追逐 C-0001 \
+python3 scripts/project/state.py capability export ./projects/追逐 C-0001 \
   --file ./shared/action-method.json --name "通用方向线方法" \
   --reusable-method "切动作镜头前建立方向线，并核对入出点。" \
   --reusable-limits "适用于方向明确的动作；不能替代人工审片。" --confirm-generalized
-python3 scripts/vsc_learning.py method validate ./shared/action-method.json
-python3 scripts/vsc_state.py capability import ./projects/新故事 --file ./shared/action-method.json
+python3 scripts/knowledge/learning.py method validate ./shared/action-method.json
+python3 scripts/project/state.py capability import ./projects/新故事 --file ./shared/action-method.json
 ```
 
 导出不会自动拷贝原 method 文本，用户需要显式给出去项目化内容并确认。结构校验可以排除项目 ID、来源、记忆、观察、试用和评测字段，无法可靠判断自然语言是否包含私密事实，因此文本去项目化仍由导出负责人复核。首次导入为 draft，不继承原 approved 与评测结果；复核时带 `--note` 决定 pilot，再在新项目建立试用与评测。
@@ -177,7 +177,7 @@ python3 scripts/vsc_state.py capability import ./projects/新故事 --file ./sha
 schema 1/2 的旧项目需要迁移到 schema 3。运行：
 
 ```bash
-python3 scripts/vsc_state.py migrate <项目目录>
+python3 scripts/project/state.py migrate <项目目录>
 ```
 
 迁移先在 `09-台账` 备份原状态，保存来源、产物、决定、记忆与评测历史；旧产物与能力批准撤为 draft，旧评测标记 `legacy_unbound`。历史 Profile 版本与当前不同且无法恢复时，显式使用 `--accept-current-profile` 迁移到当前规则。缺少权属的旧来源补 `unknown`；旧产物需重新登记为版本快照，能力须重新试用评测，不把旧 pass 当作新机制下的证明。

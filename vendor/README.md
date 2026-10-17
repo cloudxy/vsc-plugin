@@ -4,10 +4,10 @@
 
 ## 声明与安装
 
-1. 在 `sources.lock.json` 声明来源（字段见下）。改完运行 `python3 scripts/vendor_sync.py --write-declaration` 重新生成 `THIRD_PARTY.md`；不联网。
-2. `python3 scripts/vendor_sync.py --check` 与 `--plan`：校验并预览；不联网、不下载。
-3. `python3 scripts/vendor_sync.py --install <来源 id …>`：按固定 commit 安装；不写 id 时安装全部默认来源（`--sync` 为兼容别名）。
-4. `python3 scripts/vendor_skills.py --scan`：为已下载的上游 `SKILL.md` 建本机目录；各阶段如何使用见 [vsc-vendor](../skills/vsc-vendor/SKILL.md#下载后直接使用-skill)。
+1. 在 `sources.lock.json` 声明来源（字段见下）。改完运行 `python3 scripts/maintenance/vendor_sync.py --write-declaration` 重新生成 `THIRD_PARTY.md`；不联网。
+2. `python3 scripts/maintenance/vendor_sync.py --check` 与 `--plan`：校验并预览；不联网、不下载。
+3. `python3 scripts/maintenance/vendor_sync.py --install <来源 id …>`：按固定 commit 安装；不写 id 时安装全部默认来源（`--sync` 为兼容别名）。
+4. `python3 scripts/maintenance/vendor_skills.py --scan`：为已下载的上游 `SKILL.md` 建本机目录；各阶段如何使用见 [vsc-vendor](../skills/vsc-vendor/SKILL.md#下载后直接使用-skill)。
 
 上游有新版本时不会自动采用，候选分析与采用流程见 [Vendor 候选更新](../docs/governance/vendor-updates.md)。
 

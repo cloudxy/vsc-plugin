@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from vsc.adapters.persistence.sqlite import series as db
-from vsc.production.series import SeriesError, _scope, build_shot_context, covered_script_units, series_state
+from vsc.production.context import SeriesError, _scope, build_shot_context, covered_script_units, series_state
 from vsc.project.state import write_json
 
 SELECTION_FOR = {"video": "video_take", "audio": "dialogue_dry"}
@@ -158,7 +158,7 @@ def main(argv=None):
             if out.exists():
                 raise SeriesError("输出已存在，拒绝覆盖")
             write_json(out, document)
-            register = ["python3", "-B", "scripts/vsc_state.py", "artifact", "add", args.project,
+            register = ["python3", "-B", "scripts/project/state.py", "artifact", "add", args.project,
                         "--type", "vsc.selected_takes", "--stage", "production", "--scope", args.episode, "--file", str(out)]
             for ref in depends:
                 register += ["--depends", ref]

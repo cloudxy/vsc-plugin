@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/post-reviewer.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/post-reviewer.md
 name = "post-reviewer"
 description = "Review narrative comprehension, continuity, technical delivery and material-use boundaries for VSC releases."
 developer_instructions = '''

@@ -6,13 +6,13 @@ from unittest import mock
 from support.paths import ROOT
 from support.fixtures.project import FixedRunFixture
 from support.fixtures.production import ProductionFixture
-import vsc_artifacts as artifacts
-import vsc_audio_run as single
-import vsc_budget as budget
-import vsc_credentials as credentials
-import vsc_run as formal
-import vsc_state as state_module
-import volc_ark as ark
+import vsc.project.artifacts as artifacts
+import vsc.production.audio_run as single
+import vsc.production.budget as budget
+import vsc.adapters.providers.credentials as credentials
+import vsc.production.run as formal
+import vsc.project.state as state_module
+import vsc.adapters.providers.volc_ark.api as ark
 
 
 class InspectionRun(ProductionFixture, unittest.TestCase):
@@ -75,7 +75,7 @@ class InspectionRun(ProductionFixture, unittest.TestCase):
     def test_asset_batch_requires_specs_but_no_future_animatic(self):
         batch=copy.deepcopy(self.batch); batch['jobs']=batch['jobs'][:1]
         path=self.project/'asset-batch.json';path.write_text(json.dumps(batch))
-        import vsc_production as production
+        import vsc.production.production as production
         plan=production.build_plan(self.project,batch)
         job=plan['jobs'][0]
         data={'format':formal.FORMAT,'project_id':'test-project','scope':'project','phase':'asset',

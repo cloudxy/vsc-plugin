@@ -3,8 +3,8 @@ import base64
 import unittest
 
 from support.paths import ROOT  # noqa: F401 - add scripts to import path
-from vsc_provider import ImageRequest, VideoRequest
-from vsc_volc_provider import VolcAdapterError, VolcArkImageProvider, VolcArkVideoProvider
+from vsc.production.providers import ImageRequest, VideoRequest
+from vsc.adapters.providers.volc_ark.provider import VolcAdapterError, VolcArkImageProvider, VolcArkVideoProvider
 
 
 class FakeTransport:

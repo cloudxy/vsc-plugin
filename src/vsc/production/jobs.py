@@ -13,7 +13,7 @@ from pathlib import Path
 
 from vsc.adapters.providers import credentials as credentials
 from vsc.adapters.persistence.sqlite import series as db
-from vsc.production.series import SeriesError, _artifact_document, build_shot_context, covered_script_units, series_state, stamp
+from vsc.production.context import SeriesError, _artifact_document, build_shot_context, covered_script_units, series_state, stamp
 from vsc.production.providers import AudioRequest, ImageRequest, VideoRequest
 from vsc.project.state import project_lock
 
@@ -283,7 +283,7 @@ def adapter_for_job(project, job_id, transport=None):
 
     def media_url(media_id):
         from vsc.adapters.providers.volc_ark import api as volc_ark
-        from vsc.production.series import sha256
+        from vsc.production.context import sha256
         item = references.get(media_id)
         if not item or item["rights"] not in ("owned", "licensed"):
             raise SeriesError("任务引用了未获权属批准的素材")

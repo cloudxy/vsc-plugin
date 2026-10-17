@@ -14,12 +14,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from support.paths import ROOT
-import vsc_state
-from media_qa import LocalProbeAdapter, REVIEW_CATEGORIES, check_plan
-from vsc_delivery import build_bundle, verify_bundle
-from vsc_handoffs import digest, project_errors
+import vsc.project.state as vsc_state
+from vsc.adapters.media.qa import LocalProbeAdapter, REVIEW_CATEGORIES, check_plan
+from vsc.post.delivery import build_bundle, verify_bundle
+from vsc.production.handoffs import digest, project_errors
 
-CLI = ROOT / "scripts/vsc_state.py"
+CLI = ROOT / "scripts/project/state.py"
 
 
 class StrictPipeline:

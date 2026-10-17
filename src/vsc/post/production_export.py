@@ -15,7 +15,7 @@ from pathlib import Path
 from vsc.story import consistency as consistency
 from vsc.adapters.persistence.sqlite import series as db
 from vsc.production import jobs as jobs
-from vsc.production.series import SeriesError, sha256
+from vsc.production.context import SeriesError, sha256
 from vsc.production.dispatch import _load
 from vsc.project.state import write_json
 

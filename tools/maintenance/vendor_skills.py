@@ -4,7 +4,7 @@
 此脚本不下载、不复制上游 Skill。--scan 生成仅存本机的 vendor/skill-catalog.json；
 --resolve 为 VSC 创作阶段列出可直接阅读和使用的 Skill 原文，以及需要额外运行环境的 Skill。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 from pathlib import Path

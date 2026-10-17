@@ -1,6 +1,6 @@
 # Seed-Audio 1.0 音频生成适配器
 
-`scripts/doubao_audio.py` 是 VSC 自有的可选 MediaKit 客户端，使用标准库提交与查询豆包 `seed-audio-1.0`。它生成 `kind=audio`、`purpose=asset` 的声音候选，可按用途收入 music、ambience 或 sfx 素材库；用途分类是制作意图，不能据此保证返回结果只有音乐、环境声或音效。
+`scripts/providers/volcengine/audio.py` 是 VSC 自有的可选 MediaKit 客户端，使用标准库提交与查询豆包 `seed-audio-1.0`。它生成 `kind=audio`、`purpose=asset` 的声音候选，可按用途收入 music、ambience 或 sfx 素材库；用途分类是制作意图，不能据此保证返回结果只有音乐、环境声或音效。
 
 它不自动批准候选、不做实时对话或 ASR，也不提供自动分轨、人声分离或音频延长。提示词中“约十秒”“无对白”属于生成指令，需要实际检查与审听，不能作为硬时长约束或已验证结果。
 
@@ -19,7 +19,7 @@
 默认 dry run，无需凭证和媒体工具，不写生成产物：
 
 ```bash
-python3 -B scripts/doubao_audio.py generate \
+python3 -B scripts/providers/volcengine/audio.py generate \
   --project projects/示例作品 --out 06-素材/声音 --name BGM-01 \
   --asset-kind music --prompt '雨夜，克制的钢琴，约十秒，无对白。' \
   --max-chars 100 --dry-run
@@ -33,7 +33,7 @@ python3 -B scripts/doubao_audio.py generate \
 
 ## 恢复与输出证据
 
-脚本复用 `doubao_speech.py` 中的安全路径、同名锁、原子记录和真实音频检查。实际提交前检查凭证、`ffprobe`/`ffmpeg`、生成记录合同与文件冲突，先持久化提交意图和完整请求绑定，再发 POST。POST 不重试，HTTP 重定向不跟随。
+脚本复用 `scripts/providers/volcengine/speech.py` 中的安全路径、同名锁、原子记录和真实音频检查。实际提交前检查凭证、`ffprobe`/`ffmpeg`、生成记录合同与文件冲突，先持久化提交意图和完整请求绑定，再发 POST。POST 不重试，HTTP 重定向不跟随。
 
 | 文件 | 用途 |
 |---|---|
@@ -54,12 +54,12 @@ python3 -B scripts/doubao_audio.py generate \
 先人工审听并按项目流程登记选择与授权，再收入对应种类。例如：
 
 ```bash
-python3 -B scripts/vsc_library.py promote \
+python3 -B scripts/assets/library.py promote \
   --project projects/示例作品 \
   --record projects/示例作品/06-素材/声音/BGM-01-生成记录.json \
   --kind music --id MUSIC-01 --name '雨夜音乐候选' --summary '待审听的场景音乐'
 
-python3 -B scripts/vsc_library.py use MUSIC-01 --project projects/目标作品
+python3 -B scripts/assets/library.py use MUSIC-01 --project projects/目标作品
 ```
 
 环境声或音效分别改用 `--kind ambience`、`--kind sfx`。成功生成与素材库 `generated` 状态都不等于可商用确认，不代替人审、版权清理或最终混音。

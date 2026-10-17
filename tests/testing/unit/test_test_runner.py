@@ -22,16 +22,16 @@ class TestEngineering(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         files = {
-            "scripts/base.py": "VALUE = 1\n",
-            "scripts/consumer.py": "import base\n",
-            "scripts/vsc_kernel.py": "# validators are dispatched from JSON\n",
-            "scripts/vsc_artifacts.py": "# validators are dispatched from JSON\n",
-            "tests/support/shared.py": "import consumer\n",
+            "scripts/example/base.py": "VALUE = 1\n",
+            "scripts/example/consumer.py": "from scripts.example import base\n",
+            "scripts/kernel/catalog.py": "# validators are dispatched from JSON\n",
+            "scripts/project/artifacts.py": "# validators are dispatched from JSON\n",
+            "tests/support/shared.py": "from scripts.example import consumer\n",
             "tests/sample/unit/test_one.py": "from support.shared import fixture\n",
             "tests/sample/unit/test_two.py": "from support.shared import fixture\n",
             "tests/sample/unit/test_other.py": "# unrelated\n",
-            "tests/sample/unit/test_cli.py": "CLI = 'base.py'\n",
-            "tests/sample/unit/test_kernel.py": "CLI = 'vsc_kernel.py'\n",
+            "tests/sample/unit/test_cli.py": "CLI = 'scripts/example/base.py'\n",
+            "tests/sample/unit/test_kernel.py": "CLI = 'kernel/catalog.py'\n",
         }
         for name, content in files.items():
             path = self.root / name
@@ -92,20 +92,16 @@ class TestEngineering(unittest.TestCase):
             runner.discover(root)
 
     def test_import_and_shared_fixture_consumers_are_transitive(self):
-        selected, _ = runner.affected_modules(["scripts/base.py"], self.config, self.root)
+        selected, _ = runner.affected_modules(["scripts/example/base.py"], self.config, self.root)
         self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two", "sample.unit.test_cli"})
         selected, _ = runner.affected_modules(["tests/support/shared.py"], self.config, self.root)
         self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two"})
-        self.config["path_aliases"] = {"tests/old_fixture.py": ["tests/support/shared.py"]}
-        selected, _ = runner.affected_modules(["tests/old_fixture.py"], self.config, self.root)
-        self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two"})
-        self.assertEqual(selected["sample.unit.test_two"], ["tests/old_fixture.py"])
 
     def test_contract_dispatch_adds_dynamic_validator_dependency(self):
         path = self.root / "workflow/contracts.json"
         path.parent.mkdir()
-        path.write_text(json.dumps({"contracts": [{"validator": {"script": "scripts/base.py"}}]}))
-        selected, _ = runner.affected_modules(["scripts/base.py"], self.config, self.root)
+        path.write_text(json.dumps({"contracts": [{"validator": {"script": "scripts/example/base.py"}}]}))
+        selected, _ = runner.affected_modules(["scripts/example/base.py"], self.config, self.root)
         self.assertIn("sample.unit.test_kernel", selected)
 
     def test_package_initializers_affect_submodule_consumers(self):
@@ -126,12 +122,12 @@ class TestEngineering(unittest.TestCase):
         selected, _ = runner.affected_modules(["tests/support/fixture.py"], self.config, self.root)
         self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two", "sample.unit.test_reexport"})
 
-    def test_src_aliases_and_maintenance_tools_keep_dependency_identity(self):
+    def test_grouped_entries_and_tools_keep_dependency_identity(self):
         files = {
             "src/vsc/__init__.py": "",
             "src/vsc/domain/__init__.py": "",
             "src/vsc/domain/base.py": "VALUE = 1\n",
-            "scripts/base.py": "expose(__name__, 'vsc.domain.base', globals())\n",
+            "scripts/example/base.py": "from vsc.domain.base import VALUE\n",
             "tools/__init__.py": "",
             "tools/maintenance/__init__.py": "",
             "tools/maintenance/check.py": "from vsc.domain.base import VALUE\n",
@@ -155,6 +151,20 @@ class TestEngineering(unittest.TestCase):
         self.assertEqual(selected, {})
         self.assertEqual(ignored, ["docs/example.md"])
 
+    def test_grouped_scripts_do_not_shadow_test_owner_packages(self):
+        files = {
+            "scripts/project/state.py": "from vsc.project.state import main\n",
+            "tests/project/__init__.py": "",
+            "tests/project/state.py": "VALUE = 1\n",
+        }
+        for relative, content in files.items():
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        paths = runner.module_paths(self.root)
+        self.assertEqual(paths["scripts.project.state"], "scripts/project/state.py")
+        self.assertEqual(paths["project.state"], "tests/project/state.py")
+
     def test_unmapped_deleted_or_escaping_inputs_are_not_silently_skipped(self):
         for name in ("scripts/new_feature.py", "scripts/deleted.py", "../outside.py", "/outside.py"):
             with self.subTest(path=name), self.assertRaises(runner.ConfigurationError):
@@ -164,9 +174,9 @@ class TestEngineering(unittest.TestCase):
             runner.affected_modules(["scripts/unreferenced.py"], self.config, self.root)
 
     def test_multiple_changes_keep_union_and_provenance(self):
-        selected, _ = runner.affected_modules(["scripts/base.py", "tests/sample/unit/test_other.py"], self.config, self.root)
+        selected, _ = runner.affected_modules(["scripts/example/base.py", "tests/sample/unit/test_other.py"], self.config, self.root)
         self.assertEqual(set(selected), {"sample.unit.test_one", "sample.unit.test_two", "sample.unit.test_cli", "sample.unit.test_other"})
-        self.assertEqual(selected["sample.unit.test_two"], ["scripts/base.py"])
+        self.assertEqual(selected["sample.unit.test_two"], ["scripts/example/base.py"])
 
     def test_failed_subtest_fails_runner_and_remains_visible(self):
         class Failure(unittest.TestCase):
@@ -184,7 +194,6 @@ class TestEngineering(unittest.TestCase):
 
     def test_explicit_selection_and_listing_do_not_run_test_lifecycle(self):
         example = self.cases[0]
-        self.config["aliases"] = {"test_one": ["sample.unit.test_one"]}
         with patch.object(runner, "read_config", return_value=self.config), \
                 patch.object(runner, "discover", return_value=self.cases), \
                 patch.object(runner, "validate_config", return_value={"unit": 5}), \
@@ -192,7 +201,7 @@ class TestEngineering(unittest.TestCase):
                 patch("sys.stdout", new_callable=io.StringIO) as output:
             self.assertEqual(runner.main(["--test", "sample.unit.test_one", "--list"]), 0)
             self.assertIn("selected=1/5", output.getvalue())
-            self.assertEqual(runner.main(["--test", "test_one.Sample.test_ok", "--list"]), 0)
+            self.assertEqual(runner.main(["--test", "sample.unit.test_one.Sample.test_ok", "--list"]), 0)
             self.assertEqual(output.getvalue().count("selected=1/5"), 2)
         with patch.object(runner, "read_config", return_value=self.config), \
                 patch.object(runner, "discover", return_value=self.cases), \

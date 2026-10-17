@@ -4,7 +4,7 @@
   export PLAN --project PROJECT [--media-root DIR] [--name NAME] [--drafts-root DIR] [--dry-run]
 
 计划中 source 相对 --media-root 解析（默认是计划文件所在目录）。视频按起始帧放在视频轨（重叠时另起一轨），
-每个音频片段单独一条音频轨，caption/text 写成字幕轨，素材复制进草稿。草稿构件见 jianying_draft.py。
+每个音频片段单独一条音频轨，caption/text 写成字幕轨，素材复制进草稿。草稿构件见 src/vsc/adapters/editors/jianying_draft.py。
 
 剪映草稿是非官方公开的格式，可能随剪映版本失效；导出后须在剪映中打开核验。淡入淡出、音量关键帧和图片片段
 无法迁移，逐条写入导出记录，交由剪辑师在剪映中重做。写入前备份剪映的 root_meta_info.json。本脚本不批准产物。
@@ -234,7 +234,7 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
         "kind": "剪映草稿导出",
         "note": FORMAT_NOTE,
         "plan": {"path": str(plan_path), "sha256": sha256(plan_path), "composition": plan["composition"]["id"]},
-        "builder": "scripts/jianying_draft.py",
+        "builder": "src/vsc/adapters/editors/jianying_draft.py",
         "draft": result,
         "summary": summary,
         "dropped": dropped,

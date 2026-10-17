@@ -38,7 +38,7 @@ VSC 自身保持 MIT；它不要求所有外部工具也必须是 MIT。每个�
 | [sources.lock.json](../../vendor/sources.lock.json) | 机器可读的来源声明（不是许可证批准书） |
 | [THIRD_PARTY.md](../../vendor/THIRD_PARTY.md) | 由锁定文件生成的公开声明 |
 | [vendor/README.md](../../vendor/README.md) | 声明、安装与锁定字段的操作说明 |
-| [vendor_sync.py](../../scripts/vendor_sync.py) / [vendor_skills.py](../../scripts/vendor_skills.py) | 固定版本安装 / 按阶段路由上游 Skill |
+| [scripts/maintenance/vendor_sync.py](../../scripts/maintenance/vendor_sync.py) / [scripts/maintenance/vendor_skills.py](../../scripts/maintenance/vendor_skills.py) | 固定版本安装 / 按阶段路由上游 Skill |
 | [Vendor 候选更新](vendor-updates.md) | 下载候选 → 分析 → 显式采用的流程 |
 
 安装是用户的本机动作，不由 VSC 自动触发。锁定记录是“本项目借用了什么”的公开声明，不替用户作商业发布、再分发、云端服务、训练/微调、声音/人物/素材权利或 copyleft 的法律判断；这些情形有疑问时应寻求适当的专业意见。

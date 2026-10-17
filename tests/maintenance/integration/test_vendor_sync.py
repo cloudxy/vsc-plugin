@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vendor_sync.py 自测。运行：python3 -B tests/run.py --test maintenance.integration.test_vendor_sync"""
+"""scripts/maintenance/vendor_sync.py 自测。运行：python3 -B tests/run.py --test maintenance.integration.test_vendor_sync"""
 import importlib.util
 import contextlib
 import io
@@ -12,8 +12,8 @@ from pathlib import Path
 
 from support.paths import SCRIPTS
 from support.fixtures.vendor import refresh_policy
-SYNC_PATH = SCRIPTS / "vendor_sync.py"
-import vendor_sync as SYNC
+SYNC_PATH = SCRIPTS / "maintenance/vendor_sync.py"
+import tools.maintenance.vendor_sync as SYNC
 
 
 def declared_source(**changes):

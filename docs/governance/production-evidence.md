@@ -7,14 +7,14 @@ VSC 的第一条可运行专业验证切片是：计划校验 → 源媒体范�
 ## 真实本地适配器与故障适配器
 
 ```bash
-python3 scripts/remotion_plan.py validate ./remotion-render-plan.json
-python3 scripts/media_qa.py check ./remotion-render-plan.json ./remotion/public --render ./final.mp4 --output ./media-qa-001.json
+python3 scripts/post/remotion_plan.py validate ./remotion-render-plan.json
+python3 scripts/media/qa.py check ./remotion-render-plan.json ./remotion/public --render ./final.mp4 --output ./media-qa-001.json
 ```
 
 `local-ffprobe/v1` 有界执行本机 ffprobe，保存媒体 SHA256、字节数、时长、声画 stream、画幅、帧率、音频采样率与声道。它检查源裁切及尾手柄可用范围；指定成片时检查时长（允许一帧差异）、画幅、平均帧率和计划要求的独立音轨。符号链接不能越出 `media_root`。缺少 ffprobe、媒体缺失、时长未知、超范围和进程失败都会失败退出，不能被替换成模拟通过。
 
 ```bash
-python3 scripts/media_qa.py check ./remotion-render-plan.json ./remotion/public --adapter fault --fault timeout --output ./fault-qa-001.json
+python3 scripts/media/qa.py check ./remotion-render-plan.json ./remotion/public --adapter fault --fault timeout --output ./fault-qa-001.json
 ```
 
 `fault-ffprobe/v1` 注入 timeout、missing_tool、invalid_metadata 或 probe_error，经过真实适配器同一个错误处理路径。报告显式 `simulated: true`，不能用于样片批准。这是失败路径测试适配器，不是生成供应商。
@@ -22,7 +22,7 @@ python3 scripts/media_qa.py check ./remotion-render-plan.json ./remotion/public 
 报告不覆盖已有文件。报告中的来源和成片都绑定内容 hash；审片时会重新执行 ffprobe，比对真实源映射、计划、规格、元数据与 hash，变更后须生成新报告。只检查源素材、没有成片的报告可用于排查，但不能作为批准的技术证据或完成样片审查。
 
 ```bash
-python3 scripts/media_qa.py validate-report ./media-qa-001.json
+python3 scripts/media/qa.py validate-report ./media-qa-001.json
 ```
 
 ## 45–90 秒样片的人工审片
@@ -40,7 +40,7 @@ python3 scripts/media_qa.py validate-report ./media-qa-001.json
 记录实际耗时、成本及失败案例（包含失败原因、方法/模型版本、重试与处理）。没有失败明确填写 `[]`；未检查项保留 `not_checked`，不能当作通过。
 
 ```bash
-python3 scripts/media_qa.py review ./sample-review.json
+python3 scripts/media/qa.py review ./sample-review.json
 ```
 
 校验要求真实通过的成片技术报告、未变化的内容 hash、具名审查人、全部 pass 及具体证据，并记录耗时/成本/失败。它证明记录完整且绑定了版本，不证明人的审美判断必然正确，也不自动改变 VSC 项目批准状态。

@@ -1,4 +1,4 @@
-# 由 scripts/vsc_hosts.py 生成，勿手改；来源：agents/continuity-supervisor.md
+# 由 scripts/kernel/hosts.py 生成，勿手改；来源：agents/continuity-supervisor.md
 name = "continuity-supervisor"
 description = "Maintain VSC shot-boundary contracts across AI-generated clips, assets, locations, screen direction, audio and editorial transitions."
 developer_instructions = '''

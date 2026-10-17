@@ -2,7 +2,7 @@
 """Compare an installed Vendor source with a downloaded candidate Skill snapshot.
 
 This is deliberately an analysis module, not an updater. It never changes the active vendor source,
-the tracked source lock, or VSC routing. Project-owned vendor_watch.py owns candidates and retention;
+the tracked source lock, or VSC routing. Project-owned scripts/maintenance/vendor_watch.py owns candidates and retention;
 this script compares bounded resource bundles and classifies decisions required before adoption.
 """
 import argparse

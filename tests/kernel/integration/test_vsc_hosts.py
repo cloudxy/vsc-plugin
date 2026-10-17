@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vsc_hosts.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_hosts"""
+"""scripts/kernel/hosts.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_hosts"""
 import json
 import os
 import tempfile
@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from support.paths import ROOT
-import vsc_hosts as HOSTS
+import vsc.kernel.hosts as HOSTS
 
 try:
     import tomllib

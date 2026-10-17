@@ -8,7 +8,7 @@
 样式依次取自：命令行参数 > 资产库的 subtitle_style（--bible）> 默认值。资产库中的相对字体路径按工作流根目录解析。
 默认字体是 noto-sans-sc 的 NotoSansSC-Bold.otf；也可指定任何本机字体文件，字体的使用权由用户负责。
 本机 ffmpeg 不一定带 libass，因此每条字幕先由 Pillow 按字体实际宽度换行并画成透明图，再用 ffmpeg 按时间段叠加；
-位置与换行规则见 subtitles.py。Pillow 由 uv 在独立进程中按 PILLOW 固定的版本运行，VSC 自身代码只用标准库。
+位置与换行规则见 src/vsc/post/subtitles.py。Pillow 由 uv 在独立进程中按 PILLOW 固定的版本运行，VSC 自身代码只用标准库。
 音轨原样复制，视频以 H.264 重新编码。
 """
 from vsc.bootstrap import repository_root, script_path
@@ -160,7 +160,7 @@ def burn(video, srt, output, style, run=subprocess.run):
         job_path = Path(temp) / "job.json"
         job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)}}
         job_path.write_text(json.dumps(job, ensure_ascii=False), "utf-8")
-        result = run([uv, "run", "--no-project", "--python", "3.12", "--with", PILLOW, "python", str(script_path("subtitle_burn.py")), "render", str(job_path)],
+        result = run([uv, "run", "--no-project", "--python", "3.12", "--with", PILLOW, "python", str(script_path("post/subtitle_burn.py")), "render", str(job_path)],
                      capture_output=True, text=True, timeout=600)
         if result.returncode:
             raise BurnError(f"字幕渲染失败：{(result.stderr or result.stdout).strip()[-500:]}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vendor_review.py 自测。运行：python3 -B tests/run.py --test maintenance.integration.test_vendor_review"""
+"""scripts/maintenance/vendor_review.py 自测。运行：python3 -B tests/run.py --test maintenance.integration.test_vendor_review"""
 import importlib.util
 import json
 import tempfile
@@ -7,8 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from support.paths import SCRIPTS
-import vendor_review as REVIEW
+import tools.maintenance.vendor_review as REVIEW
 
 
 def write(root, relative, content):

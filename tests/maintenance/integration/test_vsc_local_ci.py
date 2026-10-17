@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vsc_local_ci.py 自测。运行：python3 -B tests/run.py --test maintenance.integration.test_vsc_local_ci"""
+"""scripts/maintenance/local_ci.py 自测。运行：python3 -B tests/run.py --test maintenance.integration.test_vsc_local_ci"""
 import importlib.util
 import json
 import os
@@ -11,8 +11,8 @@ from unittest import mock
 from pathlib import Path
 
 from support.paths import SCRIPTS
-SCRIPT = SCRIPTS / "vsc_local_ci.py"
-import vsc_local_ci as LOCAL_CI
+SCRIPT = SCRIPTS / "maintenance/local_ci.py"
+import tools.maintenance.vsc_local_ci as LOCAL_CI
 
 
 def git(root, *args):
@@ -24,7 +24,7 @@ def git(root, *args):
 
 class TestTracked(unittest.TestCase):
     def test_repository_sources_and_vendor_declarations_pass(self):
-        paths = ["skills/vsc/SKILL.md", "scripts/vsc_state.py", "vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"]
+        paths = ["skills/vsc/SKILL.md", "scripts/project/state.py", "vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"]
         self.assertEqual(LOCAL_CI.tracked_problems(paths), [])
 
     def test_project_data_vendor_source_and_local_files_are_rejected(self):
@@ -91,7 +91,7 @@ class TestProjects(unittest.TestCase):
     def test_readable_project_passes_and_unreadable_project_fails(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            subprocess.run([sys.executable, "-B", str(SCRIPTS / "vsc_state.py"), "init", str(root / "可读"), "--title", "可读"], check=True, capture_output=True)
+            subprocess.run([sys.executable, "-B", str(SCRIPTS / "project/state.py"), "init", str(root / "可读"), "--title", "可读"], check=True, capture_output=True)
             projects, problems = LOCAL_CI.project_problems(root)
             self.assertEqual((len(projects), problems), (1, []))
             broken = root / "旧版"

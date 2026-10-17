@@ -11,11 +11,11 @@ from unittest import mock
 from support.paths import ROOT
 from support.fixtures.production import ProductionFixture
 from support.fixtures.project import FixedRunFixture
-import vsc_artifacts as artifacts
-import vsc_budget as budget
-import vsc_production as production
-import vsc_run as formal
-import vsc_state as state_module
+import vsc.project.artifacts as artifacts
+import vsc.production.budget as budget
+import vsc.production.production as production
+import vsc.production.run as formal
+import vsc.project.state as state_module
 
 
 class FormalRunTest(ProductionFixture, unittest.TestCase):
@@ -54,7 +54,7 @@ class FormalRunTest(ProductionFixture, unittest.TestCase):
         return formal.execute(self.project, self.run_item["id"], self.runner)
 
     def review(self, outcome="accepted"):
-        argv = ["vsc_run.py", "review", self.run_item["id"], "--project", str(self.project), "--job", "image",
+        argv = ["production/run.py", "review", self.run_item["id"], "--project", str(self.project), "--job", "image",
                 "--by", "synthetic fixture reviewer", "--reason", "synthetic media reviewed for the declared boundary", "--outcome", outcome]
         with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(formal.main(), 0)
@@ -132,7 +132,7 @@ class FormalRunTest(ProductionFixture, unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_strict_project_cannot_execute_low_level_queue_with_only_plan_hash(self):
-        with self.assertRaisesRegex(production.ProductionError, "vsc_run.py"):
+        with self.assertRaisesRegex(production.ProductionError, "production/run.py"):
             production.run(self.project, self.plan_data, self.plan_data["plan_sha256"], self.runner)
         self.assertEqual(self.calls, [])
 

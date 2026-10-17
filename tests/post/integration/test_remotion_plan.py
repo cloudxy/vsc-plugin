@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""remotion_plan.py 自测。运行：python3 -B tests/run.py --test post.integration.test_remotion_plan"""
+"""scripts/post/remotion_plan.py 自测。运行：python3 -B tests/run.py --test post.integration.test_remotion_plan"""
 import importlib.util
 import hashlib
 import json
@@ -9,9 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from support.paths import SCRIPTS
 from support.fixtures.plans import remotion_plan as plan
-import remotion_plan as REMOTION
+import vsc.post.remotion_plan as REMOTION
 
 
 class TestRemotionPlan(unittest.TestCase):

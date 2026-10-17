@@ -8,11 +8,11 @@ from support.fixtures.production import ProductionFixture
 from support.fixtures.project import FixedRunFixture
 from vsc.knowledge import learning
 from vsc.production import run_trial, run_quality
-import vsc_artifacts as artifacts
-import vsc_budget as budget
-import vsc_production as production
-import vsc_run as formal
-import vsc_state as state_module
+import vsc.project.artifacts as artifacts
+import vsc.production.budget as budget
+import vsc.production.production as production
+import vsc.production.run as formal
+import vsc.project.state as state_module
 
 
 class TrialRunTests(ProductionFixture, unittest.TestCase):

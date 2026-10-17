@@ -1,8 +1,7 @@
 """Table-driven render-plan validation; no render or external tools."""
 import unittest
 
-from support.paths import SCRIPTS  # noqa: F401
-import remotion_plan
+import vsc.post.remotion_plan as remotion_plan
 from support.fixtures.plans import remotion_plan as plan
 
 

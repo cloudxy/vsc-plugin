@@ -2,11 +2,10 @@
 import json
 from pathlib import Path
 
-from support.paths import SCRIPTS  # noqa: F401
-import vsc_artifacts as artifacts
-import vsc_state as state_module
-import vsc_audio_run as audio_run
-import vsc_production as production
+import vsc.project.artifacts as artifacts
+import vsc.project.state as state_module
+import vsc.production.audio_run as audio_run
+import vsc.production.production as production
 
 
 class FixedRunFixture:

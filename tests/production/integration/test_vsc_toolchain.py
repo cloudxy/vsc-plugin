@@ -11,11 +11,11 @@ from pathlib import Path
 from unittest import mock
 
 from support.paths import ROOT
-import consistency as C
-import volc_ark as A
-import vsc_library as L
-import vsc_recipes as R
-import vsc_toolchain as T
+import vsc.story.consistency as C
+import vsc.adapters.providers.volc_ark.api as A
+import vsc.assets.library as L
+import vsc.knowledge.recipes as R
+import vsc.adapters.media.toolchain as T
 
 
 class ToolchainTest(unittest.TestCase):

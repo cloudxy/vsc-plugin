@@ -5,7 +5,7 @@
 40 位 Git commit、带来源与许可证声明的记录下载完整上游项目。VSC 不以 MIT 作为来源准入条件：
 本地 vendor 可使用 AGPL、Apache、MIT 等项目，且内容不提交到本仓库。此脚本不是法律意见。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import argparse
 import json
 import re
@@ -183,7 +183,7 @@ def installed_problem(source, vendor_root=VENDOR):
     """本机检出与锁定 revision 一致时返回空字符串，否则返回原因与修复命令。"""
     path = vendor_root / source["id"]
     if not path.is_dir():
-        return f"{source['id']} 未安装：python3 -B scripts/vendor_sync.py --install {source['id']}"
+        return f"{source['id']} 未安装：python3 -B scripts/maintenance/vendor_sync.py --install {source['id']}"
     head = subprocess.run(["git", "-C", str(path), "rev-parse", "HEAD"], text=True, capture_output=True)
     actual = head.stdout.strip().lower()
     if head.returncode or actual != source["revision"].lower():
@@ -244,7 +244,7 @@ def declaration_markdown(data):
         "来源 URL、固定 commit、许可证证据与本地调用模式见 [sources.lock.json](sources.lock.json)。用户可自行执行：",
         "",
         "```bash",
-        "python3 scripts/vendor_sync.py --install inkos openwrite",
+        "python3 scripts/maintenance/vendor_sync.py --install inkos openwrite",
         "```",
         "",
         "这份清单是 VSC 对“借用了哪些开源项目”的公开声明，不改变上游许可证，也不构成对商业使用、再分发、模型权重、声音、图像或数据权利的额外授权。",

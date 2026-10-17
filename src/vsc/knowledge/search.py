@@ -4,7 +4,7 @@
 不调用模型或向量库。查询按空白与标点切词；一个词整体出现在字段里得满分，否则按中文双字组合的命中比例得部分分，
 因此“古寺钟声”也能命中“古寺庭院……远处钟声”。每个字段带权重，名称与标签高于正文。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root
 import re
 import argparse
 import json

@@ -43,7 +43,7 @@ class PGStateBridgeTests(unittest.TestCase):
         from vsc.project import state
         stdout, stderr = io.StringIO(), io.StringIO()
         code = 0
-        with patch("sys.argv", ["vsc_state.py", *map(str, args)]), patch("vsc.bootstrap.service_from_environment", return_value=self.service), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with patch("sys.argv", ["project/state.py", *map(str, args)]), patch("vsc.bootstrap.service_from_environment", return_value=self.service), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 state.main()
             except SystemExit as error:

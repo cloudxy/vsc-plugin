@@ -25,7 +25,7 @@ def authority_pointer(project):
 def legacy_write_guard(project):
     root = Path(project)
     if (root / POINTER).exists():
-        raise ResourceError("项目已采用 PostgreSQL 权威；请使用 vsc_resources.py 或资源面板", "authority_changed", 409)
+        raise ResourceError("项目已采用 PostgreSQL 权威；请使用 scripts/assets/resources.py 或资源面板", "authority_changed", 409)
     migration = root / ".vsc-migration.json"
     if migration.exists():
         value = json.loads(migration.read_text("utf-8"))

@@ -14,13 +14,13 @@ from unittest import mock
 
 from support.paths import ROOT  # noqa: F401
 from support.fixtures.project import FixedRunFixture
-import consistency
-import doubao_speech as speech
-import vsc_artifacts as artifacts
-import vsc_audio_run as audio_run
-import vsc_budget as budget
-import vsc_run as formal
-import vsc_state as state_module
+import vsc.story.consistency as consistency
+import vsc.adapters.providers.speech.tts as speech
+import vsc.project.artifacts as artifacts
+import vsc.production.audio_run as audio_run
+import vsc.production.budget as budget
+import vsc.production.run as formal
+import vsc.project.state as state_module
 
 
 class OfflineResponse(io.BytesIO):

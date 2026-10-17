@@ -3,7 +3,7 @@
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 带声预演 → 图像／视频／声音候选 → 获选素材 → 剪辑、混音 → 审片与交付**。
 
 <!-- vsc:view version -->
-当前版本：**v0.24.0**，各版本变化见 [版本记录](docs/releases/)。
+当前版本：**v0.25.0**，各版本变化见 [版本记录](docs/releases/)。
 <!-- /vsc:view -->
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
@@ -70,11 +70,11 @@ flowchart LR
 也可以直接使用命令行。项目状态机只依赖 Python 标准库；以下命令从仓库根目录执行，先把作品名、标题和负责人换成实际值：
 
 ```bash
-python3 -B scripts/vsc_kernel.py doctor        # 核对内核、入口与各客户端配置
-python3 -B scripts/vsc_state.py profile list   # 查看可选业务 Profile
-python3 -B scripts/vsc_state.py init ./projects/作品名 --title "作品标题" --profile vsc.light-short --owner "实际负责人"
-python3 -B scripts/vsc_state.py status ./projects/作品名
-python3 -B scripts/vsc_state.py next ./projects/作品名
+python3 -B scripts/kernel/catalog.py doctor        # 核对内核、入口与各客户端配置
+python3 -B scripts/project/state.py profile list   # 查看可选业务 Profile
+python3 -B scripts/project/state.py init ./projects/作品名 --title "作品标题" --profile vsc.light-short --owner "实际负责人"
+python3 -B scripts/project/state.py status ./projects/作品名
+python3 -B scripts/project/state.py next ./projects/作品名
 ```
 
 ### 选择 Profile
@@ -95,12 +95,12 @@ Profile 固定阶段顺序、必需产物与质量门。轻量单条减少重复
 在任一支持的客户端中说“用 VSC 继续 projects/作品名，先读取进度”，或运行：
 
 ```bash
-python3 -B scripts/vsc_state.py status ./projects/作品名
-python3 -B scripts/vsc_state.py next ./projects/作品名
+python3 -B scripts/project/state.py status ./projects/作品名
+python3 -B scripts/project/state.py next ./projects/作品名
 # 连续剧可按实际分集 ID 查看进度与质量门
-python3 -B scripts/vsc_state.py status ./projects/作品名 --scope EP-ID
-python3 -B scripts/vsc_state.py next ./projects/作品名 --scope EP-ID
-python3 -B scripts/vsc_state.py gate check ./projects/作品名 design --scope EP-ID
+python3 -B scripts/project/state.py status ./projects/作品名 --scope EP-ID
+python3 -B scripts/project/state.py next ./projects/作品名 --scope EP-ID
+python3 -B scripts/project/state.py gate check ./projects/作品名 design --scope EP-ID
 ```
 
 各客户端共用作品的 `vsc.json`、产物快照与台账；状态写入走 CLI。`projects/`、本机素材库和第三方源码不随 Git 提交，需要自行保存。旧作品保留原固定 Profile，采用 v2 规则前先查看 `profile migrate` 的差异与影响，再显式应用；操作见 [制作交接 v2 指南](docs/guide/production-v2.md)。
@@ -125,7 +125,7 @@ v0.12.0 将制作过程中的版本交接落实为可检查的契约：
 
 ```bash
 # 只读诊断本机工具、默认凭证变量与作品候选，不探测云端权限
-python3 -B scripts/vsc_toolchain.py --project ./projects/作品名 --json
+python3 -B scripts/media/toolchain.py --project ./projects/作品名 --json
 ```
 
 本工作区的凭证集中在 `~/.zshenv`。若进程未加载变量，在启动工具的 zsh 中执行 `source ~/.zshenv` 后重新启动工具；其他启动方式需显式传入环境变量。具体变量及配置方式见 [客户端与本机配置](docs/guide/workspace-setup.md)。
@@ -170,7 +170,7 @@ python3 -B scripts/vsc_toolchain.py --project ./projects/作品名 --json
 工作流改动直接提交并推送到 `main`。修改期间只跑受影响的测试；全部修改完成后，在最终推送阶段运行一次全量检查。启用仓库钩子时由 pre-push 执行；未启用时手动运行以下命令。作品、素材库、vendor 源码和本机配置保持在本机。
 
 ```bash
-python3 -B scripts/vsc_local_ci.py
+python3 -B scripts/maintenance/local_ci.py
 ```
 
 本地 CI 覆盖内核、全部测试、Vendor 路由、已有作品可读性、素材与方法库、Git 跟踪范围和文档链接。钩子启用、入口同步与维护规则见 [维护与本地验证](docs/guide/maintenance.md)。

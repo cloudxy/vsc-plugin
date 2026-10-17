@@ -5,4 +5,4 @@ if [ -n "$(git -C "$root" status --porcelain)" ]; then
     echo "VSC pre-push：工作区有未提交改动，本地 CI 结果不能代表要推送的提交；先提交或 git stash 后再推送。" >&2
     exit 1
 fi
-exec python3 -B "$root/scripts/vsc_local_ci.py" --pre-push
+exec python3 -B "$root/scripts/maintenance/local_ci.py" --pre-push

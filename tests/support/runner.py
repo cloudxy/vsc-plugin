@@ -58,6 +58,8 @@ def metadata(case, config):
 
 
 def validate_config(cases, config, root=ROOT):
+    if "aliases" in config or "path_aliases" in config:
+        raise ConfigurationError("测试配置须使用当前模块和路径，不接受 aliases/path_aliases")
     modules = {case.__class__.__module__ for case in cases}
     declared = set(config["modules"])
     if modules != declared:
@@ -89,12 +91,6 @@ def validate_config(cases, config, root=ROOT):
         reject_test_imports(path)
     for path in (root / "tests/support").rglob("*.py"):
         reject_test_imports(path)
-    for alias, targets in config.get("aliases", {}).items():
-        if alias in declared or not isinstance(targets, list) or not targets or any(target not in declared for target in targets):
-            raise ConfigurationError(f"测试选择别名无效：{alias}")
-    for old, targets in config.get("path_aliases", {}).items():
-        if not isinstance(targets, list) or not targets or any(not (root / target).is_file() for target in targets):
-            raise ConfigurationError(f"迁移路径别名无效：{old}")
     for consumer, sources in config.get("dependencies", {}).items():
         for relative in [consumer, *sources]:
             if not (root / relative).is_file():
@@ -109,25 +105,10 @@ def reject_test_imports(path):
             raise ConfigurationError(f"{path}: 禁止导入其他测试模块；公共夹具应放在 support/")
 
 
-def resolve_selectors(selectors, config):
-    """Old module IDs remain CLI aliases; canonical imports use domain/layer paths."""
-    resolved = {}
-    aliases = config.get("aliases", {})
-    for selector in selectors:
-        matches = [alias for alias in aliases if selector == alias or selector.startswith(alias + ".")]
-        if matches:
-            alias = max(matches, key=len)
-            resolved[selector] = [target + selector[len(alias):] for target in aliases[alias]]
-        else:
-            resolved[selector] = [selector]
-    return resolved
-
-
 def module_paths(root):
     paths = {}
-    # src contains importable domain packages; tools keeps engineering utilities
-    # out of product domains. Legacy scripts remain independent alias nodes.
-    for folder, prefix in (("scripts", ""), ("tests", ""), ("src", ""), ("tools", "tools")):
+    # Commands have their own namespace, so scripts/project never shadows tests/project.
+    for folder, prefix in (("scripts", "scripts"), ("tests", ""), ("src", ""), ("tools", "tools")):
         base = root / folder
         for path in base.rglob("*.py"):
             if "__pycache__" in path.parts:
@@ -161,12 +142,11 @@ def dependency_graph(root, config):
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 # CLI filenames and spec_from_file_location are real dependencies too.
                 name = node.value
-                # Compatibility wrappers and lazy plugins name their canonical
-                # module explicitly rather than using a Python import statement.
+                # Lazy imports and subprocess paths are real consumers as well.
                 if name in paths:
                     reverse[paths[name]].add(relative)
                 if name.endswith(".py"):
-                    candidate = name if name.startswith(("scripts/", "tests/", "src/", "tools/")) else "scripts/" + name
+                    candidate = name if name.startswith(("scripts/", "tests/", "src/", "tools/")) else "scripts/" + name if "/" in name else None
                     if candidate in paths.values():
                         reverse[candidate].add(relative)
         for name in imports:
@@ -191,7 +171,7 @@ def dependency_graph(root, config):
         for entry in json.loads(catalog.read_text(encoding="utf-8")).get("contracts", []):
             validator = entry.get("validator") or {}
             if validator.get("script"):
-                for consumer in ("scripts/vsc_kernel.py", "scripts/vsc_artifacts.py"):
+                for consumer in ("scripts/kernel/catalog.py", "scripts/project/artifacts.py"):
                     reverse[validator["script"]].add(consumer)
     return reverse, paths
 
@@ -217,14 +197,6 @@ def affected_modules(changed, config, root=ROOT):
                     if item.get("owners") == "all" or rule["owner"] in item.get("owners", []):
                         reasons[paths[module]].add(relative)
                         queue.append(paths[module])
-        elif relative in config.get("path_aliases", {}):
-            for target in config["path_aliases"][relative]:
-                reasons[target].add(relative)
-                queue.append(target)
-        elif relative.startswith("tests/") and relative.endswith(".py") and relative[6:-3].replace("/", ".") in config.get("aliases", {}):
-            for module in config["aliases"][relative[6:-3].replace("/", ".")]:
-                reasons[paths[module]].add(relative)
-                queue.append(paths[module])
         elif relative in reverse or relative in paths.values():
             reasons[relative].add(relative)
             queue.append(relative)
@@ -282,7 +254,7 @@ def main(argv=None):
     selection.add_argument("--changed", action="store_true", help="当前暂存/未暂存/未跟踪变更")
     selection.add_argument("--since", help="相对 Git revision 的变更（含当前工作区）")
     selection.add_argument("--files", nargs="+", help="显式变更路径")
-    selection.add_argument("--test", nargs="+", help="领域、层级、模块、类或方法 ID；支持旧模块别名")
+    selection.add_argument("--test", nargs="+", help="当前领域、层级、模块、类或方法 ID")
     selection.add_argument("--layer", help="配置中的 unit/integration/system 分组")
     selection.add_argument("--check-config", action="store_true", help="只检查配置覆盖")
     parser.add_argument("--list", action="store_true", help="只列出选择及其原因")
@@ -307,11 +279,10 @@ def main(argv=None):
             if ignored:
                 print("非运行时变更（另做文档/引用检查）：" + ", ".join(ignored))
         elif args.test:
-            selections = resolve_selectors(args.test, config)
-            for selector, targets in selections.items():
-                if not any(case.id() == target or case.id().startswith(target + ".") for case in cases for target in targets):
+            for selector in args.test:
+                if not any(case.id() == selector or case.id().startswith(selector + ".") for case in cases):
                     raise ConfigurationError(f"测试选择无匹配：{selector}")
-            targets = {target for values in selections.values() for target in values}
+            targets = set(args.test)
             selected = [case for case in cases if any(case.id() == target or case.id().startswith(target + ".") for target in targets)]
         elif args.layer:
             if args.layer not in config["layers"]:

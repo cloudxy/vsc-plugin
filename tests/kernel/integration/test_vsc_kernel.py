@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vsc_kernel.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_kernel"""
+"""scripts/kernel/catalog.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_kernel"""
 import json
 import shutil
 import subprocess
@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 
 from support.paths import ROOT, SCRIPTS
-KERNEL = SCRIPTS / "vsc_kernel.py"
-STATE = SCRIPTS / "vsc_state.py"
+KERNEL = SCRIPTS / "kernel/catalog.py"
+STATE = SCRIPTS / "project/state.py"
 
 
 def run(*args):

@@ -9,11 +9,11 @@ from pathlib import Path
 from unittest import mock
 
 from support.paths import ROOT
-import vsc_artifacts as artifacts
-import vsc_budget as budget
-import vsc_state as state_module
-import vsc_audio_run as audio_run
-import vsc_production as production
+import vsc.project.artifacts as artifacts
+import vsc.production.budget as budget
+import vsc.project.state as state_module
+import vsc.production.audio_run as audio_run
+import vsc.production.production as production
 
 
 from support.fixtures.project import FixedRunFixture

@@ -1,6 +1,6 @@
 # VSC 通用架构
 
-版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/vsc_kernel.py`、`scripts/vsc_state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [思想基础与跨行业研究](../research/foundations.md)，早期升级记录见 [v0.2](../releases/v0.2.md)，长期结构决定见 [ADR-0001](../adr/0001-workflow-kernel.md)。
+版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/kernel/catalog.py`、`scripts/project/state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [思想基础与跨行业研究](../research/foundations.md)，早期升级记录见 [v0.2](../releases/v0.2.md)，长期结构决定见 [ADR-0001](../adr/0001-workflow-kernel.md)。
 
 ## 1. 架构目标与边界
 
@@ -27,18 +27,18 @@ VSC 要支持：从素材到成片；从个人到团队；从人工到受控自�
 
 ```text
 workflow/                 声明内核：阶段、角色、跨模块契约（唯一事实来源）
-scripts/vsc_kernel.py     查询路由、统一契约校验、doctor 自检
-scripts/vsc_state.py      项目状态、审批、Gate、记忆和学习的实现
+scripts/kernel/catalog.py     查询路由、统一契约校验、doctor 自检
+scripts/project/state.py      项目状态、审批、Gate、记忆和学习的实现
 profiles/                 可复制的业务阶段与 Gate 定义
 skills/ agents/           方法与角色正文；只引用内核，不维护第二份路由或角色卡
-.agents/ .claude/ 等      宿主入口：由 workflow/hosts.json 声明、scripts/vsc_hosts.py 生成
+.agents/ .claude/ 等      宿主入口：由 workflow/hosts.json 声明、scripts/kernel/hosts.py 生成
 templates/                契约的可复制起点
 tests/                    scripts/ 中 CLI 的自测
-scripts/media_qa.py       本地媒体检查适配器；生成适配器边界见 generation-adapters.md
+scripts/media/qa.py       本地媒体检查适配器；生成适配器边界见 generation-adapters.md
 vendor/                   用户本机组件；锁定来源与生成的人类声明可提交，源码不可提交
 ```
 
-调用关系是 `宿主入口 → workflow 内核 → 状态/契约实现 → 项目或可替换适配器`。这不是把所有东西塞进一个“工作流服务”：内核只公开路由和契约接缝，状态机与供应商实现留在各自模块中。运行 `python3 scripts/vsc_kernel.py doctor` 可验证内核声明的文件和 Profile 阶段都真实存在。
+调用关系是 `宿主入口 → workflow 内核 → 状态/契约实现 → 项目或可替换适配器`。这不是把所有东西塞进一个“工作流服务”：内核只公开路由和契约接缝，状态机与供应商实现留在各自模块中。运行 `python3 scripts/kernel/catalog.py doctor` 可验证内核声明的文件和 Profile 阶段都真实存在。
 
 ## 3. 通用内核处理的对象
 

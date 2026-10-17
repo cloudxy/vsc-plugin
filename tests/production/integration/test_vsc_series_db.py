@@ -14,19 +14,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 from support.paths import ROOT
-import vsc_series
-import vsc_series_db as db
-import vsc_series_jobs as jobs
-import vsc_series_run as series_run
-import vsc_series_dispatch as dispatch
-import vsc_series_export as series_export
-import vsc_series_query as series_query
-import vsc_series_selection as selection
-import vsc_handoffs
-import vsc_budget as budget
-import consistency
-from vsc_provider import GeneratedAsset, JobHandle, JobStatus
-from vsc_state import project_state, save
+from vsc.production import context as context_module
+from vsc.assets import registry
+from vsc.story import boundaries
+import vsc.adapters.persistence.sqlite.series as db
+import vsc.production.jobs as jobs
+import vsc.production.series_run as series_run
+import vsc.production.dispatch as dispatch
+import vsc.post.production_export as series_export
+import vsc.interfaces.cli.series_query as series_query
+import vsc.post.selection as selection
+import vsc.production.handoffs as vsc_handoffs
+import vsc.production.budget as budget
+import vsc.story.consistency as consistency
+from vsc.production.providers import GeneratedAsset, JobHandle, JobStatus
+from vsc.project.state import project_state, save
 
 
 class FakeImageAdapter:
@@ -64,13 +66,13 @@ class SeriesDatabase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="vsc-series-")
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "series"
-        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/vsc_state.py"),
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/project/state.py"),
             "init", str(self.project), "--title", "synthetic", "--profile", "vsc.series-db"],
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_audio_provider_rejects_unsupported_request_before_budget(self):
-        from vsc_volc_provider import VolcArkAudioProvider, VolcAdapterError
+        from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider, VolcAdapterError
         binding = {"line_id": "L1", "entity_id": "char", "voice": {
             "engine": "doubao_speech", "voice": "fixture_voice", "resource_id": "seed-tts-2.0"}}
         adapter = VolcArkAudioProvider("seed-tts-2.0", self.project, "J-abc", binding,
@@ -88,7 +90,7 @@ class SeriesDatabase(unittest.TestCase):
             reserve.assert_not_called()
 
     def test_agent_plan_provider_registration_rejects_wrong_endpoint(self):
-        with self.assertRaisesRegex(vsc_series.SeriesError, "专属 Base URL"):
+        with self.assertRaisesRegex(context_module.SeriesError, "专属 Base URL"):
             jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY",
                                    "https://ark.cn-beijing.volces.com/api/v3")
 
@@ -156,14 +158,14 @@ class SeriesDatabase(unittest.TestCase):
         mirror.write_text(json.dumps(altered))
         with self.assertRaises(SystemExit):
             project_state(self.project)
-        vsc_series.repair_mirror(self.project)
+        context_module.repair_mirror(self.project)
         self.assertEqual(project_state(self.project)["title"], "synthetic")
         with db.connect(self.project) as connection:
             self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA)
 
     def test_existing_json_project_changes_authority_only_after_explicit_migration(self):
         legacy = Path(self.temp.name) / "legacy"
-        cli = [sys.executable, "-B", str(ROOT / "scripts/vsc_state.py")]
+        cli = [sys.executable, "-B", str(ROOT / "scripts/project/state.py")]
         result = subprocess.run([*cli, "init", str(legacy), "--title", "old"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((legacy / db.DATABASE).exists())
@@ -202,14 +204,14 @@ class SeriesDatabase(unittest.TestCase):
         self._reference("face-day", "char", "identity_face", "day")
         self._reference("face-night", "char", "identity_face", "night")
         self._reference("room", "loc", "location_master")
-        with patch.object(vsc_series, "validate_artifact", return_value=[]):
-            context = vsc_series.build_shot_context(self.project, "SH1")
+        with patch.object(context_module, "validate_artifact", return_value=[]):
+            context = context_module.build_shot_context(self.project, "SH1")
             self.assertEqual({r["media_id"] for r in context["media_references"]}, {"face-day", "room"})
             self.assertEqual(context["unresolved_reference_asset_ids"], [])
             self.assertEqual(series_query.asset(self.project, "char")["bindings"][0]["media"]["id"], "face-day")
             self.assertEqual(series_query.script_line(self.project, "EP1", "L1")["line"]["text"], "Hello")
             self.assertEqual(series_query.episode(self.project, "EP1")["shots"][0]["id"], "SH1")
-            vsc_series.validate_context_file(context)
+            context_module.validate_context_file(context)
             request = {"format": "vsc.generation-request/v1", "modality": "image", "shot_id": "SH1",
                 "purpose": "shot_keyframe", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
                 "reference_media_ids": ["face-day", "room"], "width": 1080, "height": 1920}
@@ -224,7 +226,7 @@ class SeriesDatabase(unittest.TestCase):
                 "review_after": [], "operations": {operation: {"remote_jobs": 1, "images": 1}}},
                 depends=(*inputs, animatic))
             save(self.project, state)
-            from vsc_series_run import project_errors as series_run_errors
+            from vsc.production.series_run import project_errors as series_run_errors
             self.assertEqual(series_run_errors(json.loads(db.artifact_document(self.project, run["id"])),
                 self.project, project_state(self.project), run), [])
             jobs.register_provider(self.project, "volc_ark", ["image"], "env:ARK_AGENT_PLAN_API_KEY")
@@ -233,22 +235,22 @@ class SeriesDatabase(unittest.TestCase):
                 {"size_map": {"1080x1920": "2K"}})
             jobs.set_route(self.project, "image", "shot_keyframe", "model-1")
             first = jobs.plan_job(self.project, run["id"], request)
-            from vsc_volc_provider import VolcArkImageProvider
+            from vsc.adapters.providers.volc_ark.provider import VolcArkImageProvider
             self.assertIsInstance(jobs.adapter_for_job(self.project, first["job_id"], transport=lambda *_: None),
                                   VolcArkImageProvider)
             self.assertEqual(first, jobs.plan_job(self.project, run["id"], request))
-            with self.assertRaises(vsc_series.SeriesError):
+            with self.assertRaises(context_module.SeriesError):
                 jobs.plan_job(self.project, run["id"], dict(request, prompt="changed"))
             jobs.record_status(self.project, first["job_id"], "submission_unknown")
-            with self.assertRaises(vsc_series.SeriesError):
+            with self.assertRaises(context_module.SeriesError):
                 jobs.record_status(self.project, first["job_id"], "submission_unknown")
             jobs.record_status(self.project, first["job_id"], "submitted", "external-1")
             with db.connect(self.project) as connection:
                 self.assertEqual(connection.execute("SELECT external_task_id FROM generation_jobs WHERE id=?",
                     (first["job_id"],)).fetchone()[0], "external-1")
         context["shot_spec"]["duration_ms"] = 999
-        with self.assertRaises(vsc_series.SeriesError):
-            vsc_series.validate_context_file(context)
+        with self.assertRaises(context_module.SeriesError):
+            context_module.validate_context_file(context)
 
     def test_cross_episode_boundary_requires_recorded_match(self):
         self._shot_fixture()
@@ -273,16 +275,16 @@ class SeriesDatabase(unittest.TestCase):
             {"id": "SC2", "actions": [], "dialogue": []}]}, "EP2")
         self._artifact(state, "vsc.visual_bible", {"format": "vsc.visual-bible/v1", "palette": ["warm"]}, "EP2")
         save(self.project, state)
-        with patch.object(vsc_series, "validate_artifact", return_value=[]):
-            before = vsc_series.build_shot_context(self.project, "SH2")
+        with patch.object(context_module, "validate_artifact", return_value=[]):
+            before = context_module.build_shot_context(self.project, "SH2")
             self.assertEqual(before["cross_episode_boundary"]["status"], "unlinked")
-            vsc_series.link_boundary(self.project, "SH1", "SH2", "continuous", "fixture", "same action")
-            after = vsc_series.build_shot_context(self.project, "SH2")
+            boundaries.link_boundary(self.project, "SH1", "SH2", "continuous", "fixture", "same action")
+            after = context_module.build_shot_context(self.project, "SH2")
             self.assertEqual(after["cross_episode_boundary"]["status"], "linked")
             self.assertNotEqual(before["sha256"], after["sha256"])
-            with self.assertRaises(vsc_series.SeriesError):
-                vsc_series.link_boundary(self.project, "SH1", "SH2", "continuous", "fixture", "duplicate")
-            vsc_series.link_boundary(self.project, "SH1", "SH2", "intentional_jump", "fixture", "reviewed cut", replace=True)
+            with self.assertRaises(context_module.SeriesError):
+                boundaries.link_boundary(self.project, "SH1", "SH2", "continuous", "fixture", "duplicate")
+            boundaries.link_boundary(self.project, "SH1", "SH2", "intentional_jump", "fixture", "reviewed cut", replace=True)
             with db.connect(self.project) as connection:
                 self.assertEqual(connection.execute("SELECT count(*) FROM continuity_edges WHERE status='superseded'").fetchone()[0], 1)
 
@@ -291,7 +293,7 @@ class SeriesDatabase(unittest.TestCase):
         inputs = self._shot_fixture()
         self._reference("face-day", "char", "identity_face", "day")
         self._reference("room", "loc", "location_master")
-        context = vsc_series.build_shot_context(self.project, "SH1")
+        context = context_module.build_shot_context(self.project, "SH1")
         request = {"format": "vsc.generation-request/v1", "modality": "image", "shot_id": "SH1",
             "purpose": "shot_keyframe", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
             "reference_media_ids": ["face-day", "room"], "width": 1080, "height": 1920}
@@ -319,20 +321,20 @@ class SeriesDatabase(unittest.TestCase):
         return job_id, context, image
 
     def test_legacy_queue_rejects_unfixed_video_audio_reference(self):
-        with patch.object(vsc_series, "validate_artifact", return_value=[]):
+        with patch.object(context_module, "validate_artifact", return_value=[]):
             self._shot_fixture()
             self._reference("face-day", "char", "identity_face", "day")
             self._reference("room", "loc", "location_master")
-            context = vsc_series.build_shot_context(self.project, "SH1")
+            context = context_module.build_shot_context(self.project, "SH1")
             request = {"format": "vsc.generation-request/v1", "modality": "video", "shot_id": "SH1",
                 "purpose": "reference_video", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
                 "reference_media_ids": ["face-day", "room"], "reference_audio_media_ids": ["unfixed-audio"]}
-            with self.assertRaisesRegex(vsc_series.SeriesError, "PostgreSQL"):
+            with self.assertRaisesRegex(context_module.SeriesError, "PostgreSQL"):
                 jobs.plan_job(self.project, "unreached-run", request)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_approved_series_job_dispatch_resume_transfer_and_rights(self):
-        with patch.object(vsc_series, "validate_artifact", return_value=[]):
+        with patch.object(context_module, "validate_artifact", return_value=[]):
             job_id, context, image = self._image_job()
             fake = FakeImageAdapter()
             downloads = []
@@ -341,9 +343,9 @@ class SeriesDatabase(unittest.TestCase):
                 downloads.append(url)
                 shutil.copyfile(image, target)
 
-            with patch("vsc_artifacts.validate_artifact", return_value=[]), patch.object(dispatch, "gate_problems", return_value=[]):
+            with patch("vsc.project.artifacts.validate_artifact", return_value=[]), patch.object(dispatch, "gate_problems", return_value=[]):
                 self.assertEqual(dispatch.submit_job(self.project, job_id, fake)["status"], "submitted")
-                with self.assertRaises(vsc_series.SeriesError):
+                with self.assertRaises(context_module.SeriesError):
                     dispatch.submit_job(self.project, job_id, fake)
                 polled = dispatch.resume_pending(self.project, adapter_factory=lambda _project, _job: fake, download=download)
                 self.assertEqual(len(polled), 1)
@@ -386,11 +388,11 @@ class SeriesDatabase(unittest.TestCase):
             produced = series_query.media(self.project, media_id)
             self.assertEqual(produced["generated_by"]["job_id"], job_id)
             self.assertEqual(series_query.scene(self.project, "SC1")["shots"][0]["entry"]["entities"]["char"]["variant"], "day")
-            vsc_series.bind_media(self.project, "B-result", "SH1", media_id, "composition")
-            with self.assertRaises(vsc_series.SeriesError):
-                vsc_series.decide_binding(self.project, "B-result", "approved", "fixture", "candidate")
-            vsc_series.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed output")
-            vsc_series.decide_binding(self.project, "B-result", "approved", "fixture", "candidate")
+            registry.bind_media(self.project, "B-result", "SH1", media_id, "composition")
+            with self.assertRaises(context_module.SeriesError):
+                registry.decide_binding(self.project, "B-result", "approved", "fixture", "candidate")
+            registry.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed output")
+            registry.decide_binding(self.project, "B-result", "approved", "fixture", "candidate")
             self.assertEqual(series_query.media(self.project, media_id)["rights_decisions"][0]["previous"], "unknown")
             with budget.ledger(self.project) as ledger:
                 self.assertEqual(next(iter(ledger["reservations"].values()))["status"], "usage_unknown")
@@ -400,7 +402,7 @@ class SeriesDatabase(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_resume_pending_finishes_interrupted_transfer_once(self):
-        with patch.object(vsc_series, "validate_artifact", return_value=[]):
+        with patch.object(context_module, "validate_artifact", return_value=[]):
             job_id, _, image = self._image_job()
             fake = FakeImageAdapter()
             attempts = []
@@ -411,7 +413,7 @@ class SeriesDatabase(unittest.TestCase):
                     raise RuntimeError("temporary URL expired")
                 shutil.copyfile(image, target)
 
-            with patch("vsc_artifacts.validate_artifact", return_value=[]), patch.object(dispatch, "gate_problems", return_value=[]):
+            with patch("vsc.project.artifacts.validate_artifact", return_value=[]), patch.object(dispatch, "gate_problems", return_value=[]):
                 dispatch.submit_job(self.project, job_id, fake)
                 factory = lambda _project, _job: fake
                 first = dispatch.resume_pending(self.project, adapter_factory=factory, download=flaky)
@@ -437,10 +439,10 @@ class SeriesDatabase(unittest.TestCase):
         inputs = self._shot_fixture(("SH1", "SH2"))
         self._reference("face-day", "char", "identity_face", "day")
         self._reference("room", "loc", "location_master")
-        with patch.object(vsc_series, "validate_artifact", return_value=[]):
+        with patch.object(context_module, "validate_artifact", return_value=[]):
             requests = {}
             for shot in ("SH1", "SH2"):
-                context = vsc_series.build_shot_context(self.project, shot)
+                context = context_module.build_shot_context(self.project, shot)
                 requests[shot] = {"format": "vsc.generation-request/v1", "modality": "image", "shot_id": shot,
                     "purpose": "shot_keyframe", "context_sha256": context["sha256"], "prompt": "Synthetic shot",
                     "reference_media_ids": ["face-day"], "width": 1080, "height": 1920}
@@ -455,12 +457,12 @@ class SeriesDatabase(unittest.TestCase):
                                                    for shot in ("SH1", "SH2")}},
                 depends=(*inputs, animatic))
             save(self.project, state)
-            from vsc_series_run import project_errors as series_run_errors
+            from vsc.production.series_run import project_errors as series_run_errors
             document = json.loads(db.artifact_document(self.project, run["id"]))
             self.assertEqual(series_run_errors(document, self.project, project_state(self.project), run), [])
-            before = vsc_series.build_shot_context(self.project, "SH2")["sha256"]
+            before = context_module.build_shot_context(self.project, "SH2")["sha256"]
             self._reference("SH2-take", "SH2", "video_take")
-            self.assertEqual(vsc_series.build_shot_context(self.project, "SH2")["sha256"], before)
+            self.assertEqual(context_module.build_shot_context(self.project, "SH2")["sha256"], before)
             self._reference("SH1-pick", "SH1", "composition")
             state = project_state(self.project)
             self.assertEqual(series_run_errors(document, self.project, state, run), [])
@@ -472,7 +474,7 @@ class SeriesDatabase(unittest.TestCase):
                 {"purposes": ["shot_keyframe"], "reference_media": True}, {"size_map": {"1080x1920": "2K"}})
             jobs.set_route(self.project, "image", "shot_keyframe", "model-1")
             self.assertEqual(jobs.plan_job(self.project, run["id"], requests["SH2"])["status"], "created")
-            with self.assertRaises(vsc_series.SeriesError):
+            with self.assertRaises(context_module.SeriesError):
                 jobs.plan_job(self.project, run["id"], requests["SH1"])
 
     def _clip(self, name, color):
@@ -487,7 +489,7 @@ class SeriesDatabase(unittest.TestCase):
         inputs = self._shot_fixture()
         self._reference("face-day", "char", "identity_face", "day")
         self._reference("room", "loc", "location_master")
-        context = vsc_series.build_shot_context(self.project, "SH1")
+        context = context_module.build_shot_context(self.project, "SH1")
         request = {"format": "vsc.generation-request/v1", "modality": "video", "shot_id": "SH1",
             "purpose": "shot_video", "context_sha256": context["sha256"], "prompt": "Synthetic move",
             "reference_media_ids": ["face-day", "room"], "duration_ms": 5000}
@@ -521,15 +523,15 @@ class SeriesDatabase(unittest.TestCase):
         record_item.update(status="draft", decision=None)
         state["objects"].append({"id": "TK1", "kind": "take", "parent": "SH1", "artifact": record_item["id"]})
         save(self.project, state)
-        vsc_series.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed output")
-        vsc_series.bind_media(self.project, "B-take", "SH1", media_id, "video_take")
-        vsc_series.decide_binding(self.project, "B-take", "approved", "fixture", "best take")
+        registry.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed output")
+        registry.bind_media(self.project, "B-take", "SH1", media_id, "video_take")
+        registry.decide_binding(self.project, "B-take", "approved", "fixture", "best take")
         return media_id, record_item, animatic
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
     def test_selected_takes_compile_and_database_agreement(self):
-        with patch.object(vsc_series, "validate_artifact", return_value=[]), \
-                patch("vsc_artifacts.validate_artifact", return_value=[]):
+        with patch.object(context_module, "validate_artifact", return_value=[]), \
+                patch("vsc.project.artifacts.validate_artifact", return_value=[]):
             media_id, record_item, animatic = self._selected_video()
             document, depends = selection.compile_selected_takes(self.project, "EP1")
         item = document["items"][0]
@@ -550,14 +552,14 @@ class SeriesDatabase(unittest.TestCase):
             changed = copy.deepcopy(document)
             mutate(changed["items"][0])
             self.assertTrue(any(expected in problem for problem in selection.selection_errors(self.project, changed)), expected)
-        alternative = vsc_series.import_media(self.project, "alt-take", self._clip("alt.mp4", "green"), "video", "owned", "fixture")
+        alternative = registry.import_media(self.project, "alt-take", self._clip("alt.mp4", "green"), "video", "owned", "fixture")
         changed = copy.deepcopy(document)
         changed["items"][0].update(output_id="alt-take", media={"path": alternative["path"], "sha256": alternative["sha256"]})
         self.assertTrue(any("video_take" in problem for problem in selection.selection_errors(self.project, changed)))
         self.assertTrue(any("video_take" in problem
                             for problem in vsc_handoffs.project_errors(changed, self.project, state, registered)))
         out = self.project / "drafts" / "EP1-selected.json"
-        with patch.object(vsc_series, "validate_artifact", return_value=[]), \
+        with patch.object(context_module, "validate_artifact", return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()) as printed, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(selection.main(["compile", str(self.project), "--episode", "EP1", "--out", str(out)]), 0)
             self.assertEqual(selection.main(["compile", str(self.project), "--episode", "EP1", "--out", str(out)]), 1)
@@ -569,8 +571,8 @@ class SeriesDatabase(unittest.TestCase):
     def test_audio_job_from_approved_line_to_dialogue_selection(self):
         voice = {"engine": "doubao_speech", "voice": "fixture_voice", "resource_id": "seed-tts-2.0",
                  "rights": "owned", "pronunciations": [{"term": "Hello", "spoken": "heh-loh"}]}
-        with patch.object(vsc_series, "validate_artifact", return_value=[]), \
-                patch("vsc_artifacts.validate_artifact", return_value=[]):
+        with patch.object(context_module, "validate_artifact", return_value=[]), \
+                patch("vsc.project.artifacts.validate_artifact", return_value=[]):
             inputs = self._shot_fixture(voice=voice)
             state = project_state(self.project)
             coverage = self._artifact(state, "vsc.coverage_plan", {"format": "vsc.coverage-plan/v1",
@@ -579,7 +581,7 @@ class SeriesDatabase(unittest.TestCase):
             save(self.project, state)
             self._reference("face-day", "char", "identity_face", "day")
             self._reference("room", "loc", "location_master")
-            context = vsc_series.build_shot_context(self.project, "SH1")
+            context = context_module.build_shot_context(self.project, "SH1")
             request = {"format": "vsc.generation-request/v1", "modality": "audio", "shot_id": "SH1",
                 "purpose": "dialogue_dry", "context_sha256": context["sha256"], "prompt": "Hello",
                 "script_line_ids": ["L1"]}
@@ -600,13 +602,13 @@ class SeriesDatabase(unittest.TestCase):
                 {"purposes": ["dialogue_dry"]}, {"format": "wav", "sample_rate": 24000})
             jobs.set_route(self.project, "audio", "dialogue_dry", "tts-1")
             bad = {**request, "prompt": "Changed"}
-            with self.assertRaisesRegex(vsc_series.SeriesError, "逐字一致"):
+            with self.assertRaisesRegex(context_module.SeriesError, "逐字一致"):
                 jobs.plan_job(self.project, run["id"], bad)
             job_id = jobs.plan_job(self.project, run["id"], request)["job_id"]
             with patch.object(dispatch, "covered_script_units", return_value=(
                     {"id": coverage["id"], "type": "vsc.coverage_plan", "sha256": "0" * 64, "scope": "EP1"}, {"L1"})), \
                     patch.object(budget, "reserve") as reserve:
-                with self.assertRaisesRegex(vsc_series.SeriesError, "覆盖计划已改变"):
+                with self.assertRaisesRegex(context_module.SeriesError, "覆盖计划已改变"):
                     dispatch.submit_job(self.project, job_id)
                 reserve.assert_not_called()
             budget.configure(self.project, {"remote_jobs": 1, "audio_jobs": 1, "speech_chars": 5},
@@ -638,9 +640,9 @@ class SeriesDatabase(unittest.TestCase):
             record_item.update(status="draft", decision=None)
             state["objects"].append({"id": "TK-AUDIO", "kind": "take", "parent": "SH1", "artifact": record_item["id"]})
             save(self.project, state)
-            vsc_series.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed")
-            vsc_series.bind_media(self.project, "B-dialogue", "SH1", media_id, "dialogue_dry", "L1")
-            vsc_series.decide_binding(self.project, "B-dialogue", "approved", "fixture", "auditioned")
+            registry.decide_media_rights(self.project, media_id, "owned", "fixture", "reviewed")
+            registry.bind_media(self.project, "B-dialogue", "SH1", media_id, "dialogue_dry", "L1")
+            registry.decide_binding(self.project, "B-dialogue", "approved", "fixture", "auditioned")
             selected, depends = selection.compile_selected_takes(self.project, "EP1")
             self.assertEqual(selected["items"][0]["cue_id"], "L1")
             self.assertEqual(selected["items"][0]["purpose"], "dialogue")
@@ -653,7 +655,7 @@ class SeriesDatabase(unittest.TestCase):
             mislabeled["items"][0]["purpose"] = "ambience"
             self.assertTrue(any("对白干声不能" in problem for problem in
                                 selection.selection_errors(self.project, mislabeled)))
-            ambience = vsc_series.import_media(self.project, "ambient", audio_path, "audio", "owned", "fixture")
+            ambience = registry.import_media(self.project, "ambient", audio_path, "audio", "owned", "fixture")
             manual = {"items": [{"id": "SEL-AMBIENT", "shot_id": "SH1", "output_id": "ambient",
                 "purpose": "ambience", "usage_rights": "owned",
                 "media": {"path": ambience["path"], "sha256": ambience["sha256"]}}]}
@@ -689,16 +691,16 @@ class SeriesDatabase(unittest.TestCase):
         result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=red:s=32x32",
             "-frames:v", "1", str(image)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        media = vsc_series.import_media(self.project, "master", image, "image", "owned", "fixture")
+        media = registry.import_media(self.project, "master", image, "image", "owned", "fixture")
         image.unlink()
         self.assertTrue((self.project / media["path"]).is_file())
-        vsc_series.bind_media(self.project, "B1", "loc", "master", "location_master")
-        vsc_series.decide_binding(self.project, "B1", "approved", "fixture", "test only")
-        vsc_series.bind_media(self.project, "B2", "loc", "master", "location_master")
-        with self.assertRaises(vsc_series.SeriesError):
-            vsc_series.decide_binding(self.project, "B2", "approved", "fixture", "duplicate")
-        vsc_series.retire_binding(self.project, "B1", "fixture", "new version")
-        vsc_series.decide_binding(self.project, "B2", "approved", "fixture", "replacement")
+        registry.bind_media(self.project, "B1", "loc", "master", "location_master")
+        registry.decide_binding(self.project, "B1", "approved", "fixture", "test only")
+        registry.bind_media(self.project, "B2", "loc", "master", "location_master")
+        with self.assertRaises(context_module.SeriesError):
+            registry.decide_binding(self.project, "B2", "approved", "fixture", "duplicate")
+        registry.retire_binding(self.project, "B1", "fixture", "new version")
+        registry.decide_binding(self.project, "B2", "approved", "fixture", "replacement")
         state = project_state(self.project)
         state["objects"].extend([
             {"id": "EP1", "kind": "episode"}, {"id": "SC1", "kind": "scene", "parent": "EP1"},
@@ -710,9 +712,9 @@ class SeriesDatabase(unittest.TestCase):
         result = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
             "color=c=red:s=32x32:r=24", "-t", "1", "-c:v", "mpeg4", str(video)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        vsc_series.import_media(self.project, "take-1", video, "video", "owned", "fixture")
-        vsc_series.bind_media(self.project, "B-take", "SH1", "take-1", "video_take")
-        vsc_series.decide_binding(self.project, "B-take", "approved", "fixture", "selected")
+        registry.import_media(self.project, "take-1", video, "video", "owned", "fixture")
+        registry.bind_media(self.project, "B-take", "SH1", "take-1", "video_take")
+        registry.decide_binding(self.project, "B-take", "approved", "fixture", "selected")
         with db.connect(self.project) as connection:
             self.assertEqual(connection.execute("SELECT count(*) FROM media_binding_decisions").fetchone()[0], 4)
 
