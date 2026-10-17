@@ -10,7 +10,7 @@ export function createScriptWorkspace(container, ctx) {
   const blank = () => ({format: 'vsc.screenplay/v1', body: '', adaptation_refs: [], scenes: []});
   let draft = null, scopeKey = '', scopeSelect = null, statusChip = null;
   let session = null;            // {project, scopeKey}：当前编辑会话，请求与响应都按它判定归属
-  let saveTimer = null, saving = false, dirty = false, lastError = null;
+  let saveTimer = null, saving = false, lastError = null, editSeq = 0, savedSeq = 0, conflict = false;
 
   const sameSession = target => session && target && target.project === session.project
     && target.scopeKey === session.scopeKey;
@@ -64,73 +64,76 @@ export function createScriptWorkspace(container, ctx) {
       await ensureScopeSelect(ctx.baseUrl());
       draft = await ctx.api(`${ctx.baseUrl()}/script-draft?scope_key=${encodeURIComponent(scopeKey)}`);
       session = target;                     // F01：切换后旧定时器/响应因会话不符被丢弃
-      clearTimeout(saveTimer); saveTimer = null; saving = false; dirty = false; lastError = null;
+      clearTimeout(saveTimer); saveTimer = null; saving = false; lastError = null; conflict = false; editSeq = 0; savedSeq = 0;
       render();
     } catch (error) { notice(error.message); }
   }
 
   function setStatus(text) { if (statusChip) statusChip.textContent = text; }
   function scheduleSave() {
-    if (!sameSession({project: ctx.baseUrl(), scopeKey})) return;
-    dirty = true; lastError = null;
+    if (!sameSession({project: ctx.baseUrl(), scopeKey}) || conflict) return;
+    editSeq++;                                     // F02：编辑序号与保存进度分离
     setStatus('待保存');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flushSave, 900);
   }
   async function flushSave() {
-    if (!session || saving || !dirty) return;      // F02：串行队列——保存中不丢新输入，返回后继续
+    if (!session || saving || editSeq <= savedSeq) return;  // 串行队列：无待存编辑（含切换后重置）不发请求
     const target = {...session};
-    const content = readEditor();
+    const seqAtSend = editSeq;
     saving = true; setStatus('保存中…');
     try {
       requireSession();
+      const content = readEditor();
       const result = await ctx.api(`${ctx.baseUrl()}/script-draft/autosave`, {method: 'POST', headers: headers(),
         body: JSON.stringify({payload: {scope_key: target.scopeKey, base_draft_revision: draft.draft_revision, content}})});
       if (!sameSession(target)) return;            // F01：过期响应不写当前会话
       draft.draft_revision = result.draft_revision; draft.exists = true;
-      dirty = false;
-      setStatus(`已保存 r${result.draft_revision}`);
-      renderConflict(null);
+      savedSeq = Math.max(savedSeq, seqAtSend);
+      lastError = null; renderConflict(null);
     } catch (error) {
       if (!sameSession(target)) return;
-      if (/已被他人/.test(error.message)) { setStatus('冲突：他人已更新'); renderConflict(error.message); }
+      if (/已被他人/.test(error.message)) { conflict = true; setStatus('冲突：他人已更新'); renderConflict(error.message); }
       else { setStatus('保存失败，可继续编辑后重试'); lastError = error.message; notice(error.message); }
     } finally {
       saving = false;
-      if (dirty && sameSession(target)) flushSave();  // 保存期间又有输入 → 继续队列
+      if (sameSession(target) && !conflict && !lastError && editSeq > savedSeq) saveTimer = setTimeout(flushSave, 0);  // 保存期间的输入继续保存
+      else if (!lastError && !conflict && editSeq <= savedSeq) setStatus(`已保存 r${draft.draft_revision}`);
     }
   }
   async function waitForSave() {
-    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-    if (dirty || saving) await flushSave();
-    while (saving) await new Promise(resolve => setTimeout(resolve, 120));
-    return !lastError && !dirty;
+    clearTimeout(saveTimer); saveTimer = null;
+    if (!saving && !lastError && editSeq > savedSeq && !conflict) await flushSave();
+    while (saving) await new Promise(resolve => setTimeout(resolve, 50));
+    return !lastError && !conflict && editSeq <= savedSeq;
   }
 
   function readEditor() {
     // F03：以服务器稿为底，按稳定场／行身份只更新被编辑的字段，保留引用、静默时长等语义。
     const content = draft.exists && draft.content ? JSON.parse(JSON.stringify(draft.content)) : blank();
     const original = content.scenes || [];
+    const byGroup = {action: [], dialogue: [], silence: []};
     const scenes = [];
     for (const card of container.querySelectorAll('.script-scene')) {
       const sceneId = card.dataset.sceneId;
       const scene = original.find(row => row.id === sceneId)
         || {id: sceneId, estimated_duration_ms: 0, actions: [], dialogue: [], silence: []};
       scene.id = sceneId;
-      const duration = Number(card.querySelector('.scene-duration')?.value || 0);
-      if (duration || card.querySelector('.scene-duration')) scene.estimated_duration_ms = duration;
-      for (const [field, kind, editor] of [['actions', 'action', null], ['dialogue', 'dialogue', '.line-speaker'], ['silence', 'silence', null]]) {
-        const source = scene[field] || [];
-        const rows = [];
-        for (const row of card.querySelectorAll(`.scene-${field} .script-line`)) {
-          const lineId = row.dataset.lineId;
-          const saved = source.find(item => item.id === lineId) || {};
-          const merged = {...saved, id: lineId, text: row.querySelector('.line-text').value};
-          if (editor) merged.speaker = row.querySelector(editor)?.value || '';
-          rows.push(merged);
-        }
-        scene[field] = rows;
+      const duration = card.querySelector('.scene-duration');
+      if (duration) scene.estimated_duration_ms = Number(duration.value || 0);
+      for (const group of ['actions', 'dialogue', 'silence']) byGroup[group] = [];
+      for (const row of card.querySelectorAll('.script-line')) {
+        const kind = row.dataset.group || 'action';
+        const lineId = row.dataset.lineId;
+        const source = (scene[{action: 'actions', dialogue: 'dialogue', silence: 'silence'}[kind]] || []);
+        const saved = source.find(item => item.id === lineId) || {};
+        const merged = {...saved, id: lineId, text: row.querySelector('.line-text').value};
+        if (kind === 'dialogue') merged.speaker = row.querySelector('.line-speaker')?.value || '';
+        byGroup[kind].push(merged);
       }
+      scene.actions = byGroup.action;
+      scene.dialogue = byGroup.dialogue;
+      scene.silence = byGroup.silence;
       scenes.push(scene);
     }
     content.scenes = scenes;
@@ -163,7 +166,7 @@ export function createScriptWorkspace(container, ctx) {
     if (draft.phase === 'pending' && draft.submitted) container.append(renderPending());
     container.append(draft.exists ? renderEditor() : renderBootstrap());
     container.append(renderNotes());
-    setStatus(dirty ? '待保存' : '—');
+    setStatus(editSeq > savedSeq ? '待保存' : '—');
   }
 
   async function refreshMeta() {
@@ -230,7 +233,7 @@ export function createScriptWorkspace(container, ctx) {
     blankButton.addEventListener('click', async () => {
       requireSession();
       draft = {exists: false, draft_revision: 0, content: blank(), phase: 'editing', notes: draft.notes || []};
-      dirty = true;
+      editSeq = 1; savedSeq = 0;
       await flushSave(); await load();
     });
     box.append(blankButton);
@@ -240,6 +243,7 @@ export function createScriptWorkspace(container, ctx) {
   function lineRow(sceneId, kind, row) {
     const item = el('div', 'script-line');
     item.dataset.lineId = row.id || `L${Math.random().toString(36).slice(2, 8)}`;
+    item.dataset.group = kind;
     if (kind === 'dialogue') {
       const speaker = el('input', 'line-speaker'); speaker.value = row.speaker || ''; speaker.placeholder = '人物';
       speaker.addEventListener('input', scheduleSave);
@@ -299,7 +303,7 @@ export function createScriptWorkspace(container, ctx) {
     addScene.addEventListener('click', () => {
       draft.content = readEditor();
       draft.content.scenes.push({id: `SC${draft.content.scenes.length + 1}`, estimated_duration_ms: 0, actions: [], dialogue: [], silence: []});
-      dirty = true; render(); scheduleSave();
+      render(); scheduleSave();
     });
     const compare = el('button', '', '与已批准基线比较');
     compare.addEventListener('click', async () => {
@@ -311,7 +315,7 @@ export function createScriptWorkspace(container, ctx) {
     const submit = el('button', 'script-submit-button', '提交人工确认');
     submit.addEventListener('click', async () => {
       const saved = await waitForSave();
-      if (!saved || dirty || saving) return notice('保存未完成或失败，不得提交；请先成功保存当前内容。');  // F02/F04：提交屏障
+      if (!saved) return notice('保存未完成、失败或存在冲突，不得提交；请先成功保存当前内容。');  // F02/F04：提交屏障
       if (!confirm('提交后当前内容冻结为待确认版本，等待人工批准；批准前不能进入正式设计与资产生产。')) return;
       try {
         const result = await write('script-submit', {scope_key: scopeKey, base_draft_revision: draft.draft_revision,

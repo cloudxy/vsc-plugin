@@ -731,6 +731,14 @@
         "tools/maintenance/official_packages.py",
         "tools/maintenance/provider_sync.py"
       ]
+    },
+    "project.unit.test_script_workspace_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "src/vsc/interfaces/web/static/panel.js"
+      ]
     }
   },
   "dependencies": {
