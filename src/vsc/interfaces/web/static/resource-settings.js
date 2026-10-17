@@ -61,7 +61,7 @@ export function createResourceSettings(dialog,{api,session,onNotice}) {
     detail.append(form);
     if(row.id){detail.append(el('p','hint',statusText(row)));const controls=el('div','settings-actions');controls.append(button('检查配置',async()=>{const value=await write(`/configurations/${encodeURIComponent(row.id)}/check`);report(value.message||statusText(value));await reload()},!canWrite()),button('查看已登记模型',async()=>{const value=await write(`/configurations/${encodeURIComponent(row.id)}/models`);report([value.message,`模型列表：${(value.models||[]).map(m=>typeof m==='string'?m:m.model_key||m.id||m.name).join('、')||'未返回可用模型'}`].filter(Boolean).join('\n'))},!canWrite()),button(row.enabled?'停用':'启用',async()=>{await write(`/configurations/${encodeURIComponent(row.id)}/enabled`,{enabled:!row.enabled});await reload();report('启用状态已更新。')},!canWrite()));detail.append(controls)}
     detail.append(el('p','hint','仅保存凭证引用，不填写密钥值。配置检查和模型列表不代表生成质量通过；此页面不发送付费试生成。'));
-    detail.append(el('p','hint','官方 SDK 的版本与环境指纹由服务端保存。火山图像与视频可选择此路线；xAI Grok Imagine 订阅登录路线（文生图与首帧图生视频，凭证为 grok CLI 登录态 ~/.grok/auth.json）已接通；CLI／Skill 仍为参考，阿里、OpenAI 尚未接通。'));
+    detail.append(el('p','hint','官方 SDK 的版本与环境指纹由服务端保存。火山图像与视频可选择此路线；xAI Grok Imagine 订阅登录路线（文生图、参考图编辑/多图合成、视频首帧/尾帧/≤14 图参考模式，凭证为 grok CLI 登录态 ~/.grok/auth.json）已接通；CLI／Skill 仍为参考，阿里、OpenAI 尚未接通。'));
   }
   function renderDefaults(){
     const purposes=Array.isArray(data.purposes)?data.purposes:Object.keys(data.purposes||labels);

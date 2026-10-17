@@ -54,10 +54,11 @@ def xai_grok_factory(job, storage):
         raise ResourceError("当前 Grok 适配器未声明这些逻辑参数映射，禁止静默忽略", "unsupported_params")
     if job["modality"] == "image":
         ratios, resolution = defaults.get("ratio_map", {}), defaults.get("resolution", "2k")
-        return ConfiguredGrokProvider(GrokImageProvider(model, lambda w, h: ratios.get(str(w) + "x" + str(h)), resolution),
-                                      job["provider_id"])
+        return ConfiguredGrokProvider(GrokImageProvider(model, media_url,
+            lambda w, h: ratios.get(str(w) + "x" + str(h)), resolution), job["provider_id"])
     if job["modality"] == "video":
         if not defaults.get("resolution"):
             raise ResourceError("Grok 视频模型需要 resolution 映射", "invalid_model_defaults")
-        return ConfiguredGrokProvider(GrokVideoProvider(model, media_url, defaults["resolution"]), job["provider_id"])
+        return ConfiguredGrokProvider(GrokVideoProvider(model, media_url, defaults["resolution"],
+            defaults.get("ratio", "")), job["provider_id"])
     raise ResourceError("Grok 订阅路线未接音频适配器", "adapter_unavailable")

@@ -26,7 +26,8 @@ class FakeTransport:
 class GrokContract(unittest.TestCase):
     def test_image_maps_ratio_and_parses_url_or_inline_bytes(self):
         transport = FakeTransport([{"data": [{"url": "https://example.invalid/temporary"}]}])
-        adapter = GrokImageProvider("grok-imagine-image-2.0", lambda w, h: "9:16" if (w, h) == (1080, 1920) else "", "2k", transport)
+        adapter = GrokImageProvider("grok-imagine-image-2.0", lambda media_id: "data:image/png;base64," + media_id,
+                                    lambda w, h: "9:16" if (w, h) == (1080, 1920) else "", "2k", transport)
         request = ImageRequest("SH1", "shot_keyframe", "sha", "room", (), {}, 1080, 1920)
         handle = adapter.submit(request)
         path, payload = transport.calls[0]
@@ -38,19 +39,28 @@ class GrokContract(unittest.TestCase):
         inline = adapter.parse_result({"data": [{"b64_json": base64.b64encode(b"pixels").decode()}]})
         self.assertEqual(inline[0].inline_bytes, b"pixels")
 
-    def test_image_rejects_reference_media_and_missing_ratio_before_transport(self):
-        transport = FakeTransport([])
-        adapter = GrokImageProvider("grok-imagine-image-2.0", lambda w, h: "", transport=transport)
+    def test_image_reference_media_goes_to_edits_endpoint(self):
+        transport = FakeTransport([{"data": [{"url": "https://example.invalid/edited"}]}])
+        adapter = GrokImageProvider("grok-imagine-image-2.0", lambda media_id: "data:image/png;base64," + media_id,
+                                    lambda w, h: "", "2k", transport)
+        handle = adapter.submit(ImageRequest("SH1", "image_edit", "sha", "只改外套颜色", ("ref1",), {}, 1080, 1920))
+        path, payload = transport.calls[0]
+        self.assertEqual(path, "/images/edits")
+        self.assertEqual(payload["image"], {"url": "data:image/png;base64,ref1", "type": "image_url"})
+        self.assertEqual(handle.raw["data"][0]["url"], "https://example.invalid/edited")
+        transport.responses = [{"data": [{"url": "https://example.invalid/merged"}]}]
+        adapter.submit(ImageRequest("SH1", "image_edit", "sha", "人物来自参考1，商品来自参考2", ("a", "b"), {}, 1080, 1920))
+        payload = transport.calls[1][1]
+        self.assertEqual([row["url"] for row in payload["images"]],
+                         ["data:image/png;base64,a", "data:image/png;base64,b"])
         with self.assertRaises(GrokAdapterError):
-            adapter.submit(ImageRequest("SH1", "identity_ref", "sha", "room", ("ref1",), {}, 1080, 1920))
-        with self.assertRaises(GrokAdapterError):
-            adapter.submit(ImageRequest("SH1", "identity_ref", "sha", "room", (), {}, 1080, 1920))
-        self.assertEqual(transport.calls, [])
+            adapter.submit(ImageRequest("SH1", "image_edit", "sha", "p", ("1", "2", "3", "4", "5", "6"), {}, 1080, 1920))
+        self.assertEqual(len(transport.calls), 2)
 
     def test_video_submits_first_frame_then_polls_fixed_request_id(self):
         transport = FakeTransport([{"request_id": "req-1"}, {"status": "pending"},
                                    {"status": "done", "video": {"url": "https://example.invalid/video", "duration": 6}}])
-        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "data:image/png;base64," + media_id, "720p", transport)
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "data:image/png;base64," + media_id, "720p", transport=transport)
         request = VideoRequest("SH1", "video_clip", "sha", "movement", (), {}, 6000, "frame1")
         handle = adapter.submit(request)
         self.assertEqual(handle.external_task_id, "req-1")
@@ -59,6 +69,7 @@ class GrokContract(unittest.TestCase):
         self.assertEqual(payload["image"]["url"], "data:image/png;base64,frame1")
         self.assertEqual((payload["duration"], payload["resolution"]), (6, "720p"))
         self.assertNotIn("aspect_ratio", payload)
+        self.assertNotIn("reference_images", payload)
         self.assertEqual(adapter.poll(handle).status, "submitted")
         result = adapter.poll(handle)
         self.assertEqual(result.status, "succeeded")
@@ -66,9 +77,40 @@ class GrokContract(unittest.TestCase):
         self.assertEqual((asset.modality, asset.metadata["duration"]), ("video", 6))
         self.assertTrue(all(call[0] == "/videos/req-1" for call in transport.calls[1:]))
 
+    def test_video_reference_mode_pins_first_frame_and_ratio(self):
+        transport = FakeTransport([{"request_id": "req-ref"}])
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "https://example.invalid/" + media_id,
+                                    "720p", "9:16", transport)
+        adapter.submit(VideoRequest("SH1", "video_clip", "sha", "<IMAGE_0> 的人走向 <IMAGE_1> 的门", ("door", "hero", "prop"), {}, 6000, "hero"))
+        payload = transport.calls[0][1]
+        self.assertEqual(payload["image"], {"url": "https://example.invalid/hero"})
+        self.assertEqual([row["url"] for row in payload["reference_images"]],
+                         ["https://example.invalid/door", "https://example.invalid/hero", "https://example.invalid/prop"])
+        self.assertEqual(payload["aspect_ratio"], "9:16")
+        hd = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "https://example.invalid/" + media_id,
+                               "1080p", transport=FakeTransport([]))
+        with self.assertRaises(GrokAdapterError):  # 参考模式分辨率上限 720p
+            hd.submit(VideoRequest("SH1", "video_clip", "sha", "p", ("a",), {}, 6000, "hero"))
+
+    def test_video_last_frame_and_text_only_modes(self):
+        transport = FakeTransport([{"request_id": "req-last"}, {"request_id": "req-text"}, {"request_id": "req-pair"}])
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "https://example.invalid/" + media_id, "1080p", transport=transport)
+        adapter.submit(VideoRequest("SH1", "video_clip", "sha", "收在门口", (), {}, 6000, None, "exit_frame"))
+        payload = transport.calls[0][1]
+        self.assertNotIn("image", payload)
+        self.assertEqual(payload["last_frame"], {"url": "https://example.invalid/exit_frame"})
+        adapter.submit(VideoRequest("SH1", "video_clip", "sha", "空镜缓慢横移", (), {}, 5000))
+        payload = transport.calls[1][1]
+        for absent in ("image", "last_frame", "reference_images"):
+            self.assertNotIn(absent, payload)
+        adapter.submit(VideoRequest("SH1", "video_clip", "sha", "推近", (), {}, 6000, "entry", "exit"))
+        payload = transport.calls[2][1]
+        self.assertEqual((payload["image"]["url"], payload["last_frame"]["url"]),
+                         ("https://example.invalid/entry", "https://example.invalid/exit"))
+
     def test_video_failure_states_and_missing_request_id(self):
         transport = FakeTransport([{"status": "failed", "error": {"code": "internal_error"}}])
-        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: media_id, "480p", transport)
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: media_id, "480p", transport=transport)
         self.assertEqual(adapter.poll(JobHandle("xai_grok", "grok-imagine-video-1.5", "req-2", {})).status, "failed")
         transport.responses = [{"status": "expired"}]
         self.assertEqual(adapter.poll(JobHandle("xai_grok", "grok-imagine-video-1.5", "req-2", {})).error_code, "expired")
@@ -76,21 +118,17 @@ class GrokContract(unittest.TestCase):
         with self.assertRaises(GrokAdapterError):
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 6000, "first"))
 
-    def test_video_rejects_last_frame_references_and_bad_duration_before_transport(self):
+    def test_video_rejects_audio_references_and_bad_duration_before_transport(self):
         transport = FakeTransport([])
-        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: media_id, "480p", transport)
-        with self.assertRaises(GrokAdapterError):
-            adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 6000, "first", "last"))
-        with self.assertRaises(GrokAdapterError):
-            adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", ("ref",), {}, 6000, "first"))
-        with self.assertRaises(GrokAdapterError):
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: media_id, "480p", transport=transport)
+        with self.assertRaises(GrokAdapterError):  # reference_audios 只接平台预置 voice_id，不接音频素材
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 6000, reference_audio_media_ids=("speech",)))
         with self.assertRaises(GrokAdapterError):
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 16000, "first"))
         with self.assertRaises(GrokAdapterError):
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 4500, "first"))
-        with self.assertRaises(GrokAdapterError):
-            adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 6000))
+        with self.assertRaises(GrokAdapterError):  # 参考图最多 14 张
+            adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", tuple("r%d" % i for i in range(15)), {}, 6000, "first"))
         self.assertEqual(transport.calls, [])
 
 

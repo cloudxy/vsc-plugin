@@ -68,20 +68,28 @@ python3 -B scripts/providers/volcengine/ark.py inspect --project projects/示例
 
 ## xAI Grok 订阅适配器
 
-[`scripts/providers/xai/grok.py`](../../scripts/providers/xai/grok.py) 用标准库调用 xAI Grok Imagine（订阅登录路线）：图像走文生图，视频走首帧锚定的图生视频（时长 1–15 秒、画幅跟随首帧）。凭证只读 grok CLI 登录态 `~/.grok/auth.json` 的 key，不读环境变量、不回显；缺失或过期时提示在终端运行 `grok` 登录刷新。请求统一带浏览器 User-Agent；结果 URL 是临时的，成功后立即转存并登记 SHA。同名任务先写提交意图再 POST，中断续查不重提；每次生成写 `vsc.generation-record/v1`（`engine.provider=xai_grok`）。
+[`scripts/providers/xai/grok.py`](../../scripts/providers/xai/grok.py) 用标准库调用 xAI Grok Imagine（订阅登录路线），能力面按官方文档全量接入：图像支持文生图与 `/v1/images/edits` 参考图编辑（单图局部改、最多 5 张源图多图合成，提示词只写要改的内容）；视频支持四种模式——首帧图生视频（`--first-frame`，1.5 可到 1080p）、尾帧钉定（`--last-frame`，可单独用或与首帧组成首尾插值）、参考生视频（`--ref-image` 最多 14 张，提示词用 `<IMAGE_n>` 按位指认人物／场景；与首帧同用时首帧占 `<IMAGE_0>`、参考图从 `<IMAGE_1>` 起编号；上限 720p）与纯文生视频（可控性弱，非默认）。参考模式适合多人物身份一致与商品植入镜头；非法组合（参考 1080p、超限张数）提交前拒绝。
 
-PostgreSQL worker 按 `worker_factory` 分发到 Grok 订阅适配器；series 栈同样放行 `xai_grok`。资源面板预设默认停用，按项目启用并绑定用途默认后生效。订阅授权与按量 `XAI_API_KEY`、Grok Build 宿主内置工具互不混用；401／403 不自动换凭证或重试。端点、参数与验证边界详见 [xAI Grok 订阅路线](xai-grok-subscription.md)。
+凭证只读 grok CLI 登录态 `~/.grok/auth.json` 的 key，不读环境变量、不回显；缺失或过期时提示在终端运行 `grok` 登录刷新。请求统一带浏览器 User-Agent；结果 URL 是临时的，成功后立即转存并登记 SHA。同名任务先写提交意图再 POST，中断续查不重提；参考图按出现顺序写入语义摘要；每次生成写 `vsc.generation-record/v1`（`engine.provider=xai_grok`）。
+
+PostgreSQL worker 按 `worker_factory` 分发到 Grok 订阅适配器；series 栈同样放行 `xai_grok`。资源面板预设默认停用，按项目启用并绑定用途默认后生效。订阅授权与按量 `XAI_API_KEY`、Grok Build 宿主内置工具互不混用；401／403 不自动换凭证或重试。端点、全部模式参数与验证边界详见 [xAI Grok 订阅路线](xai-grok-subscription.md)。
 
 ```bash
-# 资产图：订阅登录态出图（9:16、2k 默认）。
+# 资产图：文生图（9:16、2k 默认）；--ref（≤5）改走图像编辑/多图合成。
 python3 -B scripts/providers/xai/grok.py image --project projects/示例作品 \
   --out 06-素材/资产 --name character-01 --purpose asset --prompt-file ./人物提示.txt
 
-# 图生视频：先 dry-run 核对请求，去掉 --dry-run 才提交；首帧锚定，画幅跟随源图。
+# 参考生视频：身份来自 <IMAGE_1>、门来自 <IMAGE_2>，首帧占 <IMAGE_0>；先 dry-run 核对。
 python3 -B scripts/providers/xai/grok.py video --project projects/示例作品 \
   --out 06-素材/视频 --name SH-001-T1 --shot SH-001 \
-  --prompt-file ./动作提示.txt --first-frame projects/示例作品/06-素材/资产/character-01.png \
-  --resolution 480p --duration 6 --dry-run
+  --prompt-file ./动作提示.txt --first-frame 06-素材/视频/SH-001-首帧.png \
+  --ref-image 06-素材/资产/主角.png --ref-image 06-素材/资产/大门.png \
+  --resolution 720p --ratio 9:16 --dry-run
+
+# 首尾帧模式：平台在两帧之间插值生成。
+python3 -B scripts/providers/xai/grok.py video --project projects/示例作品 \
+  --out 06-素材/视频 --name SH-002-T1 --shot SH-002 \
+  --prompt-file ./动作提示.txt --first-frame SH-002-入点.png --last-frame SH-002-出点.png --dry-run
 ```
 
 截至 2026-10-17 只有离线契约验证，真实订阅账号的线上生成尚未实测；实测前不得报告该路线可用于生产。
