@@ -60,6 +60,12 @@ def compare_documents(before, after):
                     fields["text"] = (_line_text(previous), _line_text(row))
                 if key == "dialogue" and previous.get("speaker") != row.get("speaker"):
                     fields["speaker"] = (previous.get("speaker"), row.get("speaker"))
+                if key == "actions" and previous.get("narrative_refs") != row.get("narrative_refs"):
+                    fields["narrative_refs"] = (previous.get("narrative_refs"), row.get("narrative_refs"))
+                if key == "silence":
+                    for silence_field in ("duration_ms", "purpose"):
+                        if previous.get(silence_field) != row.get(silence_field):
+                            fields[silence_field] = (previous.get(silence_field), row.get(silence_field))
                 for field, (was, now) in fields.items():
                     lines.append({"scene_id": scene_id, "line_id": line_id, "kind": key,
                                   "change": "changed", "field": field, "before": was, "after": now})

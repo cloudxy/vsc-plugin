@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """xAI Grok Imagine image/video adapters for series and PostgreSQL worker requests.
 
-Construction and parsing are local. submit/poll are the only network seams, and
-the caller must durably mark submission intent and reserve budget beforehand.
-This module does not dispatch jobs or import temporary result URLs itself.
-
-Video modes on grok-imagine-video-1.5 (official spec): text-to-video, image-to-video
-(``image`` pins the first frame), reference-to-video (up to 14 ``reference_images``,
-``image`` may combine with references and then takes the pinned first frame,
-``last_frame`` pins the closing frame). Preset voice references and mid-clip
-keyframes exist on the platform but are not wired here.
+Construction, validation and payload compilation are local via the shared
+``spec`` module (B2-01): CLI, series and this provider get identical payloads or
+identical rejections. ``preflight`` runs every local check (parameters, model
+combination, credentials) without network so callers refuse invalid requests
+before reserving budget or recording submission intent. submit/poll remain the
+only network seams.
 """
 from __future__ import annotations
 import base64
@@ -17,6 +14,7 @@ import binascii
 from typing import Callable
 
 from vsc.adapters.providers.xai_grok import api as grok
+from vsc.adapters.providers.xai_grok import spec
 from vsc.production.providers import GeneratedAsset, ImageRequest, JobHandle, JobStatus, VideoRequest
 
 
@@ -35,22 +33,28 @@ class GrokImageProvider:
         self.resolution = resolution
         self.transport = transport or grok.call
 
+    def _compile(self, req: ImageRequest):
+        references = [self.media_url(media_id) for media_id in req.reference_media_ids]
+        ratio = self.ratio_for(req.width, req.height) if not references else None
+        try:
+            return spec.compile_image(self.model, req.prompt, references, ratio, self.resolution, 1)
+        except spec.GrokSpecError as exc:
+            raise GrokAdapterError(str(exc)) from None
+
+    def preflight(self, req: ImageRequest = None):
+        """All local checks (no network): invalid requests must fail before budget."""
+        from vsc.adapters.providers.xai_grok import credentials as grok_credentials
+        if req is not None:
+            if req.width < 1 or req.height < 1:
+                raise GrokAdapterError("图像规格缺宽高")
+            self._compile(req)
+        problem = grok_credentials.key_problem()
+        if problem:
+            raise GrokAdapterError(problem)
+
     def submit(self, req: ImageRequest) -> JobHandle:
-        if req.width < 1 or req.height < 1 or not req.prompt.strip():
-            raise GrokAdapterError("图像规格缺宽高或提示词")
-        references = list(req.reference_media_ids)
-        if len(references) > 5:
-            raise GrokAdapterError("Grok 图像编辑一次最多 5 张源图")
-        if references:
-            # /v1/images/edits：单源图 image，多源图 images 合成；提示词只写要改的内容。
-            payload = grok.edit_payload(self.model, req.prompt, [self.media_url(m) for m in references])
-            path = "/images/edits"
-        else:
-            ratio = self.ratio_for(req.width, req.height)
-            if not isinstance(ratio, str) or not ratio:
-                raise GrokAdapterError("此图像尺寸没有已配置的 Grok 画幅映射")
-            payload = grok.image_payload(self.model, req.prompt, ratio, self.resolution, 1)
-            path = "/images/generations"
+        self.preflight(req)
+        path, payload = self._compile(req)
         raw = self.transport(path, payload)
         if not isinstance(raw, dict):
             raise GrokAdapterError("Grok 图像响应不是对象；提交结果须按未知处理并对账")
@@ -91,22 +95,10 @@ class GrokImageProvider:
 class GrokVideoProvider:
     """Text-to-video, first/last-frame pinning, keyframes and reference-to-video.
 
-    Modes (chosen by the frozen request): ``image`` alone is image-to-video with the
-    first frame anchored; ``reference_images`` (1–14) guide identity/scene without
-    pinning; ``image`` + references keeps the pinned first frame (prompt then numbers
-    it <IMAGE_0> and references from <IMAGE_1>); ``last_frame`` pins the closing
-    frame and may combine with references; prompt-only is text-to-video.
-    ``keyframes`` pins up to 4 mid-clip frames at second timestamps; ``voice_ids``
-    carries platform preset voice ids from the provider registry (the DB field for
-    platform resource ids) into ``reference_audios``. last_frame/keyframes/voices
-    and image+reference combination require the 1.5 generation of the model.
+    Modes are chosen by the frozen request; every local rule (duration, model
+    generation limits, reference/keyframe/voice caps, resolution ceilings) lives
+    in ``spec.compile_video`` so the CLI and both job stacks judge identically.
     """
-
-    REFERENCE_LIMIT = 14
-    VOICE_LIMIT = 3
-    KEYFRAME_LIMIT = 4
-    REFERENCE_RESOLUTIONS = ("480p", "720p")
-    FRAME_RESOLUTIONS = ("480p", "720p", "1080p")
 
     def __init__(self, model: str, media_url: Callable[[str], str], resolution: str,
                  ratio: str = "", voice_ids=(), generate_audio=True, transport=None):
@@ -115,55 +107,34 @@ class GrokVideoProvider:
         self.resolution = resolution
         self.ratio = ratio or ""
         self.voice_ids = tuple(voice_ids or ())
-        if len(self.voice_ids) > self.VOICE_LIMIT:
-            raise GrokAdapterError(f"Grok 预置声音参考最多 {self.VOICE_LIMIT} 个")
         self.generate_audio = generate_audio
         self.transport = transport or grok.call
-        self.advanced = "1.5" in model
 
-    def submit(self, req: VideoRequest) -> JobHandle:
-        maximum_ms = 15000 if self.advanced else 10000
-        if req.duration_ms < 1000 or req.duration_ms % 1000 or req.duration_ms > maximum_ms or not req.prompt.strip():
-            raise GrokAdapterError(f"Grok 视频时长须为 1–{maximum_ms // 1000} 整秒且提示词非空")
-        if req.reference_audio_media_ids:
-            raise GrokAdapterError("Grok 视频的 reference_audios 只接平台预置 voice_id（登记在模型默认参数 reference_voice_ids），不能传音频素材文件")
+    def _compile(self, req: VideoRequest):
         keyframes = [(self.media_url(media_id), float(seconds)) for media_id, seconds in (req.keyframes or ())]
-        if len(keyframes) > self.KEYFRAME_LIMIT:
-            raise GrokAdapterError(f"Grok 中段关键帧最多 {self.KEYFRAME_LIMIT} 个")
-        if not self.advanced:  # 经典 grok-imagine-video 的官方限制
-            classic_features = []
-            if req.last_frame_media_id:
-                classic_features.append("尾帧钉定")
-            if keyframes:
-                classic_features.append("中段关键帧")
-            if self.voice_ids:
-                classic_features.append("预置声音参考")
-            if req.first_frame_media_id and req.reference_media_ids:
-                classic_features.append("首帧与参考图同用")
-            if classic_features:
-                raise GrokAdapterError("经典 grok-imagine-video 不支持" + "、".join(classic_features) + "；请使用 1.5 系列模型")
-        seconds = req.duration_ms // 1000
-        for _, at in keyframes:
-            if not 0 < at < seconds:
-                raise GrokAdapterError("关键帧时间戳必须严格落在片内（大于 0 且小于时长）")
-        stamps = sorted(at for _, at in keyframes)
-        for before, after in zip(stamps, stamps[1:]):
-            if after - before < 1 / 3:
-                raise GrokAdapterError("关键帧时间戳须彼此间隔至少 1/3 秒")
         first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
         last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
         references = [self.media_url(media_id) for media_id in req.reference_media_ids]
-        if len(references) > self.REFERENCE_LIMIT:
-            raise GrokAdapterError(f"Grok 参考模式一次最多 {self.REFERENCE_LIMIT} 张参考图")
-        reference_mode = bool(references)
-        if reference_mode and self.resolution not in self.REFERENCE_RESOLUTIONS:
-            raise GrokAdapterError("Grok 参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
-        if not reference_mode and self.resolution not in self.FRAME_RESOLUTIONS:
-            raise GrokAdapterError("Grok 视频分辨率须为 480p、720p 或 1080p")
-        payload = grok.video_payload(self.model, req.prompt, first, seconds, self.resolution,
-                                     last_frame=last, reference_images=references, aspect_ratio=self.ratio,
-                                     keyframes=keyframes, voice_ids=self.voice_ids,
-                                     generate_audio=self.generate_audio)
+        try:
+            return spec.compile_video(self.model, req.prompt, req.duration_ms, first, last, references,
+                                      keyframes, self.voice_ids, self.ratio, self.resolution, self.generate_audio)
+        except spec.GrokSpecError as exc:
+            raise GrokAdapterError(str(exc)) from None
+
+    def preflight(self, req: VideoRequest = None):
+        """All local checks (no network) before any budget reservation or intent."""
+        from vsc.adapters.providers.xai_grok import credentials as grok_credentials
+        if req is not None:
+            if req.reference_audio_media_ids:
+                raise GrokAdapterError("Grok 视频的 reference_audios 只接平台预置 voice_id（模型默认参数 reference_voice_ids），不能传音频素材文件")
+            self._compile(req)
+        problem = grok_credentials.key_problem()
+        if problem:
+            raise GrokAdapterError(problem)
+
+    def submit(self, req: VideoRequest) -> JobHandle:
+        self.preflight(req)
+        payload = self._compile(req)
         raw = self.transport("/videos/generations", payload)
         task_id = raw.get("request_id") if isinstance(raw, dict) else None
         if not isinstance(task_id, str) or not task_id:

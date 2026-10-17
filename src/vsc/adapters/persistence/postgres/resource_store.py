@@ -241,6 +241,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                             callback=lambda conn, project: self._create_artifact(conn, project, payload), **kw)
 
     def _create_artifact(self, conn, project, payload):
+            self.check_script_confirmation(conn, project, payload)  # F05/F06：剧本确认硬停在登记事务内统一消费
             p, artifact_id = project["id"], checked_id(payload.get("id", new_id()))
             document = required(payload, "document")
             if isinstance(document, (dict, list)):

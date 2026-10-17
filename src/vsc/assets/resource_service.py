@@ -218,55 +218,7 @@ class ResourceService:
                 project["profile_snapshot"].get("contract_policy", "production-v2"))
             if errors:
                 raise ResourceError("产物违反固定契约: " + "; ".join(errors), "invalid_contract")
-        self._require_confirmed_script(project, payload, artifact_type)
         return self._write("create_artifact", project_id, payload, **kw)
-
-    def _require_confirmed_script(self, project, payload, artifact_type):
-        """Q1 硬停：剧本未人工确认前，不能登记 script 之后阶段的正式产物。"""
-        stages = project["profile_snapshot"].get("stages", [])
-        script_index = next((i for i, stage in enumerate(stages)
-                             if stage.get("id") == "script"
-                             or any(kind in stage.get("required", []) for kind in ("vsc.screenplay", "screenplay"))), None)
-        if script_index is None:
-            return
-        stage_id = payload.get("stage")
-        owner = next((i for i, stage in enumerate(stages) if stage.get("id") == stage_id), None) if stage_id else None
-        if owner is None:
-            owner = next((i for i, stage in enumerate(stages) if artifact_type in stage.get("required", [])), None)
-        if owner is None or owner <= script_index:
-            return
-        script_types = {kind for kind in stages[script_index].get("required", []) if "screenplay" in kind}
-        scope_ids = [str(value) for value in payload.get("object_ids", []) if isinstance(value, str)]
-        candidates = [row for row in self.list_artifacts(project["id"])["items"]
-                      if row.get("artifact_type") in script_types and row.get("current") and row.get("approved")]
-        if candidates and not payload.get("project_wide"):
-            parents = {node["id"]: node["parent_id"] for node in self.get_project_tree(project["id"])["nodes"]
-                       if node.get("parent_id")}
-            chains = self._ancestor_chains(scope_ids, parents)
-            covering = []
-            for row in candidates:
-                if row.get("project_wide"):
-                    covering.append(row)
-                elif not row.get("project_wide"):
-                    scopes = set(self.get_artifact_version(project["id"], row["id"]).get("object_ids") or [])
-                    if scopes & chains:
-                        covering.append(row)
-            candidates = covering
-        if not candidates:
-            raise ResourceError("剧本尚未人工确认，不能登记后续阶段的正式产物；先在剧本工作区提交并批准剧本",
-                                "script_confirmation_required", 409)
-
-    @staticmethod
-    def _ancestor_chains(scope_ids, parents):
-        expanded = set()
-        for scope in scope_ids:
-            cursor = scope
-            seen = set()
-            while cursor and cursor not in seen:
-                seen.add(cursor)
-                expanded.add(cursor)
-                cursor = parents.get(cursor)
-        return expanded
 
     # ---------- 剧本工作区（Q1：工作副本、批注、提交确认） ----------
 
@@ -306,16 +258,22 @@ class ResourceService:
         base = draft.get("base") or {}
         base_id = base_artifact_id or base.get("id")
         if base_id is None:
-            # 无登记基线时回退到当前范围已批准的剧本版本，未找到则以空基线比较。
+            # F08：基线按精确范围选取——项目级稿只认项目级剧本，分集稿只认项目级或覆盖该集的剧本。
             project = self.store.get_project(project_id)
             stages = project["profile_snapshot"].get("stages", [])
             script_types = {kind for stage in stages for kind in stage.get("required", []) if "screenplay" in kind}
             if script_types:
                 for row in self.list_artifacts(project_id)["items"]:
-                    if (row.get("artifact_type") in script_types and row.get("current") and row.get("approved")
-                            and (row.get("project_wide") or not scope_key or scope_key in (row.get("object_ids") or []))):
-                        base_id = row["id"]
-                        base = {"id": row["id"], "version": row.get("version"), "sha256": row.get("sha256")}
+                    if row.get("artifact_type") not in script_types or not row.get("current") or not row.get("approved"):
+                        continue
+                    if scope_key:
+                        if row.get("project_wide") or scope_key in (row.get("object_ids") or []):
+                            base_id, base = row["id"], {"id": row["id"], "version": row.get("version"),
+                                                        "sha256": row.get("sha256")}
+                            break
+                    elif row.get("project_wide"):
+                        base_id, base = row["id"], {"id": row["id"], "version": row.get("version"),
+                                                    "sha256": row.get("sha256")}
                         break
         baseline = self.get_artifact_version(project_id, base_id).get("content") if base_id else None
         if isinstance(baseline, str):

@@ -26,3 +26,6 @@
 .notes-list .note-anchor { font-family: ui-monospace, monospace; font-size: .8rem; color: #5f6368; }
 .notes-list li.note-resolved span, .notes-list li.note-dismissed span { opacity: .6; }
 @media (max-width: 720px) { .script-line { flex-wrap: wrap; } .script-line .line-text { flex-basis: 100%; } }
+.frozen-body { max-height: 22rem; overflow: auto; border: 1px solid #d0d4d9; border-radius: 6px; padding: .5rem; }
+.frozen-scene { margin-bottom: .5rem; }
+.frozen-scene div { padding-left: .8rem; }

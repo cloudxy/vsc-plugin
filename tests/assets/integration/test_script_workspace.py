@@ -103,6 +103,56 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.write("decide_script_note", {"note_id": note["id"], "outcome": "reopen", "reason": "复看后仍不稳"})
         self.assertEqual(self.service.get_script_draft(self.p, self.episode)["notes"][0]["status"], "open")
 
+    def test_hard_stop_closes_bypasses_and_pending_revision(self):
+        episode_a = self.objects["episode"]
+        episode_b = self.write("create_object", {"kind": "episode", "display_code": "EP2",
+                                                 "parent_id": self.objects["work"], "ordinal": 1})["id"]
+        # F05-1：伪造 stage=script 不能改变类型→阶段归属
+        with self.assertRaises(ResourceError) as caught:
+            self.write("create_artifact", dict(artifact_key="lie", artifact_type="asset-bible", stage="script",
+                                               document={"synthetic": True}, object_ids=[episode_a]))
+        self.assertEqual("script_confirmation_required", caught.exception.code)
+        saved = self.service.save_script_draft(self.p, {"scope_key": episode_a, "base_draft_revision": 0,
+                                                        "content": self.draft_document()}, actor="editor-a")
+        # F05-2：script-submit 不接受非剧本类型
+        with self.assertRaises(ResourceError) as caught:
+            self.write("submit_script_draft", {"scope_key": episode_a, "base_draft_revision": saved["draft_revision"],
+                                               "artifact_type": "asset-bible", "stage": "script"})
+        self.assertEqual("invalid_artifact_type", caught.exception.code)
+        # F04：提交必须携带准确 draft_revision
+        with self.assertRaises(ResourceError) as caught:
+            self.write("submit_script_draft", {"scope_key": episode_a, "artifact_type": "screenplay", "stage": "script"})
+        self.assertEqual("draft_revision_conflict", caught.exception.code)
+        first = self.write("submit_script_draft", {"scope_key": episode_a,
+            "base_draft_revision": saved["draft_revision"], "artifact_type": "screenplay", "stage": "script"})
+        self.write("decide_artifact", {"artifact_id": first["artifact"]["id"], "reason": "synthetic human approval"})
+        # F05-3/4：范围逐一覆盖——仅 A 批准时 B、A+B、项目级一律拒绝
+        self.assertTrue(self.write("create_artifact", dict(artifact_key="a-ok", artifact_type="asset-bible",
+            stage="design", document={"synthetic": True}, object_ids=[episode_a]))["id"])
+        for payload in (dict(artifact_key="b-no", artifact_type="asset-bible", stage="design",
+                             document={"synthetic": True}, object_ids=[episode_b]),
+                        dict(artifact_key="ab-no", artifact_type="asset-bible", stage="design",
+                             document={"synthetic": True}, object_ids=[episode_a, episode_b]),
+                        dict(artifact_key="wide-no", artifact_type="asset-bible", stage="design",
+                             document={"synthetic": True}, project_wide=True)):
+            with self.assertRaises(ResourceError) as caught:
+                self.write("create_artifact", payload)
+            self.assertEqual("script_confirmation_required", caught.exception.code)
+        # F06：待审修订阻断受影响新制作；退回后恢复
+        self.service.save_script_draft(self.p, {"scope_key": episode_a,
+            "base_draft_revision": saved["draft_revision"],
+            "content": self.draft_document("今晚我等你，不见不散")}, actor="editor-a")
+        second = self.write("submit_script_draft", {"scope_key": episode_a,
+            "base_draft_revision": saved["draft_revision"] + 1, "artifact_type": "screenplay", "stage": "script"})
+        self.assertEqual(second["artifact"]["artifact_key"], first["artifact"]["artifact_key"])  # 同一 stream
+        with self.assertRaises(ResourceError) as caught:
+            self.write("create_artifact", dict(artifact_key="a-pending", artifact_type="asset-bible", stage="design",
+                                               document={"synthetic": True}, object_ids=[episode_a]))
+        self.assertEqual("script_revision_pending", caught.exception.code)
+        self.write("decide_artifact", {"artifact_id": second["artifact"]["id"], "outcome": "reject", "reason": "台词动机不足"})
+        self.assertTrue(self.write("create_artifact", dict(artifact_key="a-resumed", artifact_type="asset-bible",
+            stage="design", document={"synthetic": True}, object_ids=[episode_a]))["id"])
+
     def test_project_wide_design_waits_for_project_wide_confirmation(self):
         self.service.save_script_draft(self.p, {"scope_key": "", "base_draft_revision": 0,
                                                 "content": self.draft_document()}, actor="editor-a")

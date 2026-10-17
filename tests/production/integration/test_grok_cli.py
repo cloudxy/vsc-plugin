@@ -83,6 +83,7 @@ class GenerateTest(unittest.TestCase):
 
     def run_cli(self, *argv):
         with mock.patch.object(A, "call", self.fake_call), mock.patch.object(A, "download", self.fake_download), \
+                mock.patch.object(A, "verify_media", lambda path: None), \
                 mock.patch.object(A.time, "sleep", lambda _: None), contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()):
             return A.main(list(argv))
@@ -250,6 +251,14 @@ class GenerateTest(unittest.TestCase):
         bad = list(argv[:-2]) + ["--keyframe", f"{mid}@6", "--duration", "6"]  # 时间戳落在片外
         self.assertEqual(self.run_cli(*bad, "--dry-run"), 1)
         self.assertEqual(self.calls, [])
+
+    def test_downloaded_media_must_decode_before_success(self):
+        bad = self.project / "素材" / "bad.mp4"
+        bad.parent.mkdir(exist_ok=True)
+        bad.write_bytes(b"<html>not a video</html>")
+        with self.assertRaises(A.GrokError):
+            A.verify_media(bad)
+        self.assertFalse(bad.exists())  # 坏文件删除，续接可重新下载
 
     def test_video_edit_and_extend_operations(self):
         clip = self.project / "take.mp4"
