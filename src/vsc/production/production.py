@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import functools
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from vsc.adapters.providers.volc_ark import api as ark
+from vsc.adapters.providers.xai_grok import spec as grok_spec
 
 FORMAT = "vsc.production-batch/v1"
 JOURNAL_FORMAT = "vsc.production-journal/v1"
@@ -20,8 +22,21 @@ COMMON = {"out", "name", "prompt", "prompt_file", "bible", "state", "shot", "mod
 IMAGE = {"ref", "base_frame", "base_use", "purpose", "moment", "size"}
 VIDEO = {"first_frame", "last_frame", "first_frame_ref", "ref_image", "ref_video", "ref_audio",
          "resolution", "ratio", "duration", "no_audio", "draft"}
-MULTI = {"ref", "ref_image", "ref_video", "ref_audio"}
-MEDIA = MULTI | {"base_frame", "first_frame", "last_frame", "first_frame_ref"}
+GROK_IMAGE = {"ref", "aspect_ratio", "resolution", "count", "purpose", "moment"}
+GROK_VIDEO = {"first_frame", "last_frame", "ref_image", "keyframe", "voice_id",
+              "ratio", "resolution", "duration", "no_audio"}
+GROK_OPERATION = {"video", "duration"}
+GROK_KINDS = {"grok_image": "image", "grok_video": "video", "grok_edit": "edit", "grok_extend": "extend"}
+GROK_DEFAULTS = {
+    "grok_image": {"model": "grok-imagine-image-2.0", "aspect_ratio": "9:16", "resolution": "2k",
+                   "count": 1, "purpose": "candidate", "ref": []},
+    "grok_video": {"model": "grok-imagine-video-1.5", "resolution": "480p", "duration": 6,
+                   "ratio": "", "no_audio": False, "ref_image": [], "voice_id": [], "keyframe": []},
+    "grok_edit": {"model": "grok-imagine-video", "video": None},
+    "grok_extend": {"model": "grok-imagine-video", "video": None, "duration": 6},
+}
+MULTI = {"ref", "ref_image", "ref_video", "ref_audio", "voice_id"}
+MEDIA = MULTI | {"base_frame", "first_frame", "last_frame", "first_frame_ref", "video", "keyframe"}
 FILES = {"bible", "state", "prompt_file"}
 
 
@@ -108,7 +123,41 @@ def outputs(job):
     prefix = str(Path(args["out"]) / args["name"])
     if job["kind"] == "image":
         return {"image": prefix + (".png" if args["model"].startswith("doubao-seedream-5") else ".jpeg")}
+    if job["kind"] == "grok_image":
+        return {"image": prefix + ".jpeg"}  # grok 按字节嗅探后缀，完成校验按前缀+ID 匹配
+    if job["kind"] in ("grok_edit", "grok_extend"):
+        return {"video": prefix + ".mp4"}
     return {"video": prefix + ".mp4", "last_frame": prefix + "-尾帧.jpeg"}
+
+
+def probe_seconds(path):
+    try:
+        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+                               capture_output=True, text=True, check=True, timeout=60)
+        return int(math.ceil(float(probe.stdout.strip())))
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise ProductionError(f"无法读取视频时长：{path}（{type(exc).__name__}）") from None
+
+
+def grok_preflight(job, prompt):
+    """计划期本地预检：与 CLI/series/PG 共用同一编译器，非法组合在建计划时即拒绝。"""
+    args = job["args"]
+    try:
+        if job["kind"] == "grok_image":
+            spec_args = [args["model"], prompt, [value["path"] for value in args["ref"]],
+                         args["aspect_ratio"], args["resolution"], args["count"]]
+            grok_spec.compile_image(*spec_args)
+        elif job["kind"] == "grok_video":
+            grok_spec.compile_video(args["model"], prompt, args["duration"] * 1000,
+                                    args.get("first_frame", {}).get("path") if args.get("first_frame") else None,
+                                    args.get("last_frame", {}).get("path") if args.get("last_frame") else None,
+                                    [value["path"] for value in args["ref_image"]],
+                                    [(value["path"], value["at"]) for value in args["keyframe"]],
+                                    args["voice_id"], args["ratio"], args["resolution"], not args["no_audio"])
+        else:
+            grok_spec.compile_video_operation(args["model"], args["video"]["path"], prompt, job["kind"][5:])
+    except grok_spec.GrokSpecError as exc:
+        raise ProductionError(f"{job['id']} 无效：{exc}") from None
 
 
 def source(project, value, job, jobs, inputs, allow_job=True):
@@ -156,11 +205,14 @@ def build_plan(project, batch):
         require(isinstance(raw, dict) and set(raw) == {"id", "kind", "depends_on", "args"}, "job 必须写 id/kind/depends_on/args")
         job = json.loads(json.dumps(raw))
         require(safe_id(job["id"]) and job["id"] not in jobs, "job ID 无效或重复")
-        require(job["kind"] in ("image", "video"), "仅支持豆包 image/video")
+        require(job["kind"] in ("image", "video") or job["kind"] in GROK_KINDS,
+                "仅支持 image/video（豆包）或 grok_image/grok_video/grok_edit/grok_extend（Grok 订阅）")
         require(isinstance(job["depends_on"], list) and all(safe_id(item) for item in job["depends_on"])
                 and len(set(job["depends_on"])) == len(job["depends_on"]), "depends_on 必须是无重复 ID 数组")
         args = job["args"]
-        require(isinstance(args, dict) and set(args) <= COMMON | (IMAGE if job["kind"] == "image" else VIDEO), "未知或越权 args 字段")
+        allowed_args = (IMAGE if job["kind"] == "image" else VIDEO) if job["kind"] in ("image", "video") \
+            else (GROK_IMAGE if job["kind"] == "grok_image" else GROK_VIDEO if job["kind"] == "grok_video" else GROK_OPERATION)
+        require(isinstance(args, dict) and set(args) <= COMMON | allowed_args, "未知或越权 args 字段")
         require(safe_id(args.get("name")), "args.name 必须是安全文件名")
         check_directory_ancestors(project, path_in(project, args.get("out")))
         require(Path(args["out"]).parts and Path(args["out"]).parts[0] != ".vsc-production", "输出必须使用独立目录，不能进入队列 journal 目录")
@@ -170,25 +222,56 @@ def build_plan(project, batch):
         defaults = ({"model": ark.IMAGE_MODEL, "size": "2K", "purpose": "candidate", "base_use": "edit", "ref": []}
                     if job["kind"] == "image" else {"model": ark.VIDEO_MODEL, "resolution": "480p", "ratio": "adaptive",
                                                    "duration": 5, "no_audio": False, "draft": False,
-                                                   "ref_image": [], "ref_video": [], "ref_audio": []})
+                                                   "ref_image": [], "ref_video": [], "ref_audio": []}) \
+            if job["kind"] in ("image", "video") else dict(GROK_DEFAULTS[job["kind"]])
         job["args"] = {**defaults, **args}
         args = job["args"]
-        prefix = "doubao-seedream-" if job["kind"] == "image" else "doubao-seedance-"
-        require(isinstance(args["model"], str) and args["model"].startswith(prefix), "队列只支持豆包 Seedream/Seedance 模型")
-        for key in set(args) - MEDIA - FILES - {"duration", "no_audio", "draft"}:
+        if job["kind"] in GROK_KINDS:
+            family = {"grok_image": "grok-imagine-image-"}.get(job["kind"], "grok-imagine-video")
+            require(isinstance(args["model"], str) and args["model"].startswith(family),
+                    f"{job['kind']} 只支持 {family}* 模型（编辑/续接须用经典 grok-imagine-video）")
+        else:
+            prefix = "doubao-seedream-" if job["kind"] == "image" else "doubao-seedance-"
+            require(isinstance(args["model"], str) and args["model"].startswith(prefix), "队列只支持豆包 Seedream/Seedance 模型")
+        scalars = set(args) - MEDIA - FILES - {"duration", "no_audio", "draft"}
+        if job["kind"] in GROK_KINDS:
+            scalars -= {"count", "ratio"}  # count 是整数、ratio 允许空串（跟随源图）
+        for key in scalars:
             require(isinstance(args[key], str) and bool(args[key]), f"{key} 必须是非空字符串")
+        if job["kind"] == "grok_image":
+            require(type(args["count"]) is int and 1 <= args["count"] <= 10, "count 必须是 1–10 整数")
+        if job["kind"] == "grok_video":
+            require(isinstance(args["ratio"], str), "ratio 必须是字符串（空串表示跟随源图）")
         if job["kind"] == "image":
             require(args["purpose"] in ("asset", "candidate") and args["base_use"] in ark.consistency.BASE_USES, "图像 purpose/base_use 无效")
             require("moment" not in args or args["moment"] in ark.consistency.MOMENTS, "moment 必须为 entry/exit")
             if args["purpose"] == "candidate":
                 require(args.get("moment") in ark.consistency.MOMENTS, "候选关键帧需要 moment entry/exit")
+        elif job["kind"] == "grok_image":
+            require(args["purpose"] in ("asset", "candidate"), "图像 purpose 无效")
+            require("moment" not in args or args["moment"] in ark.consistency.MOMENTS, "moment 必须为 entry/exit")
+            if args["purpose"] == "candidate":
+                require(args.get("moment") in ark.consistency.MOMENTS, "候选关键帧需要 moment entry/exit")
+        elif job["kind"] == "grok_video":
+            require(integer(args["duration"], 1), "视频 duration 必须为正整数")
+            require(type(args["no_audio"]) is bool, "no_audio 必须为布尔值")
+        elif job["kind"] in ("grok_edit", "grok_extend"):
+            require(isinstance(args.get("video"), dict) and set(args["video"]) == {"path"}, "video 必须是 {path} 对象")
+            if job["kind"] == "grok_extend":
+                require(integer(args.get("duration"), 2) and args["duration"] <= 10,
+                        "续接 duration 是新增 2–10 秒（默认 6，输出总长为原片加新增）")
         else:
             require(integer(args["duration"], 1), "视频 duration 必须为正整数；不接受无法预估的自适应时长")
             require(type(args["no_audio"]) is bool and type(args["draft"]) is bool, "no_audio/draft 必须为布尔值")
             require(not args["draft"] or args["resolution"] == "480p", "draft 仅支持 480p")
             ark.video_content("preflight", args.get("first_frame"), args.get("last_frame"), args.get("first_frame_ref"),
                               args["ref_image"], args["ref_video"], args["ref_audio"])
-        if job["kind"] == "video" or args["purpose"] == "candidate" or "bible" in args or "state" in args:
+        needs_anchor = job["kind"] in ("video", "grok_video") or args.get("purpose") == "candidate" \
+            or "bible" in args or "state" in args
+        if job["kind"] in ("grok_edit", "grok_extend"):
+            require(isinstance(args.get("shot"), str) and args["shot"], "编辑/续接需要 shot 锚点（记录归属镜头）")
+            needs_anchor = False
+        if needs_anchor:
             require(all(args.get(key) for key in ("bible", "state", "shot")), "镜头生成需要 bible/state/shot 锚点")
         jobs[job["id"]] = job
     # 拓扑排序独立于清单输入顺序。
@@ -214,17 +297,36 @@ def build_plan(project, batch):
         if "prompt_file" in args:
             require(path_in(project, args["prompt_file"]["path"]).read_text("utf-8").strip(), "prompt_file 为空")
         for key in MEDIA & set(args):
+            if key == "voice_id":
+                require(isinstance(args[key], list) and len(args[key]) <= 3
+                        and all(isinstance(item, str) and item for item in args[key]), "voice_id 必须是字符串数组（≤3）")
+                continue
+            if key == "keyframe":
+                keyframes = args[key]
+                require(isinstance(keyframes, list) and len(keyframes) <= 4, "keyframe 必须是数组（≤4）")
+                for value in keyframes:
+                    require(isinstance(value, dict) and set(value) == {"path", "at"}
+                            and type(value["at"]) in (int, float) and value["at"] > 0, "keyframe 条目必须是 {path, at}")
+                    source(project, value["path"], job, jobs, inputs)
+                    check_media(path_in(project, value["path"]), "image")
+                continue
             values = args[key] if key in MULTI else [args[key]]
             require(isinstance(values, list), f"{key} 必须为数组")
             for value in values:
                 source(project, value, job, jobs, inputs)
                 # 引用媒体类别必须吻合（首尾帧都是图片）。
-                expected = "video" if key == "ref_video" else "audio" if key == "ref_audio" else "image"
+                expected = "video" if key in ("ref_video", "video") else "audio" if key == "ref_audio" else "image"
                 if "job" in value:
                     actual = "video" if value["output"] == "video" else "image"
                     require(expected == actual, f"{key} 的输出媒体类别不匹配")
                 else:
                     check_media(path_in(project, value["path"]), expected)
+        if job["kind"] in GROK_KINDS:
+            prompt_text = args["prompt"].strip() if "prompt" in args else \
+                path_in(project, args["prompt_file"]["path"]).read_text("utf-8").strip()
+            grok_preflight(job, prompt_text)
+            if job["kind"] == "grok_edit":
+                job["args"]["source_seconds"] = probe_seconds(path_in(project, args["video"]["path"]))
         if args.get("bible"):
             anchor_args = SimpleNamespace(project=str(project), bible=str(path_in(project, args["bible"]["path"])),
                                           state=str(path_in(project, args["state"]["path"])))
@@ -238,8 +340,13 @@ def build_plan(project, batch):
     require(not any(str(path_in(project, relative).resolve()) in destinations for relative in inputs), "生成输出不能覆盖任何输入")
     require(not any(str(parent) in destinations for destination in destinations for parent in Path(destination).parents),
             "生成输出不能同时作为其他任务的目录祖先")
-    usage = {"remote_jobs": len(jobs), "images": sum(job["kind"] == "image" for job in jobs.values()),
-             "video_seconds": sum(job["args"]["duration"] for job in jobs.values() if job["kind"] == "video")}
+    usage = {"remote_jobs": len(jobs),
+             "images": sum(job["kind"] in ("image", "grok_image") and job["args"].get("count", 1)
+                           for job in jobs.values()),
+             "video_seconds": sum(
+                 job["args"]["duration"] for job in jobs.values()
+                 if job["kind"] in ("video", "grok_video", "grok_extend"))
+             + sum(job["args"].get("source_seconds", 0) for job in jobs.values() if job["kind"] == "grok_edit")}
     require(usage["images"] <= budget["max_images"] and usage["video_seconds"] <= budget["max_video_seconds"], "计划超过聚合图像/视频预算")
     plan = {"format": "vsc.production-plan/v1", "project_id": batch["project_id"], "id": batch["id"],
             "max_remote_jobs": batch["max_remote_jobs"], "max_attempts": batch.get("max_attempts", 3), "budget": budget,
@@ -281,6 +388,8 @@ def completed(project, job):
     if not path.is_file():
         return None
     record = read(path)
+    if job["kind"] in GROK_KINDS:
+        return grok_completed(project, job, record)
     if (record.get("status") != "succeeded" or record.get("project_id") != ark.project_id(project)
             or record.get("kind") != job["kind"] or record.get("engine", {}).get("provider") != ark.PROVIDER):
         return None
@@ -366,6 +475,42 @@ def completed(project, job):
     return record
 
 
+def grok_completed(project, job, record):
+    """Grok 任务的完成校验：真实记录契约、固定模型/参数与声明的输出，不做方舟式语义重建。"""
+    expected_kind = {"grok_image": "image"}.get(job["kind"], "video")
+    if (record.get("status") != "succeeded" or record.get("project_id") != ark.project_id(project)
+            or record.get("kind") != expected_kind or record.get("engine", {}).get("provider") != "xai_grok"):
+        return None
+    require(not ark.consistency.record_errors(record), "生成记录格式无效")
+    require(ark.checked_outputs(record, project), "已完成任务产物缺失或 SHA-256 漂移")
+    args = job["args"]
+    engine = record["engine"]
+    require(engine.get("model") == args["model"], "生成记录与计划的模型不一致")
+    params = engine.get("params", {})
+    if job["kind"] == "grok_image":
+        require(params.get("edit") == bool(args["ref"]), "图像模式（文生/编辑）与计划不一致")
+        require(params.get("n", 1) == (1 if args["ref"] else args["count"]), "图像张数与计划不一致")
+    elif job["kind"] == "grok_video":
+        require(params.get("resolution") == args["resolution"] and params.get("duration") == args["duration"]
+                and params.get("generate_audio", True) == (not args["no_audio"]), "视频参数与计划不一致")
+        require(params.get("reference_images", 0) == len(args["ref_image"]), "参考图数量与计划不一致")
+    else:
+        require(params.get("operation") == job["kind"][5:], "加工操作与计划不一致")
+        require(params.get("source_video", {}).get("sha256") == ark.sha256(path_in(project, args["video"]["path"])),
+                "加工输入字节与计划不一致")
+    prompt = args["prompt"].strip() if "prompt" in args else path_in(project, args["prompt_file"]["path"]).read_text("utf-8").strip()
+    require(record.get("inputs", {}).get("prompt") == prompt, "提示词与计划不一致")
+    prefix = str(Path(args["out"]) / args["name"])
+    primary = [item for item in record["outputs"] if item.get("id") == args["name"]
+               and str(item["path"]).startswith(prefix)]
+    require(len(primary) == 1, "成功记录缺少本任务主产物")
+    check_media(path_in(project, primary[0]["path"]), "video" if expected_kind == "video" else "image")
+    task = path_in(project, task_path(job))
+    require(task.is_file() and read(task).get("record", {}).get("engine", {}).get("model") == args["model"],
+            "任务文件与记录不一致，不能安全续接")
+    return record
+
+
 def resolve_args(project, job, jobs):
     args, hashes = {}, {}
     def resolve(value):
@@ -397,8 +542,9 @@ def resolve_args(project, job, jobs):
     return argv, hashes
 
 
-def default_runner(argv):
-    subprocess.run([sys.executable, str(script_path("providers/volcengine/ark.py")), *argv], check=True)
+def default_runner(argv, script=None):
+    chosen = script or ("providers/xai/grok.py" if argv[0] == "__grok__" else "providers/volcengine/ark.py")
+    subprocess.run([sys.executable, str(script_path(chosen)), *argv], check=True)
 
 
 def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, formal=False):
@@ -467,7 +613,7 @@ def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, 
             entry.update(attempts=entry["attempts"] + 1, status="running")
             ark.write_json(path, journal)
             try:
-                runner(argv + extra)
+                runner(argv + extra, script="providers/xai/grok.py" if job["kind"] in GROK_KINDS else None)
                 record = completed(project, job)
                 require(record is not None, "调用结束但未发现成功生成记录")
             except Exception as exc:

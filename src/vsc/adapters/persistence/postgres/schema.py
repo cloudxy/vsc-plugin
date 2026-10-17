@@ -549,8 +549,25 @@ script_drafts = project_table("script_drafts",
     CheckConstraint("draft_revision >= 1", name="draft_revision"),
     UniqueConstraint("project_id", "scope_key"))
 script_notes = project_table("script_notes",
+    Column("scope_key", Text),  # 0007：批注绑定范围；NULL 为历史未归属批注，不猜测迁移
     Column("scene_id", Text, nullable=False), Column("line_id", Text),
     Column("body", Text, nullable=False), Column("author", Text, nullable=False), stamp())
+# 0007：可逐处接受／拒绝／撤销的修改建议；接受要求 base_draft_revision 仍等于当前工作副本修订。
+script_suggestions = project_table("script_suggestions",
+    Column("scope_key", Text, nullable=False, server_default=""),
+    Column("base_draft_revision", BigInteger, nullable=False),
+    Column("scene_id", Text, nullable=False), Column("line_id", Text),
+    Column("kind", Text, nullable=False), Column("field", Text, nullable=False, server_default="text"),
+    Column("before_value", Text), Column("after_value", Text, nullable=False),
+    Column("reason", Text, nullable=False), Column("origin", Text, nullable=False, server_default="manual"),
+    Column("author", Text, nullable=False), stamp(),
+    CheckConstraint("kind IN ('action','dialogue','silence')", name="kind"),
+    CheckConstraint("field IN ('text','speaker')", name="field"))
+script_suggestion_decisions = project_table("script_suggestion_decisions",
+    *ref("script_suggestions", "suggestion_id"),
+    Column("outcome", Text, nullable=False), Column("actor", Text, nullable=False),
+    Column("reason", Text, nullable=False), Column("applied_revision", BigInteger), stamp(),
+    CheckConstraint("outcome IN ('accept','reject','undo_accept')", name="outcome"))
 script_note_decisions = project_table("script_note_decisions", *ref("script_notes", "note_id"),
     Column("outcome", Text, nullable=False), Column("actor", Text, nullable=False),
     Column("reason", Text, nullable=False), stamp(),
@@ -585,13 +602,14 @@ for table_name, fields in {
     "timeline_item_media": ("media_id",), "render_inputs": ("media_id",),
     "render_outputs": ("media_id",), "preview_jobs": ("status",),
     "script_notes": ("scene_id",), "script_note_decisions": ("note_id",),
+    "script_suggestions": ("scope_key",), "script_suggestion_decisions": ("suggestion_id",),
 }.items():
     table = metadata.tables[table_name]
     for field in fields:
         Index("ix_%s_project_%s" % (table_name, field), table.c.project_id, table.c[field])
 
 APPEND_ONLY_TABLES = CREATIVE_TABLES + (
-    "script_notes", "script_note_decisions",
+    "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
     "provider_configurations",
     "budget_limit_versions",
     "project_revisions", "command_receipts", "artifact_versions", "artifact_dependencies",

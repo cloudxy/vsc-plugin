@@ -6,6 +6,7 @@ creates artifact versions or project revisions. Submitting for human
 confirmation freezes an immutable artifact version through the regular
 ``_create_artifact`` path inside one transaction.
 """
+import json
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -138,6 +139,7 @@ class ScriptWorkspaceRepository:
         project_id = checked_id(project_id)
         scope_key = self._scope_key(scope_key)
         with self.engine.connect() as conn:
+            project = self._project(conn, project_id)
             row = self._draft(conn, project_id, scope_key)
             notes = list(conn.execute(select(S.script_notes).where(
                 S.script_notes.c.project_id == project_id).order_by(S.script_notes.c.created_at, S.script_notes.c.id)).mappings())
@@ -146,19 +148,32 @@ class ScriptWorkspaceRepository:
                 .order_by(S.script_note_decisions.c.created_at, S.script_note_decisions.c.id)).mappings())
             latest = {decision["note_id"]: dict(decision) for decision in decisions}
             note_rows = [{"id": note["id"], "scene_id": note["scene_id"], "line_id": note["line_id"],
+                          "scope_key": note["scope_key"], "scoped": note["scope_key"] == scope_key,
                           "body": note["body"], "author": note["author"], "created_at": note["created_at"],
                           "status": {"resolve": "resolved", "dismiss": "dismissed"}.get(
                               latest.get(note["id"], {}).get("outcome"), "open"),
-                          "decision": latest.get(note["id"])} for note in notes]
+                          "decision": latest.get(note["id"])} for note in notes
+                         if note["scope_key"] == scope_key or note["scope_key"] is None]
+            suggestions, suggestion_decisions = self._suggestion_rows(conn, project_id, scope_key)
             if row is None:
                 return {"exists": False, "scope_key": scope_key, "draft_revision": 0, "content": None,
-                        "phase": "empty", "base": None, "submitted": None, "notes": note_rows}
+                        "phase": "empty", "base": None, "submitted": None, "notes": note_rows,
+                        "suggestions": suggestions}
             base = self._artifact_state(conn, project_id, row["base_artifact_id"]) if row["base_artifact_id"] else None
+            if base is None:
+                # 未提交修订时也显示当前覆盖范围的已批准基线（只读派生，不写事实）。
+                _, script_types = self._script_types(project["profile_snapshot"].get("stages", []))
+                if script_types:
+                    for candidate in self._current_scripts(conn, project_id, script_types):
+                        if candidate["project_wide"] or (scope_key and scope_key in candidate["scopes"]):
+                            base = self._artifact_state(conn, project_id, candidate["id"])
+                            break
             submitted = self._artifact_state(conn, project_id, row["submitted_artifact_id"]) if row["submitted_artifact_id"] else None
             phase = {"approved": "approved", "rejected": "rejected"}.get(submitted["state"], "pending") if submitted else "editing"
             return {"exists": True, "scope_key": scope_key, "draft_revision": row["draft_revision"],
                     "content": row["content"], "updated_at": row["updated_at"], "updated_by": row["updated_by"],
-                    "phase": phase, "base": base, "submitted": submitted, "notes": note_rows, "draft_id": row["id"]}
+                    "phase": phase, "base": base, "submitted": submitted, "notes": note_rows,
+                    "suggestions": suggestions, "draft_id": row["id"]}
 
     def save_script_draft(self, project_id, payload, actor=None, **_):
         project_id = checked_id(project_id)
@@ -248,10 +263,185 @@ class ScriptWorkspaceRepository:
         def work(conn, project):
             note_id = new_id()
             conn.execute(insert(S.script_notes).values(project_id=project["id"], id=note_id,
+                scope_key=self._scope_key(payload.get("scope_key", "")),
                 scene_id=required(payload, "scene_id"), line_id=payload.get("line_id"),
                 body=required(payload, "body"), author=actor or ""))
             return {"id": note_id}
         return self._mutate(project_id, "add_script_note", payload, callback=work, **kw)
+
+    @staticmethod
+    def _suggestion_rows(conn, project_id, scope_key):
+        from datetime import datetime, timezone
+
+        def created(row):
+            value = row.get("created_at")
+            return value.timestamp() if hasattr(value, "timestamp") else float(value or 0)
+        suggestions = [dict(row) for row in conn.execute(select(S.script_suggestions).where(
+            S.script_suggestions.c.project_id == project_id,
+            S.script_suggestions.c.scope_key == scope_key)).mappings()]
+        identifiers = [row["id"] for row in suggestions]
+        decisions = {}
+        if identifiers:
+            for row in conn.execute(select(S.script_suggestion_decisions).where(
+                    S.script_suggestion_decisions.c.project_id == project_id,
+                    S.script_suggestion_decisions.c.suggestion_id.in_(identifiers))).mappings():
+                current = decisions.get(row["suggestion_id"])
+                if current is None or created(row) > created(current):
+                    decisions[row["suggestion_id"]] = dict(row)
+        for row in suggestions:
+            decision = decisions.get(row["id"])
+            row["status"] = {"accept": "accepted", "reject": "rejected", "undo_accept": "pending"}.get(
+                (decision or {}).get("outcome"), "pending")
+            row["decision"] = decision
+        return suggestions, list(decisions.values())
+
+    def add_script_suggestion(self, project_id, payload, **kw):
+        actor = kw.get("actor")
+
+        def work(conn, project):
+            scope_key = self._scope_key(payload.get("scope_key", ""))
+            row = self._draft(conn, project["id"], scope_key)
+            if row is None:
+                raise ResourceError("当前范围没有工作副本；建议需要绑定工作副本修订", "draft_missing", 404)
+            suggestion_id = new_id()
+            conn.execute(insert(S.script_suggestions).values(project_id=project["id"], id=suggestion_id,
+                scope_key=scope_key, base_draft_revision=row["draft_revision"],
+                scene_id=required(payload, "scene_id"), line_id=payload.get("line_id"),
+                kind=required(payload, "kind"), field=payload.get("field", "text"),
+                before_value=payload.get("before_value"), after_value=required(payload, "after_value"),
+                reason=required(payload, "reason"), origin=payload.get("origin", "manual"), author=actor or ""))
+            return {"id": suggestion_id, "base_draft_revision": row["draft_revision"]}
+        return self._mutate(project_id, "add_script_suggestion", payload, callback=work, **kw)
+
+    @staticmethod
+    def _apply_suggestion(content, suggestion, value):
+        """按稳定场／行身份写入一个字段；找不到目标行时明确报错，不做名称猜测。"""
+        scene = next((row for row in content.get("scenes", []) if row.get("id") == suggestion["scene_id"]), None)
+        if scene is None:
+            raise ResourceError("建议指向的场次在当前稿中不存在：" + suggestion["scene_id"], "suggestion_stale")
+        field_name = {"action": "actions", "dialogue": "dialogue", "silence": "silence"}[suggestion["kind"]]
+        line = next((row for row in scene.get(field_name, []) if row.get("id") == suggestion["line_id"]), None) \
+            if suggestion["line_id"] else None
+        if line is None:
+            raise ResourceError("建议指向的行在当前稿中不存在：" + str(suggestion["line_id"]), "suggestion_stale")
+        line[suggestion["field"]] = value
+
+    def decide_script_suggestion(self, project_id, payload, **kw):
+        actor = kw.get("actor")
+        outcome = required(payload, "outcome")
+
+        def work(conn, project):
+            if outcome not in ("accept", "reject", "undo_accept"):
+                raise ResourceError("建议处理只能是 accept、reject 或 undo_accept", "invalid_payload")
+            scope_key = self._scope_key(payload.get("scope_key", ""))
+            suggestion = self._one(conn, S.script_suggestions, project["id"], checked_id(required(payload, "suggestion_id")))
+            if suggestion["scope_key"] != scope_key:
+                raise ResourceError("建议不属于当前范围", "invalid_payload")
+            suggestions, _ = self._suggestion_rows(conn, project["id"], scope_key)
+            status = next(row["status"] for row in suggestions if row["id"] == suggestion["id"])
+            row = self._draft(conn, project["id"], scope_key, lock=True)
+            if row is None:
+                raise ResourceError("当前范围没有工作副本", "draft_missing", 404)
+            applied_revision = None
+            if outcome == "accept":
+                if status != "pending":
+                    raise ResourceError("只有待处理建议可以接受", "invalid_payload")
+                if row["draft_revision"] != suggestion["base_draft_revision"]:
+                    raise Conflict("建议基于的稿次已过期（当前 r%d，建议基于 r%d）；请先加载最新内容再重新提出建议"
+                                   % (row["draft_revision"], suggestion["base_draft_revision"]), "suggestion_stale")
+                content = dict(row["content"])
+                self._apply_suggestion(content, suggestion, suggestion["after_value"])
+                conn.execute(update(S.script_drafts).where(
+                    S.script_drafts.c.project_id == project["id"], S.script_drafts.c.scope_key == scope_key)
+                    .values(content=content, draft_revision=row["draft_revision"] + 1,
+                            updated_at=func.now(), updated_by=actor or ""))
+                applied_revision = row["draft_revision"] + 1
+            elif outcome == "undo_accept":
+                decision = next((item["decision"] for item in suggestions
+                                 if item["id"] == suggestion["id"] and item["status"] == "accepted"), None)
+                if decision is None or status != "accepted":
+                    raise ResourceError("只有已接受且未撤销的建议可以撤销", "invalid_payload")
+                if decision.get("applied_revision") is None or row["draft_revision"] != decision["applied_revision"]:
+                    raise Conflict("接受后工作副本已有新编辑（当前 r%d，接受时 r%s）；不能自动撤销，请人工改回"
+                                   % (row["draft_revision"], decision.get("applied_revision")), "suggestion_stale")
+                content = dict(row["content"])
+                self._apply_suggestion(content, suggestion,
+                                       suggestion["before_value"] if suggestion["before_value"] is not None else "")
+                conn.execute(update(S.script_drafts).where(
+                    S.script_drafts.c.project_id == project["id"], S.script_drafts.c.scope_key == scope_key)
+                    .values(content=content, draft_revision=row["draft_revision"] + 1,
+                            updated_at=func.now(), updated_by=actor or ""))
+                applied_revision = row["draft_revision"] + 1
+            decision_id = new_id()
+            conn.execute(insert(S.script_suggestion_decisions).values(project_id=project["id"], id=decision_id,
+                suggestion_id=suggestion["id"], outcome=outcome, actor=actor or "",
+                reason=required(payload, "reason"), applied_revision=applied_revision))
+            return {"id": decision_id, "suggestion_id": suggestion["id"], "outcome": outcome,
+                    "draft_revision": applied_revision or row["draft_revision"]}
+        return self._mutate(project_id, "decide_script_suggestion", payload, callback=work, **kw)
+
+    def script_revision_impact(self, project_id, scope_key=""):
+        """B1-06：待审／草稿修订相对已批准基线的真实下游影响（覆盖镜头、声音Cue、时间线用料）。"""
+        from vsc.assets.script_diff import compare_documents
+        project_id = checked_id(project_id)
+        scope_key = self._scope_key(scope_key)
+        with self.engine.connect() as conn:
+            project = self._project(conn, project_id)
+            _, script_types = self._script_types(project["profile_snapshot"].get("stages", []))
+            if not script_types:
+                return {"scope_key": scope_key, "baseline_artifact_id": None, "changed_lines": [], "shots": [], "cues": [], "unresolved": []}
+            parents = self._object_parents(conn, project_id)
+            candidates = self._current_scripts(conn, project_id, script_types)
+            baseline = next((row for row in candidates if row["project_wide"] or (scope_key and scope_key in row["scopes"])), None)
+            draft = self._draft(conn, project_id, scope_key)
+            revised = None
+            if draft is not None and draft.get("submitted_artifact_id"):
+                revised = self._artifact_state(conn, project_id, draft["submitted_artifact_id"])
+                if revised.get("state") == "approved":
+                    revised = None
+            if baseline is None or (draft is None and revised is None):
+                return {"scope_key": scope_key, "baseline_artifact_id": (baseline or {}).get("id"),
+                        "changed_lines": [], "shots": [], "cues": [], "unresolved": []}
+            baseline_doc = json.loads(conn.execute(select(S.artifact_versions.c.document).where(
+                S.artifact_versions.c.project_id == project_id,
+                S.artifact_versions.c.id == baseline["id"])).scalar_one())
+            if revised is not None:
+                revised_doc = json.loads(conn.execute(select(S.artifact_versions.c.document).where(
+                    S.artifact_versions.c.project_id == project_id,
+                    S.artifact_versions.c.id == revised["id"])).scalar_one())
+            else:
+                revised_doc = draft["content"]
+            changes = compare_documents(baseline_doc, revised_doc).get("lines", [])
+            line_keys = sorted({str(row.get("line_id")) for row in changes if row.get("line_id")})
+            unresolved = [row for row in changes if not row.get("line_id")]
+            shots, cues = [], []
+            if line_keys:
+                lines = conn.execute(select(S.script_lines.c.id, S.script_lines.c.line_key).where(
+                    S.script_lines.c.project_id == project_id,
+                    S.script_lines.c.script_version_id == baseline["id"],
+                    S.script_lines.c.line_key.in_(line_keys))).mappings().all()
+                found = {row["line_key"]: row["id"] for row in lines}
+                unresolved.extend({"line_id": key, "reason": "baseline_missing_line"}
+                                   for key in line_keys if key not in found)
+                ids = list(found.values())
+                if ids:
+                    shots = [dict(row) for row in conn.execute(select(
+                        S.creative_objects.c.id, S.creative_objects.c.title, S.creative_objects.c.display_code)
+                        .distinct().where(S.creative_objects.c.project_id == project_id, S.creative_objects.c.id.in_(
+                            select(S.shot_line_coverage.c.shot_id).where(
+                                S.shot_line_coverage.c.project_id == project_id,
+                                S.shot_line_coverage.c.line_id.in_(ids))))).mappings()]
+                    cue_rows = conn.execute(select(S.sound_cues.c.id, S.sound_cues.c.cue_key,
+                        S.sound_cues.c.label, S.sound_cues.c.subtitle_version_id).where(
+                        S.sound_cues.c.project_id == project_id, S.sound_cues.c.line_id.in_(ids))).mappings().all()
+                    for cue in cue_rows:
+                        row = dict(cue)
+                        row["timeline_items"] = conn.execute(select(func.count()).select_from(
+                            S.cue_timeline_items).where(S.cue_timeline_items.c.project_id == project_id,
+                            S.cue_timeline_items.c.cue_id == cue["id"])).scalar_one()
+                        cues.append(row)
+            return {"scope_key": scope_key, "baseline_artifact_id": baseline["id"] if baseline else None,
+                    "changed_lines": changes, "shots": shots, "cues": cues, "unresolved": unresolved}
 
     def decide_script_note(self, project_id, payload, **kw):
         actor = kw.get("actor")

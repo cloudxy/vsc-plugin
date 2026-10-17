@@ -57,7 +57,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if version != "0006_script_workspace":
+                if version != "0007_script_suggestions":
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
                 return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
         except SQLAlchemyError as exc:

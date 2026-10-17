@@ -74,8 +74,8 @@ class QueueTest(ProductionFixture, unittest.TestCase):
 
     def test_crash_after_remote_success_before_journal_recovers_without_call(self):
         plan = self.plan()
-        def interrupted(argv):
-            self.runner(argv)
+        def interrupted(argv, script=None):
+            self.runner(argv, script=script)
             raise RuntimeError("journal acknowledgement interrupted")
         with self.assertRaises(P.ProductionError):
             P.run(self.project, plan, plan["plan_sha256"], interrupted)

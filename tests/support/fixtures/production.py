@@ -57,7 +57,7 @@ class ProductionFixture:
             raise A.ArkError("offline interrupted download")
         target.write_bytes(self.mp4 if target.suffix == ".mp4" else self.jpeg if target.suffix == ".jpeg" else self.png)
 
-    def runner(self, argv):
+    def runner(self, argv, script=None):
         self.argv.append(argv)
         with mock.patch.object(A, "api_key", return_value="offline-test-key"), \
                 mock.patch.object(A, "call", side_effect=self.fake_call), mock.patch.object(A, "download", side_effect=self.fake_download):

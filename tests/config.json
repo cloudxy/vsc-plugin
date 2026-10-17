@@ -739,6 +739,14 @@
         "src/vsc/interfaces/web/static/script-workspace.js",
         "src/vsc/interfaces/web/static/panel.js"
       ]
+    },
+    "production.integration.test_grok_batch": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/production.py",
+        "src/vsc/adapters/providers/xai_grok/spec.py"
+      ]
     }
   },
   "dependencies": {

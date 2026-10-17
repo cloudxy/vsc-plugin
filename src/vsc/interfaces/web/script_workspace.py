@@ -23,6 +23,10 @@ def install_script_routes(router, catalog, etag, actor):
     def script_compare(project_id: str, request: Request, scope_key: str = "", base: str = None):
         return etag(request, service().compare_script_draft(project_id, scope_key, base))
 
+    @router.get("/{project_id}/script-draft/impact")
+    def script_impact(project_id: str, request: Request, scope_key: str = ""):
+        return etag(request, service().script_revision_impact(project_id, scope_key))
+
     @router.post("/{project_id}/script-draft/autosave")
     async def script_autosave(project_id: str, request: Request, body: dict):
         identity = actor(request)
