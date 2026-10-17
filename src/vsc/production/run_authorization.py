@@ -16,7 +16,7 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
         base.update(width=1080, height=1920)
     elif modality == "video":
         base.update(duration_ms=5000, first_frame_media_id=None, last_frame_media_id=None,
-                    reference_audio_media_ids=[])
+                    reference_audio_media_ids=[], keyframes=[])
     elif modality == "audio":
         base.update(script_line_ids=[], voice_media_id=None)
     else:
@@ -39,6 +39,14 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
         if not isinstance(audio_refs, (tuple, list)) or any(not isinstance(x, str) or not x for x in audio_refs):
             raise ResourceError("reference_audio_media_ids必须是媒体ID列表")
         base["reference_audio_media_ids"] = list(audio_refs)
+        keyframes = base["keyframes"]
+        if not isinstance(keyframes, (tuple, list)) or any(
+                not isinstance(item, (tuple, list)) or len(item) != 2
+                or not isinstance(item[0], str) or not item[0]
+                or isinstance(item[1], bool) or not isinstance(item[1], (int, float))
+                for item in keyframes):
+            raise ResourceError("keyframes必须是[媒体ID, 秒]对列表")
+        base["keyframes"] = [[item[0], float(item[1])] for item in keyframes]
     return base
 
 
@@ -107,6 +115,17 @@ def validate_capabilities(model, logical, context):
             ref = logical[key]
             if ref and (not caps.get(capability) or ref not in refs or refs[ref]["role"] != role):
                 raise ResourceError("首尾帧用途或模型能力不符", "model_capability_mismatch")
+        keyframes = logical.get("keyframes") or []
+        if keyframes:
+            if not caps.get("keyframes"):
+                raise ResourceError("模型不支持中段关键帧", "model_capability_mismatch")
+            if len(keyframes) > 4:
+                raise ResourceError("中段关键帧最多 4 个", "model_capability_mismatch")
+            for media_id, _ in keyframes:
+                if media_id not in refs:
+                    raise ResourceError("关键帧引用了未获选的素材", "reference_not_selected")
+                if refs[media_id]["role"] in {"reference_audio", "voice_sample"}:
+                    raise ResourceError("音频不能作为关键帧", "reference_modality_mismatch")
         if logical["purpose"] in {"video_clip", "image_to_video", "i2v"} and not logical["first_frame_media_id"]:
             raise ResourceError("图生视频必须显式使用获选首帧", "first_frame_required")
     if modality != "audio":

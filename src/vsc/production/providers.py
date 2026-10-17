@@ -34,6 +34,9 @@ class VideoRequest(BaseRequest):
     first_frame_media_id: str | None = None
     last_frame_media_id: str | None = None
     reference_audio_media_ids: tuple[str, ...] = ()
+    # Appended after the original positional fields for compatibility:
+    # (media_id, timestamp_s) pairs pinning mid-clip frames (Grok keyframes).
+    keyframes: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -72,7 +72,7 @@ class GenerateTest(unittest.TestCase):
         self.calls.append((path, payload))
         if path in ("/images/generations", "/images/edits"):
             return {"data": [{"url": "https://example.invalid/out.png"}], "usage": {"generated_images": 1}}
-        if path == "/videos/generations":
+        if path.startswith("/videos/generations") or path in ("/videos/edits", "/videos/extensions"):
             return {"request_id": "grok-req-1"}
         return {"status": "done", "video": {"url": "https://example.invalid/v.mp4", "duration": 6}, "usage": {"video_seconds": 6}}
 
@@ -232,6 +232,46 @@ class GenerateTest(unittest.TestCase):
         six = ["--ref", str(source)] * 6
         self.assertEqual(self.run_cli("image", "--project", str(self.project), "--out", "资产", "--name", "edit-02",
                                       "--purpose", "asset", "--prompt", "超限", *six), 1)
+
+    def test_video_keyframes_voices_silent_flags(self):
+        mid = self.project / "mid.png"
+        mid.write_bytes(PNG)
+        argv = ["video", "--project", str(self.project), "--out", "视频", "--name", "kf-mode", "--shot", "SH-001",
+                "--prompt", "<AUDIO_0> 旁白；中段经过 <IMAGE_1>", "--first-frame", str(self.frame),
+                "--ref-image", str(mid), "--keyframe", f"{mid}@3", "--voice-id", "eve",
+                "--no-audio", "--duration", "6", "--resolution", "720p"]
+        with contextlib.redirect_stdout(io.StringIO()) as captured:
+            self.assertEqual(A.main([*argv, "--dry-run"]), 0)
+        shown = json.loads(captured.getvalue())
+        self.assertEqual(shown["payload"]["reference_audios"], [{"voice_id": "eve"}])
+        self.assertEqual(shown["payload"]["keyframes"][0]["timestamp_s"], 3)
+        self.assertFalse(shown["payload"]["generate_audio"])
+        self.assertTrue(shown["payload"]["keyframes"][0]["image"]["url"].endswith("…"))
+        bad = list(argv[:-2]) + ["--keyframe", f"{mid}@6", "--duration", "6"]  # 时间戳落在片外
+        self.assertEqual(self.run_cli(*bad, "--dry-run"), 1)
+        self.assertEqual(self.calls, [])
+
+    def test_video_edit_and_extend_operations(self):
+        clip = self.project / "take.mp4"
+        clip.write_bytes(b"\x00\x00\x00\x18ftypmp4" + b"0" * 16)
+        edit = ["edit", "--project", str(self.project), "--out", "视频", "--name", "take-edit",
+                "--shot", "SH-001", "--video", str(clip), "--prompt", "把背景雨势加大"]
+        self.assertEqual(self.run_cli(*edit), 0)
+        path, payload = self.calls[0]
+        self.assertEqual(path, "/videos/edits")
+        self.assertTrue(payload["video"]["url"].startswith("data:video/mp4;base64,"))
+        record = json.loads((self.project / "视频/take-edit-生成记录.json").read_text("utf-8"))
+        self.assertEqual(record["engine"]["params"]["operation"], "edit")
+        self.assertEqual(record["inputs"]["video"]["sha256"], A.sha256(clip))
+        extend = ["extend", "--project", str(self.project), "--out", "视频", "--name", "take-extend",
+                  "--shot", "SH-001", "--video", str(clip), "--prompt", "他继续向门口走去"]
+        self.assertEqual(self.run_cli(*extend), 0)
+        extension_calls = [call for call in self.calls if call[0] == "/videos/extensions"]
+        self.assertEqual(len(extension_calls), 1)
+        self.assertTrue(extension_calls[0][1]["video"]["url"].startswith("data:video/mp4;base64,"))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(A.main(["edit", "--project", str(self.project), "--out", "视频",
+                                     "--name", "no-prompt", "--shot", "SH-001", "--video", str(clip)]), 1)
 
 
 if __name__ == "__main__":

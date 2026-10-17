@@ -313,7 +313,8 @@ def adapter_for_job(project, job_id, transport=None):
             if not defaults.get("resolution"):
                 raise SeriesError("Grok 视频模型须配置 resolution")
             return GrokVideoProvider(job["model"], media_url, defaults["resolution"],
-                defaults.get("ratio", ""), transport)
+                defaults.get("ratio", ""), defaults.get("reference_voice_ids", []),
+                defaults.get("generate_audio", True), transport)
         raise SeriesError("Grok 订阅路线未接音频适配器")
     if job["provider"] != "volc_ark":
         raise SeriesError("此 Provider 尚无系列任务适配器")

@@ -60,5 +60,6 @@ def xai_grok_factory(job, storage):
         if not defaults.get("resolution"):
             raise ResourceError("Grok 视频模型需要 resolution 映射", "invalid_model_defaults")
         return ConfiguredGrokProvider(GrokVideoProvider(model, media_url, defaults["resolution"],
-            defaults.get("ratio", "")), job["provider_id"])
+            defaults.get("ratio", ""), defaults.get("reference_voice_ids", []),
+            defaults.get("generate_audio", True)), job["provider_id"])
     raise ResourceError("Grok 订阅路线未接音频适配器", "adapter_unavailable")

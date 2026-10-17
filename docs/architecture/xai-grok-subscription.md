@@ -22,9 +22,10 @@
 | 首帧图生视频 | `image:{url}` 单独出现即首帧锚定；时长 ≤15s（1.5）；1.5 支持原生 1080p | ✅ 脚本 `video --first-frame` 与视频适配器 `first_frame_media_id`；分辨率 480p/720p/1080p |
 | 尾帧钉定 | `last_frame:{url}`；可单独使用（平台生成开场并落在该画面），也可与 `image` 组成首尾帧插值，或再叠加参考 | ✅ 脚本 `video --last-frame` 与适配器 `last_frame_media_id` |
 | 参考生视频 | `reference_images:[{url},…]` **最多 14 张**（1.5）；可与 `image` 组合——`image` 成为钉定首帧，提示词占位符 `<IMAGE_0>` 归首帧、参考图从 `<IMAGE_1>` 起编号；无首帧时参考图从 `<IMAGE_0>` 起。提示词按位置指位（人物来自 `<IMAGE_1>`、商品来自 `<IMAGE_2>`）。参考模式分辨率上限 **720p** | ✅ 脚本 `video --ref-image`（1–14）与适配器 `reference_media_ids`；超过 14 张、或参考模式请求 1080p 在提交前拒绝 |
-| 预置声音参考 | `reference_audios:[{voice_id},…]` 最多 3 个（1.5），只接平台预置 voice_id（如 `eve`）；自定义音频参考仅限受信伙伴 | ❌ 未接——VSC 的声音资产是媒体文件而非平台预置 voice_id，语义不同；不把音频素材塞进该字段 |
-| 中段关键帧 | `keyframes:[{image:{url},timestamp_s},…]` 最多 4 个（1.5），时间戳须严格在片内并对齐 1/3 秒网格 | ❌ 未接（VSC 请求契约暂无中段关键帧字段）；有需求时按固定契约扩展 |
-| 视频编辑／续接 | `grok-imagine-video` 模型支持既有视频编辑与从尾帧续接 | ❌ 未接（VSC 候选制作从规格生成；成片处理走后期链） |
+| 预置声音参考 | `reference_audios:[{voice_id},…]` 最多 3 个（1.5），只接平台预置 voice_id（如 `eve`）；自定义音频参考仅限受信伙伴 | ✅ 平台资源 id 存放在供应商注册表的模型默认参数 `reference_voice_ids`（`provider_models.default_params`，即数据库中的平台资源 id 字段），随模型配置进入任务库适配器；脚本用 `--voice-id`（≤3），提示词以 `<AUDIO_n>` 指位。VSC 的音频素材文件语义不同，仍不塞进该字段（负例在提交前拒绝） |
+| 中段关键帧 | `keyframes:[{image:{url},timestamp_s},…]` 最多 4 个（1.5），时间戳须严格在片内并对齐 1/3 秒网格 | ✅ 供应商中立请求契约扩展 `VideoRequest.keyframes`（(媒体ID, 秒) 对），能力开关 `keyframes`；脚本 `--keyframe 文件@秒`（≤4）。片外时间戳、间隔不足 1/3 秒、经典模型使用均在提交前拒绝 |
+| 视频编辑／续接 | `POST /v1/videos/edits`、`POST /v1/videos/extensions`，输入 `video`，输出跟随输入（不可另设时长／分辨率／画幅）；编辑时长上限约 8.7s、720p | ✅ 脚本子命令 `edit`／`extend`（`--video` 本地文件或 https，`--prompt` 均必填）。**线上探针已证**：编辑/续接由经典 `grok-imagine-video` 承担（1.5 返回 "Video editing is not supported"）；`extensions` 的 `prompt` 为平台必填（422 实证）。任务库未接（VSC 对既有 take 的加工走 media_operations 接缝，见下） |
+| 无声视频 | `generate_audio:false` 请求无声输出 | ✅ 模型默认参数 `generate_audio`（布尔）与脚本 `--no-audio` |
 | 画幅 | 视频可传 `aspect_ratio`；图生视频场景下强行另设会把源图拉伸 | 图生视频默认不传（跟随首帧）；参考／文生模式可用脚本 `--ratio`／模型默认参数 `ratio` 显式指定 |
 | 结果时效 | 视频 URL 临时，须立即转存；官方未公布时效 | 成功后立即下载并登记 SHA，记录按保守 1 小时标注 `source_url_expires_at` |
 | 计费口径 | 图像按张；编辑计输入＋输出张；视频按秒×分辨率 | 订阅额度内通常无边际费用；账本只记 `images`／`video_seconds` 原生用量，不做金额换算 |
@@ -39,4 +40,4 @@
 
 ## 验证边界
 
-离线验证已完成（2026-10-17，FakeTransport 与离线 CLI，无付费调用）：全部模式的请求组装与负例（编辑 >5 源图、参考 >14 张、参考模式 1080p、音频素材冒充声音参考）、占位符语义摘要、生成记录契约、提交续查不重提、worker 分发、series 登记。**真实订阅账号的线上生成尚未实测**：启用后先在单个真实作品小批量试产（重点验证参考模式的人物身份一致性、占位符指位是否被正确遵守、编辑模式的未改区域稳定性），再绑定用途默认；未实测前不得把该路线报告为“已可用于生产”。
+离线验证已完成（2026-10-17，FakeTransport 与离线 CLI，无付费调用）：全部模式的请求组装与负例（编辑 >5 源图、参考 >14 张、参考模式 1080p、音频素材冒充声音参考、关键帧片外/间隔/超量、经典模型越权特性、预置声音 >3）、占位符语义摘要、生成记录契约、提交续查不重提、worker 分发、series 登记。线上只读探针已核对端点行为：`/v1/videos/edits` 接受 `grok-imagine-video`＋prompt 并返回 request_id；`/v1/videos/extensions` 存在且 prompt 必填；1.5 模型明确拒绝视频编辑。**真实媒体的成功生成仍待小批量试产**（重点：参考模式身份一致性、`<IMAGE_n>`／`<AUDIO_n>` 指位遵守、编辑未改区域稳定性、续接的运动连贯），实测前不得把该路线报告为“已可用于生产”。

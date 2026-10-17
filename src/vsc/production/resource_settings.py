@@ -45,8 +45,8 @@ PRESETS = [dict(id="volcengine-agent-plan", label="火山 Agent Plan", name="火
     supplier="xai", product="grok-imagine", plan="subscription", region="global", execution="api",
     modality="video", model_key="grok-imagine-video-1.5", model_version="", base_url=grok_credentials.API_BASE, auth_ref="",
     capabilities={"purposes": ["image_to_video"], "reference_media": True, "first_frame": True, "last_frame": True,
-                  "max_duration_ms": 15000, "max_reference_images": 14},
-    default_params={"resolution": "480p"}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
+                  "keyframes": True, "max_duration_ms": 15000, "max_reference_images": 14},
+    default_params={"resolution": "480p", "reference_voice_ids": [], "generate_audio": True}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
     product="", plan="", region="", execution="api", modality="image", model_key="", model_version="",
     base_url="", auth_ref=auth, capabilities={"purposes": []}, default_params={}, enabled=False)
     for supplier, label, auth in [("alibaba", "阿里（待接入）", "DASHSCOPE_API_KEY"),
@@ -168,8 +168,15 @@ def validate_configuration(payload):
                     or any(not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", key) or not isinstance(ratio, str) or not ratio.strip()
                            for key, ratio in ratios.items()) or defaults.get("resolution") not in ("1k", "2k")):
                 raise ResourceError("Grok 图像需要尺寸到画幅的 ratio_map 与 1k/2k resolution 映射", "invalid_model_defaults")
-        if value["modality"] == "video" and defaults.get("resolution") not in ("480p", "720p", "1080p"):
-            raise ResourceError("Grok 视频需要 480p/720p/1080p resolution 映射", "invalid_model_defaults")
+        if value["modality"] == "video":
+            if defaults.get("resolution") not in ("480p", "720p", "1080p"):
+                raise ResourceError("Grok 视频需要 480p/720p/1080p resolution 映射", "invalid_model_defaults")
+            voices = defaults.get("reference_voice_ids", [])
+            if (not isinstance(voices, list) or len(voices) > 3
+                    or any(not isinstance(voice, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", voice) for voice in voices)):
+                raise ResourceError("reference_voice_ids 必须是最多 3 个平台预置 voice_id（平台资源 id）", "invalid_model_defaults")
+            if defaults.get("generate_audio", True) is not None and not isinstance(defaults.get("generate_audio", True), bool):
+                raise ResourceError("generate_audio 必须是布尔", "invalid_model_defaults")
     return value
 
 
