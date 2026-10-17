@@ -529,7 +529,8 @@
       "layer": "unit",
       "sources": [
         "src/vsc/production/quality_plan.py",
-        "templates/quality-plan.json"
+        "templates/quality-plan.json",
+        "src/vsc/production/repair.py"
       ]
     },
     "production.unit.test_resource_settings": {
@@ -607,7 +608,88 @@
         "migrations/postgres/versions/0004_trial_adoptions.py",
         "src/vsc/assets/resource_service.py",
         "src/vsc/production/run_quality.py",
-        "tests/support/fixtures/resource_store.py"
+        "tests/support/fixtures/resource_store.py",
+        "tests/support/fixtures/trial_quality.py"
+      ]
+    },
+    "project.unit.test_workbench_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/workbench.js",
+        "src/vsc/interfaces/web/static/workbench.css",
+        "tests/project/unit/workbench.test.cjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
+    },
+    "production.integration.test_pg_quality_loop": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/production_guard.py",
+        "src/vsc/adapters/persistence/postgres/quality_relations.py",
+        "src/vsc/production/run_quality.py",
+        "tests/support/fixtures/trial_quality.py"
+      ]
+    },
+    "production.unit.test_performance": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/performance.py"
+      ]
+    },
+    "assets.integration.test_workbench": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/workbench.py",
+        "src/vsc/adapters/persistence/postgres/workbench.py",
+        "src/vsc/adapters/persistence/postgres/creative_relations.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/adapters/persistence/postgres/resource_graph.py",
+        "src/vsc/interfaces/web/workbench.py",
+        "migrations/postgres/versions/0005_creative_relations.py",
+        "src/vsc/assets/resource_impact.py",
+        "src/vsc/adapters/persistence/postgres/resource_impact.py",
+        "src/vsc/interfaces/web/resource_impact.py",
+        "src/vsc/interfaces/cli/workbench.py",
+        "scripts/vsc_workbench.py",
+        "tests/support/fixtures/workbench_scale.py"
+      ]
+    },
+    "production.integration.test_official_ark_sdk": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/providers/volc_ark/**",
+        "src/vsc/production/resource_settings.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/persistence/postgres/**",
+        "tests/support/fixtures/resources.py",
+        "tests/support/fixtures/resource_settings.py",
+        "tests/support/fixtures/postgres.py"
+      ]
+    },
+    "production.integration.test_official_sdk_worker": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/providers/volc_ark/**",
+        "src/vsc/production/resource_settings.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/persistence/postgres/**",
+        "tests/support/fixtures/resources.py",
+        "tests/support/fixtures/resource_settings.py",
+        "tests/support/fixtures/postgres.py"
+      ]
+    },
+    "maintenance.integration.test_official_packages": {
+      "owner": "maintenance",
+      "layer": "integration",
+      "sources": [
+        "tools/maintenance/official_packages.py",
+        "tools/maintenance/provider_sync.py"
       ]
     }
   },

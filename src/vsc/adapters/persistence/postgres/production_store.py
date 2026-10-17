@@ -239,7 +239,7 @@ class ProductionRepository:
                 version = self._one(conn, S.artifact_versions, p, artifact_id)
                 if version["sha256"] != sha or not self._artifact_approved(conn, p, artifact_id):
                     raise ResourceError("run固定上游版本摘要或批准失效", "run_inputs_mismatch")
-            validate_guard(self, conn, project, run, context=context)
+            validate_guard(self, conn, project, run, context=context, model=model)
             voice_binding = validate_capabilities(dict(model), request, context)
             if voice_binding:
                 request["voice_binding"] = voice_binding

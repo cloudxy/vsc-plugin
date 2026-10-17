@@ -6,7 +6,7 @@ from vsc.knowledge import learning
 from vsc.project.artifacts import validate_artifact
 
 
-def quality_errors(data, project, state, item, requests, *, read_ref=None):
+def quality_errors(data, project, state, item, requests, *, read_ref=None, evaluate_risk=None):
     """Validate coverage against actual fixed requests, for local and PG callers.
 
     requests maps stable run job IDs to their exact logical request dictionaries.
@@ -86,6 +86,12 @@ def quality_errors(data, project, state, item, requests, *, read_ref=None):
             continue
         evaluation = evidence.read(ref, 'quality_plan risk evaluation', structured=True)
         if not isinstance(evaluation, dict):
+            continue
+        if evaluate_risk is not None:
+            problems = evaluate_risk(risk, evaluation)
+            errors.extend('quality_plan 风险评测：' + problem for problem in problems)
+            if not problems:
+                resolved_risks.add(str(risk.get('id')))
             continue
         capability = next((c for c in state.get('learning', {}).get('capabilities', [])
                            if any(ev == evaluation for ev in c.get('evaluations', []))), None)

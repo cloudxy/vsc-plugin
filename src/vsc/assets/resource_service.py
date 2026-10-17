@@ -273,8 +273,13 @@ class ResourceService:
         self._validate_write(payload, **kw)
         if self.storage is not None and "staged_upload" in payload:
             payload = dict(payload)
+            display_name = payload.get("name")
             verified = self.storage.commit_upload(payload.pop("staged_upload"))
             payload.update(verified)
+            # The caller may name its project registration. Byte identity,
+            # modality, probe and storage location still come only from staging.
+            if display_name is not None:
+                payload["name"] = display_name
         return self._write("register_media", project_id, payload, **kw)
 
     def propose_binding(self, project_id, payload, **kw):

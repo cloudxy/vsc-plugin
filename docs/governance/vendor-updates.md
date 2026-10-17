@@ -2,7 +2,7 @@
 
 ## 资源配置页：检查后一次决定
 
-`scripts/vsc_provider_sync.py` 与内建资源配置页共用同一实现。点击“检查官方更新”显示当前和最新固定 commit；
+`scripts/vsc_provider_sync.py` 与内建资源配置页共用同一实现。点击“检查官方更新”显示当前和最新固定 commit 或包版本摘要；
 点击“更新”就是本次采用授权，后台完成下载、资源包验证、差异分析和切换。“不更新”直接保留当前版本。
 这条入口不额外创建人工审核步骤；下文的独立候选审查入口仍供用户只想分析、暂不采用时使用。
 
@@ -20,10 +20,21 @@ CLI 更新通过 `VSC_DATABASE_URL`（可用 `--database-env` 指定变量名）
 官方来源已核实：[Ark CLI 官方仓库](https://github.com/volcengine/ark-cli) 与
 [Agent Plan 视觉模型文档](https://docs.volcengine.com/docs/ark/agent-plan-personal-visual-models?lang=en)。
 Git 更新只安装官方仓库里的 Skill 源码，**不安装 npm CLI、执行依赖或接通新的生产执行器**。
-官方独立 Skill 分发站、ZIP／npm 发布包尚未适配。已有登记 Git vendor 可用同一更新流程，但界面明确其来源身份，
+另有 `volcengine-ark-cli-release` 支持官方 npm 分发包：从登记的 npm 元数据取得固定版本、tarball URL 与 SHA-512，
+校验包内身份、版本和 Apache-2.0 许可证，再按官方 manifest 中的固定平台 URL／SHA-256 下载执行文件。
+解包拒绝链接、越界和超限；不运行 `postinstall`、bootstrap 或 CLI，不改变 PATH、账号、凭证和生产配置。
+包内脚本与许可证连同执行文件、采用人和每文件摘要保留在本机
+`vendor/.provider-sync/official-packages/volcengine-ark-cli-release/<版本.摘要>/`；全部校验通过后原子切换 `active.json`。
+旧版本目录保留，失败保留旧活跃指针，在途或未知任务时仍拒绝更新。校验结论是官方 URL 来源及字节完整性，
+**不代表密码学签名验证、封闭二进制源码审计或生产执行能力**；CLI 显示为交互／方法参考。
+独立 Skill 分发站与通用 ZIP 来源尚未适配。已有登记 Git vendor 可用同一更新流程，但界面明确其来源身份，
 不会因出现在资源页就被标为模型供应商官方工具。OpenAI 宿主图像工具明确显示“宿主管理”，不承诺本地更新或回退。
 更新报告保存在 `vendor/.reviews/`，包含这次操作人和采用范围；新 Skill 不会自动获得 VSC 阶段路由。
 凭证、账号、套餐和付费策略不随工具更新改变，也不进行付费生成实测。
+
+正式生成采用可选的固定官方 `arkruntime` Python SDK，见[Agent Plan 执行边界](../architecture/ark-agent-plan-personal.md#2026-10-16官方工具与受控-sdk-执行)。
+SDK 属于 VSC 已测试可选依赖，随 VSC 的依赖发布维护，不由 CLI 包更新按钮偷偷升级。
+旧任务的 SDK／依赖／适配器环境摘要必须一致才能续查；环境不一致时恢复原环境，不重提付费任务。
 
 ## 目标
 

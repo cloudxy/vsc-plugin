@@ -1,0 +1,182 @@
+{
+  "format": "vsc.creative-relations/v1",
+  "project_id": "填写项目UUID",
+  "performances": [
+    {
+      "key": "combat-example",
+      "domain": "combat",
+      "method_artifact_id": "填写已批准方法UUID",
+      "shot_ids": [
+        "填写镜头UUID"
+      ],
+      "parameters": {
+        "purpose": "填写本执行意图",
+        "distance": "填写具体distance",
+        "direction": "填写具体direction",
+        "attack_defense": "填写具体attack_defense",
+        "support_foot": "填写具体support_foot",
+        "force": "填写具体force",
+        "after_state": "填写具体after_state",
+        "acceptance": "填写可观察判据与容差",
+        "fallback": "填写控制不支持时的替代设计",
+        "route": "generation",
+        "phases": [
+          {
+            "phase": "preparation",
+            "actor_role": "attacker",
+            "counterpart_role": "defender",
+            "action": "填写本阶段可见动作"
+          },
+          {
+            "phase": "initiation",
+            "actor_role": "attacker",
+            "counterpart_role": "defender",
+            "action": "填写本阶段可见动作"
+          },
+          {
+            "phase": "contact",
+            "actor_role": "attacker",
+            "counterpart_role": "defender",
+            "action": "填写本阶段可见动作"
+          },
+          {
+            "phase": "reaction",
+            "actor_role": "attacker",
+            "counterpart_role": "defender",
+            "action": "填写本阶段可见动作"
+          },
+          {
+            "phase": "recovery",
+            "actor_role": "attacker",
+            "counterpart_role": "defender",
+            "action": "填写本阶段可见动作"
+          }
+        ]
+      },
+      "participants": [
+        {
+          "instance": "填写攻击方使用实例UUID",
+          "role": "attacker"
+        },
+        {
+          "instance": "填写防守方使用实例UUID",
+          "role": "defender"
+        }
+      ]
+    },
+    {
+      "key": "dance-example",
+      "domain": "dance",
+      "method_artifact_id": "填写已批准方法UUID",
+      "shot_ids": [
+        "填写镜头UUID"
+      ],
+      "parameters": {
+        "phrase": "填写具体phrase",
+        "orientation": "填写具体orientation",
+        "formation": "填写具体formation",
+        "path": "填写具体path",
+        "synchronization": "填写具体synchronization",
+        "camera": "填写具体camera",
+        "retiming": "填写具体retiming",
+        "purpose": "填写本执行意图",
+        "acceptance": "填写可观察判据与容差",
+        "fallback": "填写控制不支持时的替代设计",
+        "route": "generation",
+        "beats": [
+          {
+            "seconds": 0,
+            "pose": "填写关键姿态"
+          }
+        ]
+      },
+      "materials": [
+        {
+          "media_id": "填写固定音乐媒体UUID",
+          "role": "music"
+        }
+      ]
+    },
+    {
+      "key": "vfx-example",
+      "domain": "vfx",
+      "method_artifact_id": "填写已批准方法UUID",
+      "shot_ids": [
+        "填写镜头UUID"
+      ],
+      "parameters": {
+        "trigger": "填写具体trigger",
+        "world_rule": "填写具体world_rule",
+        "trajectory": "填写具体trajectory",
+        "contact": "填写具体contact",
+        "occlusion": "填写具体occlusion",
+        "light_response": "填写具体light_response",
+        "environment_response": "填写具体environment_response",
+        "aftereffects": "填写具体aftereffects",
+        "sound": "填写具体sound",
+        "purpose": "填写本执行意图",
+        "acceptance": "填写可观察判据与容差",
+        "fallback": "填写控制不支持时的替代设计",
+        "route": "generation",
+        "layers": [
+          {
+            "name": "contact-light",
+            "purpose": "接触光",
+            "occlusion": "填写遮挡顺序",
+            "requires_plate": true
+          }
+        ]
+      },
+      "participants": [
+        {
+          "instance": "填写施力方实例UUID",
+          "role": "caster"
+        },
+        {
+          "instance": "填写承受方实例UUID",
+          "role": "target"
+        }
+      ],
+      "materials": [
+        {
+          "media_id": "填写底板媒体UUID",
+          "role": "plate"
+        }
+      ]
+    },
+    {
+      "key": "voice-example",
+      "domain": "voice",
+      "method_artifact_id": "填写已批准方法UUID",
+      "shot_ids": [
+        "填写镜头UUID"
+      ],
+      "parameters": {
+        "pronunciation": "填写具体pronunciation",
+        "accent": "填写具体accent",
+        "rate": "填写具体rate",
+        "breath": "填写具体breath",
+        "emotion": "填写具体emotion",
+        "delivery": "whisper",
+        "overlap": "填写具体overlap",
+        "processing": "填写具体processing",
+        "intelligibility": "填写具体intelligibility",
+        "sync_criterion": "填写具体sync_criterion",
+        "purpose": "填写本执行意图",
+        "acceptance": "填写可观察判据与容差",
+        "fallback": "填写控制不支持时的替代设计",
+        "route": "generation",
+        "target_seconds": 2,
+        "controls": [
+          {
+            "field": "rate",
+            "model_default": "speech_rate",
+            "expected": 0
+          }
+        ]
+      },
+      "line_id": "填写已批准台词行UUID",
+      "voice_spec_id": "填写固定声线规格UUID"
+    }
+  ]
+}

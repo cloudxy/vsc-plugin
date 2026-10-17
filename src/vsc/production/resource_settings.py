@@ -22,7 +22,7 @@ PURPOSES = [
     {"id": "bgm", "label": "音乐", "modality": "audio"},
 ]
 SUPPLIERS = {"volcengine", "alibaba", "xai", "openai"}
-EXECUTIONS = {"api", "official_cli", "official_skill", "host_tool"}
+EXECUTIONS = {"api", "official_sdk", "official_cli", "official_skill", "host_tool"}
 SOURCES = {
     "volcengine": "https://docs.volcengine.com/docs/ark/agent-plan-personal-visual-models?lang=en",
     "alibaba": "https://help.aliyun.com/zh/model-studio/",
@@ -60,7 +60,8 @@ def adapter_available(row):
         or (row.get("modality") == "video" and model.startswith("doubao-seedance-"))
         or (row.get("modality") == "audio" and model == "seed-tts-2.0"))
     return (row.get("supplier") == "volcengine" and row.get("product") == "ark"
-        and row.get("plan") == "agent-plan" and row.get("execution") == "api"
+        and row.get("plan") == "agent-plan" and row.get("execution") in {"api", "official_sdk"}
+        and not (row.get("execution") == "official_sdk" and row.get("modality") == "audio")
         and row.get("base_url", "").rstrip("/") == PLAN_BASE and row.get("auth_ref") == KEY_ENV and family_matches
         and (row.get("modality") in {"image", "video"} or (row.get("modality") == "audio"
             and row.get("model_key") == "seed-tts-2.0"
@@ -117,6 +118,19 @@ def validate_configuration(payload):
     known = {purpose["id"]: purpose["modality"] for purpose in PURPOSES}
     if value["enabled"] and any(purpose in known and known[purpose] != value["modality"] for purpose in purposes):
         raise ResourceError("所选用途与模型模态不匹配", "model_capability_mismatch")
+    if value["enabled"] and value["execution"] == "official_sdk":
+        defaults = value["default_params"]
+        if value["modality"] == "image":
+            sizes = defaults.get("size_map")
+            if not isinstance(sizes, dict) or not sizes or any(not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", key)
+                    or not isinstance(size, str) or not size.strip() for key, size in sizes.items()):
+                raise ResourceError("官方 SDK 图像需要尺寸到模型规格的 size_map 映射", "invalid_model_defaults")
+        if value["modality"] == "video" and (not isinstance(defaults.get("resolution"), str) or not defaults["resolution"].strip()
+                or not isinstance(defaults.get("ratio"), str) or not defaults["ratio"].strip()
+                or type(defaults.get("generate_audio", False)) is not bool):
+            raise ResourceError("官方 SDK 视频需要 resolution、ratio 与布尔 generate_audio 映射", "invalid_model_defaults")
+        from vsc.adapters.providers.volc_ark.official_sdk import verify_runtime
+        verify_runtime(value["default_params"].get("sdk_runtime"))
     return value
 
 
@@ -134,6 +148,18 @@ def public_configuration(row):
     else:
         status = "loaded_unverified"
     row["connection_status"] = status
+    if row.get("execution") == "official_sdk" and row.get("supplier") == "volcengine":
+        import importlib.metadata
+        from vsc.adapters.providers.volc_ark.official_sdk import SDK_NAME, SDK_VERSION
+        try:
+            installed = importlib.metadata.version(SDK_NAME)
+        except importlib.metadata.PackageNotFoundError:
+            installed = None
+        row["runtime_status"] = "installed_unverified" if installed == SDK_VERSION else "not_installed" if installed is None else "version_mismatch"
+        row["runtime_version"] = installed
+        if installed != SDK_VERSION:
+            row["adapter_available"] = False
+            row["connection_status"] = "runtime_unavailable"
     # Registry defaults are not allowed to smuggle credential literals to HTTP.
     for key in ("capabilities", "default_params"):
         try:
@@ -168,6 +194,18 @@ class ResourceSettings:
         return result
 
     def save(self, payload, actor):
+        if isinstance(payload, dict) and payload.get("execution") == "official_sdk":
+            payload = deepcopy(payload)
+            from vsc.adapters.providers.volc_ark.official_sdk import runtime_snapshot
+            if not isinstance(payload.get("default_params", {}), dict):
+                raise ResourceError("默认参数必须是对象")
+            payload.setdefault("default_params", {}).pop("sdk_runtime", None)
+            if adapter_available(payload):
+                try:
+                    payload["default_params"]["sdk_runtime"] = runtime_snapshot()
+                except ResourceError:
+                    if payload.get("enabled"):
+                        raise
         return public_configuration(self._repository().save(validate_configuration(payload), actor))
 
     def enabled(self, model_id, enabled, actor):
@@ -188,14 +226,26 @@ class ResourceSettings:
         row = self._repository().get(configuration_id)
         if not adapter_available(row) or not row["enabled"] or row["modality"] != spec["modality"] or purpose not in row["capabilities"].get("purposes", []):
             raise ResourceError("默认用途只能绑定已启用且支持该用途的配置", "model_capability_mismatch")
+        if row.get("execution") == "official_sdk" and adapter_available(row):
+            from vsc.adapters.providers.volc_ark.official_sdk import verify_runtime
+            verify_runtime(row["default_params"].get("sdk_runtime"))
         return {"defaults": self.repository.bind_default(purpose, configuration_id)}
 
     def check(self, model_id):
         row = public_configuration(self._repository().get(model_id))
+        runtime_message = ""
+        if row.get("execution") == "official_sdk" and adapter_available(row):
+            from vsc.adapters.providers.volc_ark.official_sdk import verify_runtime
+            try:
+                verify_runtime(row["default_params"].get("sdk_runtime"))
+                runtime_message = "官方 SDK 及依赖字节与固定环境一致。"
+            except ResourceError as exc:
+                row["connection_status"] = "runtime_unavailable"
+                runtime_message = str(exc) + "。"
         return {"id": model_id, "status": row["connection_status"], "scope": "local_configuration_and_environment_presence",
             "credential_loaded": bool(row.get("auth_ref") and os.environ.get(row["auth_ref"])),
             "generation_verified": False, "quota": "unknown", "message":
-            "仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。配置位置 ~/.zshenv；" + RELOAD}
+            runtime_message + "仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。配置位置 ~/.zshenv；" + RELOAD}
 
     def models(self, model_id):
         row = self._repository().get(model_id)

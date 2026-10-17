@@ -1,6 +1,6 @@
 // Resource configuration uses the existing local human session; secrets never enter this form.
 const labels = {identity_ref:'身份参考',image_edit:'图片编辑',first_frame:'镜头首帧',last_frame:'镜头尾帧',image_to_video:'图生视频',dialogue_dry:'配音',sfx:'音效',bgm:'配乐'};
-const connectionLabels = {not_configured:'未配置',not_loaded:'当前进程未加载',loaded:'已加载 · 未在线验证',loaded_unverified:'已加载 · 未在线验证',not_connected:'尚未接通',invalid_configuration:'配置需要修正',unverified:'未在线验证',host_managed:'由宿主管理',unsupported:'尚未接通',ready:'配置可用 · 生成效果仍需实测'};
+const connectionLabels = {not_configured:'未配置',not_loaded:'当前进程未加载',loaded:'已加载 · 未在线验证',loaded_unverified:'已加载 · 未在线验证',not_connected:'尚未接通',runtime_unavailable:'官方 SDK 未安装或版本不匹配',invalid_configuration:'配置需要修正',unverified:'未在线验证',host_managed:'由宿主管理',unsupported:'尚未接通',ready:'配置可用 · 生成效果仍需实测'};
 function el(tag, cls, text) { const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=text;return n; }
 function option(value,label){const n=el('option','',label);n.value=value;return n;}
 export function compatibleConfigurations(rows,purpose) {
@@ -40,7 +40,7 @@ export function createResourceSettings(dialog,{api,session,onNotice}) {
     field(form,'配置名称','name',row.name).required=true;
     const supplier=select(form,'供应商','supplier',[['volcengine','火山方舟'],['alibaba','阿里云百炼'],['xai','xAI'],['openai','OpenAI']],row.supplier||'volcengine');
     field(form,'产品','product',row.product||'ark').required=true;field(form,'套餐','plan',row.plan||'agent-plan').required=true;
-    select(form,'调用方式','execution',[['api','官方 API'],['official_skill','官方 Skill'],['official_cli','官方 CLI'],['host_tool','宿主内置工具']],row.execution||'api');
+    select(form,'调用方式','execution',[['api','官方 API'],['official_sdk','官方 Python SDK（固定环境）'],['official_skill','官方 Skill（方法参考）'],['official_cli','官方 CLI（交互参考）'],['host_tool','宿主内置工具']],row.execution||'api');
     select(form,'素材类型','modality',[['image','图片'],['video','视频'],['audio','音频']],row.modality||'image');
     field(form,'模型标识','model_key',row.model_key).required=true;field(form,'模型版本','model_version',row.model_version||'').required=true;
     field(form,'凭证环境变量名','auth_ref',row.auth_ref||'ARK_AGENT_PLAN_API_KEY');
@@ -61,6 +61,7 @@ export function createResourceSettings(dialog,{api,session,onNotice}) {
     detail.append(form);
     if(row.id){detail.append(el('p','hint',statusText(row)));const controls=el('div','settings-actions');controls.append(button('检查配置',async()=>{const value=await write(`/configurations/${encodeURIComponent(row.id)}/check`);report(value.message||statusText(value));await reload()},!canWrite()),button('查看已登记模型',async()=>{const value=await write(`/configurations/${encodeURIComponent(row.id)}/models`);report([value.message,`模型列表：${(value.models||[]).map(m=>typeof m==='string'?m:m.model_key||m.id||m.name).join('、')||'未返回可用模型'}`].filter(Boolean).join('\n'))},!canWrite()),button(row.enabled?'停用':'启用',async()=>{await write(`/configurations/${encodeURIComponent(row.id)}/enabled`,{enabled:!row.enabled});await reload();report('启用状态已更新。')},!canWrite()));detail.append(controls)}
     detail.append(el('p','hint','仅保存凭证引用，不填写密钥值。配置检查和模型列表不代表生成质量通过；此页面不发送付费试生成。'));
+    detail.append(el('p','hint','官方 SDK 的版本与环境指纹由服务端保存。火山图像与视频可选择此路线；CLI／Skill 仍为参考，阿里、xAI、OpenAI 接口尚未接通。'));
   }
   function renderDefaults(){
     const purposes=Array.isArray(data.purposes)?data.purposes:Object.keys(data.purposes||labels);
