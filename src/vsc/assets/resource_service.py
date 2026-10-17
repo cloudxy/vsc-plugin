@@ -211,14 +211,122 @@ class ResourceService:
     def create_artifact(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
         artifact_type = required(payload, "artifact_type")
+        project = self.store.get_project(project_id)
         if isinstance(artifact_type, str) and artifact_type.startswith("vsc."):
             from vsc.project.pg_workflow import validate_contract
-            project = self.store.get_project(project_id)
             errors = validate_contract(required(payload, "document"), artifact_type,
                 project["profile_snapshot"].get("contract_policy", "production-v2"))
             if errors:
                 raise ResourceError("产物违反固定契约: " + "; ".join(errors), "invalid_contract")
+        self._require_confirmed_script(project, payload, artifact_type)
         return self._write("create_artifact", project_id, payload, **kw)
+
+    def _require_confirmed_script(self, project, payload, artifact_type):
+        """Q1 硬停：剧本未人工确认前，不能登记 script 之后阶段的正式产物。"""
+        stages = project["profile_snapshot"].get("stages", [])
+        script_index = next((i for i, stage in enumerate(stages)
+                             if stage.get("id") == "script"
+                             or any(kind in stage.get("required", []) for kind in ("vsc.screenplay", "screenplay"))), None)
+        if script_index is None:
+            return
+        stage_id = payload.get("stage")
+        owner = next((i for i, stage in enumerate(stages) if stage.get("id") == stage_id), None) if stage_id else None
+        if owner is None:
+            owner = next((i for i, stage in enumerate(stages) if artifact_type in stage.get("required", [])), None)
+        if owner is None or owner <= script_index:
+            return
+        script_types = {kind for kind in stages[script_index].get("required", []) if "screenplay" in kind}
+        scope_ids = [str(value) for value in payload.get("object_ids", []) if isinstance(value, str)]
+        candidates = [row for row in self.list_artifacts(project["id"])["items"]
+                      if row.get("artifact_type") in script_types and row.get("current") and row.get("approved")]
+        if candidates and not payload.get("project_wide"):
+            parents = {node["id"]: node["parent_id"] for node in self.get_project_tree(project["id"])["nodes"]
+                       if node.get("parent_id")}
+            chains = self._ancestor_chains(scope_ids, parents)
+            covering = []
+            for row in candidates:
+                if row.get("project_wide"):
+                    covering.append(row)
+                elif not row.get("project_wide"):
+                    scopes = set(self.get_artifact_version(project["id"], row["id"]).get("object_ids") or [])
+                    if scopes & chains:
+                        covering.append(row)
+            candidates = covering
+        if not candidates:
+            raise ResourceError("剧本尚未人工确认，不能登记后续阶段的正式产物；先在剧本工作区提交并批准剧本",
+                                "script_confirmation_required", 409)
+
+    @staticmethod
+    def _ancestor_chains(scope_ids, parents):
+        expanded = set()
+        for scope in scope_ids:
+            cursor = scope
+            seen = set()
+            while cursor and cursor not in seen:
+                seen.add(cursor)
+                expanded.add(cursor)
+                cursor = parents.get(cursor)
+        return expanded
+
+    # ---------- 剧本工作区（Q1：工作副本、批注、提交确认） ----------
+
+    def get_script_draft(self, project_id, scope_key=""):
+        return self.store.get_script_draft(project_id, scope_key)
+
+    def save_script_draft(self, project_id, payload, actor=None, **_):
+        self._actor(actor)
+        if not isinstance(payload, dict) or "actor" in payload:
+            raise ResourceError("输入必须是对象，操作身份由可信会话提供", "invalid_payload")
+        return self.store.save_script_draft(project_id, payload, actor=actor)
+
+    def submit_script_draft(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        artifact_type = required(payload, "artifact_type")
+        if isinstance(artifact_type, str) and artifact_type.startswith("vsc."):
+            from vsc.project.pg_workflow import validate_contract
+            project = self.store.get_project(project_id)
+            draft = self.store.get_script_draft(project_id, payload.get("scope_key", ""))
+            if not draft.get("exists"):
+                raise ResourceError("还没有可提交的剧本工作副本；先保存草稿", "draft_missing", 404)
+            errors = validate_contract(draft.get("content"), artifact_type,
+                project["profile_snapshot"].get("contract_policy", "production-v2"))
+            if errors:
+                raise ResourceError("工作副本尚不满足剧本固定契约: " + "; ".join(errors), "invalid_contract")
+        return self._write("submit_script_draft", project_id, payload, **kw)
+
+    def add_script_note(self, project_id, payload, **kw):
+        return self._write("add_script_note", project_id, payload, **kw)
+
+    def decide_script_note(self, project_id, payload, **kw):
+        return self._write("decide_script_note", project_id, payload, **kw)
+
+    def compare_script_draft(self, project_id, scope_key="", base_artifact_id=None):
+        from vsc.assets.script_diff import compare_documents
+        draft = self.store.get_script_draft(project_id, scope_key)
+        base = draft.get("base") or {}
+        base_id = base_artifact_id or base.get("id")
+        if base_id is None:
+            # 无登记基线时回退到当前范围已批准的剧本版本，未找到则以空基线比较。
+            project = self.store.get_project(project_id)
+            stages = project["profile_snapshot"].get("stages", [])
+            script_types = {kind for stage in stages for kind in stage.get("required", []) if "screenplay" in kind}
+            if script_types:
+                for row in self.list_artifacts(project_id)["items"]:
+                    if (row.get("artifact_type") in script_types and row.get("current") and row.get("approved")
+                            and (row.get("project_wide") or not scope_key or scope_key in (row.get("object_ids") or []))):
+                        base_id = row["id"]
+                        base = {"id": row["id"], "version": row.get("version"), "sha256": row.get("sha256")}
+                        break
+        baseline = self.get_artifact_version(project_id, base_id).get("content") if base_id else None
+        if isinstance(baseline, str):
+            import json
+            try:
+                baseline = json.loads(baseline)
+            except ValueError:
+                baseline = None
+        return {"scope_key": draft["scope_key"], "phase": draft["phase"],
+                "base_artifact_id": base_id, "base": base or None,
+                "changes": compare_documents(baseline, draft.get("content"))}
 
     def decide_artifact(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)

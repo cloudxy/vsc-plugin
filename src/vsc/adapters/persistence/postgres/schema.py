@@ -534,6 +534,28 @@ method_evaluations = project_table("method_evaluations", *ref("artifact_versions
     Column("environment_sha256", String(64), nullable=False),
     CheckConstraint("result IN ('pass','fail','unknown')", name="result"))
 
+# 剧本工作副本是资源图中唯一允许 UPDATE 的表：自动保存就地更新，提交确认才冻结不可变 artifact 版本。
+# draft_revision 是该表自己的乐观并发序号，不占用 projects.revision（正式版本不受自动保存影响）。
+script_drafts = project_table("script_drafts",
+    Column("scope_key", Text, nullable=False, server_default=""),
+    Column("content", JSONB, nullable=False),
+    uid("base_artifact_id", nullable=True),
+    uid("submitted_artifact_id", nullable=True),
+    Column("draft_revision", BigInteger, nullable=False, server_default="1"),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+    Column("updated_by", Text, nullable=False), stamp(),
+    ForeignKeyConstraint(["project_id", "base_artifact_id"], ["artifact_versions.project_id", "artifact_versions.id"]),
+    ForeignKeyConstraint(["project_id", "submitted_artifact_id"], ["artifact_versions.project_id", "artifact_versions.id"]),
+    CheckConstraint("draft_revision >= 1", name="draft_revision"),
+    UniqueConstraint("project_id", "scope_key"))
+script_notes = project_table("script_notes",
+    Column("scene_id", Text, nullable=False), Column("line_id", Text),
+    Column("body", Text, nullable=False), Column("author", Text, nullable=False), stamp())
+script_note_decisions = project_table("script_note_decisions", *ref("script_notes", "note_id"),
+    Column("outcome", Text, nullable=False), Column("actor", Text, nullable=False),
+    Column("reason", Text, nullable=False), stamp(),
+    CheckConstraint("outcome IN ('resolve','dismiss','reopen')", name="outcome"))
+
 CREATIVE_TABLES = ("quality_observations", "method_evaluations", "asset_use_instances", "instance_interactions", "script_line_dispositions",
     "execution_instances", "execution_shots", "execution_participants", "execution_materials", "execution_slots",
     "sound_cues", "cue_shots", "cue_slots", "cue_timeline_items")
@@ -562,12 +584,14 @@ for table_name, fields in {
     "artifact_asset_spec_refs": ("asset_id", "spec_version_id"),
     "timeline_item_media": ("media_id",), "render_inputs": ("media_id",),
     "render_outputs": ("media_id",), "preview_jobs": ("status",),
+    "script_notes": ("scene_id",), "script_note_decisions": ("note_id",),
 }.items():
     table = metadata.tables[table_name]
     for field in fields:
         Index("ix_%s_project_%s" % (table_name, field), table.c.project_id, table.c[field])
 
 APPEND_ONLY_TABLES = CREATIVE_TABLES + (
+    "script_notes", "script_note_decisions",
     "provider_configurations",
     "budget_limit_versions",
     "project_revisions", "command_receipts", "artifact_versions", "artifact_dependencies",

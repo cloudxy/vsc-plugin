@@ -27,7 +27,7 @@ function lineagePanel(media,lineage) {
 }
 function size(bytes) { if (bytes == null) return '未知大小'; return bytes > 1048576 ? `${(bytes/1048576).toFixed(1)} MB` : `${(bytes/1024).toFixed(1)} KB`; }
 
-let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null;
+let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, scriptWorkspace = null;
 async function loadWorkbench() {
   if (!state.project || state.view !== 'workbench') return;
   if (!creativeWorkbench) {
@@ -41,6 +41,18 @@ async function loadWorkbench() {
     });
   }
   if (state.view === 'workbench') await creativeWorkbench.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader'});
+}
+async function loadScriptWorkspace() {
+  if (!state.project || state.view !== 'script') return;
+  if (!scriptWorkspace) {
+    const {createScriptWorkspace} = await import('./script-workspace.js');
+    scriptWorkspace = createScriptWorkspace($('script-view'), {
+      api, baseUrl: base, onNotice: notice,
+      session: () => ({actor: state.actor, csrf: state.csrf, writable: state.writable, revision: state.revision}),
+      setRevision: value => { state.revision = value; },
+    });
+  }
+  if (state.view === 'script') await scriptWorkspace.load({projectId: state.project});
 }
 async function selectObject(id) {
   state.object = id; state.offset = 0;
@@ -68,11 +80,12 @@ async function loadCanvas(focus = null) {
 }
 async function switchView(view, focus = null) {
   state.view = view;
-  for (const [tab, target] of [['workbench','creative-workbench'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
+  for (const [tab, target] of [['workbench','creative-workbench'],['script','script-view'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
     $(target).hidden = tab !== view; $(`tab-${tab}`).setAttribute('aria-selected', String(tab === view));
   }
   if (view === 'canvas') await loadCanvas(focus);
   else if (view === 'workbench') await loadWorkbench();
+  else if (view === 'script') await loadScriptWorkspace();
   else if (view === 'media') await loadResources();
   else if (view === 'artifacts') await loadArtifacts();
 }
@@ -339,7 +352,7 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const tab of ['workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
+for(const tab of ['workbench','script','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
 $('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));

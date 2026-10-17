@@ -104,7 +104,7 @@ class WorkbenchTest(ResourceStoreFixture,unittest.TestCase):
         from vsc.adapters.persistence.postgres import schema as S
         with self.engine.connect() as conn:
             self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
-        self.assertEqual(self.store.check_schema()['migration'],'0005_creative_relations')
+        self.assertEqual(self.store.check_schema()['migration'],'0006_script_workspace')
         h,a,line,doc,r=self.seed()
         cue=self.query(section='cues')['sections']['cues']['items'][0]['id']
         # SQL CHECK must reject partial ranges even when SQL three-valued logic is involved.
