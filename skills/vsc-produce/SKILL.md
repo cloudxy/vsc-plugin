@@ -40,7 +40,7 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 声音资产记录写 `kind=audio`、`purpose=asset`，不属于镜头画面。人工试听后通过 `scripts/assets/library.py promote/use` 复用 voice/music/ambience/sfx；相同音色 ID、音轨存在或工具成功都不代替声线、表演、权属与人工选择。具体参数见[豆包语音](../../docs/architecture/doubao-speech.md)、[Seed-Audio](../../docs/architecture/doubao-audio.md)。
 
-需要批量图像／视频时，按[批量生产](../../docs/guide/production-batch.md)准备 `templates/production-batch.json`，先用 `scripts/production/plan.py validate/plan` 只读预检并审阅任务依赖、输入 SHA 和规模预算，再 `run --execute --plan-hash <hash>`。队列当前只支持方舟 image/video，不接管声音任务；计划 hash 不等于人工批准，未知提交不重提，失败停止下游。
+需要批量图像／视频时，按[批量生产](../../docs/guide/production-batch.md)准备 `templates/production-batch.json`，先用 `scripts/production/plan.py validate/plan` 只读预检并审阅任务依赖、输入 SHA 和规模预算，再 `run --execute --plan-hash <hash>`。队列支持方舟 image/video 与 Grok 订阅四类任务（grok_image/grok_video/grok_edit/grok_extend，计划期共用同一能力编译器预检），不接管声音任务；计划 hash 不等于人工批准，未知提交不重提，失败停止下游。
 
 按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `produce` 阶段；除运行环境外，项目授权也须就绪才调用生成工作流。未就绪时保留为可选能力，不伪造供应商调用或生成结果。
 

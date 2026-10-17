@@ -252,6 +252,15 @@ class ResourceService:
     def decide_script_note(self, project_id, payload, **kw):
         return self._write("decide_script_note", project_id, payload, **kw)
 
+    def add_script_suggestion(self, project_id, payload, **kw):
+        return self._write("add_script_suggestion", project_id, payload, **kw)
+
+    def decide_script_suggestion(self, project_id, payload, **kw):
+        return self._write("decide_script_suggestion", project_id, payload, **kw)
+
+    def script_revision_impact(self, project_id, scope_key=""):
+        return self.store.script_revision_impact(project_id, scope_key)
+
     def compare_script_draft(self, project_id, scope_key="", base_artifact_id=None):
         from vsc.assets.script_diff import compare_documents
         draft = self.store.get_script_draft(project_id, scope_key)

@@ -133,7 +133,7 @@ class PostgresTrialQualityTests(TrialQualityFixture, unittest.TestCase):
         from vsc.adapters.persistence.postgres.schema import metadata
         with self.engine.connect() as conn:
             self.assertEqual(compare_metadata(MigrationContext.configure(conn), metadata), [])
-        self.assertEqual(self.store.check_schema()["migration"], "0006_script_workspace")
+        self.assertEqual(self.store.check_schema()["migration"], "0007_script_suggestions")
 
 
 if __name__ == "__main__":

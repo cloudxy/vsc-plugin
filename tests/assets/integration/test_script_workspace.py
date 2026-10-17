@@ -15,7 +15,7 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
     def setUp(self):
         self.project = self.service.create_project({"name": "剧本工作区测试", "profile_snapshot": {
             "profile_id": "vsc.synthetic-script", "version": "1", "dependency_policy": "previous_stage",
-            "stages": [{"id": "script", "required": ["screenplay"]},
+            "stages": [{"id": "script", "required": ["screenplay", "vsc.screenplay"]},
                        {"id": "design", "required": ["asset-bible"]},
                        {"id": "animatic", "required": ["animatic"]}]}}, actor="test-human")
         self.p, self.rev = self.project["id"], 0
@@ -73,7 +73,7 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.write("decide_artifact", {"artifact_id": artifact_id, "reason": "synthetic human approval"})
         draft = self.service.get_script_draft(self.p, self.episode)
         self.assertEqual(draft["phase"], "approved")
-        self.assertEqual(draft["base"], None)  # 基线推导自提交版本，不另写事实
+        self.assertEqual((draft["base"] or {}).get("id"), artifact_id)  # 已批准基线（含只读派生）指向该版本
         bible = self.write("create_artifact", self.bible_payload())
         self.assertTrue(bible["id"])
 
@@ -95,7 +95,8 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual((texts[0]["before"], texts[0]["after"]), ("今晚我等你", "今晚我等你，不见不散"))
 
     def test_notes_anchor_and_decisions(self):
-        note = self.write("add_script_note", {"scene_id": "SC1", "line_id": "L1", "body": "这句要口语一些"})
+        note = self.write("add_script_note", {"scope_key": self.episode, "scene_id": "SC1", "line_id": "L1",
+                                              "body": "这句要口语一些"})
         self.assertEqual(self.service.get_script_draft(self.p, self.episode)["notes"][0]["status"], "open")
         self.write("decide_script_note", {"note_id": note["id"], "outcome": "resolve", "reason": "已改写"})
         row = self.service.get_script_draft(self.p, self.episode)["notes"][0]
@@ -169,6 +170,117 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.assertTrue(row["id"])
 
 
+    def test_real_contract_roundtrip_and_stream_reuse(self):
+        """F03/F06：真实 vsc.screenplay 契约往返 + 不同 key 既有流被工作区复用。"""
+        episode = self.objects["episode"]
+        scene, speaker = self.objects["scene"], self.objects["asset"] if "asset" in self.objects else None
+        document = {"format": "vsc.screenplay/v1", "project_id": self.p, "body": "合成契约剧本",
+                    "scope": episode, "adaptation_refs": [{"id": "A1", "sha256": "270c0d536da1e328c882cda409fc95a131d86851b817f538836313cad3b9ed03"}],
+                    "scenes": [{"id": scene, "estimated_duration_ms": 3000,
+                    "actions": [{"id": "A1", "text": "他停下脚步", "narrative_refs": ["N1"]}],
+                    "dialogue": [], "silence": []}]}
+        # 先以 CLI 风格用独立 key 登记并批准剧本（F06：既有不同 key 流）
+        original = self.write("create_artifact", dict(artifact_key="original_script", artifact_type="vsc.screenplay",
+            stage="script", document=document, object_ids=[episode]))
+        self.write("decide_artifact", {"artifact_id": original["id"], "reason": "synthetic human approval"})
+        # 工作区从既有批准基线起草修订（真实契约文档，仅改一处台词文本）
+        document["scenes"][0]["actions"][0]["text"] = "他停下脚步，回头看了一眼"
+        self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": 0,
+                                                "content": document}, actor="editor-a")
+        draft = self.service.get_script_draft(self.p, episode)
+        self.assertEqual((draft["base"] or {}).get("id"), original["id"])  # 基线绑定既有批准
+        submitted = self.write("submit_script_draft", {"scope_key": episode, "base_draft_revision": 1,
+            "artifact_type": "vsc.screenplay", "stage": "script"})
+        self.assertEqual(submitted["artifact"]["artifact_key"], "original_script")  # 沿既有 stream，不另造 key
+        self.assertEqual(submitted["baseline_artifact_id"], original["id"])
+        fresh = self.service.get_script_draft(self.p, episode)
+        self.assertEqual(fresh["phase"], "pending")
+        with self.assertRaises(ResourceError) as caught:  # 待审修订阻断该范围新制作
+            self.write("create_artifact", dict(artifact_key="blocked", artifact_type="asset-bible", stage="design",
+                                               document={"synthetic": True}, object_ids=[episode]))
+        self.assertEqual("script_revision_pending", caught.exception.code)
+
+    def test_suggestions_apply_reject_undo_and_scope_notes(self):
+        episode = self.objects["episode"]
+        self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": 0,
+                                                "content": self.draft_document()}, actor="editor-a")
+        # 批注范围：两集互不串扰（F07/B1-08）
+        other = self.write("create_object", {"kind": "episode", "display_code": "EP2",
+                                             "parent_id": self.objects["work"], "ordinal": 1})["id"]
+        note_a = self.write("add_script_note", {"scope_key": episode, "scene_id": "SC1", "line_id": "L1", "body": "口语化"})
+        self.write("add_script_note", {"scope_key": other, "scene_id": "SC1", "line_id": "L1", "body": "另一集的批注"})
+        notes = self.service.get_script_draft(self.p, episode)["notes"]
+        self.assertEqual([row["id"] for row in notes], [note_a["id"]])  # 只见本范围批注
+        # 建议：接受逐处应用并推进修订；过期建议不能覆盖较新编辑
+        suggestion = self.write("add_script_suggestion", {"scope_key": episode, "scene_id": "SC1",
+            "line_id": "L1", "kind": "dialogue", "field": "text", "before_value": "今晚我等你",
+            "after_value": "今晚我等你，不见不散", "reason": "更贴合挽留语气", "origin": "ai"})
+        accepted = self.write("decide_script_suggestion", {"scope_key": episode,
+            "suggestion_id": suggestion["id"], "outcome": "accept", "reason": "采纳"})
+        draft = self.service.get_script_draft(self.p, episode)
+        self.assertEqual(draft["content"]["scenes"][0]["dialogue"][0]["text"], "今晚我等你，不见不散")
+        self.assertEqual(draft["draft_revision"], accepted["draft_revision"])
+        self.assertEqual(next(row["status"] for row in draft["suggestions"] if row["id"] == suggestion["id"]), "accepted")
+        # 撤销：接受后无新编辑时可回滚
+        undone = self.write("decide_script_suggestion", {"scope_key": episode,
+            "suggestion_id": suggestion["id"], "outcome": "undo_accept", "reason": "复看后不稳"})
+        draft = self.service.get_script_draft(self.p, episode)
+        self.assertEqual(draft["content"]["scenes"][0]["dialogue"][0]["text"], "今晚我等你")
+        self.assertEqual(draft["draft_revision"], undone["draft_revision"])
+        # 过期建议：基于旧修订，接受被拒
+        stale = self.write("add_script_suggestion", {"scope_key": episode, "scene_id": "SC1",
+            "line_id": "L1", "kind": "dialogue", "field": "text", "before_value": "今晚我等你",
+            "after_value": "过期建议", "reason": "基于旧稿"})
+        self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": draft["draft_revision"],
+                                                "content": self.draft_document("新编辑")}, actor="editor-b")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("decide_script_suggestion", {"scope_key": episode, "suggestion_id": stale["id"],
+                                                    "outcome": "accept", "reason": "应被过期拒绝"})
+        self.assertEqual("suggestion_stale", caught.exception.code)
+        self.write("decide_script_suggestion", {"scope_key": episode, "suggestion_id": stale["id"],
+                                                "outcome": "reject", "reason": "关闭过期建议"})
+        self.assertEqual(next(row["status"] for row in
+                              self.service.get_script_draft(self.p, episode)["suggestions"]
+                              if row["id"] == stale["id"]), "rejected")
+
+    def test_revision_impact_lists_real_consumers(self):
+        episode = self.objects["episode"]
+        scene = self.objects["scene"]
+        document = {"format": "vsc.screenplay/v1", "project_id": self.p, "body": "合成契约剧本",
+                    "scope": episode, "adaptation_refs": [{"id": "A1", "sha256": "270c0d536da1e328c882cda409fc95a131d86851b817f538836313cad3b9ed03"}],
+                    "scenes": [{"id": scene, "estimated_duration_ms": 3000,
+                    "actions": [{"id": "A1", "text": "他停下", "narrative_refs": ["N1"]}],
+                    "dialogue": [], "silence": []}]}
+        original = self.write("create_artifact", dict(artifact_key="impact_script", artifact_type="vsc.screenplay",
+            stage="script", document=document, object_ids=[episode]))
+        self.write("decide_artifact", {"artifact_id": original["id"], "reason": "synthetic human approval"})
+        # 直接在数据库登记覆盖与声音关系（复用真实表，避免构造完整 coverage 契约）
+        from vsc.adapters.persistence.postgres import schema as S
+        from sqlalchemy import insert as sa_insert, select as sa_select
+        with self.store.engine.connect() as conn:
+            line_id = conn.execute(sa_select(S.script_lines.c.id).where(
+                S.script_lines.c.project_id == self.p, S.script_lines.c.script_version_id == original["id"],
+                S.script_lines.c.line_key == "A1")).scalar_one()
+        with self.store.engine.begin() as conn:
+            conn.execute(sa_insert(S.shot_line_coverage).values(project_id=self.p, id=new_uuid(),
+                coverage_version_id=original["id"], shot_id=self.objects["shot"], line_id=line_id,
+                start_char=0, end_char=3))
+            cue = new_uuid()
+            conn.execute(sa_insert(S.sound_cues).values(project_id=self.p, id=cue, artifact_id=original["id"],
+                cue_key="cue-1", label="环境声", cue_kind="ambience", scope_object_id=episode,
+                line_id=line_id, parameters={}))
+        document["scenes"][0]["actions"][0]["text"] = "他停下脚步，回头看了一眼"
+        self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": 0,
+                                                "content": document}, actor="editor-a")
+        self.write("submit_script_draft", {"scope_key": episode, "base_draft_revision": 1,
+                                           "artifact_type": "vsc.screenplay", "stage": "script"})
+        impact = self.service.script_revision_impact(self.p, episode)
+        self.assertTrue(any(row.get("line_id") == "A1" for row in impact["changed_lines"]))
+        self.assertTrue(any(row["id"] == self.objects["shot"] for row in impact["shots"]))
+        self.assertTrue(any(row["cue_key"] == "cue-1" for row in impact["cues"]))
+
+
+
 API_DEPS = HAS_DB_DEPS and TEST_URL and all(importlib.util.find_spec(name)
                                             for name in ("fastapi", "httpx"))
 
@@ -193,7 +305,7 @@ class ScriptWorkspaceAPITest(unittest.TestCase):
         self.service = ResourceService(PostgresResourceStore(engine=self.engine))
         self.project = self.service.create_project({"name": "剧本工作区API", "profile_snapshot": {
             "profile_id": "vsc.synthetic-script", "version": "1",
-            "stages": [{"id": "script", "required": ["screenplay"]},
+            "stages": [{"id": "script", "required": ["screenplay", "vsc.screenplay"]},
                        {"id": "design", "required": ["asset-bible"]}]}}, actor="fixture-human")
         self.p, self.revision = self.project["id"], 0
         self.client = TestClient(create_app({"projects_root": "empty-projects",
@@ -247,6 +359,11 @@ class ScriptWorkspaceAPITest(unittest.TestCase):
         self.assertTrue(opened["id"])
         compare = self.client.get(self.base + "/script-draft/compare").json()
         self.assertFalse(compare["changes"]["changed"])
+
+
+def new_uuid():
+    import uuid
+    return uuid.uuid4().hex
 
 
 if __name__ == "__main__":

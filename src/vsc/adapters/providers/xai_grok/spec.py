@@ -119,6 +119,8 @@ def compile_video_operation(model, video, prompt, operation):
     """/v1/videos/edits 与 /v1/videos/extensions（输出跟随输入；extensions 的 prompt 平台必填）。"""
     if operation not in ("edit", "extend"):
         raise GrokSpecError("视频加工操作只能是 edit 或 extend")
+    if advanced_model(model):
+        raise GrokSpecError("视频编辑/续接由经典 grok-imagine-video 承担（线上实证 1.5 返回不支持）")
     if operation == "extend" and not str(prompt or "").strip():
         raise GrokSpecError("视频续接需要提示词（平台必填）")
     path = {"edit": "/videos/edits", "extend": "/videos/extensions"}[operation]

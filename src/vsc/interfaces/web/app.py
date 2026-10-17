@@ -225,7 +225,8 @@ def create_app(config=None, catalog=None, service=None):
                "objects": "create_object", "artifacts": "create_artifact", "artifact-decisions": "decide_artifact",
                "preview-retries": "retry_preview_job",
                "script-submit": "submit_script_draft", "script-notes": "add_script_note",
-               "script-note-decisions": "decide_script_note"}
+               "script-note-decisions": "decide_script_note", "script-suggestions": "add_script_suggestion",
+               "script-suggestion-decisions": "decide_script_suggestion"}
 
     def write_endpoint(action):
         def execute(project_id: str, request: Request, body: dict):

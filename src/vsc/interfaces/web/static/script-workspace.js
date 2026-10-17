@@ -165,6 +165,8 @@ export function createScriptWorkspace(container, ctx) {
     const conflictBox = el('div', 'script-conflict'); conflictBox.hidden = true; container.append(conflictBox);
     if (draft.phase === 'pending' && draft.submitted) container.append(renderPending());
     container.append(draft.exists ? renderEditor() : renderBootstrap());
+    container.append(renderSuggestions());
+    if (draft.phase === 'pending' && draft.submitted) renderImpact();
     container.append(renderNotes());
     setStatus(editSeq > savedSeq ? '待保存' : '—');
   }
@@ -175,6 +177,7 @@ export function createScriptWorkspace(container, ctx) {
       const fresh = await ctx.api(`${ctx.baseUrl()}/script-draft?scope_key=${encodeURIComponent(scopeKey)}`);
       if (!sameSession({project: ctx.baseUrl(), scopeKey})) return;
       draft.notes = fresh.notes; draft.phase = fresh.phase; draft.submitted = fresh.submitted; draft.base = fresh.base;
+      draft.suggestions = fresh.suggestions; draft.draft_revision = fresh.draft_revision; draft.content = fresh.content;
       render();
     } catch (error) { notice(error.message); }
   }
@@ -256,7 +259,7 @@ export function createScriptWorkspace(container, ctx) {
     note.addEventListener('click', async () => {
       const body = prompt(`对 ${sceneId} / ${item.dataset.lineId} 的批注：`);
       if (!body) return;
-      try { await write('script-notes', {scene_id: sceneId, line_id: item.dataset.lineId, body}); notice('批注已添加。'); await refreshMeta(); } catch (error) { notice(error.message); }
+      try { await write('script-notes', {scope_key: scopeKey, scene_id: sceneId, line_id: item.dataset.lineId, body}); notice('批注已添加。'); await refreshMeta(); } catch (error) { notice(error.message); }
     });
     const remove = el('button', 'line-remove', '删除');
     remove.addEventListener('click', () => { item.remove(); scheduleSave(); });
@@ -355,6 +358,87 @@ export function createScriptWorkspace(container, ctx) {
     panel.append(list);
   }
 
+  function renderSuggestions() {
+    const panel = el('section', 'script-suggestions');
+    const suggestions = draft.suggestions || [];
+    const pending = suggestions.filter(row => row.status === 'pending');
+    panel.append(el('h3', '', `修改建议（${pending.length} 待处理 / 共 ${suggestions.length}）`));
+    const list = el('ul', 'notes-list');
+    for (const row of suggestions) {
+      const item = el('li', `note-${row.status}`);
+      const label = `${row.scene_id}${row.line_id ? ' / ' + row.line_id : ''} · ${row.kind}.${row.field}`;
+      item.append(el('span', 'note-anchor', label), el('s', '', String(row.before_value ?? '')),
+        el('b', '', String(row.after_value)), el('small', '', `${row.origin} · r${row.base_draft_revision} · ${row.reason}`));
+      if (row.status === 'pending') {
+        const accept = el('button', '', '接受这一处');
+        accept.addEventListener('click', async () => {
+          if (editSeq > savedSeq || saving) return notice('有未保存编辑；先成功保存再接受建议。');
+          const reason = prompt('接受说明：'); if (!reason) return;
+          try {
+            await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
+              outcome: 'accept', reason});
+            notice('建议已应用到工作副本；编辑器已刷新为新稿。');
+            draft = await ctx.api(`${ctx.baseUrl()}/script-draft?scope_key=${encodeURIComponent(scopeKey)}`);
+            editSeq = 0; savedSeq = 0; render();
+          } catch (error) { notice(error.message); }
+        });
+        const reject = el('button', '', '拒绝');
+        reject.addEventListener('click', async () => {
+          const reason = prompt('拒绝说明：'); if (!reason) return;
+          try { await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
+            outcome: 'reject', reason}); await refreshMeta(); } catch (error) { notice(error.message); }
+        });
+        item.append(accept, reject);
+      } else if (row.status === 'accepted') {
+        const undo = el('button', '', '撤销接受');
+        undo.addEventListener('click', async () => {
+          if (editSeq > savedSeq || saving) return notice('有未保存编辑；先成功保存再撤销。');
+          const reason = prompt('撤销说明：'); if (!reason) return;
+          try {
+            await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
+              outcome: 'undo_accept', reason});
+            notice('已撤销并改回原值。');
+            draft = await ctx.api(`${ctx.baseUrl()}/script-draft?scope_key=${encodeURIComponent(scopeKey)}`);
+            editSeq = 0; savedSeq = 0; render();
+          } catch (error) { notice(error.message); }
+        });
+        item.append(undo);
+      }
+      list.append(item);
+    }
+    if (!suggestions.length) list.append(el('li', 'hint', '还没有修改建议；建议经 API 以稳定行身份提出（origin=ai 时标注来源），逐处接受，不整稿覆盖。'));
+    panel.append(list);
+    return panel;
+  }
+
+  async function renderImpact() {
+    let panel = container.querySelector('.script-impact');
+    if (!panel) { panel = el('section', 'script-impact'); container.insertBefore(panel, container.querySelector('.script-suggestions')); }
+    panel.replaceChildren(el('h3', '', '修订影响（相对已批准基线）'), el('p', 'hint', '读取中…'));
+    try {
+      const impact = await ctx.api(`${ctx.baseUrl()}/script-draft/impact?scope_key=${encodeURIComponent(scopeKey)}`);
+      panel.replaceChildren(el('h3', '', '修订影响（相对已批准基线）'));
+      if (!impact.changed_lines.length && !impact.shots.length && !impact.cues.length) {
+        panel.append(el('p', 'hint', impact.baseline_artifact_id ? '没有检出会影响下游的行级变化。' : '该范围尚无已批准基线，无从比对影响。'));
+        return;
+      }
+      const lines = el('ul', 'compare-list');
+      for (const change of impact.changed_lines) {
+        const item = el('li', '', `${change.scene_id || ''} ${change.line_id || ''} ${change.field || ''}（${change.change}）`);
+        if (change.before != null) item.append(el('s', '', JSON.stringify(change.before)));
+        if (change.after != null) item.append(el('b', '', JSON.stringify(change.after)));
+        lines.append(item);
+      }
+      panel.append(lines);
+      const meta = [];
+      if (impact.shots.length) meta.push(`覆盖镜头 ${impact.shots.map(s => s.display_code || s.title || s.id).join('、')}`);
+      if (impact.cues.length) meta.push(`声音Cue ${impact.cues.map(c => c.label || c.cue_key || c.id).join('、')}${impact.cues.some(c => c.timeline_items) ? `（含时间线用料 ${impact.cues.reduce((n, c) => n + (c.timeline_items || 0), 0)} 处）` : ''}`);
+      if (impact.unresolved?.length) meta.push(`待核实 ${impact.unresolved.length} 项（基线缺行或场级变化）`);
+      for (const line of meta) panel.append(el('p', '', line));
+      panel.append(el('p', 'hint', '影响清单来自真实覆盖／声音Cue／时间线关系；未列出的关系不代表不存在，标注为待核实。'));
+    } catch (error) { panel.append(el('p', 'hint', '影响读取失败：' + error.message)); }
+  }
+
   function renderNotes() {
     const panel = el('section', 'script-notes');
     const notes = draft.notes || [];
@@ -362,7 +446,7 @@ export function createScriptWorkspace(container, ctx) {
     const list = el('ul', 'notes-list');
     for (const note of notes) {
       const item = el('li', `note-${note.status}`);
-      item.append(el('span', 'note-anchor', `${note.scene_id}${note.line_id ? ' / ' + note.line_id : ''}`),
+      item.append(el('span', 'note-anchor', `${note.scope_key == null ? '未归属历史 · ' : ''}${note.scene_id}${note.line_id ? ' / ' + note.line_id : ''}`),
         el('span', '', note.body),
         el('small', '', `${note.author} · ${String(note.created_at || '').slice(0, 19)} · ${{open: '待处理', resolved: '已解决', dismissed: '已忽略'}[note.status]}`));
       if (note.status === 'open') {
