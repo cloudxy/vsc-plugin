@@ -180,6 +180,8 @@ def submit_job(project, job_id, adapter=None, download=None):
         raise SeriesError("正式制作质量门未通过：" + "；".join(gaps))
     adapter = adapter or jobs.adapter_for_job(project, job_id)
     logical_request = _request(frozen, job["modality"])
+    if hasattr(adapter, "preflight"):
+        adapter.preflight(logical_request)  # F09：本地校验先于预算预留与提交意图
     if job["provider"] == "volc_ark":
         from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider
         if isinstance(adapter, VolcArkAudioProvider):

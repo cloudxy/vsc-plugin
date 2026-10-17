@@ -312,9 +312,21 @@ def adapter_for_job(project, job_id, transport=None):
         if job["modality"] == "video":
             if not defaults.get("resolution"):
                 raise SeriesError("Grok 视频模型须配置 resolution")
-            return GrokVideoProvider(job["model"], media_url, defaults["resolution"],
-                defaults.get("ratio", ""), defaults.get("reference_voice_ids", []),
-                defaults.get("generate_audio", True), transport)
+            overrides = dict(resolution=defaults["resolution"], ratio=defaults.get("ratio", ""),
+                             generate_audio=defaults.get("generate_audio", True))
+            params = frozen.get("logical_request", frozen).get("params") or {}
+            supported = {"resolution", "aspect_ratio", "generate_audio"}
+            if set(params) - supported:
+                raise SeriesError("Grok 视频未声明这些逻辑参数映射，禁止静默忽略: " + ",".join(sorted(set(params) - supported)))
+            if "resolution" in params:
+                overrides["resolution"] = params["resolution"]
+            if "aspect_ratio" in params:
+                overrides["ratio"] = params["aspect_ratio"]
+            if "generate_audio" in params:
+                overrides["generate_audio"] = bool(params["generate_audio"])
+            return GrokVideoProvider(job["model"], media_url, overrides["resolution"],
+                overrides["ratio"], defaults.get("reference_voice_ids", []),
+                overrides["generate_audio"], transport)
         raise SeriesError("Grok 订阅路线未接音频适配器")
     if job["provider"] != "volc_ark":
         raise SeriesError("此 Provider 尚无系列任务适配器")

@@ -129,9 +129,10 @@ class GrokContract(unittest.TestCase):
         with self.assertRaises(GrokAdapterError):  # 间隔不足 1/3 秒
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "p", (), {}, 6000, "f",
                                          keyframes=(("k1", 2.0), ("k2", 2.1))))
-        with self.assertRaises(GrokAdapterError):  # 预置声音超过 3 个
-            GrokVideoProvider("grok-imagine-video-1.5", lambda m: m, "720p",
-                              voice_ids=("a", "b", "c", "d"), transport=empty)
+        loud = GrokVideoProvider("grok-imagine-video-1.5", lambda m: m, "720p",
+                                 voice_ids=("a", "b", "c", "d"), transport=empty)
+        with self.assertRaises(GrokAdapterError):  # 预置声音超过 3 个（共用编译器在提交前拒绝）
+            loud.submit(VideoRequest("SH1", "video_clip", "sha", "p", (), {}, 6000, "f"))
         classic = GrokVideoProvider("grok-imagine-video", lambda media_id: media_id, "720p",
                                     voice_ids=("eve",), transport=empty)
         with self.assertRaises(GrokAdapterError):  # 经典模型不支持预置声音

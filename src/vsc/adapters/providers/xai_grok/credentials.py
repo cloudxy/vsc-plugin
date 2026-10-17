@@ -39,8 +39,8 @@ def _expiry(entry):
     return parsed if parsed.tzinfo is not None else None
 
 
-def _login_key():
-    """Pick the unexpired account deterministically; returns (value, problem)."""
+def _login_entry():
+    """Pick the unexpired account deterministically; returns (entry, problem)."""
     if not LOGIN_FILE.is_file():
         return None, None
     try:
@@ -54,10 +54,28 @@ def _login_key():
     if not fresh:
         return None, "grok 登录态已过期：请在终端运行 grok 刷新登录后再使用 Grok 路线"
     chosen = max(fresh, key=lambda entry: _expiry(entry) or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc))
-    value = chosen["key"].strip()
-    if any(ord(char) < 32 for char in value):
+    if any(ord(char) < 32 for char in chosen["key"].strip()):
         return None, "grok 登录态凭证含非法控制字符：请重新登录"
-    return value, None
+    return chosen, None
+
+
+def _login_key():
+    entry, problem = _login_entry()
+    if entry is None:
+        return None, problem
+    return entry["key"].strip(), None
+
+
+def account_id():
+    """登录账号的稳定身份（user_id，缺省退 email）；与可刷新 token 分开（F12）。
+
+    任务归属与续查一致性以该身份为准：同账号刷新 token 后旧任务仍可续查；
+    返回 None 表示当前登录态不可用或缺少稳定身份字段。
+    """
+    entry, problem = _login_entry()
+    if entry is None:
+        return None
+    return str(entry.get("user_id") or entry.get("email") or "") or None
 
 
 def key_problem():
