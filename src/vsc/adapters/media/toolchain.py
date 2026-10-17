@@ -11,6 +11,7 @@ from pathlib import Path
 from vsc.story import consistency as C
 from vsc.adapters.providers.volc_ark import api as A
 from vsc.adapters.providers import credentials as credentials
+from vsc.adapters.providers.xai_grok import credentials as grok_credentials
 from vsc.assets import library as L
 
 ROOT = repository_root()
@@ -18,12 +19,16 @@ FORMAT = "vsc.toolchain-readiness/v1"
 ENV_NAMES = (credentials.KEY_ENV,)
 # Agent Plan 规则禁止用该 key 直接调用文本生成模型；视觉检查虽已实现，但不能用统一 key 提交。
 BLOCKED = {"ark_visual": credentials.TEXT_MODELS_FORBIDDEN}
+# Grok 订阅路线不读环境变量，就绪只看 grok CLI 登录态文件是否存在。
+LOGIN_TOOLS = {"grok_image", "grok_video"}
 IGNORED_DIRS = {"废弃", ".vsc-production", "09-台账", "10-记忆", "node_modules", "build"}
 # provider/kind 仅用于分类已经核验的项目证据，不能据配置推定权限。
 TOOLS = (
     ("ark_image", "豆包图像", "providers/volcengine/ark.py", ENV_NAMES, "volcengine_ark", "image"),
     ("ark_video", "豆包视频", "providers/volcengine/ark.py", ENV_NAMES, "volcengine_ark", "video"),
     ("ark_visual", "豆包视觉检查", "providers/volcengine/ark.py", ENV_NAMES, None, None),
+    ("grok_image", "Grok 图像（订阅）", "providers/xai/grok.py", (), "xai_grok", "image"),
+    ("grok_video", "Grok 视频（订阅）", "providers/xai/grok.py", (), "xai_grok", "video"),
     ("doubao_speech", "豆包语音", "providers/volcengine/speech.py", ENV_NAMES, "doubao_speech", "audio"),
     ("seed_audio", "SeedAudio", "providers/volcengine/audio.py", ENV_NAMES, "doubao_audio", "audio"),
     ("procedural_audio", "本地原创程序声音", "media/procedural_audio.py", (), "vsc_procedural_audio", "audio"),
@@ -194,19 +199,33 @@ def readiness(project, library=None):
     tools = []
     for identifier, label, script, names, provider, kind in TOOLS:
         present = [name for name in names if bool(os.environ.get(name))]
+        login_ready = identifier in LOGIN_TOOLS and grok_credentials.login_present()
         records = [entry["record"] for entry in evidence["verified_candidates"]
                    if provider and entry["provider"] == provider and entry["kind"] == kind]
         visual = [entry["report"] for entry in evidence["verified_visual_reports"]
                   if identifier == "ark_visual" and entry["provider"] == "volcengine_ark"]
         blocked = BLOCKED.get(identifier)
+        if blocked is not None:
+            configured, status = False, "blocked_by_plan_rules"
+        elif identifier in LOGIN_TOOLS:
+            configured, status = login_ready, "present" if login_ready else "pending"
+        elif names:
+            configured, status = bool(present), "present" if present else "pending"
+        else:
+            configured, status = True, "not_required"
+        if identifier in LOGIN_TOOLS and blocked is None:
+            hint = grok_credentials.key_problem() if not login_ready else None
+        elif names and not present:
+            hint = credentials.key_problem()
+        else:
+            hint = None
         tools.append({"id": identifier, "label": label, "script": "scripts/" + script,
             "implemented": (ROOT / "scripts" / script).is_file(),
-            "configured": False if blocked else bool(present) if names else True,
-            "configuration": {"status": "blocked_by_plan_rules" if blocked else "present" if present
-                              else "pending" if names else "not_required",
+            "configured": configured,
+            "configuration": {"status": status,
                               "any_env_names": list(names), "present_env_names": present,
                               "blocked_reason": blocked,
-                              "missing_hint": (credentials.key_problem() if names and not present else None)},
+                              "missing_hint": hint},
             "permission_verification": "not_probed", "verified_candidates": {"count": len(records), "records": records},
             "verified_visual_reports": {"count": len(visual), "reports": visual}, "human_review": "pending"})
     for name in ("ffmpeg", "ffprobe"):

@@ -36,6 +36,7 @@
 |---|---|
 | [通用架构](architecture/reference-architecture.md) | 产物、活动、决策、策略、版本、事件与可扩展内核 |
 | [生成适配器边界](architecture/generation-adapters.md) | 供应商中立的生成接缝、每次生成需记录的字段与已实现的媒体检查适配器 |
+| [xAI Grok 订阅路线](architecture/xai-grok-subscription.md) | Grok Imagine 订阅登录凭证、图像与图生视频参数、实现位置与验证边界 |
 | [豆包固定音色语音](architecture/doubao-speech.md) | TTS 请求绑定、流式记录、媒体检查与权限边界 |
 | [豆包 Seed-Audio](architecture/doubao-audio.md) | MediaKit 音频任务、恢复与实际验证状态 |
 | [内核重构](architecture/kernel-refactor.md) | v0.6 从分散声明到可验证内核：结构问题与扩展规则 |

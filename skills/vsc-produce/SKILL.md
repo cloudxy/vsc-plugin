@@ -32,11 +32,11 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 它还会提醒三种情况：资产图没有登记进资产库；帧追溯不到关键帧记录；人物既没用参考素材，也没用由资产图生成的关键帧。
 
-可选豆包工具 `scripts/providers/volcengine/ark.py` 已提供图像、视频与视觉检查；先 dry run 核对视频请求，再在已有预算范围内提交。视觉提醒写 `vsc.visual-check/v1`，不能取代人工选择。供应商 API、密钥、收费、许可和平台策略由适配器及项目策略负责；配置、实测与限制见[生成适配器边界](../../docs/architecture/generation-adapters.md)。
+可选图像与视频工具：`scripts/providers/volcengine/ark.py` 提供豆包图像、视频与视觉检查；`scripts/providers/xai/grok.py` 提供 Grok Imagine 订阅路线的文生图与首帧图生视频。先 dry run 核对视频请求，再在已有预算范围内提交。视觉提醒写 `vsc.visual-check/v1`，不能取代人工选择。供应商 API、密钥、收费、许可和平台策略由适配器及项目策略负责；配置、实测与限制见[生成适配器边界](../../docs/architecture/generation-adapters.md)、[火山 Agent Plan 对照](../../docs/architecture/ark-agent-plan-personal.md)与[xAI Grok 订阅路线](../../docs/architecture/xai-grok-subscription.md)。
 
 制作前运行 `python3 -B scripts/media/toolchain.py --project <作品目录> --json`。实现存在、默认凭证变量存在、当前作品有有效候选与人工已审阅分别看；该诊断不联网核验权限，`configured=true` 不能当作供应商可用或批准。
 
-声音按已批准声音方案另行制作：`scripts/providers/volcengine/speech.py synthesize` 提供固定 speaker 和情绪 context，`scripts/providers/volcengine/audio.py generate` 经 MediaKit 生成音乐／环境／音效候选。语音默认 `--service agent-plan`（统一的方舟 Agent Plan key），普通语音须显式 `--service speech`；两者不能因鉴权失败自动互换。两个声音脚本默认 dry run，`--execute` 才提交，`--max-chars` 必填；火山图片、视频与两个声音脚本统一读 `ARK_AGENT_PLAN_API_KEY`，找不到时提示配置火山方舟 Agent 版本的 API Key；可通过 `--key-env <环境变量名>` 显式选择其他变量并单独核验权限。该 key 不得直接调用文本生成模型，视觉检查不能新提交。2026-10-11 普通语音探测／合成及显式 Agent Plan 合成均未通过认证（401／45000010），MediaKit key 未配置；接口离线验证通过，尚无成功云端声音，不能声称已生成可用豆包声音。无远程声源时可用 `scripts/media/procedural_audio.py` 离线合成原创环境底、拟音与简约配乐，须如实标记为程序合成。
+声音按已批准声音方案另行制作：`scripts/providers/volcengine/speech.py synthesize` 提供固定 speaker 和情绪 context，`scripts/providers/volcengine/audio.py generate` 经 MediaKit 生成音乐／环境／音效候选。语音默认 `--service agent-plan`（统一的方舟 Agent Plan key），普通语音须显式 `--service speech`；两者不能因鉴权失败自动互换。两个声音脚本默认 dry run，`--execute` 才提交，`--max-chars` 必填；火山图片、视频与两个声音脚本统一读 `ARK_AGENT_PLAN_API_KEY`，找不到时提示配置火山方舟 Agent 版本的 API Key；可通过 `--key-env <环境变量名>` 显式选择其他变量并单独核验权限。该 key 不得直接调用文本生成模型，视觉检查不能新提交。Grok 订阅脚本不读环境变量：凭证是 grok CLI 登录态（`~/.grok/auth.json`，在终端运行 `grok` 按提示登录生成），缺失或过期时提示重新登录；不在 `~/.zshenv` 伪造 `XAI_API_KEY`，也不把订阅登录当作按量计费 API 权限（音频路线未接，Grok 只做图像与图生视频）。2026-10-11 普通语音探测／合成及显式 Agent Plan 合成均未通过认证（401／45000010），MediaKit key 未配置；接口离线验证通过，尚无成功云端声音，不能声称已生成可用豆包声音。无远程声源时可用 `scripts/media/procedural_audio.py` 离线合成原创环境底、拟音与简约配乐，须如实标记为程序合成。
 
 声音资产记录写 `kind=audio`、`purpose=asset`，不属于镜头画面。人工试听后通过 `scripts/assets/library.py promote/use` 复用 voice/music/ambience/sfx；相同音色 ID、音轨存在或工具成功都不代替声线、表演、权属与人工选择。具体参数见[豆包语音](../../docs/architecture/doubao-speech.md)、[Seed-Audio](../../docs/architecture/doubao-audio.md)。
 
@@ -46,7 +46,7 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 ## 制作交接 v2
 
-PostgreSQL 项目通过 `scripts/assets/resources.py context` 和 `create_generation_job` 固定输入，已批准 run 逐项授权请求；明确 `worker` 提交、`worker --poll` 查询、`worker --resume` 恢复转存。候选输出经面板检查、人审和用途选择后才供下游消费。不得绕过任务库直接运行低层供应商脚本，PG 失败时不得回退旧权威。见[资源面板指南](../../docs/guide/resource-panel.md)。
+PostgreSQL 项目通过 `scripts/assets/resources.py context` 和 `create_generation_job` 固定输入，已批准 run 逐项授权请求；明确 `worker` 提交、`worker --poll` 查询、`worker --resume` 恢复转存。worker 按任务登记的供应商分发适配器，当前接通火山 Agent Plan 与 xAI Grok 订阅两条图像／视频路线（Grok 用途默认按项目在资源面板绑定）。候选输出经面板检查、人审和用途选择后才供下游消费。不得绕过任务库直接运行低层供应商脚本，PG 失败时不得回退旧权威。见[资源面板指南](../../docs/guide/resource-panel.md)。
 
 PG 预演前有限试片、固定质量包的构造顺序及 `trial_adoption` 正式采用字段，见 [PostgreSQL 试片与质量包](../vsc/references/creative-production.md#postgresql-试片与质量包)。首版每份 trial run 限定单镜头，质量证据从本项目固定已批准 artifact 字节读取；PG 正式风险评测的自动复用尚未接入，不将独立 `pass` 字段当作授权。
 

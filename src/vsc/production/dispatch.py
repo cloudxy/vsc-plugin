@@ -187,6 +187,11 @@ def submit_job(project, job_id, adapter=None, download=None):
         if isinstance(adapter, (VolcArkImageProvider, VolcArkVideoProvider)):
             from vsc.adapters.providers.volc_ark import api as volc_ark
             volc_ark.base_url()  # Reject a standard pay-as-you-go endpoint before reserving budget.
+    if job["provider"] == "xai_grok":
+        from vsc.adapters.providers.xai_grok import credentials as grok_credentials
+        problem = grok_credentials.key_problem()  # Missing login fails before budget is reserved.
+        if problem:
+            raise SeriesError(problem)
     operation = frozen["operation"]
     bound = run["operations"][operation]
     reservation = budget.reserve(project, job["run_artifact_id"], operation, bound)

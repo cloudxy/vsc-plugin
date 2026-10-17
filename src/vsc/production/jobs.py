@@ -54,6 +54,13 @@ def register_provider(project, name, modalities, auth_ref=None, base_url=None, r
         if base_url and base_url.rstrip("/") != credentials.PLAN_BASE:
             raise SeriesError("火山方舟 Agent Plan Provider 须使用专属 Base URL")
         base_url = credentials.PLAN_BASE
+    if name == "xai_grok":
+        from vsc.adapters.providers.xai_grok import credentials as grok_credentials
+        if auth_ref is not None:
+            raise SeriesError("Grok 订阅 Provider 使用 grok CLI 登录态授权，不使用环境变量引用")
+        if base_url and base_url.rstrip("/") != grok_credentials.API_BASE:
+            raise SeriesError("Grok 订阅 Provider 须使用官方端点 " + grok_credentials.API_BASE)
+        base_url = grok_credentials.API_BASE
     with project_lock(Path(project)), db.connect(project) as connection:
         connection.execute("INSERT INTO providers VALUES (?,?,?,?,?,?,?)",
             (name, db.canonical(sorted(set(modalities))), base_url, auth_ref, 1, rate_limit, stamp()))
@@ -293,6 +300,20 @@ def adapter_for_job(project, job_id, transport=None):
             raise SeriesError("任务参考媒体已漂移")
         return volc_ark.resolve(str(path), project, volc_ark.originals(project))[0]
 
+    if job["provider"] == "xai_grok":
+        from vsc.adapters.providers.xai_grok.provider import GrokImageProvider, GrokVideoProvider
+        defaults = frozen["default_params"]
+        if job["modality"] == "image":
+            ratios = defaults.get("ratio_map", {})
+            if not isinstance(ratios, dict):
+                raise SeriesError("Grok 图片模型须配置 ratio_map")
+            return GrokImageProvider(job["model"], lambda width, height: ratios.get(f"{width}x{height}"),
+                defaults.get("resolution", "2k"), transport)
+        if job["modality"] == "video":
+            if not defaults.get("resolution"):
+                raise SeriesError("Grok 视频模型须配置 resolution")
+            return GrokVideoProvider(job["model"], media_url, defaults["resolution"], transport)
+        raise SeriesError("Grok 订阅路线未接音频适配器")
     if job["provider"] != "volc_ark":
         raise SeriesError("此 Provider 尚无系列任务适配器")
     from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider

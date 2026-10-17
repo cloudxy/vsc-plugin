@@ -106,6 +106,34 @@ class ToolchainTest(unittest.TestCase):
         self.assertIn("火山方舟 Agent 版本", out)
         self.assertIn("~/.zshenv", out)
 
+    def test_grok_subscription_tools_follow_login_state_without_env(self):
+        import vsc.adapters.providers.xai_grok.credentials as grok_credentials
+        blank = {name: "" for name in T.ENV_NAMES}
+        with mock.patch.dict(os.environ, blank, clear=True):
+            with mock.patch.object(grok_credentials, "LOGIN_FILE", Path("/nonexistent/auth.json")):
+                code, report, err = self.report()
+                self.assertEqual(code, 0, err)
+                for identifier in ("grok_image", "grok_video"):
+                    tool = self.tools(report)[identifier]
+                    self.assertTrue(tool["implemented"])
+                    self.assertFalse(tool["configured"])
+                    self.assertEqual(tool["configuration"]["status"], "pending")
+                    self.assertEqual(tool["configuration"]["any_env_names"], [])
+                    self.assertIn("grok", tool["configuration"]["missing_hint"])
+            login = self.root / "auth.json"
+            login.write_text(json.dumps({"https://auth.x.ai::u": {"key": "grok-login-secret-value",
+                                                                  "expires_at": "2999-01-01T00:00:00Z"}}), "utf-8")
+            with mock.patch.object(grok_credentials, "LOGIN_FILE", login):
+                code, report, err = self.report()
+                self.assertEqual(code, 0, err)
+                for identifier in ("grok_image", "grok_video"):
+                    tool = self.tools(report)[identifier]
+                    self.assertTrue(tool["configured"])
+                    self.assertEqual(tool["configuration"]["status"], "present")
+                    self.assertIsNone(tool["configuration"]["missing_hint"])
+                    self.assertEqual(tool["verified_candidates"]["count"], 0)
+                self.assertNotIn("grok-login-secret-value", json.dumps(report))
+
     def test_actual_same_project_schema_success_and_sha_evidence_counts(self):
         for index, (provider, kind, tool) in enumerate((
                 ("volcengine_ark", "image", "ark_image"), ("volcengine_ark", "video", "ark_video"),
