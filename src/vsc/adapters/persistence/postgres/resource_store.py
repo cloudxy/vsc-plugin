@@ -23,6 +23,7 @@ from .production_store import ProductionRepository
 from .preview_store import PreviewRepository
 from .budget_store import BudgetRepository
 from .source_reader import SourceRepository
+from .script_workspace import ScriptWorkspaceRepository
 from .values import checked_id, clean, canonical, digest, new_id, verify_sha
 
 
@@ -38,7 +39,8 @@ from .values import checked_id, clean, canonical, digest, new_id, verify_sha
 
 
 
-class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository):
+class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository,
+                            ScriptWorkspaceRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:
             raise ResourceError("PostgreSQL 连接未配置", "database_not_configured", 503)
@@ -55,7 +57,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if version != "0005_creative_relations":
+                if version != "0006_script_workspace":
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
                 return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
         except SQLAlchemyError as exc:
@@ -235,7 +237,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             return clean({"project": project, "nodes": nodes, "revision": project["revision"]})
 
     def create_artifact(self, project_id, payload, **kw):
-        def work(conn, project):
+        return self._mutate(project_id, "create_artifact", payload,
+                            callback=lambda conn, project: self._create_artifact(conn, project, payload), **kw)
+
+    def _create_artifact(self, conn, project, payload):
             p, artifact_id = project["id"], checked_id(payload.get("id", new_id()))
             document = required(payload, "document")
             if isinstance(document, (dict, list)):
@@ -396,7 +401,6 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             from .quality_relations import project_quality_document
             project_quality_document(self, conn, p, artifact_id, document)
             return {"id": artifact_id, "artifact_key": artifact_key, "version": version, "sha256": sha}
-        return self._mutate(project_id, "create_artifact", payload, callback=work, **kw)
 
     def _register_asset_refs(self, conn, p, artifact_id, references):
         if not isinstance(references, dict):

@@ -3,6 +3,7 @@ const SECTIONS = {
   overview: '创作概览', shots: '镜头', lines: '剧本与台词', assets: '资产',
   instances: '使用与状态', cues: '声音', performances: '动作与特效',
   bindings: '采用与候选', materials: '相关素材', states:'场镜状态',voices:'人物声线',jobs:'制作任务',versions: '文案版本',
+  script_status: '剧本确认',
 };
 const RELATION_SECTIONS = {quality_observations:'质量记录',method_evaluations:'方法评测',timeline_media:'实际用料区间',candidates:'用途候选',coverage:'镜头覆盖',states:'场镜状态',voices:'人物与声线',interactions:'参与和接触',dispositions:'省略与处理依据',cue_shots:'声音覆盖镜头',cue_slots:'声音用途',cue_timeline_items:'声音时间区间',execution_shots:'动作覆盖镜头',execution_participants:'动作参与者',execution_materials:'动作参考与素材',execution_slots:'动作制作用途'};
 const LABELS = {
@@ -13,6 +14,7 @@ const LABELS = {
   approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '当前采用',
   current: '当前版本', historical: '历史版本', candidate: '候选', missing: '资料缺失',
   pending: '待处理', pass: '通过', fail: '未通过', unknown: '尚未确定', unselected:'尚未采用',unassociated:'待关联',unverified:'尚未验证',instance:'使用实例',
+  editing: '编辑中', pending_confirmation: '待人工确认', script_draft: '剧本工作副本',
   identity_face: '身份正脸', location_master: '场景母版', composition: '构图参考',
   first_frame: '首帧', last_frame: '尾帧', video_take: '镜头视频', dialogue_dry: '对白干声',
   voice_sample: '声音参考', style_reference: '风格参考',

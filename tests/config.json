@@ -46,11 +46,29 @@
         "scripts/assets/library.py"
       ]
     },
+    "assets.integration.test_script_workspace": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "migrations/postgres/**",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/assets/script_diff.py",
+        "tests/support/fixtures/resource_store.py"
+      ]
+    },
     "assets.unit.test_resource_service": {
       "owner": "assets",
       "layer": "unit",
       "sources": [
         "src/vsc/assets/resource_service.py"
+      ]
+    },
+    "assets.unit.test_script_diff": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/script_diff.py"
       ]
     },
     "assets.unit.test_resource_storage": {

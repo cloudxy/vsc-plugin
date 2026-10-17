@@ -20,6 +20,7 @@ from vsc.interfaces.web.resource_graph import install_graph_routes
 from vsc.interfaces.web.resource_settings import register_resource_settings
 from vsc.interfaces.web.workbench import install_workbench_routes
 from vsc.interfaces.web.resource_impact import install_impact_routes
+from vsc.interfaces.web.script_workspace import install_script_routes
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -222,7 +223,9 @@ def create_app(config=None, catalog=None, service=None):
                "preview-jobs": "create_preview_job", "media-checks": "record_media_check",
                "binding-rejections": "reject_candidate", "rights-decisions": "decide_rights",
                "objects": "create_object", "artifacts": "create_artifact", "artifact-decisions": "decide_artifact",
-               "preview-retries": "retry_preview_job"}
+               "preview-retries": "retry_preview_job",
+               "script-submit": "submit_script_draft", "script-notes": "add_script_note",
+               "script-note-decisions": "decide_script_note"}
 
     def write_endpoint(action):
         def execute(project_id: str, request: Request, body: dict):
@@ -248,6 +251,7 @@ def create_app(config=None, catalog=None, service=None):
     install_graph_routes(router, catalog, etag)
     install_workbench_routes(router, catalog, etag)
     install_impact_routes(router, catalog, etag)
+    install_script_routes(router, catalog, etag, actor)
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

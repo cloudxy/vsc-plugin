@@ -114,6 +114,16 @@ QUERIES['method_evaluations'] = """SELECT e.id,e.artifact_id,e.method_artifact_i
  e.result status,e.environment_sha256,'method_evaluation' kind,a.artifact_key title
  FROM method_evaluations e JOIN artifact_versions a ON a.project_id=e.project_id AND a.id=e.method_artifact_id
  WHERE e.project_id=:p AND (CAST(:scope AS uuid) IS NULL OR e.artifact_id IN (SELECT id FROM scoped_versions))"""
+QUERIES['script_status'] = """SELECT d.scope_key id,d.scope_key title,'script_draft' kind,
+ CASE WHEN d.submitted_artifact_id IS NULL THEN 'editing'
+      WHEN cur.artifact_id IS NOT NULL THEN 'approved'
+      WHEN (SELECT x.outcome FROM artifact_decisions x WHERE x.project_id=d.project_id AND x.artifact_id=d.submitted_artifact_id
+            ORDER BY x.decision_sequence DESC LIMIT 1)='reject' THEN 'rejected'
+      ELSE 'pending_confirmation' END status,
+ d.draft_revision,d.updated_at,d.updated_by,d.base_artifact_id,d.submitted_artifact_id,
+ (SELECT count(*) FROM script_notes n WHERE n.project_id=d.project_id) note_count
+ FROM script_drafts d LEFT JOIN current_artifact_versions cur ON cur.project_id=d.project_id AND cur.artifact_id=d.submitted_artifact_id
+ WHERE d.project_id=:p"""
 
 QUERIES['cue_timeline_items'] = """SELECT r.id,r.cue_id,r.item_id,t.timeline_id,t.track_key,t.offset_frame,t.duration_frames,t.shot_id,v.fps_num,v.fps_den,
  t.track_key || ' #' || t.ordinal title,'cue_timeline_items' kind FROM cue_timeline_items r JOIN timeline_items t ON t.project_id=r.project_id AND t.id=r.item_id
@@ -124,7 +134,7 @@ QUERIES['timeline_media'] = """SELECT m.id,m.media_id,m.item_id,m.binding_decisi
  JOIN timeline_versions v ON v.project_id=t.project_id AND v.id=t.timeline_id JOIN media_items i ON i.project_id=m.project_id AND i.id=m.media_id
  WHERE m.project_id=:p AND (CAST(:scope AS uuid) IS NULL OR t.shot_id IN (SELECT id FROM scope_ids) OR EXISTS(SELECT 1 FROM cue_timeline_items c WHERE c.project_id=:p AND c.item_id=t.id AND c.cue_id IN (SELECT id FROM scoped_cues)))"""
 
-OVERVIEW = ('children','shots','lines','assets','instances','cues','performances','bindings','materials','versions','jobs')
+OVERVIEW = ('script_status','children','shots','lines','assets','instances','cues','performances','bindings','materials','versions','jobs')
 
 
 def query_workbench(store,project_id,*,object_id=None,section='overview',query='',limit=24,offset=0,revision=None,
