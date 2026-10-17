@@ -134,6 +134,7 @@ def timeline_performance_errors(data, project, state, item):
     selected, selected_item = _load_ref(project, state, item, data.get("selected_takes"), errors, "对白获选清单", {"vsc.selected_takes"})
     choices = {row["id"]: row for row in selected.get("items", [])}
     cue_index = {}
+    audio_uses = {}  # B4-02：同一段对白音频被多个 binding 重复使用须显式声明，跨镜复用不许悄悄复制。
     for ref in data.get("sound_plans", []):
         plan, plan_item = _load_ref(project, state, item, ref, errors, "对白声音计划", {"vsc.sound_plan", "vsc.sound_cue_sheet"})
         errors.extend(project_sound_errors(plan, project, state, plan_item))
@@ -151,6 +152,9 @@ def timeline_performance_errors(data, project, state, item):
     measured = {}
     for binding in bindings:
         identifier = binding.get("segment_id")
+        media_key = (binding.get("selected_item_id"), binding.get("output_id"))
+        if media_key[0] and not binding.get("reuse_declared"):
+            audio_uses.setdefault(media_key, []).append(identifier)
         segment, choice = segments.get(identifier, {}), choices.get(binding.get("selected_item_id"), {})
         cue, lines = cue_index.get(binding.get("cue_id"), ({}, {}))
         role = binding["audio_role"]
@@ -246,4 +250,9 @@ def timeline_performance_errors(data, project, state, item):
                 errors.append("计划Cue窗口短于对白实测时长：" + str(identifier))
         except (OSError, ValueError, ProbeFailure) as exc:
             errors.append("对白真实媒体核验失败：" + str(exc))
+    for (_, _), segment_ids in audio_uses.items():
+        if len(set(segment_ids)) > 1:
+            errors.append("同一获选对白音频被多个片段重复绑定：" + ",".join(sorted(set(segment_ids)))
+                          + "；跨镜复用须声明 reuse_declared 并给出依据，不得悄悄复制音轨")
+
     return errors

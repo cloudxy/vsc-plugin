@@ -79,5 +79,6 @@
     "start_frame": 0,
     "end_frame": null,
     "delivery_id": ""
-  }
+  },
+  "review_method": "human_full_play"
 }
