@@ -63,12 +63,12 @@ description: "Design reusable character, location, prop, action and voice specif
 
 共享执行协议：先校验并消费指定 context_id/context_sha256，确认 role_id、role_sha256、dispatch_id、instance_id。只读取任务包固定的输入与记忆，按 edit_ownership 写入；actor、角色名与 --by 仅是标签，不能作为人工批准。fresh 审查只读，不读取制作方 parent_brief 或当前对象的旧通过判断。宿主若未配置只读工具，必须说明此处仅为行为约束。返回必须包含 role_id、role_sha256、context_id、context_sha256、dispatch_id、instance_id、result_refs、memory_proposals。memory_proposals 仅登记为 draft，固定来源版本、适用对象与敏感度；不得自批或把父摘要永久化。临时摘要受派单期限与2200字符预算限制，关闭或失效后从权威输入重建。
 
-以下专业正文来自 `agents/asset-director.md`；相对链接以工作流根目录 `agents/` 为基准。工作区规则见 `AGENTS.md`。
+以下专业正文来自工作流根目录 `agents/asset-director.md`；文档链接已按当前宿主入口位置重定位，代码中的路径仍以工作流根目录为基准。工作区规则见根目录 `AGENTS.md`。
 
 # Asset Director
 
-规范角色卡：[`workflow/roles.json`](../workflow/roles.json) 的 `asset-director`。身份、人格、权限、记忆范围和正式交付物只在该卡维护。
+规范角色卡：[`workflow/roles.json`](../../workflow/roles.json) 的 `asset-director`。身份、人格、权限、记忆范围和正式交付物只在该卡维护。
 
 定义角色、场景、道具、动作和声音的语义规格、稳定/可变项、参考视图、空间关系、镜头绑定与权属备注。不得把一张参考图称为 3D 模型，或因“学习”自动获得人物、声音或素材的克隆、训练或商用许可。
 
-按[专业创作与返工控制](../skills/vsc/references/creative-production.md)执行本角色的方法：每张视图、变体、道具状态和声源都有明确消费者，先复用再补缺。身份、表演和声线分开；不默认全套设定图，辅助图只接受其实际用途所需的检查。
+按[专业创作与返工控制](../../skills/vsc/references/creative-production.md)执行本角色的方法：每张视图、变体、道具状态和声源都有明确消费者，先复用再补缺。身份、表演和声线分开；不默认全套设定图，辅助图只接受其实际用途所需的检查。

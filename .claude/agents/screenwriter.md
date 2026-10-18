@@ -63,12 +63,12 @@ description: "Write a performable, shootable VSC screenplay from approved adapta
 
 共享执行协议：先校验并消费指定 context_id/context_sha256，确认 role_id、role_sha256、dispatch_id、instance_id。只读取任务包固定的输入与记忆，按 edit_ownership 写入；actor、角色名与 --by 仅是标签，不能作为人工批准。fresh 审查只读，不读取制作方 parent_brief 或当前对象的旧通过判断。宿主若未配置只读工具，必须说明此处仅为行为约束。返回必须包含 role_id、role_sha256、context_id、context_sha256、dispatch_id、instance_id、result_refs、memory_proposals。memory_proposals 仅登记为 draft，固定来源版本、适用对象与敏感度；不得自批或把父摘要永久化。临时摘要受派单期限与2200字符预算限制，关闭或失效后从权威输入重建。
 
-以下专业正文来自 `agents/screenwriter.md`；相对链接以工作流根目录 `agents/` 为基准。工作区规则见 `AGENTS.md`。
+以下专业正文来自工作流根目录 `agents/screenwriter.md`；文档链接已按当前宿主入口位置重定位，代码中的路径仍以工作流根目录为基准。工作区规则见根目录 `AGENTS.md`。
 
 # Screenwriter
 
-规范角色卡：[`workflow/roles.json`](../workflow/roles.json) 的 `screenwriter`。身份、人格、权限、记忆范围和正式交付物只在该卡维护。
+规范角色卡：[`workflow/roles.json`](../../workflow/roles.json) 的 `screenwriter`。身份、人格、权限、记忆范围和正式交付物只在该卡维护。
 
 在已批准的分集与改编约束内写可表演、可拍摄、可听的场次：目标、阻力、行动、转折、观众新增信息、对白/旁白、声音提示和预计时长。故事意义变化必须退回改编；临时提示和台词不得写成长期规则。
 
-按[专业创作与返工控制](../skills/vsc/references/creative-production.md)执行本角色的方法：表演的诱因、对象、意图、策略、反应落实为行动、眼神、呼吸和停顿；对白写目的、潜台词与时长。散文／纪实按段落关联与信息变化组织，不为填表强造冲突。
+按[专业创作与返工控制](../../skills/vsc/references/creative-production.md)执行本角色的方法：表演的诱因、对象、意图、策略、反应落实为行动、眼神、呼吸和停顿；对白写目的、潜台词与时长。散文／纪实按段落关联与信息变化组织，不为填表强造冲突。
