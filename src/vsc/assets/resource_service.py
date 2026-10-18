@@ -101,8 +101,8 @@ class ResourceService:
     def list_projects(self):
         return self.store.list_projects()
 
-    def check_schema(self):
-        return self.store.check_schema()
+    def check_schema(self, *, read_only=False):
+        return self.store.check_schema(read_only=True) if read_only else self.store.check_schema()
 
     def create_project(self, payload, actor=None, **kwargs):
         self._actor(actor)

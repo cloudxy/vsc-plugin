@@ -53,13 +53,20 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
     def close(self):
         self.engine.dispose()
 
-    def check_schema(self):
+    def check_schema(self, *, read_only=False):
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+                if (read_only and S.SCHEMA_REVISION == "0008_script_note_baselines"
+                        and version == "0007_script_suggestions"):
+                    # 0008 only adds nullable note-baseline fields. Historical
+                    # workflow status reads do not select those fields.
+                    return {"ready": False, "read_only": True, "migration": version,
+                            "required_migration": S.SCHEMA_REVISION, "storage_policy": "postgres-series-v1"}
                 if version != S.SCHEMA_REVISION:
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
-                return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
+                result = {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
+                return dict(result, read_only=True) if read_only else result
         except SQLAlchemyError as exc:
             raise ResourceError("PostgreSQL不可用或尚未完成显式迁移", "database_unavailable", 503) from exc
 
