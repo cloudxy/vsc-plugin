@@ -2,9 +2,11 @@
 """scripts/kernel/hosts.py 自测。运行：python3 -B tests/run.py --test kernel.integration.test_vsc_hosts"""
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from support.paths import ROOT
 import vsc.kernel.hosts as HOSTS
@@ -113,6 +115,69 @@ class HostEntryTest(unittest.TestCase):
         self.assertEqual(len(HOSTS.entry_problems(self.root)), 2)
         HOSTS.sync(self.root)
         self.assertIn("证据与节奏兼顾", (self.root / ".agents/agents/director.md").read_text())
+
+    def test_generated_links_keep_source_targets_at_each_declared_location(self):
+        source = self.root / "agents/director.md"
+        body = source.read_text() + '''
+[Card](../workflow/roles.json#roles)
+[Guide](../docs/guide.md?view=full#details "Guide title")
+![Image](../docs/image(1).png)
+[Spaced](<../docs/with space.md#part> "Spaced title")
+[Encoded](../docs/with%20space.md)
+[Reference][role-card]
+[role-card]: ../workflow/roles.json#roles "Reference title"
+[Local](#director)
+[Remote](https://example.com/docs/guide.md#part)
+`[Example](../not-a-document.md)`
+```markdown
+[Example](../not-a-document.md)
+```
+'''
+        write(source, body)
+        for name in ("guide.md", "with space.md", "image(1).png"):
+            write(self.root / "docs" / name, "fixture")
+        declaration = json.loads((self.root / "workflow/hosts.json").read_text())
+        declaration["entries"][1]["path"] = "runtime/nested/roles"
+        declaration["entries"][2]["path"] = "runtime/codex"
+        write(self.root / "workflow/hosts.json", json.dumps(declaration))
+        HOSTS.sync(self.root)
+        for relative in ("runtime/nested/roles/director.md", "runtime/codex/director.toml"):
+            generated = self.root / relative
+            content = generated.read_text()
+            if generated.suffix == ".toml" and tomllib:
+                content = tomllib.loads(content)["developer_instructions"]
+            targets = {name: Path(os.path.relpath(self.root / name, generated.parent)).as_posix()
+                       for name in ("workflow/roles.json", "docs/guide.md", "docs/image(1).png", "docs/with space.md")}
+            self.assertIn(f'[Card]({targets["workflow/roles.json"]}#roles)', content)
+            self.assertIn(f'[Guide]({targets["docs/guide.md"]}?view=full#details "Guide title")', content)
+            self.assertIn(f'![Image]({targets["docs/image(1).png"]})', content)
+            self.assertIn(f'[Spaced](<{targets["docs/with space.md"]}#part> "Spaced title")', content)
+            encoded = targets["docs/with space.md"].replace(" ", "%20")
+            self.assertIn(f'[Encoded]({encoded})', content)
+            self.assertIn(f'[role-card]: {targets["workflow/roles.json"]}#roles "Reference title"', content)
+            for target in [*targets.values(), encoded]:
+                self.assertTrue((generated.parent / unquote(urlsplit(target).path)).is_file(), (relative, target))
+            self.assertIn('[Local](#director)', content)
+            self.assertIn('[Remote](https://example.com/docs/guide.md#part)', content)
+            self.assertIn('`[Example](../not-a-document.md)`', content)
+            self.assertIn('```markdown\n[Example](../not-a-document.md)\n```', content)
+        self.assertEqual(source.read_text(), body)
+
+    def test_repository_markdown_and_toml_consumers_resolve_all_document_links(self):
+        checked = 0
+        for relative, (kind, _) in HOSTS.expected(ROOT)[1].items():
+            if kind != "file" or not relative.endswith((".md", ".toml")) or relative.startswith("commands/"):
+                continue
+            generated = ROOT / relative
+            content = generated.read_text("utf-8")
+            if generated.suffix == ".toml" and tomllib:
+                content = tomllib.loads(content)["developer_instructions"]
+            for target in re.findall(r"\]\(([^)\s]+)", content):
+                url = urlsplit(target)
+                if not url.scheme and url.path:
+                    self.assertTrue((generated.parent / unquote(url.path)).exists(), (relative, target))
+                    checked += 1
+        self.assertGreaterEqual(checked, 36)
 
 
 if __name__ == "__main__":
