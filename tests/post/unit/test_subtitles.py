@@ -15,6 +15,7 @@ class FixedWidthFont:
 class SplitAndGroupTest(unittest.TestCase):
     def test_punctuation_split_keeps_numbers_whole(self):
         self.assertEqual(SUB.split_by_punctuation("收费 2.5% 共 1,000 元。好吗？"), ["收费 2.5% 共 1,000 元", "好吗"])
+        self.assertEqual(SUB.split_by_punctuation("2:30到场，比例2:1。"), ["2:30到场", "比例2:1"])
 
     def test_word_cues_group_into_script_sentences(self):
         cues = [(0.1, 0.4, "今天"), (0.4, 0.8, "下雨"), (1.0, 1.3, "记得"), (1.3, 1.9, "带伞出门")]
@@ -75,6 +76,11 @@ class WrapTest(unittest.TestCase):
 
     def test_english_words_wrap_on_spaces(self):
         self.assertEqual(SUB.wrap_text("hold it tight", FixedWidthFont(), 80), ["hold it", "tight"])
+
+    def test_numeric_time_ratio_and_decimal_tokens_do_not_split(self):
+        lines = SUB.wrap_text("收费3.14元比例2:1于2:30到场", FixedWidthFont(), 80)
+        for token in ("3.14", "2:1", "2:30"):
+            self.assertTrue(any(token in line for line in lines), (token, lines))
 
 
 if __name__ == "__main__":

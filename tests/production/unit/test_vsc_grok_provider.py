@@ -24,6 +24,19 @@ class FakeTransport:
 
 
 class GrokContract(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.login = Path(self.temp.name) / "auth.json"
+        self.login.write_text(json.dumps({"synthetic": {"key": "synthetic-token", "user_id": "account-A"}}))
+        patch = mock.patch.object(grok_credentials, "LOGIN_FILE", self.login)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def response(self, raw):
+        from vsc.adapters.providers.xai_grok.provider import ACCOUNT_FIELD
+        return {**raw, ACCOUNT_FIELD: grok_credentials.account_sha256()}
+
     def test_image_maps_ratio_and_parses_url_or_inline_bytes(self):
         transport = FakeTransport([{"data": [{"url": "https://example.invalid/temporary"}]}])
         adapter = GrokImageProvider("grok-imagine-image-2.0", lambda media_id: "data:image/png;base64," + media_id,
@@ -36,17 +49,18 @@ class GrokContract(unittest.TestCase):
                          ("9:16", "2k", 1, "grok-imagine-image-2.0"))
         self.assertEqual(adapter.poll(handle).status, "succeeded")
         self.assertEqual(adapter.parse_result(handle.raw)[0].temporary_uri, "https://example.invalid/temporary")
-        inline = adapter.parse_result({"data": [{"b64_json": base64.b64encode(b"pixels").decode()}]})
+        inline = adapter.parse_result(self.response({"data": [{"b64_json": base64.b64encode(b"pixels").decode()}]}))
         self.assertEqual(inline[0].inline_bytes, b"pixels")
 
     def test_image_reference_media_goes_to_edits_endpoint(self):
         transport = FakeTransport([{"data": [{"url": "https://example.invalid/edited"}]}])
         adapter = GrokImageProvider("grok-imagine-image-2.0", lambda media_id: "data:image/png;base64," + media_id,
-                                    lambda w, h: "", "2k", transport)
+                                    lambda w, h: "9:16", "2k", transport)
         handle = adapter.submit(ImageRequest("SH1", "image_edit", "sha", "只改外套颜色", ("ref1",), {}, 1080, 1920))
         path, payload = transport.calls[0]
         self.assertEqual(path, "/images/edits")
         self.assertEqual(payload["image"], {"url": "data:image/png;base64,ref1", "type": "image_url"})
+        self.assertEqual((payload["aspect_ratio"], payload["resolution"]), ("9:16", "2k"))
         self.assertEqual(handle.raw["data"][0]["url"], "https://example.invalid/edited")
         transport.responses = [{"data": [{"url": "https://example.invalid/merged"}]}]
         adapter.submit(ImageRequest("SH1", "image_edit", "sha", "人物来自参考1，商品来自参考2", ("a", "b"), {}, 1080, 1920))
@@ -56,6 +70,17 @@ class GrokContract(unittest.TestCase):
         with self.assertRaises(GrokAdapterError):
             adapter.submit(ImageRequest("SH1", "image_edit", "sha", "p", ("1", "2", "3", "4", "5", "6"), {}, 1080, 1920))
         self.assertEqual(len(transport.calls), 2)
+
+    def test_image_edit_validates_and_transmits_explicit_output_spec(self):
+        transport = FakeTransport([{"data": [{"url": "https://example.invalid/out"}]}])
+        adapter = GrokImageProvider("grok-imagine-image-2.0", lambda value: "data:image/png;base64," + value,
+                                    lambda w, h: "9:16", "2k", transport)
+        req = ImageRequest("S", "keyframe", "sha", "edit", ("ref",), {"aspect_ratio": "4:3", "resolution": "1k"})
+        adapter.submit(req)
+        self.assertEqual((transport.calls[0][1]["aspect_ratio"], transport.calls[0][1]["resolution"]), ("4:3", "1k"))
+        with self.assertRaises(GrokAdapterError):
+            adapter.preflight(ImageRequest("S", "keyframe", "sha", "edit", ("ref",), {"aspect_ratio": "invalid"}))
+        self.assertEqual(len(transport.calls), 1)
 
     def test_video_submits_first_frame_then_polls_fixed_request_id(self):
         transport = FakeTransport([{"request_id": "req-1"}, {"status": "pending"},
@@ -147,9 +172,9 @@ class GrokContract(unittest.TestCase):
     def test_video_failure_states_and_missing_request_id(self):
         transport = FakeTransport([{"status": "failed", "error": {"code": "internal_error"}}])
         adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: media_id, "480p", transport=transport)
-        self.assertEqual(adapter.poll(JobHandle("xai_grok", "grok-imagine-video-1.5", "req-2", {})).status, "failed")
+        self.assertEqual(adapter.poll(JobHandle("xai_grok", "grok-imagine-video-1.5", "req-2", self.response({}))).status, "failed")
         transport.responses = [{"status": "expired"}]
-        self.assertEqual(adapter.poll(JobHandle("xai_grok", "grok-imagine-video-1.5", "req-2", {})).error_code, "expired")
+        self.assertEqual(adapter.poll(JobHandle("xai_grok", "grok-imagine-video-1.5", "req-2", self.response({}))).error_code, "expired")
         transport.responses = [{"id": "not-a-request-id"}]
         with self.assertRaises(GrokAdapterError):
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 6000, "first"))
@@ -165,6 +190,34 @@ class GrokContract(unittest.TestCase):
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", (), {}, 4500, "first"))
         with self.assertRaises(GrokAdapterError):  # 参考图最多 14 张
             adapter.submit(VideoRequest("SH1", "video_clip", "sha", "move", tuple("r%d" % i for i in range(15)), {}, 6000, "first"))
+        self.assertEqual(transport.calls, [])
+
+
+    def test_stable_account_refresh_cross_account_and_old_unbound_handles(self):
+        transport = FakeTransport([{"request_id": "req-1"}, {"status": "pending"}])
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda v: v, "480p", transport=transport)
+        handle = adapter.submit(VideoRequest("S", "video_clip", "sha", "p", duration_ms=6000))
+        self.login.write_text(json.dumps({"synthetic": {"key": "refreshed-token", "user_id": "account-A"}}))
+        self.assertEqual(adapter.poll(handle).status, "submitted")
+        self.login.write_text(json.dumps({"synthetic": {"key": "other-token", "user_id": "account-B"}}))
+        before = len(transport.calls)
+        with self.assertRaisesRegex(GrokAdapterError, "账号"):
+            adapter.poll(handle)
+        with self.assertRaisesRegex(GrokAdapterError, "账号"):
+            adapter.parse_result(handle.raw)
+        self.assertEqual(len(transport.calls), before)
+        with self.assertRaisesRegex(GrokAdapterError, "旧任务"):
+            adapter.poll(JobHandle("xai_grok", adapter.model, "old", {}))
+
+    def test_endpoint_and_unknown_params_fail_preflight_without_transport(self):
+        transport = FakeTransport([])
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda v: v, "480p", transport=transport)
+        request = VideoRequest("S", "video_clip", "sha", "p", duration_ms=6000)
+        with mock.patch.dict("os.environ", {"GROK_BASE_URL": "https://invalid.example/v1"}):
+            with self.assertRaisesRegex(RuntimeError, "GROK_BASE_URL"):
+                adapter.preflight(request)
+        with self.assertRaisesRegex(GrokAdapterError, "未支持"):
+            adapter.preflight(VideoRequest("S", "video_clip", "sha", "p", params={"operation": "extend"}))
         self.assertEqual(transport.calls, [])
 
 
@@ -200,7 +253,7 @@ class GrokFactoryTest(unittest.TestCase):
             adapter.poll(JobHandle("another-account", "model", "task"))
         with tempfile.TemporaryDirectory() as temp:
             login = Path(temp) / "auth.json"
-            login.write_text(json.dumps({"https://auth.x.ai::u": {"key": "grok-login-secret-value", "expires_at": "2999-01-01T00:00:00Z"}}), "utf-8")
+            login.write_text(json.dumps({"https://auth.x.ai::u": {"key": "grok-login-secret-value", "user_id": "synthetic", "expires_at": "2999-01-01T00:00:00Z"}}), "utf-8")
             with mock.patch.object(grok_credentials, "LOGIN_FILE", login):
                 self.assertIsInstance(xai_grok_factory(self.job(), storage=None), ConfiguredGrokProvider)
                 # dispatch reaches the grok factory

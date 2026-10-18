@@ -134,7 +134,7 @@ def timeline_performance_errors(data, project, state, item):
     selected, selected_item = _load_ref(project, state, item, data.get("selected_takes"), errors, "对白获选清单", {"vsc.selected_takes"})
     choices = {row["id"]: row for row in selected.get("items", [])}
     cue_index = {}
-    audio_uses = {}  # B4-02：同一段对白音频被多个 binding 重复使用须显式声明，跨镜复用不许悄悄复制。
+    audio_uses = {}  # Fixed selected bytes, never unverified binding/output labels.
     for ref in data.get("sound_plans", []):
         plan, plan_item = _load_ref(project, state, item, ref, errors, "对白声音计划", {"vsc.sound_plan", "vsc.sound_cue_sheet"})
         errors.extend(project_sound_errors(plan, project, state, plan_item))
@@ -152,10 +152,13 @@ def timeline_performance_errors(data, project, state, item):
     measured = {}
     for binding in bindings:
         identifier = binding.get("segment_id")
-        media_key = (binding.get("selected_item_id"), binding.get("output_id"))
-        if media_key[0] and not binding.get("reuse_declared"):
-            audio_uses.setdefault(media_key, []).append(identifier)
         segment, choice = segments.get(identifier, {}), choices.get(binding.get("selected_item_id"), {})
+        if "reuse_declared" in binding and type(binding["reuse_declared"]) is not bool:
+            errors.append("binding.reuse_declared 必须为boolean：" + str(identifier))
+        if binding.get("reuse_declared") is True and not text(binding.get("reuse_reason")):
+            errors.append("有意重播必须给出明确 reuse_reason 依据：" + str(identifier))
+        if "output_id" in binding and binding["output_id"] != choice.get("output_id"):
+            errors.append("binding.output_id 与固定获选output不一致：" + str(identifier))
         cue, lines = cue_index.get(binding.get("cue_id"), ({}, {}))
         role = binding["audio_role"]
         if role == "native" and not cue:
@@ -163,6 +166,9 @@ def timeline_performance_errors(data, project, state, item):
         if not cue or not choice or not segment:
             errors.append("对白/旁白segment必须绑定真实dialogue_cue及获选item：" + str(identifier))
             continue
+        media_key = choice.get("media", {}).get("sha256")
+        if media_key:
+            audio_uses.setdefault(media_key, []).append((segment, binding))
         if role == "native":
             if segment.get("kind") != "video" or not cue.get("line_ids") or not text(cue.get("native_approved_by")):
                 errors.append("原生音画video必须有line_ids/native_approved_by：" + str(identifier))
@@ -250,9 +256,23 @@ def timeline_performance_errors(data, project, state, item):
                 errors.append("计划Cue窗口短于对白实测时长：" + str(identifier))
         except (OSError, ValueError, ProbeFailure) as exc:
             errors.append("对白真实媒体核验失败：" + str(exc))
-    for (_, _), segment_ids in audio_uses.items():
-        if len(set(segment_ids)) > 1:
-            errors.append("同一获选对白音频被多个片段重复绑定：" + ",".join(sorted(set(segment_ids)))
-                          + "；跨镜复用须声明 reuse_declared 并给出依据，不得悄悄复制音轨")
+    def overlaps(left, right, key):
+        a, b = left.get(key, 0), right.get(key, 0)
+        return max(a, b) < min(a + left.get("duration_in_frames", 0), b + right.get("duration_in_frames", 0))
+
+    for uses in audio_uses.values():
+        previous = []
+        for segment, binding in sorted(uses, key=lambda use: (use[0].get("from_frame", 0), str(use[0].get("id")))):
+            repeated = [(other, other_binding) for other, other_binding in previous
+                        if overlaps(segment, other, "source_in_frame")]
+            if repeated:
+                identifiers = sorted({str(segment.get("id")), *(str(other.get("id")) for other, _ in repeated)})
+                if any(overlaps(segment, other, "from_frame") for other, _ in repeated):
+                    errors.append("同一获选对白音频被多个片段重复绑定且播放区间重叠：" + ",".join(identifiers)
+                                  + "；reuse_declared 不能消除实际重复播放")
+                elif binding.get("reuse_declared") is not True or not text(binding.get("reuse_reason")):
+                    errors.append("同一获选对白音频被多个片段重复绑定：" + ",".join(identifiers)
+                                  + "；有意重播须声明 reuse_declared=true 并给出 reuse_reason 依据")
+            previous.append((segment, binding))
 
     return errors

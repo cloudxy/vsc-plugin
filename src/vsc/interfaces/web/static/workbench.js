@@ -15,6 +15,7 @@ const LABELS = {
   current: '当前版本', historical: '历史版本', candidate: '候选', missing: '资料缺失',
   pending: '待处理', pass: '通过', fail: '未通过', unknown: '尚未确定', unselected:'尚未采用',unassociated:'待关联',unverified:'尚未验证',instance:'使用实例',
   editing: '编辑中', pending_confirmation: '待人工确认', script_draft: '剧本工作副本',
+  job_attempt: '制作尝试',
   job_attempts: '任务尝试对照',
   identity_face: '身份正脸', location_master: '场景母版', composition: '构图参考',
   first_frame: '首帧', last_frame: '尾帧', video_take: '镜头视频', dialogue_dry: '对白干声',
@@ -55,6 +56,8 @@ const FIELDS = {
   condition:'完好状态',output_count:'输出数',unreviewed_output_count:'待审输出数',defect_code:'缺陷类别',
   effort_seconds:'主动工时（秒）',wait_seconds:'等待时长（秒）',cost_basis:'费用依据',cost_amount:'费用数值',cost_unit:'费用单位',model_version:'模型版本',fps_num:'帧率分子',fps_den:'帧率分母',
   missing_character_ranges:'尚未覆盖文字区间',coverage_status:'覆盖情况',disposition:'处理方式',
+  candidate_no:'候选编号',attempt:'提交尝试次数',event_count:'事件数',plan_params:'固定制作参数',
+  performance_coverage:'表演参数与有效请求对照',configured:'配置值',actual:'请求值',expected:'要求值',consumed:'已进入请求',model_default:'模型控制字段',field:'表演要求',fields_without_model_control:'未支持的专业控制',payload_note:'核验范围',
   uncovered_ranges:'尚未覆盖文字区间',current_coverage_count:'当前批准覆盖数',approved_dispositions:'已批准处理依据',reason:'理由',
   phase:'动作阶段',actor_role:'执行方',counterpart_role:'交互方',distance:'距离',direction:'方向',attack_defense:'攻防关系',support_foot:'支撑脚',force:'受力',after_state:'后续状态',acceptance:'验收判据',fallback:'替代方案',route:'制作路线',phrase:'乐句',synchronization:'同步要求',retiming:'重定时',seconds:'时间（秒）',pose:'关键姿态',world_rule:'世界规则',light_response:'光线反馈',environment_response:'环境反馈',aftereffects:'余波',sound:'效果声音',requires_plate:'需要底板',requires_mask:'需要遮罩',requires_depth:'需要深度',accent:'口音',rate:'语速',overlap:'重叠',processing:'声音处理',intelligibility:'可懂度',sync_criterion:'同步判据',target_seconds:'目标时长（秒）',controls:'控制要求',
 };
@@ -69,6 +72,7 @@ function prose(value, depth = 0) {
   if (value == null) return '';
   if (typeof value === 'boolean')return value?'是':'否';
   if (typeof value !== 'object') return label(value);
+  if (Array.isArray(value) && value.every(item=>item==null||typeof item!=='object')) return value.map(item=>label(item)).join('；');
   if (depth > 3) return '展开制作证据查看完整内容';
   if (Array.isArray(value)) return value.map(item => prose(item, depth + 1)).filter(Boolean).join('；');
   return Object.entries(value).filter(([key]) => !/(^id$|_id$|sha256|uri|url|path$)/.test(key) || key in FIELDS)
@@ -196,8 +200,8 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       links.append(button(name, () => fn?.(id)));
     };
     if (key === 'shots' || row.kind === 'shot' || key === 'assets') link('object', row.object_id || row.id, key === 'assets' ? '查看资产用途' : '进入镜头');
-    if (key === 'shots' && row.id) links.append(button('查看覆盖剧本行', () => drill('coverage', row.id)));
-    if (key === 'jobs' && row.id) links.append(button('尝试与参数对照', () => drill('job_attempts', row.id)));
+    if (key === 'shots' && row.id) links.append(button('查看覆盖剧本行', () => {section='coverage';entity=row.id;offset=0;revision=null;return request();}));
+    if (key === 'jobs' && row.id) links.append(button('尝试与参数对照', () => {section='job_attempts';entity=row.id;offset=0;revision=null;return request();}));
     for (const [field, name] of [['shot_id', '定位镜头'], ['asset_id', '定位资产'], ['speaker_id', '定位人物'], ['voice_id','定位声线身份'],['scene_id', '定位场次'], ['target_object_id', '定位用途对象']]) link('object', row[field], name);
     for (const field of ['artifact_id', 'script_version_id', 'coverage_version_id', 'evidence_version_id', 'scope_version_id','method_artifact_id','criteria_artifact_id','trial_run_id','subtitle_version_id','lipsync_version_id']) link('artifact', row[field], '阅读固定文案');
     for (const field of ['media_id', 'reference_media_id', 'selected_media_id']) link('media', row[field], field === 'selected_media_id' ? '播放当前采用' : '预览素材');
@@ -252,6 +256,13 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if(key==='lines'&&row.coverage_truncated)card.append(el('p','覆盖摘要已截断，完整覆盖情况尚未确定。','badge warning'));
     else if(key==='lines'&&Array.isArray(row.uncovered_ranges))card.append(el('p',row.uncovered_ranges.length?'当前批准覆盖仍有文字缺口；请检查覆盖或已有省略依据。':'当前批准覆盖已涵盖此行全文。',row.uncovered_ranges.length?'hint':'badge'));
     appendFacts(card, row);
+    if(key==='job_attempts') {
+      const timeline=el('section',null,'workbench-attempt-events');timeline.append(el('h4','实际任务事件与输出'));
+      for(const event of row.events||[]) timeline.append(el('p',`${event.at||''} · ${label(event.event)} · ${prose(event.evidence)||'未记录额外用量或错误'}`));
+      if(!(row.events||[]).length)timeline.append(el('p','尚无任务事件，不能推断已提交或已有用量。','hint'));
+      for(const output of row.outputs||[])timeline.append(button('预览本次输出',()=>onMedia?.(output.media_id)));
+      card.append(timeline);
+    }
     references(card, row, key);
     // Candidate sets and old versions stay discoverable without filling a shot's first screen.
     for (const [field, name] of [['candidates', '候选'], ['versions', '规格版本'], ['uses', '使用位置'], ['current', '当前采用'], ['selected', '当前采用']]) {

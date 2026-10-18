@@ -46,6 +46,19 @@ class GrokCredentialsTest(unittest.TestCase):
                 self.assertFalse(C.login_present())
                 self.assertIn("grok", C.key_problem())
 
+    def test_stable_identity_is_required_and_independent_of_token(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = login_file(temp)
+            with mock.patch.object(C, "LOGIN_FILE", path):
+                with self.assertRaisesRegex(RuntimeError, "稳定账号"):
+                    C.account_sha256()
+                path.write_text(json.dumps({"synthetic": {"key": "token-1", "user_id": "stable-user"}}))
+                first = C.account_sha256()
+                path.write_text(json.dumps({"synthetic": {"key": "token-2", "user_id": "stable-user"}}))
+                self.assertEqual(C.account_sha256(), first)
+                path.write_text(json.dumps({"synthetic": {"key": "token-2", "user_id": "other-user"}}))
+                self.assertNotEqual(C.account_sha256(), first)
+
     def test_permission_denied_only_for_auth_statuses_and_never_auto_swaps(self):
         for status in (401, 403):
             message = C.permission_denied(status, "xAI Grok Imagine 接口")

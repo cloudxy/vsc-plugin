@@ -34,7 +34,7 @@ class ExportError(RuntimeError):
     """计划、素材或上游环境不满足导出条件。"""
 
 
-def draft_payload(plan, media_root, subtitle_style=None):
+def draft_payload(plan, media_root, subtitle_style=None, *, script_texts=None):
     """把时间线计划映射为剪映写入器的输入；返回 (payload, 未迁移项)。"""
     errors = remotion_plan.validate(plan)
     if errors:
@@ -44,7 +44,10 @@ def draft_payload(plan, media_root, subtitle_style=None):
     if fps not in SUPPORTED_FPS or isinstance(composition["fps"], dict):
         raise ExportError("剪映导出仅支持整数 24/25/30 fps；分数与其他帧率尚未验证，拒绝导出")
     try:
-        style, _ = subtitles.resolve_style(overrides=subtitle_style)
+        style, _ = subtitles.resolve_style(overrides={**plan.get("subtitle_style", {}), **(subtitle_style or {})})
+        if style.get("font") and not Path(style["font"]).is_absolute():
+            style["font"] = str(Path(media_root) / style["font"])
+        compiled, _ = remotion_plan.compile_subtitles(plan, style, script_texts=script_texts, require_font=True)
     except (OSError, ValueError) as exc:
         raise ExportError(str(exc)) from exc
     if style.get("background") or style.get("rounded"):
@@ -53,7 +56,7 @@ def draft_payload(plan, media_root, subtitle_style=None):
     def us(frames):
         return round(frames * 1_000_000 / fps)
 
-    video, audio, captions, dropped, missing = [], [], [], [], []
+    video, audio, captions, dropped, missing = [], [], compiled["cues"], [], []
     track_ends = []
     for segment in sorted(plan["segments"], key=lambda item: (item["from_frame"], item["id"])):
         kind, start, length = segment["kind"], segment["from_frame"], segment["duration_in_frames"]
@@ -75,7 +78,7 @@ def draft_payload(plan, media_root, subtitle_style=None):
             else:
                 audio.append(item)
         elif kind in ("caption", "text"):
-            captions.append((start / fps, (start + length) / fps, segment["text"]))
+            pass  # Display text and original timecodes come from the shared compiler.
         else:
             dropped.append(f"{label}：{kind} 片段未迁移（剪映草稿构件只支持视频、音频与字幕）")
             continue
@@ -99,7 +102,7 @@ def draft_payload(plan, media_root, subtitle_style=None):
         raise ExportError("显式黑场编码需要偶数画幅尺寸，当前规格不支持")
     payload = {"width": composition["width"], "height": composition["height"], "fps": int(fps),
                "duration_us": us(composition["duration_in_frames"]), "duration_in_frames": composition["duration_in_frames"],
-               "black_intervals_frames": black, "subtitle_style": style, "video": video, "audio": audio}
+               "black_intervals_frames": black, "subtitle_style": style, "subtitle_checks": compiled["checks"], "video": video, "audio": audio}
     return payload, captions, dropped
 
 
@@ -186,7 +189,7 @@ def build_draft(payload):
     return {"draft_path": draft_path, "folder": folder}
 
 
-def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_DRAFTS_ROOT, dry_run=False, bible=None):
+def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_DRAFTS_ROOT, dry_run=False, bible=None, *, script_texts=None):
     plan_path, project = Path(plan_path).resolve(), Path(project).resolve()
     if not (project / "vsc.json").is_file():
         raise ExportError(f"不是 VSC 项目：{project}")
@@ -198,12 +201,12 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
         raise ExportError(str(exc)) from exc
     try:
         bible_bytes = Path(bible).read_bytes() if bible else None
-        style, style_source = subtitles.resolve_style(bible)
+        style, style_source = subtitles.resolve_style(bible, plan.get("subtitle_style"))
         if bible and Path(bible).read_bytes() != bible_bytes:
             raise ValueError("资产库在字幕样式解析过程中变更，请重试")
     except ValueError as exc:
         raise ExportError(str(exc)) from exc
-    payload, captions, dropped = draft_payload(plan, Path(media_root or plan_path.parent), style)
+    payload, captions, dropped = draft_payload(plan, Path(media_root or plan_path.parent), style, script_texts=script_texts)
     warnings = [FORMAT_NOTE]
     if captions:
         warnings.append("字幕字体、字号与安全区采用共享样式映射；剪映排版与烧录器的像素结果仍须逐版本人工回看")
@@ -213,7 +216,7 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
     summary = {"video": len(payload["video"]), "video_tracks": len({item["track"] for item in payload["video"]}),
                "audio_tracks": len(payload["audio"]), "captions": len(captions)}
     if dry_run:
-        return None, {"summary": summary, "dropped": dropped, "warnings": warnings, "fps": payload["fps"], "duration_us": payload["duration_us"]}
+        return None, {"summary": summary, "dropped": dropped, "warnings": warnings, "fps": payload["fps"], "duration_us": payload["duration_us"], "subtitle_checks": payload["subtitle_checks"]}
     drafts_root = Path(drafts_root)
     if not drafts_root.is_dir():
         raise ExportError(f"剪映草稿目录不存在：{drafts_root}（用 --drafts-root 指定）")
@@ -241,6 +244,7 @@ def export(plan_path, project, media_root=None, name=None, drafts_root=DEFAULT_D
         "warnings": warnings,
         "fps": payload["fps"], "duration_us": payload["duration_us"], "black_intervals_frames": payload["black_intervals_frames"],
         "subtitle_style": {"source": style_source, "resolved": style, "bible_sha256": hashlib.sha256(bible_bytes).hexdigest() if bible_bytes is not None else None},
+        "subtitle_checks": payload["subtitle_checks"],
         "root_meta_backup": str(backup.relative_to(project)) if backup else None,
         "exported_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
     }
@@ -257,12 +261,14 @@ def main():
     command.add_argument("--media-root", help="source 的解析根目录，默认是计划文件所在目录")
     command.add_argument("--name", help="草稿名称，默认 VSC-<composition.id>")
     command.add_argument("--bible", help="共享资产库 subtitle_style")
+    command.add_argument("--script-texts", help="固定原稿 JSON 字符串数组；核对缺字，不代表音频对齐")
     command.add_argument("--drafts-root", default=str(DEFAULT_DRAFTS_ROOT), help="剪映草稿根目录")
     command.add_argument("--dry-run", action="store_true", help="只检查映射与未迁移项，不写草稿")
     args = parser.parse_args()
     try:
-        output, record = export(args.plan, args.project, args.media_root, args.name, args.drafts_root, args.dry_run, args.bible)
-    except ExportError as exc:
+        output, record = export(args.plan, args.project, args.media_root, args.name, args.drafts_root, args.dry_run, args.bible,
+                                script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None)
+    except (ExportError, OSError, ValueError) as exc:
         raise SystemExit(f"错误：{exc}")
     summary = record["summary"]
     print(f"JIANYING: 视频 {summary['video']} 段/{summary['video_tracks']} 轨，音频 {summary['audio_tracks']} 轨，字幕 {summary['captions']} 条"

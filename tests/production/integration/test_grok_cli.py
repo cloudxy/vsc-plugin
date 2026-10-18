@@ -56,6 +56,11 @@ class InputTest(unittest.TestCase):
 class GenerateTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        login = Path(self.temp.name) / "synthetic-auth.json"
+        login.write_text(json.dumps({"synthetic": {"key": "synthetic-test-key", "user_id": "synthetic-account"}}))
+        patch = mock.patch.object(A.grok_credentials, "LOGIN_FILE", login)
+        patch.start()
+        self.addCleanup(patch.stop)
         self.project = Path(self.temp.name)
         (self.project / "vsc.json").write_text(json.dumps({"project_id": json.loads(BIBLE.read_text("utf-8"))["project_id"]}), "utf-8")
         self.frame = self.project / "first.png"
@@ -83,7 +88,7 @@ class GenerateTest(unittest.TestCase):
 
     def run_cli(self, *argv):
         with mock.patch.object(A, "call", self.fake_call), mock.patch.object(A, "download", self.fake_download), \
-                mock.patch.object(A, "verify_media", lambda path: None), \
+                mock.patch.object(A, "verify_media", lambda path, *args: None), \
                 mock.patch.object(A.time, "sleep", lambda _: None), contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()):
             return A.main(list(argv))
@@ -262,7 +267,8 @@ class GenerateTest(unittest.TestCase):
 
     def test_video_edit_and_extend_operations(self):
         clip = self.project / "take.mp4"
-        clip.write_bytes(b"\x00\x00\x00\x18ftypmp4" + b"0" * 16)
+        from support.fixtures.media import production_media
+        clip.write_bytes(production_media()["mp4"])
         edit = ["edit", "--project", str(self.project), "--out", "视频", "--name", "take-edit",
                 "--shot", "SH-001", "--video", str(clip), "--prompt", "把背景雨势加大"]
         self.assertEqual(self.run_cli(*edit), 0)
@@ -281,6 +287,79 @@ class GenerateTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(A.main(["edit", "--project", str(self.project), "--out", "视频",
                                      "--name", "no-prompt", "--shot", "SH-001", "--video", str(clip)]), 1)
+
+
+    def real_cli(self, argv, download=None):
+        from support.fixtures.media import production_media
+        def valid_download(url, target):
+            target.write_bytes(production_media()["png" if url.endswith(".png") else "mp4"])
+        with mock.patch.object(A, "call", self.fake_call), mock.patch.object(A, "download", download or valid_download), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return A.main(argv)
+
+    def test_full_decode_rejects_truncated_image_and_resume_reuses_remote_response(self):
+        from support.fixtures.media import production_media
+        argv = ["image", "--project", str(self.project), "--out", "out", "--name", "truncated",
+                "--purpose", "asset", "--prompt", "synthetic"]
+        def truncated(url, target):
+            target.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+        self.assertEqual(self.real_cli(argv, truncated), 1)
+        record = json.loads((self.project / "out/truncated-生成记录.json").read_text())
+        self.assertNotEqual(record["status"], "succeeded")
+        self.assertEqual(self.real_cli(argv), 0)
+        self.assertEqual(sum(path == "/images/generations" for path, _ in self.calls), 1)
+        record = json.loads((self.project / "out/truncated-生成记录.json").read_text())
+        self.assertTrue(A.checked_outputs(record, self.project))
+        with mock.patch.object(A, "api_key", side_effect=AssertionError("offline local reuse must not request key")), \
+                mock.patch.object(A.grok_credentials, "account_id", side_effect=AssertionError("offline local reuse must not inspect login")):
+            self.calls.clear()
+            self.assertEqual(self.real_cli(argv), 0)
+        self.assertEqual(self.calls, [])
+
+    def test_download_receipt_recovers_each_crash_boundary_without_reposting(self):
+        for mode in ("download_return", "receipt", "task_success", "record_success"):
+            with self.subTest(boundary=mode):
+                name = "crash-" + mode
+                argv = ["image", "--project", str(self.project), "--out", "out", "--name", name,
+                        "--purpose", "asset", "--prompt", "synthetic"]
+                original_write, original_download = A.write_json, A.download_image_output
+                fired = []
+                def write(path, value):
+                    original_write(path, value)
+                    matches = ((mode == "receipt" and str(path).endswith("下载回执.json"))
+                        or (mode == "task_success" and str(path).endswith("任务.json") and value.get("record", {}).get("status") == "succeeded")
+                        or (mode == "record_success" and str(path).endswith("生成记录.json") and value.get("status") == "succeeded"))
+                    if matches and not fired:
+                        fired.append(True)
+                        raise SystemExit("synthetic crash")
+                def downloaded(*args, **kw):
+                    result = original_download(*args, **kw)
+                    if mode == "download_return" and not fired:
+                        fired.append(True)
+                        raise SystemExit("synthetic crash")
+                    return result
+                self.calls.clear()
+                with mock.patch.object(A, "write_json", write), mock.patch.object(A, "download_image_output", downloaded):
+                    with self.assertRaises(SystemExit):
+                        self.real_cli(argv)
+                self.assertEqual(self.real_cli(argv), 0)
+                self.assertEqual(sum(path == "/images/generations" for path, _ in self.calls), 1)
+                record = json.loads((self.project / ("out/" + name + "-生成记录.json")).read_text())
+                self.assertEqual(record["status"], "succeeded")
+                self.assertTrue(A.checked_outputs(record, self.project))
+
+    def test_video_download_receipt_survives_bytes_before_task_write(self):
+        argv = ["video", "--project", str(self.project), "--out", "out", "--name", "crash-video",
+                "--shot", "SH-001", "--prompt", "synthetic"]
+        original = A.download_video_output
+        def crash(*args, **kw):
+            original(*args, **kw)
+            raise SystemExit("synthetic crash after download")
+        with mock.patch.object(A, "download_video_output", crash):
+            with self.assertRaises(SystemExit):
+                self.real_cli(argv)
+        self.assertEqual(self.real_cli(argv), 0)
+        self.assertEqual([path for path, _ in self.calls], ["/videos/generations", "/videos/grok-req-1"])
 
 
 if __name__ == "__main__":

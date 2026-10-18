@@ -151,23 +151,46 @@ class ProductionRepository:
             projects = projects.where(~S.projects.c.id.in_(pending_imports))
             if project_id:
                 projects = projects.where(S.projects.c.id == checked_id(project_id))
-            project = conn.execute(projects.order_by(S.projects.c.id).with_for_update(skip_locked=True).limit(1)).mappings().first()
-            if not project:
-                return None
-            project = dict(project)
-            job = conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], eligible)
-                .order_by(S.generation_jobs.c.created_at, S.generation_jobs.c.id).with_for_update(skip_locked=True).limit(1)).mappings().first()
-            if not job:
-                return None
-            conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"])
-                .values(claim_owner=worker_id, claim_until=now + timedelta(seconds=lease_seconds), updated_at=now))
-            conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job["id"],
-                event_type="lease_claimed", evidence={"worker_id": worker_id, "lease_seconds": lease_seconds}))
-            project["revision"] += 1
-            conn.execute(update(S.projects).where(S.projects.c.id == project["id"]).values(revision=project["revision"]))
-            conn.execute(insert(S.project_revisions).values(project_id=project["id"], revision=project["revision"],
-                actor=worker_id, action="claim_generation_job", command_key="lease:" + new_id()))
-            return clean(self._job_detail(conn, project, job["id"]))
+            # Read the candidate identities without locking every project at
+            # once. Recheck eligibility while taking each project lock before
+            # its job locks, and continue past blocked projects in global mode.
+            project_ids = list(conn.execute(projects.with_only_columns(S.projects.c.id)
+                                            .order_by(S.projects.c.id)).scalars())
+            for identifier in project_ids:
+                row = conn.execute(projects.where(S.projects.c.id == identifier)
+                    .with_for_update(skip_locked=True)).mappings().first()
+                if row is None:
+                    continue
+                project = dict(row)
+                jobs = conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], eligible)
+                    .order_by(S.generation_jobs.c.created_at, S.generation_jobs.c.id).with_for_update(skip_locked=True)).mappings()
+                job, blocked = None, None
+                for candidate in jobs:
+                    if candidate["status"] == "created":
+                        try:
+                            self.check_job_script_confirmation(conn, project, shot_id=candidate["shot_id"],
+                                asset_id=candidate["asset_id"], run_version_id=candidate["run_version_id"])
+                        except ResourceError as exc:
+                            if exc.code not in {"script_confirmation_required", "script_revision_pending"}:
+                                raise
+                            blocked = exc
+                            continue
+                    job = candidate
+                    break
+                if job is None:
+                    if blocked and project_id:
+                        raise blocked
+                    continue
+                conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"])
+                    .values(claim_owner=worker_id, claim_until=now + timedelta(seconds=lease_seconds), updated_at=now))
+                conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job["id"],
+                    event_type="lease_claimed", evidence={"worker_id": worker_id, "lease_seconds": lease_seconds}))
+                project["revision"] += 1
+                conn.execute(update(S.projects).where(S.projects.c.id == project["id"]).values(revision=project["revision"]))
+                conn.execute(insert(S.project_revisions).values(project_id=project["id"], revision=project["revision"],
+                    actor=worker_id, action="claim_generation_job", command_key="lease:" + new_id()))
+                return clean(self._job_detail(conn, project, job["id"]))
+            return None
 
     def mark_submission_started(self, project_id, payload, **kw):
         def work(conn, project):
@@ -193,6 +216,7 @@ class ProductionRepository:
             asset_id = checked_id(payload["asset_id"]) if payload.get("asset_id") else None
             if (shot_id is None) == (asset_id is None):
                 raise ResourceError("任务须指定且仅指定镜头或资产身份", "job_target_required")
+            self.check_job_script_confirmation(conn, project, shot_id=shot_id, asset_id=asset_id, run_version_id=required(payload, "run_version_id"))
             if asset_id and (payload.get("modality") != "image" or payload.get("purpose") not in {"identity_ref", "location_master", "ref", "asset_ref", "prop_ref", "costume_ref", "style_ref"}):
                 raise ResourceError("资产首参考只支持声明的图像用途", "asset_generation_unsupported")
             context = (self._compile_asset_context(conn, project, asset_id, payload.get("purpose")) if asset_id else

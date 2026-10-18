@@ -575,33 +575,77 @@ if __name__ == "__main__":
 
 
 def delivery_checklist(reviews, qa_reports, visual_checks=None):
-    """B4-03/B4-04：按检查方法汇总交付证据——工具/AI静帧/真人完整观看分开，缺项显式列出。
+    """Summarize matching report fields; strict validation must recheck real bytes.
 
-    reviews: [{review_method, scope_complete, reviewer, render_sha256}]
-    qa_reports: [{passed, real_adapter, render_sha256}]
-    visual_checks: [{advisory}]  # AI 静帧检查永远只是提醒
+    Inputs are full media-QA and structured review documents, not synthesized
+    passed/real_adapter/scope_complete flags. This summary makes no decision.
     """
     checklist = {
         "technical_qa": {"method": "tool_probe", "status": "missing", "count": 0},
         "ai_static_review": {"method": "ai_static_frame", "status": "missing", "count": 0, "advisory_only": True},
         "human_full_play": {"method": "human_full_play", "status": "missing", "count": 0},
     }
+    def valid_sha(value):
+        return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+    candidates = []
     for report in qa_reports or []:
-        if report.get("passed") and report.get("real_adapter"):
-            checklist["technical_qa"]["count"] += 1
+        if not isinstance(report, dict):
+            continue
+        render, expected = report.get("render"), report.get("expected")
+        sources = report.get("sources")
+        if (report.get("format") != FORMAT or report.get("adapter") != LocalProbeAdapter.name
+                or report.get("status") != "passed" or report.get("simulated") is not False
+                or report.get("eligible_for_review") is not True or report.get("errors") != []
+                or not isinstance(render, dict) or render.get("status") != "passed"
+                or not isinstance(render.get("metadata"), dict)
+                or not valid_sha(render["metadata"].get("sha256"))
+                or not isinstance(expected, dict) or not valid_sha(report.get("plan_sha256"))
+                or not isinstance(report.get("project_id"), str) or not report["project_id"].strip()
+                or not isinstance(sources, list) or not sources
+                or any(not isinstance(source, dict) or source.get("status") != "passed"
+                       or not isinstance(source.get("metadata"), dict) for source in sources)):
+            continue
+        seconds, fps = finite(expected.get("duration_seconds")), finite(expected.get("fps"))
+        if seconds is None or fps is None or seconds <= 0 or fps <= 0:
+            continue
+        frames = seconds * fps
+        if not math.isfinite(frames) or abs(frames - round(frames)) > 1e-6:
+            continue
+        candidates.append((report["project_id"], render["metadata"]["sha256"], round(frames)))
+    checklist["technical_qa"]["count"] = len(candidates)
     if checklist["technical_qa"]["count"]:
         checklist["technical_qa"]["status"] = "present"
     for check in visual_checks or []:
-        checklist["ai_static_review"]["count"] += 1
+        if isinstance(check, dict):
+            checklist["ai_static_review"]["count"] += 1
     if checklist["ai_static_review"]["count"]:
         checklist["ai_static_review"]["status"] = "present"
     for review in reviews or []:
-        if review.get("review_method") == "human_full_play" and review.get("scope_complete") and review.get("reviewer"):
+        if not isinstance(review, dict):
+            continue
+        scope, assessments = review.get("scope"), review.get("assessments")
+        if (review.get("format") != REVIEW_FORMAT or review.get("evidence_mode") != "structured"
+                or review.get("review_method") != "human_full_play"
+                or not isinstance(review.get("reviewer"), str) or not review["reviewer"].strip()
+                or not isinstance(scope, dict) or scope.get("kind") != "complete"
+                or type(scope.get("start_frame")) is not int or scope["start_frame"] != 0
+                or type(scope.get("end_frame")) is not int
+                or not isinstance(scope.get("delivery_id"), str) or not scope["delivery_id"].strip()
+                or not isinstance(assessments, dict)):
+            continue
+        if not any((review.get("project_id"), review.get("render_sha256"), scope["end_frame"]) == candidate
+                   for candidate in candidates):
+            continue
+        if all(isinstance(assessments.get(category), dict) and assessments[category].get("result") == "pass"
+               and isinstance(assessments[category].get("evidence"), list) and assessments[category]["evidence"]
+               for category in REVIEW_CATEGORIES):
             checklist["human_full_play"]["count"] += 1
     if checklist["human_full_play"]["count"]:
         checklist["human_full_play"]["status"] = "present"
-    # AI 静帧只是提醒，正式交付要求 技术QA + 真人完整观看 两项在场。
-    checklist["formal_delivery_ready"] = all(checklist[key]["status"] == "present"
-                                              for key in ("technical_qa", "human_full_play"))
-    checklist["meaning"] = "present 只证明证据存在；AI 静帧永远 advisory，不构成通过；正式全片仍须真人完整观看"
+    checklist["matching_evidence_present"] = all(checklist[key]["status"] == "present"
+                                               for key in ("technical_qa", "human_full_play"))
+    checklist["summary_only"] = True
+    checklist["strict_validation_required"] = True
+    checklist["meaning"] = "仅汇总同一媒体版本的技术通过与完整真人审片字段；正式交付仍须 strict 校验重验真实证据及人工决定；AI 静帧仅 advisory"
     return checklist

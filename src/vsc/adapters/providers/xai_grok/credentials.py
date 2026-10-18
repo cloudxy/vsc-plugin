@@ -8,6 +8,7 @@ key 位于各账号条目内，是有时效的访问令牌，由 grok CLI 在使
 """
 import datetime
 import json
+import hashlib
 from pathlib import Path
 
 LOGIN_FILE = Path.home() / ".grok" / "auth.json"
@@ -75,7 +76,8 @@ def account_id():
     entry, problem = _login_entry()
     if entry is None:
         return None
-    return str(entry.get("user_id") or entry.get("email") or "") or None
+    value = str(entry.get("user_id") or entry.get("email") or "").strip()
+    return value if value and not any(ord(char) < 32 for char in value) else None
 
 
 def key_problem():
@@ -105,3 +107,11 @@ def permission_denied(status, service):
         return None
     return (f"HTTP {status}：grok 登录态没有{service}的权限，请自行核对订阅状态与登录账号"
             "（重新运行 grok 登录或核对订阅）；工作流不会自动换凭证或重试")
+
+
+def account_sha256(error=RuntimeError):
+    """Only stable account identity can authorize recovery; tokens never identify accounts."""
+    identity = account_id()
+    if not identity:
+        raise error("grok 登录态缺少可验证的稳定账号身份（user_id/email）；请运行 grok 核对登录账号，不能以 token 猜测任务归属")
+    return hashlib.sha256(identity.encode()).hexdigest()

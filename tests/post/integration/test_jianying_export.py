@@ -72,7 +72,7 @@ class MappingTest(MediaFixture):
         self.assertEqual(payload["video"][0]["volume"], 0.0)
         self.assertEqual((payload["video"][1]["start_us"], payload["video"][1]["source_start_us"]), (1_500_000, 200_000))
         self.assertEqual(payload["audio"][0]["volume"], 0.5)
-        self.assertEqual(captions, [(1.0, 2.0, "门外是谁？")])
+        self.assertEqual(captions, [(1.0, 2.0, "门外是谁")])
         self.assertEqual(len(dropped), 3)
         self.assertTrue(any(item.startswith("IMG") for item in dropped))
         self.assertTrue(any("fade_in_frames" in item for item in dropped))

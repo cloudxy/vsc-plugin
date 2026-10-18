@@ -20,6 +20,9 @@ class TestRemotionPlan(unittest.TestCase):
             font = root / "bound-font.otf"
             font.write_bytes(b"fixture font content for copy/hash test")
             value = plan()
+            # This fixture verifies immutable font packaging, without claiming
+            # the intentionally synthetic font can lay out actual captions.
+            value["segments"] = [s for s in value["segments"] if s["kind"] not in {"caption", "text"}]
             value["subtitle_style"] = {"font": font.name, "font_size": 48, "color": "#FF0000", "position": "top"}
             document = {"format": "vsc.timeline/v1", "render_plan": value, "bindings": {"approved_artifact": "ART-001"}}
             source = root / "timeline.json"

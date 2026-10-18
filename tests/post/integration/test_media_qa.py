@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Actual local media and fault adapter tests; no paid or remote generation."""
+import copy
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +13,7 @@ from support.paths import ROOT  # noqa: F401  被测模块位于所属源码包
 import vsc.adapters.media.qa as QA
 from support.fixtures.plans import media_qa_plan as plan
 from support.fixtures.review import write_review
+from support.fixtures.resource_store import HAS_DB_DEPS, ResourceStoreFixture
 
 
 
@@ -188,6 +191,41 @@ class LocalMediaTests(unittest.TestCase):
         path = write_review(self.root, self.report(), structured=True)
         self.assertEqual(QA.validate_review(path, strict=True), [])
 
+    def test_pg_contract_requires_full_human_review_of_the_same_real_media(self):
+        from vsc.project.pg_workflow import validate_contract
+        path = write_review(self.root, self.report(), structured=True)
+        original = json.loads(path.read_text())
+        original["technical_report"] = str(self.root / "qa.json")
+        self.assertEqual(validate_contract(original, "vsc.sample_review", "production-v2"), [])
+        for method in ("ai_static_frame", "ai_with_audio", "tool_probe", None):
+            with self.subTest(method=method):
+                review = copy.deepcopy(original)
+                if method is None:
+                    review.pop("review_method")
+                else:
+                    review["review_method"] = method
+                self.assertTrue(validate_contract(review, "vsc.sample_review", "production-v2"))
+                self.assertEqual(validate_contract(review, "vsc.sample_review", "legacy"), [])
+        for name, mutate in (
+                ("partial", lambda row: row["scope"].update(kind="sample")),
+                ("failure", lambda row: row["assessments"][QA.REVIEW_CATEGORIES[0]].update(result="fail")),
+                ("different-render", lambda row: row.update(render_sha256="0" * 64))):
+            with self.subTest(evidence=name):
+                review = copy.deepcopy(original)
+                mutate(review)
+                self.assertTrue(validate_contract(review, "vsc.sample_review", "production-v2"))
+
+    def test_checklist_uses_real_qa_review_fields_and_matching_render(self):
+        report = self.report()
+        path = write_review(self.root, report, structured=True)
+        review = json.loads(path.read_text())
+        checklist = QA.delivery_checklist([review], [report])
+        self.assertTrue(checklist["matching_evidence_present"])
+        self.assertTrue(checklist["strict_validation_required"])
+        # A freshly re-encoded render is still a different fixed media version.
+        review["render_sha256"] = QA.sha256(self.zero)
+        self.assertFalse(QA.delivery_checklist([review], [report])["matching_evidence_present"])
+
     def test_sources_only_report_cannot_complete_review(self):
         path = self.review_fixture(self.report(render=False))
         self.assertTrue(any("成片技术报告" in e for e in QA.validate_review(path)))
@@ -220,6 +258,107 @@ class LocalMediaTests(unittest.TestCase):
         report["render"] = {}
         path.write_text(json.dumps(report))
         self.assertTrue(any("metadata" in error for error in QA.validate_report(path)))
+
+
+@unittest.skipUnless(os.environ.get("VSC_TEST_DATABASE_URL") and HAS_DB_DEPS
+                     and shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                     "requires explicit isolated PostgreSQL and local FFmpeg")
+class PostgresReviewTests(ResourceStoreFixture, unittest.TestCase):
+    """Exercise production-v2 service and Gate wiring, including historical rows.
+
+    Upstream store-only stubs represent already stored history and establish the
+    actual Profile dependency graph. They are not claimed to pass their contracts
+    or the whole delivery Gate. Only this test's media QA and review are real.
+    """
+
+    def setUp(self):
+        from vsc.project.state import profile_for
+        self.profile = profile_for("vsc.series-pg")
+        self.project = self.service.create_project({"name": "Synthetic strict review wiring",
+            "profile_snapshot": self.profile}, actor="test-human")
+        self.p, self.rev = self.project["id"], 0
+        self.objects = self.hierarchy()
+        temp = tempfile.TemporaryDirectory(prefix="vsc-pg-review-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.media_path = self.root / "take.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=30:d=1",
+                        "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "mpeg4",
+                        "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(self.media_path)],
+                       check=True, capture_output=True, timeout=30)
+        plan_path = self.root / "plan.json"
+        value = plan()
+        value["project_id"] = self.p
+        plan_path.write_text(json.dumps(value))
+        self.report = QA.check_plan(plan_path, self.root, QA.LocalProbeAdapter(), self.media_path)
+        self.assertEqual(self.report["status"], "passed", self.report["errors"])
+        path = write_review(self.root, self.report, structured=True)
+        self.review = json.loads(path.read_text())
+        self.review.update(project_id=self.p, technical_report=str(self.root / "qa.json"))
+
+    def store_write(self, method, payload):
+        import uuid
+        result = getattr(self.store, method)(self.p, payload, expected_revision=self.rev,
+            idempotency_key=uuid.uuid4().hex, actor="test-human")
+        self.rev = result["revision"]
+        return result
+
+    def seed_upstream_history(self):
+        from vsc.assets.resource_service import dependency_requirements
+        pins = {}
+        for stage in self.profile["stages"]:
+            if stage["id"] == "delivery":
+                break
+            for kind in stage["required"]:
+                requirements, _ = dependency_requirements(self.profile, kind)
+                row = self.store_write("create_artifact", {"artifact_key": kind, "artifact_type": kind,
+                    "document": {"historical_synthetic_stub": kind}, "stage": stage["id"],
+                    "dependency_ids": [pins[key] for key in requirements]})
+                self.store_write("decide_artifact", {"artifact_id": row["id"], "reason": "Synthetic historical dependency"})
+                pins[kind] = row["id"]
+        qa = self.write("create_artifact", {"artifact_key": "qa", "artifact_type": "vsc.media_qa", "document": self.report,
+            "dependency_ids": [pins["vsc.timeline"], pins["vsc.mix"]]})
+        self.write("decide_artifact", {"artifact_id": qa["id"], "reason": "Synthetic real decoded media QA fixture"})
+        return qa["id"]
+
+    def test_creation_approval_and_gate_recheck_strict_review_policy(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.project.pg_workflow import check_gate
+        qa_id = self.seed_upstream_history()
+        for method in ("ai_static_frame", "ai_with_audio", "tool_probe", None):
+            with self.subTest(method=method):
+                review = copy.deepcopy(self.review)
+                if method is None:
+                    review.pop("review_method")
+                else:
+                    review["review_method"] = method
+                payload = {"artifact_key": "review", "artifact_type": "vsc.sample_review", "document": review,
+                           "dependency_ids": [qa_id]}
+                with self.assertRaises(ResourceError) as created:
+                    self.write("create_artifact", payload)
+                self.assertEqual(created.exception.code, "invalid_contract")
+                # Import an old row through the repository to exercise both later
+                # enforcement points without mutating immutable document bytes.
+                old = self.store_write("create_artifact", payload)
+                with self.assertRaises(ResourceError) as approved:
+                    self.write("decide_artifact", {"artifact_id": old["id"], "reason": "Must be rechecked"})
+                self.assertEqual(approved.exception.code, "invalid_contract")
+                self.store_write("decide_artifact", {"artifact_id": old["id"], "reason": "Synthetic historical approval fixture"})
+                gate = check_gate(self.service, self.p, "delivery", self.objects["episode"])
+                self.assertTrue(any(gap.get("code") == "invalid_contract" and gap.get("artifact_id") == old["id"]
+                                    for gap in gate["gaps"]), gate)
+                self.assertNotIn(old["id"], [pin["id"] for pin in gate["artifacts"]])
+        valid = self.write("create_artifact", {"artifact_key": "review", "artifact_type": "vsc.sample_review",
+            "document": self.review, "dependency_ids": [qa_id]})
+        self.write("decide_artifact", {"artifact_id": valid["id"], "reason": "Synthetic operator decision on full-play evidence"})
+        gate = check_gate(self.service, self.p, "delivery", self.objects["episode"])
+        self.assertIn(valid["id"], [pin["id"] for pin in gate["artifacts"]])
+        self.assertFalse(any(gap.get("artifact_id") == valid["id"] for gap in gate["gaps"]))
+        # SHA drift after the decision must force a new QA/review at the next Gate.
+        self.media_path.write_bytes(self.media_path.read_bytes() + b"new-version")
+        gate = check_gate(self.service, self.p, "delivery", self.objects["episode"])
+        self.assertTrue(any(gap.get("code") == "invalid_contract" and gap.get("artifact_id") == valid["id"]
+                            for gap in gate["gaps"]))
 
 
 if __name__ == "__main__":

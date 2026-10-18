@@ -12,6 +12,22 @@ BEFORE = {"scenes": [
 
 
 class ScriptDiffTest(unittest.TestCase):
+    def test_line_order_and_all_sources_are_visible(self):
+        from copy import deepcopy
+        before = deepcopy(BEFORE)
+        before.update(body="original", scope="ep1", adaptation_refs=[{"id": "source", "sha256": "a"}])
+        before["scenes"][0]["dialogue"].append({"id": "L2", "speaker": "char", "text": "again"})
+        for group in ("actions", "dialogue", "silence"):
+            changed = deepcopy(before)
+            scene = changed["scenes"][1 if group == "silence" else 0]
+            scene[group][0]["narrative_refs"] = ["N2"]
+            self.assertTrue(compare_documents(before, changed)["changed"], group)
+        changed = deepcopy(before)
+        changed["scenes"][0]["dialogue"].reverse()
+        self.assertTrue(compare_documents(before, changed)["changed"])
+        for field, value in (("adaptation_refs", [{"id": "source", "sha256": "b"}]), ("body", "new"), ("scope", "ep2")):
+            self.assertTrue(compare_documents(before, dict(before, **{field: value}))["changed"], field)
+
     def test_identical_documents_have_no_changes(self):
         result = compare_documents(BEFORE, BEFORE)
         self.assertFalse(result["changed"])

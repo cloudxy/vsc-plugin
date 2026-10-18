@@ -48,3 +48,19 @@ test('line coverage and media references use typed identities while text remains
   await a.find('预览素材').click();assert.deepEqual(a.opened.at(-1),['media','media-1']);
   assert.ok([...a.memory.values()].every(v=>!v.includes('private-text')&&!v.includes('声音候选')&&!v.includes('revision')));a.bench.destroy();
 });
+test('shot and job drill buttons request their actual entity and show parameter evidence',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});
+  a.respond(doc('p','shots',[{id:'shot-1',kind:'shot',title:'镜头一'}]));await p;
+  p=a.find('查看覆盖剧本行').click();let params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;
+  assert.equal(params.get('section'),'coverage');assert.equal(params.get('entity_id'),'shot-1');a.respond(doc('p','coverage'));await p;
+  p=a.bench.focus('jobs');a.respond(doc('p','jobs',[{id:'job-1',title:'本镜声音'}]));await p;
+  p=a.find('尝试与参数对照').click();params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;
+  assert.equal(params.get('section'),'job_attempts');assert.equal(params.get('entity_id'),'job-1');
+  a.respond(doc('p','job_attempts',[{id:'job-1',title:'本镜声音',plan_params:{prompt:'固定台词',params:{seed:7}},
+    performance_coverage:[{controls:[{field:'delivery',expected:['轻声且克制'],actual:['克制轻声'],consumed:false}]}],
+    events:[{event:'succeeded',at:'now',evidence:{raw_response:{usage:{characters:4}},error:'原始错误说明'}}],outputs:[{media_id:'output-1'}]}]));await p;
+  assert.ok(a.container.textContent.includes('固定制作参数'));assert.ok(a.container.textContent.includes('固定台词'));
+  assert.ok(a.container.textContent.includes('原始错误说明'));assert.ok(a.container.textContent.includes('characters'));
+  assert.ok(a.container.textContent.includes('要求值：轻声且克制'));assert.ok(a.container.textContent.includes('请求值：克制轻声'));
+  await a.find('预览本次输出').click();assert.deepEqual(a.opened.at(-1),['media','output-1']);a.bench.destroy();
+});

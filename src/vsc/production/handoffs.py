@@ -217,6 +217,14 @@ def validation_errors(data):
             c.need(sha(row.get("sha256")), "binding.sha256 必须为获选媒体完整SHA")
             c.need(isinstance(row.get("audio_role"), str) and row["audio_role"] in AUDIO_ROLES, "binding.audio_role 无效")
             c.need(row.get("cue_id") is None or text(row.get("cue_id")), "binding.cue_id 必须为null或文本")
+            if "output_id" in row:
+                c.need(text(row["output_id"]), "binding.output_id 必须为非空文本")
+            if "reuse_declared" in row:
+                c.need(type(row["reuse_declared"]) is bool, "binding.reuse_declared 必须为boolean")
+            if "reuse_reason" in row:
+                c.need(text(row["reuse_reason"]), "binding.reuse_reason 必须为非空文本")
+            if row.get("reuse_declared") is True:
+                c.need(text(row.get("reuse_reason")), "有意重播必须给出明确 binding.reuse_reason 依据")
     elif fmt == "vsc.mix/v1":
         c.ref(data.get("timeline"), "timeline")
         for ref in c.rows(data.get("sound_plans"), "sound_plans"):

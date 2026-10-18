@@ -118,6 +118,8 @@ def content_errors(path, artifact_type, policy='production-v2'):
         validator = entry["validator"]
         command = [sys.executable, "-B", str(relative_file(validator["script"], "validator")),
                    *validator["arguments"], str(path)]
+        if fmt == "vsc.sample-review/v1" and policy == "production-v2":
+            command.append("--strict")
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.TimeoutExpired) as exc:

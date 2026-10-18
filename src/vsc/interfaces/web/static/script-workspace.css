@@ -14,8 +14,21 @@
 .scene-header h4, .script-scene h4 { margin: .4rem 0 .3rem; font-size: .85rem; color: #5f6368; }
 .scene-lines { display: grid; gap: .35rem; margin-bottom: .4rem; }
 .script-line { display: flex; gap: .4rem; align-items: center; }
+.script-line { flex-wrap: wrap; }
 .script-line .line-speaker { width: 7rem; }
 .script-line .line-text { flex: 1; }
+.script-line .line-refs { flex-basis: 100%; }
+.script-line .line-duration { width: 9rem; }
+.script-line .line-purpose { flex: 1; }
+.script-document-fields { display: grid; gap: .5rem; margin-bottom: .8rem; }
+.script-document-fields label { display: grid; gap: .3rem; }
+.script-body { width: 100%; box-sizing: border-box; resize: vertical; }
+.script-adaptation-refs { display: grid; gap: .4rem; }
+.script-adaptation-ref { display: flex; flex-wrap: wrap; gap: .4rem; }
+.script-adaptation-ref input { min-width: 12rem; flex: 1; }
+.script-adaptation-ref .adaptation-sha { flex: 2; }
+.script-dependencies { overflow-wrap: anywhere; }
+.scene-id[readonly] { color: #5f6368; background: #f4f5f6; }
 .script-line button { font-size: .8rem; }
 .script-compare { border-top: 1px dashed #d0d4d9; margin-top: .8rem; padding-top: .5rem; }
 .compare-list { max-height: 16rem; overflow: auto; }
@@ -24,9 +37,11 @@
 .notes-list { display: grid; gap: .35rem; }
 .notes-list li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .notes-list .note-anchor { font-family: ui-monospace, monospace; font-size: .8rem; color: #5f6368; }
+.notes-list .note-baseline { flex-basis: 100%; overflow-wrap: anywhere; }
 .notes-list li.note-resolved span, .notes-list li.note-dismissed span { opacity: .6; }
 @media (max-width: 720px) { .script-line { flex-wrap: wrap; } .script-line .line-text { flex-basis: 100%; } }
 .frozen-body { max-height: 22rem; overflow: auto; border: 1px solid #d0d4d9; border-radius: 6px; padding: .5rem; }
+.frozen-screenplay-body { white-space: pre-wrap; }
 .frozen-scene { margin-bottom: .5rem; }
 .frozen-scene div { padding-left: .8rem; }
 .script-suggestions, .script-impact { border-top: 1px dashed #d0d4d9; margin-top: .8rem; padding-top: .5rem; }

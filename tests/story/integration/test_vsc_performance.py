@@ -96,23 +96,79 @@ class Performance(unittest.TestCase):
         self.assertEqual(project_sound_errors(self.sound_data, self.f.project, self.f.state, self.sound), [])
         self.assertEqual(self.errors(), [])
 
-    def test_same_take_bound_to_two_dialogue_segments_requires_reuse_declaration(self):
-        # 取既有对白绑定（fixture A1/A2 之外再复制一个绑定同一获选 item 的对白 segment）
-        timeline = copy.deepcopy(self.timeline_data)
-        audio_bindings = [b for b in timeline.get("bindings", []) if b.get("audio_role") in {"dialogue", "narration"}]
-        self.assertTrue(audio_bindings)
-        clone = dict(audio_bindings[0])
-        clone["segment_id"] = clone["segment_id"] + "-reuse"
-        timeline["bindings"] = list(timeline.get("bindings", [])) + [clone]
-        timeline["render_plan"]["segments"].append(dict(
-            timeline["render_plan"]["segments"][[s["id"] for s in timeline["render_plan"]["segments"]].index(clone["segment_id"].replace("-reuse", ""))],
-            id=clone["segment_id"]))
-        errors = timeline_performance_errors(timeline, self.f.project, self.f.state, timeline)
+    def repeat_first_audio(self, start=0, **declaration):
+        original = next(row for row in self.timeline_data["bindings"] if row["segment_id"] == "A1")
+        binding = dict(original, segment_id="A1-replay", **declaration)
+        segment = next(row for row in self.timeline_data["render_plan"]["segments"] if row["id"] == "A1")
+        self.timeline_data["bindings"].append(binding)
+        self.timeline_data["render_plan"]["segments"].append(dict(segment, id=binding["segment_id"], from_frame=start))
+        self.refresh()
+        return binding
+
+    def test_overlapping_duplicate_cannot_be_excused_by_declaration_or_output_label(self):
+        binding = self.repeat_first_audio()
+        for changes in ({}, {"output_id": "unvalidated-output"}, {"reuse_declared": "false"},
+                        {"reuse_declared": True}, {"reuse_declared": True, "reuse_reason": "intentional replay"}):
+            with self.subTest(changes=changes):
+                for field in ("output_id", "reuse_declared", "reuse_reason"):
+                    binding.pop(field, None)
+                binding.update(changes)
+                self.assertTrue(self.errors())  # Actual timeline consumer, with fixed selected dependencies.
+                errors = timeline_performance_errors(self.timeline_data, self.f.project, self.f.state, self.timeline)
+                self.assertTrue(any("重复绑定" in error for error in errors), errors)
+                if "output_id" in changes:
+                    self.assertTrue(any("output_id" in error for error in errors), errors)
+                if changes.get("reuse_declared") == "false":
+                    self.assertTrue(any("boolean" in error for error in errors), errors)
+                if changes == {"reuse_declared": True}:
+                    self.assertTrue(any("reuse_reason" in error for error in errors), errors)
+
+    def test_nonoverlapping_intentional_replay_requires_boolean_and_reason(self):
+        binding = self.repeat_first_audio(start=36)
+        for declaration in ({}, {"reuse_declared": "false", "reuse_reason": "replay"},
+                            {"reuse_declared": 1, "reuse_reason": "replay"},
+                            {"reuse_declared": None, "reuse_reason": "replay"},
+                            {"reuse_declared": True}, {"reuse_declared": True, "reuse_reason": "  "}):
+            with self.subTest(declaration=declaration):
+                binding.pop("reuse_declared", None)
+                binding.pop("reuse_reason", None)
+                binding.update(declaration)
+                self.assertTrue(self.errors())
+        binding.update(reuse_declared=True, reuse_reason="Intentional audible flashback after the response")
+        self.assertEqual(self.errors(), [])
+        binding["output_id"] = "AO1"
+        self.assertEqual(self.errors(), [])
+
+    def test_generated_output_label_cannot_change_fixed_media_identity(self):
+        self.generated()
+        binding = self.repeat_first_audio(output_id="AO1")
+        self.assertTrue(any("重复绑定" in error for error in self.errors()))
+        binding["output_id"] = "invented-output"
+        errors = self.errors()
+        for marker in ("重复绑定", "output_id"):
+            self.assertTrue(any(marker in error for error in errors), errors)
+
+    def test_selected_item_alias_cannot_hide_repeated_media(self):
+        binding = self.repeat_first_audio()
+        original = self.selected_data["items"][2]
+        alias = copy.deepcopy(original)
+        alias.update(id="AS1-alias", output_id="another-label", shot_id=None)
+        self.selected_data["items"].append(alias)
+        binding.update(selected_item_id=alias["id"], output_id=alias["output_id"])
+        self.refresh()
+        errors = self.errors()
         self.assertTrue(any("重复绑定" in error for error in errors), errors)
-        clone["reuse_declared"] = True  # 显式声明跨镜复用后不再视为悄悄复制
-        timeline["bindings"][-1] = clone
-        errors = timeline_performance_errors(timeline, self.f.project, self.f.state, timeline)
-        self.assertFalse(any("重复绑定" in error for error in errors), errors)
+
+    def test_one_audio_interval_can_bridge_three_visual_shots(self):
+        first = self.timeline_data["render_plan"]["segments"].pop(0)
+        binding = self.timeline_data["bindings"].pop(0)
+        for index, start, duration in ((1, 0, 4), (2, 4, 4), (3, 8, 16)):
+            identifier = "V1-" + str(index)
+            self.timeline_data["render_plan"]["segments"].append(dict(first, id=identifier, from_frame=start,
+                                                                    source_in_frame=start, duration_in_frames=duration))
+            self.timeline_data["bindings"].append(dict(binding, segment_id=identifier))
+        self.refresh()
+        self.assertEqual(self.errors(), [])
 
     def test_silent_plan_and_silent_timeline_add_no_dialogue_requirements(self):
         self.assertEqual(project_sound_errors({"dialogue_cues": []}, self.f.project, self.f.state, {}), [])

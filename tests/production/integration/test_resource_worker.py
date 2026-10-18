@@ -8,6 +8,8 @@ import unittest
 import uuid
 from io import BytesIO
 import wave
+import json
+from unittest import mock
 
 from support.paths import ROOT
 from support.fixtures.postgres import isolated_postgres
@@ -151,6 +153,25 @@ class ResourceWorkerTests(unittest.TestCase):
         output = self.service.get_media(self.fixture.p, result["outputs"][0]["media_id"])
         self.assertEqual(output["sample_rate"], 24000)
         self.assertEqual(output["duration_ms"], 1000)
+        # One fixed professional artifact may describe the same line in two
+        # shots; the task inspector must show only its actual shot and voice.
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.persistence.postgres.workbench import query_workbench
+        other=self.fixture.write('create_object',{'kind':'shot','parent_id':self.fixture.objects['sequence'],'display_code':'OTHER','ordinal':1})['id']
+        artifact=self.fixture.artifact('fixed-performance','generic',{'fixture':'two voice executions'})
+        fixed=self.service.get_artifact_version(self.fixture.p,artifact)
+        own_id=str(uuid.uuid4())
+        with self.service.store.engine.begin() as conn:
+            conn.execute(insert(S.job_input_versions).values(project_id=self.fixture.p,id=str(uuid.uuid4()),job_id=job['id'],artifact_id=artifact,sha256=fixed['sha256'],role='creative-relations'))
+            for identifier,shot,label in ((own_id,self.fixture.objects['shot'],'own'),(str(uuid.uuid4()),other,'other')):
+                conn.execute(insert(S.execution_instances).values(project_id=self.fixture.p,id=identifier,artifact_id=artifact,
+                    execution_key=label,label=label,domain='voice',line_id=line_id,voice_spec_id=voice_spec_id,
+                    parameters={'controls':[{'field':'delivery','model_default':'context_texts','expected':[label]}]}))
+                conn.execute(insert(S.execution_shots).values(project_id=self.fixture.p,id=str(uuid.uuid4()),execution_id=identifier,shot_id=shot))
+        row=query_workbench(self.service.store,self.fixture.p,section='job_attempts',entity_id=job['id'])['sections']['job_attempts']['items'][0]
+        self.assertEqual([item['execution_id'] for item in row['performance_coverage']],[own_id])
+        self.assertEqual(row['performance_coverage'][0]['controls'][0]['expected'],['own'])
 
     def test_image_selection_drives_async_video_and_fixed_timeline(self):
         from vsc.production.resource_worker import ResourceWorker
@@ -185,3 +206,71 @@ class ResourceWorkerTests(unittest.TestCase):
         self.assertTrue((Path(self.temp.name) / "remotion/src/Root.tsx").is_file())
         self.assertTrue((Path(self.temp.name) / "remotion/public" / plan["segments"][0]["source"]).is_file())
         self.assertEqual(exported["source_artifact"]["id"], artifact)
+
+
+    def grok_worker(self, transport, download=None):
+        from vsc.production.resource_worker import ResourceWorker
+        from vsc.adapters.providers.xai_grok.provider import GrokVideoProvider
+        from vsc.adapters.providers.xai_grok.resource_factory import ConfiguredGrokProvider
+        from vsc.adapters.providers.xai_grok import credentials
+        self.login = Path(self.temp.name) / "synthetic-auth.json"
+        self.login.write_text(json.dumps({"synthetic": {"user_id": "account-A", "key": "synthetic-A"}}))
+        patch = mock.patch.object(credentials, "LOGIN_FILE", self.login)
+        patch.start()
+        self.addCleanup(patch.stop)
+        key = "grok-imagine-video-1.5"
+        staged = self.service.storage.stage_upload(BytesIO(png_bytes()), "grok-frame.png")
+        frame = self.fixture.write("register_media", {"staged_upload":staged["staged_upload"],"name":"grok-frame.png",
+            "source":{"kind":"fixture","content":"synthetic first frame"},"rights":"unknown"})['id']
+        self.fixture.select_media(frame,"first_frame")
+        model = self.service.register_model({"provider_id": "fixture", "model_key": key,
+            "model_version": "grok-offline", "modality": "video", "capabilities": {"purposes": ["video_clip"],"first_frame":True}}, actor="fixture-human")["id"]
+        job = self.fixture.job("video", "video_clip", model, {"duration_ms": 6000,"first_frame_media_id":frame})
+        import base64
+        adapter = ConfiguredGrokProvider(GrokVideoProvider(key, lambda value: 'data:image/png;base64,'+base64.b64encode(png_bytes()).decode(), "480p", transport=transport), "fixture")
+        return ResourceWorker(self.service, lambda job, storage: adapter, download=download), job
+
+    def test_grok_success_response_is_durable_before_transfer_and_same_account_refresh_resumes(self):
+        from support.fixtures.media import production_media
+        calls, downloads = [], []
+        def transport(path, payload=None):
+            calls.append((path, payload))
+            return {"request_id": "grok-pg-1"} if payload is not None else {"status": "done", "video": {"url": "https://example.invalid/out.mp4"}}
+        def download(url, target):
+            downloads.append(url)
+            if len(downloads) == 1:
+                raise OSError("synthetic transfer interruption")
+            target.write_bytes(production_media()["mp4"])
+        worker, job = self.grok_worker(transport, download)
+        worker.run_once(self.fixture.p)
+        with self.assertRaises(OSError):
+            worker.run_once(self.fixture.p, poll=True)
+        saved = self.service.get_generation_job(self.fixture.p, job["id"])
+        self.assertEqual(saved["status"], "running")
+        self.assertEqual(saved["raw_response"]["status"], "done")
+        self.assertTrue(any((e["evidence"] or {}).get("source") == "provider_success_awaiting_storage" for e in saved["events"]))
+        self.login.write_text(json.dumps({"synthetic": {"user_id": "account-B", "key": "synthetic-B"}}))
+        before = (len(calls), len(downloads))
+        with self.assertRaisesRegex(ValueError, "账号"):
+            worker.finalize(self.fixture.p, job["id"])
+        self.assertEqual((len(calls), len(downloads)), before)
+        self.login.write_text(json.dumps({"synthetic": {"user_id": "account-A", "key": "new-token-A"}}))
+        result = worker.run_once(self.fixture.p, poll=True)
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(len(calls), 2)  # one POST and one GET, transfer recovery uses saved done
+        saved = self.service.get_generation_job(self.fixture.p, job["id"])
+        media = self.service.get_media(self.fixture.p, saved["outputs"][0]["media_id"])
+        self.assertGreater(media["duration_ms"], 0)
+
+    def test_grok_local_endpoint_error_precedes_submission_intent_and_budget(self):
+        calls = []
+        worker, job = self.grok_worker(lambda *args: calls.append(args))
+        with mock.patch.dict(os.environ, {"GROK_BASE_URL": "https://invalid.example/v1"}):
+            with self.assertRaisesRegex(RuntimeError, "GROK_BASE_URL"):
+                worker.run_once(self.fixture.p)
+        saved = self.service.get_generation_job(self.fixture.p, job["id"])
+        self.assertEqual(saved["status"], "created")
+        self.assertEqual(saved["attempt"], 0)
+        self.assertIsNone(saved["raw_response"])
+        self.assertFalse(any(e["event_type"] == "submission_unknown" for e in saved["events"]))
+        self.assertEqual(calls, [])

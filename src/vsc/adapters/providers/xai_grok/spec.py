@@ -6,6 +6,8 @@ CLI、series 与 PostgreSQL worker 三个人口共用同一实现（B2-01/F09/F1
 都在这里抛出，发生在预算预留与提交意图之前；有效请求返回最终 payload。
 """
 from __future__ import annotations
+import re
+import math
 
 
 class GrokSpecError(ValueError):
@@ -37,14 +39,17 @@ def compile_image(model, prompt, references, ratio, resolution, count):
         raise GrokSpecError("图像编辑每个逻辑候选固定一张输出；多张仅支持纯文生图，待单独核实后开放")
     if resolution not in IMAGE_RESOLUTIONS:
         raise GrokSpecError("图像分辨率须为 1k 或 2k")
-    if references:
-        if len(references) == 1:
-            return "/images/edits", {"model": model, "prompt": prompt,
-                                     "image": {"url": references[0], "type": "image_url"}}
-        return "/images/edits", {"model": model, "prompt": prompt,
-                                 "images": [{"url": url, "type": "image_url"} for url in references]}
+    if type(count) is not int or not 1 <= count <= 10:
+        raise GrokSpecError("同提示词张数须为 1–10")
     if ratio not in ASPECT_RATIOS:
         raise GrokSpecError(f"画幅 {ratio} 不在平台支持列表")
+    if references:
+        common = {"aspect_ratio": ratio, "resolution": resolution}
+        if len(references) == 1:
+            return "/images/edits", {"model": model, "prompt": prompt, **common,
+                                     "image": {"url": references[0], "type": "image_url"}}
+        return "/images/edits", {"model": model, "prompt": prompt, **common,
+                                 "images": [{"url": url, "type": "image_url"} for url in references]}
     return "/images/generations", {"model": model, "prompt": prompt, "n": count,
                                    "aspect_ratio": ratio, "resolution": resolution, "response_format": "url"}
 
@@ -68,6 +73,10 @@ def compile_video(model, prompt, duration_ms, first, last, references, keyframes
     keyframes = list(keyframes or [])
     if len(references) > REFERENCE_LIMIT:
         raise GrokSpecError(f"Grok 参考模式一次最多 {REFERENCE_LIMIT} 张参考图")
+    if not isinstance(generate_audio, bool):
+        raise GrokSpecError("generate_audio 必须是布尔值")
+    if any(not isinstance(voice, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", voice) for voice in voice_ids):
+        raise GrokSpecError("voice_id 必须是平台预置声音标识")
     if len(voice_ids) > VOICE_LIMIT:
         raise GrokSpecError(f"Grok 预置声音参考最多 {VOICE_LIMIT} 个")
     if len(keyframes) > KEYFRAME_LIMIT:
@@ -91,7 +100,7 @@ def compile_video(model, prompt, duration_ms, first, last, references, keyframes
     if not references and resolution not in FRAME_RESOLUTIONS:
         raise GrokSpecError("Grok 视频分辨率须为 480p、720p 或 1080p")
     for _, at in keyframes:
-        if not 0 < float(at) < seconds:
+        if not math.isfinite(float(at)) or not 0 < float(at) < seconds:
             raise GrokSpecError(f"关键帧时间戳必须严格落在片内（0–{seconds}s）")
     stamps = sorted(float(at) for _, at in keyframes)
     for before, after in zip(stamps, stamps[1:]):
@@ -115,16 +124,22 @@ def compile_video(model, prompt, duration_ms, first, last, references, keyframes
     return payload
 
 
-def compile_video_operation(model, video, prompt, operation):
+def compile_video_operation(model, video, prompt, operation, duration=None):
     """/v1/videos/edits 与 /v1/videos/extensions（输出跟随输入；extensions 的 prompt 平台必填）。"""
     if operation not in ("edit", "extend"):
         raise GrokSpecError("视频加工操作只能是 edit 或 extend")
     if advanced_model(model):
         raise GrokSpecError("视频编辑/续接由经典 grok-imagine-video 承担（线上实证 1.5 返回不支持）")
+    if operation == "extend" and (type(duration) is not int or not 2 <= duration <= 10):
+        raise GrokSpecError("续接 duration 必须为新增 2–10 整秒")
+    if operation == "edit" and duration is not None:
+        raise GrokSpecError("编辑不支持另设 duration，按实际源片时长计量")
     if operation == "extend" and not str(prompt or "").strip():
         raise GrokSpecError("视频续接需要提示词（平台必填）")
     path = {"edit": "/videos/edits", "extend": "/videos/extensions"}[operation]
     payload = {"model": model, "video": {"url": video}}
     if str(prompt or "").strip():
         payload["prompt"] = str(prompt).strip()
+    if operation == "extend":
+        payload["duration"] = duration
     return path, payload
