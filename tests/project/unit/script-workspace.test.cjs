@@ -23,7 +23,7 @@ function draft(revision = 1, scenes = [{id: 'SC1', estimated_duration_ms: 3000,
   updated_at: '2026-10-18T10:00:00+08:00', updated_by: 'alice'};
 }
 
-async function fixture() {
+async function fixture(options = {}) {
   const document = new Document(''), container = document.createElement('section'); document.body.append(container);
   // Shared fixture omits tree insertion/sibling access; exercise these browser operations locally.
   for (const [name, getter] of Object.entries({parentNode() { return this.parentElement; },
@@ -36,17 +36,26 @@ async function fixture() {
     this.children.splice(index < 0 ? this.children.length : index, 0, node); return node;
   };
   const requests = [], pending = [], notices = [], revisions = [], timers = new Map();
+  const pageListeners = new Map();
+  const browserWindow = {
+    addEventListener(type, callback) {
+      if (!pageListeners.has(type)) pageListeners.set(type, new Set());
+      pageListeners.get(type).add(callback);
+    },
+    removeEventListener(type, callback) { pageListeners.get(type)?.delete(callback); },
+  };
   let project = '/api/v1/projects/A', timerId = 0, uuid = 0;
   const ctx = {api: (url, options) => {
     const request = {url: String(url), options}; requests.push(request);
     return new Promise((resolve, reject) => pending.push({...request, resolve, reject}));
   }, baseUrl: () => project, onNotice: message => notices.push(message),
   session: () => ({actor: 'alice', csrf: 'c', writable: true, revision: 7}), setRevision: value => revisions.push(value)};
-  const environment = {document, crypto: {randomUUID: () => `id-${++uuid}`}, confirm: () => true, prompt: () => '批注内容',
+  const environment = {document, window: options.browserWindow ? browserWindow : undefined,
+    crypto: {randomUUID: () => `id-${++uuid}`}, confirm: () => true, prompt: () => '批注内容',
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, {fn, ms}); return id; }, clearTimeout: id => timers.delete(id)};
   const id = ++environmentId; environments.set(id, environment);
   // Import the unmodified source as a real ES module: strict semantics catch accidental globals.
-  const prefix = `const {document,crypto,confirm,prompt,setTimeout,clearTimeout}=globalThis.__scriptWorkspaceTestEnvironments.get(${id});\n`;
+  const prefix = `const {document,window,crypto,confirm,prompt,setTimeout,clearTimeout}=globalThis.__scriptWorkspaceTestEnvironments.get(${id});\n`;
   const module = await import('data:text/javascript;base64,' + Buffer.from(prefix + source).toString('base64'));
   environments.delete(id);
   const ws = module.createScriptWorkspace(container, ctx);
@@ -74,8 +83,18 @@ async function fixture() {
   async function save(revision = 2) {
     const saving = takeTimer()(); respond({draft_revision: revision}, '/autosave'); await saving; return payload(autosaves().at(-1));
   }
+  async function switchProject(id, value = draft()) {
+    project = '/api/v1/projects/' + id;
+    const loading = ws.load(); respond({sections: {children: {items: []}}}, `/${id}/workbench`); await tick();
+    respond(value, row => row.url.includes(`/${id}/script-draft?`) && !row.options); await loading;
+  }
+  function unload() {
+    const event = {defaultPrevented: false, returnValue: undefined, preventDefault() { this.defaultPrevented = true; }};
+    for (const callback of pageListeners.get('beforeunload') || []) callback(event);
+    return event;
+  }
   return {ws, container, requests, pending, notices, revisions, timers, boot, respond, takeTimer, input, button, save,
-    payload, autosaves, setProject: id => { project = '/api/v1/projects/' + id; }};
+    payload, autosaves, switchProject, pageListeners, unload, setProject: id => { project = '/api/v1/projects/' + id; }};
 }
 
 test('switching immediately invalidates old timers while the next project is still loading', async () => {
@@ -100,21 +119,19 @@ test('late B load cannot overwrite C, including the episode selector', async () 
   assert.equal(t.container.querySelector('.script-scope').dataset.projectId, '/api/v1/projects/C');
 });
 
-test('A→B→A uses a new generation and an old save completion cannot unlock the new saving queue', async () => {
+test('an old A save completion cannot unlock the new project B saving queue', async () => {
   const t = await fixture(); await t.boot(); await t.input('.line-text', 'old A');
   const oldSave = t.takeTimer()(); const oldRequest = t.pending.find(row => row.url.includes('/autosave'));
   t.setProject('B'); const b = t.ws.load(); t.respond({sections: {children: {items: []}}}, '/B/workbench'); await tick();
   t.respond(draft(), '/B/script-draft'); await b;
-  t.setProject('A'); const a = t.ws.load(); t.respond({sections: {children: {items: []}}}, '/A/workbench'); await tick();
-  t.respond(draft(8), row => row.url.includes('/A/script-draft') && !row.options); await a;
-  await t.input('.line-text', 'new A'); const newSave = t.takeTimer()();
+  await t.input('.line-text', 'new B'); const newSave = t.takeTimer()();
   t.respond({draft_revision: 99}, row => row.resolve === oldRequest.resolve); await oldSave;
-  await t.input('.line-text', 'last A'); await t.takeTimer()();
+  await t.input('.line-text', 'last B'); await t.takeTimer()();
   assert.equal(t.autosaves().length, 2, 'old finally must leave the new request in flight');
   t.respond({draft_revision: 9}, '/autosave'); await newSave;
   const queued = t.takeTimer()();
   assert.equal(t.payload(t.autosaves().at(-1)).base_draft_revision, 9);
-  assert.equal(t.payload(t.autosaves().at(-1)).content.scenes[0].actions[0].text, 'last A');
+  assert.equal(t.payload(t.autosaves().at(-1)).content.scenes[0].actions[0].text, 'last B');
   t.respond({draft_revision: 10}, '/autosave'); await queued;
 });
 
@@ -353,4 +370,115 @@ test('note history displays recorded revision, exact content SHA and frozen arti
   assert.ok(baselines[0].textContent.includes('frozen-r7'));
   assert.equal(baselines[1].textContent, '基准未知（历史批注未记录所见版本）');
   assert.equal(baselines[1].textContent.includes('r19'), false);
+});
+
+test('unsaved A text survives A→B→A before its timer fires and resumes against the unchanged draft', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '尚未触发保存的 A');
+  await t.switchProject('B'); await t.switchProject('A');
+  assert.equal(t.container.querySelector('.line-text').value, '尚未触发保存的 A');
+  assert.equal(t.autosaves().length, 0);
+  const saved = await t.save(); assert.equal(saved.base_draft_revision, 1);
+  assert.equal(saved.content.scenes[0].actions[0].text, '尚未触发保存的 A');
+  await t.switchProject('B'); await t.switchProject('A', draft(2));
+  assert.equal(t.container.querySelector('.line-text').value, '他停下', 'a successful clean save clears the memory recovery');
+  assert.equal(t.timers.size, 0);
+});
+
+test('unsaved per-episode drafts survive a scope switch without sharing their bodies', async () => {
+  const t = await fixture(); await t.boot(); const select = t.container.querySelector('.script-scope');
+  async function scope(id, value = draft()) {
+    select.value = id; const loading = select.dispatch('change'); await tick();
+    t.respond(value, 'scope_key=' + id); await loading;
+  }
+  await scope('EP1'); await t.input('.line-text', 'EP1 未保存内容');
+  await scope('EP2'); await t.input('.line-text', 'EP2 未保存内容');
+  await scope('EP1'); assert.equal(t.container.querySelector('.line-text').value, 'EP1 未保存内容');
+  assert.equal((await t.save()).scope_key, 'EP1');
+  await scope('EP2'); assert.equal(t.container.querySelector('.line-text').value, 'EP2 未保存内容');
+});
+
+test('a failed save remains recoverable after leaving and can retry the unchanged server base', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '失败后的正文'); const saving = t.takeTimer()();
+  t.respond({message: 'HTTP 500'}, '/autosave', true); await saving;
+  await t.switchProject('B'); await t.switchProject('A');
+  assert.equal(t.container.querySelector('.line-text').value, '失败后的正文');
+  const retried = await t.save(2); assert.equal(retried.base_draft_revision, 1);
+  assert.equal(retried.content.scenes[0].actions[0].text, '失败后的正文');
+});
+
+test('returning while the old POST is uncertain keeps later local input and blocks any automatic overwrite', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '发出的第一稿'); const saving = t.takeTimer()();
+  await t.input('.line-text', '请求后继续输入的正文');
+  await t.switchProject('B'); await t.switchProject('A');
+  assert.equal(t.container.querySelector('.line-text').value, '请求后继续输入的正文');
+  assert.equal(t.container.querySelector('.script-conflict').hidden, false); assert.equal(t.timers.size, 0);
+  await t.input('.line-text', '返回后继续保留的正文');
+  t.respond({draft_revision: 2}, '/autosave'); await saving;
+  assert.equal(t.container.querySelector('.line-text').value, '返回后继续保留的正文');
+  assert.equal(t.autosaves().length, 1); assert.equal(t.timers.size, 0);
+  await t.button('提交人工确认').click(); assert.equal(t.requests.some(row => row.url.endsWith('/script-submit')), false);
+});
+
+test('a confirmed old POST completion before return advances the base without losing post-send local input', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '发出的版本'); const saving = t.takeTimer()();
+  await t.input('.line-text', '发出后继续写'); await t.switchProject('B');
+  t.respond({draft_revision: 2}, '/autosave'); await saving;
+  const server = draft(2); server.content.scenes[0].actions[0].text = '发出的版本';
+  await t.switchProject('A', server);
+  assert.equal(t.container.querySelector('.line-text').value, '发出后继续写');
+  const saved = await t.save(3); assert.equal(saved.base_draft_revision, 2);
+  assert.equal(saved.content.scenes[0].actions[0].text, '发出后继续写');
+});
+
+test('a changed server revision restores local text as a conflict with zero overwrite POSTs', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '本地待核对稿'); await t.switchProject('B');
+  const remote = draft(7); remote.content.scenes[0].actions[0].text = '另一个人的 r7';
+  await t.switchProject('A', remote);
+  assert.equal(t.container.querySelector('.line-text').value, '本地待核对稿');
+  assert.equal(t.container.querySelector('.script-conflict').hidden, false); assert.equal(t.timers.size, 0);
+  await t.input('.line-text', '核对时仍可保留输入'); assert.equal(t.timers.size, 0);
+  await t.button('提交人工确认').click(); assert.equal(t.autosaves().length, 0);
+  await t.switchProject('B'); await t.switchProject('A', remote);
+  assert.equal(t.container.querySelector('.line-text').value, '核对时仍可保留输入');
+  assert.equal(t.timers.size, 0);
+});
+
+test('explicit replace discards recovery without immediately caching it again', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '待明确放弃的本地稿'); await t.switchProject('B');
+  const remote = draft(7); remote.content.scenes[0].actions[0].text = '明确选择的服务器稿';
+  await t.switchProject('A', remote);
+  const replace = t.button('加载最新并替换本地').click(); await tick(); t.respond(remote, '/A/script-draft?'); await replace;
+  assert.equal(t.container.querySelector('.line-text').value, '明确选择的服务器稿');
+  await t.switchProject('B'); await t.switchProject('A', remote);
+  assert.equal(t.container.querySelector('.line-text').value, '明确选择的服务器稿');
+  assert.equal(t.container.querySelector('.script-conflict').hidden, true); assert.equal(t.timers.size, 0);
+});
+
+test('a hidden workspace retains edits when baseUrl changes before its old timer can run', async () => {
+  const t = await fixture(); await t.boot(); await t.input('.line-text', '隐藏页上的 A 草稿');
+  const oldTimer = t.takeTimer(); t.setProject('B'); await oldTimer();
+  assert.equal(t.autosaves().length, 0);
+  const loading = t.ws.load(); t.respond({sections: {children: {items: []}}}, '/B/workbench'); await tick();
+  t.respond(draft(), '/B/script-draft?'); await loading;
+  await t.switchProject('A'); assert.equal(t.container.querySelector('.line-text').value, '隐藏页上的 A 草稿');
+});
+
+test('native page-leave warning covers both active and cached drafts and clears after a clean save', async () => {
+  const t = await fixture({browserWindow: true}); await t.boot(); assert.equal(t.unload().defaultPrevented, false);
+  await t.input('.line-text', '关闭页面前尚未保存');
+  const active = t.unload(); assert.equal(active.defaultPrevented, true); assert.equal(active.returnValue, '');
+  await t.switchProject('B'); assert.equal(t.unload().defaultPrevented, true, 'offscreen recovery still needs a leave warning');
+  await t.switchProject('A'); await t.save(2); assert.equal(t.unload().defaultPrevented, false);
+  await t.input('.line-text', '销毁前未保存'); assert.equal(t.timers.size, 1);
+  t.ws.destroy(); assert.equal(t.pageListeners.get('beforeunload').size, 0);
+  assert.equal(t.timers.size, 0); assert.equal(t.unload().defaultPrevented, false);
+});
+
+test('a confirmed offscreen save with no later edits clears its recovery and page-leave warning', async () => {
+  const t = await fixture({browserWindow: true}); await t.boot(); await t.input('.line-text', '已发出而无后续输入');
+  const saving = t.takeTimer()(); await t.switchProject('B'); assert.equal(t.unload().defaultPrevented, true);
+  t.respond({draft_revision: 2}, '/A/script-draft/autosave'); await saving;
+  assert.equal(t.unload().defaultPrevented, false);
+  await t.switchProject('A', draft(2)); assert.equal(t.timers.size, 0);
+  assert.equal(t.container.querySelector('.script-conflict').hidden, true);
 });
