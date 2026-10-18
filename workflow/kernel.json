@@ -22,7 +22,7 @@
       ],
       "contracts": [
         "creative-handoff/v1",
-        "vsc.role-context/v1",
+        "vsc.role-context/v2",
         "vsc.sequence-links/v1",
         "vsc.delivery-manifest/v1"
       ]

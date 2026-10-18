@@ -27,7 +27,18 @@ function lineagePanel(media,lineage) {
 }
 function size(bytes) { if (bytes == null) return '未知大小'; return bytes > 1048576 ? `${(bytes/1048576).toFixed(1)} MB` : `${(bytes/1024).toFixed(1)} KB`; }
 
+let roleMemory = null;
 let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, scriptWorkspace = null;
+let localProduction = null;
+async function openLocalProduction(action, row) {
+  if (!localProduction) {
+    const {createLocalProduction} = await import('./local-production.js');
+    localProduction = createLocalProduction($('local-production-dialog'), {api, project:()=>state.project,
+      session:()=>({actor:state.actor,csrf:state.csrf}),revision:value=>{state.revision=value;},
+      onArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});
+  }
+  await localProduction.open(action,row);
+}
 async function loadWorkbench() {
   if (!state.project || state.view !== 'workbench') return;
   if (!creativeWorkbench) {
@@ -38,6 +49,7 @@ async function loadWorkbench() {
       onCompare: async id=>{if(state.comparisons.has(id))return;if(state.comparisons.size>=4)throw new Error('最多并排比较4个候选。');const project=state.project,media=await api(`${base()}/media/${encodeURIComponent(id)}`);if(project!==state.project)throw new Error('项目已切换，请重新选择候选。');state.comparisons.set(id,media);updateCompare();},
       onArtifact: async id => { await switchView('artifacts'); await openArtifact(id); },
       onGraph: focus => switchView('canvas', focus), onError: error => notice(error.message),
+      onLocalAction: openLocalProduction,
     });
   }
   if (state.view === 'workbench') await creativeWorkbench.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader'});
@@ -95,6 +107,14 @@ async function openResourceSettings() {
     resourceSettings = createResourceSettings($('resource-settings-dialog'), {api, session:()=>({actor:state.actor,csrf:state.csrf}), onNotice:notice});
   }
   await resourceSettings.open();
+}
+async function openRoleMemory() {
+  if (!roleMemory) {
+    const {createRoleMemory} = await import('./role-memory.js');
+    roleMemory = createRoleMemory($('role-memory-dialog'), {api,session:()=>({actor:state.actor,csrf:state.csrf}),
+      project:()=>state.project,onRevision:value=>{state.revision=value;},onOpenArtifact:id=>guard(()=>openArtifact(id))()});
+  }
+  await roleMemory.open();
 }
 async function loadScope() {
   await switchView(state.view);
@@ -342,6 +362,27 @@ async function openArtifact(id) {
   let content=artifact.content ?? artifact.document ?? '';if(typeof content !== 'string')content=pretty(content);
   let structured=false;try{const value=JSON.parse(content);content=pretty(value);structured=true;}catch{}
   $('document').replaceChildren(header,el('pre',structured?'structured':'readable',content || '内容缺失或超过内置阅读限额。'));
+  if (artifact.revision != null && state.writable) {
+    let fixed;try{fixed=JSON.parse(content);}catch{}
+    const controls=el('section','detail-panel'),reason=el('input');reason.placeholder='批准或退回所见版本的理由';
+    const execute=async(action,payload,key)=>{
+      if(project!==state.project || request!==state.documentRequest)throw new Error('项目或所见版本已切换，请重新读取');
+      if(!state.actor)throw new Error('请先建立人工操作会话');
+      const result=await api(`/api/v1/projects/${encodeURIComponent(project)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,expected_revision:artifact.revision,idempotency_key:key,confirmed:true})});
+      if(project===state.project){state.revision=result.revision;await openArtifact(id);}return result;
+    };
+    if(!artifact.approved){
+      controls.append(reason);
+      for(const [outcome,text] of [['approve','批准所见版本'],['reject','退回此版本']]){
+        const button=el('button','',text),key=crypto.randomUUID();
+        button.addEventListener('click',guard(async()=>{if(!reason.value.trim())throw new Error('请填写决定理由');if(!confirm(`${text}？决定仅针对当前固定内容与范围。`))return;button.disabled=true;try{await execute('artifact-decisions',{artifact_id:id,outcome,reason:reason.value},key);}finally{button.disabled=false;}}));controls.append(button);
+      }
+    }else if(['resample','redo_sound'].includes(fixed?.local_action)){
+      const button=el('button','','将已批准的局部方案入队'),key=crypto.randomUUID();
+      button.addEventListener('click',guard(async()=>{if(!confirm('仅将这个已批准方案的目标入队？实际调用仍由生成worker执行。'))return;button.disabled=true;try{const result=await execute('local-production-enqueue',{artifact_id:id},key);notice(`已登记 ${result.jobs.length} 个固定任务。`);}finally{button.disabled=false;}}));controls.append(button);
+    }
+    if(controls.childElementCount)$('document').append(controls);
+  }
   if(artifact.integrity==='mismatch')$('document').prepend(el('p','badge danger','该固定版本的文件摘要变化，当前仅供诊断浏览，不能正式消费。'));
 }
 function updateCompare(){$('compare-count').textContent=state.comparisons.size;}
@@ -356,6 +397,7 @@ for(const tab of ['workbench','script','media','artifacts','canvas'])$(`tab-${ta
 $('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
+$('role-memory-open').addEventListener('click',guard(openRoleMemory));
 $('session-open').addEventListener('click',()=>$('session-dialog').showModal());
 $('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';state.actor=session.actor;state.csrf=session.csrf_token;$('session-label').textContent=`操作人：${state.actor}`;$('upload-open').disabled=!state.writable;$('session-dialog').close();}));
 $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());

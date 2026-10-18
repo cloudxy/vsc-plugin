@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from vsc.assets.resource_service import ResourceError, ResourceService, INHERITED_REFERENCE_ROLES
 from vsc.production.run_authorization import normalize_request
 from . import schema as S
-from .budget_store import native_units, UNITS
+from .budget_store import native_units, UNITS, operation_key
 from .values import digest, checked_id
 
 
@@ -55,7 +55,7 @@ def requests_for(run):
         if type(candidate) is not int or candidate < 0:
             raise ResourceError("候选编号必须是非负整数", "invalid_production_run")
         logical = normalize_request(request, shot, purpose, modality, asset_id=asset)
-        key = "%s:%s:%s:%s" % ("asset" if asset else "series", asset or shot, purpose, candidate)
+        key = operation_key(logical, candidate)
         if key in result:
             raise ResourceError("运行包存在重复逻辑候选", "invalid_production_run")
         result[key] = logical
@@ -311,6 +311,13 @@ def validate_guard(store, conn, project, run, context=None, job=None, model=None
 def validate_submission(store, conn, project, job):
     if job["status"] == "created":
         store.check_job_script_confirmation(conn, project, shot_id=job.get("shot_id"), asset_id=job.get("asset_id"), run_version_id=job["run_version_id"])
+        request = job["request_payload"]
+        if request.get("operation"):
+            from vsc.production.video_operations import validate_source_metadata
+            source, gaps = store._usable(conn, project["id"], request["source_media_id"], job["purpose"])
+            if gaps:
+                raise ResourceError("固定加工源片不再可用: " + ",".join(gaps), "operation_source_unusable")
+            validate_source_metadata(request, source)
     run = store._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
     validate_guard(store, conn, project, run, job=job)
 

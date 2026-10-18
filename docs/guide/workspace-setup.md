@@ -22,9 +22,9 @@
 | 客户端 | 工作区说明 | 发现入口 | 调用 | 注意 |
 |---|---|---|---|---|
 | Codex | `AGENTS.md` | 技能 `.agents/skills/`（14 个，软链接）；角色 `.codex/agents/`（12 个，Codex TOML） | $vsc、$vsc-script |  |
-| Claude Code | `CLAUDE.md` | 技能 `.claude/skills/`（14 个，软链接）；角色 `.claude/agents/`（12 个，软链接） | /vsc、/vsc-script | 个人权限设置写在 .claude/settings.local.json，已被 Git 忽略 |
-| Grok Build | `AGENTS.md` | 技能 `.grok/skills/`（14 个，软链接）；角色 `.claude/agents/`（12 个，软链接） | /vsc、/vsc-script | 首次使用须在客户端信任工作区；角色经 Claude 兼容读取 .claude/agents |
-| Kimi Code | `AGENTS.md` | 技能 `.agents/skills/`（14 个，软链接）；角色 `.agents/agents/`（12 个，软链接） | /skill:vsc |  |
+| Claude Code | `CLAUDE.md` | 技能 `.claude/skills/`（14 个，软链接）；角色 `.claude/agents/`（12 个，完整角色提示） | /vsc、/vsc-script | 个人权限设置写在 .claude/settings.local.json，已被 Git 忽略 |
+| Grok Build | `AGENTS.md` | 技能 `.grok/skills/`（14 个，软链接）；角色 `.claude/agents/`（12 个，完整角色提示） | /vsc、/vsc-script | 首次使用须在客户端信任工作区；角色经 Claude 兼容读取 .claude/agents |
+| Kimi Code | `AGENTS.md` | 技能 `.agents/skills/`（14 个，软链接）；角色 `.agents/agents/`（12 个，完整角色提示） | /skill:vsc |  |
 | ZCode | `AGENTS.md` | 命令 `commands/`（13 个，插件命令） | 用 VSC…… | 工作区指令可直接驱动工作流；要出现在插件面板，须先添加本地市场 marketplace.json 并安装，见下文 |
 <!-- /vsc:view -->
 

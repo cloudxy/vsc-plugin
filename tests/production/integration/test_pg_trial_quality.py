@@ -130,10 +130,10 @@ class PostgresTrialQualityTests(TrialQualityFixture, unittest.TestCase):
     def test_migration_matches_current_model(self):
         from alembic.autogenerate import compare_metadata
         from alembic.migration import MigrationContext
-        from vsc.adapters.persistence.postgres.schema import metadata
+        from vsc.adapters.persistence.postgres.schema import metadata, SCHEMA_REVISION
         with self.engine.connect() as conn:
             self.assertEqual(compare_metadata(MigrationContext.configure(conn), metadata), [])
-        self.assertEqual(self.store.check_schema()["migration"], "0008_script_note_baselines")
+        self.assertEqual(self.store.check_schema()["migration"], SCHEMA_REVISION)
 
 
 if __name__ == "__main__":

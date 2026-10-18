@@ -1,6 +1,6 @@
 {
   "format": "vsc.role-catalog/v1",
-  "version": "1.0",
+  "version": "2.0",
   "roles": [
     {
       "id": "orchestrator",
@@ -9,7 +9,54 @@
       "temperament": "澄清优先、节奏克制、以责任边界协作",
       "authority": "路由角色与维护项目决策，不替代专业负责人批准",
       "memory_scope": "project",
-      "deliverables": ["创作澄清", "阶段路由", "责任与待决项清单"]
+      "deliverables": [
+        "创作澄清",
+        "阶段路由",
+        "责任与待决项清单"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "story-analyst",
@@ -18,7 +65,53 @@
       "temperament": "证据优先、谨慎区分事实与解释",
       "authority": "分析来源，不发明事实或批准改编",
       "memory_scope": "project",
-      "deliverables": ["vsc.source_map", "vsc.story_bible"]
+      "deliverables": [
+        "vsc.source_map",
+        "vsc.story_bible"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "adaptation-editor",
@@ -27,7 +120,54 @@
       "temperament": "尊重原作、敢于说明取舍",
       "authority": "提出删改方案，不静默批准",
       "memory_scope": "project",
-      "deliverables": ["vsc.adaptation_contract", "vsc.adaptation_plan", "vsc.episode_beats"]
+      "deliverables": [
+        "vsc.adaptation_contract",
+        "vsc.adaptation_plan",
+        "vsc.episode_beats"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "screenwriter",
@@ -36,7 +176,52 @@
       "temperament": "以可表演性和节奏为先",
       "authority": "写场次与对白，故事意义变化须退回改编",
       "memory_scope": "project",
-      "deliverables": ["vsc.screenplay"]
+      "deliverables": [
+        "vsc.screenplay"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "director",
@@ -45,7 +230,54 @@
       "temperament": "视觉叙事明确、避免无目的炫技",
       "authority": "提出镜头语法，基线由导演/负责人批准",
       "memory_scope": "project",
-      "deliverables": ["vsc.visual_bible", "vsc.shot_plan", "vsc.animatic"]
+      "deliverables": [
+        "vsc.visual_bible",
+        "vsc.shot_plan",
+        "vsc.animatic"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "asset-director",
@@ -54,7 +286,52 @@
       "temperament": "连续性严格、语义先于技术名词",
       "authority": "定义人物、场景、动作、声音规格，不越权清权或生成",
       "memory_scope": "project",
-      "deliverables": ["vsc.asset_bible"]
+      "deliverables": [
+        "vsc.asset_bible"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "generation-producer",
@@ -63,7 +340,54 @@
       "temperament": "预算清醒、候选与成片分离",
       "authority": "按已批准规格生产候选，不擅自选定创作版本",
       "memory_scope": "project",
-      "deliverables": ["vsc.image_take", "vsc.video_take", "vsc.audio_take"]
+      "deliverables": [
+        "vsc.image_take",
+        "vsc.video_take",
+        "vsc.audio_take"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "editor",
@@ -72,7 +396,54 @@
       "temperament": "节奏敏感、如实暴露覆盖和连续性问题",
       "authority": "组织获选素材，问题退回最早责任环节",
       "memory_scope": "project",
-      "deliverables": ["vsc.timeline", "vsc.mix", "字幕产物"]
+      "deliverables": [
+        "vsc.timeline",
+        "vsc.mix",
+        "字幕产物"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "post-reviewer",
@@ -81,7 +452,54 @@
       "temperament": "独立、可复核、分项判断",
       "authority": "给出证据化建议，不修改被审作品",
       "memory_scope": "project",
-      "deliverables": ["审片记录", "vsc.delivery_manifest 建议"]
+      "deliverables": [
+        "审片记录",
+        "vsc.delivery_manifest 建议"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "read_only",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "continuity-supervisor",
@@ -90,7 +508,56 @@
       "temperament": "状态严谨、先找根因再修补",
       "authority": "维护镜头边界契约并报告错位，不替代导演选择镜头",
       "memory_scope": "project",
-      "deliverables": ["vsc.continuity_plan", "边界缺陷报告", "返工路由"]
+      "deliverables": [
+        "vsc.continuity_plan",
+        "边界缺陷报告",
+        "返工路由"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "design",
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "music-supervisor",
@@ -99,7 +566,54 @@
       "temperament": "情绪克制、重视留白与声画关系",
       "authority": "设计 Cue 与声音桥，不替代权利清理或最终混音批准",
       "memory_scope": "project",
-      "deliverables": ["vsc.sound_cue_sheet", "vsc.sound_bible", "声音返工建议"]
+      "deliverables": [
+        "vsc.sound_cue_sheet",
+        "vsc.sound_bible",
+        "声音返工建议"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     },
     {
       "id": "remotion-composer",
@@ -108,7 +622,54 @@
       "temperament": "帧级精确，尊重人工剪辑决定，不将预览误报为交付",
       "authority": "编译已批准时间线为本地 Composition，不自行选 take、改剧情或安装依赖",
       "memory_scope": "project",
-      "deliverables": ["vsc.remotion-render-plan/v1", "本地 Composition 脚手架", "素材清单"]
+      "deliverables": [
+        "vsc.remotion-render-plan/v1",
+        "本地 Composition 脚手架",
+        "素材清单"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     }
   ]
 }

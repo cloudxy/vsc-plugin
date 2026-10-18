@@ -87,7 +87,7 @@ function sectionValue(data, key) {
   return Array.isArray(value) ? {items: value, total: value.length} : {...value, items: value.items || []};
 }
 
-export function createCreativeWorkbench(container, {onObject, onMedia, onArtifact, onGraph, onCompare, onError = () => {}} = {}) {
+export function createCreativeWorkbench(container, {onObject, onMedia, onArtifact, onGraph, onCompare, onLocalAction, onError = () => {}} = {}) {
   let context = null, data = null, section = 'overview', offset = 0, ticket = 0, controller = null;
   let query = '', globalSearch = false, disposed = false, revision = null, entity = null;
   const host = el('div', null, 'creative-workbench');
@@ -192,6 +192,11 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   }
   function references(target, row, key) {
     const links = el('div', null, 'workbench-links');
+    if (onLocalAction) {
+      if (key === 'instances') links.append(button('替换这个实例版本', () => onLocalAction('replace_instance', row)));
+      if (key === 'shots') links.append(button('只重做本镜声音', () => onLocalAction('redo_sound', row)));
+      if (key === 'jobs' || key === 'job_attempts') links.append(button('新增一次抽样', () => onLocalAction('resample', row)));
+    }
     const seen = new Set();
     const link = (kind, id, name) => {
       if (!id || seen.has(kind + ':' + id)) return;

@@ -21,6 +21,8 @@ from vsc.interfaces.web.resource_settings import register_resource_settings
 from vsc.interfaces.web.workbench import install_workbench_routes
 from vsc.interfaces.web.resource_impact import install_impact_routes
 from vsc.interfaces.web.script_workspace import install_script_routes
+from vsc.interfaces.web.local_production import install_local_routes
+from vsc.interfaces.web.memory import install_memory_routes
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -226,7 +228,9 @@ def create_app(config=None, catalog=None, service=None):
                "preview-retries": "retry_preview_job",
                "script-submit": "submit_script_draft", "script-notes": "add_script_note",
                "script-note-decisions": "decide_script_note", "script-suggestions": "add_script_suggestion",
-               "script-suggestion-decisions": "decide_script_suggestion"}
+               "script-suggestion-decisions": "decide_script_suggestion",
+               "local-production-proposals": "propose_local_production",
+               "local-production-enqueue": "enqueue_local_production"}
 
     def write_endpoint(action):
         def execute(project_id: str, request: Request, body: dict):
@@ -238,7 +242,7 @@ def create_app(config=None, catalog=None, service=None):
                 raise HTTPException(422, "需要 expected_revision、idempotency_key 和 payload")
             if "actor" in body or "actor" in payload:
                 raise HTTPException(422, "操作身份来自本机会话，正文不能指定 actor")
-            if action in ("select_candidate", "reject_candidate", "retire_binding", "deprecate_media", "decide_rights", "decide_artifact") and body.get("confirmed") is not True:
+            if action in ("select_candidate", "reject_candidate", "retire_binding", "deprecate_media", "decide_rights", "decide_artifact", "enqueue_local_production") and body.get("confirmed") is not True:
                 raise HTTPException(422, "正式选择或停用需要明确人工确认")
             if not hasattr(getattr(catalog, "service", None), action):
                 raise HTTPException(422, "当前权威尚未提供该操作")
@@ -253,6 +257,8 @@ def create_app(config=None, catalog=None, service=None):
     install_workbench_routes(router, catalog, etag)
     install_impact_routes(router, catalog, etag)
     install_script_routes(router, catalog, etag, actor)
+    install_local_routes(router, catalog, etag)
+    install_memory_routes(router, catalog, etag, actor)
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

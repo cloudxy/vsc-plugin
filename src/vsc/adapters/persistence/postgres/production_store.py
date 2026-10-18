@@ -209,87 +209,104 @@ class ProductionRepository:
         return self._mutate(project_id, "mark_submission_started", payload, callback=work, **kw)
 
     def create_generation_job(self, project_id, payload, **kw):
-        def work(conn, project):
-            conn.execute(text("SELECT pg_advisory_xact_lock_shared(867530916)"))
-            p = project["id"]
-            shot_id = checked_id(payload["shot_id"]) if payload.get("shot_id") else None
-            asset_id = checked_id(payload["asset_id"]) if payload.get("asset_id") else None
-            if (shot_id is None) == (asset_id is None):
-                raise ResourceError("任务须指定且仅指定镜头或资产身份", "job_target_required")
-            self.check_job_script_confirmation(conn, project, shot_id=shot_id, asset_id=asset_id, run_version_id=required(payload, "run_version_id"))
-            if asset_id and (payload.get("modality") != "image" or payload.get("purpose") not in {"identity_ref", "location_master", "ref", "asset_ref", "prop_ref", "costume_ref", "style_ref"}):
-                raise ResourceError("资产首参考只支持声明的图像用途", "asset_generation_unsupported")
-            context = (self._compile_asset_context(conn, project, asset_id, payload.get("purpose")) if asset_id else
-                self._compile_context(conn, project, shot_id, payload.get("purpose")))
-            if not context["ready"]:
-                raise ResourceError("镜头上下文存在缺口，不能提交生成", "context_gaps")
-            if payload.get("context_sha256") != context["sha256"]:
-                raise Conflict("镜头上下文已改变", "context_conflict")
-            run = self._one(conn, S.artifact_versions, p, required(payload, "run_version_id"))
-            if not self._artifact_approved(conn, p, run["id"]):
-                raise ResourceError("运行版本未批准", "run_unapproved")
-            model_id = payload.get("model_id")
-            if not model_id:
-                route = conn.execute(select(S.provider_routes).where(S.provider_routes.c.enabled,
-                    S.provider_routes.c.modality == payload.get("modality"), S.provider_routes.c.purpose == payload.get("purpose"),
-                    S.provider_routes.c.preferred_model_id.is_not(None)).order_by(S.provider_routes.c.priority, S.provider_routes.c.id).limit(1)).mappings().first()
-                if not route:
-                    raise ResourceError("需要显式 model_id 或适用的默认配置", "model_default_missing")
-                model_id = route["preferred_model_id"]
-            model_id = checked_id(model_id)
-            model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == model_id).with_for_update(read=True)).mappings().first()
-            if not model or not model["enabled"]:
-                raise ResourceError("模型未注册或未启用", "model_unavailable")
-            provider = conn.execute(select(S.providers).where(S.providers.c.id == model["provider_id"]).with_for_update(read=True)).mappings().one()
-            if not provider["enabled"] or model["modality"] != payload.get("modality"):
-                raise ResourceError("Provider 或模型模态不可用", "model_unavailable")
-            request = dict(required(payload, "request_payload"))
-            if any(key in request for key in ("input_media", "input_versions", "voice_binding")):
-                raise ResourceError("请求固定输入由服务端编译，客户端不能覆写", "untrusted_job_inputs")
-            if request.get("context_sha256", context["sha256"]) != context["sha256"]:
-                raise Conflict("逻辑请求上下文不匹配", "context_conflict")
-            request = normalize_request(request, shot_id, payload["purpose"], payload["modality"], asset_id=asset_id)
-            candidate_no = int(payload.get("candidate_no", 0))
-            try:
-                run_document = json.loads(run["document"])
-            except (ValueError, UnicodeDecodeError):
-                raise ResourceError("production-run必须是固定结构文档", "invalid_production_run")
-            pinned = authorize_run(run_document, run["artifact_type"], context, request, candidate_no)
-            dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
-                S.artifact_dependencies.c.project_id == p, S.artifact_dependencies.c.artifact_id == run["id"])).scalars())
-            if {item[0] for item in pinned} != dependencies:
-                raise ResourceError("run批准输入须与真实依赖关系完全一致", "run_dependency_mismatch")
-            for artifact_id, sha in pinned:
-                version = self._one(conn, S.artifact_versions, p, artifact_id)
-                if version["sha256"] != sha or not self._artifact_approved(conn, p, artifact_id):
-                    raise ResourceError("run固定上游版本摘要或批准失效", "run_inputs_mismatch")
-            validate_guard(self, conn, project, run, context=context, model=model)
-            voice_binding = validate_capabilities(dict(model), request, context)
-            if voice_binding:
-                request["voice_binding"] = voice_binding
-            request["context_sha256"] = context["sha256"]
-            request["input_media"] = [{k: item[k] for k in ("media_id", "blob_id", "sha256", "role", "binding_decision_id")}
-                                      for item in context["media"]]
-            request["input_versions"] = [{k: artifact[k] for k in ("id", "sha256", "artifact_type")} for artifact in context["artifacts"]]
-            request_sha = digest(request)
-            key = digest({"run": run["id"], "shot": shot_id, "asset": asset_id, "purpose": required(payload, "purpose"),
-                          "candidate": candidate_no, "provider": provider["id"], "model": model_id, "request": request_sha})
-            row_id = new_id()
-            conn.execute(insert(S.generation_jobs).values(project_id=p, id=row_id, run_version_id=run["id"], shot_id=shot_id, asset_id=asset_id,
-                purpose=payload["purpose"], modality=payload["modality"], candidate_no=candidate_no, provider_id=provider["id"],
-                model_id=model_id, model_version=model["model_version"], request_payload=request, request_sha256=request_sha,
-                context_sha256=context["sha256"], idempotency_key=key, status="created", attempt=0))
-            for ordinal, item in enumerate(context["media"]):
-                conn.execute(insert(S.job_input_media).values(project_id=p, id=new_id(), job_id=row_id,
-                    media_id=item["media_id"], blob_id=item["blob_id"], blob_sha256=item["sha256"],
-                    binding_decision_id=item["binding_decision_id"], role=item["role"], ordinal=ordinal))
-            for artifact in context["artifacts"]:
-                conn.execute(insert(S.job_input_versions).values(project_id=p, id=new_id(), job_id=row_id,
-                    artifact_id=artifact["id"], sha256=artifact["sha256"], role=artifact["artifact_type"]))
-            conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=row_id, event_type="intent_recorded", evidence={}))
-            return {"id": row_id, "status": "created", "idempotency_key": key, "request_sha256": request_sha}
-        return self._mutate(project_id, "create_generation_job", payload, callback=work, **kw)
+        return self._mutate(project_id, "create_generation_job", payload,
+            callback=lambda conn, project: self._create_generation_job(conn, project, payload), **kw)
 
+    def _create_generation_job(self, conn, project, payload):
+        conn.execute(text("SELECT pg_advisory_xact_lock_shared(867530916)"))
+        p = project["id"]
+        shot_id = checked_id(payload["shot_id"]) if payload.get("shot_id") else None
+        asset_id = checked_id(payload["asset_id"]) if payload.get("asset_id") else None
+        if (shot_id is None) == (asset_id is None):
+            raise ResourceError("任务须指定且仅指定镜头或资产身份", "job_target_required")
+        self.check_job_script_confirmation(conn, project, shot_id=shot_id, asset_id=asset_id, run_version_id=required(payload, "run_version_id"))
+        if asset_id and (payload.get("modality") != "image" or payload.get("purpose") not in {"identity_ref", "location_master", "ref", "asset_ref", "prop_ref", "costume_ref", "style_ref"}):
+            raise ResourceError("资产首参考只支持声明的图像用途", "asset_generation_unsupported")
+        context = (self._compile_asset_context(conn, project, asset_id, payload.get("purpose")) if asset_id else
+            self._compile_context(conn, project, shot_id, payload.get("purpose")))
+        if not context["ready"]:
+            raise ResourceError("镜头上下文存在缺口，不能提交生成", "context_gaps")
+        if payload.get("context_sha256") != context["sha256"]:
+            raise Conflict("镜头上下文已改变", "context_conflict")
+        run = self._one(conn, S.artifact_versions, p, required(payload, "run_version_id"))
+        if not self._artifact_approved(conn, p, run["id"]):
+            raise ResourceError("运行版本未批准", "run_unapproved")
+        model_id = payload.get("model_id")
+        if not model_id:
+            route = conn.execute(select(S.provider_routes).where(S.provider_routes.c.enabled,
+                S.provider_routes.c.modality == payload.get("modality"), S.provider_routes.c.purpose == payload.get("purpose"),
+                S.provider_routes.c.preferred_model_id.is_not(None)).order_by(S.provider_routes.c.priority, S.provider_routes.c.id).limit(1)).mappings().first()
+            if not route:
+                raise ResourceError("需要显式 model_id 或适用的默认配置", "model_default_missing")
+            model_id = route["preferred_model_id"]
+        model_id = checked_id(model_id)
+        model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == model_id).with_for_update(read=True)).mappings().first()
+        if not model or not model["enabled"]:
+            raise ResourceError("模型未注册或未启用", "model_unavailable")
+        provider = conn.execute(select(S.providers).where(S.providers.c.id == model["provider_id"]).with_for_update(read=True)).mappings().one()
+        if not provider["enabled"] or model["modality"] != payload.get("modality"):
+            raise ResourceError("Provider 或模型模态不可用", "model_unavailable")
+        request = dict(required(payload, "request_payload"))
+        if any(key in request for key in ("input_media", "input_versions", "voice_binding")):
+            raise ResourceError("请求固定输入由服务端编译，客户端不能覆写", "untrusted_job_inputs")
+        if request.get("context_sha256", context["sha256"]) != context["sha256"]:
+            raise Conflict("逻辑请求上下文不匹配", "context_conflict")
+        request = normalize_request(request, shot_id, payload["purpose"], payload["modality"], asset_id=asset_id)
+        input_media = list(context["media"])
+        if request.get("operation"):
+            from vsc.production.video_operations import SOURCE_ROLE, validate_source_metadata
+            source, gaps = self._usable(conn, p, checked_id(request["source_media_id"]), payload["purpose"])
+            if gaps:
+                raise ResourceError("固定加工源片不可用于此任务: " + ",".join(gaps), "operation_source_unusable")
+            validate_source_metadata(request, source)
+            if model["model_key"].startswith("grok-"):
+                from vsc.adapters.providers.xai_grok.spec import compile_video_operation, GrokSpecError
+                try:
+                    compile_video_operation(model["model_key"], "sha256:" + source["sha256"], request["prompt"],
+                        request["operation"], request["duration_ms"] // 1000 if request["operation"] == "extend" else None)
+                except GrokSpecError as exc:
+                    raise ResourceError(str(exc), "invalid_video_operation") from None
+            input_media.append({"media_id": source["id"], "blob_id": source["blob_id"], "sha256": source["sha256"],
+                                "role": SOURCE_ROLE, "binding_decision_id": None})
+        candidate_no = int(payload.get("candidate_no", 0))
+        try:
+            run_document = json.loads(run["document"])
+        except (ValueError, UnicodeDecodeError):
+            raise ResourceError("production-run必须是固定结构文档", "invalid_production_run")
+        pinned = authorize_run(run_document, run["artifact_type"], context, request, candidate_no)
+        dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
+            S.artifact_dependencies.c.project_id == p, S.artifact_dependencies.c.artifact_id == run["id"])).scalars())
+        if {item[0] for item in pinned} != dependencies:
+            raise ResourceError("run批准输入须与真实依赖关系完全一致", "run_dependency_mismatch")
+        for artifact_id, sha in pinned:
+            version = self._one(conn, S.artifact_versions, p, artifact_id)
+            if version["sha256"] != sha or not self._artifact_approved(conn, p, artifact_id):
+                raise ResourceError("run固定上游版本摘要或批准失效", "run_inputs_mismatch")
+        validate_guard(self, conn, project, run, context=context, model=model)
+        voice_binding = validate_capabilities(dict(model), request, context)
+        if voice_binding:
+            request["voice_binding"] = voice_binding
+        request["context_sha256"] = context["sha256"]
+        request["input_media"] = [{k: item[k] for k in ("media_id", "blob_id", "sha256", "role", "binding_decision_id")}
+                                  for item in input_media]
+        request["input_versions"] = [{k: artifact[k] for k in ("id", "sha256", "artifact_type")} for artifact in context["artifacts"]]
+        request_sha = digest(request)
+        key = digest({"run": run["id"], "shot": shot_id, "asset": asset_id, "purpose": required(payload, "purpose"),
+                      "candidate": candidate_no, "provider": provider["id"], "model": model_id, "request": request_sha})
+        row_id = new_id()
+        conn.execute(insert(S.generation_jobs).values(project_id=p, id=row_id, run_version_id=run["id"], shot_id=shot_id, asset_id=asset_id,
+            purpose=payload["purpose"], modality=payload["modality"], candidate_no=candidate_no, provider_id=provider["id"],
+            model_id=model_id, model_version=model["model_version"], request_payload=request, request_sha256=request_sha,
+            context_sha256=context["sha256"], idempotency_key=key, status="created", attempt=0))
+        for ordinal, item in enumerate(input_media):
+            conn.execute(insert(S.job_input_media).values(project_id=p, id=new_id(), job_id=row_id,
+                media_id=item["media_id"], blob_id=item["blob_id"], blob_sha256=item["sha256"],
+                binding_decision_id=item["binding_decision_id"], role=item["role"], ordinal=ordinal))
+        for artifact in context["artifacts"]:
+            conn.execute(insert(S.job_input_versions).values(project_id=p, id=new_id(), job_id=row_id,
+                artifact_id=artifact["id"], sha256=artifact["sha256"], role=artifact["artifact_type"]))
+        conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=row_id, event_type="intent_recorded", evidence={}))
+        return {"id": row_id, "status": "created", "idempotency_key": key, "request_sha256": request_sha}
 
     def update_generation_job(self, project_id, payload, **kw):
         allowed = {"created": {"submitted", "submission_unknown", "failed", "cancelled"},
@@ -323,6 +340,8 @@ class ProductionRepository:
                     raise ResourceError("任务输出字节未完成转存", "job_output_missing")
                 conn.execute(insert(S.job_outputs).values(project_id=p, id=new_id(), job_id=job["id"],
                     media_id=media["id"], asset_type=output.get("asset_type", job["modality"]), original_uri=output.get("original_uri")))
+            if status == "succeeded" and job["request_payload"].get("operation"):
+                self._register_job_video_operation(conn, p, job, outputs, payload.get("raw_response", job["raw_response"]))
             values = {"status": status, "external_task_id": external, "updated_at": datetime.now(timezone.utc),
                       "claim_owner": None, "claim_until": None}
             for field in ("cost", "latency_ms", "raw_response"):
@@ -337,5 +356,30 @@ class ProductionRepository:
                 evidence=payload.get("recovery_evidence", {})))
             return {"id": job["id"], "status": status}
         return self._mutate(project_id, "update_generation_job", payload, callback=work, **kw)
+
+    def _register_job_video_operation(self, conn, p, job, outputs, raw_response):
+        """Success and typed input/output lineage commit atomically with the job."""
+        from vsc.production.video_operations import SOURCE_ROLE
+        request = job["request_payload"]
+        source = conn.execute(select(S.job_input_media).where(S.job_input_media.c.project_id == p,
+            S.job_input_media.c.job_id == job["id"], S.job_input_media.c.role == SOURCE_ROLE)).mappings().one()
+        if source["media_id"] != request["source_media_id"] or source["blob_sha256"] != request["source_sha256"]:
+            raise ResourceError("加工源片固定关系与请求不符", "operation_source_mismatch")
+        if any(output["media_id"] == source["media_id"] for output in outputs):
+            raise ResourceError("加工输出不能引用源片自身", "operation_cycle")
+        identifier = str(uuid.uuid5(uuid.UUID(job["id"]), "video-operation"))
+        conn.execute(insert(S.media_operations).values(project_id=p, id=identifier,
+            operation_type=request["operation"], recipe_version="vsc.video-operation/v1",
+            tool=job["provider_id"], tool_version=job["model_version"], status="created",
+            parameters={key: request[key] for key in ("operation", "prompt", "duration_ms", "source_sha256", "source_duration_ms")},
+            execution={"request_sha256": job["request_sha256"], "provider_response": raw_response or {}}))
+        conn.execute(insert(S.operation_inputs).values(project_id=p, id=new_id(), operation_id=identifier,
+            media_id=source["media_id"], role=SOURCE_ROLE, layer_order=0, start_ms=0,
+            end_ms=request["source_duration_ms"], transform={}, opacity=1))
+        for ordinal, output in enumerate(outputs):
+            conn.execute(insert(S.operation_outputs).values(project_id=p, id=new_id(), operation_id=identifier,
+                media_id=output["media_id"], role="result", ordinal=ordinal))
+        conn.execute(update(S.media_operations).where(S.media_operations.c.project_id == p,
+            S.media_operations.c.id == identifier).values(status="succeeded"))
 
 

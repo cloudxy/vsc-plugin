@@ -1,5 +1,6 @@
 """Project-shared native-unit budgets, reserved before a paid submission."""
 import json
+import math
 from sqlalchemy import func, insert, select, update
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
@@ -14,6 +15,11 @@ def native_units(request):
     if modality == "image":
         result["images"] = 1
     elif modality == "video":
+        if request.get("operation") == "edit":
+            duration = request.get("source_duration_ms")
+            if type(duration) is not int or duration <= 0:
+                raise ResourceError("视频编辑预算需要核实源片时长", "invalid_native_units")
+            return {"remote_jobs": 1, "video_seconds": math.ceil(duration / 1000)}
         duration = request.get("duration_ms", 5000)
         if type(duration) is not int or duration < 1000 or duration % 1000:
             raise ResourceError("正式视频预算需要正整数秒", "invalid_native_units")
@@ -21,6 +27,14 @@ def native_units(request):
     elif modality == "audio":
         result.update(audio_jobs=1, speech_chars=len(request["prompt"]))
     return result
+
+
+def operation_key(request, candidate_no):
+    key = "%s:%s:%s:%s" % ("asset" if request.get("asset_id") else "series",
+        request.get("asset_id") or request["shot_id"], request["purpose"], candidate_no)
+    if request.get("operation"):
+        key += ":" + request["operation"] + ":" + request["source_sha256"]
+    return key
 
 
 class BudgetRepository:
@@ -78,8 +92,7 @@ class BudgetRepository:
         requested = native_units(job["request_payload"])
         if not set(requested) <= set(limits):
             raise ResourceError("正式项目须先配置全部所需原生单位预算", "budget_not_configured")
-        operation = "%s:%s:%s:%s" % ("asset" if job.get("asset_id") else "series",
-            job.get("asset_id") or job["shot_id"], job["purpose"], job["candidate_no"])
+        operation = operation_key(job["request_payload"], job["candidate_no"])
         bound = document.get("operations", {}).get(operation)
         if not isinstance(bound, dict) or any(type(bound.get(unit)) is not int or bound[unit] < value for unit, value in requested.items()):
             raise ResourceError("run.operations没有授权本任务原生单位", "run_budget_unauthorized")

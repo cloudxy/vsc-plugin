@@ -208,6 +208,253 @@ class ResourceWorkerTests(unittest.TestCase):
         self.assertEqual(exported["source_artifact"]["id"], artifact)
 
 
+    def subtitle_fixture(self, defect=None):
+        """Real PCM windows measured by RMS, not allocated from text length.
+
+        These audible synthetic tones test fixed timing provenance. They are
+        not human speech or evidence of semantic speech synchronization.
+        """
+        import array
+        import hashlib
+        import math
+        rate, length, window = 24000, 3, 240
+        intervals = [(200, 1300), (1800, 2500)]
+        samples = array.array("h", [0] * (rate * length))
+        for begin, end in intervals:
+            for index in range(begin * rate // 1000, end * rate // 1000):
+                samples[index] = int(10000 * math.sin(index * 2 * math.pi * 440 / rate))
+        audio = BytesIO()
+        with wave.open(audio, "wb") as writer:
+            writer.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+            writer.writeframes(samples.tobytes())
+        # Scan actual stored PCM windows; interval boundaries follow detected
+        # energy and retain the unequal 1100ms/700ms durations.
+        active = []
+        for offset in range(0, len(samples), window):
+            block = samples[offset:offset + window]
+            active.append(sum(value * value for value in block) / len(block) > 500 ** 2)
+        measured, start = [], None
+        for index, present in enumerate(active + [False]):
+            if present and start is None:
+                start = index * window * 1000 // rate
+            elif not present and start is not None:
+                measured.append((start, index * window * 1000 // rate))
+                start = None
+        self.assertEqual(measured, intervals)
+        blob = audio.getvalue()
+        sha = hashlib.sha256(blob).hexdigest()
+        uploaded = bytearray(blob)
+        if defect == "replacement_audio":
+            uploaded[-2] ^= 1  # valid replacement PCM, distinct byte identity
+        staged = self.service.storage.stage_upload(BytesIO(bytes(uploaded)), "measured.wav")
+        media = self.fixture.write("register_media", {"staged_upload": staged["staged_upload"], "name": "measured.wav",
+            "source": {"kind": "fixture", "content": "audible synthetic PCM with measured activity windows"}, "rights": "unknown"})
+        line_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        lines = [{"id": identifier, "scene_id": self.fixture.objects["scene"], "line_key": "L" + str(index), "text": "好，2:30见！"}
+                 for index, identifier in enumerate(line_ids)]
+        script = self.fixture.artifact("subtitle-script", "screenplay", {"script_lines": lines})
+        script_sha = self.service.get_artifact_version(self.fixture.p, script)["sha256"]
+        second_shot = self.fixture.write("create_object", {"kind": "shot", "parent_id": self.fixture.objects["sequence"], "display_code": "CUT", "ordinal": 1})["id"]
+        covers = [{"shot_id": shot, "line_id": identifier, "start_char": 0, "end_char": len(lines[0]["text"])}
+                  for identifier, shots in [(line_ids[0], [self.fixture.objects["shot"], second_shot]), (line_ids[1], [second_shot])]
+                  for shot in shots]
+        coverage = self.fixture.artifact("subtitle-coverage", "coverage-plan", {"line_coverage": covers}, [script])
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        self.fixture.write("decide_rights", {"media_id": media["id"], "source_id": self.service.get_media(self.fixture.p, media["id"])["sources"][0]["source_id"],
+            "outcome": "owned", "scope": {"purposes": ["*"]}, "reason": "本地合成音频夹具"})
+        self.fixture.write("record_media_check", {"media_id": media["id"], "checker": "fixture-rms", "criteria_version": "1", "outcome": "pass"})
+        selected = []
+        for line, shot in zip(line_ids, [self.fixture.objects["shot"], second_shot]):
+            with self.engine.connect() as conn:
+                coverage_id = conn.execute(select(S.shot_line_coverage.c.id).where(S.shot_line_coverage.c.project_id == self.fixture.p,
+                    S.shot_line_coverage.c.line_id == line, S.shot_line_coverage.c.shot_id == shot)).scalar_one()
+            candidate = self.fixture.write("propose_binding", {"target_object_id": shot, "media_id": media["id"], "role": "dialogue_dry", "line_coverage_id": coverage_id})
+            self.fixture.write("record_review", {"candidate_id": candidate["candidate_id"], "outcome": "pass", "reviewer_type": "human", "reason": "明确标注的合成夹具人审模拟"})
+            selected.append(self.fixture.write("select_candidate", {"candidate_id": candidate["candidate_id"], "reason": "合成测试模拟采用决定"}))
+        video = Path(self.temp.name) / "subtitle-video.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=640x360:r=30:d=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)], check=True, timeout=30)
+        staged_video = self.service.storage.stage_upload(BytesIO(video.read_bytes()), "video.mp4")
+        visual = self.fixture.write("register_media", {"staged_upload": staged_video["staged_upload"], "name": "video.mp4", "source": {"kind": "fixture", "content": "generated local color video"}, "rights": "unknown"})
+        v1 = self.fixture.select_media(visual["id"], "video_take")
+        v2 = self.fixture.select_media(visual["id"], "video_take", second_shot)
+        items = [{"shot_id": shot, "track_key": "video", "offset_frame": start, "duration_frames": duration,
+            "media": [{"media_id": visual["id"], "role": "video_take", "binding_decision_id": decision["decision_id"], "source_in_frame": start, "source_out_frame": start + duration}]}
+            for shot, start, duration, decision in [(self.fixture.objects["shot"], 0, 30, v1), (second_shot, 30, 60, v2)]]
+        items.extend({"shot_id": shot, "track_key": "dialogue-" + str(index), "offset_frame": begin * 30 // 1000, "duration_frames": (end - begin) * 30 // 1000,
+            "media": [{"media_id": media["id"], "role": "dialogue_dry", "binding_decision_id": decision["id"], "source_in_frame": begin * 30 // 1000, "source_out_frame": end * 30 // 1000}]}
+            for index, (shot, (begin, end), decision) in enumerate(zip([self.fixture.objects["shot"], second_shot], measured, selected)))
+        if defect == "replay":
+            replay = json.loads(json.dumps(items[2]))
+            replay["track_key"] = "dialogue-replay"
+            items.append(replay)
+        composition = {"id": "SubtitleFixture", "width": 640, "height": 360, "fps": 30, "duration_in_frames": 90}
+        timeline_artifact = self.fixture.artifact("subtitle-timeline", "timeline", {"project_id": self.fixture.p, "items": items, "composition": composition}, [script, coverage])
+        timeline = self.fixture.write("freeze_timeline", {"artifact_id": timeline_artifact, "episode_id": self.fixture.objects["episode"], "fps_num": 30, "fps_den": 1, "items": items})
+        frozen = self.service.get_timeline(self.fixture.p, timeline["id"])
+        audio_items = {item["track_key"]: item for item in frozen["items"] if item["track_key"].startswith("dialogue-")}
+        cues = []
+        for index, (line, (begin, end)) in enumerate(zip(lines, measured)):
+            measurement = {"method": "pcm_activity_scan", "version": "fixture-rms/v1", "line_key": line["line_key"],
+                "audio_media_sha256": sha, "start_ms": begin, "end_ms": end,
+                "evidence": {"algorithm": "contiguous RMS windows above threshold", "sample_rate": rate,
+                    "sample_count": len(samples), "window_samples": window, "threshold": 500, "activity_intervals": measured}}
+            alignment = {"script_version_sha256": script_sha, "audio_media_sha256": sha, "start_ms": begin, "end_ms": end, "measurement": measurement}
+            if defect == "wrong_sha" and index == 0:
+                alignment["audio_media_sha256"] = "f" * 64
+            if defect == "wrong_script" and index == 0:
+                alignment["script_version_sha256"] = "f" * 64
+            if defect == "wrong_range" and index == 0:
+                alignment["end_ms"] = measurement["end_ms"] = 4000
+            if defect == "uniform" and index == 0:
+                measurement["method"] = "equal_duration_from_text"
+            cue = {"key": "subtitle-" + str(index), "kind": "dialogue", "scope_object_id": self.fixture.objects["episode"],
+                "line_id": line["id"], "shots": [{"shot_id": row["shot_id"]} for row in covers if row["line_id"] == line["id"]],
+                "timeline_item_ids": [audio_items["dialogue-" + str(index)]["id"]], "parameters": {"subtitle_alignment": alignment}}
+            cues.append(cue)
+        if defect == "missing":
+            cues.pop()
+        if defect == "duplicate":
+            clone = json.loads(json.dumps(cues[0]))
+            clone["key"] = "duplicate-line"
+            cues.append(clone)
+        if defect == "no_measurement":
+            cues[0]["parameters"] = {}
+        if defect == "wrong_scope":
+            cues[0]["scope_object_id"] = second_shot
+        cue_artifact = self.fixture.artifact("subtitle-cues", "creative-relations", {
+            "format": "vsc.creative-relations/v1", "project_id": self.fixture.p, "cues": cues}, [script, coverage, timeline_artifact])
+        return {"timeline": timeline["id"], "cue_artifact": cue_artifact, "video": video, "audio": blob, "line_ids": line_ids}
+
+    def test_pg_subtitle_package_measured_repeated_lines_reach_three_consumers(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.post.resource_export import export_render_package, scaffold_render_package
+        from vsc.post import subtitles as sub, subtitle_burn as burn
+        from vsc.adapters.editors import jianying_export as jy
+        from vsc.post import remotion_plan as remotion
+        data = self.subtitle_fixture()
+        root = Path(self.temp.name)
+        exported = export_render_package(self.service, self.fixture.p, data["timeline"], root / "subtitle-export")
+        package_root = Path(exported["directory"])
+        package = json.loads((package_root / "subtitles.json").read_text())
+        plan = json.loads((package_root / "render-plan.json").read_text())
+        self.assertEqual([cue["line_id"] for cue in package["cues"]], data["line_ids"])
+        self.assertEqual([(cue["start_ms"], cue["end_ms"]) for cue in package["cues"]], [(200, 1300), (1800, 2500)])
+        self.assertEqual(len(package["audio_sources"]), 2)  # each source interval plays once; first spans both shots
+        style = dict(burn.DEFAULT_STYLE, font=str(burn.DEFAULT_FONT), font_size=32)
+        payload, captions, _ = jy.draft_payload(plan, package_root, style, formal_subtitles=True)
+        manifest = scaffold_render_package(package_root, root / "subtitle-remotion")
+        generated = json.loads((root / "subtitle-remotion/src/plan.ts").read_text().split(" = ", 1)[1].strip().removesuffix(";"))
+        self.assertEqual([(row["subtitle_start_ms"], row["subtitle_end_ms"], row["text"]) for row in generated["segments"] if row["kind"] == "caption"],
+            [(200, 1300, "好2:30见"), (1800, 2500, "好2:30见")])
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from vsc.interfaces.cli import resources
+        with mock.patch.object(resources, "service_from_environment", return_value=self.service), mock.patch.object(self.service.store, "close"), redirect_stdout(StringIO()) as stdout:
+            resources.main(["render-export", self.fixture.p, data["timeline"], "--out", str(root / "formal-cli")])
+        cli_receipt = json.loads(stdout.getvalue())
+        self.assertEqual(cli_receipt["subtitle_package_sha256"], package["package_sha256"])
+        self.assertEqual(cli_receipt["subtitle_status"], "verified")
+        captured = []
+        def local_renderer(command, **kwargs):
+            if "render" in command:
+                burn.render(command[-1])
+                captured.extend(json.loads(Path(command[-1]).read_text())["cues"])
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            return subprocess.run(command, **kwargs)
+        with mock.patch.object(burn.shutil, "which", return_value="offline-renderer"):
+            result = burn.burn(data["video"], None, root / "burned.mp4", style, run=local_renderer,
+                subtitle_package=package, subtitle_root=package_root, formal_subtitles=True)
+        expected = [(0.2, 1.3, "好2:30见"), (1.8, 2.5, "好2:30见")]
+        self.assertEqual(captions, expected)
+        self.assertEqual([(cue["start"], cue["end"], cue["text"]) for cue in captured], expected)
+        self.assertTrue((root / "burned.mp4").is_file())
+        for checks in [payload["subtitle_checks"], manifest["subtitle_checks"], result["subtitle_checks"]]:
+            self.assertEqual(checks["line_binding"], "verified")
+            self.assertEqual(checks["audio_alignment"], "measured_timecodes_verified")
+            self.assertEqual(checks["human_review"], "not_run")
+            self.assertEqual(checks["package_sha256"], package["package_sha256"])
+        for defect in ["missing_line", "missing_line_and_cue", "changed_line", "wrong_script_sha", "wrong_scope"]:
+            broken = json.loads(json.dumps(package))
+            if defect == "missing_line":
+                broken["lines"].pop()
+            elif defect == "missing_line_and_cue":
+                missing = broken["lines"].pop()["id"]
+                broken["cues"] = [cue for cue in broken["cues"] if cue["line_id"] != missing]
+            elif defect == "changed_line":
+                broken["lines"][0]["text"] = broken["cues"][0]["source_text"] = "changed approved text"
+            elif defect == "wrong_script_sha":
+                broken["cues"][0]["script_version_sha256"] = "f" * 64
+            else:
+                broken["scope_episode_id"] = str(uuid.uuid4())
+            broken = sub.seal_package(broken)
+            changed_plan = json.loads(json.dumps(plan))
+            changed_plan["subtitle_package"] = broken
+            changed_path = package_root / (defect + ".json")
+            changed_path.write_text(json.dumps(changed_plan))
+            for consumer, consume in [
+                ("burn", lambda: burn.burn(data["video"], None, root / (defect + ".mp4"), style, subtitle_package=broken, subtitle_root=package_root, formal_subtitles=True)),
+                ("remotion", lambda: remotion.scaffold(changed_plan, root / (defect + "-remotion"), plan_path=changed_path, formal_subtitles=True)),
+                ("jianying", lambda: jy.draft_payload(changed_plan, package_root, style, formal_subtitles=True))]:
+                with self.subTest(defect=defect, consumer=consumer), self.assertRaises((ValueError, RuntimeError)):
+                    consume()
+        # The adopted waveform can be transcoded, but old measured bindings
+        # cannot silently attach to the replacement byte version.
+        changed = root / "transcoded.wav"
+        audio_path = package_root / package["audio_sources"][0]["path"]
+        subprocess.run(["ffmpeg", "-v", "error", "-i", str(audio_path), "-ar", "48000", str(changed)], check=True, timeout=30)
+        audio_path.write_bytes(changed.read_bytes())
+        for consume in [lambda: sub.package_cues(package, package_root), lambda: jy.draft_payload(plan, package_root, style, formal_subtitles=True),
+                        lambda: scaffold_render_package(package_root, root / "changed-remotion"),
+                        lambda: burn.burn(data["video"], None, root / "changed.mp4", style, subtitle_package=package, subtitle_root=package_root, formal_subtitles=True)]:
+            with self.assertRaises((ValueError, RuntimeError, ResourceError)):
+                consume()
+
+    def test_pg_subtitle_missing_or_wrong_fixed_evidence_blocks_formal_export(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.post.resource_export import export_render_package
+        for defect in ["missing", "duplicate", "wrong_sha", "wrong_script", "wrong_range", "no_measurement", "replacement_audio", "uniform", "unapproved", "replay"]:
+            # Each case has an independent project and simulated fixture decisions.
+            self.fixture = ResourceFixture(self.service)
+            data = self.subtitle_fixture(defect)
+            if defect == "unapproved":
+                self.fixture.write("decide_artifact", {"artifact_id": data["cue_artifact"], "outcome": "revoke", "reason": "合成夹具的明确撤销模拟"})
+            with self.subTest(defect=defect), self.assertRaisesRegex(ResourceError, "字幕"):
+                export_render_package(self.service, self.fixture.p, data["timeline"], Path(self.temp.name) / defect)
+
+    def test_pg_subtitle_current_cue_version_excludes_historical_duplicate(self):
+        from vsc.post.resource_export import export_render_package
+        data = self.subtitle_fixture()
+        previous = self.service.get_artifact_version(self.fixture.p, data["cue_artifact"])
+        current = self.fixture.artifact("subtitle-cues", "creative-relations", json.loads(previous["document"]), previous["dependency_ids"])
+        exported = export_render_package(self.service, self.fixture.p, data["timeline"], Path(self.temp.name) / "current-cues")
+        package = json.loads((Path(exported["directory"]) / "subtitles.json").read_text())
+        self.assertEqual({cue["cue_artifact_id"] for cue in package["cues"]}, {current})
+        self.assertTrue(self.service.get_artifact_version(self.fixture.p, data["cue_artifact"])["approved"])
+
+    def test_pg_subtitle_scope_mismatch_cannot_be_registered_as_formal_relation(self):
+        from vsc.assets.resource_service import ResourceError
+        with self.assertRaisesRegex(ResourceError, "范围"):
+            self.subtitle_fixture("wrong_scope")
+
+    def test_pg_subtitle_draft_lists_gap_and_cli_uses_same_export(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from vsc.interfaces.cli import resources
+        data = self.subtitle_fixture("no_measurement")
+        root = Path(self.temp.name)
+        # Exercise the actual CLI parser/dispatch with the real isolated service;
+        # the factory override only prevents discovering any configured live DB.
+        with mock.patch.object(resources, "service_from_environment", return_value=self.service), mock.patch.object(self.service.store, "close"), redirect_stdout(StringIO()) as stdout:
+            resources.main(["render-export", self.fixture.p, data["timeline"], "--out", str(root / "draft"), "--draft-subtitles"])
+        receipt = json.loads(stdout.getvalue())
+        self.assertEqual(receipt["subtitle_status"], "not_verified")
+        package = json.loads((root / "draft/subtitles.json").read_text())
+        self.assertTrue(package["gaps"])
+        self.assertEqual(package["status"], "not_verified")
+        with mock.patch.object(resources, "service_from_environment", return_value=self.service), mock.patch.object(self.service.store, "close"), self.assertRaises(SystemExit):
+            resources.main(["render-export", self.fixture.p, data["timeline"], "--out", str(root / "formal")])
+
     def grok_worker(self, transport, download=None):
         from vsc.production.resource_worker import ResourceWorker
         from vsc.adapters.providers.xai_grok.provider import GrokVideoProvider

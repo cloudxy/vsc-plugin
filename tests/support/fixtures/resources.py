@@ -12,10 +12,11 @@ def png_bytes():
 
 
 class ResourceFixture:
-    def __init__(self, service):
+    def __init__(self, service, profile_snapshot=None):
         self.service = service
-        self.p = service.create_project({"name": "合成离线制作样本", "profile": "vsc.synthetic",
-            "profile_snapshot": {"profile_id": "vsc.synthetic", "version": "1", "stages": []}}, actor="fixture-human")["id"]
+        profile_snapshot = profile_snapshot or {"profile_id": "vsc.synthetic", "version": "1", "stages": []}
+        self.p = service.create_project({"name": "合成离线制作样本", "profile": profile_snapshot["profile_id"],
+            "profile_snapshot": profile_snapshot}, actor="fixture-human")["id"]
         self.objects = {}
         parent = None
         for kind in ("work", "episode", "scene", "sequence", "shot"):

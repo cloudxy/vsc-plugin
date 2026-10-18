@@ -39,6 +39,7 @@ def xai_grok_factory(job, storage):
     if problem:
         raise ResourceError(problem, "credential_missing")
     fixed = {item["media_id"]: item for item in job["input_media"]}
+    logical = job["request_payload"].get("logical_request", job["request_payload"])
 
     def media_url(media_id):
         item = fixed.get(media_id)
@@ -46,16 +47,27 @@ def xai_grok_factory(job, storage):
             raise ResourceError("未固定的媒体引用", "unfixed_reference")
         for location in item["locations"]:
             if location["storage"] == "local" and location["available"]:
+                if item["role"] == "operation_source":
+                    from vsc.production.video_operations import verify_source_bytes
+                    # Decode/check the fixed local source again before paid
+                    # submission; never consume an unchecked client path.
+                    verify_source_bytes(storage, item, logical)
                 content = storage.read(location["object_key"], item["blob_sha256"])
                 return "data:" + item["mime_type"] + ";base64," + base64.b64encode(content).decode("ascii")
         raise ResourceError("固定媒体字节不可用", "media_unavailable")
 
     defaults, model = job["model"]["default_params"], job["model"]["model_key"]
-    logical = job["request_payload"].get("logical_request", job["request_payload"])
     params = logical.get("params") or {}
-    unsupported_operations = {"operation", "source_video", "video", "source_video_media_id"} & (set(logical) | set(params) | set(defaults))
+    unsupported_operations = {"source_video", "video", "source_video_media_id"} & (set(logical) | set(params) | set(defaults))
+    unsupported_operations |= {"operation"} & (set(params) | set(defaults))
     if unsupported_operations:
-        raise ResourceError("PG Grok 当前仅支持图像/视频生成；edit/extend 加工协议尚未接通，不能静默消费参数", "unsupported_params")
+        raise ResourceError("视频加工须使用固定typed operation/source字段，不能混入路径或params", "unsupported_params")
+    if logical.get("operation"):
+        source = fixed.get(logical.get("source_media_id"))
+        if (job["modality"] != "video" or logical["operation"] not in job["model"]["capabilities"].get("video_operations", []) or
+                not source or source["role"] != "operation_source" or source["blob_sha256"] != logical.get("source_sha256")):
+            raise ResourceError("模型加工能力或固定源片不符", "model_capability_mismatch")
+        return ConfiguredGrokProvider(GrokVideoProvider(model, media_url, "", transport=None), job["provider_id"])
     supported = {"resolution", "aspect_ratio", "generate_audio", "reference_voice_ids"} if job["modality"] == "video" else {"resolution", "aspect_ratio"}
     if set(params) - supported:
         raise ResourceError("当前 Grok 适配器未声明这些逻辑参数映射，禁止静默忽略: "

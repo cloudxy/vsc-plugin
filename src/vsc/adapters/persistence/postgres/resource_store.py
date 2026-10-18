@@ -24,7 +24,9 @@ from .preview_store import PreviewRepository
 from .budget_store import BudgetRepository
 from .source_reader import SourceRepository
 from .script_workspace import ScriptWorkspaceRepository
-from .values import checked_id, clean, canonical, digest, new_id, verify_sha
+from .script_ai import ScriptSuggestionRepository
+from .memory_store import RoleMemoryRepository
+from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CURRENT_REVISION
 
 
 
@@ -40,7 +42,7 @@ from .values import checked_id, clean, canonical, digest, new_id, verify_sha
 
 
 class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository,
-                            ScriptWorkspaceRepository):
+                            ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:
             raise ResourceError("PostgreSQL 连接未配置", "database_not_configured", 503)
@@ -57,8 +59,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if (read_only and S.SCHEMA_REVISION == "0008_script_note_baselines"
-                        and version == "0007_script_suggestions"):
+                if read_only and version in {"0007_script_suggestions", "0008_script_note_baselines"} and version != S.SCHEMA_REVISION:
                     # 0008 only adds nullable note-baseline fields. Historical
                     # workflow status reads do not select those fields.
                     return {"ready": False, "read_only": True, "migration": version,
@@ -150,7 +151,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     if receipt["request_sha256"] != request_sha:
                         raise Conflict("同一幂等键已用于不同操作", "idempotency_conflict")
                     return receipt["response"]
-                if project["revision"] != expected_revision:
+                if expected_revision is not CURRENT_REVISION and project["revision"] != expected_revision:
                     raise Conflict()
                 response = callback(conn, project)
                 revision = project["revision"] + 1

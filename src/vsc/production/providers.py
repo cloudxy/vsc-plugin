@@ -37,6 +37,12 @@ class VideoRequest(BaseRequest):
     # Appended after the original positional fields for compatibility:
     # (media_id, timestamp_s) pairs pinning mid-clip frames (Grok keyframes).
     keyframes: tuple[tuple[str, float], ...] = ()
+    # Typed fixed-source operations; ordinary generation keeps its existing
+    # fields and defaults. Paths and provider URLs never enter this contract.
+    operation: str | None = None
+    source_media_id: str | None = None
+    source_sha256: str | None = None
+    source_duration_ms: int | None = None
 
 
 @dataclass(frozen=True)

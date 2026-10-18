@@ -287,7 +287,8 @@ class ScriptWorkspaceRepository:
             phase = ({"approved": "approved", "rejected": "rejected", "revoked": "revoked"}.get(submitted["state"], "pending")
                      if submitted and submitted["matches_draft"] else "editing")
             return {"exists": True, "scope_key": scope_key, "draft_revision": row["draft_revision"],
-                    "content": row["content"], "updated_at": row["updated_at"], "updated_by": row["updated_by"],
+                    "content": row["content"], "content_sha256": digest(row["content"]),
+                    "updated_at": row["updated_at"], "updated_by": row["updated_by"],
                     "phase": phase, "base": base, "submitted": submitted, "notes": note_rows,
                     "suggestions": suggestions, "draft_id": row["id"], "submission_context": submission_context}
 
@@ -474,14 +475,20 @@ class ScriptWorkspaceRepository:
     @staticmethod
     def _suggestion_target(content, suggestion):
         """按稳定场／行身份写入一个字段；找不到目标行时明确报错，不做名称猜测。"""
-        scene = next((row for row in content.get("scenes", []) if row.get("id") == suggestion["scene_id"]), None)
+        scenes = content.get("scenes", [])
+        if not isinstance(scenes, list) or any(not isinstance(row, dict) for row in scenes):
+            raise ResourceError("草稿场次结构无效，请先修正工作副本", "invalid_payload")
+        scene = next((row for row in scenes if row.get("id") == suggestion["scene_id"]), None)
         if scene is None:
             raise ResourceError("建议指向的场次在当前稿中不存在：" + suggestion["scene_id"], "suggestion_stale")
         kind, field = required(suggestion, "kind"), suggestion.get("field", "text")
         if kind not in {"action", "dialogue", "silence"} or field not in {"text", "speaker"} or (field == "speaker" and kind != "dialogue"):
             raise ResourceError("建议类型或字段无效", "invalid_payload")
         field_name = {"action": "actions", "dialogue": "dialogue", "silence": "silence"}[kind]
-        line = next((row for row in scene.get(field_name, []) if row.get("id") == suggestion["line_id"]), None) \
+        lines = scene.get(field_name, [])
+        if not isinstance(lines, list) or any(not isinstance(row, dict) for row in lines):
+            raise ResourceError("草稿行结构无效，请先修正工作副本", "invalid_payload")
+        line = next((row for row in lines if row.get("id") == suggestion["line_id"]), None) \
             if suggestion["line_id"] else None
         if line is None:
             raise ResourceError("建议指向的行在当前稿中不存在：" + str(suggestion["line_id"]), "suggestion_stale")
@@ -515,7 +522,10 @@ class ScriptWorkspaceRepository:
             if outcome == "accept":
                 if status != "pending":
                     raise ResourceError("只有待处理建议可以接受", "invalid_payload")
-                if row["draft_revision"] != suggestion["base_draft_revision"]:
+                if (row["draft_revision"] != suggestion["base_draft_revision"] and
+                        (not self._known_suggestion_edits(conn, project["id"], scope_key,
+                            suggestion["base_draft_revision"], row["draft_revision"]) or
+                         self._suggestion_target(row["content"], suggestion).get(suggestion["field"]) != suggestion["before_value"])):
                     raise Conflict("建议基于的稿次已过期（当前 r%d，建议基于 r%d）；请先加载最新内容再重新提出建议"
                                    % (row["draft_revision"], suggestion["base_draft_revision"]), "suggestion_stale")
                 content = dict(row["content"])
@@ -530,7 +540,10 @@ class ScriptWorkspaceRepository:
                                  if item["id"] == suggestion["id"] and item["status"] == "accepted"), None)
                 if decision is None or status != "accepted":
                     raise ResourceError("只有已接受且未撤销的建议可以撤销", "invalid_payload")
-                if decision.get("applied_revision") is None or row["draft_revision"] != decision["applied_revision"]:
+                if decision.get("applied_revision") is None or (row["draft_revision"] != decision["applied_revision"] and
+                        (not self._known_suggestion_edits(conn, project["id"], scope_key,
+                            decision["applied_revision"], row["draft_revision"]) or
+                         self._suggestion_target(row["content"], suggestion).get(suggestion["field"]) != suggestion["after_value"])):
                     raise Conflict("接受后工作副本已有新编辑（当前 r%d，接受时 r%s）；不能自动撤销，请人工改回"
                                    % (row["draft_revision"], decision.get("applied_revision")), "suggestion_stale")
                 content = dict(row["content"])
@@ -548,6 +561,23 @@ class ScriptWorkspaceRepository:
             return {"id": decision_id, "suggestion_id": suggestion["id"], "outcome": outcome,
                     "draft_revision": applied_revision or row["draft_revision"]}
         return self._mutate(project_id, "decide_script_suggestion", payload, callback=work, **kw)
+
+    @staticmethod
+    def _known_suggestion_edits(conn, project_id, scope_key, base, current):
+        """Rebase only across a contiguous chain of explicit suggestion edits.
+
+        Every autosave creates a gap, even if it touched another line. A batch
+        of independent suggestions can be accepted/undone without pretending
+        an arbitrary newer draft is the original reviewed version.
+        """
+        revisions = set(conn.execute(select(S.script_suggestion_decisions.c.applied_revision).join(
+            S.script_suggestions, (S.script_suggestions.c.project_id == S.script_suggestion_decisions.c.project_id) &
+            (S.script_suggestions.c.id == S.script_suggestion_decisions.c.suggestion_id)).where(
+                S.script_suggestions.c.project_id == project_id, S.script_suggestions.c.scope_key == scope_key,
+                S.script_suggestion_decisions.c.outcome.in_(["accept", "undo_accept"]),
+                S.script_suggestion_decisions.c.applied_revision > base,
+                S.script_suggestion_decisions.c.applied_revision <= current)).scalars())
+        return current >= base and len(revisions) == current - base
 
     def script_revision_impact(self, project_id, scope_key=""):
         """B1-06：待审／草稿修订相对已批准基线的真实下游影响（覆盖镜头、声音Cue、时间线用料）。"""

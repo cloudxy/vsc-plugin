@@ -94,9 +94,13 @@ def dependency_requirements(profile, artifact_type):
     return [], None
 
 
-class ResourceService:
-    def __init__(self, store, storage=None):
+from vsc.assets.role_memory import RoleMemoryService
+
+
+class ResourceService(RoleMemoryService):
+    def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
+        self.script_suggester = script_suggester
 
     def list_projects(self):
         return self.store.list_projects()
@@ -243,7 +247,20 @@ class ResourceService:
     # ---------- 剧本工作区（Q1：工作副本、批注、提交确认） ----------
 
     def get_script_draft(self, project_id, scope_key=""):
-        return self.store.get_script_draft(project_id, scope_key)
+        from vsc.assets.script_inputs import editor_inputs
+        value = editor_inputs(self, project_id, self.store.get_script_draft(project_id, scope_key))
+        value["suggestion_runs"] = self.store.list_script_suggestion_runs(project_id, scope_key)
+        return value
+
+    def resume_script_suggestions(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        run_id = required(payload, "run_id")
+        run = self.store.get_script_suggestion_run(project_id, run_id)
+        if run["status"] == "running" and run["result"] is not None:
+            return self.store.finish_script_suggestion_run(project_id, {"run_id": run_id}, actor=kw["actor"],
+                expected_revision=kw["expected_revision"], idempotency_key="script-ai-finish:" + run_id)
+        return {"id": run_id, "status": run["status"], "result": run["result"],
+                "revision": self.get_project(project_id)["revision"]}
 
     def save_script_draft(self, project_id, payload, actor=None, **_):
         self._actor(actor)
@@ -266,6 +283,27 @@ class ResourceService:
 
     def add_script_suggestion(self, project_id, payload, **kw):
         return self._write("add_script_suggestion", project_id, payload, **kw)
+
+    def generate_script_suggestions(self, project_id, payload, **kw):
+        from vsc.assets.script_ai import GrokBuildSuggestions, generate_suggestions
+        return generate_suggestions(self, project_id, payload,
+            self.script_suggester if self.script_suggester is not None else GrokBuildSuggestions(), **kw)
+
+    def preview_local_production(self, project_id, payload):
+        from vsc.assets.local_production import LocalProduction
+        return LocalProduction(self).preview(project_id, payload)
+
+    def local_production_options(self, project_id, action, entity_id):
+        from vsc.assets.local_production import LocalProduction
+        return LocalProduction(self).options(project_id, action, entity_id)
+
+    def propose_local_production(self, project_id, payload, **kw):
+        from vsc.assets.local_production import LocalProduction
+        return LocalProduction(self).propose(project_id, payload, **kw)
+
+    def enqueue_local_production(self, project_id, payload, **kw):
+        from vsc.assets.local_production import LocalProduction
+        return LocalProduction(self).enqueue(project_id, payload, **kw)
 
     def decide_script_suggestion(self, project_id, payload, **kw):
         return self._write("decide_script_suggestion", project_id, payload, **kw)
@@ -439,6 +477,12 @@ class ResourceService:
 
     def create_generation_job(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
+        self._preflight_generation_job(project_id, payload)
+        return self._write("create_generation_job", project_id, payload, **kw)
+
+    def _preflight_generation_job(self, project_id, payload):
+        from vsc.production.video_operations import verify_operation_source
+        verify_operation_source(self, project_id, payload.get("request_payload", {}))
         project = self.store.get_project(project_id)
         gated = any(stage.get("id") == "animatic" for stage in project.get("profile_snapshot", {}).get("stages", []))
         if self.storage is not None or gated:
@@ -458,8 +502,6 @@ class ResourceService:
                     scope=payload.get("episode_id") if asset else context["ancestors"][1])
                 if not gate["passed"]:
                     raise ResourceError("正式制作前序Gate尚未通过", "production_gate_failed")
-        return self._write("create_generation_job", project_id, payload, **kw)
-
     def register_provider(self, payload, actor=None):
         self._actor(actor)
         return self.store.register_provider(payload, actor=actor)

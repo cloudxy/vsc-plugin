@@ -60,7 +60,7 @@ HANDOFF_FORMAT = "creative-handoff/v1"
 ARTIFACT_STATES = ("draft", "review", "approved", "rejected")
 SOURCE_KINDS = ("novel", "original", "brief", "reference", "video", "image", "audio", "document")
 SOURCE_RIGHTS = ("owned", "licensed", "analysis_only", "unknown")
-MEMORY_KINDS = ("fact", "decision", "lesson", "preference", "session_brief")
+MEMORY_KINDS = ("fact", "decision", "lesson", "check_method", "judgment", "recommendation", "preference", "session_brief")
 MEMORY_SCOPES = ("project", "role")
 MEMORY_STATES = ("draft", "approved", "rejected", "retired")
 SENSITIVITIES = ("public", "project", "restricted")
@@ -547,6 +547,12 @@ def cmd_memory(args):
             print(f"{item['id']} [{item['status']}] {item['scope']}{role} {item['kind']} confidence={item['confidence']}  {item['content']}")
         return
     if args.action == "add":
+        if args.dispatch_id:
+            die("角色代理提案请走 context return，以校验派单身份和来源范围")
+        if args.kind == "session_brief":
+            die("临时摘要请走context return，不登记为持久记忆")
+        if args.association_complete and not args.source:
+            die("完整来源关联声明需要固定 --source")
         if args.scope == "role":
             if not args.role:
                 die("role 范围记忆必须指定 --role")
@@ -561,8 +567,10 @@ def cmd_memory(args):
         item = {
             "id": next_id(state["memories"], "M"), "scope": args.scope, "role": args.role or "",
             "kind": args.kind, "content": content, "source": args.source or "", "confidence": args.confidence,
-            "sensitivity": args.sensitivity, "origin": "human_curated", "status": "draft", "created_at": now(), "decision": None,
+            "sensitivity": args.sensitivity, "origin": "unverified_proposal", "status": "draft", "created_at": now(), "decision": None,
             "tags": list(dict.fromkeys(args.tag or [])),
+            "association_complete": args.association_complete,
+            "source_artifact_keys": [args.source] if args.source and args.source.startswith("A-") else [],
         }
         if args.source and args.source.startswith("A-"):
             from vsc.knowledge.learning import artifact_snapshot
@@ -587,17 +595,7 @@ def cmd_memory(args):
         save(project, state)
         print(f"OK {item['id']} 记忆已登记为 draft；经决定后才能进入任务上下文")
         return
-    item = memory_by_id(state, args.id)
-    transitions = {
-        "draft": ("approved", "rejected"), "approved": ("retired",), "rejected": (), "retired": (),
-    }
-    if args.status not in transitions[item["status"]]:
-        die(f"记忆 {item['status']} 不能变更为 {args.status}")
-    item["status"] = args.status
-    item["decision"] = {"by": args.by, "note": args.note or "", "at": now()}
-    append_event(state, "memory_decided", memory_id=item["id"], status=args.status, by=args.by)
-    save(project, state)
-    print(f"OK {item['id']} → {args.status}（{args.by}）")
+    die("--by只是标签；记忆决定须通过面板已验证的人工会话确认固定版本")
 
 
 def public_memory_view(item):
@@ -609,6 +607,17 @@ def public_capability_view(item):
 
 
 def cmd_context(args):
+    from vsc.project.role_runtime import bind_packet, validate_packet
+    if args.action == "validate":
+        packet = read_json(Path(args.file))
+        errors = validate_packet(packet, expected_role=getattr(args, "role", None))
+        if errors:
+            die("；".join(errors))
+        print("ROLE CONTEXT: PASS")
+        return
+    if args.action in {"consume", "return"}:
+        from vsc.project.role_runtime_legacy import dispatch_command
+        return dispatch_command(args)
     if getattr(args, "scope", "project") != "project" or getattr(args, "source", None):
         die("context --scope／--source 仅用于 PostgreSQL 项目；旧项目通过 --artifact 缩小输入")
     from vsc.knowledge import learning as learning
@@ -637,7 +646,46 @@ def cmd_context(args):
     for capability_id in args.capability or []:
         if capability_by_id(state, capability_id)["status"] != "approved":
             die("--capability 只能显式选择已批准能力；试用用 --pilot")
+    from vsc.project.role_runtime import memory_allowed
+    mode = args.review_mode or card["memory_policy"]["review_modes"][0]
+    if mode == "fresh" and (args.capability or args.pilot):
+        die("fresh审查只读取符合隔离策略的本角色lesson/check_method，不注入能力试用或旧通过结论")
+    target_lineage = {x["id"] for x in artifacts}
+    target_lineage.update(x.get("scope") for x in artifacts if x.get("scope") not in {None, "project"})
+    changed = True
+    while changed:
+        before = len(target_lineage)
+        for entry in state["artifacts"]:
+            if entry["id"] in target_lineage or entry.get("supersedes") in target_lineage:
+                target_lineage.add(entry["id"])
+                if entry.get("supersedes"):
+                    target_lineage.add(entry["supersedes"])
+        changed = len(target_lineage) != before
     for item in state["memories"]:
+        item = dict(item)
+        source_ids = set(item.get("source_artifact_keys", []))
+        if item.get("source", "").startswith("A-"):
+            source_ids.add(item["source"])
+        pending = list(source_ids)
+        scoped = set(item.get("source_object_ids", []))
+        while pending:
+            identifier = pending.pop()
+            source = next((a for a in state["artifacts"] if a["id"] == identifier), None)
+            if source:
+                if source.get("scope") not in {None, "project"}:
+                    scoped.add(source["scope"])
+                for dep in source.get("depends_on", []):
+                    if dep not in source_ids:
+                        source_ids.add(dep); pending.append(dep)
+        item["source_artifact_keys"], item["source_object_ids"] = sorted(source_ids), sorted(scoped)
+        if not memory_allowed(item, args.role, mode=mode, target_ids=target_lineage,
+                target_keys=target_lineage, include_restricted=args.include_restricted):
+            continue
+        from vsc.project.role_runtime_legacy import source_problems
+        if source_problems(project, state, item):
+            continue
+        if mode == "followup" and item["kind"] in {"judgment", "recommendation", "decision"} and item["id"] not in (args.memory or []):
+            continue
         if item["status"] != "approved" or (item["scope"] != "project" and item.get("role") != args.role):
             continue
         if item["sensitivity"] == "restricted" and not args.include_restricted:
@@ -659,13 +707,20 @@ def cmd_context(args):
                 source_path = project / source_path
             if item.get("source_sha256") and learning.file_digest(source_path) != item["source_sha256"]:
                 continue
-        value = {**public_memory_view(item), "tags": item.get("tags", [])}
+        value = {**public_memory_view(item), "tags": item.get("tags", []),
+            "version": item.get("version", 1), "decision": item.get("decision"),
+            "content_sha256": hashlib.sha256(item["content"].encode()).hexdigest(),
+            "source_version": item.get("source_version"), "source_sha256": item.get("source_sha256")}
+        value.update({key: item.get(key, []) for key in ("source_artifact_keys", "source_object_ids", "target_object_ids")})
+        value["association_complete"] = item.get("association_complete", False)
         candidates.append({"category": "memory", "value": value,
                            "search": item["content"] + " " + " ".join(item.get("tags", []))})
     pilots = list(dict.fromkeys(args.pilot or []))
     if pilots and not artifacts:
         die("受控试用必须提供至少一个 --artifact 已批准输入")
     for item in state["learning"]["capabilities"]:
+        if mode == "fresh":
+            continue
         is_pilot = item["id"] in pilots
         if args.role not in item["allowed_roles"] or (item["status"] != "approved" and not is_pilot):
             continue
@@ -704,12 +759,28 @@ def cmd_context(args):
             "pilot_capabilities 仅在本上下文绑定的输入上受控试用，产出需比较基线并按 criteria 评测；不得作为已批准生产能力。",
         ],
     }
+    if args.resume_dispatch:
+        from vsc.project.role_runtime_legacy import resume_summary
+        if mode == "fresh":
+            die("fresh审查不能接续旧任务摘要")
+        packet["parent_brief"] = resume_summary(project, state, args.resume_dispatch, args.role)
     if len(json.dumps(packet, ensure_ascii=False)) > 150000:
         die("完整任务包超过 150000 字符；请缩小任务输入与检索预算")
+    try:
+        bind_packet(packet, host=args.host, instance_id=args.instance_id, actor=args.actor,
+            review_mode=mode, ownership=args.owns)
+    except ValueError as exc:
+        die(str(exc))
+    for previous in state["contexts"]:
+        prior = previous.get("dispatch")
+        if (prior and not previous.get("closed") and datetime.datetime.fromisoformat(prior["expires_at"]) > datetime.datetime.now(datetime.timezone.utc)
+                and set(packet["dispatch"]["edit_ownership"]) & set(prior.get("edit_ownership", []))):
+            die("文件已有未关闭的派单归属")
     path = project / "10-记忆" / "上下文" / f"{context_id}.json"
     write_json(path, packet)
     context_hash = learning.file_digest(path)
     state["contexts"].append({"id": context_id, "role": args.role, "task": task, "path": rel_or_abs(path, project),
+                              "dispatch": packet["dispatch"], "context_sha256": packet["context_sha256"],
                               "sha256_16": context_hash[:16], "sha256": context_hash, "created_at": packet["created_at"], "pilot_ids": pilots,
                               "input_versions": [learning.artifact_snapshot(artifact_by_id(state, entry["id"])) for entry in artifacts]})
     trials = state["learning"].setdefault("trials", [])
@@ -1553,6 +1624,9 @@ def main():
     q.add_argument("--source"); q.add_argument("--confidence", choices=("high", "medium", "low"), default="medium")
     q.add_argument("--sensitivity", choices=SENSITIVITIES, default="project")
     q.add_argument("--tag", action="append")
+    q.add_argument("--proposal-key"); q.add_argument("--dispatch-id"); q.add_argument("--instance-id")
+    q.add_argument("--context-sha256"); q.add_argument("--actor", default="vsc-cli")
+    q.add_argument("--association-complete", action="store_true")
     q = subs.add_parser("decide"); q.add_argument("project"); q.add_argument("id"); q.add_argument("--status", choices=("approved", "rejected", "retired"), required=True)
     q.add_argument("--by", required=True); q.add_argument("--note")
     q = subs.add_parser("list"); q.add_argument("project"); q.add_argument("--role"); q.add_argument("--scope", choices=MEMORY_SCOPES)
@@ -1564,7 +1638,17 @@ def main():
     q.add_argument("--artifact", action="append"); q.add_argument("--parent-brief"); q.add_argument("--include-restricted", action="store_true")
     q.add_argument("--pilot", action="append", help="显式受控试用的 pilot 能力编号")
     q.add_argument("--memory", action="append"); q.add_argument("--capability", action="append")
-    q.add_argument("--budget-chars", type=int, default=12000, help="检索知识的序列化字符预算；不含任务/角色/输入元数据")
+    q.add_argument("--budget-chars", type=int, default=2200, help="检索知识的序列化字符预算；不含任务/角色/输入元数据")
+    q.add_argument("--host", default="unspecified"); q.add_argument("--actor", default="vsc-cli")
+    q.add_argument("--instance-id"); q.add_argument("--owns", action="append")
+    q.add_argument("--review-mode", choices=("work", "design", "fresh", "followup"))
+    q.add_argument("--resume-dispatch")
+    q = subs.add_parser("validate"); q.add_argument("file"); q.add_argument("--role")
+    for operation in ("consume", "return"):
+        q = subs.add_parser(operation); q.add_argument("project"); q.add_argument("--file", required=True)
+        q.add_argument("--role", required=True); q.add_argument("--instance-id", required=True); q.add_argument("--actor", required=True)
+        if operation == "return":
+            q.add_argument("--result", required=True); q.add_argument("--return-key", required=True); q.add_argument("--keep-open", action="store_true")
     p.set_defaults(fn=cmd_context)
     p = commands.add_parser("learn"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("observe"); q.add_argument("project"); q.add_argument("--kind", choices=LEARNING_KINDS, required=True)

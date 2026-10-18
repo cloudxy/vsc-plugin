@@ -17,6 +17,7 @@ from vsc.adapters.providers.xai_grok import api as grok
 from vsc.adapters.providers.xai_grok import spec
 from vsc.adapters.providers.xai_grok import credentials as credentials
 from vsc.production.providers import GeneratedAsset, ImageRequest, JobHandle, JobStatus, VideoRequest
+from vsc.assets.resource_service import ResourceError
 
 
 class GrokAdapterError(ValueError):
@@ -135,15 +136,26 @@ class GrokVideoProvider:
 
     def _compile(self, req: VideoRequest):
         params = req.params or {}
+        if req.operation:
+            from dataclasses import asdict
+            from vsc.production.run_authorization import normalize_request
+            try:
+                raw = asdict(req)
+                raw["modality"] = "video"
+                normalize_request(raw, req.shot_id, req.purpose, "video")
+                return spec.compile_video_operation(self.model, self.media_url(req.source_media_id), req.prompt,
+                    req.operation, req.duration_ms // 1000 if req.operation == "extend" else None)
+            except (spec.GrokSpecError, ValueError, ResourceError) as exc:
+                raise GrokAdapterError(str(exc)) from None
         supported = {"resolution", "aspect_ratio", "generate_audio", "reference_voice_ids"}
         if set(params) - supported:
-            raise GrokAdapterError("Grok 视频生成未支持参数（PG edit/extend 加工协议尚未接通）：" + ",".join(sorted(set(params) - supported)))
+            raise GrokAdapterError("Grok 视频未支持参数；加工须使用typed operation/source字段：" + ",".join(sorted(set(params) - supported)))
         keyframes = [(self.media_url(media_id), float(seconds)) for media_id, seconds in (req.keyframes or ())]
         first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
         last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
         references = [self.media_url(media_id) for media_id in req.reference_media_ids]
         try:
-            return spec.compile_video(self.model, req.prompt, req.duration_ms, first, last, references,
+            return "/videos/generations", spec.compile_video(self.model, req.prompt, req.duration_ms, first, last, references,
                                       keyframes, params.get("reference_voice_ids", self.voice_ids), params.get("aspect_ratio", self.ratio),
                                       params.get("resolution", self.resolution), params.get("generate_audio", self.generate_audio))
         except spec.GrokSpecError as exc:
@@ -159,9 +171,9 @@ class GrokVideoProvider:
 
     def submit(self, req: VideoRequest) -> JobHandle:
         self.preflight(req)
-        payload = self._compile(req)
+        path, payload = self._compile(req)
         account = local_auth()
-        raw = self.transport("/videos/generations", payload)
+        raw = self.transport(path, payload)
         task_id = raw.get("request_id") if isinstance(raw, dict) else None
         if not isinstance(task_id, str) or not task_id:
             raise GrokAdapterError("Grok 视频响应缺 request_id；提交结果须按未知处理并对账")

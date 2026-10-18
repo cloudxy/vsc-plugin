@@ -46,7 +46,12 @@ PRESETS = [dict(id="volcengine-agent-plan", label="火山 Agent Plan", name="火
     modality="video", model_key="grok-imagine-video-1.5", model_version="", base_url=grok_credentials.API_BASE, auth_ref="",
     capabilities={"purposes": ["image_to_video"], "reference_media": True, "first_frame": True, "last_frame": True,
                   "keyframes": True, "max_duration_ms": 15000, "max_reference_images": 14},
-    default_params={"resolution": "480p", "reference_voice_ids": [], "generate_audio": True}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
+    default_params={"resolution": "480p", "reference_voice_ids": [], "generate_audio": True}, enabled=False),
+    dict(id="xai-grok-video-operations", label="Grok 视频编辑／续接（订阅登录）", name="Grok 视频编辑／续接（订阅登录）",
+    supplier="xai", product="grok-imagine", plan="subscription", region="global", execution="api",
+    modality="video", model_key="grok-imagine-video", model_version="", base_url=grok_credentials.API_BASE, auth_ref="",
+    capabilities={"purposes": ["video_edit", "video_extend"], "video_operations": ["edit", "extend"]},
+    default_params={}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
     product="", plan="", region="", execution="api", modality="image", model_key="", model_version="",
     base_url="", auth_ref=auth, capabilities={"purposes": []}, default_params={}, enabled=False)
     for supplier, label, auth in [("alibaba", "阿里（待接入）", "DASHSCOPE_API_KEY"),
@@ -71,7 +76,7 @@ def adapter_available(row):
     if row.get("supplier") == "xai":
         model = row.get("model_key", "")
         family_matches = ((row.get("modality") == "image" and model.startswith("grok-imagine-image-"))
-            or (row.get("modality") == "video" and model.startswith("grok-imagine-video-")))
+            or (row.get("modality") == "video" and (model == "grok-imagine-video" or model.startswith("grok-imagine-video-"))))
         return (row.get("product") == "grok-imagine" and row.get("plan") == "subscription"
             and row.get("execution") == "api" and row.get("modality") in {"image", "video"}
             and row.get("base_url", "").rstrip("/") == grok_credentials.API_BASE
@@ -138,8 +143,12 @@ def validate_configuration(payload):
         if (value["product"] != "grok-imagine" or value["plan"] != "subscription" or value["execution"] != "api"
                 or value["base_url"] != grok_credentials.API_BASE or value.get("auth_ref")):
             raise ResourceError("Grok 订阅路线须为 grok-imagine/subscription/api 与官方端点，凭证走 grok 登录态（不使用环境变量）", "invalid_provider_config")
-        if not family or not value["model_key"].startswith(family):
-            raise ResourceError("模型与多模态用途不匹配；Grok 订阅路线只接 Imagine 文生图与首帧图生视频", "invalid_model_family")
+        classic_video = value["modality"] == "video" and value["model_key"] == "grok-imagine-video"
+        if not family or not (classic_video or value["model_key"].startswith(family)):
+            raise ResourceError("模型与多模态用途不匹配；Grok 订阅路线只接 Imagine 图像／视频模型", "invalid_model_family")
+        operations = value["capabilities"].get("video_operations", [])
+        if operations and (not classic_video or not isinstance(operations, list) or set(operations) - {"edit", "extend"}):
+            raise ResourceError("视频加工须声明经典Grok模型的edit/extend能力", "model_capability_mismatch")
     if value["enabled"] and not adapter_available(value):
         raise ResourceError("此执行路线尚未接通，可停用保存为待配置", "adapter_unavailable")
     if value["enabled"] and not purposes:
@@ -168,7 +177,7 @@ def validate_configuration(payload):
                     or any(not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", key) or not isinstance(ratio, str) or not ratio.strip()
                            for key, ratio in ratios.items()) or defaults.get("resolution") not in ("1k", "2k")):
                 raise ResourceError("Grok 图像需要尺寸到画幅的 ratio_map 与 1k/2k resolution 映射", "invalid_model_defaults")
-        if value["modality"] == "video":
+        if value["modality"] == "video" and any(purpose not in {"video_edit", "video_extend"} for purpose in purposes):
             if defaults.get("resolution") not in ("480p", "720p", "1080p"):
                 raise ResourceError("Grok 视频需要 480p/720p/1080p resolution 映射", "invalid_model_defaults")
             voices = defaults.get("reference_voice_ids", [])
