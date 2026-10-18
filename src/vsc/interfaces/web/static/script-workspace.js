@@ -11,12 +11,60 @@ export function createScriptWorkspace(container, ctx) {
   let draft = null, scopeKey = '', scopeSelect = null, statusChip = null;
   let session = null, generation = 0, metadataGeneration = 0;
   let saveTimer = null, saving = false, lastError = null, editSeq = 0, savedSeq = 0, conflict = false;
+  let conflictMessage = null;
+  const recoveries = new Map(); // 仅当前工作区实例内存；不写本地存储或项目事实。
+  const recoveryKey = target => JSON.stringify([target.project, target.scopeKey]);
 
   const sameSession = target => session && target && target.generation === session.generation
     && target.project === session.project && target.project === ctx.baseUrl()
     && target.scopeKey === session.scopeKey && target.scopeKey === scopeKey;
   const stale = () => new Error('');
   const uniqueId = prefix => `${prefix}-${crypto.randomUUID()}`;
+
+  function rememberLocal() {
+    if (!session || !draft) return;
+    const key = recoveryKey(session);
+    if (editSeq <= savedSeq && !saving && !conflict) { recoveries.delete(key); return; }
+    recoveries.set(key, {generation: session.generation, content: readEditor(), draft_revision: draft.draft_revision,
+      editSeq, savedSeq, inFlight: saving, conflict, conflictMessage, lastError});
+  }
+
+  function restoreLocal(target, fresh) {
+    const cached = recoveries.get(recoveryKey(target));
+    if (!cached) return;
+    draft = {...fresh, exists: true, content: cached.content, draft_revision: cached.draft_revision, phase: 'editing'};
+    editSeq = cached.editSeq; savedSeq = cached.savedSeq;
+    conflict = cached.conflict || cached.inFlight || fresh.draft_revision !== cached.draft_revision;
+    if (conflict) {
+      conflictMessage = cached.conflictMessage || (cached.inFlight
+        ? '已恢复本地编辑，但离开时的保存请求尚未确认；自动保存暂停，请核对服务器最新版本'
+        : `已恢复本地编辑，其基准 r${cached.draft_revision} 与服务器 r${fresh.draft_revision} 不同；自动保存暂停，请人工核对`);
+    } else {
+      // 失败保存已结束且服务器基准未变，允许原内容按原稿次重试。
+      lastError = null;
+    }
+  }
+
+  function recordDepartedSave(target, seq, result, error) {
+    const key = recoveryKey(target), cached = recoveries.get(key);
+    if (!cached || cached.generation !== target.generation) return;
+    cached.inFlight = false;
+    if (error) {
+      cached.lastError = error.message;
+      if (/已被他人/.test(error.message)) { cached.conflict = true; cached.conflictMessage = error.message; }
+      return;
+    }
+    cached.draft_revision = result.draft_revision;
+    cached.savedSeq = Math.max(cached.savedSeq, seq); cached.lastError = null;
+    if (cached.editSeq <= cached.savedSeq && !cached.conflict) recoveries.delete(key);
+  }
+
+  const pageWindow = typeof window !== 'undefined' ? window : null;
+  const beforeUnload = event => {
+    if (editSeq <= savedSeq && !saving && !conflict && recoveries.size === 0) return;
+    event.preventDefault(); event.returnValue = '';
+  };
+  pageWindow?.addEventListener('beforeunload', beforeUnload);
 
   function headers() { return {'Content-Type': 'application/json', 'X-CSRF-Token': ctx.session().csrf}; }
   function requireSession() {
@@ -82,12 +130,15 @@ export function createScriptWorkspace(container, ctx) {
     scopeSelect = select;
   }
 
-  async function load() {
+  async function load(options = {}) {
+    if (options.discardLocal === true) {
+      if (session) recoveries.delete(recoveryKey(session));
+    } else rememberLocal();
     const project = ctx.baseUrl();
     if (session && session.project !== project) { scopeKey = ''; scopeSelect = null; }
     const target = {project, scopeKey, generation: ++generation};
     session = target;
-    clearTimeout(saveTimer); saveTimer = null; saving = false; lastError = null; conflict = false; editSeq = 0; savedSeq = 0;
+    clearTimeout(saveTimer); saveTimer = null; saving = false; lastError = null; conflict = false; conflictMessage = null; editSeq = 0; savedSeq = 0;
     draft = null;
     container.replaceChildren(el('p', 'hint', '正在读取剧本工作副本…'));
     try {
@@ -96,22 +147,25 @@ export function createScriptWorkspace(container, ctx) {
       const fresh = await ctx.api(`${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}`);
       if (!sameSession(target)) return;
       draft = fresh;
+      restoreLocal(target, fresh);
       render();
+      if (!conflict && editSeq > savedSeq) saveTimer = setTimeout(() => sameSession(target) && flushSave(), 900);
     } catch (error) { if (sameSession(target)) notice(error.message); }
   }
 
   function setStatus(text) { if (statusChip) statusChip.textContent = text; }
   function scheduleSave() {
-    if (!sameSession(session) || !draft || conflict) return;
+    if (!sameSession(session) || !draft) return;
     editSeq++;                                     // F02：编辑序号与保存进度分离
-    setStatus('待保存');
+    setStatus(conflict ? '本地修改已保留，冲突待核对' : '待保存');
     updatePhase();
+    if (conflict) return;
     clearTimeout(saveTimer);
     const target = session;
     saveTimer = setTimeout(() => sameSession(target) && flushSave(), 900);
   }
   async function flushSave() {
-    if (!sameSession(session) || !draft || saving || editSeq <= savedSeq) return;
+    if (!sameSession(session) || !draft || saving || conflict || editSeq <= savedSeq) return;
     const target = {...session};
     const seqAtSend = editSeq;
     saving = true; setStatus('保存中…');
@@ -120,16 +174,17 @@ export function createScriptWorkspace(container, ctx) {
       const content = readEditor();
       const result = await ctx.api(`${target.project}/script-draft/autosave`, {method: 'POST', headers: headers(),
         body: JSON.stringify({payload: {scope_key: target.scopeKey, base_draft_revision: draft.draft_revision, content}})});
-      if (!sameSession(target)) return;            // F01：过期响应不写当前会话
+      if (!sameSession(target)) { recordDepartedSave(target, seqAtSend, result); return; }
       draft.draft_revision = result.draft_revision; draft.exists = true; draft.content = content;
       draft.phase = result.phase || 'editing';
       savedSeq = Math.max(savedSeq, seqAtSend);
+      if (editSeq <= savedSeq) recoveries.delete(recoveryKey(target));
       updatePhase();
       const saved = container.querySelector('.script-saved-version');
       if (saved) saved.textContent = `工作副本 r${draft.draft_revision}`;
       lastError = null; renderConflict(null);
     } catch (error) {
-      if (!sameSession(target)) return;
+      if (!sameSession(target)) { recordDepartedSave(target, seqAtSend, null, error); return; }
       if (/已被他人/.test(error.message)) { conflict = true; setStatus('冲突：他人已更新'); renderConflict(error.message); }
       else { setStatus('保存失败，可继续编辑后重试'); lastError = error.message; notice(error.message); }
     } finally {
@@ -192,11 +247,16 @@ export function createScriptWorkspace(container, ctx) {
 
   function renderConflict(message) {
     const banner = container.querySelector('.script-conflict');
+    conflictMessage = message;
     if (!message) { banner.hidden = true; return; }
     banner.hidden = false;
     banner.replaceChildren(el('p', '', message + '。本地编辑仍在页面中；加载最新会以服务器内容替换当前编辑。'));
     const loadLatest = el('button', '', '加载最新并替换本地');
-    loadLatest.addEventListener('click', async () => { if (!confirm('确定放弃本地未保存修改、加载服务器最新内容？')) return; await load(); });
+    const target = session;
+    loadLatest.addEventListener('click', async () => {
+      if (!sameSession(target) || !confirm('确定放弃本地未保存修改、加载服务器最新内容？')) return;
+      await load({discardLocal: true});
+    });
     const keep = el('button', '', '保留本地暂不处理');
     keep.addEventListener('click', () => { banner.hidden = true; notice('已保留本地编辑；解决冲突前自动保存暂停。'); });
     banner.append(loadLatest, keep);
@@ -222,7 +282,9 @@ export function createScriptWorkspace(container, ctx) {
     container.append(renderSuggestions());
     if (draft.submitted?.state === 'pending') renderImpact();
     container.append(renderNotes());
-    setStatus(editSeq > savedSeq ? '待保存' : '—');
+    updatePhase();
+    if (conflict) renderConflict(conflictMessage || '本地内容待核对，自动保存暂停');
+    setStatus(conflict ? '本地修改已保留，冲突待核对' : editSeq > savedSeq ? '待保存' : '—');
   }
 
   async function refreshMeta() {
@@ -615,5 +677,11 @@ export function createScriptWorkspace(container, ctx) {
     return panel;
   }
 
-  return {load, reload: load};
+  function destroy() {
+    clearTimeout(saveTimer); saveTimer = null; session = null; generation++;
+    pageWindow?.removeEventListener('beforeunload', beforeUnload);
+    recoveries.clear();
+  }
+
+  return {load, reload: load, destroy};
 }
