@@ -40,6 +40,7 @@ namespaces = false
 "share/vsc-workflow/skills/vsc/references" = ["skills/vsc/references/source-handoff.md", "skills/vsc/references/creative-production.md"]
 "share/vsc-workflow/skills/vsc-adapt" = ["skills/vsc-adapt/SKILL.md"]
 "share/vsc-workflow/skills/vsc-architecture" = ["skills/vsc-architecture/SKILL.md"]
+"share/vsc-workflow/skills/vsc-architecture/references" = ["skills/vsc-architecture/references/execution-checks.md"]
 "share/vsc-workflow/skills/vsc-assets" = ["skills/vsc-assets/SKILL.md"]
 "share/vsc-workflow/skills/vsc-continuity" = ["skills/vsc-continuity/SKILL.md"]
 "share/vsc-workflow/skills/vsc-direct" = ["skills/vsc-direct/SKILL.md"]

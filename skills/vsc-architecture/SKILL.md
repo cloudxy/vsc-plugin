@@ -1,26 +1,45 @@
 ---
 name: vsc-architecture
-description: "Use when a VSC user wants to review or improve VSC, a Profile, an adapter, or a business extension without confusing an architecture proposal with an implemented capability."
+description: "Use when a VSC user wants to audit, plan, or implement workflow improvements to VSC, a Profile, an adapter, or a business extension. Preserve the requested mode and distinguish proposed capabilities from verified implementation."
 ---
 
 # VSC 架构维护
 
-这是 VSC 的维护入口，不是短剧创作阶段。先运行：
+这是 VSC 的维护入口，不是短剧创作阶段。**每次进入本技能，先读正文和[执行检查](references/execution-checks.md)，据当前请求与会话已确认范围选择模式，再操作。** 不依赖上一轮聊天记忆恢复规则；参考文件打不开时明确报告，不能声称已完成该检查。
+
+## 任务模式与范围
+
+| 模式 | 典型要求 | 本次交付与操作边界 |
+| --- | --- | --- |
+| 审查 | 检查完成度、找问题、解释原因 | 读当前实现与证据，必要时在隔离数据做获准范围的验证；交付发现、依据与建议，不据此启动修复 |
+| 规划 | 制定／完善执行方案 | 更新私有计划，写清办法、步骤、依赖和验收；计划中的代码、迁移与生产动作仍是将来任务 |
+| 实施 | 修复、实现、把规则写入技能等实际变更请求 | 按用户已授权范围修改、验证与交付；实现某项不自动授权整套计划 |
+
+“继续／continue”沿用已有模式和范围，不自动把审查或规划升级为实施。用户已明确要求实施时直接执行，不重复索要同一授权；范围确有无法消除的歧义时，先完成独立的只读工作，仅澄清影响下一步操作的部分。混合请求按子任务分别应用模式。
+
+开始 VSC 维护工作时执行：
 
 ```bash
-python3 scripts/kernel/catalog.py doctor
-python3 scripts/maintenance/vendor_skills.py --resolve architecture
+python3 -B scripts/kernel/catalog.py doctor
+python3 -B scripts/kernel/catalog.py route architecture
+python3 -B scripts/maintenance/vendor_skills.py --resolve architecture
 ```
 
-若 `mattpocock-skills` 已安装，直接阅读其中的 `improve-codebase-architecture`，以及其要求的 `codebase-design`、`grilling` 和 `domain-modeling` 原始 Skill。它们为 VSC 的架构审查提供方法，不会覆盖 VSC 的术语、ADR、权属、人工批准或 Vendor 生命周期规则。
+架构探索时，若 `mattpocock-skills` 已安装，阅读其中的 `improve-codebase-architecture`，以及其要求的 `codebase-design`、`grilling` 和 `domain-modeling` 原始 Skill；按当前问题采用其方法，不把候选讨论、ADR 修改或实施步骤当作超出本次范围的授权。明确的小范围规则更新不必另起整仓架构探索。VSC 术语、ADR、权属、人工批准与 Vendor 规则继续适用。
 
-审查前先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题；区分“已有实现”“候选方案”“尚未实现”。临时审计、探索稿与中间产物写入系统临时目录；形成需要执行或持续维护的方案后，保存到本机 `docs/plans/`，明确候选／已实施状态；该目录受 Git 忽略，计划及其索引不提交、不打包、不写入公开文档索引。只有用户明确要求发布的规范或使用说明才单独整理到公开文档；维护方案不冒充作品交付物。
+先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`，核对当前 HEAD、工作区差异、相关提交和证据适用范围。旧审计不能直接代表新实现；已有提交先核消费者与验收缺口，不重复建设。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题。
+
+临时审计、探索稿与中间产物放系统 tmp；需要执行或持续维护的方案存入本机 `docs/plans/`，沿已有主题入口按职责组织，当前状态只维护一处。该目录受 Git 忽略，不提交、不打包、不进入公开文档索引。公开 Skill 只保存通用方法，不链接私有计划或复制作品证据。
+
+交付前按[执行检查](references/execution-checks.md)核对任务可执行性、跨计划责任、条件依赖和证据分层；“已有实现／工程已验证／线上已验证／专业效果已验证”分别说明。计划整理不能写成实现交付，测试或发布成功不能替代真实用户批准。
 
 上游 Skill 更新在切换前自动生成 `vendor/.reviews/` 中的分析；资源配置页的一次“更新”决定即为采用授权，不额外增加人工审核轮次。新增 Skill 在显式路由前不能使用；被删除的已路由 Skill 不得静默消失，须在报告中决定保留已批准快照、替换路由或退役。
 
 ## 案例驱动维护与提交
 
-VSC 通过本机作品（`projects/`）发现问题，再改进 VSC 本身。本机钩子与命令见 [维护与本地验证](../../docs/guide/maintenance.md)。
+**以下修改、提交、推送步骤仅适用于已授权实施的子任务。** 审查和规划在其约定交付完成后结束，不自动进入此流程。
+
+VSC 通过本机作品（`projects/`）发现问题，再改进 VSC 本身；结束的作品不自动承担修片、迁移或试产。工作流或计划自身的问题直接定位相应模块，不伪造作品案例。本机钩子与命令见 [维护与本地验证](../../docs/guide/maintenance.md)。
 
 1. 定位：写明作品、阶段、产物 ID 与现象，以及负责的规则、Skill、契约或脚本。修复退回最早的责任环节，不在作品里绕过规则。
 2. 修改：直接在 `main` 上修改，不建分支或 PR。只改工作流源码（`skills/`、`agents/`、`workflow/`、`profiles/`、`templates/`、`scripts/`、`tests/`、`docs/` 等）；作品、vendor 源码与本机配置不进仓库。`workflow/hosts.json` 声明的宿主入口不手改，改动来源后运行 `python3 -B scripts/kernel/hosts.py sync`。行为变化须补测试。
