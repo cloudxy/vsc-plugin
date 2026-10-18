@@ -183,7 +183,31 @@ def validate(plan):
                     previous = point["frame"]
     if not visual_seen:
         errors.append("至少需要一个 video 或 image 片段")
+    if not errors:
+        try:
+            fps = frame_rate(composition["fps"])
+            subtitles.compile_cues([(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"])
+                                    for s in sorted(segments, key=lambda s: s["from_frame"]) if s["kind"] in {"caption", "text"}],
+                                   duration=duration / fps)
+        except ValueError as exc:
+            errors.append(str(exc))
     return errors
+
+
+def compile_subtitles(plan, style, *, script_texts=None, require_font=False):
+    """Use one subtitle compiler for scaffolding and editor export; never retime."""
+    fps = frame_rate(plan["composition"]["fps"])
+    segments = sorted((s for s in plan["segments"] if s["kind"] in {"caption", "text"}), key=lambda s: s["from_frame"])
+    font, max_width = None, None
+    if segments:
+        if style.get("font"):
+            font, max_width = subtitles.layout_font(style, plan["composition"]["width"])
+        elif require_font:
+            raise subtitles.SubtitleError(["严格字幕交付需要实际字体排版检查"])
+    compiled = subtitles.compile_cues([(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"]) for s in segments],
+        duration=plan["composition"]["duration_in_frames"] / fps, script_texts=script_texts, font=font, max_width=max_width,
+        style=style, height=plan["composition"]["height"])
+    return compiled, {s["id"]: cue[2] for s, cue in zip(segments, compiled["cues"])}
 
 
 def die(message):
@@ -293,12 +317,13 @@ const safeMargin = __SAFE_MARGIN__;
 const TextLayer: React.FC<{text: string; style: SubtitleStyle; height: number}> = ({text, style, height}) => {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (ref.current && ref.current.getBoundingClientRect().height > height * (1 - 2 * safeMargin)) {
-      cancelRender(new Error('Subtitle exceeds safe area; shorten text or change approved style'));
+    if (ref.current && (ref.current.scrollHeight > ref.current.clientHeight || ref.current.scrollWidth > ref.current.clientWidth
+        || ref.current.getBoundingClientRect().height > height * (1 - 2 * safeMargin))) {
+      cancelRender(new Error('Subtitle exceeds two lines or safe area; supply real speech timecodes or change approved style'));
     }
   }, [text, height, style]);
   return <AbsoluteFill>
-    <div ref={ref} style={{position: 'absolute', left: `${safeMargin * 100}%`, width: `${(1 - 2 * safeMargin) * 100}%`,
+    <div ref={ref} style={{position: 'absolute', left: '9%', width: '82%', maxHeight: style.font_size * 2.5 + (style.background ? style.font_size * .7 : 0),
       ...captionPlacement(style, safeMargin), color: style.color, fontSize: style.font_size,
       fontFamily: style.font ? 'VSCSubtitle' : 'sans-serif', fontWeight: 700, textAlign: 'center',
       whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', boxSizing: 'border-box', lineHeight: 1.25,
@@ -364,7 +389,7 @@ registerRoot(Root);
 """
 
 
-def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles=False):
+def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles=False, *, script_texts=None):
     errors = validate(document)
     if errors:
         raise ValueError("；".join(errors))
@@ -396,6 +421,12 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
         else:
             warnings.append("未找到可打包的字幕字体，使用系统 sans-serif；字体不可复现，须配置字体后才能作为严格字幕交付依据")
     if font_path:
+        style["font"] = str(font_path)
+    compiled, display_by_id = compile_subtitles(plan, style, script_texts=script_texts, require_font=strict_subtitles)
+    for segment in plan["segments"]:
+        if segment["id"] in display_by_id:
+            segment["text"] = display_by_id[segment["id"]]
+    if font_path:
         font_sha = hashlib.sha256(font_path.read_bytes()).hexdigest()
         relative = f"fonts/vsc-{font_sha[:16]}{font_path.suffix.lower()}"
         style["font"] = relative
@@ -417,6 +448,7 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
     manifest = {"format": "vsc.remotion-scaffold/v1", "source_plan": {"path": "vsc-source-plan.json", "sha256": source_sha, "format": document.get("format")},
                 "subtitle_style": {"source": style_source, "resolved": style, "bible_sha256": hashlib.sha256(bible_bytes).hexdigest() if bible_bytes is not None else None,
                                    "font": font_record, "safe_margin_ratio": subtitles.SAFE_MARGIN}, "warnings": warnings,
+                "subtitle_checks": compiled["checks"],
                 "verification": {"scaffold": "generated", "typecheck": "not_run", "render": "not_run", "human_review": "not_run"}}
     (destination / "vsc-scaffold.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", "utf-8")
     safe_project = re.sub(r"[^a-z0-9-]+", "-", plan["project_id"].lower()).strip("-") or "project"
@@ -450,6 +482,7 @@ def main():
     scaffold_parser.add_argument("output")
     scaffold_parser.add_argument("--bible", help="与烧录器/剪映共用的资产库 subtitle_style")
     scaffold_parser.add_argument("--strict-subtitles", action="store_true", help="字幕字体必须能够打包并绑定 SHA")
+    scaffold_parser.add_argument("--script-texts", help="固定原稿 JSON 字符串数组；核对缺字，不代表音频对齐")
     args = parser.parse_args()
     try:
         plan = load_plan(args.plan)
@@ -462,7 +495,8 @@ def main():
             actual = render_plan(plan)
             print(f"VALID: {actual['composition']['id']}  {len(actual['segments'])} segments")
             return
-        scaffold(plan, args.output, plan_path=args.plan, bible=args.bible, strict_subtitles=args.strict_subtitles)
+        scaffold(plan, args.output, plan_path=args.plan, bible=args.bible, strict_subtitles=args.strict_subtitles,
+                 script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None)
         print(f"SCAFFOLDED: {Path(args.output)}")
     except (OSError, ValueError) as exc:
         die(str(exc))

@@ -161,15 +161,15 @@ def check_authorization(project, reservation_id, operation, required=None, reque
                 token = argv[i][2:]
                 if '=' in token:
                     key, value = token.split('=', 1)
-                elif token.replace('-', '_') in production.MULTI:
+                elif token.replace('-', '_') in production.MULTI | {'keyframe'}:
                     key, value = token, argv[i+1]; i += 1
                 else:
                     key, value = token, True
                 key = key.replace('-', '_')
-                if key in production.MULTI: expected.setdefault(key, []).append(value)
+                if key in production.MULTI | {'keyframe'}: expected.setdefault(key, []).append(value)
                 else: expected[key] = value
                 i += 1
-            semantic_keys = production.COMMON | (production.IMAGE if job['kind'] == 'image' else production.VIDEO)
+            semantic_keys = production.COMMON | (production.IMAGE if job['kind'] == 'image' else production.VIDEO if job['kind'] == 'video' else production.GROK_IMAGE if job['kind'] == 'grok_image' else production.GROK_VIDEO if job['kind'] == 'grok_video' else production.GROK_OPERATION)
             for key in semantic_keys:
                 if key not in job['args']:
                     if request.get(key) not in (None, [], False):
@@ -178,6 +178,8 @@ def check_authorization(project, reservation_id, operation, required=None, reque
                 value = job['args'][key]
                 want = expected.get(key, False if type(value) is bool else [] if isinstance(value, list) else None)
                 actual = request.get(key)
+                if want is None and actual is None:
+                    continue
                 if isinstance(want, list): actual = [str(v) for v in actual or []]
                 elif not isinstance(want, bool): actual = str(actual)
                 if actual != want:

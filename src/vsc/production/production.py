@@ -36,7 +36,7 @@ GROK_DEFAULTS = {
     "grok_extend": {"model": "grok-imagine-video", "video": None, "duration": 6},
 }
 MULTI = {"ref", "ref_image", "ref_video", "ref_audio", "voice_id"}
-MEDIA = MULTI | {"base_frame", "first_frame", "last_frame", "first_frame_ref", "video", "keyframe"}
+MEDIA = (MULTI - {"voice_id"}) | {"base_frame", "first_frame", "last_frame", "first_frame_ref", "video", "keyframe"}
 FILES = {"bible", "state", "prompt_file"}
 
 
@@ -125,7 +125,7 @@ def outputs(job):
         return {"image": prefix + (".png" if args["model"].startswith("doubao-seedream-5") else ".jpeg")}
     if job["kind"] == "grok_image":
         return {"image": prefix + ".jpeg"}  # grok 按字节嗅探后缀，完成校验按前缀+ID 匹配
-    if job["kind"] in ("grok_edit", "grok_extend"):
+    if job["kind"] in ("grok_video", "grok_edit", "grok_extend"):
         return {"video": prefix + ".mp4"}
     return {"video": prefix + ".mp4", "last_frame": prefix + "-尾帧.jpeg"}
 
@@ -155,7 +155,7 @@ def grok_preflight(job, prompt):
                                     [(value["path"], value["at"]) for value in args["keyframe"]],
                                     args["voice_id"], args["ratio"], args["resolution"], not args["no_audio"])
         else:
-            grok_spec.compile_video_operation(args["model"], args["video"]["path"], prompt, job["kind"][5:])
+            grok_spec.compile_video_operation(args["model"], args["video"]["path"], prompt, job["kind"][5:], args.get("duration"))
     except grok_spec.GrokSpecError as exc:
         raise ProductionError(f"{job['id']} 无效：{exc}") from None
 
@@ -235,11 +235,11 @@ def build_plan(project, batch):
             require(isinstance(args["model"], str) and args["model"].startswith(prefix), "队列只支持豆包 Seedream/Seedance 模型")
         scalars = set(args) - MEDIA - FILES - {"duration", "no_audio", "draft"}
         if job["kind"] in GROK_KINDS:
-            scalars -= {"count", "ratio"}  # count 是整数、ratio 允许空串（跟随源图）
+            scalars -= {"count", "ratio", "voice_id"}  # count 是整数、ratio 允许空串（跟随源图）
         for key in scalars:
             require(isinstance(args[key], str) and bool(args[key]), f"{key} 必须是非空字符串")
         if job["kind"] == "grok_image":
-            require(type(args["count"]) is int and 1 <= args["count"] <= 10, "count 必须是 1–10 整数")
+            require(type(args["count"]) is int and args["count"] == 1, "每个逻辑候选固定一张输出，batch count 必须为 1")
         if job["kind"] == "grok_video":
             require(isinstance(args["ratio"], str), "ratio 必须是字符串（空串表示跟随源图）")
         if job["kind"] == "image":
@@ -307,7 +307,7 @@ def build_plan(project, batch):
                 for value in keyframes:
                     require(isinstance(value, dict) and set(value) == {"path", "at"}
                             and type(value["at"]) in (int, float) and value["at"] > 0, "keyframe 条目必须是 {path, at}")
-                    source(project, value["path"], job, jobs, inputs)
+                    source(project, {"path": value["path"]}, job, jobs, inputs)
                     check_media(path_in(project, value["path"]), "image")
                 continue
             values = args[key] if key in MULTI else [args[key]]
@@ -324,9 +324,14 @@ def build_plan(project, batch):
         if job["kind"] in GROK_KINDS:
             prompt_text = args["prompt"].strip() if "prompt" in args else \
                 path_in(project, args["prompt_file"]["path"]).read_text("utf-8").strip()
+            if job["kind"] in ("grok_edit", "grok_extend"):
+                from vsc.adapters.providers.xai_grok.api import video_source_info
+                try:
+                    details = video_source_info(path_in(project, args["video"]["path"]), GROK_KINDS[job["kind"]])
+                except RuntimeError as exc:
+                    raise ProductionError(str(exc)) from None
+                job["args"]["source_seconds"] = int(math.ceil(details["duration"]))
             grok_preflight(job, prompt_text)
-            if job["kind"] == "grok_edit":
-                job["args"]["source_seconds"] = probe_seconds(path_in(project, args["video"]["path"]))
         if args.get("bible"):
             anchor_args = SimpleNamespace(project=str(project), bible=str(path_in(project, args["bible"]["path"])),
                                           state=str(path_in(project, args["state"]["path"])))
@@ -340,19 +345,24 @@ def build_plan(project, batch):
     require(not any(str(path_in(project, relative).resolve()) in destinations for relative in inputs), "生成输出不能覆盖任何输入")
     require(not any(str(parent) in destinations for destination in destinations for parent in Path(destination).parents),
             "生成输出不能同时作为其他任务的目录祖先")
-    usage = {"remote_jobs": len(jobs),
-             "images": sum(job["kind"] in ("image", "grok_image") and job["args"].get("count", 1)
-                           for job in jobs.values()),
-             "video_seconds": sum(
-                 job["args"]["duration"] for job in jobs.values()
-                 if job["kind"] in ("video", "grok_video", "grok_extend"))
-             + sum(job["args"].get("source_seconds", 0) for job in jobs.values() if job["kind"] == "grok_edit")}
+    usage = execution_usage(list(jobs.values()))
     require(usage["images"] <= budget["max_images"] and usage["video_seconds"] <= budget["max_video_seconds"], "计划超过聚合图像/视频预算")
     plan = {"format": "vsc.production-plan/v1", "project_id": batch["project_id"], "id": batch["id"],
             "max_remote_jobs": batch["max_remote_jobs"], "max_attempts": batch.get("max_attempts", 3), "budget": budget,
             "usage_bound": usage, "estimated_currency": None, "inputs_sha256": inputs, "jobs": [jobs[key] for key in order]}
     plan["plan_sha256"] = ark.digest_json(plan)
     return plan
+
+
+def execution_usage(jobs):
+    """Same bounded request accounting for a plan and its executable remainder."""
+    return {"remote_jobs": len(jobs),
+             "images": sum(job["kind"] in ("image", "grok_image") and job["args"].get("count", 1)
+                           for job in jobs),
+             "video_seconds": sum(
+                 job["args"]["duration"] for job in jobs
+                 if job["kind"] in ("video", "grok_video", "grok_extend"))
+             + sum(job["args"].get("source_seconds", 0) for job in jobs if job["kind"] == "grok_edit")}
 
 
 def record_path(job):
@@ -477,25 +487,41 @@ def completed(project, job):
 
 def grok_completed(project, job, record):
     """Grok 任务的完成校验：真实记录契约、固定模型/参数与声明的输出，不做方舟式语义重建。"""
+    from vsc.adapters.providers.xai_grok import api as grok
     expected_kind = {"grok_image": "image"}.get(job["kind"], "video")
     if (record.get("status") != "succeeded" or record.get("project_id") != ark.project_id(project)
             or record.get("kind") != expected_kind or record.get("engine", {}).get("provider") != "xai_grok"):
         return None
     require(not ark.consistency.record_errors(record), "生成记录格式无效")
-    require(ark.checked_outputs(record, project), "已完成任务产物缺失或 SHA-256 漂移")
+    require(grok.checked_outputs(record, project), "已完成任务产物缺失、SHA-256 漂移或完整解码失败")
+    require(len(record["outputs"]) == 1, "Grok 批次每任务只能登记一个主产物")
     args = job["args"]
+    require(record.get("shot_id") == args.get("shot") and record.get("purpose") == args.get("purpose", "candidate"),
+            "生成记录与计划的镜头或用途不一致")
+    anchor_args = SimpleNamespace(project=str(project), bible=str(path_in(project, args["bible"]["path"])) if args.get("bible") else None,
+                                  state=str(path_in(project, args["state"]["path"])) if args.get("state") else None)
+    require(record.get("inputs", {}).get("anchors_sha256") == grok.anchors(anchor_args, args.get("shot")),
+            "生成记录的锚点输入与计划不一致")
     engine = record["engine"]
     require(engine.get("model") == args["model"], "生成记录与计划的模型不一致")
     params = engine.get("params", {})
     if job["kind"] == "grok_image":
-        require(params.get("edit") == bool(args["ref"]), "图像模式（文生/编辑）与计划不一致")
+        require(params.get("edit", False) == bool(args["ref"]), "图像模式（文生/编辑）与计划不一致")
         require(params.get("n", 1) == (1 if args["ref"] else args["count"]), "图像张数与计划不一致")
+        require(params.get("aspect_ratio") == args["aspect_ratio"] and params.get("resolution") == args["resolution"],
+                "图像画幅或分辨率与计划不一致")
     elif job["kind"] == "grok_video":
         require(params.get("resolution") == args["resolution"] and params.get("duration") == args["duration"]
                 and params.get("generate_audio", True) == (not args["no_audio"]), "视频参数与计划不一致")
         require(params.get("reference_images", 0) == len(args["ref_image"]), "参考图数量与计划不一致")
+        require(params.get("aspect_ratio", "") == args["ratio"] and params.get("reference_voice_ids", []) == args["voice_id"],
+                "视频画幅或预置声音与计划不一致")
+        expected_keyframes = [{"sha256": ark.sha256(path_in(project, value["path"])), "timestamp_s": value["at"]} for value in args["keyframe"]]
+        require(params.get("keyframes", []) == expected_keyframes, "视频关键帧与计划不一致")
     else:
         require(params.get("operation") == job["kind"][5:], "加工操作与计划不一致")
+        if job["kind"] == "grok_extend":
+            require(params.get("duration") == args["duration"], "续接新增长度与计划不一致")
         require(params.get("source_video", {}).get("sha256") == ark.sha256(path_in(project, args["video"]["path"])),
                 "加工输入字节与计划不一致")
     prompt = args["prompt"].strip() if "prompt" in args else path_in(project, args["prompt_file"]["path"]).read_text("utf-8").strip()
@@ -505,9 +531,34 @@ def grok_completed(project, job, record):
                and str(item["path"]).startswith(prefix)]
     require(len(primary) == 1, "成功记录缺少本任务主产物")
     check_media(path_in(project, primary[0]["path"]), "video" if expected_kind == "video" else "image")
-    task = path_in(project, task_path(job))
-    require(task.is_file() and read(task).get("record", {}).get("engine", {}).get("model") == args["model"],
-            "任务文件与记录不一致，不能安全续接")
+    task = read(path_in(project, task_path(job)))
+    require(task.get("record") == record, "任务文件与生成记录不一致，不能安全续接")
+    original_params = {key: value for key, value in params.items() if key != "actual"}
+    rebuilt = grok.request_binding({**record, "engine": {**engine, "params": original_params}}, {}, {})
+    rebuilt["payload_sha256"] = engine.get("payload_sha256")
+    rebuilt["semantic_payload_sha256"] = engine.get("semantic_payload_sha256")
+    require(task.get("binding") == rebuilt and engine.get("request_sha256") == grok.digest_json(rebuilt),
+            "生成记录与 Grok 任务请求绑定不一致")
+    def media(value):
+        if not value:
+            return None
+        if "path" in value:
+            return "sha256:" + ark.sha256(path_in(project, value["path"]))
+        # Upstream outputs are validated through their own completed contract.
+        return None
+    if all("path" in value for key in MEDIA & set(args) for value in
+           (args[key] if key in MULTI or key == "keyframe" else [args[key]])):
+        if job["kind"] == "grok_image":
+            _, semantic = grok_spec.compile_image(args["model"], prompt, [media(v) for v in args["ref"]],
+                args["aspect_ratio"], args["resolution"], args["count"])
+        elif job["kind"] == "grok_video":
+            semantic = grok_spec.compile_video(args["model"], prompt, args["duration"] * 1000,
+                media(args.get("first_frame")), media(args.get("last_frame")), [media(v) for v in args["ref_image"]],
+                [(media(v), v["at"]) for v in args["keyframe"]], args["voice_id"], args["ratio"], args["resolution"], not args["no_audio"])
+        else:
+            _, semantic = grok_spec.compile_video_operation(args["model"], media(args["video"]), prompt,
+                GROK_KINDS[job["kind"]], args.get("duration"))
+        require(grok.digest_json(semantic) == rebuilt["semantic_payload_sha256"], "Grok 实际请求与计划参数或媒体角色不一致")
     return record
 
 
@@ -520,14 +571,25 @@ def resolve_args(project, job, jobs):
             require(record is not None, "依赖尚未成功")
             relative = outputs(upstream)[value["output"]]
             matches = [item for item in record["outputs"] if item["path"] == relative]
+            if upstream["kind"] in GROK_KINDS and value["output"] in ("image", "video"):
+                matches = [item for item in record["outputs"] if item.get("id") == upstream["args"]["name"]]
+                if len(matches) == 1:
+                    relative = matches[0]["path"]
             require(len(matches) == 1, "上游没有登记所需输出；不能猜测尾帧")
         else:
             relative = value["path"]
         path = fingerprint(project, relative, hashes)
         return str(path)
     for key, value in job["args"].items():
-        args[key] = [resolve(item) for item in value] if key in MULTI else resolve(value) if key in MEDIA | FILES else value
-    argv = [job["kind"], "--project", str(Path(project).resolve())]
+        if key == "source_seconds":
+            continue  # accounting metadata is derived from source bytes by the CLI
+        if key == "voice_id":
+            args[key] = value
+        elif key == "keyframe":
+            args[key] = [resolve({"path": item["path"]}) + "@" + str(float(item["at"])) for item in value]
+        else:
+            args[key] = [resolve(item) for item in value] if key in MULTI else resolve(value) if key in MEDIA | FILES else value
+    argv = [GROK_KINDS.get(job["kind"], job["kind"]), "--project", str(Path(project).resolve())]
     for key, value in args.items():
         flag = "--" + key.replace("_", "-")
         if type(value) is bool:
@@ -547,6 +609,57 @@ def default_runner(argv, script=None):
     subprocess.run([sys.executable, str(script_path(chosen)), *argv], check=True)
 
 
+def execution_journal(project, plan):
+    """Read-only run preconditions, shared with preview before any scheduling."""
+    path = journal_path(project, plan["id"])
+    for job in plan["jobs"]:
+        check_directory_ancestors(project, path_in(project, job["args"]["out"]))
+    for relative, digest in plan["inputs_sha256"].items():
+        require(ark.sha256(path_in(project, relative)) == digest, "计划预检后本地输入已漂移")
+    require(not path.is_symlink(), "journal 不能是符号链接")
+    if path.exists():
+        journal = read(path)
+        require(isinstance(journal, dict) and journal.get("format") == JOURNAL_FORMAT and journal.get("plan_sha256") == plan["plan_sha256"]
+                and journal.get("project_id") == plan["project_id"] and journal.get("id") == plan["id"]
+                and isinstance(journal.get("jobs"), dict), "旧队列的计划/输入已漂移；请使用新的 batch id 与 job name")
+        return journal
+    for job in plan["jobs"]:
+        check_new_job(project, job)
+    return {"format": JOURNAL_FORMAT, "id": plan["id"], "project_id": plan["project_id"],
+            "plan_sha256": plan["plan_sha256"], "jobs": {}, "usage_bound": plan["usage_bound"]}
+
+
+def check_new_job(project, job):
+    require(not any(path_in(project, item).exists() for item in [record_path(job), task_path(job), *outputs(job).values()]),
+            "同名任务或输出已存在，不能接管；请使用新的 name")
+
+
+def execution_decision(project, plan, job, jobs, entry):
+    """Validate actual bindings/results/receipts without modifying a journal."""
+    if entry is None:
+        check_new_job(project, job)
+    argv, hashes = resolve_args(project, job, jobs)
+    for relative, digest in hashes.items():
+        if relative in plan["inputs_sha256"]:
+            require(digest == plan["inputs_sha256"][relative], "执行期间计划输入已漂移")
+    binding = ark.digest_json({"argv": argv, "inputs": hashes})
+    record = None
+    if entry is not None:
+        require(isinstance(entry, dict) and integer(entry.get("attempts")), "队列任务条目格式无效，须人工核查")
+        require(entry.get("binding") == binding, "任务输入/上游产物已漂移，不能续接旧任务")
+        record = completed(project, job)
+        if record:
+            request_digest = record["engine"]["request_sha256"]
+            require(entry.get("request_binding_sha256", request_digest) == request_digest, "方舟请求绑定与原队列执行记录不一致")
+            output_hashes = {item["path"]: item["sha256"] for item in record["outputs"]}
+            require(entry.get("outputs_sha256", output_hashes) == output_hashes, "已完成任务输出清单已漂移")
+        else:
+            require(path_in(project, task_path(job)).is_file(), "上次调用没有可续接的方舟任务凭证；提交状态未知，须人工核查后使用新任务")
+    if record is None:
+        require((entry or {}).get("attempts", 0) < plan["max_attempts"], "任务调用次数达到 max_attempts；未再次调用")
+    return {"state": "reuse" if record else "execute", "record": record, "argv": argv, "hashes": hashes, "binding": binding}
+
+
 def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, formal=False):
     state = read(Path(project) / 'vsc.json')
     require(formal or state.get('profile_snapshot', {}).get('contract_policy') != 'production-v2',
@@ -555,21 +668,8 @@ def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, 
     runner = runner or default_runner
     path = journal_path(project, plan["id"])
     with queue_lock(project, plan["id"]):
-        for job in plan["jobs"]:
-            check_directory_ancestors(project, path_in(project, job["args"]["out"]))
-        for relative, digest in plan["inputs_sha256"].items():
-            require(ark.sha256(path_in(project, relative)) == digest, "计划预检后本地输入已漂移")
-        require(not path.is_symlink(), "journal 不能是符号链接")
-        if path.exists():
-            journal = read(path)
-            require(journal.get("format") == JOURNAL_FORMAT and journal.get("plan_sha256") == plan_hash, "旧队列的计划/输入已漂移；请使用新的 batch id 与 job name")
-        else:
-            # 不接管其他命令留下的同名任务；必须先有本队列的调用绑定。
-            for job in plan["jobs"]:
-                require(not any(path_in(project, item).exists() for item in [record_path(job), task_path(job), *outputs(job).values()]),
-                        "同名任务或输出已存在，不能接管；请使用新的 name")
-            journal = {"format": JOURNAL_FORMAT, "id": plan["id"], "project_id": plan["project_id"],
-                       "plan_sha256": plan_hash, "jobs": {}, "usage_bound": plan["usage_bound"]}
+        journal = execution_journal(project, plan)
+        if not path.exists():
             ark.write_json(path, journal)
         jobs = {job["id"]: job for job in plan["jobs"]}
         for job in plan["jobs"]:
@@ -582,21 +682,14 @@ def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, 
                     return journal
             else:
                 extra = []
-            argv, hashes = resolve_args(project, job, jobs)
-            for relative, digest in hashes.items():
-                if relative in plan["inputs_sha256"]:
-                    require(digest == plan["inputs_sha256"][relative], "执行期间计划输入已漂移")
-            binding = ark.digest_json({"argv": argv, "inputs": hashes})
+            decision = execution_decision(project, plan, job, jobs, entry)
+            argv, hashes, binding = decision["argv"], decision["hashes"], decision["binding"]
             if entry:
-                require(entry.get("binding") == binding, "任务输入/上游产物已漂移，不能续接旧任务")
-                record = completed(project, job)
+                record = decision["record"]
                 if record:
                     request_digest = record["engine"]["request_sha256"]
-                    require(entry.get("request_binding_sha256", request_digest) == request_digest,
-                            "方舟请求绑定与原队列执行记录不一致")
                     entry["request_binding_sha256"] = request_digest
                     output_hashes = {item["path"]: item["sha256"] for item in record["outputs"]}
-                    require(entry.get("outputs_sha256", output_hashes) == output_hashes, "已完成任务输出清单已漂移")
                     entry["outputs_sha256"] = output_hashes
                     entry["status"] = "succeeded"
                     ark.write_json(path, journal)
@@ -604,12 +697,9 @@ def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, 
                         journal['status'] = 'awaiting_review'; ark.write_json(path, journal)
                         return journal
                     continue
-                # 没有方舟任务凭证时无法证明提交失败：绝不自动重提。
-                require(path_in(project, task_path(job)).is_file(), "上次调用没有可续接的方舟任务凭证；提交状态未知，须人工核查后使用新任务")
             else:
                 entry = {"binding": binding, "inputs_sha256": hashes, "attempts": 0, "status": "pending"}
                 journal["jobs"][job["id"]] = entry
-            require(entry["attempts"] < plan["max_attempts"], "任务调用次数达到 max_attempts；未再次调用")
             entry.update(attempts=entry["attempts"] + 1, status="running")
             ark.write_json(path, journal)
             try:
@@ -634,32 +724,56 @@ def run(project, plan, plan_hash, runner=None, before_job=None, after_job=None, 
 
 
 def preview(project, plan):
-    """B3-05：只读执行预览——逐任务列 将执行/将复用/已完成 与预计用量；不写任何文件。"""
+    """Read-only scheduling using run's binding, completion and recovery decisions."""
     project = Path(project).resolve()
-    journal_file = journal_path(project, plan["id"])
-    journal = read(journal_file) if journal_file.is_file() else {"jobs": {}}
-    entries = []
+    errors = (ProductionError, ark.ArkError, OSError, ValueError)
+    global_error = ""
+    try:
+        journal = execution_journal(project, plan)
+    except errors as exc:
+        journal, global_error = {"jobs": {}}, str(exc)
+    entries, states, execute = [], {}, []
+    stopped_by = None
+    jobs = {job["id"]: job for job in plan["jobs"]}
     for job in plan["jobs"]:
         entry = journal.get("jobs", {}).get(job["id"])
-        state = "execute"
-        note = ""
-        if entry is not None and entry.get("status") == "succeeded":
-            try:
-                state = "reuse" if completed(project, job) is not None else "verify"
-                note = "" if state == "reuse" else "journal 已成功但完成校验未过，须人工核查"
-            except (ProductionError, ark.ArkError, OSError, ValueError):
-                state, note = "verify", "完成校验失败，须人工核查"
-        elif entry is not None and entry.get("attempts", 0) >= plan["max_attempts"]:
-            state, note = "blocked", "已达 max_attempts，不再次调用"
+        state, note, hashes, binding = "execute", "", {}, None
+        try:
+            require(not global_error, global_error)
+            blocked = [dependency for dependency in job["depends_on"] if states.get(dependency) in {"blocked", "verify"}]
+            require(not blocked, "上游未能安全执行或复用：" + ", ".join(blocked))
+            waiting = [dependency for dependency in job["depends_on"] if states.get(dependency) == "execute"]
+            if waiting and entry is None:
+                check_new_job(project, job)
+                note = "须先完成上游，随后固定实际输出指纹：" + ", ".join(waiting)
+            else:
+                decision = execution_decision(project, plan, job, jobs, entry)
+                state, hashes, binding = decision["state"], decision["hashes"], decision["binding"]
+                if state == "execute" and entry is not None:
+                    note = "使用已有任务凭证恢复；实际平台用量以原生回执为准"
+        except errors as exc:
+            note = str(exc)
+            state = "verify" if "提交状态未知" in note or "须人工核查" in note else "blocked"
+        if stopped_by is not None:
+            if state == "execute":
+                state, note = "blocked", f"前序任务 {stopped_by} 将使本次执行停止；此任务不会调用平台"
+            elif state == "reuse":
+                note = f"已有完成结果校验通过；本次执行将在前序任务 {stopped_by} 处停止"
+        elif state in {"verify", "blocked"}:
+            stopped_by = job["id"]
         missing = [relative for relative in plan["inputs_sha256"]
                    if not path_in(project, relative).is_file()]
+        states[job["id"]] = state
+        if state == "execute":
+            execute.append(job)
         entries.append({"job": job["id"], "kind": job["kind"], "state": state, "note": note,
+                        "depends_on": job["depends_on"], "binding_sha256": binding, "inputs_sha256": hashes,
                         "missing_inputs": missing})
     return {"format": "vsc.production-preview/v1", "plan_sha256": plan["plan_sha256"],
-            "usage_bound": plan["usage_bound"], "jobs": entries,
+            "usage_bound": execution_usage(execute), "jobs": entries,
             "missing_inputs": sorted({relative for entry in entries for relative in entry["missing_inputs"]}),
             "meaning": {"execute": "将调用平台生成", "reuse": "已有成功记录且校验通过，跳过付费调用",
-                        "verify": "有历史记录但需人工核查", "blocked": "达到尝试上限"}}
+                        "verify": "提交未知或凭据无效，须人工核查后决定恢复", "blocked": "前置、指纹、依赖、尝试次数或前序任务停止阻断"}}
 
 
 def main(argv=None):

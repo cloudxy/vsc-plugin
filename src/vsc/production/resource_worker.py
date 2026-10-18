@@ -90,10 +90,19 @@ class ResourceWorker:
             status = adapter.poll(handle) if handle.external_task_id is None else None
         else:
             handle = JobHandle(job["provider_id"], job["model"]["model_key"], job["external_task_id"], job.get("raw_response") or {})
+            if any((event.get("evidence") or {}).get("source") == "provider_success_awaiting_storage" for event in job.get("events", [])):
+                return self.finalize(job["project_id"], job["id"], adapter=adapter, raw=handle.raw)
             status = adapter.poll(handle)
         if status is None:
             return self.service.get_generation_job(job["project_id"], job["id"])
         if status.status == "succeeded":
+            # Preserve the terminal response before downloading. A failed transfer
+            # can be resumed from this evidence without another provider GET.
+            if handle.external_task_id:
+                self._write("update_generation_job", job["project_id"], {"job_id": job["id"], "worker_id": self.worker_id,
+                    "status": "running", "external_task_id": handle.external_task_id, "raw_response": status.raw,
+                    "recovery_evidence": {"source": "provider_success_awaiting_storage"}},
+                    "terminal-response:" + job["id"])
             return self.finalize(job["project_id"], job["id"], adapter=adapter, raw=status.raw,
                                  latency_ms=round((time.monotonic() - started) * 1000))
         return self._write("update_generation_job", job["project_id"], {"job_id": job["id"], "worker_id": self.worker_id,

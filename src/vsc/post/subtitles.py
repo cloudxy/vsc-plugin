@@ -92,7 +92,7 @@ def split_by_punctuation(text):
             continue
         previous = text[index - 1] if index > 0 else ""
         following = text[index + 1] if index < len(text) - 1 else ""
-        if char in ".," and previous.isdigit() and following.isdigit():
+        if char in ".,:：" and previous.isdigit() and following.isdigit():
             current += char
         elif char in PUNCTUATIONS:
             result.append(current.strip())
@@ -173,6 +173,8 @@ def parse_srt(text, strict=False, duration=None):
             errors.append(f"SRT block {block_index}: {exc}")
     if strict and not entries and not errors:
         errors.append("SRT 没有有效字幕")
+    if strict:
+        errors.extend(check_overlaps([(begin, end, index) for index, (begin, end, _) in enumerate(entries, 1)]))
     if strict and errors:
         raise SubtitleError(errors)
     return entries
@@ -186,7 +188,7 @@ def _srt_seconds(value):
     return hours * 3600 + minutes * 60 + seconds + millis / 1000
 
 
-PHRASE = re.compile(r"[^，。！？；：、,.!?;:…]+[，。！？；：、,.!?;:…]*|[，。！？；：、,.!?;:…]+")
+PHRASE = re.compile(r"(?:\d+(?:[.,:：/]\d+)+|[^，。！？；：、,.!?;:…])+[，。！？；：、,.!?;:…]*|[，。！？；：、,.!?;:…]+")
 
 
 def _tokens(text):
@@ -215,7 +217,7 @@ def wrap_text(text, font, max_width):
         # preceding character. A character-only split can strand punctuation
         # on a line by itself even when the next line has ample room.
         units = []
-        for char in token:
+        for char in re.findall(_KEEP_TOKEN.pattern + r"|.", token):
             if char in LINE_START_PUNCTUATION and units:
                 units[-1] += char
             else:
@@ -263,8 +265,8 @@ def wrap_text(text, font, max_width):
 # ---------- B4-01：显示派生与交付前纯检查（预览/烧录/导出共用） ----------
 
 # 数字、小数、百分号、常见单位与间距标记整体保留，不因无标点化破坏语义。
-_KEEP_TOKEN = re.compile(r"\d+(?:[.,]\d+)*%?(?:多岁|多岁|余|几)?|[A-Za-z]+(?:/\d+(?:[.,]\d+)?)?")
-_DISPLAY_DROP = "，。！？；：、""''（）()【】[]《》〈〉…—·,!?;:\"'"
+_KEEP_TOKEN = re.compile(r"[+\-−]?\d+(?:[.,:：/]\d+)*(?:[%‰])?|[A-Za-z]+(?:/\d+(?:[.,]\d+)?)?")
+_DISPLAY_DROP = "，。！？；：、“”‘’（）()【】[]《》〈〉…—·,.!?;:\"'"
 
 def display_text(line):
     """显示文本：中文对白/旁白去掉句读标点，数字、单位、拉丁词整体保义（B4-01）。
@@ -273,7 +275,7 @@ def display_text(line):
     """
     if not isinstance(line, str):
         raise SubtitleError(["显示文本必须是字符串"])
-    kept, output = _KEEP_TOKEN.findall(line), []
+    output = []
     cursor = 0
     for token in _KEEP_TOKEN.finditer(line):
         output.append(line[cursor:token.start()].translate(str.maketrans("", "", _DISPLAY_DROP)))
@@ -296,13 +298,17 @@ def check_overlaps(items):
 
 
 def check_coverage(subtitle_texts, script_texts):
-    """缺字检查：每句台词的显示文本须出现在字幕显示文本整体中（空白不参与比较）。"""
+    """按原稿顺序消耗字幕文本；一次出现不能抵扣多句相同台词。"""
     corpus = re.sub(r"\s+", "", "".join(display_text(text) for text in subtitle_texts))
-    missing = []
+    missing, cursor = [], 0
     for index, text in enumerate(script_texts):
         shown = re.sub(r"\s+", "", display_text(text))
-        if shown and shown not in corpus:
-            missing.append({"index": index, "text": text, "display": shown})
+        if shown:
+            position = corpus.find(shown, cursor)
+            if position < 0:
+                missing.append({"index": index, "text": text, "display": shown})
+            else:
+                cursor = position + len(shown)
     return missing
 
 
@@ -317,3 +323,75 @@ def check_layout(text, font, max_width, max_lines=2):
     """行数/宽度纯检查（与烧录同一 wrap 规则），供预览与导出在渲染前复用。"""
     lines = wrap_text(display_text(text), font or _UnitFont(), max_width)
     return {"lines": len(lines), "ok": len(lines) <= max_lines, "rendered": lines}
+
+
+MAX_WIDTH_RATIO = 0.82
+MAX_LINES = 2
+
+
+def layout_font(style, width):
+    """Load the actual delivery font; a missing renderer is never a font pass."""
+    try:
+        from PIL import ImageFont
+        font = ImageFont.truetype(str(style["font"]), style["font_size"])
+    except (ImportError, OSError, KeyError, TypeError, ValueError) as exc:
+        raise SubtitleError(["字幕实际字体排版未验证：" + str(exc)]) from exc
+    padding = int(style["font_size"] * (0.4 if style.get("rounded") else 0.6)) if style.get("background") else 0
+    return font, max(1, int(width * MAX_WIDTH_RATIO) - 2 * padding - 2 * int(style["stroke_width"]))
+
+
+def compile_cues(items, *, duration=None, script_texts=None, font=None, max_width=None, style=None, height=None):
+    """Compile display cues without inventing or redistributing supplied timecodes.
+
+    Text coverage is optional evidence, distinct from audio alignment. None of
+    these interfaces receives adopted audio/line alignment, so it stays unverified.
+    """
+    items = list(items)
+    errors = []
+    for index, (begin, end, original) in enumerate(items, 1):
+        if any(type(value) not in (int, float) or not math.isfinite(value) for value in (begin, end)) or begin < 0 or end <= begin:
+            errors.append(f"第 {index} 条字幕时码无效")
+        elif duration is not None and end > duration + 0.001:
+            errors.append(f"第 {index} 条字幕超出成片时长")
+        if not isinstance(original, str) or not original.strip():
+            errors.append(f"第 {index} 条字幕缺少文字")
+    if errors:
+        raise SubtitleError(errors)
+    errors.extend(check_overlaps([(begin, end, index) for index, (begin, end, _) in enumerate(items, 1)]))
+    if script_texts is not None:
+        if not isinstance(script_texts, (list, tuple)) or any(not isinstance(value, str) for value in script_texts):
+            errors.append("字幕原稿必须是字符串数组")
+        else:
+            errors.extend(f"原稿第 {row['index'] + 1} 句字幕缺字或缺失：{row['display']}"
+                          for row in check_coverage([item[2] for item in items], script_texts))
+    compiled = []
+    for index, (begin, end, original) in enumerate(items, 1):
+        shown = display_text(original)
+        if not shown:
+            errors.append(f"第 {index} 条字幕显示文本为空")
+        if font is not None and max_width is not None:
+            lines = wrap_text(shown, font, max_width)
+            widths = [font.getbbox(line)[2] - font.getbbox(line)[0] for line in lines]
+            if len(lines) > MAX_LINES or any(value > max_width for value in widths):
+                errors.append(f"第 {index} 条字幕超过 {MAX_LINES} 行或安全宽度；须按真实语音停顿提供分段时码")
+            if style is not None and height is not None:
+                ascent, descent = font.getmetrics()
+                image_height = len(lines) * (ascent + descent) + max(0, len(lines) - 1) * int(style["font_size"] * .25) + 2 * int(style["font_size"] * .35) + 2 * int(style["stroke_width"])
+                if image_height > height * (1 - 2 * SAFE_MARGIN):
+                    errors.append(f"第 {index} 条字幕超出画幅安全高度；须调整已批准字体或分段时码")
+            shown = "\n".join(lines)
+        compiled.append((begin, end, shown))
+    if errors:
+        raise SubtitleError(errors)
+    return {"cues": compiled, "checks": {"timecodes": "supplied_preserved", "overlaps": "passed",
+            "text_coverage": "passed" if script_texts is not None else "not_checked",
+            "font_layout": "passed" if font is not None and max_width is not None else "not_checked",
+            "line_binding": "not_verified", "audio_alignment": "not_verified"}}
+
+
+def read_script_texts(path):
+    import json
+    value = json.loads(Path(path).read_text("utf-8"))
+    if not isinstance(value, list) or any(not isinstance(text, str) for text in value):
+        raise SubtitleError(["字幕原稿文件必须为 JSON 字符串数组"])
+    return value

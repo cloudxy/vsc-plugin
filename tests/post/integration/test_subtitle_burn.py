@@ -49,7 +49,7 @@ class RenderLayoutTest(unittest.TestCase):
     def test_long_chinese_cue_uses_two_safe_lines_without_orphan_marks(self):
         cues = self.render_cues(["这句话包含较长的前半句，接着还有一段后半句……"])
         self.assertEqual(len(cues[0]["lines"]), 2)
-        self.assertTrue(cues[0]["lines"][-1].endswith("……"))
+        self.assertEqual("".join(cues[0]["lines"]), "这句话包含较长的前半句接着还有一段后半句")
         self.assertFalse(any(line[0] in SB.subtitles.LINE_START_PUNCTUATION for line in cues[0]["lines"]))
 
     def test_paragraph_requiring_three_lines_is_rejected_with_cue_number(self):
@@ -90,6 +90,79 @@ class InputTest(unittest.TestCase):
                 SB.burn(root / "in.mp4", root / "a.srt", root / "new.mp4", dict(STYLE, position="left"))
             with self.assertRaises(SB.BurnError):
                 SB.burn(root / "in.mp4", root / "a.srt", root / "new.mp4", dict(STYLE, font=str(root / "missing.otf")))
+
+
+@unittest.skipUnless(importlib.util.find_spec("PIL") and SB.DEFAULT_FONT.is_file(), "跨消费者实际字体验证需要 Pillow 与固定字体")
+class SharedConsumerTest(unittest.TestCase):
+    def test_display_and_uneven_timecodes_reach_all_three_consumers(self):
+        from vsc.post import remotion_plan as R
+        from vsc.adapters.editors import jianying_export as J
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            style = dict(STYLE, font=str(SB.DEFAULT_FONT), font_size=60)
+            original = ["价格3.14万元！", "2:30到场；比例2:1。"]
+            entries = [(0.2, 0.8, original[0]), (1.1, 2.4, original[1])]
+            srt = root / "original.srt"
+            srt.write_text(SB.subtitles.to_srt(entries))
+            before = srt.read_bytes()
+            value = {"format": R.FORMAT, "project_id": "isolated", "composition": {
+                "id": "isolated", "width": 1080, "height": 1920, "fps": 30, "duration_in_frames": 90},
+                "subtitle_style": style, "segments": [{"id": "v", "kind": "video", "source": "input.mp4", "source_shot_id": "S", "from_frame": 0, "duration_in_frames": 90, "muted": True}] + [
+                    {"id": f"c{index}", "kind": "caption", "text": text, "from_frame": round(begin * 30), "duration_in_frames": round((end - begin) * 30)}
+                    for index, (begin, end, text) in enumerate(entries)]}
+            (root / "input.mp4").write_bytes(b"synthetic mapping fixture, not decoded media")
+            source = json.dumps(value, ensure_ascii=False)
+            captured = []
+            def renderer(command, **kwargs):
+                if "render" in command:
+                    SB.render(command[-1])
+                    captured.extend(json.loads(Path(command[-1]).read_text())["cues"])
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            with patch.object(SB, "probe_video", return_value=(1080, 1920, 3)), patch.object(SB.shutil, "which", return_value="offline-renderer"):
+                burned = SB.burn(root / "input.mp4", srt, root / "out.mp4", style, run=renderer, script_texts=original)
+            manifest = R.scaffold(value, root / "remotion", strict_subtitles=True, script_texts=original)
+            generated = json.loads((root / "remotion/src/plan.ts").read_text().split(" = ", 1)[1].strip().removesuffix(";"))
+            payload, captions, _ = J.draft_payload(value, root, script_texts=original)
+            expected = [(begin, end, SB.subtitles.display_text(text)) for begin, end, text in entries]
+            self.assertEqual([(cue["start"], cue["end"], cue["text"]) for cue in captured], expected)
+            self.assertEqual(captions, expected)
+            self.assertEqual([(s["from_frame"] / 30, (s["from_frame"] + s["duration_in_frames"]) / 30, s["text"]) for s in generated["segments"] if s["kind"] == "caption"], expected)
+            for checks in (burned["subtitle_checks"], manifest["subtitle_checks"], payload["subtitle_checks"]):
+                self.assertEqual(checks["text_coverage"], "passed")
+                self.assertEqual(checks["font_layout"], "passed")
+                self.assertEqual(checks["audio_alignment"], "not_verified")
+            self.assertEqual(srt.read_bytes(), before)
+            self.assertEqual(json.dumps(value, ensure_ascii=False), source)
+
+    def test_actual_consumers_reject_repetition_loss_overlap_and_three_lines(self):
+        from vsc.post import remotion_plan as R
+        from vsc.adapters.editors import jianying_export as J
+        cases = [("missing-repeat", [(0, 1, "好")], ["好", "好"]),
+                 ("overlap", [(0, 1, "一"), (0.5, 1.5, "二")], ["一", "二"]),
+                 ("long", [(0, 2, "字幕内容" * 30)], ["字幕内容" * 30]),
+                 ("height", [(0, 2, "好")], ["好"])]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            style = dict(STYLE, font=str(SB.DEFAULT_FONT), font_size=60)
+            (root / "input.mp4").write_bytes(b"synthetic")
+            def renderer(command, **kwargs):
+                if "render" in command:
+                    SB.render(command[-1])
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+            for label, entries, original in cases:
+                srt = root / "input.srt"
+                srt.write_text(SB.subtitles.to_srt(entries))
+                height = 50 if label == "height" else 1920
+                value = {"format": R.FORMAT, "project_id": "isolated", "composition": {
+                    "id": "isolated", "width": 1080, "height": height, "fps": 30, "duration_in_frames": 90}, "subtitle_style": style,
+                    "segments": [{"id": "v", "kind": "video", "source": "input.mp4", "source_shot_id": "S", "from_frame": 0, "duration_in_frames": 90}] + [
+                        {"id": f"c{n}", "kind": "caption", "text": text, "from_frame": round(begin * 30), "duration_in_frames": round((end - begin) * 30)} for n, (begin, end, text) in enumerate(entries)]}
+                for name, consume in [
+                    ("burn", lambda: SB.burn(root / "input.mp4", srt, root / "out.mp4", style, run=renderer, script_texts=original)),
+                    ("remotion", lambda: R.scaffold(value, root / label, strict_subtitles=True, script_texts=original)),
+                    ("jianying", lambda: J.draft_payload(value, root, script_texts=original))]:
+                    with self.subTest(case=label, consumer=name), patch.object(SB, "probe_video", return_value=(1080, height, 3)), patch.object(SB.shutil, "which", return_value="offline-renderer"), self.assertRaises((ValueError, RuntimeError)):
+                        consume()
 
 
 @unittest.skipUnless(importlib.util.find_spec("PIL") and shutil.which("ffmpeg") and SB.DEFAULT_FONT.is_file(), "离线真实烧录需要本机 Pillow、ffmpeg 与 noto-sans-sc；不安装依赖")

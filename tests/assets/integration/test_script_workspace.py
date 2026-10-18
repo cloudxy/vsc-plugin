@@ -14,7 +14,7 @@ SCREENPLAY_TYPES = ["vsc.screenplay"]
 class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
     def setUp(self):
         self.project = self.service.create_project({"name": "剧本工作区测试", "profile_snapshot": {
-            "profile_id": "vsc.synthetic-script", "version": "1", "dependency_policy": "previous_stage",
+            "profile_id": "vsc.synthetic-script", "version": "1", "dependency_policy": "previous_stage", "scope_required_from": "script",
             "stages": [{"id": "script", "required": ["screenplay", "vsc.screenplay"]},
                        {"id": "design", "required": ["asset-bible"]},
                        {"id": "animatic", "required": ["animatic"]}]}}, actor="test-human")
@@ -43,6 +43,182 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         draft = self.service.get_script_draft(self.p, self.episode)
         self.assertEqual((draft["phase"], draft["draft_revision"]), ("editing", 2))
         self.assertEqual(draft["content"]["scenes"][0]["dialogue"][0]["text"], "明天再来")
+
+    def test_suggestion_requires_original_revision_and_verified_before(self):
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "content": self.draft_document()}, actor="editor")
+        payload = {"scope_key": self.episode, "base_draft_revision": 1, "scene_id": "SC1", "line_id": "L1",
+                   "kind": "dialogue", "field": "text", "before_value": "伪造原值", "after_value": "建议", "reason": "test"}
+        with self.assertRaises(ResourceError) as caught:
+            self.write("add_script_suggestion", payload)
+        self.assertEqual(caught.exception.code, "suggestion_before_mismatch")
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "base_draft_revision": 1,
+                                               "content": self.draft_document("较新稿")}, actor="editor")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("add_script_suggestion", dict(payload, before_value="今晚我等你"))
+        self.assertEqual(caught.exception.code, "suggestion_stale")
+
+    def test_working_copy_does_not_inherit_frozen_approval(self):
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "content": self.draft_document()}, actor="editor")
+        submitted = self.write("submit_script_draft", {"scope_key": self.episode, "base_draft_revision": 1,
+                                                       "artifact_type": "screenplay"})["artifact"]
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "base_draft_revision": 1,
+                                               "content": self.draft_document("另一个工作副本")}, actor="editor")
+        self.write("decide_artifact", {"artifact_id": submitted["id"], "reason": "approved frozen version"})
+        draft = self.service.get_script_draft(self.p, self.episode)
+        self.assertEqual(draft["phase"], "editing")
+        self.assertEqual(draft["submitted"]["state"], "approved")
+        self.assertFalse(draft["submitted"]["matches_draft"])
+
+    def confirmed_job_payload(self):
+        original = self.write("create_artifact", {"artifact_key": "script", "artifact_type": "screenplay",
+            "document": self.draft_document(), "object_ids": [self.episode]})
+        self.write("decide_artifact", {"artifact_id": original["id"], "reason": "baseline"})
+        canonical = self.write("create_artifact", {"artifact_key": "canonical-script", "artifact_type": "vsc.screenplay",
+            "document": {"format": "vsc.screenplay/v1", "project_id": self.p, "scope": self.episode,
+                "body": "Synthetic fixed screenplay", "adaptation_refs": [{"id": "SYNTHETIC", "sha256": "0" * 64}],
+                "scenes": [{"id": self.objects["scene"], "estimated_duration_ms": 1000,
+                    "actions": [{"id": "A1", "text": "Synthetic action", "narrative_refs": ["N1"]}], "dialogue": [], "silence": []}]},
+            "object_ids": [self.episode]})
+        self.write("decide_artifact", {"artifact_id": canonical["id"], "reason": "Synthetic canonical script approval"})
+        design = self.write("create_artifact", {"artifact_key": "gate-design", "artifact_type": "asset-bible",
+            "document": {"synthetic": True}, "object_ids": [self.episode], "dependency_ids": [original["id"], canonical["id"]]})
+        self.write("decide_artifact", {"artifact_id": design["id"], "reason": "Synthetic design approval"})
+        animatic = self.write("create_artifact", {"artifact_key": "gate-animatic", "artifact_type": "animatic",
+            "document": {"synthetic": True}, "object_ids": [self.episode], "dependency_ids": [design["id"]]})
+        self.write("decide_artifact", {"artifact_id": animatic["id"], "reason": "Synthetic animatic approval"})
+        self.artifact(objects=[self.objects["shot"]])
+        self.artifact("state", "scene-state", [self.objects["scene"]], {"state_versions": [{"scene_id": self.objects["scene"]}]})
+        first = self.media("script gate first frame")
+        self.select(self.candidate(self.objects["shot"], first))
+        from vsc.project.pg_workflow import check_gate
+        gate = check_gate(self.service, self.p, "animatic", scope=self.episode)
+        self.assertTrue(gate["passed"], gate["gaps"])
+        request = {"prompt": "Synthetic fixed shot", "first_frame_media_id": first}
+        run = self.production_run(self.objects["shot"], request, candidate_count=4)
+        provider = "script_gate_" + uuid.uuid4().hex
+        self.service.register_provider({"id": provider, "base_url": "https://example.invalid", "auth_ref": "OFFLINE_TEST_KEY"}, actor="fixture-admin")
+        model = self.service.register_model({"provider_id": provider, "model_key": "offline", "model_version": "1", "modality": "video",
+            "capabilities": {"purposes": ["video_clip"], "first_frame": True}}, actor="fixture-admin")
+        context = self.service.compile_shot_context(self.p, self.objects["shot"], purpose="video_clip")
+        payload = {"run_version_id": run, "shot_id": self.objects["shot"], "purpose": "video_clip", "modality": "video",
+            "model_id": model["id"], "context_sha256": context["sha256"], "request_payload": request}
+        return payload
+
+    def test_cli_pending_script_stops_create_claim_first_submit_but_keeps_inflight(self):
+        payload = self.confirmed_job_payload()
+        inflight = self.write("create_generation_job", dict(payload, candidate_no=0))
+        lease = self.service.claim_generation_job("old-worker", project_id=self.p)
+        self.rev = lease["revision"]
+        self.write("mark_submission_started", {"job_id": inflight["id"], "worker_id": "old-worker"})
+        self.write("update_generation_job", {"job_id": inflight["id"], "worker_id": "old-worker", "status": "submitted",
+            "external_task_id": "fixed-existing-provider-task", "recovery_evidence": {"source": "offline receipt"}})
+        before_pending = self.write("create_generation_job", dict(payload, candidate_no=1))
+        claimed = self.service.claim_generation_job("new-worker", project_id=self.p)
+        self.rev = claimed["revision"]
+        self.assertEqual(claimed["id"], before_pending["id"])
+        self.write("create_generation_job", dict(payload, candidate_no=2))
+        revision = self.write("create_artifact", {"artifact_key": "cli-other-key", "artifact_type": "screenplay",
+            "document": self.draft_document("New CLI candidate"), "object_ids": [self.episode]})
+        for method, args in (("create_generation_job", dict(payload, candidate_no=3)),
+                             ("mark_submission_started", {"job_id": before_pending["id"], "worker_id": "new-worker"})):
+            with self.assertRaises(ResourceError) as caught:
+                self.write(method, args)
+            self.assertEqual(caught.exception.code, "script_revision_pending")
+        with self.assertRaises(ResourceError) as caught:
+            self.service.claim_generation_job("blocked-worker", project_id=self.p)
+        self.assertEqual(caught.exception.code, "script_revision_pending")
+        resumed = self.service.claim_generation_job("poll-worker", project_id=self.p, statuses=("submitted", "running"))
+        self.rev = resumed["revision"]
+        self.assertEqual(resumed["id"], inflight["id"])
+        self.assertEqual((resumed["status"], resumed["attempt"], resumed["external_task_id"]),
+                         ("submitted", 1, "fixed-existing-provider-task"))
+        self.write("decide_artifact", {"artifact_id": revision["id"], "outcome": "reject", "reason": "closed candidate"})
+        self.assertIsNotNone(self.service.claim_generation_job("restored-worker", project_id=self.p))
+
+    def test_global_claim_skips_blocked_project_and_preserves_inflight_recovery(self):
+        fixtures = []
+        for number in range(2):
+            if number:
+                self.setUp()
+            payload = self.confirmed_job_payload()
+            inflight = self.write("create_generation_job", dict(payload, candidate_no=0))
+            lease = self.service.claim_generation_job("submit-worker", project_id=self.p)
+            self.rev = lease["revision"]
+            self.write("mark_submission_started", {"job_id": inflight["id"], "worker_id": "submit-worker"})
+            external = "fixed-task-" + self.p
+            self.write("update_generation_job", {"job_id": inflight["id"], "worker_id": "submit-worker", "status": "submitted",
+                "external_task_id": external, "recovery_evidence": {"source": "offline receipt"}})
+            created = self.write("create_generation_job", dict(payload, candidate_no=1))
+            fixtures.append({"project": self.project, "objects": self.objects, "episode": self.episode,
+                             "inflight": inflight["id"], "created": created["id"], "external": external,
+                             "input_versions": self.service.get_generation_job(self.p, inflight["id"])["input_versions"]})
+        blocked, ready = sorted(fixtures, key=lambda item: item["project"]["id"])
+        self.project, self.objects, self.episode = blocked["project"], blocked["objects"], blocked["episode"]
+        self.p = self.project["id"]
+        self.rev = self.service.get_project(self.p)["revision"]
+        revision = self.write("create_artifact", {"artifact_key": "script", "artifact_type": "screenplay",
+            "document": self.draft_document("Pending lower-ID project revision"), "object_ids": [self.episode]})
+        with self.assertRaises(ResourceError) as caught:
+            self.service.claim_generation_job("explicit-blocked-worker", project_id=self.p)
+        self.assertEqual(caught.exception.code, "script_revision_pending")
+        # The lower project remains first in the real queue. A global worker
+        # must still reach the ready project instead of raising forever.
+        claimed = self.service.claim_generation_job("global-create-worker")
+        self.assertEqual((claimed["project_id"], claimed["id"]), (ready["project"]["id"], ready["created"]))
+        untouched = self.service.get_generation_job(self.p, blocked["created"])
+        self.assertEqual((untouched["status"], untouched["attempt"], untouched["claim_owner"]), ("created", 0, None))
+        self.assertIsNone(self.service.claim_generation_job("global-no-ready-worker"))
+        # Existing provider work in the blocked project keeps its original
+        # external receipt and pinned inputs; polling does not resubmit it.
+        resumed = self.service.claim_generation_job("global-poll-worker", statuses=("submitted", "running"))
+        self.assertEqual((resumed["project_id"], resumed["id"], resumed["attempt"], resumed["external_task_id"]),
+                         (self.p, blocked["inflight"], 1, blocked["external"]))
+        self.assertEqual(resumed["input_versions"], blocked["input_versions"])
+        self.rev = self.service.get_project(self.p)["revision"]
+        self.write("decide_artifact", {"artifact_id": revision["id"], "outcome": "reject", "reason": "Close pending revision"})
+        unblocked = self.service.claim_generation_job("global-after-decision-worker")
+        self.assertEqual((unblocked["project_id"], unblocked["id"]), (self.p, blocked["created"]))
+
+    def test_cli_pending_revision_blocks_new_work_and_cannot_change_stream_scope(self):
+        other = self.write("create_object", {"kind": "episode", "display_code": "EP2", "parent_id": self.objects["work"], "ordinal": 1})["id"]
+        original = self.write("create_artifact", {"artifact_key": "script-ab", "artifact_type": "screenplay",
+            "document": self.draft_document(), "object_ids": [self.episode, other]})
+        self.write("decide_artifact", {"artifact_id": original["id"], "reason": "baseline"})
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "content": self.draft_document("new")}, actor="editor")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("submit_script_draft", {"scope_key": self.episode, "base_draft_revision": 1,
+                "artifact_type": "screenplay", "artifact_key": "escape"})
+        self.assertIn(caught.exception.code, {"script_stream_mismatch", "script_scope_change_required"})
+        with self.assertRaises(ResourceError) as caught:
+            self.write("submit_script_draft", {"scope_key": self.episode, "base_draft_revision": 1, "artifact_type": "screenplay"})
+        self.assertEqual(caught.exception.code, "script_scope_change_required")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("create_artifact", {"artifact_key": "script-ab", "artifact_type": "screenplay",
+                "document": self.draft_document("narrowed CLI"), "object_ids": [self.episode]})
+        self.assertEqual(caught.exception.code, "script_scope_change_required")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("create_artifact", {"artifact_key": "script-ab", "artifact_type": "asset-bible",
+                "document": {"synthetic": True}, "object_ids": [self.episode, other]})
+        self.assertEqual(caught.exception.code, "script_scope_change_required")
+        pending = self.write("create_artifact", {"artifact_key": "script-ab", "artifact_type": "screenplay",
+            "document": self.draft_document("revision"), "object_ids": [self.episode, other]})
+        with self.assertRaises(ResourceError) as caught:
+            self.write("create_artifact", self.bible_payload())
+        self.assertEqual(caught.exception.code, "script_revision_pending")
+        self.write("decide_artifact", {"artifact_id": pending["id"], "outcome": "reject", "reason": "closed"})
+        self.assertTrue(self.write("create_artifact", self.bible_payload())["id"])
+
+    def test_cli_pending_other_scope_is_not_a_project_stop(self):
+        other = self.write("create_object", {"kind": "episode", "display_code": "EP2", "parent_id": self.objects["work"], "ordinal": 1})["id"]
+        for scope in (self.episode, other):
+            row = self.write("create_artifact", {"artifact_key": "script-" + scope, "artifact_type": "screenplay",
+                "document": self.draft_document(), "object_ids": [scope]})
+            self.write("decide_artifact", {"artifact_id": row["id"], "reason": "baseline"})
+        pending = self.write("create_artifact", {"artifact_key": "script-" + self.episode, "artifact_type": "screenplay",
+            "document": self.draft_document("pending"), "object_ids": [self.episode]})
+        self.assertTrue(self.write("create_artifact", {"artifact_key": "unrelated", "artifact_type": "asset-bible",
+            "document": {"synthetic": True}, "object_ids": [other]})["id"])
+        self.write("decide_artifact", {"artifact_id": pending["id"], "outcome": "reject", "reason": "close"})
 
     def test_stale_revision_conflict_keeps_latest(self):
         self.service.save_script_draft(self.p, {"scope_key": self.episode, "base_draft_revision": 0,
@@ -103,6 +279,20 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual((row["status"], row["decision"]["outcome"]), ("resolved", "resolve"))
         self.write("decide_script_note", {"note_id": note["id"], "outcome": "reopen", "reason": "复看后仍不稳"})
         self.assertEqual(self.service.get_script_draft(self.p, self.episode)["notes"][0]["status"], "open")
+
+    def test_notes_keep_exact_saved_baseline_and_reject_stale_note_start(self):
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "content": self.draft_document()}, actor="editor")
+        frozen = self.write("submit_script_draft", {"scope_key": self.episode, "base_draft_revision": 1, "artifact_type": "screenplay"})["artifact"]
+        note = self.write("add_script_note", {"scope_key": self.episode, "base_draft_revision": 1, "scene_id": "SC1", "line_id": "L1", "body": "Saved version comment"})
+        self.assertEqual(note["base_artifact_id"], frozen["id"])
+        self.assertEqual(note["base_draft_revision"], 1)
+        self.assertEqual(len(note["base_content_sha256"]), 64)
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "base_draft_revision": 1, "content": self.draft_document("New working copy")}, actor="editor")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("add_script_note", {"scope_key": self.episode, "base_draft_revision": 1, "scene_id": "SC1", "body": "Stale comment"})
+        self.assertEqual(caught.exception.code, "draft_revision_conflict")
+        saved_note = self.service.get_script_draft(self.p, self.episode)["notes"][0]
+        self.assertEqual((saved_note["base_draft_revision"], saved_note["base_artifact_id"]), (1, frozen["id"]))
 
     def test_hard_stop_closes_bypasses_and_pending_revision(self):
         episode_a = self.objects["episode"]
@@ -207,12 +397,13 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         # 批注范围：两集互不串扰（F07/B1-08）
         other = self.write("create_object", {"kind": "episode", "display_code": "EP2",
                                              "parent_id": self.objects["work"], "ordinal": 1})["id"]
-        note_a = self.write("add_script_note", {"scope_key": episode, "scene_id": "SC1", "line_id": "L1", "body": "口语化"})
+        note_a = self.write("add_script_note", {"scope_key": episode, "base_draft_revision": 1, "scene_id": "SC1", "line_id": "L1", "body": "口语化"})
         self.write("add_script_note", {"scope_key": other, "scene_id": "SC1", "line_id": "L1", "body": "另一集的批注"})
         notes = self.service.get_script_draft(self.p, episode)["notes"]
         self.assertEqual([row["id"] for row in notes], [note_a["id"]])  # 只见本范围批注
         # 建议：接受逐处应用并推进修订；过期建议不能覆盖较新编辑
         suggestion = self.write("add_script_suggestion", {"scope_key": episode, "scene_id": "SC1",
+            "base_draft_revision": 1,
             "line_id": "L1", "kind": "dialogue", "field": "text", "before_value": "今晚我等你",
             "after_value": "今晚我等你，不见不散", "reason": "更贴合挽留语气", "origin": "ai"})
         accepted = self.write("decide_script_suggestion", {"scope_key": episode,
@@ -229,6 +420,7 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(draft["draft_revision"], undone["draft_revision"])
         # 过期建议：基于旧修订，接受被拒
         stale = self.write("add_script_suggestion", {"scope_key": episode, "scene_id": "SC1",
+            "base_draft_revision": draft["draft_revision"],
             "line_id": "L1", "kind": "dialogue", "field": "text", "before_value": "今晚我等你",
             "after_value": "过期建议", "reason": "基于旧稿"})
         self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": draft["draft_revision"],
@@ -283,6 +475,88 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
 
 API_DEPS = HAS_DB_DEPS and TEST_URL and all(importlib.util.find_spec(name)
                                             for name in ("fastapi", "httpx"))
+
+
+@unittest.skipUnless(HAS_DB_DEPS and TEST_URL, "requires explicit PostgreSQL URL")
+class RealProfileScriptWorkspace(ResourceStoreFixture, unittest.TestCase):
+    def test_blank_draft_real_profiles_pin_approved_upstream_and_trusted_scope(self):
+        import json
+        from support.paths import ROOT
+        from vsc.project.state import profile_for
+        for profile_id in ("vsc.light-short", "vsc.series-pg"):
+            with self.subTest(profile=profile_id):
+                profile = profile_for(profile_id)
+                self.project = self.service.create_project({"name": "isolated real profile fixture", "profile_snapshot": profile}, actor="fixture-human")
+                self.p, self.rev = self.project["id"], 0
+                self.objects = self.hierarchy()
+                episode = self.objects["episode"]
+                context = self.service.get_script_draft(self.p, episode)["submission_context"]
+                expected = ["vsc.adaptation_plan"] + (["vsc.episode_beats"] if profile_id == "vsc.series-pg" else [])
+                self.assertEqual(context["missing_dependency_types"], expected)
+                document = {"format": "vsc.screenplay/v1", "body": "Synthetic working copy", "adaptation_refs": [],
+                    "scenes": [{"id": self.objects["scene"], "estimated_duration_ms": 1000,
+                                "actions": [{"id": "A1", "text": "Synthetic action", "narrative_refs": ["SC-001"]}],
+                                "dialogue": [], "silence": []}]}
+                # No project_id/scope are supplied by the browser. Those fields
+                # are server authority; source/body fields remain user content.
+                self.service.save_script_draft(self.p, {"scope_key": episode, "content": document}, actor="fixture-human")
+                with self.assertRaises(ResourceError):
+                    self.write("submit_script_draft", {"scope_key": episode, "base_draft_revision": 1,
+                        "artifact_type": "vsc.screenplay", "dependency_ids": []})
+                pins = {}
+                for stage in profile["stages"][:3]:
+                    for kind in stage.get("required", []):
+                        if kind == "vsc.creative_brief":
+                            body = {"format": "vsc.creative-brief/v1", "audience": "Fixture audience",
+                                "desired_experience": "Synthetic clarity", "decision_owner": "fixture-human",
+                                "objectives": [{"id": "clarity", "goal": "Synthetic goal", "success_evidence": "Fixture check"}],
+                                "nonnegotiables": [], "conflict_policy": "Fixture human decides"}
+                        elif kind in {"vsc.adaptation_contract", "vsc.story_bible"}:
+                            body = "Synthetic fixed upstream evidence"
+                        else:
+                            filename = {"vsc.source_map": "source-map", "vsc.adaptation_plan": "adaptation-map", "vsc.episode_beats": "episode-beats"}[kind]
+                            body = json.loads((ROOT / "templates" / (filename + ".json")).read_text())
+                            if kind == "vsc.source_map":
+                                body["summary"] = "Synthetic source summary"
+                                body["source_units"][0].update(fact_or_claim="Synthetic source fact", narrative_function="Establish action")
+                            elif kind == "vsc.adaptation_plan":
+                                body["project_id"] = self.p
+                                body["episodes"][0]["id"] = episode
+                                body["screen_units"][0].update(episode_id=episode, scene_id=self.objects["scene"])
+                            elif kind == "vsc.episode_beats":
+                                body["episodes"][0].update(id=episode, ending="Synthetic closure")
+                                body["episodes"][0]["beats"][0].update(action="Synthetic action", change="Action changes", screen_unit_ids=["SC-001"])
+                        from vsc.assets.resource_service import dependency_requirements
+                        requirements, _ = dependency_requirements(profile, kind)
+                        deps = [pins[value]["id"] for value in requirements]
+                        row = self.write("create_artifact", {"artifact_key": kind, "artifact_type": kind, "stage": "forged-stage",
+                            "document": body, "project_wide": True, "dependency_ids": deps})
+                        self.write("decide_artifact", {"artifact_id": row["id"], "reason": "Synthetic human fixture decision"})
+                        pins[kind] = row
+                context = self.service.get_script_draft(self.p, episode)["submission_context"]
+                self.assertEqual(context["missing_dependency_types"], [])
+                self.assertEqual({row["artifact_type"] for row in context["dependencies"]}, set(expected))
+                self.assertEqual(set(context["dependency_ids"]), {pins[kind]["id"] for kind in expected})
+                document["adaptation_refs"] = [{"id": pins["vsc.adaptation_plan"]["id"], "sha256": pins["vsc.adaptation_plan"]["sha256"]}]
+                self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": 1, "content": document}, actor="fixture-human")
+                # CLI stage spoof cannot bypass requirements on approval.
+                forged = self.write("create_artifact", {"artifact_key": "cli-no-deps", "artifact_type": "vsc.screenplay", "stage": "brief",
+                    "object_ids": [episode], "document": dict(document, project_id=self.p, scope=episode)})
+                self.assertEqual(self.service.get_artifact_version(self.p, forged["id"])["stage"], "script")
+                with self.assertRaises(ResourceError) as caught:
+                    self.write("decide_artifact", {"artifact_id": forged["id"], "reason": "Must be blocked"})
+                self.assertEqual(caught.exception.code, "artifact_dependency_required")
+                self.write("decide_artifact", {"artifact_id": forged["id"], "outcome": "reject", "reason": "Close fixture"})
+                submitted = self.write("submit_script_draft", {"scope_key": episode, "base_draft_revision": 2,
+                    "artifact_type": context["artifact_type"], "stage": "brief", "dependency_ids": context["dependency_ids"]})["artifact"]
+                frozen = self.service.get_artifact_version(self.p, submitted["id"])
+                frozen_document = json.loads(frozen["content"])
+                self.assertEqual(frozen_document["project_id"], self.p)
+                self.assertEqual(frozen_document["scope"], episode)
+                self.write("decide_artifact", {"artifact_id": submitted["id"], "reason": "Approve exact frozen fixture"})
+                draft = self.service.get_script_draft(self.p, episode)
+                self.assertEqual(draft["phase"], "approved")
+                self.assertTrue(draft["submitted"]["matches_draft"])
 
 
 @unittest.skipUnless(API_DEPS, "requires explicit PostgreSQL test URL and web dependencies")

@@ -222,7 +222,8 @@ def resume_job(project, job_id, adapter=None, download=None):
     if job["status"] not in ("submitted", "running") or not job["external_task_id"]:
         raise SeriesError("此任务没有可安全续查的外部编号；未知提交须人工对账")
     adapter = adapter or jobs.adapter_for_job(project, job_id)
-    handle = JobHandle(job["provider"], job["model"], job["external_task_id"])
+    handle = JobHandle(job["provider"], job["model"], job["external_task_id"],
+                       json.loads(job.get("raw_response") or "{}").get("raw", {}))
     return _handle_status(project, job_id, adapter.poll(handle), adapter, download)
 
 

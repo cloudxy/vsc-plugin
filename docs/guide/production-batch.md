@@ -1,6 +1,6 @@
-# 豆包原生批量生产
+# 本地供应商批量生产
 
-`scripts/production/plan.py` 将已有 `scripts/providers/volcengine/ark.py image/video` 串行为有依赖、预算上界和中断恢复的本地队列。只支持火山方舟 Seedream、Seedance；不会接入阿里或其他供应商，不运行 JSON 中的 shell，不修改创作批准、素材选择或项目状态。批量生产只产生候选；依赖前一候选的尾帧也不等于批准该候选。
+`scripts/production/plan.py` 将已有 `scripts/providers/volcengine/ark.py image/video` 串行为有依赖、预算上界和中断恢复的本地队列。支持火山方舟Seedream、Seedance及Grok订阅登录路线；Grok的图像/视频/编辑/续接分别用`grok_image/grok_video/grok_edit/grok_extend`，不运行 JSON 中的 shell，不修改创作批准、素材选择或项目状态。批量生产只产生候选；依赖前一候选的尾帧也不等于批准该候选。
 
 ## 创建与执行
 
@@ -20,7 +20,7 @@ python3 -B scripts/production/plan.py run projects/作品/production-batch.json 
 python3 -B scripts/production/plan.py status projects/作品/production-batch.json --project projects/作品
 ```
 
-`run` 不带 `--execute` 时仅输出计划。显式执行同时要求当前计划的 hash；hash 是请求绑定凭证，不是人工创作批准。平台密钥仍由原方舟适配器从环境读取，队列不保存密钥。执行前确保生成供应商已配置并具备调用授权。
+`run` 不带 `--execute` 时仅输出计划。显式执行同时要求当前计划的 hash；hash 是请求绑定凭证，不是人工创作批准。方舟凭证由适配器从环境读取；Grok使用本机CLI订阅登录态，稳定账号与token分开识别，队列不保存凭证。执行前确保生成供应商已配置并具备调用授权。
 
 ## 输入与参数
 
@@ -69,3 +69,7 @@ python3 -B tests/run.py --test production.integration.test_vsc_production
 ## v0.12.0 制作交接
 
 新项目使用固定 production-v2 Profile，旧项目保留历史规则。正式运行、共享预算、交接契约与迁移操作以 [v2 指南](../guide/production-v2.md) 为准；旧低层命令不再作为新项目的直接付费执行入口。
+
+Grok批次每个逻辑候选固定一份输出。视频`voice_id`是平台声音身份列表，`keyframe`按固定图片及秒数编译；编辑预算依据实测源片，续接预算依据新增长度。PG资源队列尚无编辑/续接源媒体协议，不能把batch支持推导为PG加工支持。
+
+`preview`与实际run共用绑定、产物和恢复判定；unknown没有回执时显示核查，计划/字节漂移显示阻断，预计新增用量只统计execute项。显式新抽样使用新的固定任务身份，不能用同一任务十次恢复声称十次新抽样减量。

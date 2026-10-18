@@ -9,7 +9,7 @@
           [--ratio R] [--no-audio] [--bible B --state S] [--model M] [--resolution 480p] [--duration 6]
           [--dry-run] [--max-polls N] [--deadline-seconds S] [--poll-interval S]
   edit   --project P --out DIR --name N --shot S --video V (--prompt T | --prompt-file F) [--dry-run ...]
-  extend --project P --out DIR --name N --shot S --video V [--prompt T] [--dry-run ...]
+  extend --project P --out DIR --name N --shot S --video V --prompt T [--duration 6] [--dry-run ...]
 
 X 是本地图片文件或 https 链接；本地图以 data URI 提交。图像：无 --ref 走文生图；带 --ref（≤5）
 走 /v1/images/edits 局部编辑或多图合成，提示词只写要改的内容。视频按官方模式组装：--first-frame
@@ -17,7 +17,7 @@ X 是本地图片文件或 https 链接；本地图以 data URI 提交。图像�
 考图从 <IMAGE_1> 起编号）；--last-frame 钉定尾帧（可与首帧或参考同用）；--keyframe（≤4，1.5 系列）
 钉中段帧；--voice-id（≤3）平台预置声音，提示词用 <AUDIO_n> 指位；--no-audio 请求无声视频；都不给
 则纯文生视频。参考模式分辨率最高 720p。图生视频默认画幅跟随源图，参考／文生模式可用 --ratio 显式
-指定。edit／extend 对既有视频做编辑或从结尾续接（输出跟随输入，不可改时长／分辨率／画幅；编辑上限
+指定。edit／extend 对既有视频做编辑或从结尾续接（输出分辨率／画幅跟随输入；extend 用 --duration 指定新增秒数；编辑上限
 约 8.7s、720p）。
 
 密钥只从 grok CLI 订阅登录态（~/.grok/auth.json 的 key）读取，不打印、不落盘；找不到时提示
@@ -39,7 +39,6 @@ import math
 import mimetypes
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import time
@@ -58,7 +57,7 @@ IMAGE_MODEL = "grok-imagine-image-2.0"
 VIDEO_MODEL = "grok-imagine-video-1.5"
 EDIT_MODEL = "grok-imagine-video"  # 官方：视频编辑/续接由经典模型承担（1.5 返回不支持）
 PROVIDER = "xai_grok"
-ASPECT_RATIOS = ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto")
+ASPECT_RATIOS = spec.ASPECT_RATIOS
 IMAGE_RESOLUTIONS = ("1k", "2k")
 VIDEO_RESOLUTIONS = ("480p", "720p", "1080p")
 MIN_DURATION, MAX_DURATION = 1, 15
@@ -354,6 +353,8 @@ def semantic_payload(payload, media_inputs):
 
     if isinstance(normalized.get("image"), dict):
         swap(normalized["image"])
+    for holder in normalized.get("images") or []:
+        swap(holder)
     if isinstance(normalized.get("last_frame"), dict):
         swap(normalized["last_frame"])
     for holder in normalized.get("reference_images") or []:
@@ -396,547 +397,10 @@ def checked_outputs(record, project):
         path = project_path(project, item["path"])
         if not path.is_file() or sha256(path) != item.get("sha256"):
             return False
-    return bool(record.get("outputs"))
-
-
-def generation_task(out, args, record, payload, targets, semantic=None):
-    task_file, record_file = out / f"{args.name}-任务.json", out / f"{args.name}-生成记录.json"
-    for path in [task_file, record_file, *targets]:
-        if path.is_symlink():
-            raise GrokError(f"生成输出不能是符号链接：{path.name}")
-    binding = request_binding(record, payload, semantic)
-    if task_file.exists():
-        task = json.loads(task_file.read_text("utf-8"))
-        if not isinstance(task, dict):
-            raise GrokError("任务文件无效，不能安全续接")
-        saved_binding = task.get("binding")
-        same_semantics = (isinstance(saved_binding, dict) and saved_binding.get("semantic_payload_sha256")
-                          and {key: value for key, value in saved_binding.items() if key != "payload_sha256"}
-                          == {key: value for key, value in binding.items() if key != "payload_sha256"})
-        if saved_binding != binding and not same_semantics:
-            raise GrokError("同名任务的输入或请求参数已改变；请使用新的 --name，不能把新输入记到旧任务")
-        saved = task.get("record")
-        if not isinstance(saved, dict) or any(saved.get(key) != record.get(key) for key in ("project_id", "kind", "purpose", "shot_id", "inputs")):
-            raise GrokError("任务文件缺少原始生成记录，不能安全续接")
-        engine = saved.get("engine", {})
-        if (not isinstance(engine, dict) or engine.get("provider") != PROVIDER or engine.get("model") != record["engine"]["model"]
-                or not isinstance(engine.get("params"), dict)
-                or {key: value for key, value in engine["params"].items() if key != "actual"} != record["engine"]["params"]):
-            raise GrokError("任务文件的原始模型或参数与绑定不符，不能安全续接")
-        if record["kind"] == "video" and (not isinstance(task.get("id"), str) or not consistency.SAFE_ID.fullmatch(task["id"])):
-            reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交状态未知，任务文件缺少有效远程编号"
-            raise GrokError(reason + "；不能自动重提，请先人工核查平台任务与账单")
-        if task.get("credential_sha256"):
-            identity = grok_credentials.account_id() or api_key()
-            if task["credential_sha256"] != hashlib.sha256(identity.encode()).hexdigest():
-                raise GrokError("当前登录账号与原任务提交账号不一致；请用原账号续查或下载，不能自动重提（token 刷新不影响同账号续查）")
-        return task_file, task
-    if any(path.exists() for path in [record_file, *targets]):
-        raise GrokError(f"同名输出或生成记录已存在：{args.name}；请使用新的 --name")
-    return task_file, {"format": "vsc.grok-task/v1", "binding": binding, "record": record}
-
-
-def submit_once(task_file, task, path, payload, out, args):
-    """提交意图先持久化；进程退出或响应丢失时不能靠重跑再次扣费。"""
-    if task_file.exists():
-        reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交结果未知"
-        raise GrokError(reason + "；不能自动重提，请先人工核查平台任务与账单")
-    base_url()
-    key = api_key()  # 本地缺登录态不留下可能已提交的凭证。
-    check_budget_authorization(args, task["record"]["kind"])
-    record = task["record"]
-    record.update(finished_at=stamp(now()), errors=[],
-                  budget={"billable": True, "usage": {"note": "提交意图已记录；结果未知，可能计费，须核对平台账单"}})
-    identity = grok_credentials.account_id() or key
-    task.update(submission_state="intent", submitted_at=stamp(now()), credential_sha256=hashlib.sha256(identity.encode()).hexdigest())
-    write_json(task_file, task)
-    write_record(out, args.name, record)
-    try:
-        result = call(path, payload)
-    except BaseException as exc:
-        rejected = isinstance(exc, GrokHTTPError) and 400 <= exc.status_code < 500
-        task["submission_state"] = "rejected" if rejected else "unknown"
-        record.update(finished_at=stamp(now()), errors=[{"error": str(exc) or type(exc).__name__, "stage": "submission"}],
-                      budget={"billable": False} if rejected else
-                      {"billable": True, "usage": {"note": "提交结果未知，可能计费；不能自动重提，须核对平台任务和账单"}})
-        write_json(task_file, task)
-        write_record(out, args.name, record)
-        raise
-    task.update(submission_state="responded", submission=result)
-    if isinstance(result, dict):
-        if record["kind"] == "image":
-            task.update(result=result, generated_at=stamp(generated_at(result, now())))
-        else:
-            identifier = result.get("request_id")
-            if isinstance(identifier, str) and consistency.SAFE_ID.fullmatch(identifier):
-                task["id"] = identifier
-                record["engine"]["task_id"] = identifier
-    # 原始响应先落盘，后续解析异常也不能丢失提交证据。
-    write_json(task_file, task)
-    return result
-
-
-def check_budget_authorization(args, operation):
-    """正式运行在付费 POST 前核对共享预算；查询／下载不重新预留。"""
-    try:
-        from vsc.production import budget as vsc_budget
-    except ImportError:
-        state = json.loads((Path(args.project) / "vsc.json").read_text("utf-8"))
-        if state.get("profile_snapshot", {}).get("contract_policy") == "production-v2":
-            raise GrokError("正式运行缺少预算授权模块，不能提交付费请求") from None
-        return
-    try:
-        required = ({"remote_jobs": 1, "images": getattr(args, "count", 1)} if operation == "image"
-                    else {"remote_jobs": 1, "video_seconds": getattr(args, "duration", 9)})
-        vsc_budget.check_authorization(args.project, getattr(args, "budget_reservation", None),
-                                       f"{operation}:{args.out}/{args.name}", required, request=vars(args))
-    except (ValueError, RuntimeError) as exc:
-        raise GrokError(f"预算授权无效：{exc}") from None
-
-
-def remote_success(record, result):
-    record.update(finished_at=stamp(now()), status="failed", errors=[],
-                  budget={"billable": True, "usage": result.get("usage") or {"note": "平台未返回用量"}})
-
-
-def generated_at(result, fallback):
-    """信任期限从供应商生成时间起算；缺省才用首次成功查询时间。"""
-    for key in ("generated_at", "finished_at", "created", "created_at"):
-        value = result.get(key)
-        try:
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                return datetime.datetime.fromtimestamp(value, datetime.timezone.utc)
-            if isinstance(value, str):
-                parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-                if parsed.tzinfo is not None:
-                    return parsed
-        except (ValueError, OverflowError, OSError):
-            continue
-    return fallback
-
-
-def verify_media(path):
-    """F12：下载结果在记为成功前完整探测；HTML／截断文件不能当媒体（坏文件删除以便续接重下）。"""
-    if media_type(path).startswith("image/"):
-        return  # 图像已按魔数嗅探扩展名
-    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                            "-of", "csv=p=0", str(path)], capture_output=True, text=True)
-    if probe.returncode != 0 or not probe.stdout.strip():
-        path.unlink(missing_ok=True)
-        raise GrokError(f"下载结果不是可解码媒体：{Path(path).name}；已删除坏文件，相同命令可重新下载")
-
-
-def download_video_output(url, target, record, args, metadata):
-    expected = next((item for item in record["outputs"] if item.get("id") == metadata["id"]), None)
-    if target.exists():
-        if expected and target.is_file() and sha256(target) == expected.get("sha256"):
-            return
-        raise GrokError(f"本地产物已存在但无法核实，拒绝覆盖：{target.name}")
-    download(url, target)
-    verify_media(target)
-    record["outputs"].append({**metadata, "path": str(target.relative_to(Path(args.project).resolve())), "sha256": sha256(target)})
-
-
-def download_image_output(url, out, name, record, args, metadata):
-    """图像结果的扩展名以字节内容为准；先下载到临时名再原子定名。"""
-    expected = next((item for item in record["outputs"] if item.get("id") == metadata["id"]), None)
-    if expected:
-        target = project_path(args.project, expected["path"])
-        if target.is_file() and sha256(target) == expected.get("sha256"):
-            return target
-        raise GrokError(f"本地产物已存在但无法核实，拒绝覆盖：{target.name}")
-    part = out / f".{name}.下载中"
-    if part.exists():
-        part.unlink()
-    download(url, part)
-    kind = media_type(part)
-    suffix = IMAGE_SUFFIXES.get(kind)
-    target = out / f"{name}.{suffix}" if suffix else None
-    if target is None or target.exists():
-        part.unlink(missing_ok=True)
-        raise GrokError(f"平台返回的不是受支持的图像格式：{kind or '未知'}")
-    part.replace(target)
-    record["outputs"].append({**metadata, "path": str(target.relative_to(Path(args.project).resolve())), "sha256": sha256(target)})
-    return target
-
-
-def persist_download_failure(out, args, record, exc):
-    record.update(status="partial" if record["outputs"] else "failed", errors=[{"error": str(exc), "stage": "download"}])
-    write_record(out, args.name, record)
-
-
-# ---------- 图像 ----------
-
-def image_payload(model, prompt, aspect_ratio, resolution, count):
-    return {"model": model, "prompt": prompt, "n": count, "aspect_ratio": aspect_ratio,
-            "resolution": resolution, "response_format": "url"}
-
-
-def edit_payload(model, prompt, images):
-    """/v1/images/edits：单源图 image、多源图（≤5）images 合成；提示词只写要改的内容。"""
-    if len(images) == 1:
-        return {"model": model, "prompt": prompt, "image": {"url": images[0], "type": "image_url"}}
-    return {"model": model, "prompt": prompt, "images": [{"url": url, "type": "image_url"} for url in images]}
-
-
-def generate_image(args):
-    if args.purpose == "candidate" and not (args.shot and args.moment and args.bible and args.state):
-        raise GrokError("候选关键帧需要 --shot、--moment、--bible、--state；资产图请用 --purpose asset")
-    if args.aspect_ratio not in ASPECT_RATIOS or args.resolution not in IMAGE_RESOLUTIONS:
-        raise GrokError("画幅须为平台支持的取值；分辨率须为 1k 或 2k")
-    if not isinstance(args.count, int) or not 1 <= args.count <= 10:
-        raise GrokError("同提示词张数须为 1–10")
-    out, prompt = output_dir(args), prompt_of(args)
-    refs = [resolve(value, args.project) for value in args.ref]
-    if len(refs) > 5:
-        raise GrokError("图像编辑一次最多 5 张源图")
-    if refs and args.count != 1:
-        raise GrokError("图像编辑每个逻辑候选固定一张输出；多张仅支持纯文生图")
-    inputs = {"anchors_sha256": anchors(args, args.shot),
-              "references": [{"source_uri": url, "sha256": item and item["sha256"], "media_type": "image",
-                              "role": "reference_image", "purpose": "identity", "entity_id": None}
-                             for url, item in refs],
-              "prompt": prompt}
-    if args.moment:
-        inputs["moment"] = args.moment
-    started = now()
-    if refs:
-        params = {"edit": True, "source_images": len(refs), "n": 1}
-        payload = edit_payload(args.model, prompt, [url for url, _ in refs])
-        path = "/images/edits"
-    else:
-        params = {"aspect_ratio": args.aspect_ratio, "resolution": args.resolution, "n": args.count}
-        payload = image_payload(args.model, prompt, args.aspect_ratio, args.resolution, args.count)
-        path = "/images/generations"
-    record = base_record(args, "image", args.purpose, args.shot, inputs, {"model": args.model, "params": params}, started)
-    preflight_record(record)
-    with generation_lock(out, args.name):
-        task_file, task = generation_task(out, args, record, payload, [], semantic_payload(payload, refs))
-        if "result" not in task:
-            result = submit_once(task_file, task, path, payload, out, args)
-            if not isinstance(result, dict):
-                raise GrokError("平台图像响应不是对象；提交已有响应，不能安全重提")
-            task.update(result=result, generated_at=stamp(generated_at(result, now())))
-            write_json(task_file, task)  # 响应与用量先落盘，下载失败不会导致再次生成。
-        else:
-            record = task["record"]
-        result = task["result"]
-        remote_success(record, result)
-        record["engine"]["request_sha256"] = digest_json(task["binding"])
-        record["engine"]["payload_sha256"] = task["binding"]["payload_sha256"]
-        if task["binding"].get("semantic_payload_sha256"):
-            record["engine"]["semantic_payload_sha256"] = task["binding"]["semantic_payload_sha256"]
-        write_record(out, args.name, record)
-        made = datetime.datetime.fromisoformat(task["generated_at"])
-        try:
-            items = result["data"]
-            if not isinstance(items, list) or not items:
-                raise GrokError("平台图像响应缺少候选")
-            for index, item in enumerate(items):
-                url = item.get("url")
-                if not isinstance(url, str) or not url.startswith("https://"):
-                    raise GrokError(f"第 {index + 1} 张图像缺 URL（临时链接）")
-                download_image_output(url, out, args.name if len(items) == 1 else f"{args.name}-{index + 1}",
-                                      record, args, {"id": args.name if len(items) == 1 else f"{args.name}-{index + 1}",
-                                                     "source_url": url, "source_url_expires_at": stamp(made + URL_TTL),
-                                                     "generated_at": stamp(made)})
-        except (GrokError, OSError, KeyError, IndexError, TypeError, ValueError) as exc:
-            persist_download_failure(out, args, record, exc)
-            task["record"] = record
-            write_json(task_file, task)
-            raise GrokError(f"图像已在平台生成并计费，本地下载未完成：{exc}；相同命令可续接下载") from None
-        record.update(status="succeeded", errors=[])
-        task["record"] = record
-        write_json(task_file, task)
-        return write_record(out, args.name, record)
-
-
-# ---------- 视频 ----------
-
-def video_payload(model, prompt, image, duration, resolution, last_frame=None, reference_images=(), aspect_ratio="",
-                  keyframes=(), voice_ids=(), generate_audio=True):
-    """按官方模式组装 /v1/videos/generations：文生视频、首帧图生视频、参考模式、尾帧钉定。
-
-    image 单独出现即首帧锚定；reference_images（≤14）为参考模式，可与 image 组合
-    （image 成为钉定首帧，提示词占位符从 <IMAGE_1> 起编号）；last_frame 钉定尾帧；
-    keyframes 为 (url, 秒) 中段关键帧（≤4）；voice_ids 为平台预置 voice_id（≤3，提示词用
-    <AUDIO_n> 指位）。图生视频默认不传 aspect_ratio（跟随源图）；参考／文生模式可显式指定。
-    generate_audio=False 请求无声视频。
-    """
-    payload = {"model": model, "prompt": prompt, "duration": duration, "resolution": resolution}
-    if image:
-        payload["image"] = {"url": image}
-    if last_frame:
-        payload["last_frame"] = {"url": last_frame}
-    if reference_images:
-        payload["reference_images"] = [{"url": url} for url in reference_images]
-    if keyframes:
-        payload["keyframes"] = [{"image": {"url": url}, "timestamp_s": seconds} for url, seconds in keyframes]
-    if voice_ids:
-        payload["reference_audios"] = [{"voice_id": voice} for voice in voice_ids]
-    if aspect_ratio:
-        payload["aspect_ratio"] = aspect_ratio
-    if generate_audio is False:
-        payload["generate_audio"] = False
-    return payload
-
-
-def video_operation_payload(model, video, prompt):
-    """/v1/videos/edits 与 /v1/videos/extensions：video 输入，输出跟随输入（不可改时长/分辨率/画幅）。"""
-    payload = {"model": model, "video": {"url": video}}
-    if prompt and prompt.strip():
-        payload["prompt"] = prompt.strip()
-    return payload
-
-
-def resolve_video(value, project):
-    """把本地视频转成 data URI；https 链接原样传入。"""
-    if value.startswith(("https://", "http://")):
-        return value, None
-    path = Path(value)
-    if not path.is_file():
-        raise GrokError(f"视频不存在：{value}")
-    try:
-        shown = str(path.resolve().relative_to(Path(project).resolve()))
-    except ValueError:
-        shown = str(path.resolve())
-    item = {"path": shown, "sha256": sha256(path)}
-    return f"data:{media_type(path)};base64,{base64.b64encode(path.read_bytes()).decode()}", item
-
-
-def poll_limits(args):
-    values = (getattr(args, "max_polls", 40), getattr(args, "deadline_seconds", 600), getattr(args, "poll_interval", 10))
-    if (isinstance(values[0], bool) or not isinstance(values[0], int) or values[0] < 1
-            or not consistency.number(values[1], 0, inclusive=False) or not consistency.number(values[2])
-            or not math.isfinite(values[1]) or not math.isfinite(values[2])):
-        raise GrokError("max-polls 必须为正整数，deadline-seconds 必须为正数，poll-interval 必须为非负数")
-    return values
-
-
-def poll_task(task_file, task, out, args):
-    """每轮有界查询同一个 request；等待、超时或中断均不允许再次 POST。"""
-    maximum, seconds, interval = poll_limits(args)
-    deadline = time.monotonic() + seconds
-    polling = task.setdefault("polling", {"polls_total": 0})
-    token = QUERY_DEADLINE.set(deadline)
-    reason = "达到 max-polls"
-    try:
-        for attempt in range(maximum):
-            if time.monotonic() >= deadline:
-                reason = "达到 deadline"
-                break
-            try:
-                result = call(f"/videos/{urllib.parse.quote(task['id'], safe='')}")
-            except GrokPending:
-                reason = "达到 deadline"
-                break
-            if not isinstance(result, dict):
-                raise GrokError("平台查询响应不是对象；保留原任务编号供续查")
-            polling.update(polls_total=polling.get("polls_total", 0) + 1, last_result=result, last_poll_at=stamp(now()), state="waiting")
-            task["record"]["engine"]["task_status"] = result.get("status")
-            if result.get("status") in ("done", "failed", "expired"):
-                polling["state"] = "terminal"
-                task.update(result=result, generated_at=stamp(generated_at(result, now())))
-                write_json(task_file, task)
-                return result
-            write_json(task_file, task)
-            if attempt + 1 < maximum:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    reason = "达到 deadline"
-                    break
-                time.sleep(min(interval, remaining))
-    finally:
-        QUERY_DEADLINE.reset(token)
-    polling["state"] = "waiting"
-    record = task["record"]
-    record.update(finished_at=stamp(now()), errors=[{"stage": "poll", "error": f"本轮查询{reason}，远程任务仍待续查"}])
-    write_json(task_file, task)
-    write_record(out, args.name, record)
-    raise GrokPending(f"{args.name} 本轮查询{reason}；任务 {task['id']} 仍保留，相同命令可续查，不会重新提交")
-
-
-def generate_video(args):
-    poll_limits(args)  # 无效本轮限制必须在提交前失败。
-    if args.resolution not in VIDEO_RESOLUTIONS:
-        raise GrokError("视频分辨率须为 480p、720p 或 1080p")
-    if not isinstance(args.duration, int) or not MIN_DURATION <= args.duration <= MAX_DURATION:
-        raise GrokError(f"视频时长须为 {MIN_DURATION}–{MAX_DURATION} 整秒")
-    if getattr(args, "ratio", "") and args.ratio not in ASPECT_RATIOS:
-        raise GrokError("--ratio 须为平台支持的画幅取值")
-    out, prompt = output_dir(args), prompt_of(args)
-    first = resolve(args.first_frame, args.project) if args.first_frame else None
-    last = resolve(args.last_frame, args.project) if args.last_frame else None
-    refs = [resolve(value, args.project) for value in args.ref_image]
-    if len(refs) > 14:
-        raise GrokError("参考模式一次最多 14 张参考图")
-    if refs and args.resolution not in ("480p", "720p"):
-        raise GrokError("参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
-    voice_ids = list(getattr(args, "voice_id", []) or [])
-    keyframes = []
-    for value in getattr(args, "keyframe", []) or []:
-        name, _, at_text = value.rpartition("@")
-        try:
-            seconds = float(at_text)
-        except ValueError:
-            raise GrokError(f"--keyframe 需要 文件@秒 形式：{value}") from None
-        keyframes.append(resolve(name, args.project) + (seconds,))
-    state = consistency.load(args.state, consistency.STATE_FORMAT)
-    errors = consistency.bible_errors(bible) + consistency.state_errors(state, bible)
-    if bible.get("project_id") != project_id(args.project) or state.get("project_id") != project_id(args.project):
-        errors.append("资产库、场景状态与当前项目编号必须一致")
-    if errors:
-        raise GrokError("锚点输入无效：" + "；".join(errors))
-    return consistency.pack_sha256(consistency.anchor_pack(bible, state, shot))
-
-
-def project_id(project):
-    try:
-        return json.loads((Path(project) / "vsc.json").read_text("utf-8"))["project_id"]
-    except (OSError, KeyError, json.JSONDecodeError) as exc:
-        raise GrokError(f"无法读取项目编号：{exc}") from None
-
-
-def write_record(out, name, record):
-    errors = consistency.record_errors(record)
-    if errors:
-        raise GrokError("生成记录无效：" + "；".join(errors))
-    path = out / f"{name}-生成记录.json"
-    write_json(path, record)
-    return path
-
-
-def base_record(args, kind, purpose, shot, inputs, engine, started):
-    return {"format": consistency.RECORD_FORMAT, "project_id": project_id(args.project), "kind": kind, "purpose": purpose,
-            "shot_id": shot, "inputs": inputs, "engine": {"provider": PROVIDER, **engine}, "budget": {"billable": False, "usage": None},
-            "submitted_at": stamp(started), "finished_at": None, "status": "failed", "outputs": [], "errors": [], "selection": None}
-
-
-def output_dir(args):
-    if not isinstance(args.name, str) or not consistency.SAFE_ID.fullmatch(args.name):
-        raise GrokError("--name 必须是安全文件名：以字母或数字开头，只含字母、数字、点、下划线或连字符")
-    out = project_path(args.project, args.out)
-    out.mkdir(parents=True, exist_ok=True)
-    return out
-
-
-def project_path(project, relative):
-    """拒绝绝对路径、父目录、反斜杠与跨项目的符号链接。"""
-    if not isinstance(relative, str) or not relative or "\\" in relative or any(ord(char) < 32 for char in relative):
-        raise GrokError("输出与来源路径必须是项目内的相对路径")
-    value = Path(relative)
-    if value.is_absolute() or ".." in value.parts:
-        raise GrokError("输出与来源路径必须是项目内的相对路径")
-    root = Path(project).resolve()
-    target = root / value
-    try:
-        target.resolve().relative_to(root)
-    except ValueError:
-        raise GrokError("输出与来源路径不能通过符号链接离开项目") from None
-    return target
-
-
-def write_json(path, value):
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False) as handle:
-        temporary = Path(handle.name)
-        try:
-            json.dump(value, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
-    try:
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def digest_json(value):
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-@contextlib.contextmanager
-def generation_lock(out, name):
-    """同名候选串行化，避免两个进程同时通过检查后重复付费。"""
-    lock = out / f".{name}-生成.lock"
-    if lock.is_symlink():
-        raise GrokError("生成锁不能是符号链接")
-    with lock.open("a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise GrokError(f"同名生成正在运行：{name}") from None
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
-def request_binding(record, payload, semantic=None):
-    binding = {"project_id": record["project_id"], "kind": record["kind"], "purpose": record["purpose"],
-            "shot_id": record["shot_id"], "inputs": record["inputs"], "model": record["engine"]["model"],
-            "params": record["engine"]["params"], "payload_sha256": digest_json(payload)}
-    if semantic is not None:
-        binding["semantic_payload_sha256"] = digest_json(semantic)
-    return json.loads(json.dumps(binding, ensure_ascii=False))
-
-
-def semantic_payload(payload, media_inputs):
-    """运输地址可过期；本地输入的语义固定为内容 SHA，媒体角色仍由原 payload 保留。
-
-    media_inputs 顺序须与 payload 中出现的顺序一致：首帧、尾帧，然后参考图。
-    """
-    normalized = json.loads(json.dumps(payload, ensure_ascii=False))
-    media_inputs = iter(media_inputs)
-
-    def swap(holder):
-        _, item = next(media_inputs)
-        if item and isinstance(holder, dict) and isinstance(holder.get("url"), str):
-            holder["url"] = "sha256:" + item["sha256"]
-
-    if isinstance(normalized.get("image"), dict):
-        swap(normalized["image"])
-    if isinstance(normalized.get("last_frame"), dict):
-        swap(normalized["last_frame"])
-    for holder in normalized.get("reference_images") or []:
-        swap(holder)
-    for holder in normalized.get("keyframes") or []:
-        swap(holder.get("image") if isinstance(holder, dict) else None)
-    if isinstance(normalized.get("video"), dict):
-        swap(normalized["video"])
-    return normalized
-
-
-def truncate_payload(payload):
-    """dry-run 展示用：所有 data URI 只留前 40 字符。"""
-    shown = json.loads(json.dumps(payload, ensure_ascii=False))
-
-    def trim(holder):
-        if isinstance(holder, dict) and isinstance(holder.get("url"), str) and holder["url"].startswith("data:"):
-            holder["url"] = holder["url"][:40] + "…"
-
-    trim(shown.get("image") if isinstance(shown.get("image"), dict) else None)
-    trim(shown.get("last_frame") if isinstance(shown.get("last_frame"), dict) else None)
-    trim(shown.get("video") if isinstance(shown.get("video"), dict) else None)
-    for holder in shown.get("reference_images") or []:
-        trim(holder)
-    for holder in shown.get("keyframes") or []:
-        trim(holder.get("image") if isinstance(holder, dict) else None)
-    return shown
-
-
-def preflight_record(record):
-    checked = {**record, "finished_at": stamp(now())}
-    errors = consistency.record_errors(checked)
-    if errors:
-        raise GrokError("生成输入无效：" + "；".join(errors))
-
-
-def checked_outputs(record, project):
-    """只允许已登记且字节完全一致的本地产物作为续接结果。"""
     for item in record.get("outputs", []):
-        path = project_path(project, item["path"])
-        if not path.is_file() or sha256(path) != item.get("sha256"):
+        try:
+            verify_media(project_path(project, item["path"]), record["kind"])
+        except GrokError:
             return False
     return bool(record.get("outputs"))
 
@@ -968,10 +432,14 @@ def generation_task(out, args, record, payload, targets, semantic=None):
         if record["kind"] == "video" and (not isinstance(task.get("id"), str) or not consistency.SAFE_ID.fullmatch(task["id"])):
             reason = "平台已明确拒绝该提交" if task.get("submission_state") == "rejected" else "提交状态未知，任务文件缺少有效远程编号"
             raise GrokError(reason + "；不能自动重提，请先人工核查平台任务与账单")
-        if task.get("credential_sha256"):
-            identity = grok_credentials.account_id() or api_key()
-            if task["credential_sha256"] != hashlib.sha256(identity.encode()).hexdigest():
-                raise GrokError("当前登录账号与原任务提交账号不一致；请用原账号续查或下载，不能自动重提（token 刷新不影响同账号续查）")
+        if saved.get("status") == "succeeded" and checked_outputs(saved, args.project):
+            return task_file, task  # complete local evidence needs no online login
+        if not task.get("account_sha256"):
+            raise GrokError("旧任务缺少稳定账号身份证据，不能猜测归属；请人工核对原提交账号")
+        base_url()
+        api_key()
+        if task["account_sha256"] != grok_credentials.account_sha256(error=GrokError):
+            raise GrokError("当前登录账号与原任务提交账号不一致；请用原账号续查或下载，不能自动重提（token 刷新不影响同账号续查）")
         return task_file, task
     if any(path.exists() for path in [record_file, *targets]):
         raise GrokError(f"同名输出或生成记录已存在：{args.name}；请使用新的 --name")
@@ -985,12 +453,12 @@ def submit_once(task_file, task, path, payload, out, args):
         raise GrokError(reason + "；不能自动重提，请先人工核查平台任务与账单")
     base_url()
     key = api_key()  # 本地缺登录态不留下可能已提交的凭证。
-    check_budget_authorization(args, task["record"]["kind"])
+    identity = grok_credentials.account_sha256(error=GrokError)
+    check_budget_authorization(args, args.command)
     record = task["record"]
     record.update(finished_at=stamp(now()), errors=[],
                   budget={"billable": True, "usage": {"note": "提交意图已记录；结果未知，可能计费，须核对平台账单"}})
-    identity = grok_credentials.account_id() or key
-    task.update(submission_state="intent", submitted_at=stamp(now()), credential_sha256=hashlib.sha256(identity.encode()).hexdigest())
+    task.update(submission_state="intent", submitted_at=stamp(now()), account_sha256=identity)
     write_json(task_file, task)
     write_record(out, args.name, record)
     try:
@@ -1029,9 +497,9 @@ def check_budget_authorization(args, operation):
         return
     try:
         required = ({"remote_jobs": 1, "images": getattr(args, "count", 1)} if operation == "image"
-                    else {"remote_jobs": 1, "video_seconds": getattr(args, "duration", 9)})
+                    else {"remote_jobs": 1, "video_seconds": getattr(args, "_source_seconds", 0) if operation == "edit" else getattr(args, "duration", 0)})
         vsc_budget.check_authorization(args.project, getattr(args, "budget_reservation", None),
-                                       f"{operation}:{args.out}/{args.name}", required, request=vars(args))
+                                       f"grok_{operation}:{args.out}/{args.name}", required, request=vars(args))
     except (ValueError, RuntimeError) as exc:
         raise GrokError(f"预算授权无效：{exc}") from None
 
@@ -1057,49 +525,93 @@ def generated_at(result, fallback):
     return fallback
 
 
-def verify_media(path):
-    """F12：下载结果在记为成功前完整探测；HTML／截断文件不能当媒体（坏文件删除以便续接重下）。"""
-    if media_type(path).startswith("image/"):
-        return  # 图像已按魔数嗅探扩展名
-    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                            "-of", "csv=p=0", str(path)], capture_output=True, text=True)
-    if probe.returncode != 0 or not probe.stdout.strip():
-        path.unlink(missing_ok=True)
-        raise GrokError(f"下载结果不是可解码媒体：{Path(path).name}；已删除坏文件，相同命令可重新下载")
+def verify_media(path, expected=None):
+    """Decode every audio/video frame, including images, before success."""
+    from vsc.adapters.media.qa import LocalProbeAdapter, ProbeFailure
+    kind = expected or ("image" if media_type(path).startswith("image/") else "video")
+    try:
+        metadata = LocalProbeAdapter(decode_timeout=180).probe(path)
+        visual = [stream for stream in metadata["streams"] if stream.get("codec_type") == "video"]
+        actual_image = media_type(path).startswith("image/")
+        if not visual or (kind == "image") != actual_image:
+            raise ValueError("unexpected media type")
+    except (ProbeFailure, OSError, ValueError) as exc:
+        Path(path).unlink(missing_ok=True)
+        raise GrokError(f"下载结果不是可完整解码的{kind}：{Path(path).name}；已删除坏文件，可重新下载") from exc
 
 
-def download_video_output(url, target, record, args, metadata):
-    expected = next((item for item in record["outputs"] if item.get("id") == metadata["id"]), None)
-    if target.exists():
-        if expected and target.is_file() and sha256(target) == expected.get("sha256"):
-            return
-        raise GrokError(f"本地产物已存在但无法核实，拒绝覆盖：{target.name}")
-    download(url, target)
-    verify_media(target)
-    record["outputs"].append({**metadata, "path": str(target.relative_to(Path(args.project).resolve())), "sha256": sha256(target)})
+def video_source_info(path, operation):
+    """Source bytes are fully decoded and measured locally before paid action."""
+    from vsc.adapters.media.qa import LocalProbeAdapter, ProbeFailure
+    try:
+        info = LocalProbeAdapter(decode_timeout=180).probe(path)
+        duration = info["duration_seconds"]
+        stream = next(v for v in info["streams"] if v.get("codec_type") == "video")
+        if duration is None or not math.isfinite(duration) or duration <= 0 or media_type(path).startswith("image/"):
+            raise ValueError("invalid source duration")
+        if operation == "edit" and (duration > 8.7 or min(stream["width"], stream["height"]) > 720):
+            raise GrokError("视频编辑源片须不超过 8.7 秒、720p；不能自动裁剪或降采样")
+        return {"duration": duration, "width": stream["width"], "height": stream["height"]}
+    except (ProbeFailure, OSError, ValueError, KeyError, StopIteration) as exc:
+        raise GrokError("无法完整验证源视频及其时长/尺寸") from exc
 
 
-def download_image_output(url, out, name, record, args, metadata):
-    """图像结果的扩展名以字节内容为准；先下载到临时名再原子定名。"""
+def download_output(url, out, name, record, args, metadata, image=False):
+    """A task-bound durable receipt bridges download, rename, task and record writes."""
     expected = next((item for item in record["outputs"] if item.get("id") == metadata["id"]), None)
     if expected:
         target = project_path(args.project, expected["path"])
         if target.is_file() and sha256(target) == expected.get("sha256"):
+            verify_media(target, "image" if image else "video")
             return target
         raise GrokError(f"本地产物已存在但无法核实，拒绝覆盖：{target.name}")
-    part = out / f".{name}.下载中"
-    if part.exists():
-        part.unlink()
+    receipt_file, part = out / f".{name}-下载回执.json", out / f".{name}.下载中"
+    task = json.loads((out / f"{args.name}-任务.json").read_text("utf-8"))
+    binding = digest_json(task["binding"])
+    for file in (receipt_file, part):
+        if file.is_symlink():
+            raise GrokError("下载暂存及回执不能是符号链接")
+    receipt = json.loads(receipt_file.read_text("utf-8")) if receipt_file.exists() else None
+    if receipt is not None:
+        if receipt.get("binding") != binding or receipt.get("id") != metadata["id"]:
+            raise GrokError("下载回执与任务不一致，拒绝接管已有文件")
+        target = project_path(args.project, receipt["path"])
+        recovered = target if target.is_file() else part
+        if recovered.is_file() and sha256(recovered) == receipt.get("sha256"):
+            verify_media(recovered, "image" if image else "video")
+            if recovered == part:
+                if target.exists():
+                    raise GrokError("下载目标已存在，拒绝覆盖")
+                part.replace(target)
+            record["outputs"].append({**metadata, "path": receipt["path"], "sha256": receipt["sha256"]})
+            return target
+        if target.exists():
+            raise GrokError("下载回执对应的本地产物已漂移")
+    # This temporary name is owned by the fixed task; partial bytes can be safely re-downloaded.
+    part.unlink(missing_ok=True)
     download(url, part)
-    kind = media_type(part)
-    suffix = IMAGE_SUFFIXES.get(kind)
-    target = out / f"{name}.{suffix}" if suffix else None
-    if target is None or target.exists():
+    verify_media(part, "image" if image else "video")
+    suffix = IMAGE_SUFFIXES.get(media_type(part)) if image else "mp4"
+    if not suffix:
         part.unlink(missing_ok=True)
-        raise GrokError(f"平台返回的不是受支持的图像格式：{kind or '未知'}")
+        raise GrokError("平台返回的不是受支持图像")
+    target = out / f"{name}.{suffix}"
+    if target.exists() or target.is_symlink():
+        raise GrokError(f"本地产物已存在但无法核实，拒绝覆盖：{target.name}")
+    receipt = {"format": "vsc.grok-download/v1", "binding": binding, "id": metadata["id"],
+        "path": str(target.relative_to(Path(args.project).resolve())), "sha256": sha256(part)}
+    write_json(receipt_file, receipt)  # durable before final bytes become visible
     part.replace(target)
-    record["outputs"].append({**metadata, "path": str(target.relative_to(Path(args.project).resolve())), "sha256": sha256(target)})
+    record["outputs"].append({**metadata, "path": receipt["path"], "sha256": receipt["sha256"]})
     return target
+
+
+def download_video_output(url, target, record, args, metadata):
+    return download_output(url, target.parent, target.stem, record, args, metadata)
+
+
+def download_image_output(url, out, name, record, args, metadata):
+    return download_output(url, out, name, record, args, metadata, image=True)
 
 
 def persist_download_failure(out, args, record, exc):
@@ -1142,18 +654,20 @@ def generate_image(args):
     if args.moment:
         inputs["moment"] = args.moment
     started = now()
+    try:
+        path, payload = spec.compile_image(args.model, prompt, [url for url, _ in refs], args.aspect_ratio, args.resolution, args.count)
+    except spec.GrokSpecError as exc:
+        raise GrokError(str(exc)) from None
+    params = {"aspect_ratio": args.aspect_ratio, "resolution": args.resolution, "n": args.count}
     if refs:
-        params = {"edit": True, "source_images": len(refs), "n": 1}
-        payload = edit_payload(args.model, prompt, [url for url, _ in refs])
-        path = "/images/edits"
-    else:
-        params = {"aspect_ratio": args.aspect_ratio, "resolution": args.resolution, "n": args.count}
-        payload = image_payload(args.model, prompt, args.aspect_ratio, args.resolution, args.count)
-        path = "/images/generations"
+        params.update(edit=True, source_images=len(refs))
     record = base_record(args, "image", args.purpose, args.shot, inputs, {"model": args.model, "params": params}, started)
     preflight_record(record)
     with generation_lock(out, args.name):
-        task_file, task = generation_task(out, args, record, payload, [], semantic_payload(payload, refs))
+        targets = [out / (name + "." + suffix) for name in
+                   ([args.name] if args.count == 1 else [f"{args.name}-{index + 1}" for index in range(args.count)])
+                   for suffix in set(IMAGE_SUFFIXES.values())]
+        task_file, task = generation_task(out, args, record, payload, targets, semantic_payload(payload, refs))
         if "result" not in task:
             result = submit_once(task_file, task, path, payload, out, args)
             if not isinstance(result, dict):
@@ -1411,7 +925,7 @@ def generate_video(args):
         common = {"source_url_expires_at": stamp(made + URL_TTL), "generated_at": stamp(made)}
         try:
             content = result.get("video")
-            if not isinstance(content, dict) or not isinstance(content.get("url"), str):
+            if not isinstance(content, dict) or not isinstance(content.get("url"), str) or not content["url"].startswith("https://"):
                 raise GrokError("视频结果缺有效下载 URL")
             duration = content.get("duration")
             download_video_output(content["url"], video, record, args,
@@ -1432,17 +946,23 @@ def generate_video(args):
 def generate_video_operation(args, operation):
     """/v1/videos/edits 或 /v1/videos/extensions：对既有 take 做编辑或从其结尾续接。
 
-    官方规则：输出跟随输入视频（不可另设时长／分辨率／画幅）；编辑时长上限约 8.7s、分辨率上限 720p。
+    编辑保持输入时长；续接 duration 为新增秒数。画幅/分辨率跟随输入，编辑源片上限 8.7s/720p。
     """
     poll_limits(args)
     out = args.out and output_dir(args)
     prompt = (args.prompt or "").strip() or (args.prompt_file and Path(args.prompt_file).read_text("utf-8").strip() or "")
     if operation == "edit" and not (prompt or "").strip():
         raise GrokError("视频编辑需要 --prompt 说明要改什么")
+    if args.video.startswith(("http://", "https://")):
+        raise GrokError("视频加工需要可完整验证时长和尺寸的本地源片，不支持直接远端 URL")
+    source_info = video_source_info(Path(args.video), operation)
+    args._source_seconds = int(math.ceil(source_info["duration"]))
     video = resolve_video(args.video, args.project)
     params = {"operation": operation, "source_video": video[1]}
+    if operation == "extend":
+        params["duration"] = args.duration
     try:
-        path, payload = spec.compile_video_operation(args.model, video[0], prompt, operation)
+        path, payload = spec.compile_video_operation(args.model, video[0], prompt, operation, getattr(args, "duration", None))
     except spec.GrokSpecError as exc:
         raise GrokError(str(exc)) from None
     inputs = {"anchors_sha256": anchors(args, args.shot),
@@ -1493,7 +1013,7 @@ def generate_video_operation(args, operation):
         made = datetime.datetime.fromisoformat(task["generated_at"])
         try:
             content = result.get("video")
-            if not isinstance(content, dict) or not isinstance(content.get("url"), str):
+            if not isinstance(content, dict) or not isinstance(content.get("url"), str) or not content["url"].startswith("https://"):
                 raise GrokError("结果缺有效下载 URL")
             duration = content.get("duration")
             download_video_output(content["url"], target, record, args,
@@ -1562,8 +1082,10 @@ def parser():
                             ("extend", "从既有 take 的结尾续接成一个片段（输出跟随输入；--prompt 必填）")):
         sub_command = sub.add_parser(name, parents=[made], help=help_text)
         sub_command.add_argument("--shot", required=True)
-        sub_command.add_argument("--video", required=True, help="既有视频（本机文件或 https 链接）")
+        sub_command.add_argument("--video", required=True, help="既有本地视频（完整验证源片时长、尺寸和字节）")
         sub_command.add_argument("--model", default=EDIT_MODEL)
+        if name == "extend":
+            sub_command.add_argument("--duration", type=int, default=6, help="新增 2–10 整秒")
         sub_command.add_argument("--dry-run", action="store_true", help="只打印请求与记录输入，不提交")
         sub_command.add_argument("--max-polls", type=int, default=60)
         sub_command.add_argument("--deadline-seconds", type=float, default=900)

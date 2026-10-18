@@ -74,6 +74,26 @@ def required(payload, name):
     return value
 
 
+def artifact_stage(profile, artifact_type, fallback=None):
+    """Resolve ownership from the immutable Profile, never caller stage labels."""
+    owners = [stage["id"] for stage in profile.get("stages", []) if artifact_type in stage.get("required", [])]
+    if len(owners) > 1:
+        raise ResourceError("固定 Profile 中产物类型归属不唯一: " + artifact_type, "invalid_profile")
+    return owners[0] if owners else fallback
+
+
+def dependency_requirements(profile, artifact_type):
+    explicit = profile.get("dependency_requirements", {}).get(artifact_type)
+    if explicit is not None:
+        return explicit, None
+    stages = profile.get("stages", [])
+    owner = artifact_stage(profile, artifact_type)
+    index = next((i for i, stage in enumerate(stages) if stage["id"] == owner), None)
+    if profile.get("dependency_policy") == "previous_stage" and index:
+        return stages[index - 1].get("required", []), stages[index - 1]["id"]
+    return [], None
+
+
 class ResourceService:
     def __init__(self, store, storage=None):
         self.store, self.storage = store, storage
@@ -233,17 +253,9 @@ class ResourceService:
 
     def submit_script_draft(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
-        artifact_type = required(payload, "artifact_type")
-        if isinstance(artifact_type, str) and artifact_type.startswith("vsc."):
-            from vsc.project.pg_workflow import validate_contract
-            project = self.store.get_project(project_id)
-            draft = self.store.get_script_draft(project_id, payload.get("scope_key", ""))
-            if not draft.get("exists"):
-                raise ResourceError("还没有可提交的剧本工作副本；先保存草稿", "draft_missing", 404)
-            errors = validate_contract(draft.get("content"), artifact_type,
-                project["profile_snapshot"].get("contract_policy", "production-v2"))
-            if errors:
-                raise ResourceError("工作副本尚不满足剧本固定契约: " + "; ".join(errors), "invalid_contract")
+        # The repository normalizes trusted project/scope fields and validates
+        # those exact frozen bytes under the same draft lock and transaction.
+        required(payload, "artifact_type")
         return self._write("submit_script_draft", project_id, payload, **kw)
 
     def add_script_note(self, project_id, payload, **kw):
@@ -291,9 +303,16 @@ class ResourceService:
                 baseline = json.loads(baseline)
             except ValueError:
                 baseline = None
+        current = draft.get("content")
+        # These two fields are owned by the server at freeze time, not by an
+        # editor. Compare the same trusted document on both sides.
+        if isinstance(current, dict):
+            current = dict(current, project_id=project_id, scope=draft["scope_key"] or "project")
+        if isinstance(baseline, dict):
+            baseline = dict(baseline, project_id=project_id, scope=draft["scope_key"] or "project")
         return {"scope_key": draft["scope_key"], "phase": draft["phase"],
                 "base_artifact_id": base_id, "base": base or None,
-                "changes": compare_documents(baseline, draft.get("content"))}
+                "changes": compare_documents(baseline, current)}
 
     def decide_artifact(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
@@ -311,12 +330,7 @@ class ResourceService:
 
     def _check_dependencies(self, project, artifact):
         profile = project["profile_snapshot"]
-        stages = profile.get("stages", [])
-        owner = next((i for i, s in enumerate(stages) if s["id"] == artifact["stage"]), None)
-        explicit = profile.get("dependency_requirements", {}).get(artifact["artifact_type"])
-        expected_stage = None
-        if explicit is None and profile.get("dependency_policy") == "previous_stage" and owner and artifact["artifact_type"] in stages[owner].get("required", []):
-            explicit, expected_stage = stages[owner - 1].get("required", []), stages[owner - 1]["id"]
+        explicit, expected_stage = dependency_requirements(profile, artifact["artifact_type"])
         if not explicit:
             return
         dependencies = [self.store.get_artifact_version(project["id"], row_id) for row_id in artifact.get("dependency_ids", [])]
@@ -335,7 +349,8 @@ class ResourceService:
                     return False
             return True
         for kind in explicit:
-            if not any(dep["artifact_type"] == kind and (expected_stage is None or dep["stage"] == expected_stage) and covers(dep) for dep in dependencies):
+            if not any(dep["artifact_type"] == kind and (expected_stage is None or
+                       artifact_stage(profile, dep["artifact_type"], dep["stage"]) == expected_stage) and covers(dep) for dep in dependencies):
                 raise ResourceError("缺少同范围前置产物的明确固定依赖: " + kind, "artifact_dependency_required")
 
     def register_media(self, project_id, payload, **kw):

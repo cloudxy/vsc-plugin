@@ -17,7 +17,7 @@ def operation(job):
 
 
 def job_units(job):
-    return {'remote_jobs': 1, **({'images': 1} if job['kind'] == 'image' else {'video_seconds': job['args']['duration']})}
+    return {'remote_jobs': 1, **({'images': job['args'].get('count', 1)} if job['kind'] in ('image', 'grok_image') else {'video_seconds': job['args']['source_seconds'] if job['kind'] == 'grok_edit' else job['args']['duration']})}
 
 
 def validation_errors(data):
@@ -81,7 +81,7 @@ def project_errors(data, project, state, item):
         if {k: budget.units(v) for k,v in data['operations'].items()} != {k: budget.units(v) for k,v in expected.items()}:
             errors.append('run.operations 与实际任务及上限不一致')
         required_reviews = {r['job'] for j in plan['jobs'] for key in production.MEDIA & set(j['args'])
-                            for r in (j['args'][key] if key in production.MULTI else [j['args'][key]]) if 'job' in r}
+                            for r in (j['args'][key] if key in production.MULTI or key == 'keyframe' else [j['args'][key]]) if 'job' in r}
         if not required_reviews <= set(data['review_after']):
             errors.append('生成结果被下游使用前必须声明 review_after 暂停点')
         if set(data['review_after']) - {j['id'] for j in plan['jobs']}:
@@ -95,7 +95,7 @@ def project_errors(data, project, state, item):
         prerequisite = 'vsc.asset_bible' if data.get('phase') in ('asset', 'trial') else 'vsc.animatic'
         if not any(a['type'] == prerequisite for a in approved):
             errors.append('正式制作缺已批准输入：' + prerequisite)
-        if data.get('phase') == 'asset' and any(j['kind'] != 'image' or j['args']['purpose'] != 'asset' for j in plan['jobs']):
+        if data.get('phase') == 'asset' and any(j['kind'] not in ('image', 'grok_image') or j['args']['purpose'] != 'asset' for j in plan['jobs']):
             errors.append('资产准备批次只允许asset图像，镜头候选应进入production阶段')
         pinned = {a['sha256'] for a in approved}
         # Local plans/bibles/state files must be precisely the approved input bytes.
@@ -172,6 +172,12 @@ def execute(project, identifier, runner=None):
         problems = project_errors(data, project, state, item)
         if problems: raise ValueError('run 制作前检查未满足：' + '；'.join(problems))
     plan = production.build_plan(project, production.read(Path(project) / data['batch']['path']))
+    grok_jobs = [j for j in plan['jobs'] if j['kind'] in production.GROK_KINDS]
+    if any(production.completed(project, j) is None for j in grok_jobs):
+        from vsc.adapters.providers.xai_grok import api as grok
+        grok.base_url()
+        grok.api_key()
+        grok.grok_credentials.account_sha256(error=grok.GrokError)
     held = budget.reserve_many(project, identifier, {operation(j): job_units(j) for j in plan['jobs']})
     reservations = {j['id']: held[operation(j)] for j in plan['jobs']}
 
@@ -191,13 +197,8 @@ def execute(project, identifier, runner=None):
     def after(job, record, journal):
         import_candidate(project, item, job, record)
         reservation = reservations[job['id']]
-        # Never infer platform charges from successful local media.
-        with budget.ledger(project) as ledger:
-            if ledger['reservations'][reservation]['status'] == 'reserved':
-                # Only injected test runners can omit the provider's POST guard.
-                if runner is None: raise ValueError('供应商未消耗预算预留')
-                ledger['reservations'][reservation]['status'] = 'submitted_unknown'
-        budget.settle(project, reservation, evidence=production.record_path(job))
+        # A verified cached result consumes no new paid units.
+        budget.record_completion(project, reservation, evidence=production.record_path(job))
         return job['id'] not in data['review_after'] or approved(job, journal)
 
     return production.run(project, plan, plan['plan_sha256'], runner, before, after, formal=True)

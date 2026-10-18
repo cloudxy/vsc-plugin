@@ -119,6 +119,39 @@ class SeriesDatabase(unittest.TestCase):
                 dispatch.submit_job(self.project, "J-xai")
             reserve.assert_not_called()
 
+    def test_grok_series_endpoint_preflight_and_persisted_identity_resume(self):
+        from vsc.adapters.providers.xai_grok import credentials
+        from vsc.adapters.providers.xai_grok.provider import GrokVideoProvider, ACCOUNT_FIELD
+        login = self.project / "synthetic-grok-auth.json"
+        login.write_text(json.dumps({"synthetic": {"user_id": "A", "key": "synthetic-token"}}))
+        calls = []
+        def transport(path, payload=None):
+            calls.append(path)
+            return {"request_id": "grok-series"} if payload is not None else {"status": "pending"}
+        adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda value: value, "480p", transport=transport)
+        frozen = {"logical_request": {"shot_id": "S", "purpose": "video_clip", "context_sha256": "a", "prompt": "p", "duration_ms": 6000}, "operation": "op"}
+        job = {"status": "created", "provider": "xai_grok", "modality": "video"}
+        with patch.object(credentials, "LOGIN_FILE", login):
+            with patch.object(dispatch, "_load", return_value=({}, job, frozen, {"scope": "EP1"})), \
+                    patch.object(dispatch, "gate_problems", return_value=[]), patch.object(budget, "reserve") as reserve, \
+                    patch.dict("os.environ", {"GROK_BASE_URL": "https://invalid.example/v1"}):
+                with self.assertRaisesRegex(RuntimeError, "GROK_BASE_URL"):
+                    dispatch.submit_job(self.project, "J-grok", adapter)
+                reserve.assert_not_called()
+            self.assertEqual(calls, [])
+            handle = adapter.submit(dispatch._request(frozen, "video"))
+            job = {"status": "submitted", "provider": "xai_grok", "model": adapter.model,
+                "external_task_id": handle.external_task_id, "raw_response": json.dumps({"raw": handle.raw})}
+            login.write_text(json.dumps({"synthetic": {"user_id": "A", "key": "refreshed-token"}}))
+            with patch.object(dispatch, "_load", return_value=({}, job, frozen, {})), patch.object(jobs, "record_status") as save_status:
+                self.assertEqual(dispatch.resume_job(self.project, "J-grok", adapter)["status"], "submitted")
+                self.assertEqual(save_status.call_args.kwargs["details"]["raw"][ACCOUNT_FIELD], handle.raw[ACCOUNT_FIELD])
+                login.write_text(json.dumps({"synthetic": {"user_id": "B", "key": "other-token"}}))
+                before = len(calls)
+                with self.assertRaisesRegex(ValueError, "账号"):
+                    dispatch.resume_job(self.project, "J-grok", adapter)
+                self.assertEqual(len(calls), before)
+
     def test_grok_image_job_resolves_subscription_adapter(self):
         inputs = self._shot_fixture()
         self._reference("face-day", "char", "identity_face", "day")

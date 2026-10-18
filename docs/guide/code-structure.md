@@ -40,6 +40,8 @@ uv sync --locked --extra web --extra postgres --extra test
 
 可用 `uv build --wheel` 构建安装包。安装包包含 Python 模块及只读工作流声明、模板和 PostgreSQL 迁移。使用完整创作工作区时，设置 `VSC_WORKFLOW_ROOT` 指向本仓库根目录，以复用宿主入口、本机 Vendor 和现有作品。密钥仍由进程环境传入，不能写入包或作品。
 
+独立安装包的规范文件在虚拟环境的 `share/vsc-workflow/`。首次检查宿主发现入口前，运行该目录中的 `scripts/kernel/hosts.py sync`，再运行 `scripts/kernel/catalog.py doctor`；入口由既有生成器建立，不在 wheel 中保存多份角色或技能副本。数据库升级仍显式执行，安装和启动不会自动迁移正式 schema。
+
 独立安装包包含根说明、插件版本声明和派生视图。首次使用其工作流声明时运行 `python -B -m vsc.kernel.hosts sync` 生成宿主发现入口，再运行 `python -B -m vsc.kernel.catalog doctor`；它们按当前工作流根定位，不依赖终端所在目录。完整工作区按 `VSC_WORKFLOW_ROOT` 选定根目录后执行相同检查。
 
 ## 验证

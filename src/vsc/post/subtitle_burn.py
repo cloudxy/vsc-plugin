@@ -30,8 +30,8 @@ FONT_SOURCE = "noto-sans-sc"
 DEFAULT_FONT = VENDOR / FONT_SOURCE / "Sans" / "SubsetOTF" / "SC" / "NotoSansSC-Bold.otf"
 POSITIONS = consistency.POSITIONS
 DEFAULT_STYLE = subtitles.DEFAULT_STYLE
-MAX_WIDTH_RATIO = 0.82
-MAX_LINES = 2
+MAX_WIDTH_RATIO = subtitles.MAX_WIDTH_RATIO
+MAX_LINES = subtitles.MAX_LINES
 
 
 class BurnError(RuntimeError):
@@ -79,11 +79,11 @@ def placement(position, custom, video_height, image_height):
 
 def render(job_path):
     """在带 Pillow 的 uv 环境中运行：把每条字幕画成透明 PNG，并算出叠加位置。"""
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
     job = json.loads(Path(job_path).read_text("utf-8"))
     style, width, height = job["style"], job["width"], job["height"]
-    font = ImageFont.truetype(style["font"], style["font_size"])
+    font, max_width = subtitles.layout_font(style, width)
     ascent, descent = font.getmetrics()
     line_height = max(1, ascent + descent)
     interline = int(style["font_size"] * 0.25)
@@ -91,10 +91,11 @@ def render(job_path):
     background = style.get("background")
     pad_x = int(style["font_size"] * (0.4 if style.get("rounded") else 0.6)) if background else 0
     pad_y = int(style["font_size"] * 0.35)
-    safe_width = int(width * MAX_WIDTH_RATIO)
-    max_width = max(1, safe_width - 2 * pad_x - 2 * stroke)
+    compiled = subtitles.compile_cues([(cue["start"], cue["end"], cue["text"]) for cue in job["cues"]], font=font, max_width=max_width, style=style, height=height)
+    job["subtitle_checks"] = {**job.get("subtitle_checks", {}), "font_layout": compiled["checks"]["font_layout"]}
     for index, cue in enumerate(job["cues"]):
-        lines = subtitles.wrap_text(cue["text"], font, max_width) or [cue["text"]]
+        cue["text"] = compiled["cues"][index][2]
+        lines = cue["text"].splitlines()
         widths = [font.getbbox(line)[2] - font.getbbox(line)[0] for line in lines]
         if len(lines) > MAX_LINES or any(line[0] in subtitles.LINE_START_PUNCTUATION for line in lines if line) or max(widths) > max_width:
             raise subtitles.SubtitleError([f"第 {index + 1} 条字幕无法排入 {MAX_LINES} 行／画幅宽度 {MAX_WIDTH_RATIO:.0%}；请在 SRT 中按语音停顿拆成多条并核对时码，或调整已批准字幕样式"])
@@ -131,7 +132,7 @@ def overlay_command(video, cues, output):
                       "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", str(output)]
 
 
-def burn(video, srt, output, style, run=subprocess.run):
+def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None):
     video, srt, output = Path(video).resolve(), Path(srt).resolve(), Path(output).resolve()
     if output.exists():
         raise BurnError(f"拒绝覆盖已有文件：{output}")
@@ -148,9 +149,10 @@ def burn(video, srt, output, style, run=subprocess.run):
     try:
         entries = subtitles.parse_srt(srt.read_text("utf-8-sig"), strict=True, duration=duration)
         subtitles.resolve_style(overrides=style)
+        compiled = subtitles.compile_cues(entries, duration=duration, script_texts=script_texts)
     except ValueError as exc:
         raise BurnError(str(exc)) from exc
-    cues = [{"start": begin, "end": end, "text": text} for begin, end, text in entries]
+    cues = [{"start": begin, "end": end, "text": text} for begin, end, text in compiled["cues"]]
     if not cues:
         raise BurnError(f"SRT 没有有效字幕：{srt}")
     uv = shutil.which("uv")
@@ -158,18 +160,19 @@ def burn(video, srt, output, style, run=subprocess.run):
         raise BurnError("需要 uv：https://docs.astral.sh/uv/")
     with tempfile.TemporaryDirectory() as temp:
         job_path = Path(temp) / "job.json"
-        job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)}}
+        job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)}, "subtitle_checks": compiled["checks"]}
         job_path.write_text(json.dumps(job, ensure_ascii=False), "utf-8")
         result = run([uv, "run", "--no-project", "--python", "3.12", "--with", PILLOW, "python", str(script_path("post/subtitle_burn.py")), "render", str(job_path)],
                      capture_output=True, text=True, timeout=600)
         if result.returncode:
             raise BurnError(f"字幕渲染失败：{(result.stderr or result.stdout).strip()[-500:]}")
-        rendered = json.loads(job_path.read_text("utf-8"))["cues"]
+        rendered_job = json.loads(job_path.read_text("utf-8"))
+        rendered = rendered_job["cues"]
         output.parent.mkdir(parents=True, exist_ok=True)
         result = run(overlay_command(video, rendered, output), capture_output=True, text=True, timeout=3600)
         if result.returncode:
             raise BurnError(f"ffmpeg 叠加失败：{result.stderr.strip()[-500:]}")
-    return {"output": str(output), "cues": len(rendered), "font": str(font), "size": [width, height]}
+    return {"output": str(output), "cues": len(rendered), "font": str(font), "size": [width, height], "subtitle_checks": rendered_job["subtitle_checks"]}
 
 
 def main():
@@ -186,6 +189,7 @@ def main():
     command.add_argument("srt")
     command.add_argument("--output", required=True)
     command.add_argument("--bible", help="vsc.asset-bible/v1 资产库，取其 subtitle_style")
+    command.add_argument("--script-texts", help="用于顺序缺字检查的固定原稿 JSON 字符串数组；不代表音频对齐")
     command.add_argument("--font", help="字体文件")
     command.add_argument("--font-size", type=int)
     command.add_argument("--color")
@@ -201,8 +205,8 @@ def main():
                  "background": args.background, "rounded": args.rounded}
     try:
         style, source = resolve_style(args.bible, overrides)
-        result = burn(args.video, args.srt, args.output, style)
-    except BurnError as exc:
+        result = burn(args.video, args.srt, args.output, style, script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None)
+    except (BurnError, OSError, ValueError) as exc:
         raise SystemExit(f"错误：{exc}")
     print(f"SUBTITLES BURNED: {result['cues']} 条，字体 {Path(result['font']).name}，样式来源 {source} → {result['output']}")
 

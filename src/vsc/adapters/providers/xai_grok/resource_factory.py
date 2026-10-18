@@ -33,6 +33,8 @@ def xai_grok_factory(job, storage):
         raise ResourceError("此 Provider 尚未安装适配器", "adapter_unavailable")
     if job["provider"]["base_url"].rstrip("/") != grok_credentials.API_BASE or job["provider"].get("auth_ref"):
         raise ResourceError("Grok 订阅路线必须使用官方端点与 grok 登录态授权（不使用环境变量凭证）", "invalid_provider_config")
+    from vsc.adapters.providers.xai_grok import api as grok
+    grok.base_url()  # validate the actual environment-selected transport endpoint before intent
     problem = grok_credentials.key_problem()
     if problem:
         raise ResourceError(problem, "credential_missing")
@@ -51,7 +53,10 @@ def xai_grok_factory(job, storage):
     defaults, model = job["model"]["default_params"], job["model"]["model_key"]
     logical = job["request_payload"].get("logical_request", job["request_payload"])
     params = logical.get("params") or {}
-    supported = {"resolution", "aspect_ratio", "generate_audio"} if job["modality"] == "video" else set()
+    unsupported_operations = {"operation", "source_video", "video", "source_video_media_id"} & (set(logical) | set(params) | set(defaults))
+    if unsupported_operations:
+        raise ResourceError("PG Grok 当前仅支持图像/视频生成；edit/extend 加工协议尚未接通，不能静默消费参数", "unsupported_params")
+    supported = {"resolution", "aspect_ratio", "generate_audio", "reference_voice_ids"} if job["modality"] == "video" else {"resolution", "aspect_ratio"}
     if set(params) - supported:
         raise ResourceError("当前 Grok 适配器未声明这些逻辑参数映射，禁止静默忽略: "
                             + ",".join(sorted(set(params) - supported)), "unsupported_params")
@@ -66,5 +71,5 @@ def xai_grok_factory(job, storage):
             params.get("resolution", defaults["resolution"]),
             params.get("aspect_ratio", defaults.get("ratio", "")),
             defaults.get("reference_voice_ids", []),
-            bool(params.get("generate_audio", defaults.get("generate_audio", True)))), job["provider_id"])
+            params.get("generate_audio", defaults.get("generate_audio", True))), job["provider_id"])
     raise ResourceError("Grok 订阅路线未接音频适配器", "adapter_unavailable")

@@ -23,6 +23,8 @@ def _line_text(row):
 
 def compare_documents(before, after):
     """Return scene/line level changes between two screenplay documents."""
+    before = before if isinstance(before, dict) else {}
+    after = after if isinstance(after, dict) else {}
     old_scenes, new_scenes = _scenes(before), _scenes(after)
     old_by_id = {scene.get("id"): scene for scene in old_scenes}
     new_by_id = {scene.get("id"): scene for scene in new_scenes}
@@ -34,6 +36,15 @@ def compare_documents(before, after):
                         and [j for j in old_order if j in new_by_id].index(i)
                         != [j for j in new_order if j in old_by_id].index(i)]}
     lines = []
+    # Root provenance and scope are part of the reviewed document, even when
+    # every visible line stays unchanged.
+    root_changes = []
+    for field in sorted((set(before or {}) | set(after or {})) - {"scenes"}):
+        was, now = (before or {}).get(field), (after or {}).get(field)
+        if was != now:
+            root_changes.append({"scene_id": None, "line_id": None, "kind": "document",
+                                 "change": "changed", "field": field, "before": was, "after": now})
+    lines.extend(root_changes)
     for scene_id in new_order:
         if scene_id not in old_by_id:
             for key in ("actions", "dialogue", "silence"):
@@ -42,30 +53,31 @@ def compare_documents(before, after):
                                   "change": "added", "before": None, "after": _line_text(row)})
             continue
         old_scene, new_scene = old_by_id[scene_id], new_by_id[scene_id]
-        if old_scene.get("estimated_duration_ms") != new_scene.get("estimated_duration_ms"):
-            lines.append({"scene_id": scene_id, "line_id": None, "kind": "scene",
-                          "change": "changed", "field": "estimated_duration_ms",
-                          "before": old_scene.get("estimated_duration_ms"), "after": new_scene.get("estimated_duration_ms")})
+        for field in sorted((set(old_scene) | set(new_scene)) - {"id", "actions", "dialogue", "silence"}):
+            if old_scene.get(field) != new_scene.get(field):
+                lines.append({"scene_id": scene_id, "line_id": None, "kind": "scene",
+                              "change": "changed", "field": field,
+                              "before": old_scene.get(field), "after": new_scene.get(field)})
         for key in ("actions", "dialogue", "silence"):
             old_rows = {row.get("id"): row for row in _lines(old_scene, key)}
             new_rows = {row.get("id"): row for row in _lines(new_scene, key)}
+            old_shared = [value for value in old_rows if value in new_rows]
+            new_shared = [value for value in new_rows if value in old_rows]
+            if old_shared != new_shared:
+                for line_id in new_shared:
+                    if old_shared.index(line_id) != new_shared.index(line_id):
+                        lines.append({"scene_id": scene_id, "line_id": line_id, "kind": key,
+                                      "change": "moved", "field": "order",
+                                      "before": old_shared.index(line_id), "after": new_shared.index(line_id)})
             for line_id, row in new_rows.items():
                 if line_id not in old_rows:
                     lines.append({"scene_id": scene_id, "line_id": line_id, "kind": key,
                                   "change": "added", "before": None, "after": _line_text(row)})
                     continue
                 previous = old_rows[line_id]
-                fields = {}
-                if _line_text(previous) != _line_text(row):
-                    fields["text"] = (_line_text(previous), _line_text(row))
-                if key == "dialogue" and previous.get("speaker") != row.get("speaker"):
-                    fields["speaker"] = (previous.get("speaker"), row.get("speaker"))
-                if key == "actions" and previous.get("narrative_refs") != row.get("narrative_refs"):
-                    fields["narrative_refs"] = (previous.get("narrative_refs"), row.get("narrative_refs"))
-                if key == "silence":
-                    for silence_field in ("duration_ms", "purpose"):
-                        if previous.get(silence_field) != row.get(silence_field):
-                            fields[silence_field] = (previous.get(silence_field), row.get(silence_field))
+                fields = {field: (previous.get(field), row.get(field))
+                          for field in sorted((set(previous) | set(row)) - {"id"})
+                          if previous.get(field) != row.get(field)}
                 for field, (was, now) in fields.items():
                     lines.append({"scene_id": scene_id, "line_id": line_id, "kind": key,
                                   "change": "changed", "field": field, "before": was, "after": now})

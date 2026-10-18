@@ -29,6 +29,17 @@ class VolcAdapterError(ValueError):
     pass
 
 
+def audio_request_payload(prompt, speaker, defaults):
+    """Compile the effective Agent Plan TTS request without contacting it."""
+    payload = {"req_params": {"text": prompt, "speaker": speaker,
+               "audio_params": {"format": defaults.get("format", "wav"),
+                                "sample_rate": defaults.get("sample_rate", 24000),
+                                "speech_rate": defaults.get("speech_rate", 0)}}}
+    if defaults.get("context_texts"):
+        payload["req_params"]["additions"] = json.dumps({"context_texts": defaults["context_texts"]}, ensure_ascii=False)
+    return payload
+
+
 class VolcArkImageProvider:
     def __init__(self, model: str, media_url: Callable[[str], str], size_for: Callable[[int, int], str],
                  transport=None):
@@ -171,8 +182,12 @@ class VolcArkAudioProvider:
             raise VolcAdapterError("预置语音模型、资源或角色音色绑定无效")
         if not isinstance(self.job_id, str) or not self.job_id.startswith("J-") or not self.job_id[2:].isalnum():
             raise VolcAdapterError("音频任务 ID 无效")
-        if not isinstance(self.defaults, dict) or set(self.defaults) - {"format", "sample_rate", "speech_rate"}:
+        if not isinstance(self.defaults, dict) or set(self.defaults) - {"format", "sample_rate", "speech_rate", "context_texts"}:
             raise VolcAdapterError("语音模型默认参数包含未映射字段")
+        contexts = self.defaults.get("context_texts", [])
+        if (not isinstance(contexts, list)
+                or any(not isinstance(value, str) or not value.strip() for value in contexts)):
+            raise VolcAdapterError("context_texts 必须为非空表演提示文本数组")
         fmt = self.defaults.get("format", "wav")
         rate = self.defaults.get("sample_rate", 24000)
         speed = self.defaults.get("speech_rate", 0)
@@ -221,9 +236,7 @@ class VolcArkAudioProvider:
         self.preflight(req)
         fmt = self.defaults.get("format", "wav")
         rate = self.defaults.get("sample_rate", 24000)
-        payload = {"req_params": {"text": req.prompt, "speaker": self.binding["voice"]["voice"],
-                   "audio_params": {"format": fmt, "sample_rate": rate,
-                                    "speech_rate": self.defaults.get("speech_rate", 0)}}}
+        payload = self.request_payload(req)
         audio, usage = (self.transport or self._request)(payload, "seed-tts-2.0")
         if not isinstance(audio, bytes) or not audio or not isinstance(usage, dict):
             raise VolcAdapterError("语音响应没有有效音频或用量信息")
@@ -252,6 +265,10 @@ class VolcArkAudioProvider:
                "sha256": digest, "usage": usage, "speaker": self.binding["voice"]["voice"],
                "resource_id": "seed-tts-2.0"}
         return JobHandle("volc_ark", self.model, None, raw)
+
+    def request_payload(self, req):
+        """The same effective request is used for inspection and submission."""
+        return audio_request_payload(req.prompt, self.binding["voice"]["voice"], self.defaults)
 
     def poll(self, handle: JobHandle) -> JobStatus:
         if handle.provider != "volc_ark" or handle.model != self.model:

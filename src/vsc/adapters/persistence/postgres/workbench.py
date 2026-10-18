@@ -101,18 +101,28 @@ for name,table,owner,key,scope in [
     label={'shot_id':"t.display_code || ' · ' || t.title",'slot_id':"t.role || ' · ' || t.slot_key",'item_id':"t.track_key || ' #' || t.ordinal",'instance_id':'t.label','media_id':'t.name'}[key]
     QUERIES[name] = "SELECT r.*, '%s' kind, %s title FROM %s r JOIN %s t ON t.project_id=r.project_id AND t.id=r.%s WHERE r.project_id=:p AND r.%s IN (SELECT id FROM %s)" % (name,label,table,target_table,key,owner,scope)
 
-QUERIES['job_attempts'] = '''SELECT j.id job_id,j.id,j.status,j.purpose,j.model_version,
- j.request_payload::text plan_params,
+QUERIES['job_attempts'] = '''SELECT j.id job_id,j.id,j.status,j.purpose,j.model_version,j.shot_id,j.asset_id,j.candidate_no,j.attempt,
+ j.purpose || ' · ' || j.candidate_no title, 'job_attempt' kind,
+ j.request_payload plan_params,
  rp.sha256 AS run_version_sha256,
  j.request_sha256,
  (SELECT count(*) FROM job_events e WHERE e.project_id=j.project_id AND e.job_id=j.id) event_count,
- (SELECT json_agg(json_build_object('event',e.event_type,'at',e.created_at,'usage',e.evidence->'raw'->>'usage','error',e.evidence->>'error') ORDER BY e.created_at)
+ (SELECT json_agg(json_build_object('event',e.event_type,'at',e.created_at,'evidence',e.evidence) ORDER BY e.created_at,e.id)
     FROM job_events e WHERE e.project_id=j.project_id AND e.job_id=j.id) events,
  (SELECT json_agg(json_build_object('media_id',o.media_id) ORDER BY o.media_id)
     FROM job_outputs o WHERE o.project_id=j.project_id AND o.job_id=j.id) outputs,
- j.provider_id
+ j.provider_id, pm.default_params model_defaults,pm.capabilities model_capabilities,
+ (SELECT json_agg(json_build_object('execution_id',e.id,'line_id',e.line_id,'voice_spec_id',e.voice_spec_id,'parameters',e.parameters))
+   FROM execution_instances e JOIN script_lines l ON l.project_id=e.project_id AND l.id=e.line_id
+   WHERE e.project_id=j.project_id AND e.domain='voice' AND j.modality='audio'
+   AND (e.line_id::text IN (SELECT jsonb_array_elements_text(coalesce(j.request_payload->'logical_request'->'script_line_ids',j.request_payload->'script_line_ids','[]'::jsonb)))
+        OR l.line_key IN (SELECT jsonb_array_elements_text(coalesce(j.request_payload->'logical_request'->'script_line_ids',j.request_payload->'script_line_ids','[]'::jsonb))))
+   AND e.voice_spec_id::text=j.request_payload->'voice_binding'->>'voice_spec_id'
+   AND EXISTS(SELECT 1 FROM execution_shots x WHERE x.project_id=e.project_id AND x.execution_id=e.id AND x.shot_id=j.shot_id)
+   AND EXISTS(SELECT 1 FROM job_input_versions v WHERE v.project_id=j.project_id AND v.job_id=j.id AND v.artifact_id=e.artifact_id)) voice_performances
  FROM generation_jobs j LEFT JOIN artifact_versions rp ON rp.project_id=j.project_id AND rp.id=j.run_version_id
- WHERE j.project_id=:p AND j.id IN (SELECT id FROM scope_ids) OR j.project_id=:p AND j.shot_id IN (SELECT id FROM scope_ids) OR (:scope IS NULL AND j.project_id=:p)'''
+ JOIN provider_models pm ON pm.id=j.model_id
+ WHERE j.project_id=:p AND (CAST(:scope AS uuid) IS NULL OR j.shot_id IN (SELECT id FROM scope_ids) OR j.asset_id IN (SELECT id FROM scope_ids))'''
 QUERIES['jobs'] = """SELECT j.id,j.shot_id,j.asset_id,j.purpose,j.status,j.modality kind,j.purpose title,j.model_version,
  (SELECT count(*) FROM job_outputs o WHERE o.project_id=:p AND o.job_id=j.id) output_count,
  (SELECT count(*) FROM job_outputs o WHERE o.project_id=:p AND o.job_id=j.id AND NOT EXISTS(
@@ -200,6 +210,13 @@ def query_workbench(store,project_id,*,object_id=None,section='overview',query='
             page=[r[0] for r in conn.execute(text(envelope+"SELECT body - 'search_text' FROM data "+condition+" ORDER BY CASE WHEN body->>'kind'='work' THEN -1 WHEN body->>'current'='true' OR body->>'status'='selected' THEN 0 ELSE 1 END,coalesce((body->>'ordinal')::int,0),body->>'title',body->>'id' LIMIT :limit OFFSET :offset"),dict(params,limit=take,offset=offset))]
             if name=='lines' and page:
                 enrich_line_coverage(conn,p,page)
+            if name=='job_attempts':
+                from vsc.production.performance import performance_payload_coverage
+                for row in page:
+                    model={'default_params':row.pop('model_defaults',{}),'capabilities':row.pop('model_capabilities',{})}
+                    row['performance_coverage']=[dict(performance_payload_coverage(execution['parameters'],model),
+                        execution_id=execution['execution_id'],line_id=execution['line_id'],voice_spec_id=execution['voice_spec_id'])
+                        for execution in row.pop('voice_performances',None) or []]
             if name in ('materials','candidates') and page:
                 media_ids=[row['media_id'] for row in page]
                 previews=store._renditions(conn,p,media_ids)

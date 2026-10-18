@@ -13,6 +13,7 @@ class DisplayTextTest(unittest.TestCase):
         self.assertEqual(S.display_text("第2/3集共20集"), "第2/3集共20集")
         self.assertEqual(S.display_text("他说：'真的吗？'（笑了）"), "他说真的吗笑了")
         self.assertEqual(S.display_text(""), "")
+        self.assertEqual(S.display_text("2:30到场；温度-3.5℃，比例2:1，千分位1,000和1/3。"), "2:30到场温度-3.5℃比例2:1千分位1,000和1/3")
 
     def test_overlaps_and_order(self):
         self.assertEqual(S.check_overlaps([(0, 1, "a"), (1, 2, "b")]), [])
@@ -23,6 +24,7 @@ class DisplayTextTest(unittest.TestCase):
         self.assertEqual(S.check_coverage(["今晚我等你 不见不散"], ["今晚我等你，不见不散。"]), [])
         missing = S.check_coverage(["今晚我等你"], ["今晚我等你，不见不散。", "完全缺失句"])
         self.assertEqual([row["index"] for row in missing], [0, 1])
+        self.assertEqual([row["index"] for row in S.check_coverage(["好"], ["好", "好"])], [1])
 
     def test_layout_unit_font_two_lines(self):
         layout = S.check_layout("这是一条很长很长的字幕需要换行测试", None, 11)
@@ -41,11 +43,11 @@ class ReviewMethodGateTest(unittest.TestCase):
         self.assertEqual(checklist["ai_static_review"]["status"], "present")
         self.assertTrue(checklist["ai_static_review"]["advisory_only"])
         self.assertEqual(checklist["human_full_play"]["status"], "missing")
-        self.assertFalse(checklist["formal_delivery_ready"])
+        self.assertFalse(checklist["matching_evidence_present"])
         ready = delivery_checklist(
             reviews=[{"review_method": "human_full_play", "scope_complete": True, "reviewer": "甲"}],
             qa_reports=[{"passed": True, "real_adapter": True}])
-        self.assertTrue(ready["formal_delivery_ready"])
+        self.assertFalse(ready["matching_evidence_present"], "摘要不接受伪 passed/real_adapter/scope_complete 字段")
 
 
 class DuplicateAudioBindingTest(unittest.TestCase):

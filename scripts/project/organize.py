@@ -3,7 +3,7 @@
 from pathlib import Path
 import sys
 
-_root = Path(__file__).resolve().parents[3]
+_root = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(_root / "src"), str(_root)]
 from vsc.project.organize import main
 

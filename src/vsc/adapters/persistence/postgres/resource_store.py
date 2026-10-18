@@ -57,7 +57,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-                if version != "0007_script_suggestions":
+                if version != S.SCHEMA_REVISION:
                     raise ResourceError("PostgreSQL迁移版本不兼容，请先执行显式迁移", "schema_version_mismatch", 503)
                 return {"ready": True, "migration": version, "storage_policy": "postgres-series-v1"}
         except SQLAlchemyError as exc:
@@ -241,6 +241,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                             callback=lambda conn, project: self._create_artifact(conn, project, payload), **kw)
 
     def _create_artifact(self, conn, project, payload):
+            from vsc.assets.resource_service import artifact_stage
+            payload = dict(payload, stage=artifact_stage(project["profile_snapshot"],
+                required(payload, "artifact_type"), payload.get("stage", "script")))
             self.check_script_confirmation(conn, project, payload)  # F05/F06：剧本确认硬停在登记事务内统一消费
             p, artifact_id = project["id"], checked_id(payload.get("id", new_id()))
             document = required(payload, "document")
@@ -269,6 +272,14 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 if errors(document) or document.get("project_id") != p or wide:
                     raise ResourceError("委托需要有效固定政策与明确项目内对象范围", "invalid_delegation")
             artifact_key = required(payload, "artifact_key")
+            _, script_types = self._script_types(project["profile_snapshot"].get("stages", []))
+            if script_types:
+                prior = conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id == p,
+                    S.artifact_versions.c.artifact_key == artifact_key).order_by(S.artifact_versions.c.version.desc()).limit(1)).mappings().first()
+                script_stream = payload["artifact_type"] in script_types or prior and prior["artifact_type"] in script_types
+                if prior and script_stream and (prior["artifact_type"] != payload["artifact_type"] or prior["project_wide"] != wide or
+                                               self._artifact_scopes(conn, p, prior["id"]) != set(scopes)):
+                    raise ResourceError("剧本逻辑流的类型与完整范围必须保持；范围变化须明确拆分处理", "script_scope_change_required")
             supersedes_id = checked_id(payload["supersedes_id"]) if payload.get("supersedes_id") else None
             if supersedes_id:
                 previous = self._one(conn, S.artifact_versions, p, supersedes_id)
@@ -469,6 +480,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 if errors(policy) or actor != policy["grantor_actor"] or actor == policy["delegate_actor"]:
                     raise ResourceError("委托政策只能由固定的真实委托人批准或撤销", "delegation_grantor_required")
             if outcome == "approve":
+                self._check_profile_dependencies(conn, project, artifact)
                 if artifact["supersedes_id"]:
                     current = conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
                         S.current_artifact_versions.c.project_id == p, S.current_artifact_versions.c.artifact_key == artifact["artifact_key"])).scalar_one_or_none()

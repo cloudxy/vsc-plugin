@@ -309,6 +309,8 @@ def validate_guard(store, conn, project, run, context=None, job=None, model=None
 
 
 def validate_submission(store, conn, project, job):
+    if job["status"] == "created":
+        store.check_job_script_confirmation(conn, project, shot_id=job.get("shot_id"), asset_id=job.get("asset_id"), run_version_id=job["run_version_id"])
     run = store._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
     validate_guard(store, conn, project, run, job=job)
 

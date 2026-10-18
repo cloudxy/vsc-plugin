@@ -5,6 +5,23 @@ from support.fixtures.resource_store import ResourceStoreFixture,HAS_DB_DEPS,TES
 
 @unittest.skipUnless(HAS_DB_DEPS and TEST_URL,'isolated PostgreSQL required')
 class WorkbenchTest(ResourceStoreFixture,unittest.TestCase):
+    def test_attempts_read_frozen_request_events_and_scope(self):
+        self.seed_generation_timeline_render()
+        jobs=self.query(section='jobs')['sections']['jobs']['items']
+        row=jobs[0]
+        value=self.query(section='job_attempts',entity_id=row['id'])['sections']['job_attempts']
+        self.assertEqual(value['total'],1)
+        attempt=value['items'][0]
+        self.assertEqual(attempt['id'],row['id'])
+        self.assertIsInstance(attempt['plan_params'],dict)
+        self.assertEqual(attempt['plan_params'].get('logical_request',attempt['plan_params'])['prompt'],'固定画面')
+        self.assertTrue(attempt['events'])
+        self.assertTrue(all('evidence' in event for event in attempt['events']))
+        self.assertEqual(len(attempt['outputs']),1)
+        self.assertEqual(self.query(object_id=row['shot_id'],section='job_attempts')['sections']['job_attempts']['total'],1)
+        other=self.write('create_object',dict(kind='asset',display_code='OTHER',asset_kind='prop'))['id']
+        self.assertEqual(self.query(object_id=other,section='job_attempts')['sections']['job_attempts']['total'],0)
+
     def query(self,**opts):
         from vsc.adapters.persistence.postgres.workbench import query_workbench
         return query_workbench(self.store,self.p,**opts)
@@ -104,7 +121,7 @@ class WorkbenchTest(ResourceStoreFixture,unittest.TestCase):
         from vsc.adapters.persistence.postgres import schema as S
         with self.engine.connect() as conn:
             self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
-        self.assertEqual(self.store.check_schema()['migration'],'0007_script_suggestions')
+        self.assertEqual(self.store.check_schema()['migration'],'0008_script_note_baselines')
         h,a,line,doc,r=self.seed()
         cue=self.query(section='cues')['sections']['cues']['items'][0]['id']
         # SQL CHECK must reject partial ranges even when SQL three-valued logic is involved.

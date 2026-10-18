@@ -78,5 +78,5 @@ def volc_ark_factory(job, storage, *, sdk_http_client=None):
             raise ResourceError("视频模型需要 resolution 和 ratio 映射", "invalid_model_defaults")
         return ConfiguredArkProvider(VolcArkVideoProvider(model, media_url, defaults["resolution"], defaults["ratio"], defaults.get("generate_audio", False), transport=transport), job["provider_id"], transport)
     binding = job["request_payload"].get("voice_binding")
-    voice_defaults = {key: value for key, value in defaults.items() if key in {"format", "sample_rate", "speech_rate"}}
+    voice_defaults = {key: value for key, value in defaults.items() if key in {"format", "sample_rate", "speech_rate", "context_texts"}}
     return ConfiguredArkProvider(VolcArkAudioProvider(model, storage.root, "J-" + job["id"].replace("-", ""), binding, voice_defaults), job["provider_id"])

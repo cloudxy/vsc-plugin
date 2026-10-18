@@ -10,6 +10,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
+SCHEMA_REVISION = "0008_script_note_baselines"
+
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
     "uq": "uq_%(table_name)s_%(column_0_N_name)s",
@@ -550,8 +552,15 @@ script_drafts = project_table("script_drafts",
     UniqueConstraint("project_id", "scope_key"))
 script_notes = project_table("script_notes",
     Column("scope_key", Text),  # 0007：批注绑定范围；NULL 为历史未归属批注，不猜测迁移
+    Column("base_draft_revision", BigInteger), Column("base_content_sha256", String(64)),
+    uid("base_artifact_id", nullable=True),
     Column("scene_id", Text, nullable=False), Column("line_id", Text),
-    Column("body", Text, nullable=False), Column("author", Text, nullable=False), stamp())
+    Column("body", Text, nullable=False), Column("author", Text, nullable=False), stamp(),
+    ForeignKeyConstraint(["project_id", "base_artifact_id"], ["artifact_versions.project_id", "artifact_versions.id"],
+                         name="fk_script_notes_base_artifact", ondelete="RESTRICT"),
+    CheckConstraint("(base_draft_revision IS NULL AND base_content_sha256 IS NULL AND base_artifact_id IS NULL) OR "
+                    "(base_draft_revision IS NOT NULL AND base_draft_revision >= 1 AND base_content_sha256 IS NOT NULL AND "
+                    "base_content_sha256 ~ '^[0-9a-f]{64}$')", name="baseline"))
 # 0007：可逐处接受／拒绝／撤销的修改建议；接受要求 base_draft_revision 仍等于当前工作副本修订。
 script_suggestions = project_table("script_suggestions",
     Column("scope_key", Text, nullable=False, server_default=""),
@@ -601,7 +610,7 @@ for table_name, fields in {
     "artifact_asset_spec_refs": ("asset_id", "spec_version_id"),
     "timeline_item_media": ("media_id",), "render_inputs": ("media_id",),
     "render_outputs": ("media_id",), "preview_jobs": ("status",),
-    "script_notes": ("scene_id",), "script_note_decisions": ("note_id",),
+    "script_notes": ("scene_id", "base_artifact_id"), "script_note_decisions": ("note_id",),
     "script_suggestions": ("scope_key",), "script_suggestion_decisions": ("suggestion_id",),
 }.items():
     table = metadata.tables[table_name]

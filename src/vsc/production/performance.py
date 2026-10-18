@@ -94,32 +94,48 @@ def voice_control_problems(parameters, model, voice_spec_id, voices):
     if not required <= fields:
         return ['专业配音必须把语速及非普通delivery绑定真实模型控制']
     declared = caps.get('performance_controls', {})
-    for control in controls:
+    coverage = performance_payload_coverage(parameters, model)
+    for control, row in zip(controls, coverage['controls']):
         key = control.get('model_default')
-        if declared.get(control.get('field')) != key or key not in model.get('default_params', {}) or model['default_params'][key] != control.get('expected'):
+        if declared.get(control.get('field')) != key or not row['consumed']:
             return ['配音控制未匹配模型已声明并实际消费的默认参数']
     return []
 
 
-def performance_payload_coverage(parameters, model):
+def performance_payload_coverage(parameters, model, payload=None):
     """B4-02：逐项对照表演控制与最终 TTS payload 字段，输出 已消费/未消费/缺口。
 
     纯函数：不做决定，只列事实，供提交前界面与审阅展示"哪些要求由什么承担"。
     """
     caps = model.get("capabilities", {}) if isinstance(model, dict) else {}
     defaults = model.get("default_params", {}) if isinstance(model, dict) else {}
-    controls = parameters.get("controls", []) if isinstance(parameters, dict) else []
+    parameters = parameters if isinstance(parameters, dict) else {}
+    controls = parameters.get("controls", [])
+    if payload is None:
+        from vsc.adapters.providers.volc_ark.provider import audio_request_payload
+        payload = audio_request_payload("", "", defaults)
+    req = payload.get("req_params", {})
+    effective = dict(req.get("audio_params", {}))
+    additions = req.get("additions", {})
+    try:
+        additions = json.loads(additions) if isinstance(additions, str) else additions
+    except (ValueError, TypeError):
+        additions = {}
+    if isinstance(additions, dict) and "context_texts" in additions:
+        effective["context_texts"] = additions["context_texts"]
     rows = []
     for control in controls:
         if not isinstance(control, dict):
             continue
         field, key, expected = control.get("field"), control.get("model_default"), control.get("expected")
-        consumed = key in defaults and defaults.get(key) == expected
+        consumed = (caps.get("performance_controls", {}).get(field) == key
+                    and key in effective and effective[key] == expected)
         rows.append({"field": field, "model_default": key, "expected": expected,
-                     "actual": defaults.get(key), "consumed": consumed})
+                     "configured": defaults.get(key), "actual": effective.get(key), "consumed": consumed})
     unsupported = [name for name in ("emotion", "breath", "accent", "pronunciation")
                    if parameters.get(name) and name not in caps.get("performance_controls", {})]
     return {"controls": rows,
             "declared_performance_controls": sorted(caps.get("performance_controls", {})),
             "fields_without_model_control": unsupported,
-            "payload_note": "最终豆包 payload 实际消费 speech_rate 与 context_texts；未列出的专业字段由表演记录/审听承担，不进入请求"}
+            "evidence": "compiled_request",
+            "payload_note": "按实际TTS请求编译器对照 speech_rate/context_texts；这里只证明请求映射，表演效果仍需审听"}
