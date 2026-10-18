@@ -3,7 +3,7 @@ from vsc.assets.resource_service import ResourceError,Conflict,NotFound
 
 SECTIONS=frozenset(('timeline_media','quality_observations','method_evaluations','jobs','overview','children','shots','lines','assets','instances','cues','performances','bindings','materials','versions',
     'candidates','coverage','states','voices','interactions','dispositions','cue_shots','cue_slots','cue_timeline_items',
-    'execution_shots','execution_participants','execution_materials','execution_slots'))
+    'execution_shots','execution_participants','execution_materials','execution_slots','job_attempts','script_status'))
 
 
 class Workbench:

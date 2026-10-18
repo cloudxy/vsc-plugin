@@ -762,6 +762,14 @@
       "sources": [
         "src/vsc/production/production.py"
       ]
+    },
+    "project.unit.test_payload_and_organize": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/performance.py",
+        "src/vsc/project/organize.py"
+      ]
     }
   },
   "dependencies": {
