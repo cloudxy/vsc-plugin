@@ -30,8 +30,8 @@ def upgrade():
 
 def downgrade():
     op.drop_index("ix_script_notes_project_base_artifact_id", table_name="script_notes")
-    op.drop_constraint("fk_script_notes_base_artifact", "script_notes", type_="foreignkey")
-    op.drop_constraint("ck_script_notes_baseline", "script_notes", type_="check")
+    op.drop_constraint(op.f("fk_script_notes_base_artifact"), "script_notes", type_="foreignkey")
+    op.drop_constraint(op.f("ck_script_notes_baseline"), "script_notes", type_="check")
     op.drop_column("script_notes", "base_artifact_id")
     op.drop_column("script_notes", "base_content_sha256")
     op.drop_column("script_notes", "base_draft_revision")

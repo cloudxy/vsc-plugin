@@ -254,12 +254,14 @@ def _context_command(service, project_id, args, tree):
     print("OK " + identifier + " 已建立角色上下文包：" + str(location.relative_to(Path(args.project).resolve())))
 
 
-def execute(service, project_id, args):
+def execute(service, project_id, args, schema_status=None):
     tree = service.get_project_tree(project_id)
     if args.command in {"status", "next", "gate"}:
         from vsc.project.pg_workflow import check_gate, workflow_status
         scope = scope_id(args, tree)
         value = check_gate(service, project_id, args.stage, scope) if args.command == "gate" else workflow_status(service, project_id, scope)
+        if schema_status is not None:
+            value["schema"] = schema_status
         print(json.dumps(value, ensure_ascii=False, indent=2))
         if args.command == "gate" and not value["passed"]:
             raise SystemExit(1)
@@ -284,8 +286,11 @@ def handle_project_command(args):
     service = None
     try:
         service = service_from_environment(pointer.get("database_env", "VSC_DATABASE_URL"))
-        service.check_schema()
-        execute(service, pointer["project_id"], args)
+        historical_read = args.command in {"status", "next"}
+        schema = service.check_schema(read_only=True) if historical_read else service.check_schema()
+        if historical_read:
+            service.store.engine = service.store.engine.execution_options(postgresql_readonly=True)
+        execute(service, pointer["project_id"], args, schema_status=schema if historical_read else None)
     except (ResourceError, OSError, ValueError) as error:
         from vsc.project.state import die
         die(getattr(error, "message", str(error)))

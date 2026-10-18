@@ -23,6 +23,52 @@ TEST_URL = os.environ.get("VSC_TEST_DATABASE_URL")
 @unittest.skipUnless(TEST_URL and HAS_DB_DEPS, "requires explicit VSC_TEST_DATABASE_URL and postgres dependencies")
 class PostgresResourceTest(ResourceStoreFixture, unittest.TestCase):
 
+    def test_previous_note_schema_allows_only_readonly_status_and_next(self):
+        import contextlib,io,json,tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from alembic import command
+        from alembic.config import Config
+        from sqlalchemy import text
+        from sqlalchemy.exc import DBAPIError
+        from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
+        from vsc.assets.resource_service import ResourceService,ResourceError
+        from vsc.interfaces.cli.pg_state import handle_project_command
+        from support.fixtures.postgres import isolated_postgres
+        with isolated_postgres(TEST_URL) as engine, tempfile.TemporaryDirectory() as directory:
+            service=ResourceService(PostgresResourceStore(engine=engine))
+            project=service.create_project({'name':'Historical synthetic fixture','profile_snapshot':{'profile_id':'vsc.synthetic','version':'1','stages':[]}},actor='fixture-human')
+            cfg=Config(str(ROOT/'migrations/postgres/alembic.ini'))
+            with engine.begin() as conn:
+                cfg.attributes['connection']=conn;command.downgrade(cfg,'0007_script_suggestions')
+            with self.assertRaises(ResourceError):service.check_schema()
+            (Path(directory)/'.vsc-postgres.json').write_text(json.dumps({'project_id':project['id'],'storage_policy':'postgres-series-v1'}))
+            for verb in ('status','next'):
+                service.store=PostgresResourceStore(engine=engine)
+                output=io.StringIO()
+                with patch('vsc.bootstrap.service_from_environment',return_value=service),contextlib.redirect_stdout(output):
+                    self.assertTrue(handle_project_command(SimpleNamespace(command=verb,project=directory)))
+                value=json.loads(output.getvalue())
+                self.assertEqual(value['schema']['migration'],'0007_script_suggestions')
+                self.assertEqual(value['schema']['required_migration'],'0008_script_note_baselines')
+                self.assertTrue(value['schema']['read_only'])
+                self.assertFalse(value['schema']['ready'])
+                with self.assertRaises(DBAPIError),service.store.engine.begin() as conn:
+                    conn.execute(text("UPDATE projects SET name='must not write' WHERE id=:id"),{'id':project['id']})
+            service.store=PostgresResourceStore(engine=engine)
+            with patch('vsc.bootstrap.service_from_environment',return_value=service),patch('vsc.interfaces.cli.pg_state.execute') as execute,contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):handle_project_command(SimpleNamespace(command='source',project=directory))
+                execute.assert_not_called()
+            with engine.begin() as conn:
+                self.assertEqual(conn.execute(text('SELECT name FROM projects WHERE id=:id'),{'id':project['id']}).scalar_one(),'Historical synthetic fixture')
+                conn.execute(text("UPDATE alembic_version SET version_num='0006_script_workspace'"))
+            service.store=PostgresResourceStore(engine=engine)
+            with self.assertRaises(ResourceError):service.check_schema(read_only=True)
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE alembic_version SET version_num='0007_script_suggestions'"))
+                cfg.attributes['connection']=conn;command.upgrade(cfg,'head')
+            self.assertTrue(service.check_schema()['ready'])
+
 
     def test_migration_matches_model_and_typed_hierarchy(self):
         from alembic.autogenerate import compare_metadata
