@@ -770,6 +770,60 @@
         "src/vsc/production/performance.py",
         "src/vsc/project/organize.py"
       ]
+    },
+    "assets.integration.test_script_ai": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/script_ai.py",
+        "src/vsc/adapters/persistence/postgres/script_ai.py",
+        "src/vsc/interfaces/web/script_workspace.py",
+        "src/vsc/assets/resource_service.py",
+        "migrations/postgres/**"
+      ]
+    },
+    "production.integration.test_grok_pg_operations": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/video_operations.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/providers/xai_grok/**",
+        "src/vsc/adapters/persistence/postgres/production_store.py",
+        "src/vsc/production/run_authorization.py"
+      ]
+    },
+    "project.integration.test_role_memory": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/role_memory.py",
+        "src/vsc/adapters/persistence/postgres/memory_store.py",
+        "src/vsc/project/role_runtime.py",
+        "src/vsc/interfaces/web/memory.py",
+        "workflow/roles.json",
+        "migrations/postgres/**"
+      ]
+    },
+    "production.integration.test_local_production": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/local_production.py",
+        "src/vsc/adapters/persistence/postgres/local_edits.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/assets/resource_service.py"
+      ]
+    },
+    "project.integration.test_role_memory_legacy": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/project/state.py",
+        "src/vsc/interfaces/web/memory.py",
+        "src/vsc/project/role_runtime_legacy.py",
+        "src/vsc/project/role_runtime.py"
+      ]
     }
   },
   "dependencies": {

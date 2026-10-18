@@ -30,8 +30,8 @@ class LayoutTest(unittest.TestCase):
         cues = [{"png": "a.png", "x": 10, "y": 20, "start": 0.2, "end": 1.0}, {"png": "b.png", "x": 5, "y": 6, "start": 2.0, "end": 3.5}]
         command = SB.overlay_command("in.mp4", cues, "out.mp4")
         graph = command[command.index("-filter_complex") + 1]
-        self.assertIn("[0:v][1:v]overlay=x=10:y=20:enable='between(t,0.200,1.000)'[v1]", graph)
-        self.assertIn("[v1][2:v]overlay=x=5:y=6:enable='between(t,2.000,3.500)'[v2]", graph)
+        self.assertIn("[0:v][1:v]overlay=x=10:y=20:enable='gte(t,0.200)*lt(t,1.000)'[v1]", graph)
+        self.assertIn("[v1][2:v]overlay=x=5:y=6:enable='gte(t,2.000)*lt(t,3.500)'[v2]", graph)
         self.assertEqual(command[command.index("-map") + 1], "[v2]")
 
 
@@ -94,6 +94,26 @@ class InputTest(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("PIL") and SB.DEFAULT_FONT.is_file(), "跨消费者实际字体验证需要 Pillow 与固定字体")
 class SharedConsumerTest(unittest.TestCase):
+    def test_formal_consumers_require_fixed_package_for_plain_captions(self):
+        from vsc.post import remotion_plan as R
+        from vsc.adapters.editors import jianying_export as J
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            style = dict(STYLE, font=str(SB.DEFAULT_FONT), font_size=32)
+            (root / "input.mp4").write_bytes(b"synthetic mapping fixture")
+            srt = root / "input.srt"
+            srt.write_text("1\n00:00:00,000 --> 00:00:01,000\n需要固定来源\n")
+            plan = {"format": R.FORMAT, "project_id": "isolated", "composition": {
+                "id": "isolated", "width": 640, "height": 360, "fps": 30, "duration_in_frames": 30}, "subtitle_style": style,
+                "segments": [{"id": "v", "kind": "video", "source": "input.mp4", "source_shot_id": "S", "from_frame": 0, "duration_in_frames": 30},
+                    {"id": "caption", "kind": "caption", "text": "需要固定来源", "from_frame": 0, "duration_in_frames": 30}]}
+            for consumer, consume in [
+                ("burn", lambda: SB.burn(root / "input.mp4", srt, root / "out.mp4", style, formal_subtitles=True)),
+                ("remotion", lambda: R.scaffold(plan, root / "remotion", formal_subtitles=True)),
+                ("jianying", lambda: J.draft_payload(plan, root, formal_subtitles=True))]:
+                with self.subTest(consumer=consumer), patch.object(SB, "probe_video", return_value=(640, 360, 1)), self.assertRaises((ValueError, RuntimeError)):
+                    consume()
+
     def test_display_and_uneven_timecodes_reach_all_three_consumers(self):
         from vsc.post import remotion_plan as R
         from vsc.adapters.editors import jianying_export as J
@@ -189,6 +209,7 @@ class RealBurnTest(unittest.TestCase):
                                       capture_output=True, check=True, timeout=60).stdout
             plain = bytes([frame(0.1)[0]]) * len(frame(0.1))
             self.assertNotEqual(frame(0.75), frame(0.1))
+            self.assertLess(sum(a != b for a, b in zip(frame(1.0), plain)), len(plain) // 100)
             self.assertLess(sum(a != b for a, b in zip(frame(1.5), plain)), len(plain) // 100)
 
 

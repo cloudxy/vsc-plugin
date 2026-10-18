@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0008_script_note_baselines"
+SCHEMA_REVISION = "0009_role_memory"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -214,6 +214,7 @@ source_versions = project_table("source_versions", Column("source_key", Text, nu
     Column("version", Integer, nullable=False), Column("kind", Text, nullable=False),
     Column("sha256", String(64), nullable=False), Column("document", LargeBinary, nullable=False),
     Column("evidence_uri", Text), stamp(), UniqueConstraint("project_id", "source_key", "version"),
+    UniqueConstraint("project_id", "id", "sha256"),
     CheckConstraint("encode(sha256(document), 'hex') = sha256", name="document_sha256"))
 media_sources = project_table("media_sources", *ref("media_items", "media_id"), *ref("source_versions", "source_id"),
     Column("role", Text, nullable=False), Column("citation", JSONB, nullable=False, server_default="{}"),
@@ -617,7 +618,110 @@ for table_name, fields in {
     for field in fields:
         Index("ix_%s_project_%s" % (table_name, field), table.c.project_id, table.c[field])
 
-APPEND_ONLY_TABLES = CREATIVE_TABLES + (
+# Role dispatches and memories: immutable evidence, typed project-scoped references.
+role_dispatches = project_table("role_dispatches",
+    Column("context_id", Text, nullable=False), Column("role_id", Text, nullable=False),
+    Column("role_sha256", String(64), nullable=False), Column("context_sha256", String(64), nullable=False),
+    Column("host", Text, nullable=False), Column("instance_id", Text, nullable=False),
+    Column("actor", Text, nullable=False), Column("review_mode", Text, nullable=False),
+    *ref("creative_objects", "scope_object_id", nullable=True),
+    Column("packet", JSONB, nullable=False), Column("expires_at", DateTime(timezone=True), nullable=False), stamp(),
+    UniqueConstraint("project_id", "context_id"),
+    CheckConstraint("review_mode IN ('work','design','fresh','followup')", name="review_mode"))
+dispatch_inputs = Table("dispatch_inputs", metadata,
+    uid("project_id", nullable=False), *ref("role_dispatches", "dispatch_id"),
+    *ref("artifact_versions", "artifact_id"),
+    PrimaryKeyConstraint("project_id", "dispatch_id", "artifact_id"))
+dispatch_consumptions = project_table("dispatch_consumptions",
+    *ref("role_dispatches", "dispatch_id"), Column("instance_id", Text, nullable=False),
+    Column("actor", Text, nullable=False), Column("context_sha256", String(64), nullable=False), stamp(),
+    UniqueConstraint("project_id", "dispatch_id"))
+dispatch_returns = project_table("dispatch_returns",
+    *ref("role_dispatches", "dispatch_id"), Column("return_key", Text, nullable=False),
+    Column("result_sha256", String(64), nullable=False), Column("result", JSONB, nullable=False),
+    Column("summary", Text), Column("expires_at", DateTime(timezone=True)),
+    Column("closed", Boolean, nullable=False), stamp(),
+    UniqueConstraint("project_id", "dispatch_id", "return_key"),
+    CheckConstraint("summary IS NULL OR (length(summary) <= 2200 AND expires_at IS NOT NULL)", name="summary_expiry"))
+role_memories = project_table("role_memories",
+    Column("owner_role", Text, nullable=False), Column("scope", Text, nullable=False),
+    *ref("creative_objects", "scope_object_id", nullable=True),
+    Column("kind", Text, nullable=False), *ref("role_dispatches", "producer_dispatch_id", nullable=True),
+    Column("proposal_key", Text, nullable=False), Column("request_sha256", String(64), nullable=False), Column("origin", Text, nullable=False), stamp(),
+    UniqueConstraint("project_id", "producer_dispatch_id", "proposal_key"),
+    CheckConstraint("scope IN ('role','project')", name="scope"),
+    CheckConstraint("kind IN ('fact','lesson','check_method','judgment','recommendation','preference','decision')", name="kind"),
+    CheckConstraint("origin IN ('agent_proposed','unverified_proposal')", name="origin"))
+role_memory_versions = project_table("role_memory_versions",
+    *ref("role_memories", "memory_id"), Column("version", Integer, nullable=False),
+    *ref("role_dispatches", "producer_dispatch_id", nullable=True),
+    Column("content", Text, nullable=False), Column("content_sha256", String(64), nullable=False),
+    Column("sensitivity", Text, nullable=False), Column("confidence", Text, nullable=False),
+    Column("association_complete", Boolean, nullable=False), Column("tags", JSONB, nullable=False), stamp(),
+    UniqueConstraint("project_id", "memory_id", "version"),
+    UniqueConstraint("project_id", "id", "content_sha256"),
+    CheckConstraint("version > 0 AND length(content) BETWEEN 1 AND 6000", name="content_version"),
+    CheckConstraint("sensitivity IN ('public','project','restricted')", name="sensitivity"))
+role_memory_artifacts = Table("role_memory_artifacts", metadata,
+    uid("project_id", nullable=False), *ref("role_memory_versions", "memory_version_id"),
+    uid("artifact_id", nullable=False), Column("source_sha256", String(64), nullable=False),
+    ForeignKeyConstraint(["project_id", "artifact_id", "source_sha256"], ["artifact_versions.project_id", "artifact_versions.id", "artifact_versions.sha256"]),
+    PrimaryKeyConstraint("project_id", "memory_version_id", "artifact_id"))
+role_memory_sources = Table("role_memory_sources", metadata,
+    uid("project_id", nullable=False), *ref("role_memory_versions", "memory_version_id"),
+    uid("source_id", nullable=False), Column("source_sha256", String(64), nullable=False),
+    ForeignKeyConstraint(["project_id", "source_id", "source_sha256"], ["source_versions.project_id", "source_versions.id", "source_versions.sha256"]),
+    PrimaryKeyConstraint("project_id", "memory_version_id", "source_id"))
+role_memory_targets = Table("role_memory_targets", metadata,
+    uid("project_id", nullable=False), *ref("role_memory_versions", "memory_version_id"),
+    *ref("creative_objects", "object_id"), PrimaryKeyConstraint("project_id", "memory_version_id", "object_id"))
+role_memory_decisions = project_table("role_memory_decisions",
+    uid("memory_version_id", nullable=False), Column("outcome", Text, nullable=False),
+    Column("content_sha256", String(64), nullable=False), Column("actor", Text, nullable=False),
+    Column("confirmation_id", Text, nullable=False), Column("reason", Text, nullable=False),
+    Column("based_on_revision", BigInteger, nullable=False), Column("decision_sequence", BigInteger, nullable=False), stamp(),
+    UniqueConstraint("project_id", "confirmation_id"),
+    UniqueConstraint("project_id", "id", "memory_version_id"),
+    ForeignKeyConstraint(["project_id", "memory_version_id", "content_sha256"], ["role_memory_versions.project_id", "role_memory_versions.id", "role_memory_versions.content_sha256"]),
+    CheckConstraint("outcome IN ('approved','rejected','retired')", name="outcome"))
+dispatch_memory_refs = Table("dispatch_memory_refs", metadata,
+    uid("project_id", nullable=False), *ref("role_dispatches", "dispatch_id"),
+    *ref("role_memory_versions", "memory_version_id"), uid("decision_id", nullable=False),
+    ForeignKeyConstraint(["project_id", "decision_id", "memory_version_id"], ["role_memory_decisions.project_id", "role_memory_decisions.id", "role_memory_decisions.memory_version_id"]),
+    PrimaryKeyConstraint("project_id", "dispatch_id", "memory_version_id"))
+dispatch_sources = Table("dispatch_sources", metadata,
+    uid("project_id", nullable=False), *ref("role_dispatches", "dispatch_id"),
+    *ref("source_versions", "source_id"), PrimaryKeyConstraint("project_id", "dispatch_id", "source_id"))
+dispatch_media_refs = Table("dispatch_media_refs", metadata,
+    uid("project_id", nullable=False), *ref("role_dispatches", "dispatch_id"),
+    *ref("media_items", "media_id"), *ref("binding_decisions", "binding_decision_id"),
+    Column("role", Text, nullable=False), PrimaryKeyConstraint("project_id", "dispatch_id", "media_id", "role"))
+dispatch_result_artifacts = Table("dispatch_result_artifacts", metadata,
+    uid("project_id", nullable=False), *ref("dispatch_returns", "return_id"),
+    *ref("artifact_versions", "artifact_id"), PrimaryKeyConstraint("project_id", "return_id", "artifact_id"))
+script_suggestion_runs = project_table("script_suggestion_runs",
+    *ref("script_drafts", "draft_id"), Column("scope_key", Text, nullable=False),
+    Column("base_draft_revision", BigInteger, nullable=False), Column("base_content_sha256", String(64), nullable=False),
+    Column("input_document", JSONB, nullable=False), Column("goal", Text, nullable=False),
+    Column("backend", Text, nullable=False), Column("status", Text, nullable=False),
+    Column("result", JSONB), Column("error_code", Text), stamp(), Column("finished_at", DateTime(timezone=True)),
+    CheckConstraint("base_draft_revision > 0", name="positive_revision"),
+    CheckConstraint("status IN ('running','completed','stale','failed','submission_unknown')", name="status"))
+Index("ix_script_suggestion_runs_project_draft_id", script_suggestion_runs.c.project_id, script_suggestion_runs.c.draft_id)
+MEMORY_TABLES = ("role_dispatches", "dispatch_inputs", "dispatch_sources", "dispatch_media_refs", "dispatch_result_artifacts", "dispatch_consumptions", "dispatch_returns", "role_memories",
+    "role_memory_versions", "role_memory_artifacts", "role_memory_sources", "role_memory_targets", "role_memory_decisions", "dispatch_memory_refs")
+for _name, _fields in {
+    "role_dispatches": ("role_id", "scope_object_id"), "dispatch_consumptions": ("dispatch_id",),
+    "dispatch_returns": ("dispatch_id",), "role_memories": ("owner_role", "scope_object_id"),
+    "role_memory_versions": ("memory_id",), "role_memory_artifacts": ("artifact_id",),
+    "role_memory_sources": ("source_id",), "role_memory_targets": ("object_id",),
+    "role_memory_decisions": ("memory_version_id",), "dispatch_inputs": ("artifact_id",),
+    "dispatch_memory_refs": ("memory_version_id",),
+}.items():
+    for _field in _fields:
+        Index("ix_%s_project_%s" % (_name, _field), metadata.tables[_name].c.project_id, metadata.tables[_name].c[_field])
+
+APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + (
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
     "provider_configurations",
     "budget_limit_versions",

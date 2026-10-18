@@ -122,7 +122,8 @@ class PGStateBridgeTests(unittest.TestCase):
         self.assertEqual(packet["authority"], "derived_task_packet")
         self.assertEqual(packet["inputs"][0]["id"], identifier)
         self.assertEqual(packet["approved_memories"], [])
-        self.assertEqual(self.service.get_project(self.p)["revision"], revision)
+        self.assertEqual(self.service.get_project(self.p)["revision"], revision + 1)
+        self.assertEqual(self.service.get_role_dispatch(self.p, packet["dispatch"]["id"])["packet"], packet)
         self.cli("context", "build", self.project, "--role", "director", "--task", "synthetic", "--artifact", identifier, "--budget-chars", "1", expected=1)
 
     def test_source_unknown_stays_unknown_and_known_rights_require_human(self):

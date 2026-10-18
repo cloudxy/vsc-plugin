@@ -50,7 +50,8 @@ class PostgresResourceTest(ResourceStoreFixture, unittest.TestCase):
                     self.assertTrue(handle_project_command(SimpleNamespace(command=verb,project=directory)))
                 value=json.loads(output.getvalue())
                 self.assertEqual(value['schema']['migration'],'0007_script_suggestions')
-                self.assertEqual(value['schema']['required_migration'],'0008_script_note_baselines')
+                from vsc.adapters.persistence.postgres.schema import SCHEMA_REVISION
+                self.assertEqual(value['schema']['required_migration'],SCHEMA_REVISION)
                 self.assertTrue(value['schema']['read_only'])
                 self.assertFalse(value['schema']['ready'])
                 with self.assertRaises(DBAPIError),service.store.engine.begin() as conn:

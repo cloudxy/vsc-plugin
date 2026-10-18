@@ -194,19 +194,39 @@ def validate(plan):
     return errors
 
 
-def compile_subtitles(plan, style, *, script_texts=None, require_font=False):
+def compile_subtitles(plan, style, *, script_texts=None, require_font=False, media_root=None, formal_subtitles=False):
     """Use one subtitle compiler for scaffolding and editor export; never retime."""
     fps = frame_rate(plan["composition"]["fps"])
     segments = sorted((s for s in plan["segments"] if s["kind"] in {"caption", "text"}), key=lambda s: s["from_frame"])
+    bound = None
+    package = plan.get("subtitle_package")
+    if package is not None:
+        require_font = require_font or package.get("status") == "verified"
+        bound = subtitles.package_cues(package, media_root or Path.cwd(), project_id=plan["project_id"],
+            formal=formal_subtitles or package.get("status") == "verified")
+        expected = subtitles.caption_segments(package, fps)
+        fields = ("id", "line_id", "from_frame", "duration_in_frames", "subtitle_start_ms", "subtitle_end_ms")
+        if len(segments) != len(expected) or any(any(actual.get(key) != wanted[key] for key in fields)
+                or subtitles.display_text(actual["text"]) != subtitles.display_text(wanted["text"])
+                for actual, wanted in zip(segments, expected)):
+            raise subtitles.SubtitleError(["字幕片段与固定行/实测时码包不一致"])
+        if abs(package["duration_ms"] - plan["composition"]["duration_in_frames"] * 1000 / fps) > .001:
+            raise subtitles.SubtitleError(["字幕包与合成规格范围不一致"])
+    elif formal_subtitles and segments:
+        raise subtitles.SubtitleError(["正式字幕交付需要批准行、采用音频与实测时码包"])
     font, max_width = None, None
     if segments:
         if style.get("font"):
             font, max_width = subtitles.layout_font(style, plan["composition"]["width"])
         elif require_font:
             raise subtitles.SubtitleError(["严格字幕交付需要实际字体排版检查"])
-    compiled = subtitles.compile_cues([(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"]) for s in segments],
+    items = bound["cues"] if bound else [(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"]) for s in segments]
+    compiled = subtitles.compile_cues(items,
         duration=plan["composition"]["duration_in_frames"] / fps, script_texts=script_texts, font=font, max_width=max_width,
         style=style, height=plan["composition"]["height"])
+    if bound:
+        compiled["checks"].update({key: value for key, value in bound["checks"].items() if key != "font_layout"})
+        compiled["checks"]["render_time_resolution"] = "composition_frames; original measured milliseconds preserved"
     return compiled, {s["id"]: cue[2] for s, cue in zip(segments, compiled["cues"])}
 
 
@@ -242,6 +262,7 @@ export type Fps = number | {numerator: number; denominator: number};
 export type Segment = {
   id: string; kind: 'video' | 'image' | 'audio' | 'caption' | 'text';
   from_frame: number; duration_in_frames: number; source?: string; text?: string;
+  line_id?: string; subtitle_start_ms?: number; subtitle_end_ms?: number;
   source_shot_id?: string; source_in_frame?: number; source_duration_in_frames?: number;
   handle_in_frames?: number; handle_out_frames?: number;
   fade_in_frames?: number; fade_out_frames?: number; volume?: number; muted?: boolean;
@@ -251,6 +272,7 @@ export type Segment = {
 };
 export type RenderPlan = {
   format: string; project_id: string;
+  subtitle_package?: Record<string, unknown>;
   composition: {id: string; width: number; height: number; fps: Fps; duration_in_frames: number};
   segments: Segment[];
   subtitle_style?: SubtitleStyle;
@@ -389,11 +411,12 @@ registerRoot(Root);
 """
 
 
-def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles=False, *, script_texts=None):
+def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles=False, *, script_texts=None, formal_subtitles=False):
     errors = validate(document)
     if errors:
         raise ValueError("；".join(errors))
     plan = json.loads(json.dumps(render_plan(document)))
+    formal_subtitles = formal_subtitles or isinstance(plan.get("subtitle_package"), dict) and plan["subtitle_package"].get("status") == "verified"
     bible_bytes = Path(bible).read_bytes() if bible else None
     style, style_source = subtitles.resolve_style(bible, plan.get("subtitle_style"))
     if bible and Path(bible).read_bytes() != bible_bytes:
@@ -422,7 +445,8 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
             warnings.append("未找到可打包的字幕字体，使用系统 sans-serif；字体不可复现，须配置字体后才能作为严格字幕交付依据")
     if font_path:
         style["font"] = str(font_path)
-    compiled, display_by_id = compile_subtitles(plan, style, script_texts=script_texts, require_font=strict_subtitles)
+    compiled, display_by_id = compile_subtitles(plan, style, script_texts=script_texts, require_font=strict_subtitles or formal_subtitles,
+        media_root=Path(plan_path).resolve().parent if plan_path else Path.cwd(), formal_subtitles=formal_subtitles)
     for segment in plan["segments"]:
         if segment["id"] in display_by_id:
             segment["text"] = display_by_id[segment["id"]]
@@ -483,6 +507,7 @@ def main():
     scaffold_parser.add_argument("--bible", help="与烧录器/剪映共用的资产库 subtitle_style")
     scaffold_parser.add_argument("--strict-subtitles", action="store_true", help="字幕字体必须能够打包并绑定 SHA")
     scaffold_parser.add_argument("--script-texts", help="固定原稿 JSON 字符串数组；核对缺字，不代表音频对齐")
+    scaffold_parser.add_argument("--formal-subtitles", action="store_true", help="要求批准台词行/采用音频/实测时码固定包")
     args = parser.parse_args()
     try:
         plan = load_plan(args.plan)
@@ -496,7 +521,7 @@ def main():
             print(f"VALID: {actual['composition']['id']}  {len(actual['segments'])} segments")
             return
         scaffold(plan, args.output, plan_path=args.plan, bible=args.bible, strict_subtitles=args.strict_subtitles,
-                 script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None)
+                 script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None, formal_subtitles=args.formal_subtitles)
         print(f"SCAFFOLDED: {Path(args.output)}")
     except (OSError, ValueError) as exc:
         die(str(exc))

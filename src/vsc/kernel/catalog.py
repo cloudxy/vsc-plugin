@@ -182,6 +182,8 @@ def doctor_problems():
         problems.append(f"内核路由但不存在的 Skill：{skill}")
 
     for role_id, card in roles.items():
+        from vsc.project.role_runtime import policy_errors
+        problems.extend(f"role {role_id}: {error}" for error in policy_errors(card))
         required = ("agent", "identity", "temperament", "authority", "memory_scope", "deliverables")
         for key in required:
             if not card.get(key):

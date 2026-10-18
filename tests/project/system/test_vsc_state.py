@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from support.fixtures.legacy import freeze_legacy_profile
+from support.fixtures.human_memory import decide_legacy_memory
 from support.paths import SCRIPTS
 STATE = str(SCRIPTS / "project/state.py")
 
@@ -129,10 +130,11 @@ class TestMemoryAndContext(Base):
         output = self.ok("memory", "add", self.project, "--scope", "role", "--role", "director",
                          "--kind", "lesson", "--source", brief, "--content", "追逐镜头先交代出口，再提高剪辑密度。")
         memory_id = output.split()[1]
-        self.ok("memory", "decide", self.project, memory_id, "--status", "approved", "--by", "导演")
+        self.assertIn("只是标签", self.bad("memory", "decide", self.project, memory_id, "--status", "approved", "--by", "导演"))
+        decide_legacy_memory(self.project, memory_id, "导演")
         restricted = self.ok("memory", "add", self.project, "--scope", "project", "--kind", "fact",
                              "--content", "仅授权剪辑师查看的联系信息。", "--sensitivity", "restricted").split()[1]
-        self.ok("memory", "decide", self.project, restricted, "--status", "approved", "--by", "制片")
+        decide_legacy_memory(self.project, restricted, "制片")
         output = self.ok("context", "build", self.project, "--role", "director", "--task", "设计追逐镜头",
                          "--artifact", brief, "--parent-brief", "本轮用户希望镜头更紧张。")
         self.assertIn("CT-0001", output)

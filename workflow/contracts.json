@@ -5,11 +5,15 @@
     {
       "format": "vsc.review-delegation/v1",
       "owner": "显式委托素材选择",
-      "artifact_types": ["vsc.review_delegation"],
+      "artifact_types": [
+        "vsc.review_delegation"
+      ],
       "template": null,
       "validator": {
         "script": "scripts/assets/resources.py",
-        "arguments": ["validate-delegation-file"]
+        "arguments": [
+          "validate-delegation-file"
+        ]
       }
     },
     {
@@ -18,7 +22,9 @@
       "template": null,
       "validator": {
         "script": "scripts/production/series.py",
-        "arguments": ["validate-context-file"]
+        "arguments": [
+          "validate-context-file"
+        ]
       }
     },
     {
@@ -97,7 +103,13 @@
       "format": "vsc.role-context/v1",
       "owner": "项目状态机",
       "template": null,
-      "validator": null
+      "validator": {
+        "script": "scripts/project/state.py",
+        "arguments": [
+          "context",
+          "validate"
+        ]
+      }
     },
     {
       "format": "vsc.adaptation-map/v1",
@@ -440,6 +452,18 @@
       "validator": {
         "script": "scripts/story/script.py",
         "arguments": [
+          "validate"
+        ]
+      }
+    },
+    {
+      "format": "vsc.role-context/v2",
+      "owner": "项目角色运行协议",
+      "template": null,
+      "validator": {
+        "script": "scripts/project/state.py",
+        "arguments": [
+          "context",
           "validate"
         ]
       }

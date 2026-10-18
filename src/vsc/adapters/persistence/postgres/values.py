@@ -6,6 +6,10 @@ from datetime import datetime
 from decimal import Decimal
 from vsc.assets.resource_service import ResourceError
 
+# Internal finalization only: the project is locked before taking its current
+# revision. Public commands still require an explicit integer revision.
+CURRENT_REVISION = object()
+
 
 def new_id():
     return str(uuid.uuid4())

@@ -82,3 +82,9 @@ python3 -B scripts/assets/resources.py apply PROJECT_ID create_artifact \
 `performances`每行含 `key/label/domain/method_artifact_id/shot_ids/participants/materials/slots/parameters`，可带固定 `line_id/voice_spec_id`。domain 支持 `combat/dance/vfx/voice/acting/action`。四专业领域经 `vsc.production.performance.execution_problems` 检查可观察参数，方法须已批准且固定为依赖；打斗参与双方、舞蹈音乐、特效施放/目标及所需层、声音台词/声线都必须是 typed 引用。参数不接受 `*_id/*_ids/*_ref/*_refs`对象引用。制作上下文消费当前批准执行规格；实际供应商能力仍由生产检查核对，登记本身不承诺生成成功。
 
 关系未登记、旧格式未索引、权限不可用和数据截断分别显示，不能仅凭某页为空判定“没有依赖”。合成性能测试只证明工程规模；真实制作质量、真实项目负载和浏览器交互必须另行验收。
+
+## 局部制作
+
+镜头卡的“只重做本镜声音”、实例卡的“替换这个实例版本”和任务卡的“新增一次抽样”先加载本项目实际候选，显示固定目标、版本及参数差异。确认预览只建立待审产物；阅读固定正文后批准，运行包才可入队，生成worker仍须显式执行。未知或在途原任务先恢复，不作为重提入口。实例换规格只改变所选实例，保留同一资产身份与其他实例；库版本更新不会改写已固定项目输入。
+
+CLI及AI复用`resources.py local-preview PROJECT_ID --payload FILE`，再经`apply ... propose_local_production`和已批准后的`enqueue_local_production`。服务会在事务内重建预览摘要、核对当前版本及正式契约；页面上的影响清单不是自动重生或批准决定。

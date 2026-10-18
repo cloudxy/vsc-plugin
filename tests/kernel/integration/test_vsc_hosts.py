@@ -27,6 +27,9 @@ class HostEntryTest(unittest.TestCase):
         for skill in ("vsc", "vsc-adapt"):
             write(self.root / "skills" / skill / "SKILL.md", f"---\nname: {skill}\ndescription: test\n---\n")
         write(self.root / "agents/director.md", "---\nname: director\ndescription: \"Plan shots.\"\n---\n\n# Director\n\n镜头服务叙事。\n")
+        cards = json.loads((ROOT / "workflow/roles.json").read_text("utf-8"))
+        cards["roles"] = [card for card in cards["roles"] if card["id"] == "director"]
+        write(self.root / "workflow/roles.json", json.dumps(cards, ensure_ascii=False))
         stage = {"id": "adapt", "command": "vsc-adapt", "skill": "vsc-adapt",
                  "entry": {"mode": "adapt", "description": "VSC 改编", "argument_hint": "[第N集]"}}
         write(self.root / "workflow/kernel.json", json.dumps({"format": "vsc.workflow-kernel/v1", "stages": [stage]}, ensure_ascii=False))
@@ -34,7 +37,7 @@ class HostEntryTest(unittest.TestCase):
             "format": "vsc.hosts/v1",
             "entries": [
                 {"id": "skills", "path": ".agents/skills", "source": "skills", "format": "link"},
-                {"id": "roles", "path": ".agents/agents", "source": "agents", "format": "link"},
+                {"id": "roles", "path": ".agents/agents", "source": "agents", "format": "role-markdown"},
                 {"id": "codex", "path": ".codex/agents", "source": "agents", "format": "codex-toml"},
                 {"id": "commands", "path": "commands", "source": "stages", "format": "plugin-command"},
             ],
@@ -49,7 +52,8 @@ class HostEntryTest(unittest.TestCase):
         HOSTS.sync(self.root)
         self.assertEqual(HOSTS.entry_problems(self.root), [])
         self.assertEqual(os.readlink(self.root / ".agents/skills/vsc"), "../../skills/vsc")
-        self.assertEqual(os.readlink(self.root / ".agents/agents/director.md"), "../../agents/director.md")
+        self.assertFalse((self.root / ".agents/agents/director.md").is_symlink())
+        self.assertIn("role_sha256=", (self.root / ".agents/agents/director.md").read_text("utf-8"))
         command = (self.root / "commands/vsc-adapt.md").read_text("utf-8")
         self.assertIn("skills: vsc-adapt", command)
         self.assertIn("**mode: adapt**", command)
@@ -92,6 +96,23 @@ class HostEntryTest(unittest.TestCase):
 
     def test_repository_entries_match_sources(self):
         self.assertEqual(HOSTS.entry_problems(ROOT), [])
+
+    def test_markdown_and_codex_compile_identical_card_and_report_drift(self):
+        hosts = json.loads((self.root / "workflow/hosts.json").read_text())
+        hosts["entries"][1]["format"] = "role-markdown"
+        write(self.root / "workflow/hosts.json", json.dumps(hosts))
+        HOSTS.sync(self.root)
+        markdown = (self.root / ".agents/agents/director.md").read_text()
+        toml = (self.root / ".codex/agents/director.toml").read_text()
+        for value in ("视觉叙事明确", "human_approval", "memory_proposals", "role_sha256="):
+            self.assertIn(value, markdown)
+            self.assertIn(value, toml)
+        cards = json.loads((self.root / "workflow/roles.json").read_text())
+        cards["roles"][0]["temperament"] = "证据与节奏兼顾"
+        write(self.root / "workflow/roles.json", json.dumps(cards))
+        self.assertEqual(len(HOSTS.entry_problems(self.root)), 2)
+        HOSTS.sync(self.root)
+        self.assertIn("证据与节奏兼顾", (self.root / ".agents/agents/director.md").read_text())
 
 
 if __name__ == "__main__":

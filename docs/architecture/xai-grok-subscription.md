@@ -24,7 +24,7 @@
 | 参考生视频 | `reference_images:[{url},…]` **最多 14 张**（1.5）；可与 `image` 组合——`image` 成为钉定首帧，提示词占位符 `<IMAGE_0>` 归首帧、参考图从 `<IMAGE_1>` 起编号；无首帧时参考图从 `<IMAGE_0>` 起。提示词按位置指位（人物来自 `<IMAGE_1>`、商品来自 `<IMAGE_2>`）。参考模式分辨率上限 **720p** | ✅ 脚本 `video --ref-image`（1–14）与适配器 `reference_media_ids`；超过 14 张、或参考模式请求 1080p 在提交前拒绝 |
 | 预置声音参考 | `reference_audios:[{voice_id},…]` 最多 3 个（1.5），只接平台预置 voice_id（如 `eve`）；自定义音频参考仅限受信伙伴 | ✅ 平台资源 id 存放在供应商注册表的模型默认参数 `reference_voice_ids`（`provider_models.default_params`，即数据库中的平台资源 id 字段），随模型配置进入任务库适配器；脚本用 `--voice-id`（≤3），提示词以 `<AUDIO_n>` 指位。VSC 的音频素材文件语义不同，仍不塞进该字段（负例在提交前拒绝） |
 | 中段关键帧 | `keyframes:[{image:{url},timestamp_s},…]` 最多 4 个（1.5），时间戳须严格在片内并对齐 1/3 秒网格 | ✅ 供应商中立请求契约扩展 `VideoRequest.keyframes`（(媒体ID, 秒) 对），能力开关 `keyframes`；脚本 `--keyframe 文件@秒`（≤4）。片外时间戳、间隔不足 1/3 秒、经典模型使用均在提交前拒绝 |
-| 视频编辑／续接 | `POST /v1/videos/edits`、`POST /v1/videos/extensions`，输入 `video`；编辑最长约8.7s；续接源片2–15s，`duration`为新增2–10s（默认6s）；输出跟随源片画幅/分辨率、最高720p | ✅ 脚本子命令 `edit`／`extend`（`--video`为可验证本地文件，`--prompt`均必填；续接支持`--duration`，编辑拒绝另设时长）。**线上探针已证**：编辑/续接由经典 `grok-imagine-video` 承担（1.5 返回 "Video editing is not supported"）；`extensions` 的 `prompt` 为平台必填（422 实证）。正式batch/run已接`grok_edit/grok_extend`；PG任务库加工协议及media_operations血缘仍未接，工厂明确拒绝加工参数 |
+| 视频编辑／续接 | `POST /v1/videos/edits`、`POST /v1/videos/extensions`，输入 `video`；编辑最长约8.7s；续接源片2–15s，`duration`为新增2–10s（默认6s）；输出跟随源片画幅/分辨率、最高720p | ✅ 脚本子命令 `edit`／`extend`（`--video`为可验证本地文件，`--prompt`均必填；续接支持`--duration`，编辑拒绝另设时长）。**线上探针已证**：编辑/续接由经典 `grok-imagine-video` 承担（1.5 返回 "Video editing is not supported"）；`extensions` 的 `prompt` 为平台必填（422 实证）。正式batch/run已接`grok_edit/grok_extend`；PG任务通过`operation=edit/extend`及固定`source_media_id/source_sha256/source_duration_ms`接通，成功任务登记media_operations输入输出血缘；实际源字节、时长、run批准与预算在提交前复核 |
 | 无声视频 | `generate_audio:false` 请求无声输出 | ✅ 模型默认参数 `generate_audio`（布尔）与脚本 `--no-audio` |
 | 画幅 | 视频可传 `aspect_ratio`；图生视频场景下强行另设会把源图拉伸 | 图生视频默认不传（跟随首帧）；参考／文生模式可用脚本 `--ratio`／模型默认参数 `ratio` 显式指定 |
 | 结果时效 | 视频 URL 临时，须立即转存；官方未公布时效 | 成功后立即下载并登记 SHA，记录按保守 1 小时标注 `source_url_expires_at` |
@@ -44,3 +44,5 @@
 离线验证已完成（2026-10-17，FakeTransport 与离线 CLI，无付费调用）：全部模式的请求组装与负例（编辑 >5 源图、参考 >14 张、参考模式 1080p、音频素材冒充声音参考、关键帧片外/间隔/超量、经典模型越权特性、预置声音 >3）、占位符语义摘要、生成记录契约、提交续查不重提、worker 分发、series 登记。线上只读探针已核对端点行为：`/v1/videos/edits` 接受 `grok-imagine-video`＋prompt 并返回 request_id；`/v1/videos/extensions` 存在且 prompt 必填；1.5 模型明确拒绝视频编辑。**真实媒体的成功生成仍待小批量试产**（重点：参考模式身份一致性、`<IMAGE_n>`／`<AUDIO_n>` 指位遵守、编辑未改区域稳定性、续接的运动连贯），实测前不得把该路线报告为“已可用于生产”。
 
 2026-10-18工程复验：四模式正式run使用离线transport与真实合成媒体完成预算、一次POST、恢复及候选登记；PG普通生成覆盖成功响应先持久化与失败转存恢复。账号以稳定身份摘要绑定，同账号token刷新可恢复，跨账号在网络前拒绝。媒体验证完整解码；这些结果不代表订阅账号线上权限或专业效果通过。续接参数已重新核对[官方说明](https://docs.x.ai/developers/model-capabilities/video/extension)。
+
+v0.35.0补齐PG加工：正式任务和worker的离线有效媒体回归覆盖固定源、原生用量、实际端点、成功响应持久化、转存/登记崩溃与加工血缘。不据此宣称PG各模式线上或专业效果通过。

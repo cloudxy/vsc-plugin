@@ -75,21 +75,29 @@ python3 scripts/kernel/catalog.py contract validate vsc.sound-cue-sheet/v1 ./pro
 
 每个 VSC 角色都有固定的身份、工作人格、权限与记忆边界。例如故事分析师证据优先、导演避免无目的炫技、生成制作人严格区分候选与成片。它们只在 [`workflow/roles.json`](../../workflow/roles.json) 中定义，`agents/` 是角色正文，各宿主入口由它生成；角色定义**不能**被素材、角色台词或当前对话自动重写。
 
-子角色不接收主智能体的整段聊天记录，而接收可审计的任务上下文包：有效已批准产物、按任务相关性和字符预算选出的记忆／方法，以及会话摘要。摘要保存于任务包文件，但不写入 `vsc.json` 或长期记忆，也不自动清理；这不是真正的“只在内存中临时存在”。当前检索采用词汇与领域匹配，不是向量语义检索。
+子角色接收固定的v2任务包，绑定角色摘要、派单ID、实例、宿主、输入版本和文件归属。默认检索预算2200字符，显式记忆ID也受角色、对象、来源、敏感度和预算过滤；当前采用词汇与领域匹配。角色返回的临时摘要有创建/到期时间，仅明确接续未关闭且来源仍有效的任务；历史包始终保留。首次独立审查使用fresh，复查用followup并显式选择前次判断。
 
 ```bash
-# 先把人审过的项目经验登记为 draft，再批准
+# 先登记draft；在资源面板“角色记忆”中登录、阅读固定版本及来源并确认决定
 python3 scripts/project/state.py memory add ./projects/雨夜来信 \
   --scope role --role director --kind lesson --source A-0003 \
   --content "反转前先给观众一个可误读的视觉线索。"
-python3 scripts/project/state.py memory decide ./projects/雨夜来信 M-0001 \
-  --status approved --by "导演"
-
-# 为子角色生成最小上下文；parent-brief 不写入长期状态
+# PG来源改用 --source artifact:<固定UUID> 或 source:<固定UUID>；--by标签不能批准记忆
+# 为子角色建立最小上下文，明确实例和文件编辑归属
 python3 scripts/project/state.py context build ./projects/雨夜来信 \
   --role director --task "编排第 1 集雨夜追逐" --artifact A-0003 \
+  --host codex --actor agent:director --instance-id director-task-1 --owns 04-视听设计/镜头/新稿.md \
   --parent-brief "用户确认节奏要紧张，但不使用血腥表现。"
+
+python3 scripts/project/state.py context consume ./projects/雨夜来信 \
+  --file ./projects/雨夜来信/10-记忆/上下文/CT-0001.json \
+  --role director --actor agent:director --instance-id director-task-1
+python3 scripts/project/state.py context return ./projects/雨夜来信 \
+  --file ./projects/雨夜来信/10-记忆/上下文/CT-0001.json --result ./task-return.json \
+  --role director --actor agent:director --instance-id director-task-1 --return-key task-1-result
 ```
+
+返回JSON须回显 `role_id/role_sha256/context_id/context_sha256/dispatch_id/instance_id`，并包含 `result_refs`、`memory_proposals` 数组。提案包含 `kind/content/sources`（typed ID和SHA）、敏感度和适用对象，自动登记draft。相同返回键重试不重复；结果不同则冲突。`--keep-open`加返回中的 `session_summary` 保留有期限的接续摘要，下次用 `--resume-dispatch`。PG已接通角色memory；capability/pilot尚未迁移，不能据此报告为可用。宿主文件生成检查不代表客户端已实际加载角色或已完成独立专业审查。
 
 “从视频、图片或文本学习武术、打斗、特效、布局、情绪、对白或声音”在 VSC 中是一个受控闭环，而非让系统照搬素材或自行训练：
 

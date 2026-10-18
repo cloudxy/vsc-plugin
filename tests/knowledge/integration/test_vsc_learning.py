@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from support.fixtures.human_memory import decide_legacy_memory
 from pathlib import Path
 
 from support.paths import SCRIPTS
@@ -221,11 +222,11 @@ class TestLearningWorkflow(unittest.TestCase):
         for text, sensitivity in (("打斗动作要保持方向线", "project"), ("品牌包装有固定字体", "project"), ("打斗演员内部身份", "restricted")):
             memory_id = self.ok("memory", "add", self.project, "--scope", "project", "--kind", "lesson",
                                 "--content", text, "--sensitivity", sensitivity).split()[1]
-            self.ok("memory", "decide", self.project, memory_id, "--status", "approved", "--by", "导演")
-        context = self.ok("context", "build", self.project, "--role", "director", "--task", "打斗动作设计", "--budget-chars", "500").split()[1]
+            decide_legacy_memory(self.project, memory_id, "导演")
+        context = self.ok("context", "build", self.project, "--role", "director", "--task", "打斗动作设计", "--budget-chars", "1200").split()[1]
         packet = json.loads((self.project / "10-记忆" / "上下文" / (context + ".json")).read_text(encoding="utf-8"))
         self.assertEqual([entry["id"] for entry in packet["approved_memories"]], ["M-0001"])
-        self.assertLessEqual(packet["retrieval"]["used_chars"], 500)
+        self.assertLessEqual(packet["retrieval"]["used_chars"], 1200)
         self.assertIn("不可用", self.bad("context", "build", self.project, "--role", "director", "--task", "打斗动作设计", "--memory", "M-0003"))
 
 

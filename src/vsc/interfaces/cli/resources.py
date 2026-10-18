@@ -11,6 +11,8 @@ WRITE_ACTIONS = {
     "select_candidate", "reject_candidate", "retire_binding", "decide_media_lifecycle", "decide_rights",
     "record_media_check", "create_media_operation", "create_preview_job", "create_generation_job",
     "update_generation_job", "freeze_timeline", "freeze_render", "configure_budget",
+    "propose_local_production", "enqueue_local_production", "generate_script_suggestions",
+    "resume_script_suggestions",
 }
 
 
@@ -26,6 +28,9 @@ def main(argv=None):
     from vsc.project.migration import migration_parser, run_migration_args
     migration_parser(sub)
     sub.add_parser("projects")
+    preview = sub.add_parser("local-preview")
+    preview.add_argument("project_id")
+    preview.add_argument("--payload", required=True)
     create = sub.add_parser("create")
     create.add_argument("--name", required=True)
     create.add_argument("--by", required=True)
@@ -49,6 +54,7 @@ def main(argv=None):
     export.add_argument("timeline_id")
     export.add_argument("--out", required=True)
     export.add_argument("--remotion-out", help="同时准备含固定媒体的本地 Remotion 工程")
+    export.add_argument("--draft-subtitles", action="store_true", help="仅预览字幕交接缺口，明确标记not_verified")
     apply = sub.add_parser("apply")
     apply.add_argument("project_id")
     apply.add_argument("action", choices=sorted(WRITE_ACTIONS))
@@ -99,6 +105,8 @@ def main(argv=None):
             service = service_from_environment(args.database_env, args.media_root)
             if args.command == "projects":
                 result = service.list_projects()
+            elif args.command == "local-preview":
+                result = service.preview_local_production(args.project_id, json.loads(Path(args.payload).read_text("utf-8")))
             elif args.command == "create":
                 from vsc.project.pg_workflow import create_project
                 result = create_project(service, args.name, args.by, args.directory, args.database_env)
@@ -118,7 +126,7 @@ def main(argv=None):
                 result = service.get_artifact_version(args.project_id, args.artifact_id)
             elif args.command == "render-export":
                 from vsc.post.resource_export import export_render_package
-                result = export_render_package(service, args.project_id, args.timeline_id, args.out)
+                result = export_render_package(service, args.project_id, args.timeline_id, args.out, formal_subtitles=not args.draft_subtitles)
                 if args.remotion_out:
                     from vsc.post.resource_export import scaffold_render_package
                     result["editor"] = scaffold_render_package(args.out, args.remotion_out)

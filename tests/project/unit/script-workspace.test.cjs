@@ -482,3 +482,34 @@ test('a confirmed offscreen save with no later edits clears its recovery and pag
   await t.switchProject('A', draft(2)); assert.equal(t.timers.size, 0);
   assert.equal(t.container.querySelector('.script-conflict').hidden, true);
 });
+
+test('editor chooses approved sources, real scene identity and labeled narrative refs without manual IDs', async () => {
+  const t = await fixture();
+  const value = {...draft(0), exists:false, content:null, phase:'empty',
+    template_content:{format:'vsc.screenplay/v1',body:'',adaptation_refs:[{id:'approved-plan',sha256:'a'.repeat(64)}],scenes:[]},
+    scene_choices:[{id:'fixed-scene',label:'批准改编对应的场次'}],
+    narrative_choices:{'fixed-scene':[{id:'unit-1',label:'可见行动：停下脚步'}]}};
+  await t.boot(value);const start=t.button('从空白剧本开始').click();t.respond({draft_revision:1},'/autosave');await start;
+  await t.input('.script-body','正式新稿');await t.button('添加场次').click();await t.input('.scene-duration',3000);
+  await t.button('添加行动').click();await t.input('.line-text','停下脚步');
+  const check=t.container.querySelector('.line-narrative-choices').querySelector('input');check.checked=true;await check.dispatch('change');
+  const content=(await t.save(2)).content;
+  assert.equal(content.scenes[0].id,'fixed-scene');assert.deepEqual(content.scenes[0].actions[0].narrative_refs,['unit-1']);
+  assert.deepEqual(content.adaptation_refs,[{id:'approved-plan',sha256:'a'.repeat(64)}]);
+});
+
+test('AI generation binds the saved digest, retries the same command and requires an explicit new round', async () => {
+  const t=await fixture();await t.boot();const sha='f'.repeat(64);
+  async function generate(){
+    await t.input('.script-ai-goal','让行动更可拍');const working=t.button('生成 AI 建议').click();await tick();
+    t.respond({...draft(),content_sha256:sha},'/script-draft?');await tick();
+    const request=t.requests.findLast(row=>row.url.endsWith('/generate-suggestions'));
+    assert.equal(t.payload(request).base_content_sha256,sha);assert.equal(t.payload(request).base_draft_revision,1);
+    t.respond({status:'submission_unknown',revision:8},'/generate-suggestions');await tick();t.respond(draft(),'/script-draft?');await working;
+    return JSON.parse(request.options.body);
+  }
+  const first=await generate(),recovered=await generate();
+  assert.equal(first.idempotency_key,recovered.idempotency_key);assert.equal(first.payload.new_attempt,false);
+  await t.button('明确新增一轮建议').click();const next=await generate();
+  assert.notEqual(next.idempotency_key,first.idempotency_key);assert.equal(next.payload.new_attempt,true);
+});

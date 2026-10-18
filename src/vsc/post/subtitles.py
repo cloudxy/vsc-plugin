@@ -395,3 +395,188 @@ def read_script_texts(path):
     if not isinstance(value, list) or any(not isinstance(text, str) for text in value):
         raise SubtitleError(["字幕原稿文件必须为 JSON 字符串数组"])
     return value
+
+
+PACKAGE_FORMAT = "vsc.subtitle-package/v1"
+MEASUREMENT_METHODS = {"forced_alignment", "provider_word_timestamps", "manual_waveform", "pcm_activity_scan"}
+
+
+def content_digest(value):
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def seal_package(package):
+    """Integrity of an exported projection; this does not create an approval."""
+    return {**package, "package_sha256": content_digest({k: v for k, v in package.items() if k != "package_sha256"})}
+
+
+def measurement_errors(measurement, *, line_key, audio_sha256, start_ms, end_ms):
+    errors = []
+    if not isinstance(measurement, dict):
+        return ["缺少真实时码测量记录"]
+    if measurement.get("method") not in MEASUREMENT_METHODS or not measurement.get("version") or not isinstance(measurement.get("evidence"), dict) or not measurement["evidence"]:
+        errors.append("测量方法/版本/方法证据缺失；不接受按文字均分时长")
+    if (measurement.get("line_key"), measurement.get("audio_media_sha256"), measurement.get("start_ms"), measurement.get("end_ms")) != (line_key, audio_sha256, start_ms, end_ms):
+        errors.append("测量记录与台词行、采用音频或时码不一致")
+    return errors
+
+
+def package_cues(package, root, *, project_id=None, formal=True):
+    """Verify a fixed package's snapshots/selected audio bytes, then derive cues.
+
+    Approval decisions are captured by the PostgreSQL exporter, which reads the
+    actual relations. Offline consumers verify that fixed evidence, not live
+    approval state and not the semantic accuracy of an alignment algorithm.
+    """
+    import hashlib
+    import json
+    from collections import Counter
+    errors = []
+    if not isinstance(package, dict) or package.get("format") != PACKAGE_FORMAT:
+        raise SubtitleError(["字幕包格式无效"])
+    if package.get("package_sha256") != content_digest({k: v for k, v in package.items() if k != "package_sha256"}):
+        errors.append("字幕包摘要已改变")
+    if project_id is not None and package.get("project_id") != project_id:
+        errors.append("字幕包项目范围不一致")
+    scope_ids = set(package.get("scope_object_ids", []))
+    if package.get("scope_episode_id") not in scope_ids:
+        errors.append("字幕包分集范围与固定关系快照不一致")
+    if formal and (package.get("status") != "verified" or package.get("gaps")):
+        errors.append("正式字幕包缺少完整固定行/音频/实测时码依据")
+    if formal and any(not package.get(key) for key in ("scripts", "lines", "audio_sources", "cues")):
+        errors.append("正式字幕包不能缺少剧本行、采用音频或字幕Cue")
+    fixed_artifacts = {}
+    for snapshot in [package.get("timeline_artifact", {}), *package.get("cue_artifacts", [])]:
+        if hashlib.sha256(snapshot.get("document_utf8", "").encode()).hexdigest() != snapshot.get("sha256") or not snapshot.get("approval_decision_id"):
+            errors.append("时间线或声音Cue固定快照/批准凭据失效")
+        fixed_artifacts[snapshot.get("id")] = snapshot
+    scripts = {}
+    for script in package.get("scripts", []):
+        if hashlib.sha256(script.get("document_utf8", "").encode()).hexdigest() != script.get("sha256") or not script.get("approval_decision_id"):
+            errors.append("批准剧本快照摘要或决定凭据不完整")
+        scripts[script["id"]] = script
+        document = json.loads(script["document_utf8"])
+        if document.get("format") == "vsc.screenplay/v1":
+            expected = [unit["id"] for scene in document.get("scenes", []) if scene["id"] in package.get("scope_scene_keys", [])
+                for key in ("actions", "dialogue") for unit in scene.get(key, []) if key == "dialogue" or unit.get("kind") == "narration"]
+        else:
+            expected = [row["line_key"] for row in document.get("script_lines", []) if row.get("scene_id") in scope_ids and row.get("line_kind", "dialogue") in {"dialogue", "narration"}]
+        actual = [line.get("line_key") for line in package.get("lines", []) if line.get("script_version_id") == script["id"]]
+        if formal and sorted(expected) != sorted(actual):
+            errors.append("字幕行未完整覆盖固定批准剧本范围")
+    lines = {line["id"]: line for line in package.get("lines", [])}
+    if len(lines) != len(package.get("lines", [])):
+        errors.append("字幕包台词行身份重复")
+    for line in lines.values():
+        if line.get("scene_id") not in scope_ids:
+            errors.append("字幕行超出固定分集范围")
+        if line.get("script_version_id") not in scripts or line.get("script_version_sha256") != scripts[line["script_version_id"]]["sha256"]:
+            errors.append("台词行与批准剧本版本不一致")
+            continue
+        document = json.loads(scripts[line["script_version_id"]]["document_utf8"])
+        raw_lines = document.get("script_lines", [])
+        if document.get("format") == "vsc.screenplay/v1":
+            raw_lines = [unit for scene in document.get("scenes", []) for key in ("actions", "dialogue", "silence") for unit in scene.get(key, [])]
+        candidates = [row for row in raw_lines if row.get("line_key", row.get("id")) == line.get("line_key")]
+        if len(candidates) != 1 or candidates[0].get("text") != line.get("text"):
+            errors.append("台词原文与固定批准剧本正文不一致")
+    sources = {}
+    root = Path(root).resolve()
+    timeline_document = json.loads(package["timeline_artifact"]["document_utf8"])
+    original_plan = timeline_document.get("render_plan")
+    composition = (original_plan or timeline_document).get("composition", {})
+    rate = composition.get("fps", 0)
+    fps = rate["numerator"] / rate["denominator"] if isinstance(rate, dict) else rate
+    if not fps:
+        errors.append("固定时间线快照缺少真实帧率")
+    receipt_path = root / "render-inputs.json"
+    if receipt_path.is_file():
+        receipt = json.loads(receipt_path.read_text("utf-8"))
+        if receipt.get("subtitle_package_sha256") != package["package_sha256"] or receipt.get("timeline_id") != package.get("timeline_id") or receipt.get("project_id") != package.get("project_id"):
+            errors.append("字幕包与PG固定导出回执不一致")
+    for source in package.get("audio_sources", []):
+        relative = source.get("path", "")
+        path = (root / relative).resolve()
+        if Path(relative).is_absolute() or not path.is_relative_to(root) or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != source.get("sha256"):
+            errors.append("采用音频缺失或 SHA 已改变：" + str(source.get("media_id")))
+        original_items = (original_plan or {}).get("segments", []) if original_plan else timeline_document.get("items", [])
+        ordinal = source.get("item_ordinal")
+        if type(ordinal) is not int or not 0 <= ordinal < len(original_items) or not fps:
+            errors.append("采用音频缺少固定时间线片段身份")
+        else:
+            original = original_items[ordinal]
+            if original_plan:
+                selected = [row for row in timeline_document.get("bindings", []) if row.get("segment_id") == original.get("id") and row.get("sha256") == source["sha256"]]
+                trim_in, trim_out = original.get("source_in_frame", 0), original.get("source_in_frame", 0) + original["duration_in_frames"]
+                offset = original["from_frame"]
+            else:
+                selected = [row for row in original.get("media", []) if row.get("media_id") == source["media_id"] and row.get("binding_decision_id") == source["binding_decision_id"]]
+                trim_in = selected[0]["source_in_frame"] if len(selected) == 1 else -1
+                trim_out = selected[0]["source_out_frame"] if len(selected) == 1 else -1
+                offset = original["offset_frame"]
+            if len(selected) != 1 or any(abs(actual - expected * 1000 / fps) > .001 for actual, expected in [
+                    (source["source_in_ms"], trim_in), (source["source_out_ms"], trim_out), (source["timeline_start_ms"], offset)]):
+                errors.append("采用音频身份/裁切与批准时间线快照不一致")
+        sources[source["item_id"]] = source
+    result, counts = [], Counter()
+    for cue in package.get("cues", []):
+        line = lines.get(cue.get("line_id"))
+        source = sources.get(cue.get("item_id"))
+        if line is None or source is None:
+            errors.append("字幕Cue引用了包范围外的行或采用音频")
+            continue
+        counts[line["id"]] += 1
+        start, end = cue.get("source_start_ms"), cue.get("source_end_ms")
+        if type(start) is not int or type(end) is not int or not 0 <= start < end:
+            errors.append("字幕测量时码必须为真实源音频中的有效毫秒区间")
+            continue
+        if source.get("line_id") != line["id"] or cue.get("script_version_sha256") != line["script_version_sha256"] or cue.get("audio_media_sha256") != source["sha256"]:
+            errors.append("字幕Cue的剧本或音频SHA不一致")
+        if cue.get("source_text") != line.get("text") or not cue.get("approval_decision_id") or not cue.get("cue_artifact_sha256"):
+            errors.append("字幕原文或声音Cue批准凭据不一致")
+        snapshot = fixed_artifacts.get(cue.get("cue_artifact_id"), {})
+        if snapshot.get("sha256") != cue.get("cue_artifact_sha256") or snapshot.get("approval_decision_id") != cue.get("approval_decision_id"):
+            errors.append("字幕Cue版本与固定批准快照不一致")
+        else:
+            raw_cues = json.loads(snapshot["document_utf8"]).get("cues", [])
+            raw = next((row for row in raw_cues if row.get("key") == cue.get("cue_key")), {})
+            alignment = raw.get("parameters", {}).get("subtitle_alignment", {})
+            if raw.get("scope_object_id") not in scope_ids or raw.get("line_id") != line["id"] or alignment.get("measurement") != cue.get("measurement") or alignment.get("script_version_sha256") != line["script_version_sha256"] or alignment.get("audio_media_sha256") != source["sha256"]:
+                errors.append("字幕测量与已批准声音Cue正文不一致")
+        errors.extend(measurement_errors(cue.get("measurement"), line_key=line["line_key"], audio_sha256=source["sha256"], start_ms=start, end_ms=end))
+        if start < source["source_in_ms"] - .001 or end > source["source_out_ms"] + .001 or end > source["duration_ms"] + 1:
+            errors.append("字幕实测区间超出采用音频裁切范围")
+        begin = source["timeline_start_ms"] + start - source["source_in_ms"]
+        finish = source["timeline_start_ms"] + end - source["source_in_ms"]
+        if abs(begin - cue.get("start_ms", -1)) > .001 or abs(finish - cue.get("end_ms", -1)) > .001:
+            errors.append("字幕时码与固定时间线映射不一致")
+        result.append((begin / 1000, finish / 1000, line["text"]))
+    if formal:
+        for line in lines.values():
+            if counts[line["id"]] != 1:
+                errors.append("台词行必须恰有一次字幕覆盖：" + line["id"])
+        if set(sources) != {cue.get("item_id") for cue in package.get("cues", [])}:
+            errors.append("采用对白音频存在缺失或重复的字幕用料覆盖")
+        for script_id in scripts:
+            ordered = [line["id"] for line in sorted(lines.values(), key=lambda row: row["ordinal"]) if line["script_version_id"] == script_id]
+            observed = [cue["line_id"] for cue in package.get("cues", []) if cue.get("line_id") in lines and lines[cue["line_id"]]["script_version_id"] == script_id]
+            if ordered != observed:
+                errors.append("字幕Cue顺序与固定批准台词行顺序不一致")
+    if errors:
+        raise SubtitleError(errors)
+    compiled = compile_cues(result, duration=package["duration_ms"] / 1000)
+    compiled["checks"].update(line_binding="verified" if package.get("status") == "verified" else "not_verified",
+        audio_alignment="measured_timecodes_verified" if package.get("status") == "verified" else "not_verified",
+        human_review="not_run", package_sha256=package["package_sha256"], text_coverage="line_ids_verified" if formal else "not_verified")
+    return compiled
+
+
+def caption_segments(package, fps):
+    """Keep measured milliseconds; frame projection is an explicit render limit."""
+    return [{"id": "subtitle-" + cue["cue_id"], "kind": "caption", "text": cue["source_text"],
+             "from_frame": round(cue["start_ms"] * fps / 1000),
+             "duration_in_frames": round(cue["end_ms"] * fps / 1000) - round(cue["start_ms"] * fps / 1000),
+             "subtitle_start_ms": cue["start_ms"], "subtitle_end_ms": cue["end_ms"], "line_id": cue["line_id"]}
+            for cue in package.get("cues", [])]

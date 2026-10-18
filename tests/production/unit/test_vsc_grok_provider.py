@@ -102,6 +102,22 @@ class GrokContract(unittest.TestCase):
         self.assertEqual((asset.modality, asset.metadata["duration"]), ("video", 6))
         self.assertTrue(all(call[0] == "/videos/req-1" for call in transport.calls[1:]))
 
+    def test_typed_video_edit_extend_reuse_shared_operation_compiler(self):
+        from vsc.adapters.providers.xai_grok.spec import compile_video_operation
+        for operation, duration in (("edit", 1300), ("extend", 3000)):
+            with self.subTest(operation=operation):
+                transport = FakeTransport([{"request_id": "operation-task"}])
+                adapter = GrokVideoProvider("grok-imagine-video", lambda identifier: "sha256:" + identifier, "", transport=transport)
+                request = VideoRequest("S", "video_" + operation, "context", "Synthetic operation", duration_ms=duration,
+                    operation=operation, source_media_id="source", source_sha256="a" * 64, source_duration_ms=1300)
+                adapter.submit(request)
+                expected = compile_video_operation(adapter.model, "sha256:source", request.prompt, operation,
+                    3 if operation == "extend" else None)
+                self.assertEqual(transport.calls, [expected])
+        with self.assertRaises(GrokAdapterError):
+            adapter.submit(VideoRequest("S", "video_extend", "c", "prompt", duration_ms=1000,
+                operation="extend", source_media_id="source", source_sha256="a" * 64, source_duration_ms=1300))
+
     def test_video_reference_mode_pins_first_frame_and_ratio(self):
         transport = FakeTransport([{"request_id": "req-ref"}])
         adapter = GrokVideoProvider("grok-imagine-video-1.5", lambda media_id: "https://example.invalid/" + media_id,

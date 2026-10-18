@@ -6,6 +6,9 @@ from vsc.assets.resource_service import ResourceError
 def normalize_request(request, shot_id, purpose, modality, asset_id=None):
     if not isinstance(request, dict) or not isinstance(request.get("prompt"), str) or not request["prompt"].strip():
         raise ResourceError("逻辑请求需要非空prompt", "invalid_generation_request")
+    if modality == "video" and not request.get("operation"):
+        request = {key: value for key, value in request.items() if not (
+            key in {"operation", "source_media_id", "source_sha256", "source_duration_ms"} and value is None)}
     base = {"shot_id": shot_id, "purpose": purpose, "modality": modality,
             "reference_media_ids": [], "params": {}}
     if asset_id is not None:
@@ -17,6 +20,8 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
     elif modality == "video":
         base.update(duration_ms=5000, first_frame_media_id=None, last_frame_media_id=None,
                     reference_audio_media_ids=[], keyframes=[])
+        if request.get("operation"):
+            base.update(operation=None, source_media_id=None, source_sha256=None, source_duration_ms=None)
     elif modality == "audio":
         base.update(script_line_ids=[], voice_media_id=None)
     else:
@@ -35,6 +40,23 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
         raise ResourceError("reference_media_ids必须是列表")
     base["reference_media_ids"] = list(base["reference_media_ids"])
     if modality == "video":
+        if base.get("operation"):
+            operation = base["operation"]
+            sha = base["source_sha256"]
+            if operation not in {"edit", "extend"} or not isinstance(base["source_media_id"], str) or not base["source_media_id"]:
+                raise ResourceError("加工需要明确edit/extend与固定source_media_id", "invalid_video_operation")
+            if not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+                raise ResourceError("加工需要固定source_sha256", "invalid_video_operation")
+            if type(base["source_duration_ms"]) is not int or base["source_duration_ms"] <= 0:
+                raise ResourceError("加工需要真实source_duration_ms", "invalid_video_operation")
+            if base["params"] or any(base.get(key) for key in ("first_frame_media_id", "last_frame_media_id", "reference_media_ids", "reference_audio_media_ids", "keyframes")):
+                raise ResourceError("加工源模式不能混入生成参数或其他参考", "invalid_video_operation")
+            if operation == "edit":
+                if "duration_ms" in request and request["duration_ms"] != base["source_duration_ms"]:
+                    raise ResourceError("编辑时长跟随源片，不允许另设", "invalid_video_operation")
+                base["duration_ms"] = base["source_duration_ms"]
+            elif type(base["duration_ms"]) is not int or base["duration_ms"] % 1000 or not 2000 <= base["duration_ms"] <= 10000:
+                raise ResourceError("续接须新增2–10整秒", "invalid_video_operation")
         audio_refs = base["reference_audio_media_ids"]
         if not isinstance(audio_refs, (tuple, list)) or any(not isinstance(x, str) or not x for x in audio_refs):
             raise ResourceError("reference_audio_media_ids必须是媒体ID列表")
@@ -60,6 +82,11 @@ def authorize_run(run, run_type, context, logical, candidate_no):
     required = {(x["id"], x["sha256"]) for x in context["artifacts"]}
     if not required <= pinned:
         raise ResourceError("镜头所需固定版本没有全部获run授权", "run_inputs_mismatch")
+    if logical.get("operation"):
+        sources = run.get("approved_media_inputs", [])
+        expected_source = {"media_id": logical["source_media_id"], "sha256": logical["source_sha256"], "role": "operation_source"}
+        if expected_source not in sources:
+            raise ResourceError("加工源片SHA没有得到run明确固定授权", "run_source_unauthorized")
     jobs = run.get("series_batch", {}).get("jobs", run.get("jobs", []))
     if not isinstance(jobs, list):
         raise ResourceError("run必须明确列出jobs")
@@ -103,6 +130,10 @@ def validate_capabilities(model, logical, context):
             if type(value) is not int or value <= 0 or value > caps.get("max_" + key, value):
                 raise ResourceError("图像尺寸超过模型能力", "model_capability_mismatch")
     if modality == "video":
+        if logical.get("operation"):
+            if logical["operation"] not in caps.get("video_operations", []):
+                raise ResourceError("模型未声明支持此视频加工模式", "model_capability_mismatch")
+            return None
         audio_refs = logical.get("reference_audio_media_ids", [])
         if audio_refs and (not caps.get("reference_audio") or any(
                 ref not in refs or refs[ref]["role"] != "reference_audio" for ref in audio_refs)):

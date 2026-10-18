@@ -13,6 +13,7 @@ export function createScriptWorkspace(container, ctx) {
   let saveTimer = null, saving = false, lastError = null, editSeq = 0, savedSeq = 0, conflict = false;
   let conflictMessage = null;
   const recoveries = new Map(); // 仅当前工作区实例内存；不写本地存储或项目事实。
+  const suggestionAttempts = new Map();
   const recoveryKey = target => JSON.stringify([target.project, target.scopeKey]);
 
   const sameSession = target => session && target && target.generation === session.generation
@@ -72,13 +73,13 @@ export function createScriptWorkspace(container, ctx) {
     if (!value.actor) throw new Error('请先在顶栏建立操作会话；未登录时剧本页只读。');
     return value;
   }
-  async function write(action, payload, confirmed = false, target = session) {
+  async function write(action, payload, confirmed = false, target = session, commandKey = null) {
     if (!sameSession(target)) throw stale();
     const value = requireSession();
     let result;
     try {
       result = await ctx.api(`${target.project}/${action}`, {method: 'POST', headers: headers(),
-        body: JSON.stringify({payload, confirmed, expected_revision: value.revision, idempotency_key: crypto.randomUUID()})});
+        body: JSON.stringify({payload, confirmed, expected_revision: value.revision, idempotency_key: commandKey || crypto.randomUUID()})});
     } catch (error) { if (!sameSession(target)) throw stale(); throw error; }
     if (!sameSession(target)) throw stale();
     ctx.setRevision(result.revision ?? value.revision);
@@ -295,6 +296,7 @@ export function createScriptWorkspace(container, ctx) {
       if (!sameSession(target) || request !== metadataGeneration) return;
       draft.notes = fresh.notes; draft.phase = fresh.phase; draft.submitted = fresh.submitted; draft.base = fresh.base;
       draft.suggestions = fresh.suggestions;
+      draft.suggestion_runs = fresh.suggestion_runs;
       // 批注决策不拥有正文或 draft_revision；保留本地编辑与保存队列的原始基准。
       for (const [selector, panel] of [['.script-notes', renderNotes()], ['.script-suggestions', renderSuggestions()]]) {
         const previous = container.querySelector(selector);
@@ -417,7 +419,24 @@ export function createScriptWorkspace(container, ctx) {
     item.append(text, note, remove);
     const refs = el('input', 'line-refs'); refs.value = (row.narrative_refs || []).join(', ');
     refs.placeholder = '叙事来源 ID（逗号分隔）'; refs.setAttribute('aria-label', '叙事来源 ID');
-    refs.addEventListener('input', scheduleSave); item.append(refs);
+    refs.addEventListener('input', scheduleSave);
+    const choices = draft.narrative_choices?.[sceneId] || [];
+    if (choices.length) {
+      const mapped = el('div', 'line-narrative-choices');
+      mapped.append(el('span', 'hint', '对应改编单元'));
+      for (const choice of choices) {
+        const label = el('label'); const check = el('input'); check.type = 'checkbox';
+        check.checked = (row.narrative_refs || []).includes(choice.id); check.dataset.refId = choice.id;
+        check.addEventListener('change', () => {
+          const selected = new Set(refs.value.split(',').map(value => value.trim()).filter(Boolean));
+          check.checked ? selected.add(choice.id) : selected.delete(choice.id);
+          refs.value = Array.from(selected).join(', '); scheduleSave();
+        });
+        label.append(check, el('span', '', choice.label)); mapped.append(label);
+      }
+      const evidence = el('details'); evidence.append(el('summary', '', '来源编号'), refs);
+      item.append(mapped, evidence);
+    } else item.append(refs);
     if (kind === 'silence') {
       const duration = el('input', 'line-duration'); duration.type = 'number'; duration.min = '1';
       duration.value = row.duration_ms ?? ''; duration.placeholder = '静默时长(ms)'; duration.setAttribute('aria-label', '静默时长（毫秒）');
@@ -464,10 +483,16 @@ export function createScriptWorkspace(container, ctx) {
     const wrap = el('div', 'script-editor');
     const toolbar = el('div', 'script-toolbar');
     const addScene = el('button', '', '添加场次');
+    const sceneChoice = el('select', 'script-scene-choice'); sceneChoice.setAttribute('aria-label', '选择已有场次');
+    for (const choice of draft.scene_choices || []) {
+      const option = el('option', '', choice.label); option.value = choice.id; sceneChoice.append(option);
+    }
     addScene.addEventListener('click', () => {
       try {
         draft.content = readEditor();
-        draft.content.scenes.push({id: uniqueId('SC'), estimated_duration_ms: 0, actions: [], dialogue: [], silence: []});
+        const selected = sceneChoice.value || draft.scene_choices?.[0]?.id;
+        if (selected && draft.content.scenes.some(scene => scene.id === selected)) return notice('该场次已在当前稿中。');
+        draft.content.scenes.push({id: selected || uniqueId('SC'), estimated_duration_ms: 0, actions: [], dialogue: [], silence: []});
         render(); scheduleSave();
       } catch (error) { notice(error.message); }
     });
@@ -496,6 +521,7 @@ export function createScriptWorkspace(container, ctx) {
         notice(`已提交待确认：版本 ${result.artifact.version}。`); await refreshMeta();
       } catch (error) { notice(error.message); }
     });
+    if (draft.scene_choices?.length) toolbar.append(sceneChoice);
     toolbar.append(addScene, compare, submit, el('span', 'hint', '编辑自动保存到工作副本（只更新被改字段，引用与静默语义保留）；提交才形成正式待确认版本。'));
     wrap.append(toolbar);
     const board = el('div', 'script-board');
@@ -504,18 +530,25 @@ export function createScriptWorkspace(container, ctx) {
     const bodyLabel = el('label', '', '剧本正文');
     const body = el('textarea', 'script-body'); body.value = content.body || ''; body.rows = 6;
     body.addEventListener('input', scheduleSave); bodyLabel.append(body); fields.append(bodyLabel);
-    fields.append(el('h4', '', '改编来源（固定版本 ID 与 SHA）'));
+    fields.append(el('h4', '', '固定改编来源'));
     const refs = el('div', 'script-adaptation-refs');
     function addRef(ref = {}) {
       const row = el('div', 'script-adaptation-ref'); row.dataset.refId = ref.id || '';
       const id = el('input', 'adaptation-id'); id.value = ref.id || ''; id.placeholder = '来源版本 ID'; id.setAttribute('aria-label', '改编来源版本 ID');
       const sha = el('input', 'adaptation-sha'); sha.value = ref.sha256 || ''; sha.placeholder = '来源 SHA-256'; sha.setAttribute('aria-label', '改编来源 SHA-256');
       const remove = el('button', '', '移除来源'); remove.addEventListener('click', () => { row.remove(); scheduleSave(); });
-      id.addEventListener('input', scheduleSave); sha.addEventListener('input', scheduleSave); row.append(id, sha, remove); refs.append(row);
+      const pin = draft.submission_context?.dependencies?.find(item => item.id === ref.id);
+      row.append(el('span', '', pin ? `${pin.artifact_key || '已批准改编'} · v${pin.version}` : '已登记来源'));
+      const advanced = el('details'); advanced.append(el('summary', '', '版本证据'), id, sha);
+      id.addEventListener('input', scheduleSave); sha.addEventListener('input', scheduleSave); row.append(advanced, remove); refs.append(row);
     }
     for (const ref of content.adaptation_refs || []) addRef(ref);
     const addRefButton = el('button', 'script-add-adaptation', '添加改编来源');
-    addRefButton.addEventListener('click', () => { addRef(); scheduleSave(); });
+    addRefButton.addEventListener('click', () => {
+      const pin = draft.submission_context?.dependencies?.find(item => item.artifact_type === 'vsc.adaptation_plan');
+      if (pin && Array.from(refs.querySelectorAll('.adaptation-id')).some(input => input.value === pin.id)) return notice('当前已包含这个批准版本。');
+      addRef(pin || {}); scheduleSave();
+    });
     const dependencies = draft.submission_context;
     fields.append(refs, addRefButton, el('p', 'script-dependencies hint', dependencies
       ? `提交固定前置：${(dependencies.dependencies || []).map(row => `${row.artifact_key || row.artifact_type || row.id} v${row.version} · ${row.sha256}`).join('；') || '当前 Profile 无前置要求'}${dependencies.missing_dependency_types?.length ? '；缺少已批准版本：' + dependencies.missing_dependency_types.join('、') : ''}`
@@ -554,6 +587,54 @@ export function createScriptWorkspace(container, ctx) {
     const suggestions = draft.suggestions || [];
     const pending = suggestions.filter(row => row.status === 'pending');
     panel.append(el('h3', '', `修改建议（${pending.length} 待处理 / 共 ${suggestions.length}）`));
+    const goal = el('input', 'script-ai-goal'); goal.placeholder = '希望改善什么，例如对白更自然、动作更可拍';
+    goal.maxLength = 2000;
+    const generate = el('button', 'script-ai-generate', '生成 AI 建议');
+    generate.addEventListener('click', async () => {
+      const target = session, objective = goal.value.trim();
+      if (!objective) return notice('先填写本次建议目标。');
+      generate.disabled = true;
+      try {
+        if (!await waitForSave() || !sameSession(target)) return;
+        const seq = editSeq;
+        const fresh = await ctx.api(`${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}`);
+        if (!sameSession(target)) return;
+        if (editSeq !== seq || saving || conflict || fresh.draft_revision !== draft.draft_revision) {
+          return notice('正文在准备建议时发生变化，请保存后重新生成。');
+        }
+        const fingerprint = JSON.stringify([fresh.draft_revision, fresh.content_sha256, objective]);
+        const key = recoveryKey(target), previous = suggestionAttempts.get(key);
+        const attempt = previous?.fingerprint === fingerprint ? previous : {fingerprint,commandKey:crypto.randomUUID(),newAttempt:previous?.requestNew===true};
+        suggestionAttempts.set(key,attempt);
+        const result = await write('script-draft/generate-suggestions', {scope_key: target.scopeKey,
+          base_draft_revision: fresh.draft_revision, base_content_sha256: fresh.content_sha256, goal: objective,
+          new_attempt:attempt.newAttempt===true}, false, target, attempt.commandKey);
+        if (!sameSession(target)) return;
+        notice(result.status === 'completed' ? '建议已生成，请逐处审阅接受。' :
+          result.status === 'stale' ? '生成期间剧本已修改，结果已隔离；请基于新稿重新生成。' :
+          '本次生成未完成，已保留调用记录；不会自动再次调用。');
+        await refreshMeta();
+      } catch (error) { if (sameSession(target)) notice(error.message); }
+      finally { if (sameSession(target)) generate.disabled = false; }
+    });
+    const newRound = el('button', '', '明确新增一轮建议');
+    newRound.addEventListener('click', () => {
+      if (!confirm('新增一轮会使用新的宿主调用额度；旧的未知调用仍不会重试。继续？')) return;
+      suggestionAttempts.set(recoveryKey(session),{requestNew:true}); notice('已选择新一轮；填写目标后点击生成 AI 建议。');
+    });
+    panel.append(goal, generate, newRound, el('p', 'hint', '通过本机 Grok Build 登录生成局部建议，使用其订阅额度；相同稿次与目标只恢复原调用，接受前不会修改正文。'));
+    for (const run of draft.suggestion_runs || []) {
+      const attempt = el('div', 'hint', `${run.goal} · 基于 r${run.base_draft_revision} · ${run.status}`);
+      if (run.status === 'running') {
+        attempt.append(el('span', '', run.result_available ? ' · 已有宿主结果，可恢复登记' : ' · 调用状态尚未确认，不会自动重提'));
+        if (run.result_available) {
+          const resume = el('button', '', '恢复已有建议结果'), target=session;
+          resume.addEventListener('click', async()=>{try{await write(`script-suggestion-runs/${run.id}/resume`,{},false,target);await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}});
+          attempt.append(resume);
+        }
+      }
+      panel.append(attempt);
+    }
     const list = el('ul', 'notes-list');
     for (const row of suggestions) {
       const item = el('li', `note-${row.status}`);
@@ -597,7 +678,7 @@ export function createScriptWorkspace(container, ctx) {
       }
       list.append(item);
     }
-    if (!suggestions.length) list.append(el('li', 'hint', '还没有修改建议；建议经 API 以稳定行身份提出（origin=ai 时标注来源），逐处接受，不整稿覆盖。'));
+    if (!suggestions.length) list.append(el('li', 'hint', '还没有修改建议；填写目标后生成，再逐处接受。'));
     panel.append(list);
     return panel;
   }

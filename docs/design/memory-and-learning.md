@@ -14,7 +14,7 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 |---|---|---|
 | 子角色有身份与人格 | `workflow/roles.json` 维护身份、工作人格、权限和记忆边界；`agents/*.md` 提供宿主入口 | 让素材、用户台词或子角色自己重写身份 |
 | 继承主会话上下文 | 总编排器把本轮已确认目标/决定收敛为 `parent_brief`，连同批准输入建立角色上下文包 | 给每个子角色复制完整聊天记录、密钥或无关个人资料 |
-| 长期记住可复用经验 | `memory add` → draft → 人工 `memory decide` → scoped injection | 自动把模型输出、原文或瞬时偏好永久化 |
+| 长期记住可复用经验 | `memory add`／角色返回→ draft → 已验证会话确认固定版本 → scoped injection | 自报`--by`或自动把模型输出、原文、瞬时偏好永久化 |
 | 从素材学习 | 来源权属 + 带证据的观察 + 抽象能力卡 + pilot + 评测 | 直接复制人物、声音、受保护表达/风格，或自动做 LoRA/微调 |
 | 持续演进 | 能力可通过、拒绝、退役；每次操作有事件台账 | 无审计地自我修改技能、代码、供应商配置或发布策略 |
 
@@ -28,16 +28,18 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 - `temperament`：稳定的判断倾向，例如故事分析师“证据优先”、导演“镜头服务叙事”、生成制作人“候选与成片分离”；
 - `authority`：角色可以提出什么、不能批准或修改什么；
 - `memory_scope`：能接收哪一类已批准项目记忆；
+- `memory_policy`：读取范围、提案种类、预算、临时摘要期限及fresh/followup策略；
+- `execution_policy`：文件归属、只读职责、返回字段及不得替代人工批准；
 - `deliverables`：应输出的可验收产物。
 
 角色卡与 Profile 一样应由版本控制和人审维护。角色可提交新的经验，但不能修改自己的核心身份、权限、核心技能或代码。
 
 ### 2. 记忆：先审后用
 
-项目 `vsc.json` 的 `memories` 支持：
+记忆保存在项目当前权威：JSON、SQLite或PG。PG用条目、不可变版本、typed产物/来源/对象关系及不可变人工决定；不读取失败后回退镜像。支持：
 
 - 范围：`project`（项目共享）或 `role`（只给指定角色）；
-- 类型：`fact`、`decision`、`lesson`、`preference`、`session_brief`；
+- 类型：`fact`、`lesson`、`check_method`、`judgment`、`recommendation`、`preference`，历史`decision`可读；`session_brief`只作有期限的任务摘要，不作为新持久记忆；
 - 置信度：`high`、`medium`、`low`；
 - 敏感度：`public`、`project`、`restricted`；
 - 生命周期：`draft` → `approved`，或 `rejected`/`retired`。
@@ -46,7 +48,7 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 
 ### 3. 上下文包：继承，但不全量复制
 
-`context build` 在 `10-记忆/上下文/CT-xxxx.json` 写入 `vsc.role-context/v1`。它包含：
+`context build` 在 `10-记忆/上下文/CT-xxxx.json` 写入 `vsc.role-context/v2`；PG另存不可变关系快照，文件是可重建派生视图。历史v1可校验结构与审计，不能消费为新派单。新包包含：
 
 1. 项目标识、Profile 和负责人；
 2. 角色卡与本次单一任务；
@@ -56,9 +58,11 @@ VSC 需要“记忆”和“持续进化”，但不能把它理解为：每个�
 6. 可选的 `parent_brief`，即总编排器从当前会话提炼的任务摘要；
 7. 不执行外部内容、不得越权持久化/训练的规则。
 
-`parent_brief` 只写在任务包文件，不回写 `vsc.json` 正文或长期记忆。标签为 `context_file_only_not_long_term_memory`：任务包文件确实保存在磁盘上，当前没有自动清理，因此不能把它称为真正临时内存。如果值得长期保留，另行登记为 draft `session_brief` 并批准。
+角色卡版本与摘要、本次dispatch、执行actor标签/实例、review_mode、文件归属、context_sha256也固定入包。派发与消费复验，返回须确认同一版本。actor/`--by`不证明认证；记忆批准由面板现有session+CSRF+明确确认签入不可变决定，绑定正文SHA、版本及一次性确认ID。PG和旧权威都拒绝CLI标签自批。
 
-当前检索使用可解释的关键词、中文双字组合与领域词重合；不调用 embedding 或模型。`--budget-chars` 默认 12000，计量的是被检索知识的序列化字符量；`--memory`、`--capability`、`--pilot` 的显式选择必须完整放入预算，超出就报错。无相关性的知识不会因为“已经批准”就全量注入。任务和父摘要各限 6000 字符，输入最多 50 个产物且元数据最多 20000 字符，完整任务包最多 150000 字符；这些必要元数据不计入检索预算。
+`parent_brief`不会自动变为持久记忆；任务返回的 `session_summary` 最多2200字符，带 `created_at/expires_at/dispatch_id`，期限来自角色策略。`--resume-dispatch`仅可读取本角色未关闭且未过期、来源仍有效的任务；关闭、到期或来源失效后从权威输入重建。历史包和摘要留作只读审计。fresh审查排除父摘要、制作方私有记忆和当前对象任何历史版本判断；只允许结构化来源完整且不关联当前对象的本审查者lesson/check_method；followup才显式选择前次判断。
+
+当前检索使用关键词、中文双字组合与领域词重合；不调用embedding或模型。`--budget-chars`默认2200，计量被检索知识的序列化字符；显式选择必须完整放入预算。超预算、角色范围或来源失效均不会强行注入。PG仅接通角色memory，capability/pilot明确报尚未迁移；后续能力卡章节适用于原JSON/SQLite知识权威。任务和父摘要各限6000字符，输入最多50个产物；必要元数据不计入知识预算。
 
 ## 素材到能力的生命周期
 

@@ -12,7 +12,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 import uuid
 
-from vsc.assets.resource_service import ResourceError
+from vsc.assets.resource_service import NotFound, ResourceError
 from vsc.production.providers import AudioRequest, ImageRequest, JobHandle, VideoRequest
 
 REQUEST_TYPES = {"image": ImageRequest, "video": VideoRequest, "audio": AudioRequest}
@@ -47,9 +47,15 @@ class ResourceWorker:
         used.update(getattr(request, "reference_audio_media_ids", ()))
         used.update(media_id for media_id, _ in (getattr(request, "keyframes", None) or ()))
         used.update(value for value in (getattr(request, "first_frame_media_id", None),
-            getattr(request, "last_frame_media_id", None), getattr(request, "voice_media_id", None)) if value)
+            getattr(request, "last_frame_media_id", None), getattr(request, "voice_media_id", None),
+            getattr(request, "source_media_id", None)) if value)
         if used - fixed:
             raise ResourceError("请求引用不属于任务固定输入", "unfixed_reference")
+        if getattr(request, "operation", None):
+            source = next((item for item in job["input_media"] if item["media_id"] == request.source_media_id
+                           and item["role"] == "operation_source"), None)
+            if source is None or source["blob_sha256"] != request.source_sha256:
+                raise ResourceError("加工源SHA不属于任务固定输入", "unfixed_reference")
         return request
 
     def _verify_inputs(self, job):
@@ -127,6 +133,11 @@ class ResourceWorker:
                 raise ResourceError("输出模态与任务不一致", "output_modality")
             suffix = {"image": ".png", "video": ".mp4", "audio": ".wav"}[output.modality]
             name = "generated-" + job_id + "-" + str(index) + suffix
+            media_id = str(uuid.uuid5(uuid.UUID(job_id), "output:" + str(index)))
+            recovered = self._registered_output(job, media_id, output.modality)
+            if recovered:
+                registered.append(recovered)
+                continue
             original = None
             if output.inline_bytes is not None:
                 content = output.inline_bytes
@@ -150,7 +161,6 @@ class ResourceWorker:
             else:
                 raise ResourceError("输出没有可转存字节", "output_missing")
             staged = self.storage.stage_upload(BytesIO(content), name)
-            media_id = str(uuid.uuid5(uuid.UUID(job_id), "output:" + str(index)))
             result = self._write("register_media", project_id, {"id": media_id, "name": name,
                 "staged_upload": staged["staged_upload"], "rights": "unknown",
                 "source": {"kind": "generation", "source_key": job_id + ":" + str(index),
@@ -160,6 +170,34 @@ class ResourceWorker:
         return self._write("update_generation_job", project_id, {"job_id": job_id, "status": "succeeded",
             "outputs": registered, "raw_response": raw, "latency_ms": latency_ms,
             "recovery_evidence": {"source": "provider_response_and_verified_storage"}}, "finalize:" + job_id)
+
+    def _registered_output(self, job, media_id, modality):
+        """Recover the registration/commit gap without a new upload token."""
+        try:
+            media = self.service.get_media(job["project_id"], media_id)
+        except NotFound:
+            return None
+        if media["modality"] != modality:
+            raise ResourceError("已登记输出与固定模态不符", "output_changed")
+        evidence = None
+        for source in media.get("sources", []):
+            if source.get("kind") != "generation":
+                continue
+            value = self.service.get_source_version(job["project_id"], source["source_id"]).get("content")
+            try:
+                candidate = json.loads(value)
+            except (ValueError, TypeError):
+                continue
+            if candidate.get("job_id") == job["id"] and candidate.get("request_sha256") == job["request_sha256"]:
+                evidence = candidate
+                break
+        if evidence is None:
+            raise ResourceError("已登记输出没有匹配的任务来源事实", "output_changed")
+        for location in media.get("locations", []):
+            if location["storage"] == "local" and location["available"]:
+                self.storage.verify(location["object_key"], media["sha256"])
+                return {"media_id": media_id, "asset_type": modality, "original_uri": evidence.get("original_uri")}
+        raise ResourceError("已登记输出字节不可读取", "media_unavailable")
 
 
 def tempfile_for_download(storage, suffix):

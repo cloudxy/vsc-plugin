@@ -93,6 +93,8 @@ for _col, _kind, _label in (("artifact_id", "render_spec", "渲染规格"), ("su
 _relation("render_inputs", "render_input", "media", "r.media_id", "render", "r.render_id", "渲染用料", ("id", "role", "blob_sha256", "binding_decision_id"))
 _relation("render_outputs", "render_output", "render", "r.render_id", "media", "r.media_id", "渲染输出", ("id", "role"))
 # Semantic/usage edges are evidence projections, never approval mutations.
+_relation("asset_use_instances", "instance_spec", "artifact", "s.artifact_id", "instance", "r.id", "实例固定资产规格",
+    ("id", "spec_version_id"), joins="JOIN asset_spec_versions s ON s.project_id=r.project_id AND s.id=r.spec_version_id")
 for table,owner,kind in (("script_lines","script_version_id","line"),("state_versions","artifact_id","state"),
         ("voice_spec_versions","artifact_id","voice"),("asset_use_instances","artifact_id","instance"),
         ("sound_cues","artifact_id","cue"),("execution_instances","artifact_id","performance")):
@@ -153,7 +155,10 @@ def query_graph(store, project_id, object_id=None, focus=None, direction="both",
             visible_edges = " UNION ALL ".join(sql for sql in _EDGES if sql.split("'")[1].split(':')[0] in CREATIVE_EDGE_KINDS)
         elif mode == "impact":
             causal = {"version_input","spec_input","run_input","generation_input","generation_output","operation_input","operation_output",
-                "selected","slot_target","timeline_media","timeline_item","render_timeline","render_spec","subtitle_input","style_input","render_input","render_output"}
+                "selected","slot_target","timeline_media","timeline_item","render_timeline","render_spec","subtitle_input","style_input","render_input","render_output",
+                "instance_spec", "creative_version_instance", "creative_version_performance", "creative_version_cue",
+                "instance_shot", "instance_scene", "instance_state", "execution_method", "execution_participant", "execution_shot",
+                "execution_material", "execution_slot", "cue_line", "cue_voice", "cue_shot", "cue_slot", "cue_item", "cue_subtitle", "cue_lipsync", "line_coverage"}
             visible_edges = " UNION ALL ".join(sql for sql in _EDGES if sql.split("'")[1].split(':')[0] in causal)
             direction = "downstream"
         elif mode == "usage":

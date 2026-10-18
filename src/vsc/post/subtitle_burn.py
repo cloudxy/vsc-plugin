@@ -126,14 +126,15 @@ def overlay_command(video, cues, output):
     chain, previous = [], "0:v"
     for index, cue in enumerate(cues, 1):
         label = f"v{index}"
-        chain.append(f"[{previous}][{index}:v]overlay=x={cue['x']}:y={cue['y']}:enable='between(t,{cue['start']:.3f},{cue['end']:.3f})'[{label}]")
+        chain.append(f"[{previous}][{index}:v]overlay=x={cue['x']}:y={cue['y']}:enable='gte(t,{cue['start']:.3f})*lt(t,{cue['end']:.3f})'[{label}]")
         previous = label
     return command + ["-filter_complex", ";".join(chain), "-map", f"[{previous}]", "-map", "0:a?",
                       "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", str(output)]
 
 
-def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None):
-    video, srt, output = Path(video).resolve(), Path(srt).resolve(), Path(output).resolve()
+def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, subtitle_package=None, subtitle_root=None, formal_subtitles=False):
+    video, output = Path(video).resolve(), Path(output).resolve()
+    srt = Path(srt).resolve() if srt is not None else None
     if output.exists():
         raise BurnError(f"拒绝覆盖已有文件：{output}")
     if style["position"] not in POSITIONS:
@@ -147,9 +148,27 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None):
         raise BurnError(f"字体不存在：{font}")
     width, height, duration = probe_video(video)
     try:
-        entries = subtitles.parse_srt(srt.read_text("utf-8-sig"), strict=True, duration=duration)
+        bound = None
+        if subtitle_package is not None:
+            bound = subtitles.package_cues(subtitle_package, subtitle_root or (srt.parent if srt else video.parent),
+                formal=formal_subtitles or subtitle_package.get("status") == "verified")
+            entries = bound["cues"]
+            if abs(subtitle_package["duration_ms"] / 1000 - duration) > .05:
+                raise subtitles.SubtitleError(["字幕包与烧录视频时长范围不一致"])
+            if srt is not None:
+                supplied = subtitles.parse_srt(srt.read_text("utf-8-sig"), strict=True, duration=duration)
+                if len(supplied) != len(entries) or any(abs(a[0]-b[0]) > .001 or abs(a[1]-b[1]) > .001 or subtitles.display_text(a[2]) != subtitles.display_text(b[2]) for a,b in zip(supplied,entries)):
+                    raise subtitles.SubtitleError(["SRT与固定字幕包的行/实测时码不一致"])
+        elif formal_subtitles:
+            raise subtitles.SubtitleError(["正式字幕烧录需要批准台词行/采用音频/实测时码固定包"])
+        elif srt is not None:
+            entries = subtitles.parse_srt(srt.read_text("utf-8-sig"), strict=True, duration=duration)
+        else:
+            raise subtitles.SubtitleError(["请提供SRT或固定字幕包"])
         subtitles.resolve_style(overrides=style)
         compiled = subtitles.compile_cues(entries, duration=duration, script_texts=script_texts)
+        if bound:
+            compiled["checks"].update(bound["checks"])
     except ValueError as exc:
         raise BurnError(str(exc)) from exc
     cues = [{"start": begin, "end": end, "text": text} for begin, end, text in compiled["cues"]]
@@ -186,10 +205,12 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     command = commands.add_parser("burn", help="把 SRT 烧进视频")
     command.add_argument("video")
-    command.add_argument("srt")
+    command.add_argument("srt", nargs="?")
     command.add_argument("--output", required=True)
     command.add_argument("--bible", help="vsc.asset-bible/v1 资产库，取其 subtitle_style")
     command.add_argument("--script-texts", help="用于顺序缺字检查的固定原稿 JSON 字符串数组；不代表音频对齐")
+    command.add_argument("--subtitle-package", help="PG render-export生成的固定字幕包JSON")
+    command.add_argument("--formal-subtitles", action="store_true", help="要求完整批准行/采用音频/实测时码依据")
     command.add_argument("--font", help="字体文件")
     command.add_argument("--font-size", type=int)
     command.add_argument("--color")
@@ -205,7 +226,9 @@ def main():
                  "background": args.background, "rounded": args.rounded}
     try:
         style, source = resolve_style(args.bible, overrides)
-        result = burn(args.video, args.srt, args.output, style, script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None)
+        result = burn(args.video, args.srt, args.output, style, script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None,
+            subtitle_package=json.loads(Path(args.subtitle_package).read_text("utf-8")) if args.subtitle_package else None,
+            subtitle_root=Path(args.subtitle_package).resolve().parent if args.subtitle_package else None, formal_subtitles=args.formal_subtitles)
     except (BurnError, OSError, ValueError) as exc:
         raise SystemExit(f"错误：{exc}")
     print(f"SUBTITLES BURNED: {result['cues']} 条，字体 {Path(result['font']).name}，样式来源 {source} → {result['output']}")
