@@ -5,7 +5,7 @@
 | 目录 | 职责 | 主要入口 |
 | --- | --- | --- |
 | `kernel/` | 工作流路由、契约、宿主与规范派生 | `catalog.py`、`hosts.py`、`views.py` |
-| `project/` | 项目状态、产物、依赖影响与 schema 维护 | `state.py`、`artifacts.py`、`impact.py`、`schema.py` |
+| `project/` | 项目状态、产物、依赖影响、整理预览与 schema 维护 | `state.py`、`artifacts.py`、`impact.py`、`organize.py`、`schema.py` |
 | `story/` | 剧本与叙事、镜头衔接、连续性校验 | `script.py`、`sequence.py`、`scripts/story/consistency.py` |
 | `assets/` | 素材库、资源登记与场镜关系查阅 | `library.py`、`resources.py`、`workbench.py` |
 | `production/` | 计划、运行、任务、调度、预算与质量 | `plan.py`、`run.py`、`jobs.py`、`quality.py` |

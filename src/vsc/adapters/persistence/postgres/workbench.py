@@ -101,6 +101,18 @@ for name,table,owner,key,scope in [
     label={'shot_id':"t.display_code || ' · ' || t.title",'slot_id':"t.role || ' · ' || t.slot_key",'item_id':"t.track_key || ' #' || t.ordinal",'instance_id':'t.label','media_id':'t.name'}[key]
     QUERIES[name] = "SELECT r.*, '%s' kind, %s title FROM %s r JOIN %s t ON t.project_id=r.project_id AND t.id=r.%s WHERE r.project_id=:p AND r.%s IN (SELECT id FROM %s)" % (name,label,table,target_table,key,owner,scope)
 
+QUERIES['job_attempts'] = '''SELECT j.id job_id,j.id,j.status,j.purpose,j.model_version,
+ j.request_payload::text plan_params,
+ rp.sha256 AS run_version_sha256,
+ j.request_sha256,
+ (SELECT count(*) FROM job_events e WHERE e.project_id=j.project_id AND e.job_id=j.id) event_count,
+ (SELECT json_agg(json_build_object('event',e.event_type,'at',e.created_at,'usage',e.evidence->'raw'->>'usage','error',e.evidence->>'error') ORDER BY e.created_at)
+    FROM job_events e WHERE e.project_id=j.project_id AND e.job_id=j.id) events,
+ (SELECT json_agg(json_build_object('media_id',o.media_id) ORDER BY o.media_id)
+    FROM job_outputs o WHERE o.project_id=j.project_id AND o.job_id=j.id) outputs,
+ j.provider_id
+ FROM generation_jobs j LEFT JOIN artifact_versions rp ON rp.project_id=j.project_id AND rp.id=j.run_version_id
+ WHERE j.project_id=:p AND j.id IN (SELECT id FROM scope_ids) OR j.project_id=:p AND j.shot_id IN (SELECT id FROM scope_ids) OR (:scope IS NULL AND j.project_id=:p)'''
 QUERIES['jobs'] = """SELECT j.id,j.shot_id,j.asset_id,j.purpose,j.status,j.modality kind,j.purpose title,j.model_version,
  (SELECT count(*) FROM job_outputs o WHERE o.project_id=:p AND o.job_id=j.id) output_count,
  (SELECT count(*) FROM job_outputs o WHERE o.project_id=:p AND o.job_id=j.id AND NOT EXISTS(

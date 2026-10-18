@@ -3,9 +3,9 @@ const SECTIONS = {
   overview: '创作概览', shots: '镜头', lines: '剧本与台词', assets: '资产',
   instances: '使用与状态', cues: '声音', performances: '动作与特效',
   bindings: '采用与候选', materials: '相关素材', states:'场镜状态',voices:'人物声线',jobs:'制作任务',versions: '文案版本',
-  script_status: '剧本确认',
+  script_status: '剧本确认', job_attempts: '任务尝试对照',
 };
-const RELATION_SECTIONS = {quality_observations:'质量记录',method_evaluations:'方法评测',timeline_media:'实际用料区间',candidates:'用途候选',coverage:'镜头覆盖',states:'场镜状态',voices:'人物与声线',interactions:'参与和接触',dispositions:'省略与处理依据',cue_shots:'声音覆盖镜头',cue_slots:'声音用途',cue_timeline_items:'声音时间区间',execution_shots:'动作覆盖镜头',execution_participants:'动作参与者',execution_materials:'动作参考与素材',execution_slots:'动作制作用途'};
+const RELATION_SECTIONS = {job_attempts:'任务尝试对照',quality_observations:'质量记录',method_evaluations:'方法评测',timeline_media:'实际用料区间',candidates:'用途候选',coverage:'镜头覆盖',states:'场镜状态',voices:'人物与声线',interactions:'参与和接触',dispositions:'省略与处理依据',cue_shots:'声音覆盖镜头',cue_slots:'声音用途',cue_timeline_items:'声音时间区间',execution_shots:'动作覆盖镜头',execution_participants:'动作参与者',execution_materials:'动作参考与素材',execution_slots:'动作制作用途'};
 const LABELS = {
   work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜头', asset: '资产',
   character: '人物', location: '地点', prop: '道具', costume: '服装', voice: '声线', style: '风格',
@@ -15,6 +15,7 @@ const LABELS = {
   current: '当前版本', historical: '历史版本', candidate: '候选', missing: '资料缺失',
   pending: '待处理', pass: '通过', fail: '未通过', unknown: '尚未确定', unselected:'尚未采用',unassociated:'待关联',unverified:'尚未验证',instance:'使用实例',
   editing: '编辑中', pending_confirmation: '待人工确认', script_draft: '剧本工作副本',
+  job_attempts: '任务尝试对照',
   identity_face: '身份正脸', location_master: '场景母版', composition: '构图参考',
   first_frame: '首帧', last_frame: '尾帧', video_take: '镜头视频', dialogue_dry: '对白干声',
   voice_sample: '声音参考', style_reference: '风格参考',
@@ -196,6 +197,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     };
     if (key === 'shots' || row.kind === 'shot' || key === 'assets') link('object', row.object_id || row.id, key === 'assets' ? '查看资产用途' : '进入镜头');
     if (key === 'shots' && row.id) links.append(button('查看覆盖剧本行', () => drill('coverage', row.id)));
+    if (key === 'jobs' && row.id) links.append(button('尝试与参数对照', () => drill('job_attempts', row.id)));
     for (const [field, name] of [['shot_id', '定位镜头'], ['asset_id', '定位资产'], ['speaker_id', '定位人物'], ['voice_id','定位声线身份'],['scene_id', '定位场次'], ['target_object_id', '定位用途对象']]) link('object', row[field], name);
     for (const field of ['artifact_id', 'script_version_id', 'coverage_version_id', 'evidence_version_id', 'scope_version_id','method_artifact_id','criteria_artifact_id','trial_run_id','subtitle_version_id','lipsync_version_id']) link('artifact', row[field], '阅读固定文案');
     for (const field of ['media_id', 'reference_media_id', 'selected_media_id']) link('media', row[field], field === 'selected_media_id' ? '播放当前采用' : '预览素材');
