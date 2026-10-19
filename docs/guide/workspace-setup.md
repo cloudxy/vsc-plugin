@@ -68,7 +68,7 @@ source ~/.zshenv
 | 正式项目与资源面板 | `vsc_resources` | `VSC_DATABASE_URL` |
 | 自动化测试 | `vsc_resources_test` | `VSC_TEST_DATABASE_URL` |
 
-两份连接变量集中配置在 `~/.zshenv`，主机、端口相同，数据库名不同。`postgres` 是默认维护数据库，`public` 是数据库内的默认 schema，都不表示测试环境。测试在 `vsc_resources_test` 中临时建立 `vsc_test_*` schema，结束后删除；不对正式库运行测试，不再另启 `5432` 测试实例。实际账号和连接值留在本机配置，不提交仓库。
+两份连接变量集中配置在 `~/.zshenv`，主机、端口相同，数据库名不同。实际账号和连接值留在本机配置，不提交仓库。测试运行与隔离方式见[资源面板验证](resource-panel.md#验证边界)。
 
 新启动的 zsh 会加载这两项配置；已运行的宿主需在启动终端执行 `source ~/.zshenv` 后重启，其他启动方式显式传入对应变量。数据库启动及迁移见[资源面板](resource-panel.md#新建数据库项目)，维护测试见[本地验证](maintenance.md)。
 
