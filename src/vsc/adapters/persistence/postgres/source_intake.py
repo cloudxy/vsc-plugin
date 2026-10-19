@@ -431,10 +431,12 @@ class SourceIntakeRepository:
     @staticmethod
     def _source_draft_saved(conn, project_id, draft_id, old_revision, new_revision, content):
         """Carry provenance for retained stable units to this exact revision."""
-        units = {(str(s["id"]), str(u["id"])) for s in content.get("scenes", [])
-                 for kind in ("actions", "dialogue", "silence") for u in s.get(kind, [])}
         rows = list(conn.execute(select(S.draft_source_refs).where(S.draft_source_refs.c.project_id == project_id,
             S.draft_source_refs.c.draft_id == draft_id, S.draft_source_refs.c.draft_revision == old_revision)).mappings())
+        if not rows:
+            return
+        units = {(str(s["id"]), str(u["id"])) for s in content.get("scenes", [])
+                 for kind in ("actions", "dialogue", "silence") for u in s.get(kind, [])}
         for row in rows:
             if (row["scene_key"], row["line_key"]) in units:
                 conn.execute(insert(S.draft_source_refs).values(project_id=project_id, id=new_id(), draft_id=draft_id,

@@ -254,6 +254,29 @@ class SourceIntakeFlow(ResourceStoreFixture, unittest.TestCase):
             self.assertIn(expected, updated["content"]["body"])
             self.assertEqual(len(updated["source_refs"]), imported["source_ref_count"])
 
+    def test_malformed_imported_draft_keeps_saved_content_and_provenance(self):
+        source = self.source()
+        job, attempt = self.job([source])
+        prepared = self.prepared(job, attempt)
+        imported = self.write("import_parse_job", self.import_payload(job, attempt, prepared))
+        for mutation in ("scene", "group", "unit"):
+            with self.subTest(mutation=mutation):
+                broken = copy.deepcopy(imported["content"])
+                if mutation == "scene":
+                    broken["scenes"].append(None)
+                elif mutation == "group":
+                    broken["scenes"][0]["actions"] = None
+                else:
+                    broken["scenes"][0]["dialogue"].append(None)
+                with self.assertRaises(ResourceError) as caught:
+                    self.service.save_script_draft(self.p, {"scope_key": prepared["scope_key"],
+                        "base_draft_revision": 1, "content": broken}, actor="test-human")
+                self.assertEqual(caught.exception.code, "invalid_source_structure")
+                draft = self.service.get_script_draft(self.p, prepared["scope_key"])
+                self.assertEqual(draft["draft_revision"], 1)
+                self.assertEqual(draft["content"], imported["content"])
+                self.assertEqual(len(draft["source_refs"]), imported["source_ref_count"])
+
     def test_database_rejects_anchor_bounds_wrong_job_source_and_draft_ref_revision(self):
         from sqlalchemy import insert
         from sqlalchemy.exc import DBAPIError

@@ -271,9 +271,26 @@ def structure_proposal(extractions):
 
 
 def render_structured_body(document):
+    def invalid():
+        raise ResourceError("来源稿的场次或单元结构无效；请校对结构后保存，原工作副本已保留", "invalid_source_structure")
+    scenes = document.get("scenes", [])
+    if not isinstance(scenes, list):
+        invalid()
     lines = []
-    for scene in document.get("scenes", []):
+    for scene in scenes:
+        if not isinstance(scene, dict) or not isinstance(scene.get("id"), str) or not scene["id"]:
+            invalid()
+        if scene.get("source_label") is not None and not isinstance(scene["source_label"], str):
+            invalid()
         lines.append(scene.get("source_label") or str(scene["id"]))
+        for key in ("actions", "dialogue", "silence"):
+            if not isinstance(scene.get(key, []), list):
+                invalid()
+            for unit in scene.get(key, []):
+                if (not isinstance(unit, dict) or not isinstance(unit.get("id"), str) or not unit["id"]
+                        or not isinstance(unit.get("text", unit.get("purpose", "静默")), str)
+                        or type(unit.get("source_order", 0)) is not int):
+                    invalid()
         units = [unit for key in ("actions", "dialogue", "silence") for unit in scene.get(key, [])]
         for unit in sorted(units, key=lambda unit: unit.get("source_order", 0)):
             text = unit.get("text", unit.get("purpose", "静默"))
