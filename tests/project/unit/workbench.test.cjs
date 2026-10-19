@@ -12,6 +12,22 @@ function fixture(){
   return {bench,container,memory,requests,pending,opened,errors,respond,find:text=>container.querySelectorAll('button').find(b=>b.textContent===text)};
 }
 function doc(project,section='lines',items=[],extra={}){return {project_id:project,revision:4,scope:{id:'shot-1',kind:'shot',title:'镜头一'},ancestors:[],summary:{[section]:items.length},sections:{[section]:{items,total:items.length,scope_total:items.length,next_offset:null}},gaps:[],warnings:[],read_only:true,...extra};}
+test('scope is identified once in the breadcrumb while section buttons show the selection',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
+  const heading=a.container.querySelector('.workbench-heading');
+  assert.equal(heading.querySelectorAll('h1').length,0);
+  assert.equal(heading.querySelectorAll('p').length,0);
+  const current=heading.querySelector('strong');assert.equal(current.textContent,'镜头一');
+  assert.equal(current.getAttribute('aria-current'),'location');
+  assert.equal(heading.textContent.split('镜头一').length-1,1);
+  p=a.find('镜头').click();assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'shots');
+  a.respond(doc('p','shots',[{id:'shot-1',title:'镜头一'}]));await p;
+  const buttons=a.container.querySelector('.workbench-navigation').querySelectorAll('button');
+  assert.equal(buttons.find(b=>b.textContent==='镜头').getAttribute('aria-current'),'page');
+  assert.equal(buttons.find(b=>b.textContent==='创作概览').getAttribute('aria-current'),'false');
+  p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','shots',[],{scope:null}));await p;
+  assert.equal(heading.querySelector('strong').textContent,'项目创作概览');a.bench.destroy();
+});
 test('late workbench response cannot restore another project, abort and errors preserve read-only state',async()=>{
   const a=fixture();const old=a.bench.load({projectId:'old',objectId:'old-shot',userId:'alice'});a.container.querySelectorAll('select').find(e=>e.getAttribute('aria-label')==='资料类型').value='dialogue';const fresh=a.bench.load({projectId:'new',objectId:'shot-1',userId:'alice'});
   const first=a.pending.shift();a.respond(doc('new','lines',[{id:'new-line',title:'new-private',text:'新内容'}]));await fresh;

@@ -1702,7 +1702,7 @@ wheels = [
 
 [[package]]
 name = "vsc-workflow"
-version = "0.36.0"
+version = "0.36.1"
 source = { editable = "." }
 
 [package.optional-dependencies]
