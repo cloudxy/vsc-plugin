@@ -5,7 +5,7 @@
     {
       "name": "vsc-workflow",
       "source": "./",
-      "version": "0.36.0",
+      "version": "0.36.1",
       "description": "VSC（Video Short Create）：独立的短剧与短视频创作工作流。",
       "category": "creative-production",
       "tags": [

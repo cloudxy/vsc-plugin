@@ -93,9 +93,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   const host = el('div', null, 'creative-workbench');
   const heading = el('header', null, 'workbench-heading');
   const trail = el('nav', null, 'workbench-trail'); trail.setAttribute('aria-label', '当前创作范围');
-  const titleNode = el('h1', '创作工作台');
-  const subtitle = el('p', '按场镜查阅内容、资产、声音与实际采用。', 'hint');
-  heading.append(trail, titleNode, subtitle);
+  heading.append(trail);
   const form = el('form', null, 'workbench-search');
   const search = el('input'); search.type = 'search'; search.placeholder = '检索镜头、台词、资产与制作资料';
   search.setAttribute('aria-label', '检索创作资料'); search.maxLength = 200;
@@ -155,9 +153,9 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     trail.replaceChildren(button('全部项目', () => onObject?.(null)));
     for (const row of data.ancestors || []) trail.append(el('span', '›'), objectButton(row));
     const scope = data.scope;
-    if (scope?.id) trail.append(el('span', '›'), el('span', title(scope)));
-    titleNode.textContent = scope?.id ? title(scope) : '项目创作概览';
-    subtitle.textContent = `${scope?.kind ? label(scope.kind) + ' · ' : ''}固定资料快照 r${data.revision} · ${data.authority || (data.read_only ? '只读查阅' : '共享关系')}`;
+    const current = el('strong', scope?.id ? title(scope) : '项目创作概览', 'workbench-current-scope');
+    current.setAttribute('aria-current', 'location');
+    trail.append(el('span', '›'), current);
     counters.replaceChildren();
     for (const key of Object.keys(SECTIONS).filter(key => key !== 'overview')) {
       const count = data.summary?.[key];
