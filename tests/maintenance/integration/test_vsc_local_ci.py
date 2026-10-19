@@ -23,6 +23,10 @@ def git(root, *args):
 
 
 class TestTracked(unittest.TestCase):
+    def test_real_initialization_files_are_rejected_but_example_is_allowed(self):
+        problems = LOCAL_CI.tracked_problems(['.env', '.env.local', 'config/.env.prod', '.env.example'])
+        self.assertEqual(len(problems), 3)
+        self.assertTrue(all('本机初始化配置' in value for value in problems))
     def test_repository_sources_and_vendor_declarations_pass(self):
         paths = ["skills/vsc/SKILL.md", "scripts/project/state.py", "vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"]
         self.assertEqual(LOCAL_CI.tracked_problems(paths), [])
@@ -113,6 +117,7 @@ class TestFullTestGate(unittest.TestCase):
                 with mock.patch.object(LOCAL_CI, "run", return_value=completed) as invoke:
                     detail, problems = LOCAL_CI.check_tests()
                 args = invoke.call_args.args
+                self.assertEqual(args[0], LOCAL_CI.PYTHON)
                 self.assertEqual(Path(args[2]), SCRIPTS.parent / "tests/run.py")
                 self.assertIn("--all", args)
                 self.assertEqual(bool(problems), code != 0)
