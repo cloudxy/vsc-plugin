@@ -31,6 +31,8 @@
 
 ## 执行与跨工具接续
 
+方案优先降低用户的理解和操作成本：复用已有能力，采用清楚命名和集中入口；新增实例、组件、配置或人工步骤须有当前需求与具体收益，不因“以后可能需要”增加复杂度。
+
 1. 开始 VSC 工作前执行 `python3 -B scripts/kernel/catalog.py doctor`，再执行 `python3 -B scripts/kernel/catalog.py route <阶段>`。以 `workflow/` 为规范，不自行重写流程。
 2. 新作品放在 `projects/<作品名>/`。按需求选择 Profile，通过 `scripts/project/state.py init` 创建。未给出的创作目标与负责人不可编造；按总编排技能逐项收敛需求。
 3. 继续已有作品，先运行 `python3 -B scripts/project/state.py status <作品路径>` 与 `next <作品路径>`，再读相关已批准产物。多个作品且目标不明时，先确定作品。
