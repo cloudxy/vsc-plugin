@@ -6,6 +6,22 @@ const SECTIONS = {
   script_status: '剧本确认', job_attempts: '任务尝试对照',
 };
 const RELATION_SECTIONS = {job_attempts:'任务尝试对照',quality_observations:'质量记录',method_evaluations:'方法评测',timeline_media:'实际用料区间',candidates:'用途候选',coverage:'镜头覆盖',states:'场镜状态',voices:'人物与声线',interactions:'参与和接触',dispositions:'省略与处理依据',cue_shots:'声音覆盖镜头',cue_slots:'声音用途',cue_timeline_items:'声音时间区间',execution_shots:'动作覆盖镜头',execution_participants:'动作参与者',execution_materials:'动作参考与素材',execution_slots:'动作制作用途'};
+const NAV_GROUPS = {
+  overview: {label:'创作概览', sections:['overview']},
+  story: {label:'剧本与镜头', sections:['shots','lines','states','versions','script_status'], related:['coverage','dispositions']},
+  assets: {label:'资产与表演', sections:['assets','instances','voices','cues','performances'], related:['interactions','cue_shots','cue_slots','cue_timeline_items','execution_shots','execution_participants','execution_materials','execution_slots']},
+  production: {label:'制作执行', sections:['jobs','job_attempts','bindings','materials'], related:['candidates']},
+  quality: {label:'质量与方法', sections:['quality_observations','method_evaluations']},
+  candidates: {label:'候选与素材', sections:['bindings','materials'], related:['candidates']},
+  jobs: {label:'任务与尝试', sections:['jobs','job_attempts']},
+  delivery: {label:'剪辑用料', sections:['timeline_media','materials'], related:['cue_timeline_items','cue_slots','cue_shots']},
+  documents: {label:'交付文案', sections:['versions']},
+};
+const TASK_NAVIGATION = {
+  workbench: {groups:['overview','story','assets','production','quality'], initial:'overview'},
+  candidates: {groups:['candidates','jobs','quality'], initial:'bindings'},
+  delivery: {groups:['delivery','documents','quality'], initial:'timeline_media'},
+};
 const LABELS = {
   work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜头', asset: '资产',
   character: '人物', location: '地点', prop: '道具', costume: '服装', voice: '声线', style: '风格',
@@ -112,23 +128,24 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   const associationFilter=el('select');associationFilter.setAttribute('aria-label','关联状态');
   for(const [value,name] of [['','全部关联状态'],['associated','已有关系'],['unassociated','待关联']]){const o=el('option',name);o.value=value;associationFilter.append(o);}
   filters.append(statusFilter,kindFilter,purposeFilter,associationFilter);form.append(filters);
-  const navigation = el('nav', null, 'workbench-navigation'); navigation.setAttribute('aria-label', '创作资料类型');
-  const counters = el('div', null, 'workbench-counters');
+  const navigation = el('nav', null, 'workbench-navigation'); navigation.setAttribute('aria-label', '当前任务的资料导航');
   const status = el('p', '', 'workbench-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const gaps = el('div', null, 'workbench-gaps');
   const body = el('div', null, 'workbench-content');
   const pagination = el('div', null, 'pagination');
   const prev = el('button', '上一页'), pageInfo = el('span'), next = el('button', '下一页');
   prev.type = next.type = 'button'; pagination.append(prev, pageInfo, next);
-  host.append(heading, form, counters, navigation, status, gaps, body, pagination); container.replaceChildren(host);
+  host.append(heading, form, navigation, status, gaps, body, pagination); container.replaceChildren(host);
 
-  function prefKey() { return 'vsc.workbench.v1:' + JSON.stringify([context?.userId || 'reader', context?.projectId]); }
+  function taskNavigation() { return TASK_NAVIGATION[context?.task] || TASK_NAVIGATION.workbench; }
+  function groupFor(key) { return taskNavigation().groups.find(id => NAV_GROUPS[id].sections.includes(key) || NAV_GROUPS[id].related?.includes(key)); }
+  function prefKey() { return 'vsc.workbench.v1:' + JSON.stringify([context?.userId || 'reader', context?.projectId, context?.task || 'workbench']); }
   function savePreference() {
     try { localStorage.setItem(prefKey(), JSON.stringify({section})); } catch { /* Optional view preference. */ }
   }
   function restorePreference() {
-    try { const saved = JSON.parse(localStorage.getItem(prefKey()) || 'null'); section = saved?.section in SECTIONS ? saved.section : 'overview'; }
-    catch { section = 'overview'; }
+    try { const saved = JSON.parse(localStorage.getItem(prefKey()) || 'null'); section = groupFor(saved?.section) ? saved.section : taskNavigation().initial; }
+    catch { section = taskNavigation().initial; }
   }
   async function act(callback, ...args) {
     try { await callback?.(...args); } catch (error) { status.textContent = error.message; onError(error); }
@@ -140,14 +157,35 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     return button(prefix + (row.title || row.label || row.display_code || row.id), () => onObject?.(row.id), 'workbench-object-link');
   }
   function drawNavigation() {
+    const focusKey = document.activeElement?.dataset?.navFocus;
     navigation.replaceChildren();
-    for (const [key, name] of Object.entries(SECTIONS)) {
-      const b = button(name, async () => { section = key; entity = null; offset = 0; savePreference(); drawNavigation(); await request(); });
-      b.setAttribute('aria-current', key === section ? 'page' : 'false'); b.dataset.section = key;
-      navigation.append(b);
+    const selectedGroup = groupFor(section) || taskNavigation().groups[0];
+    const groups = el('div', null, 'workbench-nav-groups'); groups.setAttribute('role','group'); groups.setAttribute('aria-label','资料分组');
+    for (const id of taskNavigation().groups) {
+      const group = NAV_GROUPS[id];
+      const b = button(group.label, () => id === selectedGroup && group.sections.includes(section) ? undefined : chooseSection(group.sections[0]), 'workbench-group-button');
+      b.dataset.group = id; b.dataset.navFocus = 'group:' + id;
+      b.setAttribute('aria-pressed', String(id === selectedGroup)); groups.append(b);
     }
-    const more=el('details',null,'workbench-more');more.append(el('summary','质量与方法'));
-    for(const key of ['quality_observations','method_evaluations'])more.append(button(RELATION_SECTIONS[key],()=>{section=key;entity=null;offset=0;return request();}));navigation.append(more);
+    navigation.append(groups);
+    const group = NAV_GROUPS[selectedGroup];
+    if (group.sections.length > 1 || section !== group.sections[0]) {
+      const children = el('div', null, 'workbench-nav-sections'); children.setAttribute('role','group'); children.setAttribute('aria-label',group.label + '包含的资料');
+      const keys = group.sections.includes(section) ? group.sections : [...group.sections, section];
+      for (const key of keys) {
+        const b = button(SECTIONS[key] || RELATION_SECTIONS[key] || key, () => chooseSection(key));
+        b.dataset.section = key; b.dataset.navFocus = 'section:' + key;
+        b.setAttribute('aria-current',key === section ? 'page' : 'false'); children.append(b);
+      }
+      navigation.append(children);
+    } else {
+      for (const b of groups.querySelectorAll('button')) if (b.dataset.group === selectedGroup) b.setAttribute('aria-current','page');
+    }
+    if (focusKey) for (const b of navigation.querySelectorAll('button')) if (b.dataset.navFocus === focusKey) b.focus();
+  }
+  function chooseSection(key) {
+    section = key; entity = null; offset = 0; revision = null; savePreference();
+    return request();
   }
   function drawHeading() {
     trail.replaceChildren(button('全部项目', () => onObject?.(null)));
@@ -156,13 +194,6 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     const current = el('strong', scope?.id ? title(scope) : '项目创作概览', 'workbench-current-scope');
     current.setAttribute('aria-current', 'location');
     trail.append(el('span', '›'), current);
-    counters.replaceChildren();
-    for (const key of Object.keys(SECTIONS).filter(key => key !== 'overview')) {
-      const count = data.summary?.[key];
-      if (count == null) continue;
-      const n = typeof count === 'number' ? count : count.scope_total ?? count.total;
-      if (n != null) counters.append(button(`${SECTIONS[key]} ${n}`, async () => { section = key; entity = null; offset = 0; drawNavigation(); await request(); }));
-    }
   }
   function drawGaps() {
     gaps.replaceChildren();
@@ -323,6 +354,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   }
   async function request() {
     if (!context?.projectId || disposed) return;
+    drawNavigation();
     controller?.abort(); controller = new AbortController(); const seq = ++ticket;
     const snapshot = {...context}, params = new URLSearchParams({section, limit: '24', offset: String(offset)});
     if (snapshot.objectId && !(globalSearch && query)) params.set('object_id', snapshot.objectId);
@@ -351,14 +383,14 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   next.addEventListener('click', () => { const value = sectionValue(data || {}, section); if (value.next_offset != null) { offset = value.next_offset; return request(); } });
   return {
     async load(nextContext) {
-      controller?.abort(); ticket++; const changed = context?.projectId !== nextContext.projectId;
+      controller?.abort(); ticket++; const changed = context?.projectId !== nextContext.projectId || context?.task !== nextContext.task || context?.userId !== nextContext.userId;
       context = {...nextContext}; offset = 0; revision = null; data = null; entity=null;
       if (changed) { restorePreference(); query = ''; search.value = ''; globalSearch = false; whole.checked = false;statusFilter.value='';kindFilter.value='';purposeFilter.value='';associationFilter.value=''; }
-      body.replaceChildren(); gaps.replaceChildren(); counters.replaceChildren(); trail.replaceChildren(); drawNavigation();
+      body.replaceChildren(); gaps.replaceChildren(); trail.replaceChildren(); drawNavigation();
       if (!context.projectId) { status.textContent = '选择项目后查阅创作资料。'; return; }
       return request();
     },
-    async focus(nextSection) { if (nextSection in SECTIONS || nextSection in RELATION_SECTIONS) { section = nextSection; offset = 0; savePreference(); return request(); } },
+    async focus(nextSection) { if (nextSection in SECTIONS || nextSection in RELATION_SECTIONS) return chooseSection(nextSection); },
     refresh: () => { offset = 0; revision = null; return request(); },
     destroy() { disposed = true; controller?.abort(); ticket++; container.replaceChildren(); },
   };
