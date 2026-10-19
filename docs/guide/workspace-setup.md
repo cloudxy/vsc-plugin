@@ -72,6 +72,28 @@ source ~/.zshenv
 
 新启动的 zsh 会加载这两项配置；已运行的宿主需在启动终端执行 `source ~/.zshenv` 后重启，其他启动方式显式传入对应变量。数据库启动及迁移见[资源面板](resource-panel.md#新建数据库项目)，维护测试见[本地验证](maintenance.md)。
 
+### 跨平台数据库 MCP
+
+本机数据库工具采用 [Google MCP Toolbox for Databases](https://github.com/googleapis/mcp-toolbox)，版本与许可固定在 [Vendor 声明](../../vendor/THIRD_PARTY.md)。同一官方程序支持 PostgreSQL、MySQL、Redis、SQLite 和 MongoDB；支持某种引擎不代表已配置该数据库的地址、账号或实际连接。
+
+Codex、Claude Code、Grok Build、Kimi Code 和 ZCode 的用户配置统一登记名为 `vsc-databases` 的 stdio 服务，指向本工作区 `.vsc-local/database-mcp/start` 的绝对路径。连接及工具定义集中在 `.vsc-local/database-mcp/connections/`，原生二进制在 `vendor/.runtime/google-mcp-toolbox/`。每个宿主按需启动同一程序，不增加常驻 HTTP 服务或监听端口；凭据不复制进五份宿主配置。工作区移动后更新这五个入口及配置中的绝对路径。
+
+| 宿主 | 用户配置 | 服务字段 |
+| --- | --- | --- |
+| Codex | `~/.codex/config.toml` | `mcp_servers.vsc-databases` |
+| Claude Code | `~/.claude.json` | `mcpServers.vsc-databases` |
+| Grok Build | `~/.grok/config.toml` | `mcp_servers.vsc-databases` |
+| Kimi Code | `~/.kimi-code/mcp.json` | `mcpServers.vsc-databases` |
+| ZCode | `~/.zcode/cli/config.json` | `mcp.servers.vsc-databases` |
+
+本工作区的 PostgreSQL 工具分为 `postgres_query`（正式库只读）和 `postgres_test_execute`（测试库读写）。两库沿用上表同一实例，分别使用没有超级用户权限的 MCP 专用账号。正式库账号仅授予 `public` 表的读取权限，并设置默认只读事务；VSC 状态写入仍走 CLI，不能用数据库工具绕过版本、锁或人工批准。`sqlite_test_execute` 使用独立的本机 `sqlite_test.db` 测试文件，不替代项目权威数据库。当前回环实例采用本机 `trust` 认证，Toolbox 的非空 password 占位值不是凭据；若改为密码认证，真实密码仍集中配置在 `~/.zshenv`，在 YAML 中用 `${变量名}` 引用。
+
+MySQL、Redis 和 MongoDB 的未启用示例放在 `.vsc-local/database-mcp/examples/`。接入新数据库时，先确认真实地址与账号权限，将相应变量配置在 `~/.zshenv`，再复制对应示例为 `connections/<引擎>.yaml` 并按需定义工具。只启用实际可连接的来源：Toolbox 启动时会初始化全部启用来源，一个不可达的数据库可能导致整个服务启动失败。修改后在宿主中重连，并实际执行一次对应数据库的读取；测试写入只在明确的测试目标验证，最后清理临时数据。
+
+配置后打开新会话或重新连接 MCP。可用 `grok mcp doctor vsc-databases --json`、`claude mcp get vsc-databases` 检查目标服务；Codex 的 `mcp list` 仅证明配置可发现，还需通过 `/mcp` 或 app-server 的 `mcpServerStatus/list` 确认工具列表。Kimi 使用新会话的 `/mcp`，ZCode 使用 MCP Servers 设置中的连接状态和工具列表。连接成功后应看到上述三个已启用工具；配置文件存在、CLI 列举成功均不能代替真实握手和数据库请求。当前会话不会因文件更新而自动获得工具，无法访问本机的云端会话也不会自动接入。
+
+本机配置、二进制、测试文件、宿主配置备份与验证证据均不提交 Git。更新工具时同时核对锁定来源与本机二进制版本；Vendor 源码更新不会自动替换独立下载的原生二进制。撤销接入时仅删除五个平台中该服务条目，保留其他 MCP 和设置；连接配置故障时从相邻的 `.vsc-mcp-backup-<时间>` 恢复相关字段。
+
 ## 验证
 
 ```bash

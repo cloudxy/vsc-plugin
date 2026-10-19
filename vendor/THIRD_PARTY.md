@@ -18,6 +18,7 @@
 | [moneyprinterturbo-assets](https://github.com/harry0703/MoneyPrinterTurbo) | MoneyPrinterTurbo 附带的字幕字体与背景音乐，供用户在本机评估效果；字幕烧录或混音时由用户显式指定文件路径使用。 | NOASSERTION | `moneyprinterturbo-assets`（需显式安装） |
 | [narratoai](https://github.com/linyqh/NarratoAI) | 学习来源：src/vsc/adapters/editors/jianying_draft.py 移植了其剪映草稿构件；本地目录只供对照。 | MIT | `narratoai` |
 | [noto-sans-sc](https://github.com/notofonts/noto-cjk) | OFL 授权的简体中文字体，scripts/post/subtitle_burn.py 的默认字幕字体。 | OFL-1.1 | `noto-sans-sc` |
+| [google-mcp-toolbox](https://github.com/googleapis/mcp-toolbox) | 本机通过统一 stdio MCP 接入 PostgreSQL、MySQL、Redis、SQLite 与 MongoDB；五种 AI 宿主共用官方 Toolbox CLI。 | Apache-2.0 | `google-mcp-toolbox` |
 
 ## 需显式安装的来源
 
