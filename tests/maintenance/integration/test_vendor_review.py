@@ -17,6 +17,35 @@ def write(root, relative, content):
 
 
 class TestVendorReview(unittest.TestCase):
+    def test_explicit_guide_changes_and_deletions_are_reviewed_without_skill_wrapper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            current, candidate = Path(temp) / "current", Path(temp) / "candidate"
+            write(current, "command.md", "Read [rule](rules/detail.md).")
+            write(current, "rules/detail.md", "original")
+            write(candidate, "command.md", "Read [rule](rules/detail.md).")
+            write(candidate, "rules/detail.md", "changed")
+            write(candidate, "unrouted-agent.md", "do not load")
+            report = REVIEW.analyze("vercel-web-interface-guidelines", current, candidate)
+            self.assertEqual(report["changes"][0]["kind"], "changed_referenced_skill")
+            self.assertEqual(report["changes"][0]["path"], "command.md")
+            files = report["bundles"]["candidate"]["command.md"]["files"]
+            self.assertEqual(set(files), {"command.md", "rules/detail.md"})
+            (candidate / "command.md").unlink()
+            deleted = REVIEW.analyze("vercel-web-interface-guidelines", current, candidate)
+            self.assertEqual(deleted["changes"][0]["kind"], "deleted_referenced_skill")
+            self.assertEqual(deleted["summary"]["adoption"], "blocked_pending_review")
+
+    def test_diagnostic_file_line_notation_is_safe_but_file_uri_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            current, candidate = Path(temp) / "current", Path(temp) / "candidate"
+            for root in (current, candidate):
+                write(root, "command.md", "Report findings using `file:line` notation.")
+            report = REVIEW.analyze("vercel-web-interface-guidelines", current, candidate)
+            self.assertEqual(report["summary"]["candidate_unusable_skill_count"], 0)
+            write(candidate, "command.md", "Read `file:/etc/passwd`.")
+            unsafe = REVIEW.analyze("vercel-web-interface-guidelines", current, candidate)
+            self.assertEqual(unsafe["summary"]["candidate_unusable_skill_count"], 1)
+
     def test_changed_deleted_and_new_skills_are_classified_without_auto_adoption(self):
         with tempfile.TemporaryDirectory() as temp:
             current, candidate = Path(temp) / "current", Path(temp) / "candidate"

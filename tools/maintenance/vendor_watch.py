@@ -116,7 +116,7 @@ def fetch(cache, ref):
     return revision
 
 
-def git_bundle(cache, revision):
+def git_bundle(cache, revision, entry_paths=(), sparse_paths=()):
     raw = run("git", "-C", str(cache), "ls-tree", "-rz", revision, binary=True)
     inventory = {}
     for entry in raw.split(b"\0"):
@@ -126,6 +126,8 @@ def git_bundle(cache, revision):
         mode, kind, _object_id = header.split()
         path = vendor_bundle.safe_relative(name.decode("utf-8"))
         if any(part in vendor_bundle.EXCLUDED for part in Path(path).parts) or Path(path).name in vendor_bundle.INTERNAL_FILES:
+            continue
+        if sparse_paths and not any(path == selected or path.startswith(selected.rstrip("/") + "/") for selected in sparse_paths):
             continue
         permission = int(mode, 8)
         file_mode = stat.S_IFREG | (permission & 0o777) if kind == b"blob" and mode != b"120000" else stat.S_IFLNK
@@ -138,11 +140,11 @@ def git_bundle(cache, revision):
         if size > vendor_bundle.MAX_FILE_BYTES:
             raise vendor_bundle.ResourceError(f"资源文件超过 {vendor_bundle.MAX_FILE_BYTES} 字节：{path}")
         return run("git", "-C", str(cache), "show", f"{revision}:{path}", binary=True)
-    return vendor_bundle.build_bundles(inventory, read_blob, allow_missing=True)
+    return vendor_bundle.build_bundles(inventory, read_blob, allow_missing=True, entry_paths=entry_paths)
 
 
 def materialize(cache, revision, source, target):
-    bundles, content = git_bundle(cache, revision)
+    bundles, content = git_bundle(cache, revision, entry_paths=vendor_review.routed_paths(source["id"]), sparse_paths=source.get("sparse_paths", ()))
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(dir=target.parent, prefix=".pending-"))
     try:
@@ -171,7 +173,7 @@ def verify_candidate(candidate, source_id, revision):
     metadata = load_json(candidate / ".vsc-candidate.json")
     if metadata.get("format") != CANDIDATE_FORMAT or metadata.get("bundle_algorithm") != vendor_bundle.BUNDLE_ALGORITHM or metadata.get("source_id") != source_id or metadata.get("revision") != revision:
         raise WatchError("候选格式或身份不匹配")
-    bundles, content = vendor_bundle.scan(candidate, allow_missing=True)
+    bundles, content = vendor_bundle.scan(candidate, allow_missing=True, entry_paths=vendor_review.routed_paths(source_id))
     hashes = {path: hashlib.sha256(data).hexdigest() for path, data in content.items()}
     if bundles != metadata.get("skills") or hashes != metadata.get("resource_sha256"):
         raise WatchError(f"候选资源包完整性校验失败：{candidate}")

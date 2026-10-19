@@ -217,13 +217,17 @@ class ProviderSync:
                         change["kind"] == "deleted_referenced_skill" for change in report["changes"]):
                     raise SyncError("新版缺少已引用 Skill 或资源不完整；保留旧版")
                 checkout = stage / "checkout"
-                _git("clone", "--depth", "1", "--no-checkout", "--", source["url"], str(checkout))
+                sparse = source.get("sparse_paths", [])
+                _git("clone", "--depth", "1", "--no-checkout", *(["--filter=blob:none"] if sparse else []), "--", source["url"], str(checkout))
+                if sparse:
+                    _git("-C", str(checkout), "sparse-checkout", "init", "--no-cone")
+                    _git("-C", str(checkout), "sparse-checkout", "set", "--no-cone", *sparse)
                 _git("-C", str(checkout), "fetch", "--depth", "1", "origin", revision)
                 _git("-C", str(checkout), "checkout", "--detach", revision)
                 if _git("-C", str(checkout), "rev-parse", "HEAD") != revision:
                     raise SyncError("下载版本不匹配")
                 # Scan the actual activated tree, not just a separately validated candidate.
-                bundles, _ = vendor_bundle.scan(checkout, allow_missing=True)
+                bundles, _ = vendor_bundle.scan(checkout, allow_missing=True, entry_paths=vendor_review.routed_paths(tool_id))
                 if bundles != report["bundles"]["candidate"]:
                     raise SyncError("安装内容与已校验候选不一致")
                 if self.lock_path.read_text("utf-8") != before or self.active_jobs(tool_id):

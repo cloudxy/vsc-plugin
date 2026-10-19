@@ -34,7 +34,7 @@ class Element {
   set id(value) { this.attributes.set('id', value); }
   get id() { return this.attributes.get('id') || ''; }
   get childElementCount() { return this.children.length; }
-  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); if(name==='class')this.className=String(value); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
   append(...children) {
@@ -45,6 +45,9 @@ class Element {
       this.children.push(child);
       if (this.tagName === 'SELECT' && this.children.length === 1) this.value = child.value;
     }
+  }
+  prepend(...children) {
+    const previous=[...this.children];this.replaceChildren(...children,...previous);
   }
   replaceChildren(...children) {
     for (const child of this.children) child.parentElement = null;
@@ -75,11 +78,12 @@ class Element {
     for (const listener of this.listeners.get(type) || []) await listener(event);
     return event;
   }
-  async click() { return this.dispatch('click'); }
+  async click(properties={}) { if(!this.disabled){this.focus();return this.dispatch('click',{detail:1,...properties});} }
   async pressKey(key) {
+    this.focus();
     const event = await this.dispatch('keydown', {key});
     // Native HTML buttons activate via Enter/Space without custom JS handlers.
-    if (!event.defaultPrevented && this.tagName === 'BUTTON' && ['Enter', ' '].includes(key)) await this.click();
+    if (!event.defaultPrevented && this.tagName === 'BUTTON' && ['Enter', ' '].includes(key)) await this.click({detail:0});
     return event;
   }
   focus() { this.ownerDocument.activeElement = this; }
@@ -104,35 +108,41 @@ class Document {
   querySelectorAll(selector) { return this.body.querySelectorAll(selector); }
 }
 
-function createPanel(root, projects, treeOverride = null) {
+function createPanel(root, projects, treeOverride = null, options = {}) {
   const folder = path.join(root, 'src/vsc/interfaces/web');
   const document = new Document(fs.readFileSync(path.join(folder, 'templates/index.html'), 'utf8'));
-  const requests = [], writes = [];
+  const requests = [], writes = [], confirmations=[];
   for(const dialog of document.querySelectorAll('dialog'))dialog.close = () => {};
   const fetch = async (url, options={}) => {
     requests.push(url);
-    if(options.method==='POST'){writes.push({url,body:JSON.parse(options.body)});return {ok:true,json:async()=>({revision:2})};}
+    if(options.method==='POST')writes.push({url,headers:options.headers,body:JSON.parse(options.body)});
+    const override=await fixtureOptions.handleRequest?.(url,options);
+    if(override!==undefined)return {ok:true,status:200,json:async()=>override};
+    if(options.method==='POST')return {ok:true,json:async()=>({revision:2,jobs:[]})};
     // Keep automatic startup pending; cases drive the real project selection.
     if (url === '/api/v1/session') return new Promise(() => {});
     let value;
     if (url === '/api/v1/projects') value = {items: [...projects.values()].map(data => data.project)};
     else if (url === '/api/v1/preview-capabilities') value = {};
     else {
-      const match = url.match(/^\/api\/v1\/projects\/([^/]+)\/(tree|media|artifacts|workbench)(?:\?|$)/);
+      const match = url.match(/^\/api\/v1\/projects\/([^/]+)\/(tree|media|artifacts|workbench)(?:\/([^/?]+))?(?:\?|$)/);
       if (!match) throw new Error('Unexpected fixture request: ' + url);
       const project = projects.get(decodeURIComponent(match[1]));
       if (match[2] === 'tree') value = treeOverride ? await treeOverride(match[1], project) : project;
       else if(match[2]==='workbench'){const params=new URL(url,'http://fixture').searchParams;value={project_id:match[1],revision:project.revision,scope:project.nodes.find(row=>row.id===params.get('object_id'))||null,sections:{},summary:{},gaps:[],warnings:[],ancestors:[]};}
+      else if(match[2]==='artifacts')value=match[3]?project.artifactDetails?.[decodeURIComponent(match[3])]:{items:project.artifacts||[]};
       else value = {items: [], total: 0, revision: project.revision};
     }
     return {ok: true, status: 200, json: async () => value};
   };
+  const fixtureOptions=options;
   const memory=new Map();
-  const context = vm.createContext({document, fetch, URLSearchParams, URL, AbortController, console, Map, Set,setTimeout,clearTimeout,localStorage:{getItem:key=>memory.get(key),setItem:(key,value)=>memory.set(key,value)},crypto:require('node:crypto').webcrypto});
+  const context = vm.createContext({document, fetch, URLSearchParams, URL, AbortController, console, Map, Set,setTimeout,clearTimeout,localStorage:{getItem:key=>memory.get(key),setItem:(key,value)=>memory.set(key,value)},crypto:require('node:crypto').webcrypto,confirm:message=>{confirmations.push(message);return fixtureOptions.confirm?.(message)??true;}});
+  vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/artifact-reader.js'),'utf8').replaceAll('export function ','function ')+';globalThis.artifactReader={artifactTitle,renderArtifactContent};})()',context,{filename:'artifact-reader.js'});
   vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench')+';globalThis.createCreativeWorkbench=createCreativeWorkbench;})()',context,{filename:'workbench.js'});
-  const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
-  vm.runInContext(source + '\nglobalThis.panel = {state, renderTree, selectProject, loadProjects, reviewForm};', context, {filename: 'panel.js'});
-  return {document, requests, writes, panel: context.panel};
+  const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'const {artifactTitle,renderArtifactContent}=globalThis.artifactReader;').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
+  vm.runInContext(source + '\nglobalThis.panel = {state, renderTree, selectProject, selectObject, loadProjects, reviewForm, switchView, loadArtifacts, openArtifact};', context, {filename: 'panel.js'});
+  return {document, requests, writes, confirmations, panel: context.panel};
 }
 
 module.exports = {createPanel,Document,Element};

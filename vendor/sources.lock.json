@@ -108,6 +108,95 @@
       "usage": {"mode": "local_component", "interface": "file", "modified": false}
     },
     {
+      "id": "anthropic-frontend-design",
+      "url": "https://github.com/anthropics/skills.git",
+      "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "license_spdx": "Apache-2.0",
+      "purpose": "本机读取 Anthropic 官方 frontend-design 原始 Skill，辅助 VSC 软件界面视觉、排版与文案设计。",
+      "sparse_paths": [
+        "skills/frontend-design"
+      ],
+      "notice": "仅检出 frontend-design 及其 Apache-2.0 许可；其他 Skill 的许可不据此推定。保留许可与适用声明，不运行上游代码、不附带模型权重或素材。",
+      "type": "git",
+      "license_evidence": "https://github.com/anthropics/skills/blob/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design/LICENSE.txt",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {
+        "mode": "local_component",
+        "interface": "file",
+        "modified": false
+      },
+      "update": {
+        "mode": "candidate_review",
+        "track_ref": "HEAD",
+        "analysis_required": true,
+        "automatic_adoption": false,
+        "deleted_referenced_skill": "retain_last_approved_snapshot",
+        "new_skill": "unrouted_pending_review"
+      }
+    },
+    {
+      "id": "vercel-web-interface-guidelines",
+      "url": "https://github.com/vercel-labs/web-interface-guidelines.git",
+      "revision": "434b7f91364665f2f733b310ec54809bf8f37937",
+      "license_spdx": "MIT",
+      "purpose": "本机读取 Vercel 官方固定版 Web Interface Guidelines 原始 command.md，检查 VSC 软件可访问性、内容、导航与交互。",
+      "sparse_paths": [
+        "LICENSE",
+        "README.md",
+        "command.md"
+      ],
+      "notice": "使用 canonical 原始规则的固定 commit；不安装要求动态抓 main 的 wrapper，不自动联网更新规则。保留 MIT 许可，不执行代码、不附带模型权重或素材。",
+      "type": "git",
+      "license_evidence": "https://github.com/vercel-labs/web-interface-guidelines/blob/434b7f91364665f2f733b310ec54809bf8f37937/LICENSE",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {
+        "mode": "local_component",
+        "interface": "file",
+        "modified": false
+      },
+      "update": {
+        "mode": "candidate_review",
+        "track_ref": "HEAD",
+        "analysis_required": true,
+        "automatic_adoption": false,
+        "deleted_referenced_skill": "retain_last_approved_snapshot",
+        "new_skill": "unrouted_pending_review"
+      }
+    },
+    {
+      "id": "agency-product-design",
+      "url": "https://github.com/msitarzewski/agency-agents.git",
+      "revision": "652b2692f8d8ec2b1f1a38e559073e287dfdc469",
+      "license_spdx": "MIT",
+      "purpose": "本机只读取 Agency Agents 的 Product Manager、UI Designer 与 UX Researcher 三张原始角色卡，作为 VSC 产品与设计方法参考。",
+      "sparse_paths": [
+        "LICENSE",
+        "product/product-manager.md",
+        "design/design-ui-designer.md",
+        "design/design-ux-researcher.md"
+      ],
+      "notice": "仅选取三张方法卡，不安装或自动加载完整角色目录、人格身份、编排器、履历与固定 KPI。VSC 角色卡及权限优先，保留 MIT 许可；不运行代码，不附带模型权重或素材。",
+      "type": "git",
+      "license_evidence": "https://github.com/msitarzewski/agency-agents/blob/652b2692f8d8ec2b1f1a38e559073e287dfdc469/LICENSE",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {
+        "mode": "local_component",
+        "interface": "file",
+        "modified": false
+      },
+      "update": {
+        "mode": "candidate_review",
+        "track_ref": "HEAD",
+        "analysis_required": true,
+        "automatic_adoption": false,
+        "deleted_referenced_skill": "retain_last_approved_snapshot",
+        "new_skill": "unrouted_pending_review"
+      }
+    },
+    {
       "id": "moneyprinterturbo",
       "type": "git",
       "url": "https://github.com/harry0703/MoneyPrinterTurbo.git",

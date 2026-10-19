@@ -458,6 +458,18 @@
         "src/vsc/project/migration.py"
       ]
     },
+    "project.unit.test_artifact_reader_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/artifact-reader.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/static/panel.css",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/artifact_reader.test.cjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
+    },
     "project.unit.test_resource_navigation": {
       "owner": "project",
       "layer": "unit",

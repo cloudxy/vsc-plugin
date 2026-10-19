@@ -22,7 +22,7 @@ class TestWorkflowKernel(unittest.TestCase):
         result = run("doctor")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stages=13", result.stdout)
-        self.assertIn("roles=12", result.stdout)
+        self.assertIn("roles=14", result.stdout)
         self.assertIn("hosts=5", result.stdout)
 
     def test_route_is_the_single_machine_readable_dispatch(self):
@@ -42,6 +42,22 @@ class TestWorkflowKernel(unittest.TestCase):
         result = run("route", "missing")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("未知工作流阶段", result.stderr)
+
+    def test_product_roles_are_discovered_in_maintenance_without_creative_stage(self):
+        route = json.loads(run("route", "architecture", "--json").stdout)
+        self.assertEqual(route["roles"], ["orchestrator", "product-manager", "product-designer"])
+        self.assertEqual(route["profile_stages"], [])
+        roles = {card["id"]: card for card in json.loads(run("roles", "--json").stdout)}
+        from vsc.project.role_runtime import bind_packet, validate_packet
+        for role in ("product-manager", "product-designer"):
+            with self.subTest(role=role):
+                packet = dict(context_id="CT-product", project={"project_id": "synthetic"}, role=roles[role],
+                    task="检查阅读入口", inputs=[], approved_memories=[], rules=[])
+                packet = bind_packet(packet, review_mode="fresh")
+                self.assertEqual(validate_packet(packet, role), [])
+                self.assertEqual(packet["dispatch"]["artifact_access"], "read_only")
+                with self.assertRaisesRegex(ValueError, "read-only"):
+                    bind_packet(packet, review_mode="fresh", ownership=["reader.js"])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "实际生产计划需要FFmpeg")
     def test_batch_contract_requires_and_validates_real_project(self):

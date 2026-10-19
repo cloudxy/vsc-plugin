@@ -26,7 +26,7 @@
 | Remotion 预演与导出 | `vsc-remotion` | remotion | remotion-composer、editor |
 | 方法学习、能力卡与评测 | `vsc-learn` | learn | director、asset-director、post-reviewer |
 | 第三方技能管理 | `vsc-vendor` | vendor | orchestrator |
-| 工作流架构维护 | `vsc-architecture` | architecture | orchestrator |
+| 工作流架构与产品体验维护 | `vsc-architecture` | architecture | orchestrator、product-manager、product-designer |
 <!-- /vsc:view -->
 
 ## 执行与跨工具接续

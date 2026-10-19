@@ -9,6 +9,8 @@
 3. `python3 scripts/maintenance/vendor_sync.py --install <来源 id …>`：按固定 commit 安装；不写 id 时安装全部默认来源（`--sync` 为兼容别名）。
 4. `python3 scripts/maintenance/vendor_skills.py --scan`：为已下载的上游 `SKILL.md` 建本机目录；各阶段如何使用见 [vsc-vendor](../skills/vsc-vendor/SKILL.md#下载后直接使用-skill)。
 
+阶段解析也可显式指向原始指南或角色 `.md`，例如 architecture 的固定版界面规则与产品/设计角色方法；不必另造 `SKILL.md` 包装。它们沿同一资源包校验、变化与删除审查，只有显式路由的入口及本地引用进入候选，不自动加载整套上游角色。目录扫描仍只列出 `SKILL.md`，阶段使用以 `--resolve` 为准。
+
 上游有新版本时不会自动采用，候选分析与采用流程见 [Vendor 候选更新](../docs/governance/vendor-updates.md)。
 
 ## 锁定记录字段

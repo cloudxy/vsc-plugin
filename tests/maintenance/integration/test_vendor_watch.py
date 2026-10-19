@@ -75,6 +75,25 @@ class TestVendorWatch(unittest.TestCase):
         self.assertEqual((self.plugin / "vendor/local-test/keep.txt").read_text(), "active untouched")
         self.assertEqual(self.process(), "unchanged")
 
+    def test_explicit_original_guide_materializes_and_detects_tampering(self):
+        write(self.upstream, "command.md", "Read [rule](rules/detail.md).")
+        write(self.upstream, "rules/detail.md", "pinned guide rule")
+        write(self.upstream, "unrouted-agent.md", "must not enter guide bundle")
+        git(self.upstream, "add", ".")
+        git(self.upstream, "commit", "-qm", "guide fixture")
+        revision = git(self.upstream, "rev-parse", "HEAD")
+        source = dict(self.source, id="vercel-web-interface-guidelines", revision=revision)
+        source["sparse_paths"] = ["LICENSE", "command.md", "rules"]
+        candidate = self.root / "guide-candidate"
+        WATCH.materialize(self.upstream, revision, source, candidate)
+        WATCH.verify_candidate(candidate, source["id"], revision)
+        self.assertEqual((candidate / "rules/detail.md").read_text(), "pinned guide rule")
+        self.assertFalse((candidate / "unrouted-agent.md").exists())
+        self.assertFalse((candidate / "skills/a/SKILL.md").exists())
+        write(candidate, "command.md", "tampered")
+        with self.assertRaisesRegex(WATCH.WatchError, "完整性"):
+            WATCH.verify_candidate(candidate, source["id"], revision)
+
     def test_analysis_failure_is_retried_without_redownloading_snapshot(self):
         def fail(*_args):
             raise RuntimeError("injected review failure")

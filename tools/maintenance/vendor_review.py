@@ -44,11 +44,11 @@ def item(path, before, after, route_stages, kind, action):
 
 
 def analyze(source_id, current, candidate, current_revision="", candidate_revision=""):
-    before_bundles, before_content = vendor_bundle.scan(current, allow_missing=True)
-    after_bundles, after_content = vendor_bundle.scan(candidate, allow_missing=True)
+    routes = routed_paths(source_id)
+    before_bundles, before_content = vendor_bundle.scan(current, allow_missing=True, entry_paths=routes)
+    after_bundles, after_content = vendor_bundle.scan(candidate, allow_missing=True, entry_paths=routes)
     before = {path: value["sha256"] for path, value in before_bundles.items()}
     after = {path: value["sha256"] for path, value in after_bundles.items()}
-    routes = routed_paths(source_id)
     changes = []
     for path in sorted(after.keys() - before.keys()):
         stages = routes.get(path, [])

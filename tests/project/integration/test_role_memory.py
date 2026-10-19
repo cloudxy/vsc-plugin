@@ -62,7 +62,7 @@ class RoleMemoryTests(ResourceStoreFixture, unittest.TestCase):
         return self.write("decide_role_memory", {"version_id": version_id, "content_sha256": item["content_sha256"],
             "outcome": outcome, "reason": "隔离测试的真实人工会话决定"}, human_decision=verified_memory_decision("test-human"))
 
-    def test_twelve_roles_dispatch_consumption_returns_and_retrieval(self):
+    def test_all_roles_dispatch_consumption_returns_and_retrieval(self):
         from vsc.kernel.catalog import role_cards
         source = self.artifact()
         for role, card in role_cards().items():
