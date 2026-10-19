@@ -248,7 +248,12 @@ def export_render_package(service, project_id, timeline_id, destination, *, form
         if package is not None:
             sub.package_cues(package, work, project_id=project_id, formal=formal_subtitles)
             plan["subtitle_package"] = package
-            plan["segments"] = [segment for segment in plan["segments"] if segment["kind"] != "caption"] + sub.caption_segments(package, frame_rate(fps))
+            from vsc.post.remotion_plan import preserve_caption_layouts
+            try:
+                captions = preserve_caption_layouts(plan["segments"], sub.caption_segments(package, frame_rate(fps)))
+            except ValueError as exc:
+                raise ResourceError(str(exc), "caption_layout_projection_mismatch") from exc
+            plan["segments"] = [segment for segment in plan["segments"] if segment["kind"] != "caption"] + captions
             (work / "subtitles.json").write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n", "utf-8")
         errors = validate(plan)
         if errors:

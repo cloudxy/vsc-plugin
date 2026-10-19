@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import fields
 import json
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, insert, select, text
 from vsc.assets.resource_service import Conflict, ResourceError, artifact_stage, required
 from vsc.production.providers import AudioRequest, ImageRequest, VideoRequest
 from vsc.production.run_authorization import normalize_request, validate_capabilities
@@ -54,7 +54,7 @@ def _preview(store, conn, project, payload):
     p, action = project["id"], required(payload, "action")
     allowed = {"replace_instance": {"instance_id", "replacement_spec_version_id"}, "resample": {"job_id", "params"},
                "redo_sound": {"shot_id", "purpose", "params"}}
-    if action not in allowed or set(payload) - allowed[action] - {"action", "preview_sha256"}:
+    if action not in allowed or set(payload) - allowed[action] - {"action", "preview_sha256", "media_review_id"}:
         raise ResourceError("局部操作包含未知字段或动作", "invalid_local_action")
     if action == "replace_instance":
         instance = store._one(conn, S.asset_use_instances, p, checked_id(required(payload, "instance_id")))
@@ -147,7 +147,17 @@ def _preview(store, conn, project, payload):
                 request["prompt"] = "\n".join(by_key[key]["spoken_text"] for key in keys)
             request["context_sha256"] = context["sha256"]
             request = normalize_request(request, source_job["shot_id"], source_job["purpose"], source_job["modality"], source_job["asset_id"])
-            validate_capabilities(model, request, context)
+            voice_binding = validate_capabilities(model, request, context)
+            if payload.get("media_review_id") and source_job["modality"] == "audio":
+                old_voice = source_job["request_payload"].get("voice_binding", {})
+                fixed_types = {"screenplay", "coverage-plan", "voice-spec"}
+                old_versions = {(item["id"], item["sha256"]) for item in source_job["request_payload"].get("input_versions", [])
+                    if item.get("artifact_type", "").split(".")[-1].replace("_", "-") in fixed_types}
+                current_versions = {(item["id"], item["sha256"]) for item in context["artifacts"]}
+                if (source_job["request_payload"]["prompt"] != request["prompt"] or not old_versions <= current_versions
+                        or any(old_voice.get(key) != (voice_binding or {}).get(key)
+                               for key in ("entity_id", "logical_voice_id", "voice_spec_id", "voice"))):
+                    raise Conflict("被审声音的固定台词、覆盖或声线已变化；原意见保留，请重新定位后处理", "review_target_stale")
             maximum = conn.execute(select(func.max(S.generation_jobs.c.candidate_no)).where(S.generation_jobs.c.project_id == p,
                 S.generation_jobs.c.purpose == source_job["purpose"], S.generation_jobs.c.shot_id == source_job["shot_id"]
                 if source_job["shot_id"] else S.generation_jobs.c.asset_id == source_job["asset_id"])).scalar_one()
@@ -197,6 +207,8 @@ def _preview(store, conn, project, payload):
     _validate_contract(project, artifact)
     result = {"project_id": p, "revision": project["revision"], "action": action, "sources": sources,
               "targets": targets, "artifact": artifact, "needs_approval": True, "read_only": True}
+    from .review_store import ReviewRepository
+    ReviewRepository(store).validate_local(conn, p, payload, result)
     result["preview_sha256"] = digest(result)
     return result
 
@@ -248,7 +260,13 @@ def propose(store, project_id, payload, **kw):
         if required(payload, "preview_sha256") != value["preview_sha256"]:
             raise Conflict("局部操作固定输入已改变，请重看影响预览", "local_preview_changed")
         artifact = store._create_artifact(conn, project, dict(value["artifact"], registration_note="局部制作提案：" + value["action"]))
-        return {"artifact": artifact, "action": value["action"], "targets": value["targets"], "phase": "pending", "needs_approval": True}
+        response_id = None
+        if payload.get("media_review_id"):
+            from .review_store import ReviewRepository
+            response_id = ReviewRepository(store).response(conn, project["id"], payload, value["action"], kw["actor"],
+                limitations="仅建立待审提案；批准后才可入队。任务成功仍需试听与实际采用，意见不会自动关闭。")
+            conn.execute(insert(S.review_proposals).values(project_id=project["id"], response_id=response_id, artifact_id=artifact["id"]))
+        return {"artifact": artifact, "action": value["action"], "targets": value["targets"], "phase": "pending", "needs_approval": True, "response_id": response_id}
     return store._mutate(project_id, "propose_local_production", payload, callback=work, **kw)
 
 

@@ -94,6 +94,7 @@ def render(job_path):
     compiled = subtitles.compile_cues([(cue["start"], cue["end"], cue["text"]) for cue in job["cues"]], font=font, max_width=max_width, style=style, height=height)
     job["subtitle_checks"] = {**job.get("subtitle_checks", {}), "font_layout": compiled["checks"]["font_layout"]}
     for index, cue in enumerate(job["cues"]):
+        cue_style = subtitles.caption_style(style, subtitles.caption_layout(cue["subtitle_style"]) if "subtitle_style" in cue else None)
         cue["text"] = compiled["cues"][index][2]
         lines = cue["text"].splitlines()
         widths = [font.getbbox(line)[2] - font.getbbox(line)[0] for line in lines]
@@ -115,7 +116,7 @@ def render(job_path):
         path = Path(job["directory"]) / f"cue-{index:04d}.png"
         image.save(path)
         cue.update(png=str(path), lines=lines, x=int((width - image_width) / 2),
-                   y=int(placement(style["position"], style["custom_position"], height, image_height)))
+                   y=int(placement(cue_style["position"], cue_style["custom_position"], height, image_height)))
     Path(job_path).write_text(json.dumps(job, ensure_ascii=False), "utf-8")
 
 
@@ -132,7 +133,8 @@ def overlay_command(video, cues, output):
                       "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", str(output)]
 
 
-def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, subtitle_package=None, subtitle_root=None, formal_subtitles=False):
+def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, subtitle_package=None, subtitle_root=None, formal_subtitles=False,
+         render_plan=None):
     video, output = Path(video).resolve(), Path(output).resolve()
     srt = Path(srt).resolve() if srt is not None else None
     if output.exists():
@@ -148,9 +150,26 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
         raise BurnError(f"字体不存在：{font}")
     width, height, duration = probe_video(video)
     try:
+        segments = None
+        if render_plan is not None:
+            from vsc.post import remotion_plan as rp
+            problems = rp.validate(render_plan)
+            if problems:
+                raise subtitles.SubtitleError(problems)
+            fixed_plan = rp.render_plan(render_plan)
+            composition = fixed_plan["composition"]
+            fps = rp.frame_rate(composition["fps"])
+            if (composition["width"], composition["height"]) != (width, height) or abs(composition["duration_in_frames"] / fps - duration) > .05:
+                raise subtitles.SubtitleError(["固定字幕计划与烧录视频画幅/时长不一致"])
+            segments = sorted((s for s in fixed_plan["segments"] if s["kind"] in {"caption", "text"}), key=lambda s: s["from_frame"])
+            if fixed_plan.get("subtitle_package") is not None:
+                if subtitle_package is not None and subtitle_package != fixed_plan["subtitle_package"]:
+                    raise subtitles.SubtitleError(["烧录字幕包与固定计划来源不同"])
+                subtitle_package = fixed_plan["subtitle_package"]
         bound = None
         if subtitle_package is not None:
             bound = subtitles.package_cues(subtitle_package, subtitle_root or (srt.parent if srt else video.parent),
+                project_id=fixed_plan["project_id"] if render_plan is not None else None,
                 formal=formal_subtitles or subtitle_package.get("status") == "verified")
             entries = bound["cues"]
             if abs(subtitle_package["duration_ms"] / 1000 - duration) > .05:
@@ -163,8 +182,22 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
             raise subtitles.SubtitleError(["正式字幕烧录需要批准台词行/采用音频/实测时码固定包"])
         elif srt is not None:
             entries = subtitles.parse_srt(srt.read_text("utf-8-sig"), strict=True, duration=duration)
+        elif segments is not None:
+            entries = [(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"]) for s in segments]
         else:
-            raise subtitles.SubtitleError(["请提供SRT或固定字幕包"])
+            raise subtitles.SubtitleError(["请提供SRT、固定字幕包或render-plan"])
+        if segments is not None:
+            expected = [(s.get("subtitle_start_ms", s["from_frame"] * 1000 / fps) / 1000,
+                         s.get("subtitle_end_ms", (s["from_frame"] + s["duration_in_frames"]) * 1000 / fps) / 1000,
+                         s["text"]) for s in segments]
+            if len(entries) != len(expected) or any(abs(a[0] - b[0]) > .001 or abs(a[1] - b[1]) > .001
+                    or subtitles.display_text(a[2]) != subtitles.display_text(b[2]) for a, b in zip(entries, expected)):
+                raise subtitles.SubtitleError(["固定字幕计划与烧录Cue/原台词/时码不一致；不能转移局部布局"])
+            if subtitle_package is not None:
+                projected = subtitles.caption_segments(subtitle_package, fps)
+                identity = ("id", "line_id", "from_frame", "duration_in_frames", "subtitle_start_ms", "subtitle_end_ms")
+                if len(segments) != len(projected) or any(any(a.get(key) != b[key] for key in identity) for a, b in zip(segments, projected)):
+                    raise subtitles.SubtitleError(["固定字幕计划与字幕包行引用/投影时码不一致"])
         subtitles.resolve_style(overrides=style)
         compiled = subtitles.compile_cues(entries, duration=duration, script_texts=script_texts)
         if bound:
@@ -172,6 +205,10 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
     except ValueError as exc:
         raise BurnError(str(exc)) from exc
     cues = [{"start": begin, "end": end, "text": text} for begin, end, text in compiled["cues"]]
+    if segments is not None:
+        for cue, segment in zip(cues, segments):
+            if "subtitle_style" in segment:
+                cue["subtitle_style"] = subtitles.caption_layout(segment["subtitle_style"])
     if not cues:
         raise BurnError(f"SRT 没有有效字幕：{srt}")
     uv = shutil.which("uv")
@@ -210,6 +247,7 @@ def main():
     command.add_argument("--bible", help="vsc.asset-bible/v1 资产库，取其 subtitle_style")
     command.add_argument("--script-texts", help="用于顺序缺字检查的固定原稿 JSON 字符串数组；不代表音频对齐")
     command.add_argument("--subtitle-package", help="PG render-export生成的固定字幕包JSON")
+    command.add_argument("--render-plan", help="固定render-plan或timeline，消费逐Cue位置覆盖；不能更改原台词/时码")
     command.add_argument("--formal-subtitles", action="store_true", help="要求完整批准行/采用音频/实测时码依据")
     command.add_argument("--font", help="字体文件")
     command.add_argument("--font-size", type=int)
@@ -225,10 +263,18 @@ def main():
                  "stroke_width": args.stroke_width, "position": args.position, "custom_position": args.custom_position,
                  "background": args.background, "rounded": args.rounded}
     try:
+        document = json.loads(Path(args.render_plan).read_text("utf-8")) if args.render_plan else None
+        if document is not None:
+            from vsc.post.remotion_plan import render_plan as unwrap_plan, validate
+            problems = validate(document)
+            if problems:
+                raise ValueError("；".join(problems))
+            overrides = {**unwrap_plan(document).get("subtitle_style", {}), **{key: value for key, value in overrides.items() if value is not None}}
         style, source = resolve_style(args.bible, overrides)
         result = burn(args.video, args.srt, args.output, style, script_texts=subtitles.read_script_texts(args.script_texts) if args.script_texts else None,
             subtitle_package=json.loads(Path(args.subtitle_package).read_text("utf-8")) if args.subtitle_package else None,
-            subtitle_root=Path(args.subtitle_package).resolve().parent if args.subtitle_package else None, formal_subtitles=args.formal_subtitles)
+            subtitle_root=Path(args.subtitle_package or args.render_plan).resolve().parent if args.subtitle_package or args.render_plan else None,
+            formal_subtitles=args.formal_subtitles, render_plan=document)
     except (BurnError, OSError, ValueError) as exc:
         raise SystemExit(f"错误：{exc}")
     print(f"SUBTITLES BURNED: {result['cues']} 条，字体 {Path(result['font']).name}，样式来源 {source} → {result['output']}")

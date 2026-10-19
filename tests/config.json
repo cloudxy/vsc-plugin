@@ -928,6 +928,72 @@
         "src/vsc/project/schema_review.py",
         "tests/support/paths.py"
       ]
+    },
+    "knowledge.integration.test_craft_teaching": {
+      "owner": "knowledge",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/knowledge/craft.py",
+        "scripts/knowledge/craft.py",
+        "knowledge/craft.json",
+        "skills/vsc-*/references/*.md",
+        "skills/vsc/references/method-practice.md"
+      ]
+    },
+    "assets.integration.test_learning_evidence": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/project/pg_workflow.py"
+      ]
+    },
+    "assets.integration.test_review_feedback": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/feedback.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/assets/script_ai.py",
+        "src/vsc/adapters/persistence/postgres/review_store.py",
+        "src/vsc/adapters/persistence/postgres/local_edits.py",
+        "src/vsc/adapters/persistence/postgres/script_ai.py",
+        "src/vsc/adapters/persistence/postgres/script_workspace.py",
+        "src/vsc/adapters/persistence/postgres/memory_store.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/interfaces/web/review.py",
+        "src/vsc/interfaces/web/static/review.js",
+        "migrations/postgres/versions/0011_review_feedback.py"
+      ]
+    },
+    "production.integration.test_review_sound": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/feedback.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/assets/script_ai.py",
+        "src/vsc/adapters/persistence/postgres/review_store.py",
+        "src/vsc/adapters/persistence/postgres/local_edits.py",
+        "src/vsc/adapters/persistence/postgres/script_ai.py",
+        "src/vsc/adapters/persistence/postgres/script_workspace.py",
+        "src/vsc/adapters/persistence/postgres/memory_store.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/interfaces/web/review.py",
+        "src/vsc/interfaces/web/static/review.js",
+        "migrations/postgres/versions/0011_review_feedback.py"
+      ]
+    },
+    "project.unit.test_review_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/review.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/static/local-production.js",
+        "src/vsc/interfaces/web/static/script-workspace.js"
+      ]
     }
   },
   "dependencies": {

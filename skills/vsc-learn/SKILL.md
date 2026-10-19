@@ -5,6 +5,8 @@ description: "Use when a VSC user wants to learn reusable action, VFX, layout, e
 
 # VSC 受控学习与能力卡
 
+公开教学可先按[方法选择与固定读取](../vsc/references/method-practice.md)检索案例，在实际任务定位运用；这与项目能力卡晋升分开。工程可读、个案选择、真实媒体及新输入复验分别报告；PG未迁移capability/pilot仍明确不可用，不回写旧存储绕过。
+
 将素材观察沉淀为可验证的方法。试用、版本绑定、失败重测与跨项目导入的完整命令见 [记忆与学习规范](../../docs/design/memory-and-learning.md)。
 
 代表性试片按[制作前检查与返工控制](../vsc/references/creative-production.md)先定假设、判据、预算和停止条件。可用 `scripts/production/quality.py check` 汇总同一逻辑用途在不同任务上的观察缺陷；根因未经对照证据不能定论，探索、需求变更、故障恢复和返工分开记量。pilot 不提供付费授权，真实试片仍走现有适用阶段 run。方法与模型版本、输入条件、失败条件一起复验，不能以合成测试或一次成功证明实片效果改善。

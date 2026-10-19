@@ -20,6 +20,7 @@ export function createLocalProduction(dialog, ctx) {
       const names = {dialogue_dry:'对白干声',dialogue:'对白',tts:'配音',ambience:'环境声',music:'配乐',sfx:'音效',sound_effect:'音效'};
       const item = node('option', names[purpose] || purpose);item.value = purpose;select.append(item);
     }
+    if(row.media_review_id && row.purpose){select.value=row.purpose;select.disabled=true;}
     seed.type = 'number'; seed.placeholder = '新 seed（选填；留空保留原参数）';seed.setAttribute('aria-label', '新抽样seed');
     if (action !== 'resample') form.append(select); if (action !== 'replace_instance') form.append(seed);
     const preview = node('button', '预览目标与影响'), propose = node('button', '提交待审方案'); propose.disabled = true;
@@ -33,13 +34,15 @@ export function createLocalProduction(dialog, ctx) {
         if (action === 'replace_instance') parameters = {...parameters,instance_id:entity,replacement_spec_version_id:select.value};
         else if (action === 'redo_sound') parameters = {...parameters,shot_id:entity,purpose:select.value};
         else parameters.job_id = entity;
+        if(row.media_review_id)parameters.media_review_id=row.media_review_id;
         if (seed.value !== '') {const value=Number(seed.value);if(!Number.isSafeInteger(value))throw new Error('seed须为整数');parameters.params={seed:value};}
         const result = await ctx.api(`${base}/local-production/preview`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:parameters})});
         if (!active() || attempt !== previewTicket) return;
         fixed={...result,payload:parameters};proposalKey=crypto.randomUUID();details.replaceChildren(node('h3', `本次只涉及 ${result.targets.length} 个目标`));
         for (const target of result.targets) details.append(node('p', target.label || `${target.purpose || ''} · 候选 ${target.candidate_no ?? ''}`));
         const evidence=node('details');evidence.append(node('summary','固定输入、版本及参数差异'),node('pre',JSON.stringify({sources:result.sources,targets:result.targets},null,2)));details.append(evidence);
-        status.textContent='确认预览后只建立待审版本；批准后才能入队，不会立即调用供应商。';propose.disabled=false;
+        if(result.review)details.prepend(node('blockquote',result.review.body));
+        status.textContent='确认预览后只建立待审版本；批准后才能入队。声音沿原参数新做一次；原意见中的声线、演法等额外要求须由声音负责人落实。';propose.disabled=false;
       } catch(error) {if(active())status.textContent=error.message;}
     });
     propose.addEventListener('click', async () => {
@@ -47,7 +50,9 @@ export function createLocalProduction(dialog, ctx) {
       try {
         const session=ctx.session();if(!session.actor)throw new Error('请先建立人工操作会话');
         const result=await ctx.api(`${base}/local-production-proposals`, {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({payload:{...fixed.payload,preview_sha256:fixed.preview_sha256},expected_revision:fixed.revision,idempotency_key:proposalKey})});
-        if(!active())return;ctx.revision(result.revision);dialog.close();await ctx.onArtifact(result.artifact.id);
+        if(!active())return;ctx.revision(result.revision);dialog.close();
+        if(row.media_review_id && typeof row.onReviewProposed==='function')await row.onReviewProposed(result);
+        else await ctx.onArtifact(result.artifact.id);
       } catch(error) {if(active()){status.textContent=error.message;propose.disabled=false;}}
     });
     dialog.append(heading,close,form,preview,details,status,propose);dialog.showModal();

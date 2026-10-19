@@ -14,7 +14,24 @@ class ScriptSuggestionRepository:
             receipt = conn.execute(select(S.command_receipts).where(S.command_receipts.c.project_id == p,
                 S.command_receipts.c.idempotency_key == key)).mappings().first()
             if receipt is None:
-                if payload.get("new_attempt") is not True:
+                if payload.get("new_attempt") is not True and payload.get("script_note_id"):
+                    previous = conn.execute(select(S.script_suggestion_runs).join(S.review_script_runs,
+                        (S.review_script_runs.c.project_id == S.script_suggestion_runs.c.project_id) &
+                        (S.review_script_runs.c.run_id == S.script_suggestion_runs.c.id)).join(S.review_responses,
+                            (S.review_responses.c.project_id == S.review_script_runs.c.project_id) &
+                            (S.review_responses.c.id == S.review_script_runs.c.response_id)).where(
+                                S.script_suggestion_runs.c.project_id == p,
+                                S.review_responses.c.script_note_id == checked_id(payload["script_note_id"]),
+                                S.script_suggestion_runs.c.base_draft_revision == payload.get("base_draft_revision"),
+                                S.script_suggestion_runs.c.base_content_sha256 == payload.get("base_content_sha256"))
+                        .order_by(S.script_suggestion_runs.c.created_at.desc()).limit(1)).mappings().first()
+                    if previous:
+                        draft = self._draft(conn, p, previous["scope_key"])
+                        if (not draft or draft["draft_revision"] != previous["base_draft_revision"]
+                                or digest(draft["content"]) != previous["base_content_sha256"]):
+                            raise Conflict("原批注的稿次已变化；原结果仍可回看，请重新定位后处理", "review_target_stale")
+                        return {"id": str(previous["id"]), "caller": None, "status": previous["status"]}
+                if payload.get("new_attempt") is not True and not payload.get("script_note_id"):
                     previous = conn.execute(select(S.script_suggestion_runs).where(
                         S.script_suggestion_runs.c.project_id == p,
                         S.script_suggestion_runs.c.scope_key == payload.get("scope_key", ""),
@@ -66,11 +83,35 @@ class ScriptSuggestionRepository:
             if not isinstance(goal, str) or len(goal) > 2000:
                 raise ResourceError("建议目标须为不超过2000字符的文字", "invalid_payload")
             identifier = new_id()
+            response_id = None
+            if payload.get("script_note_id"):
+                from .review_store import ReviewRepository
+                reviews = ReviewRepository(self)
+                _, note = reviews.source(conn, project["id"], payload, current=True)
+                if (note["scope_key"] != scope or note["base_draft_revision"] != row["draft_revision"]
+                        or not note["line_id"]):
+                    raise ResourceError("仅支持准确行批注的局部建议；场级意见交编剧处理", "review_action_mismatch")
+                if payload.get("new_attempt") is not True:
+                    previous = conn.execute(select(S.script_suggestion_runs).join(S.review_script_runs,
+                        (S.review_script_runs.c.project_id == S.script_suggestion_runs.c.project_id) &
+                        (S.review_script_runs.c.run_id == S.script_suggestion_runs.c.id)).join(S.review_responses,
+                            (S.review_responses.c.project_id == S.review_script_runs.c.project_id) &
+                            (S.review_responses.c.id == S.review_script_runs.c.response_id)).where(
+                                S.script_suggestion_runs.c.project_id == project["id"],
+                                S.review_responses.c.script_note_id == note["id"]).order_by(
+                                    S.script_suggestion_runs.c.created_at.desc()).limit(1)).mappings().first()
+                    if previous:
+                        return {"id": previous["id"], "caller": None, "status": previous["status"]}
+                goal = note["body"] + "\n仅返回这行的一条局部建议，不列多个替代方案；保持其余行动、对白和事实。目标：" + str(note["scene_id"]) + "/" + str(note["line_id"])
+                response_id = reviews.response(conn, project["id"], payload, "script_suggestions", kw["actor"],
+                    limitations="生成建议不解决批注；请比较原文和差异后接受或拒绝。")
             conn.execute(insert(S.script_suggestion_runs).values(project_id=project["id"], id=identifier,
                 draft_id=row["id"], scope_key=scope, base_draft_revision=row["draft_revision"],
                 base_content_sha256=sha, input_document=row["content"], goal=goal,
                 backend=backend, status="running"))
-            return {"id": identifier, "caller": caller, "status": "running"}
+            if response_id:
+                conn.execute(insert(S.review_script_runs).values(project_id=project["id"], response_id=response_id, run_id=identifier))
+            return {"id": identifier, "caller": caller, "status": "running", "response_id": response_id}
         return self._mutate(project_id, "start_script_suggestion_run", payload, callback=work, **kw)
 
     def finish_script_suggestion_run(self, project_id, payload, **kw):
@@ -100,6 +141,16 @@ class ScriptSuggestionRepository:
                         target = self._suggestion_target(row["content"], suggestion)
                         field = suggestion.get("field", "text")
                         identity = (suggestion["scene_id"], suggestion.get("line_id"), field)
+                        review = conn.execute(select(S.review_responses).join(S.review_script_runs,
+                            (S.review_script_runs.c.project_id == S.review_responses.c.project_id) &
+                            (S.review_script_runs.c.response_id == S.review_responses.c.id)).where(
+                                S.review_script_runs.c.project_id == project["id"], S.review_script_runs.c.run_id == run["id"])).mappings().first()
+                        if review:
+                            note = self._one(conn, S.script_notes, project["id"], review["script_note_id"])
+                            anchor = conn.execute(select(S.script_note_anchors).where(S.script_note_anchors.c.project_id == project["id"],
+                                S.script_note_anchors.c.note_id == note["id"])).mappings().one()
+                            if identity != (note["scene_id"], note["line_id"], anchor["field"]) or suggestion["kind"] != anchor["kind"]:
+                                raise ResourceError("建议越出原批注的固定行", "review_scope_mismatch")
                         if identity in seen:
                             raise ResourceError("同一字段不能有重复建议")
                         seen.add(identity)
@@ -116,6 +167,7 @@ class ScriptSuggestionRepository:
                     status, error, prepared = "failed", "invalid_suggestions", []
                 for suggestion in prepared:
                     conn.execute(insert(S.script_suggestions).values(**suggestion))
+                    conn.execute(insert(S.script_run_suggestions).values(project_id=project["id"], run_id=run["id"], suggestion_id=suggestion["id"]))
             result = {"suggestion_ids": [item["id"] for item in prepared], "error_code": error,
                       "host_suggestions": suggestions,
                       "base_draft_revision": run["base_draft_revision"], "base_content_sha256": run["base_content_sha256"]}

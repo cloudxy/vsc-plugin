@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from vsc.assets.resource_service import (Conflict, NotFound, ResourceError, required,
                                         artifact_stage, dependency_requirements)
 from . import schema as S
-from .values import checked_id, clean, new_id, digest
+from .values import checked_id, clean, new_id, digest, canonical
 
 
 class ScriptWorkspaceRepository:
@@ -413,6 +413,17 @@ class ScriptWorkspaceRepository:
                 if type(payload.get("base_draft_revision")) is not int or payload["base_draft_revision"] != draft["draft_revision"]:
                     raise Conflict("批注必须携带显示稿的准确 draft_revision；请先保存并加载最新内容", "draft_revision_conflict")
                 baseline.update(base_draft_revision=draft["draft_revision"], base_content_sha256=digest(draft["content"]))
+                scenes = [scene for scene in draft["content"].get("scenes", []) if scene.get("id") == payload.get("scene_id")]
+                if len(scenes) != 1:
+                    raise ResourceError("批注场次不在所见工作稿", "note_target_missing")
+                anchor = {"kind": "scene", "field": "scene", "excerpt": canonical(scenes[0])}
+                if payload.get("line_id"):
+                    matches = [(kind, unit) for key, kind in (("actions", "action"), ("dialogue", "dialogue"), ("silence", "silence"))
+                               for unit in scenes[0].get(key, []) if unit.get("id") == payload["line_id"]]
+                    if len(matches) != 1:
+                        raise ResourceError("批注行不在所见场次", "note_target_missing")
+                    kind, target = matches[0]
+                    anchor = {"kind": kind, "field": "text", "excerpt": target.get("text", target.get("purpose", ""))}
                 if draft["submitted_artifact_id"]:
                     frozen = self._one(conn, S.artifact_versions, project["id"], draft["submitted_artifact_id"])
                     if json.loads(frozen["document"]) == dict(draft["content"], project_id=project["id"], scope=scope_key or "project"):
@@ -422,6 +433,9 @@ class ScriptWorkspaceRepository:
                 scope_key=scope_key, **baseline,
                 scene_id=required(payload, "scene_id"), line_id=payload.get("line_id"),
                 body=required(payload, "body"), author=actor or ""))
+            if draft:
+                conn.execute(insert(S.script_note_anchors).values(project_id=project["id"], note_id=note_id,
+                    **anchor, start_char=0, end_char=len(anchor["excerpt"])))
             return {"id": note_id, **baseline}
         return self._mutate(project_id, "add_script_note", payload, callback=work, **kw)
 

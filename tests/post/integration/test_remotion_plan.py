@@ -8,12 +8,69 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from support.fixtures.plans import remotion_plan as plan
 import vsc.post.remotion_plan as REMOTION
 
 
 class TestRemotionPlan(unittest.TestCase):
+    def test_scaffold_keeps_caption_override_in_the_actual_text_layer(self):
+        from vsc.post.subtitle_burn import DEFAULT_FONT
+        if not importlib.util.find_spec("PIL") or not DEFAULT_FONT.is_file():
+            self.skipTest("局部字幕脚手架需要已安装实际字体与Pillow")
+        value = plan()
+        value["subtitle_style"] = {"font": str(DEFAULT_FONT), "font_size": 48}
+        caption = next(s for s in value["segments"] if s["kind"] == "caption")
+        result = REMOTION.edit_caption_position(value, caption_id=caption["id"], expected_sha256=REMOTION.document_sha256(value),
+            layout={"position": "custom", "custom_position": 30})
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "scaffold"
+            REMOTION.scaffold(result["document"], output, strict_subtitles=True)
+            generated = json.loads((output / "src/plan.ts").read_text().split(" = ", 1)[1].strip().removesuffix(";"))
+            actual = next(s for s in generated["segments"] if s["id"] == caption["id"])
+            self.assertEqual(actual["subtitle_style"], {"position": "custom", "custom_position": 30})
+            self.assertIn("style={{...subtitleStyle, ...segment.subtitle_style}}", (output / "src/ShortDrama.tsx").read_text())
+            from vsc.adapters.editors import jianying_export as J
+            with self.assertRaisesRegex(J.ExportError, "未接通单Cue位置覆盖"):
+                J.draft_payload(result["document"], Path(temp))
+
+    def test_resource_export_preserves_local_layout_or_rejects_a_changed_line(self):
+        from vsc.post import resource_export as export
+        from vsc.post import subtitles
+        from vsc.assets.resource_service import ResourceError
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            media = root / "input.mp4"
+            media.write_bytes(b"isolated fixed byte-copy fixture; no rendering claim")
+            media_sha = hashlib.sha256(media.read_bytes()).hexdigest()
+            package = {"cues": [{"cue_id": "one", "line_id": "line-one", "source_text": "保留台词", "start_ms": 4000, "end_ms": 5500}],
+                       "package_sha256": "0" * 64, "status": "not_verified", "gaps": []}
+            value = plan()
+            value["segments"] = [value["segments"][0]] + subtitles.caption_segments(package, 30)
+            value["segments"][1]["subtitle_style"] = {"position": "top"}
+            document = {"format": "vsc.timeline/v1", "render_plan": value}
+            fixed = {"revision": 1, "artifact": {"id": "artifact", "sha256": "1" * 64, "document": document},
+                     "timeline": {"fps_num": 30, "fps_den": 1}, "items": [{"id": "item", "ordinal": 0,
+                     "offset_frame": 0, "duration_frames": 180, "media": [{"blob_sha256": media_sha,
+                     "locations": [{"storage": "local", "available": True, "object_key": "isolated"}],
+                     "mime_type": "video/mp4", "source_in_frame": 0, "media_id": "media", "blob_id": "blob",
+                     "binding_decision_id": "binding", "role": "video"}]}]}
+            service = SimpleNamespace(storage=SimpleNamespace(verify=lambda key, sha: media),
+                                      get_timeline=lambda project, timeline: fixed, get_project=lambda project: {"revision": 1})
+            # This test owns the real export projection/copy path. Package provenance
+            # is exercised in its existing resource tests; no DB is used here.
+            with patch.object(export, "_subtitle_package", return_value=package), patch.object(subtitles, "package_cues"):
+                export.export_render_package(service, value["project_id"], "timeline", root / "export", formal_subtitles=False)
+                generated = json.loads((root / "export/render-plan.json").read_text())
+                self.assertEqual(generated["segments"][1]["subtitle_style"], {"position": "top"})
+                self.assertEqual(generated["segments"][1]["line_id"], "line-one")
+                value["segments"][1]["line_id"] = "changed-line"
+                with self.assertRaisesRegex(ResourceError, "无法唯一匹配"):
+                    export.export_render_package(service, value["project_id"], "timeline", root / "rejected", formal_subtitles=False)
+                self.assertFalse((root / "rejected").exists())
+
     def test_timeline_wrapper_preserves_outer_sha_and_font_asset(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

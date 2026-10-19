@@ -5,6 +5,7 @@ The scaffold contains VSC-authored glue only. It references media that the user 
 it never copies Remotion source code or installs npm dependencies.
 """
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -60,6 +61,62 @@ def frame_rate(value):
 
 def unit_interval(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
+
+
+def document_sha256(document):
+    """Pin the full source document, including an outer timeline and its bindings."""
+    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":"), allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def edit_caption_position(document, *, caption_id, expected_sha256, layout, frame_range=None):
+    """Return a separate deterministic edit; callers retain approval/persistence authority.
+
+    Only an entire existing caption may be selected. A supplied frame_range is a
+    stale-selection guard, never a request to split, extend or retime the Cue.
+    """
+    problems = validate(document)
+    if problems:
+        raise ValueError("；".join(problems))
+    source_sha = document_sha256(document)
+    if not isinstance(expected_sha256, str) or expected_sha256 != source_sha:
+        raise ValueError("固定字幕计划摘要已改变，请重新绑定原意见")
+    selected_layout = subtitles.caption_layout(layout)
+    edited = copy.deepcopy(document)
+    plan = render_plan(edited)
+    segment = next((s for s in plan["segments"] if s["id"] == caption_id and s["kind"] == "caption"), None)
+    if segment is None:
+        raise ValueError("找不到固定 caption Cue；不能编辑其他媒体/文字片段")
+    selected_range = {"from_frame": segment["from_frame"], "duration_in_frames": segment["duration_in_frames"]}
+    if frame_range is not None and (not isinstance(frame_range, dict) or set(frame_range) != set(selected_range)
+            or any(not nonnegative_int(value) for value in frame_range.values()) or frame_range != selected_range):
+        raise ValueError("字幕区间须精确等于所选整个Cue，不能越界、拆分或使用旧时码")
+    base = {**subtitles.DEFAULT_STYLE, **plan.get("subtitle_style", {})}
+    before = subtitles.caption_style(base, segment.get("subtitle_style"))
+    segment["subtitle_style"] = selected_layout
+    diff = {"caption_id": caption_id,
+            "before": {key: before[key] for key in ("position", "custom_position") if key == "position" or before["position"] == "custom"},
+            "after": selected_layout, "old_range": dict(selected_range), "new_range": dict(selected_range)}
+    return {"document": edited, "diff": diff, "source_sha256": source_sha, "result_sha256": document_sha256(edited)}
+
+
+def preserve_caption_layouts(original, rebuilt):
+    """Carry local positions only across an exact fixed-line/time/text projection."""
+    result = copy.deepcopy(rebuilt)
+    for source in original:
+        if "subtitle_style" not in source:
+            continue
+        if source.get("kind") != "caption":
+            raise ValueError("局部字幕布局只能属于 caption")
+        layout = subtitles.caption_layout(source["subtitle_style"])
+        fields = ("line_id", "from_frame", "duration_in_frames", "subtitle_start_ms", "subtitle_end_ms")
+        matches = [target for target in result if all(target.get(key) == source.get(key) for key in fields)
+                   and (source.get("line_id") or target.get("id") == source.get("id"))
+                   and subtitles.display_text(target["text"]) == subtitles.display_text(source["text"])]
+        if len(matches) != 1:
+            raise ValueError("固定字幕重建无法唯一匹配局部布局的台词行/时码；不能丢弃或转移覆盖")
+        matches[0]["subtitle_style"] = layout
+    return result
 
 
 def validate(plan):
@@ -146,6 +203,13 @@ def validate(plan):
                         errors.append(f"{label}.still_motion.{point} 须有 0..1 焦点和 1..1.5 缩放")
         if kind in {"caption", "text"} and not text(segment.get("text")):
             errors.append(f"{label}.text 必须是非空字符串")
+        if "subtitle_style" in segment:
+            try:
+                if kind != "caption":
+                    raise ValueError("局部 subtitle_style 仅适用于 caption")
+                subtitles.caption_layout(segment["subtitle_style"])
+            except ValueError as exc:
+                errors.append(f"{label}: {exc}")
         for key in ("fade_in_frames", "fade_out_frames", "audio_fade_in_frames", "audio_fade_out_frames"):
             fade = segment.get(key, 0)
             if not nonnegative_int(fade) or (nonnegative_int(segment.get("duration_in_frames")) and fade > segment["duration_in_frames"]):
@@ -194,10 +258,13 @@ def validate(plan):
     return errors
 
 
-def compile_subtitles(plan, style, *, script_texts=None, require_font=False, media_root=None, formal_subtitles=False):
+def compile_subtitles(plan, style, *, script_texts=None, require_font=False, media_root=None, formal_subtitles=False,
+                      local_layout=False):
     """Use one subtitle compiler for scaffolding and editor export; never retime."""
     fps = frame_rate(plan["composition"]["fps"])
     segments = sorted((s for s in plan["segments"] if s["kind"] in {"caption", "text"}), key=lambda s: s["from_frame"])
+    if not local_layout and any("subtitle_style" in segment for segment in segments):
+        raise subtitles.SubtitleError(["当前字幕消费者未接通单Cue位置覆盖，请使用Remotion预览或render-plan烧录；不能静默丢弃布局"])
     bound = None
     package = plan.get("subtitle_package")
     if package is not None:
@@ -263,6 +330,7 @@ export type Segment = {
   id: string; kind: 'video' | 'image' | 'audio' | 'caption' | 'text';
   from_frame: number; duration_in_frames: number; source?: string; text?: string;
   line_id?: string; subtitle_start_ms?: number; subtitle_end_ms?: number;
+  subtitle_style?: {position: 'bottom' | 'top' | 'center' | 'custom'; custom_position?: number};
   source_shot_id?: string; source_in_frame?: number; source_duration_in_frames?: number;
   handle_in_frames?: number; handle_out_frames?: number;
   fade_in_frames?: number; fade_out_frames?: number; volume?: number; muted?: boolean;
@@ -397,7 +465,7 @@ export const ShortDrama: React.FC<{plan?: RenderPlan}> = ({plan = defaultPlan}) 
       <Sequence key={segment.id} name={segment.id} from={segment.from_frame} durationInFrames={segment.duration_in_frames} premountFor={Math.ceil(toFps(plan.composition.fps))}>
         {segment.kind === 'video' || segment.kind === 'image' ? <Visual segment={segment} /> : null}
         {segment.kind === 'audio' ? <Sound segment={segment} /> : null}
-        {fontReady && (segment.kind === 'caption' || segment.kind === 'text') ? <TextLayer text={segment.text!} style={subtitleStyle} height={plan.composition.height} /> : null}
+        {fontReady && (segment.kind === 'caption' || segment.kind === 'text') ? <TextLayer text={segment.text!} style={{...subtitleStyle, ...segment.subtitle_style}} height={plan.composition.height} /> : null}
       </Sequence>
     ))}
   </AbsoluteFill>;
@@ -446,7 +514,7 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
     if font_path:
         style["font"] = str(font_path)
     compiled, display_by_id = compile_subtitles(plan, style, script_texts=script_texts, require_font=strict_subtitles or formal_subtitles,
-        media_root=Path(plan_path).resolve().parent if plan_path else Path.cwd(), formal_subtitles=formal_subtitles)
+        media_root=Path(plan_path).resolve().parent if plan_path else Path.cwd(), formal_subtitles=formal_subtitles, local_layout=True)
     for segment in plan["segments"]:
         if segment["id"] in display_by_id:
             segment["text"] = display_by_id[segment["id"]]

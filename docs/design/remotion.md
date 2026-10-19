@@ -60,6 +60,28 @@ python3 scripts/post/remotion_plan.py scaffold templates/remotion-render-plan.js
 
 脚手架包含同版 `@remotion/cli`、`@remotion/media`、`remotion` 及 `typecheck` 命令。它不安装依赖。`npm run typecheck`、Studio 回看和真正导出仍需在用户的生成目录中执行。
 
+## 单 Cue 局部位置修改
+
+后期角色先核对原意见引用的固定产物字节 SHA，再读取所见 render-plan 或含 `render_plan` 的 timeline。调用 `vsc.post.remotion_plan.edit_caption_position` 时另用 `document_sha256(document)` 固定完整 JSON 文档；这是规范 JSON 摘要，与数据库产物的原始字节 SHA 分别核验，不能互换。
+
+```python
+from vsc.post.remotion_plan import document_sha256, edit_caption_position
+
+change = edit_caption_position(
+    document,
+    caption_id=selected_caption_id,
+    expected_sha256=fixed_document_sha256,
+    layout={"position": "top"},
+    frame_range={"from_frame": selected_from_frame,
+                 "duration_in_frames": selected_duration},
+)
+new_document, diff = change["document"], change["diff"]
+```
+
+`fixed_document_sha256` 必须在意见绑定时由 `document_sha256` 取得，执行前不要重新计算后覆盖旧值。`frame_range` 只允许精确等于已有整 Cue，不用于裁切、拆分或重定时。可用位置是 `top`、`bottom`、`center`，或 `{"position":"custom","custom_position":30}`（距顶部百分比0–100）。函数不改原文档，不保存或批准；登记返回的新文档、差异及原产物依赖，再将预览与适用的新 render 接回原意见。
+
+Remotion 脚手架直接消费 caption 的 `subtitle_style`，资源导出只在台词／正文／时码唯一匹配时带入。字幕烧录使用 `scripts/post/subtitle_burn.py burn --help` 中的 `--render-plan` 读取同一布局并校验固定包、项目和画幅。剪映当前拒绝带局部位置覆盖的计划；需要该格式时先回到明确的编辑决定，不能静默去掉布局。
+
 ## VSC 创作边界
 
 - 片段是否相接仍由连续性计划决定；Remotion 不修复 AI 画面中人物、空间或动作的错位。

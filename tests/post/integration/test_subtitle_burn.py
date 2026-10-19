@@ -4,6 +4,8 @@
 运行：python3 -B tests/run.py --test post.integration.test_subtitle_burn
 """
 import shutil
+import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -69,6 +71,99 @@ class StyleTest(unittest.TestCase):
 
 
 class InputTest(unittest.TestCase):
+    def test_render_plan_binds_the_real_formal_package_to_its_project_before_render(self):
+        from vsc.post import remotion_plan as R
+        import wave
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "isolated.wav"
+            with wave.open(str(audio), "wb") as wav:
+                wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)
+                wav.writeframes(b"\x00\x00" * 32000)
+            audio_sha = hashlib.sha256(audio.read_bytes()).hexdigest()
+            def snapshot(identifier, document):
+                raw = json.dumps(document, ensure_ascii=False)
+                return {"id": identifier, "document_utf8": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest(),
+                        "approval_decision_id": "synthetic-approval-" + identifier}
+            script = snapshot("script", {"script_lines": [{"line_key": "line-key", "scene_id": "scene", "text": "固定字幕"}]})
+            measurement = {"method": "manual_waveform", "version": "isolated-fixture/v1", "line_key": "line-key",
+                           "audio_media_sha256": audio_sha, "start_ms": 200, "end_ms": 800, "evidence": {"synthetic_fixture": True}}
+            cue_artifact = snapshot("cue-artifact", {"cues": [{"key": "cue-key", "scope_object_id": "episode", "line_id": "line",
+                "parameters": {"subtitle_alignment": {"measurement": measurement, "script_version_sha256": script["sha256"],
+                                                          "audio_media_sha256": audio_sha}}}]})
+            timeline = snapshot("timeline", {"composition": {"fps": 30}, "items": [{"offset_frame": 0, "media": [
+                {"media_id": "audio", "binding_decision_id": "binding", "source_in_frame": 0, "source_out_frame": 60}]}]})
+            package = SB.subtitles.seal_package({"format": SB.subtitles.PACKAGE_FORMAT, "project_id": "package-project",
+                "scope_episode_id": "episode", "scope_object_ids": ["episode", "scene"], "timeline_id": "timeline",
+                "status": "verified", "gaps": [], "duration_ms": 2000, "timeline_artifact": timeline,
+                "cue_artifacts": [cue_artifact], "scripts": [script],
+                "lines": [{"id": "line", "line_key": "line-key", "scene_id": "scene", "text": "固定字幕", "ordinal": 0,
+                           "script_version_id": "script", "script_version_sha256": script["sha256"]}],
+                "audio_sources": [{"item_id": "item", "line_id": "line", "item_ordinal": 0, "path": audio.name,
+                    "sha256": audio_sha, "media_id": "audio", "binding_decision_id": "binding", "source_in_ms": 0,
+                    "source_out_ms": 2000, "timeline_start_ms": 0, "duration_ms": 2000}],
+                "cues": [{"cue_id": "cue", "cue_key": "cue-key", "line_id": "line", "item_id": "item", "source_text": "固定字幕",
+                    "source_start_ms": 200, "source_end_ms": 800, "start_ms": 200, "end_ms": 800,
+                    "script_version_sha256": script["sha256"], "audio_media_sha256": audio_sha, "measurement": measurement,
+                    "cue_artifact_id": "cue-artifact", "cue_artifact_sha256": cue_artifact["sha256"],
+                    "approval_decision_id": cue_artifact["approval_decision_id"]}]})
+            # Exercise the actual package verifier, not a mock with a permissive return.
+            self.assertEqual(SB.subtitles.package_cues(package, root, project_id="package-project", formal=True)["cues"], [(0.2, 0.8, "固定字幕")])
+            value = {"format": R.FORMAT, "project_id": "package-project", "composition": {
+                "id": "isolated", "width": 320, "height": 240, "fps": 30, "duration_in_frames": 60}, "subtitle_package": package,
+                "segments": [{"id": "v", "kind": "video", "source": "input.mp4", "source_shot_id": "S", "from_frame": 0, "duration_in_frames": 60}]
+                    + SB.subtitles.caption_segments(package, 30)}
+            value["segments"][1]["subtitle_style"] = {"position": "top"}
+            font = root / "not-rendered-font.otf"
+            font.write_bytes(b"project checks happen before loading the actual render font")
+            style = dict(STYLE, font=str(font))
+            def stop_at_renderer(*args, **kwargs):
+                raise RuntimeError("renderer boundary reached")
+            with patch.object(SB, "probe_video", return_value=(320, 240, 2)), patch.object(SB.shutil, "which", return_value="offline-renderer"):
+                for supplied in (None, value):
+                    # Preserve package-only legacy behavior; a same-project plan also passes.
+                    with self.subTest(valid_plan=supplied is not None), self.assertRaisesRegex(RuntimeError, "renderer boundary reached"):
+                        SB.burn(root / "input.mp4", None, root / "out.mp4", style, run=stop_at_renderer,
+                            subtitle_package=package, subtitle_root=root, formal_subtitles=True, render_plan=supplied)
+                for project in ("other-project", None, "", 7):
+                    changed_package = SB.subtitles.seal_package({**package, "project_id": project})
+                    changed = copy.deepcopy(value)
+                    changed["subtitle_package"] = changed_package
+                    with self.subTest(package_project=project), self.assertRaisesRegex(SB.BurnError, "项目范围不一致"):
+                        SB.burn(root / "input.mp4", None, root / "out.mp4", style, run=stop_at_renderer,
+                            subtitle_root=root, formal_subtitles=True, render_plan=changed)
+                other_plan = copy.deepcopy(value)
+                other_plan["project_id"] = "other-project"
+                with self.assertRaisesRegex(SB.BurnError, "项目范围不一致"):
+                    SB.burn(root / "input.mp4", None, root / "out.mp4", style, run=stop_at_renderer,
+                        subtitle_root=root, formal_subtitles=True, render_plan=other_plan)
+                other_plan.pop("subtitle_package")
+                with self.assertRaisesRegex(SB.BurnError, "项目范围不一致"):
+                    SB.burn(root / "input.mp4", None, root / "out.mp4", style, run=stop_at_renderer,
+                        subtitle_package=package, subtitle_root=root, formal_subtitles=True, render_plan=other_plan)
+
+    def test_plan_mismatch_and_non_caption_overrides_fail_before_render(self):
+        from vsc.post import remotion_plan as R
+        value = {"format": R.FORMAT, "project_id": "isolated", "composition": {
+            "id": "isolated", "width": 320, "height": 240, "fps": 30, "duration_in_frames": 60},
+            "segments": [{"id": "v", "kind": "video", "source": "input.mp4", "source_shot_id": "S", "from_frame": 0, "duration_in_frames": 60},
+                         {"id": "c", "kind": "caption", "text": "保留台词", "from_frame": 15, "duration_in_frames": 15,
+                          "subtitle_style": {"position": "top"}}]}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            font = root / "fixture.otf"
+            font.write_bytes(b"not loaded; reference checks fail before renderer")
+            srt = root / "wrong.srt"
+            srt.write_text("1\n00:00:00,500 --> 00:00:01,000\n另一句\n", "utf-8")
+            for label, document, size in (("text", value, (320, 240, 2)),
+                                           ("size", value, (640, 480, 2))):
+                with self.subTest(label=label), patch.object(SB, "probe_video", return_value=size), self.assertRaises(SB.BurnError):
+                    SB.burn(root / "in.mp4", srt, root / "out.mp4", dict(STYLE, font=str(font)), render_plan=document)
+            invalid = copy.deepcopy(value)
+            invalid["segments"][0]["subtitle_style"] = {"position": "top"}
+            with patch.object(SB, "probe_video", return_value=(320, 240, 2)), self.assertRaises(SB.BurnError):
+                SB.burn(root / "in.mp4", None, root / "out.mp4", dict(STYLE, font=str(font)), render_plan=invalid)
+
     def test_delivery_rejects_partial_bad_srt_and_out_of_range_before_render(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -187,6 +282,55 @@ class SharedConsumerTest(unittest.TestCase):
 
 @unittest.skipUnless(importlib.util.find_spec("PIL") and shutil.which("ffmpeg") and SB.DEFAULT_FONT.is_file(), "离线真实烧录需要本机 Pillow、ffmpeg 与 noto-sans-sc；不安装依赖")
 class RealBurnTest(unittest.TestCase):
+    def test_local_caption_position_produces_a_real_preview_and_preserves_other_cue_and_audio(self):
+        from vsc.post import remotion_plan as R
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            video = root / "in.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=30:d=2",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2", "-c:v", "libx264",
+                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(video)], check=True, timeout=60)
+            style = dict(STYLE, font=str(SB.DEFAULT_FONT))
+            original = {"format": R.FORMAT, "project_id": "isolated", "composition": {
+                "id": "isolated", "width": 320, "height": 240, "fps": 30, "duration_in_frames": 60}, "subtitle_style": style,
+                "segments": [{"id": "v", "kind": "video", "source": "in.mp4", "source_shot_id": "S", "from_frame": 0, "duration_in_frames": 60},
+                    {"id": "selected", "kind": "caption", "text": "第一句", "from_frame": 6, "duration_in_frames": 18},
+                    {"id": "untouched", "kind": "caption", "text": "第二句", "from_frame": 33, "duration_in_frames": 18}]}
+            before = copy.deepcopy(original)
+            edit = R.edit_caption_position(original, caption_id="selected", expected_sha256=R.document_sha256(original),
+                layout={"position": "top"}, frame_range={"from_frame": 6, "duration_in_frames": 18})
+            source_sha = hashlib.sha256(video.read_bytes()).hexdigest()
+            def offline_runner(command, **kwargs):
+                if "render" in command:
+                    SB.render(command[-1])
+                    return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+                return subprocess.run(command, **kwargs)
+            for name, document in (("before", original), ("after", edit["document"])):
+                with patch.object(SB.shutil, "which", return_value="offline-local-pillow"):
+                    SB.burn(video, None, root / (name + ".mp4"), style, run=offline_runner, render_plan=document)
+            self.assertEqual(original, before)
+            self.assertEqual(hashlib.sha256(video.read_bytes()).hexdigest(), source_sha)
+            self.assertEqual(edit["document"]["segments"][2], original["segments"][2])
+            def frame(name, at):
+                return subprocess.run(["ffmpeg", "-v", "error", "-ss", str(at), "-i", str(root / (name + ".mp4")),
+                    "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True, check=True, timeout=60).stdout
+            def bright_halves(pixels):
+                half = len(pixels) // 2
+                return sum(pixel > 180 for pixel in pixels[:half]), sum(pixel > 180 for pixel in pixels[half:])
+            before_pixels, after_pixels = frame("before", .5), frame("after", .5)
+            self.assertGreater(bright_halves(before_pixels)[1], 30)
+            self.assertGreater(bright_halves(after_pixels)[0], 30)
+            self.assertLess(bright_halves(after_pixels)[1], 10)
+            self.assertLess(bright_halves(before_pixels)[0], 10)
+            for at in (.1, 1.3, 1.8):
+                a, b = frame("before", at), frame("after", at)
+                self.assertLess(sum(abs(x - y) > 10 for x, y in zip(a, b)), len(a) // 100)
+            def audio_hash(path):
+                return subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a", "-c:a", "copy", "-f", "md5", "-"],
+                    capture_output=True, check=True, timeout=60).stdout
+            self.assertEqual(audio_hash(video), audio_hash(root / "before.mp4"))
+            self.assertEqual(audio_hash(video), audio_hash(root / "after.mp4"))
+
     def test_burned_frame_differs_only_inside_cue_window(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

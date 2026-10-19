@@ -38,6 +38,27 @@ DEFAULT_STYLE = {"font": None, "font_size": 60, "color": "#FFFFFF", "stroke_colo
 SAFE_MARGIN = 0.05
 
 
+def caption_layout(value):
+    """Validate the deliberately small per-Cue position override."""
+    if not isinstance(value, dict) or not value or set(value) - {"position", "custom_position"}:
+        raise SubtitleError(["单Cue subtitle_style 仅允许 position/custom_position"])
+    position = value.get("position")
+    if position not in ("bottom", "top", "center", "custom"):
+        raise SubtitleError(["单Cue position 必须是 bottom/top/center/custom"])
+    if position == "custom":
+        custom = value.get("custom_position")
+        if type(custom) not in (int, float) or not math.isfinite(custom) or not 0 <= custom <= 100:
+            raise SubtitleError(["单Cue custom_position 必须是 0..100 有限数值"])
+    elif "custom_position" in value:
+        raise SubtitleError(["单Cue custom_position 仅适用于 position=custom"])
+    return dict(value)
+
+
+def caption_style(base, override=None):
+    """CSS and Pillow share the same position-only override, without retiming."""
+    return {**base, **(caption_layout(override) if override is not None else {})}
+
+
 class SubtitleError(ValueError):
     """Strict delivery errors, including the original block locations."""
     def __init__(self, errors):

@@ -14,6 +14,10 @@ async function api(path, options = {}) {
 }
 const base = () => `/api/v1/projects/${encodeURIComponent(state.project)}`;
 const mediaUrl = (id) => `${base()}/media/${encodeURIComponent(id)}/content`;
+function reviewContext(project,alive,reload){
+  const write=async(action,payload,key)=>{if(!alive())throw new Error('所见项目或版本已切换，请重新读取。');if(!state.actor)throw new Error('请先建立人工操作会话');const result=await api(`/api/v1/projects/${encodeURIComponent(project)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,expected_revision:state.revision,idempotency_key:key})});if(!alive())return;state.revision=result.revision ?? state.revision;await reload();return result;};
+  return {artifact:async id=>{if(alive()){$('media-dialog').close();await switchView('artifacts');await openArtifact(id);}},media:id=>alive()&&openMedia(id),local:(action,row)=>alive()&&openLocalProduction(action,{...row,onReviewProposed:async()=>{if(alive())await reload();}}),onError:error=>notice(error.message),process:state.actor && state.writable?(payload,key)=>write('review-process',payload,key):null,save:(payload,key)=>write('artifact-review-notes',payload,key)};
+}
 const previewUrl = (id,purpose) => `${base()}/media/${encodeURIComponent(id)}/preview?purpose=${encodeURIComponent(purpose)}`;
 const hasRendition = (media,purpose) => (media.renditions || []).some(row=>row.purpose===purpose);
 function guard(fn) { return async (...args) => { try { notice(''); await fn(...args); } catch(error) { notice(error.message); } }; }
@@ -37,7 +41,7 @@ async function openLocalProduction(action, row) {
     const {createLocalProduction} = await import('./local-production.js');
     localProduction = createLocalProduction($('local-production-dialog'), {api, project:()=>state.project,
       session:()=>({actor:state.actor,csrf:state.csrf}),revision:value=>{state.revision=value;},
-      onArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});
+      onArtifact:async id=>{$('media-dialog').close();await switchView('artifacts');await openArtifact(id);}});
   }
   await localProduction.open(action,row);
 }
@@ -331,10 +335,14 @@ async function openMedia(id) {
   state.revision=media.revision ?? state.revision;
   const playback=await player(media); if(project!==state.project || request!==state.mediaRequest)return;
   $('media-title').textContent = media.name || media.id; $('media-detail').replaceChildren(playback);
-  const download=el('a','','下载原文件'); download.href=mediaUrl(id)+'?download=true'; $('media-detail').append(download);
-  const panels=el('div','detail-grid'); panels.append(facts('规格与可用性',{id:media.id,modality:media.modality,sha256:media.sha256,size_bytes:media.size_bytes,width:media.width,height:media.height,duration_ms:media.duration_ms,sample_rate:media.sample_rate,availability:media.availability,integrity:media.integrity,rights:media.rights,deprecated:media.deprecated}),lineagePanel(media,lineage),facts('用途与下游引用',usage),facts('审查与决定',{checks:media.checks || [],reviews:media.reviews || [],decisions:media.decisions || [],bindings:media.bindings || []})); $('media-detail').append(panels);
-  if(state.writable){const jobs=await api(`${root}/preview-jobs?media_id=${encodeURIComponent(media.id)}`);if(project!==state.project || request!==state.mediaRequest)return;const panel=facts('持久预览任务',jobs);if(state.actor)for(const job of jobs.items || [])if(job.status==='failed'){const button=el('button','',`明确重试 ${job.purpose}`);button.addEventListener('click',guard(async()=>{const result=await api(`${base()}/preview-retries`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{job_id:job.id},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('media-dialog').close();await openMedia(media.id);notice('失败任务已重新排队，等待本机预览执行器。');}));panel.append(button);}$('media-detail').append(panel);}
-  if (state.actor && state.writable && media.registered !== false) $('media-detail').append(previewForm(media),bindingForm(media),reviewForm(media),mediaAuditForm(media));
+  if(media.review_history){const {renderReviewHistory,createArtifactReviewForm}=await import('./review.js');if(project!==state.project || request!==state.mediaRequest)return;const alive=()=>project===state.project && request===state.mediaRequest,context=reviewContext(project,alive,async()=>{$('media-dialog').close();await openMedia(media.id);});context.currentTime=()=>$('media-detail').querySelector('video,audio')?.currentTime || 0;$('media-detail').append(renderReviewHistory(media.review_history,context));if(state.actor && media.review_targets?.length)$('media-detail').append(createArtifactReviewForm(media.review_targets,context));}
+  if(state.actor && state.writable && media.registered!==false)$('media-detail').append(reviewForm(media));
+  const evidence=el('details','media-evidence');evidence.append(el('summary','','素材规格、来源与查证'));
+  const download=el('a','','下载原文件');download.href=mediaUrl(id)+'?download=true';evidence.append(download);
+  const panels=el('div','detail-grid');panels.append(facts('规格与可用性',{id:media.id,modality:media.modality,sha256:media.sha256,size_bytes:media.size_bytes,width:media.width,height:media.height,duration_ms:media.duration_ms,sample_rate:media.sample_rate,availability:media.availability,integrity:media.integrity,rights:media.rights,deprecated:media.deprecated}),lineagePanel(media,lineage),facts('用途与下游引用',usage),facts('审查与决定',{checks:media.checks || [],reviews:media.reviews || [],decisions:media.decisions || [],bindings:media.bindings || []}));evidence.append(panels);
+  if(state.actor && state.writable && media.registered!==false)evidence.append(previewForm(media),bindingForm(media),mediaAuditForm(media));
+  let previewLoaded=false,previewLoading=false;evidence.addEventListener('toggle',guard(async()=>{if(!evidence.open||previewLoaded||previewLoading||!state.writable||project!==state.project||request!==state.mediaRequest)return;previewLoading=true;try{const jobs=await api(`${root}/preview-jobs?media_id=${encodeURIComponent(media.id)}`);if(project!==state.project||request!==state.mediaRequest)return;const panel=facts('持久预览任务',jobs);if(state.actor)for(const job of jobs.items || [])if(job.status==='failed'){const button=el('button','',`明确重试 ${job.purpose}`);button.addEventListener('click',guard(async()=>{if(project!==state.project||request!==state.mediaRequest)return;const result=await api(`${root}/preview-retries`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{job_id:job.id},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});if(project!==state.project||request!==state.mediaRequest)return;state.revision=result.revision ?? state.revision;$('media-dialog').close();await openMedia(media.id);}));panel.append(button);}evidence.append(panel);previewLoaded=true;}finally{previewLoading=false;}}));
+  $('media-detail').append(evidence);
   $('media-dialog').showModal();
 }
 function reviewForm(media) {
@@ -475,6 +483,7 @@ async function openArtifact(id,{focusFrom=null}={}) {
   evidence.append(el('p','hint',`${artifact.id} · ${artifact.version != null ? 'v'+artifact.version+' · ' : ''}${names[artifact.status] || artifact.status || (artifact.approved ? '已批准' : '待决定')} · ${names[artifact.integrity] || '固定内容'}`));
   if(artifact.sha256)evidence.append(el('p','hint',`内容摘要：${artifact.sha256}`));
   $('document').append(evidence);
+  if(artifact.review_history){const {renderReviewHistory,createArtifactReviewForm}=await import('./review.js');if(!alive())return;const context=reviewContext(project,alive,()=>openArtifact(id));$('document').append(renderReviewHistory(artifact.review_history,context));if(state.actor && artifact.review_targets?.length)$('document').append(createArtifactReviewForm(artifact.review_targets,context));}
   if(artifact.integrity==='mismatch')$('document').prepend(el('p','badge danger','该固定版本的文件摘要变化，当前仅供诊断浏览，不能正式消费。'));
   if(artifact.availability==='missing')$('document').prepend(el('p','badge danger','该固定版本的内容缺失，请核对来源文件。'));
   if(focusFrom && document.activeElement===focusFrom && state.view==='artifacts' && alive())$('document').focus();
