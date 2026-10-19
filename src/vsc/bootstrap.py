@@ -13,6 +13,13 @@ def repository_root():
     raise RuntimeError("找不到 VSC workflow/kernel.json；请设置 VSC_WORKFLOW_ROOT 指向工作流根目录")
 
 
+def workspace_python(root=None):
+    """Use the initialized workspace runtime for checks launched by any host."""
+    root = Path(root) if root is not None else repository_root()
+    candidate = root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else sys.executable
+
+
 def script_path(relative):
     entry = Path(relative)
     if (entry.is_absolute() or len(entry.parts) < 2 or ".." in entry.parts

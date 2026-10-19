@@ -19,7 +19,7 @@ vendor/、projects/ 与 library/ 只存在于维护者本机，线上环境无�
 
 只读：不联网、不下载、不写作品状态。全部通过时退出码为 0。
 """
-from vsc.bootstrap import repository_root, script_path
+from vsc.bootstrap import repository_root, script_path, workspace_python
 import argparse
 import json
 import os
@@ -36,6 +36,7 @@ from tools.maintenance.vendor_sync import NON_RUNTIME_MODES, installed_problem
 from vsc.kernel.catalog import doctor_problems
 
 ROOT = repository_root()
+PYTHON = workspace_python(ROOT)
 VENDOR = ROOT / "vendor"
 PROJECTS = ROOT / "projects"
 TESTS = ROOT / "tests"
@@ -59,7 +60,7 @@ def check_doctor():
 
 
 def check_tests(selection=("--all",)):
-    result = run(sys.executable, "-B", str(TESTS / "run.py"), *selection, "--durations", "5")
+    result = run(PYTHON, "-B", str(TESTS / "run.py"), *selection, "--durations", "5")
     summary = next((line for line in result.stderr.splitlines() if line.startswith("Ran ")), "")
     if result.returncode == 0:
         timings = [line for line in result.stdout.splitlines() if line.startswith(("TEST RESULT:", "DURATION "))]
@@ -96,7 +97,7 @@ def route_problems(vendor_root=VENDOR):
 
 
 def check_vendor():
-    result = run(sys.executable, "-B", str(script_path("maintenance/vendor_sync.py")), "--check")
+    result = run(PYTHON, "-B", str(script_path("maintenance/vendor_sync.py")), "--check")
     if result.returncode:
         return "", tail(result)
     sources = json.loads((VENDOR / "sources.lock.json").read_text("utf-8"))["sources"]
@@ -109,7 +110,7 @@ def project_problems(projects_root=PROJECTS):
     projects = sorted(state.parent for state in projects_root.glob("*/vsc.json"))
     problems = []
     for project in projects:
-        result = run(sys.executable, "-B", str(script_path("project/state.py")), "status", str(project))
+        result = run(PYTHON, "-B", str(script_path("project/state.py")), "status", str(project))
         if result.returncode:
             problems.append(f"作品 {project.name} 无法被当前状态机读取：{tail(result, 1)[0]}")
     return projects, problems
@@ -151,6 +152,8 @@ def tracked_problems(paths):
     for path in paths:
         if path.startswith("docs/plans/"):
             problems.append(f"本地执行计划被 Git 跟踪：{path}")
+        elif path.rsplit("/", 1)[-1].startswith(".env") and path.rsplit("/", 1)[-1] != ".env.example":
+            problems.append(f"本机初始化配置被 Git 跟踪：{path}")
         elif path.startswith("projects/"):
             problems.append(f"作品数据被 Git 跟踪：{path}")
         elif path.startswith("library/"):

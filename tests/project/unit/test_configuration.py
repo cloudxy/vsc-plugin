@@ -9,9 +9,20 @@ import unittest
 
 from support.paths import ROOT
 from vsc.configuration import ConfigurationError, load_workspace_env, read_env_file, workspace_env_path
+from vsc.bootstrap import workspace_python
 
 
 class WorkspaceConfigurationTests(unittest.TestCase):
+    def test_checks_choose_project_runtime_without_shell_activation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(workspace_python(root), sys.executable)
+            candidate = root/'.venv'/('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+            candidate.parent.mkdir(parents=True)
+            candidate.write_text('#!/bin/sh\nexit 0\n')
+            candidate.chmod(0o700)
+            self.assertEqual(workspace_python(root), str(candidate))
+
     def test_quoted_urls_comments_unicode_and_literals(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / '.env'
