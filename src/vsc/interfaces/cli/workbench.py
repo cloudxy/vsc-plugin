@@ -1,5 +1,6 @@
 """Read-only CLI consumer of the same workbench application used by the panel."""
-import argparse,json,os,sys
+import argparse,json,sys
+from vsc.configuration import get_config
 from vsc.assets.workbench import Workbench,SECTIONS
 from vsc.assets.resource_service import ResourceError
 from vsc.project.resource_catalog import ResourceCatalog
@@ -18,7 +19,7 @@ def main(argv=None):
     parser.add_argument('--revision',type=int)
     args=parser.parse_args(argv);service=None
     try:
-        if os.environ.get(args.database_env):
+        if get_config(args.database_env):
             from vsc.bootstrap import service_from_environment
             service=service_from_environment(args.database_env)
         catalog=ResourceCatalog(args.projects_root,service=service)

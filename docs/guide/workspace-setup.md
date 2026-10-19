@@ -70,13 +70,13 @@ source ~/.zshenv
 
 两份连接配置写在工作区根目录 `.env`，主机、端口相同，数据库名不同。已确定的配置保持不变。新工作区复制 `.env.example` 为 `.env` 并填写本机实际账号；真实 `.env` 被 Git 忽略，也不打包。测试运行与隔离方式见[资源面板验证](resource-panel.md#验证边界)。
 
-应用、CLI、自动化测试及各 AI 宿主调用的 VSC 代码在启动时自动读取 `.env`，不需要 `export` 或 `source`。本项目文件优先于旧 shell 中的同名值，避免旧配置干扰；修改后重启相关工具。命令行显式指定的连接变量入口仍保留。数据库启动及迁移见[资源面板](resource-panel.md#新建数据库项目)，维护测试见[本地验证](maintenance.md)。
+应用、CLI、自动化测试及本机 MCP 启动器统一使用 [Dynaconf](https://www.dynaconf.com/configuration/)。配置入口是 `vsc.configuration.settings`，默认值放在 `config/default/settings.toml`，本机值放在根目录 `.env`，不需要 `export` 或 `source`。读取顺序为默认值、同名进程变量、项目 `.env`，后者覆盖前者；命令行显式参数优先。代码读取 `settings.DATABASE_URL` 对应文件中的 `VSC_DATABASE_URL`；既有 `--database-env` 仍支持选择另一配置键。修改后重启相关工具。`VSC_ENV_FILE` 可指定独立文件，空值仅用于隔离运行时关闭文件加载；普通使用无需设置。数据库启动及迁移见[资源面板](resource-panel.md#新建数据库项目)，维护测试见[本地验证](maintenance.md)。
 
 ### 跨平台数据库 MCP
 
 本机数据库工具采用 [Google MCP Toolbox for Databases](https://github.com/googleapis/mcp-toolbox)，版本与许可固定在 [Vendor 声明](../../vendor/THIRD_PARTY.md)。同一官方程序支持 PostgreSQL、MySQL、Redis、SQLite 和 MongoDB；支持某种引擎不代表已配置该数据库的地址、账号或实际连接。
 
-Codex、Claude Code、Grok Build、Kimi Code 和 ZCode 的用户配置统一登记名为 `vsc-databases` 的 stdio 服务，指向本工作区 `.vsc-local/database-mcp/start` 的绝对路径。连接及工具定义集中在 `.vsc-local/database-mcp/connections/`，原生二进制在 `vendor/.runtime/google-mcp-toolbox/`。每个宿主按需启动同一程序，不增加常驻 HTTP 服务或监听端口；凭据不复制进五份宿主配置。工作区移动后更新这五个入口及配置中的绝对路径。
+Codex、Claude Code、Grok Build、Kimi Code 和 ZCode 的用户配置统一登记名为 `vsc-databases` 的 stdio 服务，指向本工作区 `.vsc-local/database-mcp/start` 的绝对路径。该启动器使用工作区 `.venv` 调用本机 `launch.py`，先经统一 Dynaconf 入口加载 `.env`，再执行 Toolbox；标准输出仅用于 MCP 协议。连接及工具定义集中在 `.vsc-local/database-mcp/connections/`，原生二进制在 `vendor/.runtime/google-mcp-toolbox/`。每个宿主按需启动同一程序，不增加常驻 HTTP 服务或监听端口；凭据不复制进五份宿主配置。工作区移动后更新这五个入口及配置中的绝对路径。
 
 | 宿主 | 用户配置 | 服务字段 |
 | --- | --- | --- |
@@ -88,9 +88,9 @@ Codex、Claude Code、Grok Build、Kimi Code 和 ZCode 的用户配置统一登�
 
 本工作区的 PostgreSQL 工具分为 `postgres_query`（MCP 连接正式库只读）和 `postgres_test_execute`（MCP 连接测试库读写）。两库沿用上表同一实例，分别使用没有超级用户权限的 MCP 专用账号。MCP 正式库账号仅授予 `public` 表的读取权限，并设置该账号的默认只读事务。程序运行、业务数据写入以及数据库迁移、升级、改造继续使用 `VSC_DATABASE_URL` 的独立读写账号；MCP 的只读设置仅作用于其专用账号与连接，数据库全局和应用账号保持可读写配置。配置 MCP 时保留应用连接变量及账号权限，避免将 MCP 只读账号用于程序或迁移命令。VSC 状态写入仍走 CLI，不能用数据库工具绕过版本、锁或人工批准。
 
-`sqlite_test_execute` 使用独立的本机 `sqlite_test.db` 测试文件，不替代项目权威数据库。当前回环实例采用本机 `trust` 认证，Toolbox 的非空 password 占位值不是凭据；若改为密码认证，真实密码仍集中配置在 `~/.zshenv`，在 YAML 中用 `${变量名}` 引用。
+`sqlite_test_execute` 使用独立的本机 `sqlite_test.db` 测试文件，不替代项目权威数据库。当前回环实例采用本机 `trust` 认证，Toolbox 的非空 password 占位值不是凭据；若后续使用密码认证，真实数据库密码写入项目 `.env`，在 YAML 中用 `${变量名}` 引用，由启动器自动加载。
 
-MySQL、Redis 和 MongoDB 的未启用示例放在 `.vsc-local/database-mcp/examples/`。接入新数据库时，先确认真实地址与账号权限，将相应变量配置在 `~/.zshenv`，再复制对应示例为 `connections/<引擎>.yaml` 并按需定义工具。只启用实际可连接的来源：Toolbox 启动时会初始化全部启用来源，一个不可达的数据库可能导致整个服务启动失败。修改后在宿主中重连，并实际执行一次对应数据库的读取；测试写入只在明确的测试目标验证，最后清理临时数据。
+MySQL、Redis 和 MongoDB 的未启用示例放在 `.vsc-local/database-mcp/examples/`。接入新数据库时，先确认真实地址与账号权限，将相应变量配置在项目 `.env`，再复制对应示例为 `connections/<引擎>.yaml` 并按需定义工具。只启用实际可连接的来源：Toolbox 启动时会初始化全部启用来源，一个不可达的数据库可能导致整个服务启动失败。修改后在宿主中重连，并实际执行一次对应数据库的读取；测试写入只在明确的测试目标验证，最后清理临时数据。
 
 配置后打开新会话或重新连接 MCP。可用 `grok mcp doctor vsc-databases --json`、`claude mcp get vsc-databases` 检查目标服务；Codex 的 `mcp list` 仅证明配置可发现，还需通过 `/mcp` 或 app-server 的 `mcpServerStatus/list` 确认工具列表。Kimi 使用新会话的 `/mcp`，ZCode 使用 MCP Servers 设置中的连接状态和工具列表。连接成功后应看到上述三个已启用工具；配置文件存在、CLI 列举成功均不能代替真实握手和数据库请求。当前会话不会因文件更新而自动获得工具，无法访问本机的云端会话也不会自动接入。
 

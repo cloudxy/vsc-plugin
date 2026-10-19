@@ -1,6 +1,5 @@
 """Local panel server, explicitly read-only unless a human identity is supplied."""
 import argparse
-import os
 import secrets
 
 
@@ -13,9 +12,10 @@ def main(argv=None):
     parser.add_argument("--database-env", default="VSC_DATABASE_URL", help="连接配置键，默认从项目 .env 读取")
     args = parser.parse_args(argv)
     from .app import create_app
+    from vsc.configuration import get_config
     service = None
-    media_root = args.media_root or os.environ.get("VSC_MEDIA_ROOT", ".vsc-resource-media")
-    database_url = os.environ.get(args.database_env)
+    media_root = args.media_root or get_config("VSC_MEDIA_ROOT")
+    database_url = get_config(args.database_env)
     if database_url:
         from vsc.adapters.persistence.postgres.store import PostgresResourceStore
         from vsc.assets.resource_service import ResourceService

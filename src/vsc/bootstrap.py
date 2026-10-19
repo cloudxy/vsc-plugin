@@ -29,8 +29,9 @@ def script_path(relative):
 
 
 def service_from_environment(database_env="VSC_DATABASE_URL", media_root=None):
+    from vsc.configuration import get_config
     from vsc.assets.resource_service import ResourceError, ResourceService
-    url = os.environ.get(database_env)
+    url = get_config(database_env)
     if not url:
         raise ResourceError("未加载 " + database_env + "；请在工作区根目录 .env 中填写该项后重新启动工具", "database_not_configured")
     from vsc.adapters.persistence.postgres.store import PostgresResourceStore
@@ -41,7 +42,7 @@ def service_from_environment(database_env="VSC_DATABASE_URL", media_root=None):
     except (SQLAlchemyError, ValueError):
         raise ResourceError("数据库连接配置不合法；请核对 " + database_env + " 的服务与连接格式", "invalid_database_config") from None
     try:
-        storage = LocalStorage(media_root or os.environ.get("VSC_MEDIA_ROOT", ".vsc-resource-media"))
+        storage = LocalStorage(media_root or get_config("VSC_MEDIA_ROOT"))
     except BaseException:
         store.close()
         raise

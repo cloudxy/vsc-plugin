@@ -50,7 +50,8 @@ def taxonomy():
 
 
 def library_root(value=None):
-    return Path(value or os.environ.get("VSC_LIBRARY") or ROOT / "library")
+    from vsc.configuration import get_config
+    return Path(value or get_config("VSC_LIBRARY") or ROOT / "library")
 
 
 def now():
