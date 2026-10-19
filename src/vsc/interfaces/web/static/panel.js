@@ -56,8 +56,7 @@ async function loadWorkbench() {
   }
   if (['workbench','candidates','delivery'].includes(state.view)) {
     const view=state.view,project=state.project;
-    await creativeWorkbench.load({projectId: project, objectId: state.object, userId: state.actor || 'reader'});
-    if(view===state.view && project===state.project && view!=='workbench')await creativeWorkbench.focus(view==='candidates'?'bindings':'timeline_media');
+    await creativeWorkbench.load({projectId: project, objectId: state.object, userId: state.actor || 'reader', task:view});
   }
 }
 function productionContext() {

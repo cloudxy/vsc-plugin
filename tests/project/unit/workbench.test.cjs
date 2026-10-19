@@ -20,13 +20,63 @@ test('scope is identified once in the breadcrumb while section buttons show the 
   const current=heading.querySelector('strong');assert.equal(current.textContent,'镜头一');
   assert.equal(current.getAttribute('aria-current'),'location');
   assert.equal(heading.textContent.split('镜头一').length-1,1);
-  p=a.find('镜头').click();assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'shots');
+  p=a.find('剧本与镜头').click();assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'shots');
   a.respond(doc('p','shots',[{id:'shot-1',title:'镜头一'}]));await p;
   const buttons=a.container.querySelector('.workbench-navigation').querySelectorAll('button');
   assert.equal(buttons.find(b=>b.textContent==='镜头').getAttribute('aria-current'),'page');
-  assert.equal(buttons.find(b=>b.textContent==='创作概览').getAttribute('aria-current'),'false');
+  assert.equal(buttons.find(b=>b.textContent==='创作概览').getAttribute('aria-pressed'),'false');
   p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','shots',[],{scope:null}));await p;
   assert.equal(heading.querySelector('strong').textContent,'项目创作概览');a.bench.destroy();
+});
+test('navigation removes duplicated counters and only exposes the selected material group',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});
+  a.respond(doc('p','assets',[],{summary:{assets:800,versions:515}}));await p;
+  assert.equal(a.container.querySelector('.workbench-counters'),null);
+  assert.equal(a.container.querySelector('.workbench-nav-groups').querySelectorAll('button').length,5);
+  assert.equal(a.container.querySelector('.workbench-nav-sections'),null);
+  assert.equal(a.find('人物声线'),undefined);
+  p=a.find('资产与表演').pressKey('Enter');await new Promise(setImmediate);a.respond(doc('p','assets'));await p;
+  assert.deepEqual(a.container.querySelector('.workbench-nav-sections').querySelectorAll('button').map(b=>b.textContent),
+    ['资产','使用与状态','人物声线','声音','动作与特效']);
+  assert.equal(a.container.ownerDocument.activeElement.textContent,'资产与表演');
+  assert.equal(a.find('资产与表演').getAttribute('aria-pressed'),'true');
+  p=a.find('人物声线').pressKey(' ');await new Promise(setImmediate);a.respond(doc('p','voices'));await p;
+  assert.equal(a.find('人物声线').getAttribute('aria-current'),'page');
+  assert.equal(a.container.ownerDocument.activeElement.textContent,'人物声线');
+  assert.equal(a.find('制作任务'),undefined);
+  assert.ok(a.requests.every(r=>!r.options.method));a.bench.destroy();
+});
+test('candidate and delivery task entry points have bounded groups and separate remembered selections',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice',task:'candidates'});
+  assert.equal(a.requests.length,1);
+  assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'bindings');
+  a.respond(doc('p','bindings'));await p;
+  assert.deepEqual(a.container.querySelector('.workbench-nav-groups').querySelectorAll('button').map(b=>b.textContent),
+    ['候选与素材','任务与尝试','质量与方法']);
+  assert.equal(a.find('创作概览'),undefined);assert.equal(a.find('镜头'),undefined);
+  p=a.find('任务与尝试').click();a.respond(doc('p','jobs'));await p;
+  p=a.find('任务尝试对照').click();a.respond(doc('p','job_attempts'));await p;
+  p=a.bench.load({projectId:'p',userId:'alice',task:'delivery'});
+  assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'timeline_media');
+  a.respond(doc('p','timeline_media'));await p;
+  assert.equal(a.find('实际用料区间').getAttribute('aria-current'),'page');
+  assert.equal(a.find('任务与尝试'),undefined);
+  p=a.bench.load({projectId:'p',userId:'alice',task:'candidates'});
+  assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'job_attempts');
+  a.respond(doc('p','job_attempts'));await p;
+  assert.equal(a.find('任务尝试对照').getAttribute('aria-current'),'page');
+  const count=a.requests.length;await a.find('任务与尝试').click();
+  assert.equal(a.requests.length,count);assert.equal(a.find('任务尝试对照').getAttribute('aria-current'),'page');a.bench.destroy();
+});
+test('quality and relation drill-downs keep their parent and current collection selected',async()=>{
+  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p'));await p;
+  p=a.find('质量与方法').click();a.respond(doc('p','quality_observations'));await p;
+  p=a.find('方法评测').click();a.respond(doc('p','method_evaluations'));await p;
+  assert.equal(a.find('质量与方法').getAttribute('aria-pressed'),'true');
+  assert.equal(a.find('方法评测').getAttribute('aria-current'),'page');
+  p=a.bench.focus('coverage');a.respond(doc('p','coverage'));await p;
+  assert.equal(a.find('剧本与镜头').getAttribute('aria-pressed'),'true');
+  assert.equal(a.find('镜头覆盖').getAttribute('aria-current'),'page');a.bench.destroy();
 });
 test('late workbench response cannot restore another project, abort and errors preserve read-only state',async()=>{
   const a=fixture();const old=a.bench.load({projectId:'old',objectId:'old-shot',userId:'alice'});a.container.querySelectorAll('select').find(e=>e.getAttribute('aria-label')==='资料类型').value='dialogue';const fresh=a.bench.load({projectId:'new',objectId:'shot-1',userId:'alice'});

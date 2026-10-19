@@ -12,6 +12,31 @@ const project = (id, data = nodes) => ({project: {id, name: id, storage_policy: 
 const control = (app, type, id) => app.document.getElementById('tree').querySelectorAll('.' + type).find(node => node.dataset.id === id);
 const visible = app => app.document.getElementById('tree').querySelectorAll('.tree-item').filter(node => node.visible()).map(node => node.dataset.id);
 
+test('task entry selects its own collection in one request and keeps the chosen group on scope changes', async () => {
+  const app=createPanel(root,new Map([['A',project('A')]]));
+  await app.panel.selectProject('A');
+  let before=app.requests.length;
+  await app.panel.switchView('candidates');
+  let requests=app.requests.slice(before).filter(url=>url.includes('/workbench?'));
+  assert.equal(requests.length,1);
+  assert.equal(new URL(requests[0],'http://fixture').searchParams.get('section'),'bindings');
+  let navigation=app.document.getElementById('creative-workbench').querySelector('.workbench-navigation');
+  assert.equal(navigation.querySelectorAll('button').some(b=>b.textContent==='创作概览'),false);
+  assert.equal(navigation.querySelectorAll('button').find(b=>b.textContent==='采用与候选').getAttribute('aria-current'),'page');
+  await navigation.querySelectorAll('button').find(b=>b.textContent==='任务与尝试').click();
+  await navigation.querySelectorAll('button').find(b=>b.textContent==='任务尝试对照').click();
+  await app.panel.selectObject('asset');
+  assert.equal(new URL(app.requests.at(-1),'http://fixture').searchParams.get('section'),'job_attempts');
+  before=app.requests.length;await app.panel.switchView('delivery');
+  requests=app.requests.slice(before).filter(url=>url.includes('/workbench?'));
+  assert.equal(requests.length,1);
+  assert.equal(new URL(requests[0],'http://fixture').searchParams.get('section'),'timeline_media');
+  assert.equal(app.document.getElementById('tab-delivery').getAttribute('aria-selected'),'true');
+  navigation=app.document.getElementById('creative-workbench').querySelector('.workbench-navigation');
+  assert.equal(navigation.querySelectorAll('button').find(b=>b.textContent==='实际用料区间').getAttribute('aria-current'),'page');
+  assert.equal(app.writes.length,0);
+});
+
 test('branches start collapsed and expand one level at a time', async () => {
   const app = createPanel(root, new Map([['A', project('A')]]));
   await app.panel.selectProject('A');
