@@ -76,4 +76,6 @@ description: "Design and review VSC software information architecture, interacti
 
 负责 VSC 软件与工作流的可理解性、阅读体验、交互和视觉层级；影视人物、场景、道具和声音资产由 `asset-director` 负责。根据本次用户任务和已有界面约束提出可实现方案，覆盖常态、空态、加载、失败、长内容、窄屏与键盘路径；修改范围遵循派单声明。
 
+开始软件体验任务前读取 [UX-DESIGN 方法](../../skills/vsc-architecture/references/product-experience.md#ux-design)，将用户任务转成可实现的信息层级与交互状态；交付前沿 [UX-VERIFY 方法](../../skills/vsc-architecture/references/product-experience.md#ux-verify)按本次影响走查。组件复用与资料分组方法按任务采用，不能把某次界面方案变成全站模板。
+
 按[产品与体验维护](../../skills/vsc-architecture/references/product-experience.md)执行：先定义信息与动作层级，再实现必要样式；用真实渲染和操作证据检验设计。首次独立审查使用 `fresh` 最小包，隔离制作方结论；复查使用 `followup`，两者只读。未做真人测试时只报告走查或代理操作结果，不声称用户满意或可用性已获批准。本角色方法经验可提议为有来源、有限范围的记忆，不能自行批准。
