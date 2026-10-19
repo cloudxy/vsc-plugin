@@ -63,10 +63,10 @@ source ~/.zshenv
 
 本工作区复用本机 `127.0.0.1:55432` 实例，以名称区分数据库；数据库管理工具保留该实例的一条服务器连接即可查看两库。
 
-| 用途 | 数据库 | 连接变量 |
-| --- | --- | --- |
-| 正式项目与资源面板 | `vsc_resources` | `VSC_DATABASE_URL` |
-| 自动化测试 | `vsc_resources_test` | `VSC_TEST_DATABASE_URL` |
+| 用途（非 MCP 连接） | 数据库 | 连接变量 | 权限 |
+| --- | --- | --- | --- |
+| 正式项目与资源面板 | `vsc_resources` | `VSC_DATABASE_URL` | 读写，支持经授权的结构迁移与升级 |
+| 自动化测试 | `vsc_resources_test` | `VSC_TEST_DATABASE_URL` | 测试库读写与结构调整 |
 
 两份连接变量集中配置在 `~/.zshenv`，主机、端口相同，数据库名不同。实际账号和连接值留在本机配置，不提交仓库。测试运行与隔离方式见[资源面板验证](resource-panel.md#验证边界)。
 
@@ -86,7 +86,9 @@ Codex、Claude Code、Grok Build、Kimi Code 和 ZCode 的用户配置统一登�
 | Kimi Code | `~/.kimi-code/mcp.json` | `mcpServers.vsc-databases` |
 | ZCode | `~/.zcode/cli/config.json` | `mcp.servers.vsc-databases` |
 
-本工作区的 PostgreSQL 工具分为 `postgres_query`（正式库只读）和 `postgres_test_execute`（测试库读写）。两库沿用上表同一实例，分别使用没有超级用户权限的 MCP 专用账号。正式库账号仅授予 `public` 表的读取权限，并设置默认只读事务；VSC 状态写入仍走 CLI，不能用数据库工具绕过版本、锁或人工批准。`sqlite_test_execute` 使用独立的本机 `sqlite_test.db` 测试文件，不替代项目权威数据库。当前回环实例采用本机 `trust` 认证，Toolbox 的非空 password 占位值不是凭据；若改为密码认证，真实密码仍集中配置在 `~/.zshenv`，在 YAML 中用 `${变量名}` 引用。
+本工作区的 PostgreSQL 工具分为 `postgres_query`（MCP 连接正式库只读）和 `postgres_test_execute`（MCP 连接测试库读写）。两库沿用上表同一实例，分别使用没有超级用户权限的 MCP 专用账号。MCP 正式库账号仅授予 `public` 表的读取权限，并设置该账号的默认只读事务。程序运行、业务数据写入以及数据库迁移、升级、改造继续使用 `VSC_DATABASE_URL` 的独立读写账号；MCP 的只读设置仅作用于其专用账号与连接，数据库全局和应用账号保持可读写配置。配置 MCP 时保留应用连接变量及账号权限，避免将 MCP 只读账号用于程序或迁移命令。VSC 状态写入仍走 CLI，不能用数据库工具绕过版本、锁或人工批准。
+
+`sqlite_test_execute` 使用独立的本机 `sqlite_test.db` 测试文件，不替代项目权威数据库。当前回环实例采用本机 `trust` 认证，Toolbox 的非空 password 占位值不是凭据；若改为密码认证，真实密码仍集中配置在 `~/.zshenv`，在 YAML 中用 `${变量名}` 引用。
 
 MySQL、Redis 和 MongoDB 的未启用示例放在 `.vsc-local/database-mcp/examples/`。接入新数据库时，先确认真实地址与账号权限，将相应变量配置在 `~/.zshenv`，再复制对应示例为 `connections/<引擎>.yaml` 并按需定义工具。只启用实际可连接的来源：Toolbox 启动时会初始化全部启用来源，一个不可达的数据库可能导致整个服务启动失败。修改后在宿主中重连，并实际执行一次对应数据库的读取；测试写入只在明确的测试目标验证，最后清理临时数据。
 
