@@ -35,3 +35,8 @@ __pycache__/
 
 # ZCode 宿主的本地会话状态。
 /.zcode/
+
+# 本机初始化配置只保留示例；真实连接与凭据不提交。
+.env
+.env.*
+!.env.example

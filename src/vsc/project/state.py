@@ -1605,7 +1605,8 @@ def main():
     q = subs.add_parser("add"); q.add_argument("project"); q.add_argument("--id", required=True)
     q.add_argument("--kind", choices=("work", "episode", "scene", "sequence", "shot", "take", "asset"), required=True)
     q.add_argument("--parent"); q.add_argument("--artifact"); q.add_argument("--label")
-    q.add_argument("--asset-kind", choices=("character", "location", "prop", "voice", "style", "costume"))
+    from vsc.assets.taxonomy import IDENTITY_KINDS
+    q.add_argument("--asset-kind", choices=IDENTITY_KINDS)
     q = subs.add_parser("list"); q.add_argument("project")
     q = subs.add_parser('bind'); q.add_argument('project'); q.add_argument('--id', required=True); q.add_argument('--artifact', required=True)
     q.add_argument('--by', required=True); q.add_argument('--reason', required=True)

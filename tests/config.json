@@ -836,6 +836,97 @@
         "src/vsc/project/role_runtime_legacy.py",
         "src/vsc/project/role_runtime.py"
       ]
+    },
+    "assets.unit.test_source_intake": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/source_intake.py"
+      ]
+    },
+    "assets.integration.test_source_intake": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/source*.py",
+        "src/vsc/assets/script_inputs.py",
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "src/vsc/assets/resource_model.py",
+        "src/vsc/assets/taxonomy.py",
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "src/vsc/interfaces/web/source_resource.py",
+        "src/vsc/interfaces/web/app.py",
+        "migrations/postgres/**"
+      ]
+    },
+    "assets.integration.test_source_resource_http": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/source*.py",
+        "src/vsc/assets/script_inputs.py",
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "src/vsc/assets/resource_model.py",
+        "src/vsc/assets/taxonomy.py",
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "src/vsc/interfaces/web/source_resource.py",
+        "src/vsc/interfaces/web/app.py",
+        "migrations/postgres/**"
+      ]
+    },
+    "assets.integration.test_resource_model": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/source*.py",
+        "src/vsc/assets/script_inputs.py",
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "src/vsc/assets/resource_model.py",
+        "src/vsc/assets/taxonomy.py",
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "src/vsc/interfaces/web/source_resource.py",
+        "src/vsc/interfaces/web/app.py",
+        "migrations/postgres/**"
+      ]
+    },
+    "assets.unit.test_taxonomy": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/source*.py",
+        "src/vsc/assets/script_inputs.py",
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "src/vsc/assets/resource_model.py",
+        "src/vsc/assets/taxonomy.py",
+        "src/vsc/adapters/persistence/postgres/*.py",
+        "src/vsc/interfaces/web/source_resource.py",
+        "src/vsc/interfaces/web/app.py",
+        "migrations/postgres/**"
+      ]
+    },
+    "project.unit.test_source_resource_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/source-intake.js",
+        "src/vsc/interfaces/web/static/resource-model.js",
+        "src/vsc/interfaces/web/static/source-resource.css",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/source_resource.test.cjs"
+      ]
+    },
+    "project.unit.test_configuration": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/configuration.py",
+        "src/vsc/__init__.py",
+        ".env.example",
+        "src/vsc/bootstrap.py",
+        "src/vsc/project/schema_review.py",
+        "tests/support/paths.py"
+      ]
     }
   },
   "dependencies": {
@@ -884,6 +975,14 @@
         "maintenance",
         "testing"
       ]
+    },
+    {
+      "patterns": [
+        "src/vsc/configuration.py",
+        "src/vsc/__init__.py",
+        ".env.example"
+      ],
+      "owners": "all"
     }
   ],
   "non_test_inputs": [
@@ -893,6 +992,7 @@
     "AGENTS.md",
     "LICENSE",
     ".gitignore",
-    "tests/README.md"
+    "tests/README.md",
+    ".env.example"
   ]
 }

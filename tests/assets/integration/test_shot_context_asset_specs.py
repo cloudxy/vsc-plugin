@@ -112,7 +112,17 @@ class ShotContextAssetSpecsTest(unittest.TestCase):
         self.assertEqual([row for rows in bible_inputs for row in rows], [expected])
 
     def test_identity_kind_and_existing_variant_changes_still_block(self):
-        for field, value in (("identity", ["没有疤"]), ("kind", "prop"), ("variants", {"default": "红衣"})):
+        from vsc.assets.resource_service import ResourceError
+        revised = copy.deepcopy(self.bible_doc)
+        revised["entities"][0]["kind"] = "prop"
+        before = self.context()
+        revision = self.rev
+        with self.assertRaises(ResourceError) as caught:
+            self.artifact("bible", "vsc.asset_bible", revised)
+        self.assertEqual(caught.exception.code, "asset_kind_mismatch")
+        self.assertEqual(self.service.get_project(self.p)["revision"], revision)
+        self.assertEqual(self.context()["sha256"], before["sha256"])
+        for field, value in (("identity", ["没有疤"]), ("variants", {"default": "红衣"})):
             with self.subTest(field=field):
                 revised = copy.deepcopy(self.bible_doc)
                 revised["entities"][0][field] = value

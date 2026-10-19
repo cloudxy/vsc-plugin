@@ -12,7 +12,8 @@ WRITE_ACTIONS = {
     "record_media_check", "create_media_operation", "create_preview_job", "create_generation_job",
     "update_generation_job", "freeze_timeline", "freeze_render", "configure_budget",
     "propose_local_production", "enqueue_local_production", "generate_script_suggestions",
-    "resume_script_suggestions",
+    "resume_script_suggestions", "create_source_intake", "create_parse_job", "run_parse_job",
+    "prepare_parse_import", "import_parse_job", "classify_resource",
 }
 
 
@@ -38,6 +39,18 @@ def main(argv=None):
     for name in ("tree", "artifacts", "media", "status", "budget"):
         p = sub.add_parser(name)
         p.add_argument("project_id")
+    browse = sub.add_parser("resource-model", help="查询分镜、分类、需求与地点关系")
+    browse.add_argument("project_id")
+    browse.add_argument("--section", choices=("resources", "categories", "designs", "requirements", "locations"), default="resources")
+    browse.add_argument("--object-id")
+    browse.add_argument("--category")
+    browse.add_argument("--query", default="")
+    browse.add_argument("--offset", type=int, default=0)
+    browse.add_argument("--limit", type=int, default=100)
+    sources = sub.add_parser("source-workspace", help="读取来源、解析任务和校对预览")
+    sources.add_argument("project_id")
+    sources.add_argument("--job-id")
+    sources.add_argument("--preview", action="store_true")
     context = sub.add_parser("context")
     context.add_argument("project_id")
     context.add_argument("shot_id")
@@ -118,6 +131,19 @@ def main(argv=None):
                 result = service.list_resources(args.project_id)
             elif args.command == "budget":
                 result = service.budget_status(args.project_id)
+            elif args.command == "source-workspace":
+                result = (service.preview_parse_job(args.project_id, args.job_id) if args.preview else
+                          service.get_parse_job(args.project_id, args.job_id)) if args.job_id else service.get_source_workspace(args.project_id)
+            elif args.command == "resource-model":
+                if args.section == "resources":
+                    result = service.browse_resources(args.project_id, object_id=args.object_id, category=args.category,
+                        query=args.query, offset=args.offset, limit=args.limit)
+                elif args.section == "categories":
+                    result = service.get_resource_taxonomy(args.project_id)
+                else:
+                    method = {"designs": service.get_shot_designs, "requirements": service.get_resource_requirements,
+                              "locations": service.get_scene_locations}[args.section]
+                    result = method(args.project_id, object_id=args.object_id)
             elif args.command == "context":
                 result = service.compile_shot_context(args.project_id, args.shot_id, args.purpose)
             elif args.command == "asset-context":

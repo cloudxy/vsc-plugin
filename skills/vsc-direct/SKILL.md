@@ -20,3 +20,7 @@ description: "Turn approved scripts into VSC shot plans, camera movement, transi
 新规则在 design 提交覆盖计划，逐场枚举 sequence、镜头、剧本单元及声音计划固定版本；遗漏绑定真实 omission 决定。animatic 必须可播放，临时声音与未决项明确列出。
 
 规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。
+
+## 设计与生成追溯
+
+按[分镜与资源工作区](../../docs/guide/source-resource-workspace.md)区分设计单元、有序面板、镜头和生成尝试。固定产物中的 `design_units` 明确镜头、用途和主用／备选关系；需要的剧本行必须引用同项目的固定行和依赖版本。设计修订追加版本，生成沿现有任务／候选／选择流程，不以最新分镜替换历史任务的固定输入。

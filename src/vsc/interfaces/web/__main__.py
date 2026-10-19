@@ -10,7 +10,7 @@ def main(argv=None):
     parser.add_argument("--media-root")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--human", help="本次实际操作人的身份；启用有确认事件的写入")
-    parser.add_argument("--database-env", default="VSC_DATABASE_URL", help="PostgreSQL 连接环境变量名")
+    parser.add_argument("--database-env", default="VSC_DATABASE_URL", help="连接配置键，默认从项目 .env 读取")
     args = parser.parse_args(argv)
     from .app import create_app
     service = None

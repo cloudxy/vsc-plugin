@@ -24,3 +24,7 @@ description: "Design VSC character, location, prop, action and voice assets befo
 稳定资产身份更新用 object bind 保留版本历史；参考按变体、媒体类别和用途过滤。资产准备正式 run 在 script Gate 与批准资产规格后进行，不以未来预演造成依赖环。
 
 规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。
+
+## 资源分类与横向引用
+
+[资源工作区](../../docs/guide/source-resource-workspace.md)的十一类用于检索，身份种类、媒体类别和生产用途继续分别管理。人物／地点／道具／物体／生物／交通工具／植物可进入 Bible；声音、风格、服装沿各自规格。资源通过场地点、需求、实例和用途槽位横向关联。只登记、可预览、可作为输入和已具备执行器分别核对；模型、字体或 LUT 入库不等于供应商已支持执行。

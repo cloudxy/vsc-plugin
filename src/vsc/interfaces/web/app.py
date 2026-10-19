@@ -23,6 +23,7 @@ from vsc.interfaces.web.resource_impact import install_impact_routes
 from vsc.interfaces.web.script_workspace import install_script_routes
 from vsc.interfaces.web.local_production import install_local_routes
 from vsc.interfaces.web.memory import install_memory_routes
+from vsc.interfaces.web.source_resource import install_source_resource_routes
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -219,7 +220,13 @@ def create_app(config=None, catalog=None, service=None):
             stream.seek(0)
             return await run_in_threadpool(storage.stage_upload, stream, filename)
 
-    actions = {"media": "register_media", "binding-candidates": "propose_binding", "reviews": "record_review",
+    actions = {"source-workspace/sources": "create_source_intake",
+               "source-workspace/parse-jobs": "create_parse_job",
+               "source-workspace/parse-jobs/run": "run_parse_job",
+               "source-workspace/prepare-import": "prepare_parse_import",
+               "source-workspace/import": "import_parse_job",
+               "resource-model/classifications": "classify_resource",
+               "media": "register_media", "binding-candidates": "propose_binding", "reviews": "record_review",
                "binding-decisions": "select_candidate", "binding-retirements": "retire_binding",
                "media-lifecycle-decisions": "deprecate_media", "media-operations": "create_media_operation",
                "preview-jobs": "create_preview_job", "media-checks": "record_media_check",
@@ -246,6 +253,10 @@ def create_app(config=None, catalog=None, service=None):
                 raise HTTPException(422, "正式选择或停用需要明确人工确认")
             if not hasattr(getattr(catalog, "service", None), action):
                 raise HTTPException(422, "当前权威尚未提供该操作")
+            if action == "prepare_parse_import":
+                if body.get("confirmed") is not True:
+                    raise HTTPException(422, "请确认预览中的默认结构与身份映射")
+                payload = dict(payload, confirmed=True)
             if action == "register_media" and (not payload.get("staged_upload") or getattr(catalog.service, "storage", None) is None):
                 raise HTTPException(422, "登记必须引用受控存储已暂存的上传，不能提交任意路径或自行声明摘要")
             return catalog.write(action, project_id, payload, actor=identity, expected_revision=expected, idempotency_key=key)
@@ -259,6 +270,7 @@ def create_app(config=None, catalog=None, service=None):
     install_script_routes(router, catalog, etag, actor)
     install_local_routes(router, catalog, etag)
     install_memory_routes(router, catalog, etag, actor)
+    install_source_resource_routes(router, catalog, etag)
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

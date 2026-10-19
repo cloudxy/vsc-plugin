@@ -16,3 +16,7 @@ description: "Write or revise VSC screenplays from an approved adaptation plan."
 新规则交付 screenplay JSON，保留自由正文，并索引场、行动、对白行 ID、静默、预计时长与叙事引用；仅有摘要 Markdown 不能证明可制作剧本。
 
 规则见 [制作协议](../../workflow/production-v2.md)，操作见 [v2 指南](../../docs/guide/production-v2.md)。
+
+## 来源导入与校对
+
+PostgreSQL 项目收到文案或文件时，先按[来源工作区](../../docs/guide/source-resource-workspace.md)登记用途、固定来源并提取。成型剧本解析仅形成带出处的工作副本；小说、大纲先完成改编链。校对稳定场次、人物映射和时长，补齐已批准改编及逐行叙事引用，再走既有提交与人工批准。新导入稿以结构化单元为正文依据，不能让独立全文覆盖结构或丢失出处。

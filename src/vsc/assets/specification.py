@@ -3,11 +3,12 @@ import copy
 import hashlib
 import re
 from pathlib import Path
+from vsc.assets.taxonomy import BIBLE_KINDS
 
 BIBLE_FORMAT = "vsc.asset-bible/v1"
 
 
-KINDS = ("character", "prop", "object", "location", "creature", "vehicle")
+KINDS = BIBLE_KINDS
 
 
 RIGHTS = ("owned", "licensed", "temp_only", "unknown")

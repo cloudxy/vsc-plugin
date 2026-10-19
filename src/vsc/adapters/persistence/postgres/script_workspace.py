@@ -290,7 +290,9 @@ class ScriptWorkspaceRepository:
                     "content": row["content"], "content_sha256": digest(row["content"]),
                     "updated_at": row["updated_at"], "updated_by": row["updated_by"],
                     "phase": phase, "base": base, "submitted": submitted, "notes": note_rows,
-                    "suggestions": suggestions, "draft_id": row["id"], "submission_context": submission_context}
+                    "suggestions": suggestions, "draft_id": row["id"],
+                    "source_refs": self._source_draft_refs(conn, project_id, row),
+                    "submission_context": submission_context}
 
     def save_script_draft(self, project_id, payload, actor=None, **_):
         project_id = checked_id(project_id)
@@ -299,6 +301,7 @@ class ScriptWorkspaceRepository:
         content = required(payload, "content")
         if not isinstance(content, dict):
             raise ResourceError("工作副本必须是结构化剧本文档", "invalid_payload")
+        content = self._source_draft_content(content)
         try:
             with self.engine.begin() as conn:
                 row = self._draft(conn, project_id, scope_key, lock=True)
@@ -311,11 +314,14 @@ class ScriptWorkspaceRepository:
                 if base != row["draft_revision"]:
                     raise Conflict(f"剧本工作副本已被他人更新（当前 r{row['draft_revision']}）；请先加载最新内容",
                                    "draft_revision_conflict")
+                if row["content"].get("structured_source"):
+                    content = self._source_draft_content(dict(content, structured_source=True))
                 revision = row["draft_revision"] + 1
                 conn.execute(update(S.script_drafts).where(
                     S.script_drafts.c.project_id == project_id, S.script_drafts.c.scope_key == scope_key,
                     S.script_drafts.c.draft_revision == row["draft_revision"])
                     .values(content=content, draft_revision=revision, updated_at=func.now(), updated_by=actor))
+                self._source_draft_saved(conn, project_id, row["id"], row["draft_revision"], revision, content)
                 return {"scope_key": scope_key, "draft_revision": revision, "created": False}
         except IntegrityError as exc:
             raise Conflict("剧本工作副本并发写入冲突，请先加载最新内容", "draft_revision_conflict") from exc
@@ -386,6 +392,7 @@ class ScriptWorkspaceRepository:
             if payload.get("dependency_ids"):
                 artifact_payload["dependency_ids"] = payload["dependency_ids"]
             result = self._create_artifact(conn, project, artifact_payload)
+            self._source_draft_submitted(conn, project["id"], row, result["id"])
             conn.execute(update(S.script_drafts).where(
                 S.script_drafts.c.project_id == project["id"], S.script_drafts.c.scope_key == scope_key)
                 .values(submitted_artifact_id=result["id"],
@@ -530,10 +537,13 @@ class ScriptWorkspaceRepository:
                                    % (row["draft_revision"], suggestion["base_draft_revision"]), "suggestion_stale")
                 content = dict(row["content"])
                 self._apply_suggestion(content, suggestion, suggestion["after_value"])
+                content = self._source_draft_content(content)
                 conn.execute(update(S.script_drafts).where(
                     S.script_drafts.c.project_id == project["id"], S.script_drafts.c.scope_key == scope_key)
                     .values(content=content, draft_revision=row["draft_revision"] + 1,
                             updated_at=func.now(), updated_by=actor or ""))
+                self._source_draft_saved(conn, project["id"], row["id"], row["draft_revision"],
+                                         row["draft_revision"] + 1, content)
                 applied_revision = row["draft_revision"] + 1
             elif outcome == "undo_accept":
                 decision = next((item["decision"] for item in suggestions
@@ -549,10 +559,13 @@ class ScriptWorkspaceRepository:
                 content = dict(row["content"])
                 self._apply_suggestion(content, suggestion,
                                        suggestion["before_value"])
+                content = self._source_draft_content(content)
                 conn.execute(update(S.script_drafts).where(
                     S.script_drafts.c.project_id == project["id"], S.script_drafts.c.scope_key == scope_key)
                     .values(content=content, draft_revision=row["draft_revision"] + 1,
                             updated_at=func.now(), updated_by=actor or ""))
+                self._source_draft_saved(conn, project["id"], row["id"], row["draft_revision"],
+                                         row["draft_revision"] + 1, content)
                 applied_revision = row["draft_revision"] + 1
             decision_id = new_id()
             conn.execute(insert(S.script_suggestion_decisions).values(project_id=project["id"], id=decision_id,

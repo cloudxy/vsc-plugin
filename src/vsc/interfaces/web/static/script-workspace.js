@@ -230,7 +230,10 @@ export function createScriptWorkspace(container, ctx) {
         const saved = source.find(item => item.id === lineId) || {};
         const merged = {...saved, id: lineId, text: row.querySelector('.line-text').value};
         merged.narrative_refs = (row.querySelector('.line-refs')?.value || '').split(/[\s,，]+/).filter(Boolean);
-        if (kind === 'dialogue') merged.speaker = row.querySelector('.line-speaker')?.value || '';
+        if (kind === 'dialogue') {
+          merged.speaker = row.querySelector('.line-speaker')?.value || '';
+          if (content.structured_source) merged.speaker_label = draft.character_choices?.find(choice=>choice.id===merged.speaker)?.label || saved.speaker_label || '';
+        }
         if (kind === 'silence') {
           merged.duration_ms = Number(row.querySelector('.line-duration')?.value || 0);
           merged.purpose = row.querySelector('.line-purpose')?.value || '';
@@ -392,8 +395,16 @@ export function createScriptWorkspace(container, ctx) {
     item.dataset.lineId = row.id || uniqueId('L');
     item.dataset.group = kind;
     if (kind === 'dialogue') {
-      const speaker = el('input', 'line-speaker'); speaker.value = row.speaker || ''; speaker.placeholder = '人物';
-      speaker.addEventListener('input', scheduleSave);
+      const structured = draft.content?.structured_source;
+      const speaker = el(structured ? 'select' : 'input', 'line-speaker');
+      if (structured) {
+        speaker.setAttribute('aria-label', '说话人物');
+        const choices = [...(draft.character_choices || [])];
+        if (!choices.some(choice=>choice.id===row.speaker)) choices.unshift({id:row.speaker || '',label:row.speaker_label || '请选择人物'});
+        for (const choice of choices) {const option=el('option','',choice.label);option.value=choice.id;speaker.append(option);}
+      } else speaker.placeholder = '人物';
+      speaker.value = row.speaker || '';
+      speaker.addEventListener(structured ? 'change' : 'input', scheduleSave);
       item.append(speaker);
     }
     const text = el('input', 'line-text'); text.value = row.text || '';
@@ -461,6 +472,10 @@ export function createScriptWorkspace(container, ctx) {
     down.addEventListener('click', () => { if (card.nextElementSibling?.classList.contains('script-scene')) { card.parentNode.insertBefore(card.nextElementSibling, card); scheduleSave(); } });
     const drop = el('button', '', '删除场次');
     drop.addEventListener('click', () => { if (confirm(`删除场次 ${card.dataset.sceneId}？`)) { card.remove(); scheduleSave(); } });
+    if (draft.content?.structured_source) {
+      id.type = 'hidden';
+      header.append(el('strong', '', draft.scene_choices?.find(choice=>choice.id===scene.id)?.label || scene.source_label || '导入场次'));
+    }
     header.append(id, el('span', 'hint', '时长(ms)'), duration, up, down, drop);
     card.append(header);
     for (const [className, label, field, kind] of [['scene-actions', '行动', 'actions', 'action'],
@@ -529,7 +544,12 @@ export function createScriptWorkspace(container, ctx) {
     const fields = el('section', 'script-document-fields');
     const bodyLabel = el('label', '', '剧本正文');
     const body = el('textarea', 'script-body'); body.value = content.body || ''; body.rows = 6;
-    body.addEventListener('input', scheduleSave); bodyLabel.append(body); fields.append(bodyLabel);
+    if (content.structured_source) {
+      body.readOnly = true;
+      body.setAttribute('aria-label', '由场次与台词自动生成的连续正文');
+      bodyLabel.append(el('p','hint','连续正文随下方场次和台词自动生成，请在对应单元中校对。'));
+    } else body.addEventListener('input', scheduleSave);
+    bodyLabel.append(body); fields.append(bodyLabel);
     fields.append(el('h4', '', '固定改编来源'));
     const refs = el('div', 'script-adaptation-refs');
     function addRef(ref = {}) {

@@ -30,6 +30,7 @@ function size(bytes) { if (bytes == null) return '未知大小'; return bytes > 
 
 let roleMemory = null;
 let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, scriptWorkspace = null;
+let sourceIntake = null, designWorkspace = null, resourceLibrary = null;
 let localProduction = null;
 async function openLocalProduction(action, row) {
   if (!localProduction) {
@@ -41,11 +42,11 @@ async function openLocalProduction(action, row) {
   await localProduction.open(action,row);
 }
 async function loadWorkbench() {
-  if (!state.project || state.view !== 'workbench') return;
+  if (!state.project || !['workbench','candidates','delivery'].includes(state.view)) return;
   if (!creativeWorkbench) {
     const {createCreativeWorkbench} = await import('./workbench.js');
     if (!creativeWorkbench) creativeWorkbench = createCreativeWorkbench($('creative-workbench'), {
-      onObject: async id => { state.view = 'workbench'; await selectObject(id); },
+      onObject: async id => { await selectObject(id); },
       onMedia: openMedia,
       onCompare: async id=>{if(state.comparisons.has(id))return;if(state.comparisons.size>=4)throw new Error('最多并排比较4个候选。');const project=state.project,media=await api(`${base()}/media/${encodeURIComponent(id)}`);if(project!==state.project)throw new Error('项目已切换，请重新选择候选。');state.comparisons.set(id,media);updateCompare();},
       onArtifact: async id => { await switchView('artifacts'); await openArtifact(id); },
@@ -53,7 +54,29 @@ async function loadWorkbench() {
       onLocalAction: openLocalProduction,
     });
   }
-  if (state.view === 'workbench') await creativeWorkbench.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader'});
+  if (['workbench','candidates','delivery'].includes(state.view)) {
+    const view=state.view,project=state.project;
+    await creativeWorkbench.load({projectId: project, objectId: state.object, userId: state.actor || 'reader'});
+    if(view===state.view && project===state.project && view!=='workbench')await creativeWorkbench.focus(view==='candidates'?'bindings':'timeline_media');
+  }
+}
+function productionContext() {
+  return {api,session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable,revision:state.revision}),setRevision:value=>{state.revision=value;},onNotice:notice,
+    onMedia:openMedia,onArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},
+    onObject:async id=>{state.view='workbench';await selectObject(id);},
+    onReference:()=>{$('upload-dialog').showModal();},onLocalAction:openLocalProduction,
+    onScript:async scope=>{const project=state.project;if(scope){const relation=await api(`${base()}/workbench?section=children&object_id=${encodeURIComponent(scope)}&limit=1`);if(project!==state.project)return;for(const ancestor of relation.ancestors || [])state.expandedNodes.add(ancestor.id);}state.object=scope || null;await selectProject(project);if(project!==state.project)return;await switchView('script');const select=$('script-view').querySelector('.script-scope');if(select && select.value!==(scope || '')){select.value=scope || '';select.dispatchEvent(new Event('change',{bubbles:true}));}}};
+}
+async function loadSourceIntake() {
+  if(!state.project || state.view!=='source')return;
+  if(!sourceIntake){const {createSourceIntake}=await import('./source-intake.js');if(!sourceIntake)sourceIntake=createSourceIntake($('source-view'),productionContext());}
+  if(state.view==='source')await sourceIntake.load({projectId:state.project,objectId:state.object});
+}
+async function loadResourceModel(mode) {
+  if(!state.project || state.view!==mode)return;
+  if(mode==='designs'&&!designWorkspace){const {createResourceModel}=await import('./resource-model.js');if(!designWorkspace)designWorkspace=createResourceModel($('design-view'),productionContext(),{mode:'designs'});}
+  if(mode==='library'&&!resourceLibrary){const {createResourceModel}=await import('./resource-model.js');if(!resourceLibrary)resourceLibrary=createResourceModel($('asset-library-view'),productionContext());}
+  if(state.view===mode)await(mode==='designs'?designWorkspace:resourceLibrary).load({projectId:state.project,objectId:state.object});
 }
 async function loadScriptWorkspace() {
   if (!state.project || state.view !== 'script') return;
@@ -94,12 +117,16 @@ async function loadCanvas(focus = null) {
 }
 async function switchView(view, focus = null) {
   state.view = view;
-  document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('reading-artifacts',view==='artifacts'));
-  for (const [tab, target] of [['workbench','creative-workbench'],['script','script-view'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
-    $(target).hidden = tab !== view; $(`tab-${tab}`).setAttribute('aria-selected', String(tab === view));
-  }
+  if(view!=='source')sourceIntake?.suspend();if(view!=='designs')designWorkspace?.suspend();if(view!=='library')resourceLibrary?.suspend();
+  document.querySelectorAll('.workspace').forEach(node=>{node.classList.toggle('reading-artifacts',view==='artifacts');node.classList.toggle('reading-production',['source','designs','library'].includes(view));});
+  const views=[['source','source-view'],['script','script-view'],['designs','design-view'],['library','asset-library-view'],['candidates','creative-workbench'],['delivery','creative-workbench'],['workbench','creative-workbench'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']];
+  const active=views.find(([tab])=>tab===view)?.[1];
+  for(const target of new Set(views.map(([,target])=>target)))$(target).hidden=target!==active;
+  for(const [tab,target]of views){$(`tab-${tab}`).setAttribute('aria-selected',String(tab===view));$(`tab-${tab}`).setAttribute('aria-controls',target);}
   if (view === 'canvas') await loadCanvas(focus);
-  else if (view === 'workbench') await loadWorkbench();
+  else if (['workbench','candidates','delivery'].includes(view)) await loadWorkbench();
+  else if(view==='source')await loadSourceIntake();
+  else if(view==='designs'||view==='library')await loadResourceModel(view);
   else if (view === 'script') await loadScriptWorkspace();
   else if (view === 'media') await loadResources();
   else if (view === 'artifacts') await loadArtifacts();
@@ -137,6 +164,7 @@ async function loadProjects() {
 }
 async function selectProject(id) {
   if (state.project !== id) {
+    sourceIntake?.suspend();designWorkspace?.suspend();resourceLibrary?.suspend();
     state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});
     state.mediaRequest++;resetArtifactReader();state.compareRequest++;$('media-dialog').close();$('compare-dialog').close();
   }
@@ -460,7 +488,7 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const tab of ['workbench','script','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
+for(const tab of ['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
 $('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));

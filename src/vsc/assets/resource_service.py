@@ -29,6 +29,11 @@ ROLE_MATRIX = {
     "location_master": ({"asset", "shot"}, {"image"}),
     "location_view": ({"asset", "shot"}, {"image"}),
     "composition": ({"shot"}, {"image"}),
+    "storyboard": ({"shot"}, {"image"}),
+    "subtitle_style": ({"work", "episode", "scene", "shot", "asset"}, {"text", "document"}),
+    "font": ({"work", "episode", "scene", "shot", "asset"}, {"document", "other"}),
+    "lut": ({"work", "episode", "scene", "shot", "asset"}, {"document", "other"}),
+    "post_mask": ({"work", "episode", "scene", "shot", "asset"}, {"image"}),
     "first_frame": ({"shot"}, {"image"}),
     "last_frame": ({"shot"}, {"image"}),
     "reference_audio": ({"shot"}, {"audio"}),
@@ -45,7 +50,8 @@ INHERITED_REFERENCE_ROLES = frozenset({
     "identity_face", "costume", "location_master", "location_view", "prop",
     "voice_sample", "style_reference",
 })
-POST_ROLES = frozenset({"video_take", "dialogue_dry", "ambience", "music", "sfx"})
+POST_ROLES = frozenset({"video_take", "dialogue_dry", "ambience", "music", "sfx",
+                        "subtitle_style", "font", "lut", "post_mask"})
 
 
 def context_digest(context):
@@ -95,9 +101,11 @@ def dependency_requirements(profile, artifact_type):
 
 
 from vsc.assets.role_memory import RoleMemoryService
+from vsc.assets.source_resource import SourceResourceService
+from vsc.assets.resource_model import ResourceModelService
 
 
-class ResourceService(RoleMemoryService):
+class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
