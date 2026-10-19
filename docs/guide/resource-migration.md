@@ -9,7 +9,7 @@ uv sync --locked --extra postgres
 python3 -B scripts/project/schema.py migrate
 ```
 
-数据库连接由 `VSC_DATABASE_URL` 传入。配置写在工作区根目录 `.env` 并由工具启动时自动读取；真实 `.env` 不提交，连接字符串不写入作品、迁移清单或权威指针。
+数据库连接由 `VSC_DATABASE_URL` 传入。配置写在工作区 `config/.env` 并由工具启动时自动读取；真实 `config/.env` 不提交，连接字符串不写入作品、迁移清单或权威指针。
 
 ## 阶段和命令
 

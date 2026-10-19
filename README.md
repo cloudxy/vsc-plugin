@@ -3,7 +3,7 @@
 VSC 是一个独立的短剧／短视频创作工作流。它把小说、原创故事、品牌资料或外部交接包，组织为可追溯的：**改编 → 剧本 → 镜头与资产 → 带声预演 → 图像／视频／声音候选 → 获选素材 → 剪辑、混音 → 审片与交付**。
 
 <!-- vsc:view version -->
-当前版本：**v0.37.1**，各版本变化见 [版本记录](docs/releases/)。
+当前版本：**v0.37.2**，各版本变化见 [版本记录](docs/releases/)。
 <!-- /vsc:view -->
 
 VSC 不嵌入、不调用其他插件。任何外部系统都只能作为文件来源，或提供标准 `creative-handoff/v1` 交接包；VSC 对导入后的创作与制作负责。
@@ -65,7 +65,7 @@ flowchart LR
 
 ## 快速开始
 
-数据库项目首次使用时，将根目录 `.env.example` 复制为 `.env` 并填写已确定的连接；VSC 启动时自动读取，无需配置 shell 环境变量。本机已完成初始化时直接使用，保持实例和权限不变。
+数据库项目首次使用时，将 `config/.env.example` 复制为 `config/.env` 并填写已确定的连接；VSC 启动时自动读取，无需配置 shell 环境变量。本机已完成初始化时直接使用，保持实例和权限不变。
 
 在 Codex、Claude Code、Grok Build、Kimi Code 或 ZCode 中打开仓库根目录，开始新会话后直接说“用 VSC……”。快捷入口包括 Codex 的 `$vsc`、Claude Code／Grok Build 的 `/vsc`、Kimi Code 的 `/skill:vsc`；ZCode 的插件面板安装步骤见 [AI 客户端接入](docs/guide/workspace-setup.md)。
 

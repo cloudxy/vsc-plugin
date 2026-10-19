@@ -15,7 +15,8 @@ from vsc.configuration import workspace_env_path
 
 class WorkspaceConfigurationTests(unittest.TestCase):
     def run_settings(self, directory, content=None, environment=None, code=None):
-        path = Path(directory) / '.env'
+        path = Path(directory) / 'config/.env'
+        path.parent.mkdir(parents=True, exist_ok=True)
         if content is not None:
             path.write_text(content, encoding='utf-8')
         env = {'PATH': os.environ.get('PATH', ''), 'PYTHONPATH': str(ROOT/'src'),
@@ -89,7 +90,9 @@ class WorkspaceConfigurationTests(unittest.TestCase):
             root.mkdir()
             (root/'workflow').mkdir()
             (root/'workflow/kernel.json').write_text('{}')
-            (root/'.env').write_text('VSC_DATABASE_URL=root-app\nVSC_TEST_DATABASE_URL=root-test\n')
+            (root/'config').mkdir()
+            (root/'config/.env').write_text('VSC_DATABASE_URL=config-app\nVSC_TEST_DATABASE_URL=config-test\n')
+            (root/'.env').write_text('VSC_DATABASE_URL=obsolete-app\nVSC_TEST_DATABASE_URL=obsolete-test\n')
             env = {'PATH': os.environ.get('PATH', ''), 'PYTHONPATH': str(ROOT/'src'),
                    'VSC_WORKFLOW_ROOT': str(root)}
             result = subprocess.run([sys.executable, '-c',
@@ -97,11 +100,31 @@ class WorkspaceConfigurationTests(unittest.TestCase):
                 'print(json.dumps([settings.DATABASE_URL, settings.TEST_DATABASE_URL]))'],
                 cwd=directory, env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), ['root-app', 'root-test'])
+            self.assertEqual(json.loads(result.stdout), ['config-app', 'config-test'])
+
+    def test_old_root_file_is_not_an_implicit_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'workflow').mkdir()
+            (root/'workflow/kernel.json').write_text('{}')
+            (root/'.env').write_text('VSC_DATABASE_URL=obsolete-app\n')
+            env = {'PATH': os.environ.get('PATH', ''), 'PYTHONPATH': str(ROOT/'src'),
+                   'VSC_WORKFLOW_ROOT': directory, 'VSC_DATABASE_URL': 'process-app',
+                   'VSC_TEST_DATABASE_URL': 'process-test'}
+            result = subprocess.run([sys.executable, '-c',
+                'from vsc.configuration import settings; import json; '
+                'print(json.dumps([settings.DATABASE_URL, settings.TEST_DATABASE_URL]))'],
+                cwd=directory, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), ['process-app', 'process-test'])
+
+    def test_default_location_has_one_owner(self):
+        self.assertEqual(workspace_env_path({'VSC_WORKFLOW_ROOT': '/workspace'}), Path('/workspace/config/.env'))
+        self.assertEqual(workspace_env_path({}), ROOT/'config/.env')
 
     def test_example_uses_two_databases_on_same_port(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = self.run_settings(directory, (ROOT/'.env.example').read_text())
+            result = self.run_settings(directory, (ROOT/'config/.env.example').read_text())
             self.assertEqual(result.returncode, 0, result.stderr)
             application, test = [urlsplit(url) for url in json.loads(result.stdout)[:2]]
             self.assertEqual((application.hostname, application.port), (test.hostname, test.port))

@@ -42,7 +42,7 @@ PROJECTS = ROOT / "projects"
 TESTS = ROOT / "tests"
 # 与 .gitignore 保持一致：vendor/ 只跟踪这三份声明，其余为本机内容。
 TRACKED_VENDOR = {"vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"}
-LOCAL_ONLY = (".claude/settings.local.json", ".zcodeignore", ".video_agent/", ".idea/")
+LOCAL_ONLY = (".claude/settings.local.json", ".zcodeignore", ".video_agent/", ".idea/", "config/mcp/")
 LINK = re.compile(r"\]\(([^)\s]+)")
 
 
@@ -152,7 +152,7 @@ def tracked_problems(paths):
     for path in paths:
         if path.startswith("docs/plans/"):
             problems.append(f"本地执行计划被 Git 跟踪：{path}")
-        elif path.rsplit("/", 1)[-1].startswith(".env") and path.rsplit("/", 1)[-1] != ".env.example":
+        elif path.rsplit("/", 1)[-1].startswith(".env") and path != "config/.env.example":
             problems.append(f"本机初始化配置被 Git 跟踪：{path}")
         elif path.startswith("projects/"):
             problems.append(f"作品数据被 Git 跟踪：{path}")
