@@ -922,6 +922,7 @@
       "sources": [
         "src/vsc/configuration.py",
         "src/vsc/__init__.py",
+        "config/default/settings.toml",
         ".env.example",
         "src/vsc/bootstrap.py",
         "src/vsc/project/schema_review.py",
@@ -980,6 +981,7 @@
       "patterns": [
         "src/vsc/configuration.py",
         "src/vsc/__init__.py",
+        "config/default/settings.toml",
         ".env.example"
       ],
       "owners": "all"

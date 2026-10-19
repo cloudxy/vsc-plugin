@@ -1,7 +1,7 @@
 """Executable relational review; metadata is the only model definition."""
 import argparse
 import json
-import os
+from vsc.configuration import get_config
 
 
 def check(metadata):
@@ -67,7 +67,7 @@ def main(argv=None):
     if args.command == "migrate" and not args.database_env:
         parser.error("迁移必须显式提供 --database-env")
     if args.database_env:
-        url = os.environ.get(args.database_env)
+        url = get_config(args.database_env)
         if not url:
             parser.error("未加载 " + args.database_env + "；请在工作区根目录 .env 中配置后重新启动工具")
         if args.schema and not args.schema.replace("_", "").isalnum():

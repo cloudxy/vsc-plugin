@@ -1,8 +1,6 @@
-"""Load the workspace's local initialization file without executing shell code."""
+"""One Dynaconf configuration entry for application initialization settings."""
 import os
 from pathlib import Path
-import re
-import shlex
 
 
 class ConfigurationError(ValueError):
@@ -21,53 +19,69 @@ def workspace_env_path(environ=None):
     return Path.cwd() / ".env"
 
 
-def read_env_file(path):
-    path = Path(path)
-    if not path.is_file():
-        return {}
+def _check_dotenv(path):
+    """Reject invalid local files without putting credentials in diagnostics."""
+    if path is None or not path.is_file():
+        return
+    from io import StringIO
+    from dynaconf.vendor.dotenv.parser import parse_stream
     if path.stat().st_size > 1024 * 1024:
         raise ConfigurationError("项目 .env 超过 1 MiB 限制")
     try:
-        lines = path.read_text("utf-8-sig").splitlines()
+        content = path.read_text("utf-8")
+        if "\x00" in content or any(binding.error for binding in parse_stream(StringIO(content))):
+            raise ConfigurationError("项目 .env 格式无效，请检查 KEY=value 与引号")
     except UnicodeError:
         raise ConfigurationError("项目 .env 需要 UTF-8 编码") from None
-    values = {}
-    for number, original in enumerate(lines, 1):
-        line = original.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        key, separator, value = line.partition("=")
-        key, value = key.strip(), value.strip()
-        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            raise ConfigurationError("项目 .env 第 %d 行不是有效的 KEY=value" % number)
-        if value.startswith(("'", '"')):
-            try:
-                parts = shlex.split(value, comments=True, posix=True)
-                if len(parts) != 1:
-                    raise ValueError()
-                value = parts[0]
-            except ValueError:
-                raise ConfigurationError("项目 .env 第 %d 行的引号或行尾格式无效" % number) from None
-        else:
-            value = re.split(r"\s+#", value, maxsplit=1)[0].rstrip()
-        if "\x00" in value:
-            raise ConfigurationError("项目 .env 第 %d 行含空字符" % number)
-        values[key] = value
-    return values
 
 
-def load_workspace_env(path=None, *, environ=None):
-    """The local file is authoritative; explicit CLI options still take priority.
+def create_settings(root=None, *, env_file=None):
+    """Defaults < process settings < the project's .env < explicit CLI options.
 
-    No variable expansion or command substitution is performed. VSC_ENV_FILE=''
-    disables automatic loading for an isolated deployment/test process.
+    Like hcdataspider, use explicit settings paths, a project prefix, merging and
+    dotenv_override. VSC_ENV_FILE='' isolates a process from the local file.
+    No shell files or commands are executed. Restart after editing .env.
     """
-    env = os.environ if environ is None else environ
-    path = workspace_env_path(env) if path is None else Path(path)
-    if path is None:
-        return ()
-    values = read_env_file(path)
-    env.update(values)
-    return tuple(values)
+    from dynaconf import Dynaconf
+    from vsc.bootstrap import repository_root
+    root = Path(root) if root is not None else repository_root()
+    path = workspace_env_path() if env_file is None else Path(env_file)
+    _check_dotenv(path)
+    return Dynaconf(
+        envvar_prefix="VSC",
+        settings_files=[str(root / "config/default/settings.toml")],
+        root_path=str(root),
+        load_dotenv=path is not None,
+        dotenv_path=str(path) if path is not None else None,
+        dotenv_override=True,
+        dotenv_verbose=False,
+        merge_enabled=True,
+        core_loaders=["TOML"],
+        environments=False,
+        encoding="utf-8",
+    )
+
+
+_settings = None
+
+
+def get_settings():
+    global _settings
+    if _settings is None:
+        _settings = create_settings()
+    return _settings
+
+
+def get_config(key, default=None):
+    """Accept the existing CLI configuration keys, including custom env names."""
+    settings = get_settings()
+    if key.startswith("VSC_"):
+        return settings.get(key[4:], default, fresh=True)
+    settings.get("MEDIA_ROOT")
+    return os.environ.get(key, default)
+
+
+def __getattr__(name):
+    if name == "settings":
+        return get_settings()
+    raise AttributeError(name)

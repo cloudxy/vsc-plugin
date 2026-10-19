@@ -1,4 +1,4 @@
-"""Local initialization works without shell setup and never executes .env text."""
+"""Configuration behavior through fresh application processes and real files."""
 import json
 import os
 from pathlib import Path
@@ -6,13 +6,25 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from urllib.parse import urlsplit
 
 from support.paths import ROOT
-from vsc.configuration import ConfigurationError, load_workspace_env, read_env_file, workspace_env_path
 from vsc.bootstrap import workspace_python
+from vsc.configuration import workspace_env_path
 
 
 class WorkspaceConfigurationTests(unittest.TestCase):
+    def run_settings(self, directory, content=None, environment=None, code=None):
+        path = Path(directory) / '.env'
+        if content is not None:
+            path.write_text(content, encoding='utf-8')
+        env = {'PATH': os.environ.get('PATH', ''), 'PYTHONPATH': str(ROOT/'src'),
+               'VSC_ENV_FILE': str(path), **(environment or {})}
+        return subprocess.run([sys.executable, '-c', code or (
+            'from vsc.configuration import settings; import json; '
+            'print(json.dumps([settings.DATABASE_URL, settings.TEST_DATABASE_URL, settings.MEDIA_ROOT]))')],
+            cwd=directory, env=env, text=True, capture_output=True)
+
     def test_checks_choose_project_runtime_without_shell_activation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -23,57 +35,75 @@ class WorkspaceConfigurationTests(unittest.TestCase):
             candidate.chmod(0o700)
             self.assertEqual(workspace_python(root), str(candidate))
 
-    def test_quoted_urls_comments_unicode_and_literals(self):
+    def test_quoted_urls_comments_unicode_and_shell_text_remain_data(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / '.env'
-            path.write_text("# 设置\nVSC_DATABASE_URL='postgresql://user:p#word@localhost/db'\n"
-                'VSC_MEDIA_ROOT="本机 媒体" # note\nexport LITERAL=$(touch marker)\nEMPTY=\n', encoding='utf-8-sig')
-            values = read_env_file(path)
-            self.assertEqual(values['VSC_MEDIA_ROOT'], '本机 媒体')
-            self.assertIn('p#word', values['VSC_DATABASE_URL'])
-            self.assertEqual(values['LITERAL'], '$(touch marker)')
-            self.assertEqual(values['EMPTY'], '')
-            self.assertFalse((Path(directory) / 'marker').exists())
+            result = self.run_settings(directory, "# 设置\nVSC_DATABASE_URL='postgresql://user:p#word@localhost/db'\n"
+                'VSC_TEST_DATABASE_URL="$(touch marker)"\nVSC_MEDIA_ROOT="本机 媒体" # note\n')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), ['postgresql://user:p#word@localhost/db',
+                             '$(touch marker)', '本机 媒体'])
+            self.assertFalse((Path(directory)/'marker').exists())
 
-    def test_local_file_is_authoritative_without_changing_another_mapping(self):
+    def test_local_file_overrides_old_shell_and_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / '.env'
-            path.write_text('VSC_DATABASE_URL=local-value\n', encoding='utf-8')
-            environment = {'VSC_DATABASE_URL': 'old-shell-value', 'KEEP': 'unchanged'}
-            self.assertEqual(load_workspace_env(path, environ=environment), ('VSC_DATABASE_URL',))
-            self.assertEqual(environment, {'VSC_DATABASE_URL': 'local-value', 'KEEP': 'unchanged'})
+            result = self.run_settings(directory, 'VSC_DATABASE_URL=file-app\nVSC_TEST_DATABASE_URL=file-test\n',
+                {'VSC_DATABASE_URL': 'old-app', 'VSC_TEST_DATABASE_URL': 'old-test'})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), ['file-app', 'file-test', '.vsc-resource-media'])
 
-    def test_missing_file_is_optional_and_explicit_isolation_can_disable_loading(self):
+    def test_missing_file_uses_defaults_and_process_config(self):
         with tempfile.TemporaryDirectory() as directory:
-            self.assertEqual(load_workspace_env(Path(directory)/'absent', environ={}), ())
+            result = self.run_settings(directory, environment={
+                'VSC_DATABASE_URL': 'process-app', 'VSC_TEST_DATABASE_URL': 'process-test'})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), ['process-app', 'process-test', '.vsc-resource-media'])
+
+    def test_explicit_isolation_disables_dotenv_even_when_it_exists(self):
         self.assertIsNone(workspace_env_path({'VSC_ENV_FILE': ''}))
-        self.assertEqual(load_workspace_env(environ={'VSC_ENV_FILE': ''}), ())
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_settings(directory, 'VSC_DATABASE_URL=must-not-load\n',
+                {'VSC_ENV_FILE': '', 'VSC_DATABASE_URL': 'isolated-app', 'VSC_TEST_DATABASE_URL': 'isolated-test'})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)[:2], ['isolated-app', 'isolated-test'])
 
     def test_errors_do_not_echo_config_values(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory)/'.env'
             for content in ("BAD KEY=private-credential", "TOKEN='private-credential", "TOKEN=a\x00private-credential"):
-                path.write_text(content)
-                with self.assertRaises(ConfigurationError) as raised:
-                    read_env_file(path)
-                self.assertNotIn('private-credential', str(raised.exception))
+                with self.subTest(content=content[:6]):
+                    result = self.run_settings(directory, content)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('ConfigurationError', result.stderr)
+                    self.assertNotIn('private-credential', result.stderr + result.stdout)
 
-    def test_fresh_python_host_import_uses_env_file_without_shell_exports(self):
+    def test_existing_custom_connection_key_and_file_key_have_same_entry(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory)/'.env'
-            path.write_text('VSC_DATABASE_URL=synthetic-application\nVSC_TEST_DATABASE_URL=synthetic-test\n')
-            environment = {'PATH': os.environ.get('PATH',''), 'PYTHONPATH': str(ROOT/'src'),
-                           'VSC_ENV_FILE': str(path)}
-            result = subprocess.run([sys.executable, '-c',
-                'import vsc, os, json; print(json.dumps([os.environ.get("VSC_DATABASE_URL"), os.environ.get("VSC_TEST_DATABASE_URL")]))'],
-                cwd=directory, env=environment, text=True, capture_output=True)
+            result = self.run_settings(directory, 'OTHER_CONNECTION=custom-app\nVSC_DATABASE_URL=regular-app\n',
+                code='from vsc.configuration import get_config; import json; '
+                     'print(json.dumps([get_config("OTHER_CONNECTION"), get_config("VSC_DATABASE_URL")]))')
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), ['synthetic-application', 'synthetic-test'])
+            self.assertEqual(json.loads(result.stdout), ['custom-app', 'regular-app'])
+
+    def test_workspace_root_loads_dotenv_from_other_cwd_without_exports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/'workspace'
+            root.mkdir()
+            (root/'workflow').mkdir()
+            (root/'workflow/kernel.json').write_text('{}')
+            (root/'.env').write_text('VSC_DATABASE_URL=root-app\nVSC_TEST_DATABASE_URL=root-test\n')
+            env = {'PATH': os.environ.get('PATH', ''), 'PYTHONPATH': str(ROOT/'src'),
+                   'VSC_WORKFLOW_ROOT': str(root)}
+            result = subprocess.run([sys.executable, '-c',
+                'from vsc.configuration import settings; import json; '
+                'print(json.dumps([settings.DATABASE_URL, settings.TEST_DATABASE_URL]))'],
+                cwd=directory, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), ['root-app', 'root-test'])
 
     def test_example_uses_two_databases_on_same_port(self):
-        from urllib.parse import urlsplit
-        example = read_env_file(ROOT/'.env.example')
-        application, test = [urlsplit(example[key]) for key in ('VSC_DATABASE_URL','VSC_TEST_DATABASE_URL')]
-        self.assertEqual((application.hostname, application.port), (test.hostname, test.port))
-        self.assertTrue(test.path.endswith('_test'))
-        self.assertNotEqual(application.path, test.path)
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_settings(directory, (ROOT/'.env.example').read_text())
+            self.assertEqual(result.returncode, 0, result.stderr)
+            application, test = [urlsplit(url) for url in json.loads(result.stdout)[:2]]
+            self.assertEqual((application.hostname, application.port), (test.hostname, test.port))
+            self.assertTrue(test.path.endswith('_test'))
+            self.assertNotEqual(application.path, test.path)

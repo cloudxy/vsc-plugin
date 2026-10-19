@@ -30,7 +30,7 @@ v0.25.0 直接切换到分组命令路径，旧顶层脚本、模块别名、ser
 
 ## 依赖
 
-Python 最低版本为 3.9。旧项目状态、内核路由和离线校验仅使用标准库。新资源面板、PostgreSQL 和 S3 存储按需安装。
+Python 最低版本为 3.9。旧项目文件状态与内核路由保留标准库入口；应用初始化配置统一依赖 Dynaconf，入口为 `src/vsc/configuration.py`，默认值位于 `config/default/settings.toml`，本机值位于根目录 `.env`。数据库、媒体与素材库消费者通过该入口读取，禁止重复维护 dotenv 解析或默认值。新资源面板、PostgreSQL 和 S3 存储按需安装。
 
 ```bash
 uv sync --locked --extra web --extra postgres --extra test

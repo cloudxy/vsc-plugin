@@ -1,10 +1,10 @@
 """CLI and AI entry to the same resource use cases as the built-in panel."""
 import argparse
 import json
-import os
 from pathlib import Path
 import sys
 from vsc.bootstrap import service_from_environment
+from vsc.configuration import get_config
 
 WRITE_ACTIONS = {
     "create_object", "create_artifact", "decide_artifact", "register_media", "propose_binding", "record_review",
@@ -111,7 +111,7 @@ def main(argv=None):
             result = run_migration_args(args, service.store if service else None)
         elif args.command == "stage":
             from vsc.adapters.storage.local.store import LocalStorage
-            storage = LocalStorage(args.media_root or os.environ.get("VSC_MEDIA_ROOT", ".vsc-resource-media"))
+            storage = LocalStorage(args.media_root or get_config("VSC_MEDIA_ROOT"))
             with Path(args.file).open("rb") as stream:
                 result = storage.stage_upload(stream, Path(args.file).name)
         else:

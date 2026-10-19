@@ -1,0 +1,2 @@
+# Shared application defaults. Local connections belong in the root .env.
+MEDIA_ROOT = ".vsc-resource-media"
