@@ -119,6 +119,6 @@ python3 -B tests/run.py --test post.integration.test_media_qa --durations 10 --r
 
 ## 可选数据库与网页验证
 
-测试框架使用标准库 unittest；统一配置使用 Dynaconf，网页／PostgreSQL 专项使用 `uv sync --locked --all-extras` 声明的依赖。测试入口自动选择本项目 `.venv`，从 `.env` 读取 `VSC_TEST_DATABASE_URL`；该项必须指向允许创建临时 schema 的测试库，测试自行创建随机 schema 并清理。缺少连接或依赖会报告 skipped，不能当作真实数据库验证通过。新预览专项使用实际 FFmpeg／Poppler；离线 Provider 替身不产生线上计费。
+测试框架使用标准库 unittest；统一配置使用 Dynaconf，网页／PostgreSQL 专项使用 `uv sync --locked --all-extras` 声明的依赖。测试入口自动选择本项目 `.venv`，从 `config/.env` 读取 `VSC_TEST_DATABASE_URL`；该项必须指向允许创建临时 schema 的测试库，测试自行创建随机 schema 并清理。缺少连接或依赖会报告 skipped，不能当作真实数据库验证通过。新预览专项使用实际 FFmpeg／Poppler；离线 Provider 替身不产生线上计费。
 
 影响分析覆盖 `src/vsc/`、`tools/maintenance/` 与分组 `scripts/`。入口和测试领域包采用独立命名空间；修改期间只运行受影响模块，最终提交／推送按改动范围由钩子验证，不额外重复。

@@ -2,7 +2,7 @@
 
 维护流程见 [vsc-architecture](../../skills/vsc-architecture/SKILL.md)；本地 CI 的检查项见 [`scripts/maintenance/local_ci.py`](../../scripts/maintenance/local_ci.py) 的说明。本页说明本机钩子与常用命令。
 
-检查入口自动使用工作区已初始化的 `.venv` Python，数据库连接从项目 `.env` 读取，无需先激活虚拟环境或加载 shell 配置。跟踪文件门禁会拒绝真实 `.env`，只允许 `.env.example`。
+检查入口自动使用工作区已初始化的 `.venv` Python，数据库连接从项目 `config/.env` 读取，无需先激活虚拟环境或加载 shell 配置。跟踪文件门禁会拒绝真实 `config/.env`，只允许 `config/.env.example`。
 
 ## 启用与常用命令
 

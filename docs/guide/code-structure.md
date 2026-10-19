@@ -13,6 +13,8 @@
 | `src/vsc/knowledge/` | 创作方法、制作规格和检索 |
 | `src/vsc/adapters/` | PostgreSQL/SQLite/旧 JSON、存储、供应商、媒体探测与剪辑引擎适配 |
 | `src/vsc/interfaces/` | CLI 和内置 FastAPI 资源面板 |
+| `config/` | 项目配置、公共默认值、配置模板与本机 MCP 连接定义 |
+| `.vsc-local/` | 本机启动器、运行数据和验证证据，不保存配置值 |
 | `migrations/postgres/` | PostgreSQL 的唯一版本化迁移历史 |
 | `tools/maintenance/` | Vendor、本地 CI、Git 提交检查等工程维护工具 |
 | `scripts/<职责>/` | 实际 CLI 入口；加载工作区并直接调用所属模块的 `main` |
@@ -30,7 +32,7 @@ v0.25.0 直接切换到分组命令路径，旧顶层脚本、模块别名、ser
 
 ## 依赖
 
-Python 最低版本为 3.9。旧项目文件状态与内核路由保留标准库入口；应用初始化配置统一依赖 Dynaconf，入口为 `src/vsc/configuration.py`，默认值位于 `config/default/settings.toml`，本机值位于根目录 `.env`。数据库、媒体与素材库消费者通过该入口读取，禁止重复维护 dotenv 解析或默认值。新资源面板、PostgreSQL 和 S3 存储按需安装。
+Python 最低版本为 3.9。旧项目文件状态与内核路由保留标准库入口；应用初始化配置统一依赖 Dynaconf，入口为 `src/vsc/configuration.py`，默认值位于 `config/default/settings.toml`，本机值位于 `config/.env`。数据库、媒体与素材库消费者通过该入口读取，禁止重复维护 dotenv 解析或默认值。新资源面板、PostgreSQL 和 S3 存储按需安装。
 
 ```bash
 uv sync --locked --extra web --extra postgres --extra test

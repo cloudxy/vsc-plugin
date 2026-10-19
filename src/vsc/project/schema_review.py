@@ -69,7 +69,7 @@ def main(argv=None):
     if args.database_env:
         url = get_config(args.database_env)
         if not url:
-            parser.error("未加载 " + args.database_env + "；请在工作区根目录 .env 中配置后重新启动工具")
+            parser.error("未加载 " + args.database_env + "；请在工作区config/.env 中配置后重新启动工具")
         if args.schema and not args.schema.replace("_", "").isalnum():
             parser.error("schema 名称只能含字母、数字和下划线")
         options = {"options": "-csearch_path=" + args.schema} if args.schema else {}

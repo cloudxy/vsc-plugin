@@ -12,11 +12,11 @@ def workspace_env_path(environ=None):
     if "VSC_ENV_FILE" in env:
         return Path(env["VSC_ENV_FILE"]).expanduser() if env["VSC_ENV_FILE"] else None
     if env.get("VSC_WORKFLOW_ROOT"):
-        return Path(env["VSC_WORKFLOW_ROOT"]).expanduser() / ".env"
+        return Path(env["VSC_WORKFLOW_ROOT"]).expanduser() / "config/.env"
     source_root = Path(__file__).resolve().parents[2]
     if (source_root / "workflow/kernel.json").is_file():
-        return source_root / ".env"
-    return Path.cwd() / ".env"
+        return source_root / "config/.env"
+    return Path.cwd() / "config/.env"
 
 
 def _check_dotenv(path):
@@ -36,7 +36,7 @@ def _check_dotenv(path):
 
 
 def create_settings(root=None, *, env_file=None):
-    """Defaults < process settings < the project's .env < explicit CLI options.
+    """Defaults < process settings < config/.env < explicit CLI options.
 
     Like hcdataspider, use explicit settings paths, a project prefix, merging and
     dotenv_override. VSC_ENV_FILE='' isolates a process from the local file.

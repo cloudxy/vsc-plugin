@@ -24,9 +24,14 @@ def git(root, *args):
 
 class TestTracked(unittest.TestCase):
     def test_real_initialization_files_are_rejected_but_example_is_allowed(self):
-        problems = LOCAL_CI.tracked_problems(['.env', '.env.local', 'config/.env.prod', '.env.example'])
-        self.assertEqual(len(problems), 3)
+        problems = LOCAL_CI.tracked_problems(['.env', '.env.local', 'config/.env', 'config/.env.prod',
+                                             '.env.example', 'config/.env.example'])
+        self.assertEqual(len(problems), 5)
         self.assertTrue(all('本机初始化配置' in value for value in problems))
+
+    def test_local_mcp_connection_definitions_are_not_tracked(self):
+        self.assertEqual(len(LOCAL_CI.tracked_problems(['config/mcp/connections/postgres.yaml'])), 1)
+        self.assertEqual(LOCAL_CI.tracked_problems(['config/README.md', 'config/default/settings.toml']), [])
     def test_repository_sources_and_vendor_declarations_pass(self):
         paths = ["skills/vsc/SKILL.md", "scripts/project/state.py", "vendor/README.md", "vendor/sources.lock.json", "vendor/THIRD_PARTY.md"]
         self.assertEqual(LOCAL_CI.tracked_problems(paths), [])

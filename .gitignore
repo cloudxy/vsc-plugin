@@ -39,4 +39,5 @@ __pycache__/
 # 本机初始化配置只保留示例；真实连接与凭据不提交。
 .env
 .env.*
-!.env.example
+!/config/.env.example
+/config/mcp/
