@@ -103,9 +103,10 @@ def dependency_requirements(profile, artifact_type):
 from vsc.assets.role_memory import RoleMemoryService
 from vsc.assets.source_resource import SourceResourceService
 from vsc.assets.resource_model import ResourceModelService
+from vsc.assets.feedback import ReviewService
 
 
-class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService):
+class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
@@ -147,10 +148,16 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                                          limit=limit, modality=modality, **filters)
 
     def get_media(self, project_id, media_id):
-        return self.store.get_media(project_id, media_id)
+        value = self.store.get_media(project_id, media_id)
+        value["review_history"] = self.get_review_history(project_id, media_id=media_id)
+        value["review_targets"] = self._reviews().targets(project_id, media_id=media_id)
+        return value
 
     def get_artifact_version(self, project_id, artifact_id):
-        return self.store.get_artifact_version(project_id, artifact_id)
+        value = self.store.get_artifact_version(project_id, artifact_id)
+        value["review_history"] = self.get_review_history(project_id, artifact_id=artifact_id)
+        value["review_targets"] = self._reviews().targets(project_id, artifact_id=artifact_id)
+        return value
 
     def get_source_version(self, project_id, source_id):
         return self.store.get_source_version(project_id, source_id)
@@ -258,6 +265,8 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         from vsc.assets.script_inputs import editor_inputs
         value = editor_inputs(self, project_id, self.store.get_script_draft(project_id, scope_key))
         value["suggestion_runs"] = self.store.list_script_suggestion_runs(project_id, scope_key)
+        for note in value.get("notes", []):
+            note["review_history"] = self.get_review_history(project_id, script_note_id=note["id"])["items"][0]
         return value
 
     def resume_script_suggestions(self, project_id, payload, **kw):

@@ -274,7 +274,11 @@
       ],
       "sources": [
         "yale-camera"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-assets/references/visual-attention-light.md",
+        "anchor": "focus-attention"
+      }
     },
     {
       "id": "color-pattern",
@@ -304,7 +308,11 @@
       ],
       "sources": [
         "yale-camera"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-assets/references/visual-attention-light.md",
+        "anchor": "color-pattern"
+      }
     },
     {
       "id": "space-blocking",
@@ -334,7 +342,11 @@
       ],
       "sources": [
         "yale-stage"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "space-blocking"
+      }
     },
     {
       "id": "light-identity",
@@ -364,7 +376,11 @@
       ],
       "sources": [
         "yale-stage"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-assets/references/visual-attention-light.md",
+        "anchor": "light-identity"
+      }
     },
     {
       "id": "costume-state",
@@ -424,7 +440,11 @@
       ],
       "sources": [
         "columbia-axis"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "axis-map"
+      }
     },
     {
       "id": "eyeline-match",
@@ -454,7 +474,11 @@
       ],
       "sources": [
         "columbia-eye"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "eyeline-match"
+      }
     },
     {
       "id": "match-action",
@@ -485,7 +509,11 @@
       ],
       "sources": [
         "yale-edit"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-post/references/sound-picture-rhythm.md",
+        "anchor": "match-action"
+      }
     },
     {
       "id": "establish-return",
@@ -604,7 +632,11 @@
       ],
       "sources": [
         "hitchcock"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-post/references/sound-picture-rhythm.md",
+        "anchor": "sound-bridge"
+      }
     },
     {
       "id": "visual-dialogue",
@@ -633,7 +665,11 @@
       ],
       "sources": [
         "hitchcock"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-script/references/scene-action.md",
+        "anchor": "visual-dialogue"
+      }
     },
     {
       "id": "reveal-detail",
@@ -755,7 +791,11 @@
       ],
       "sources": [
         "bfi-gesture"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-script/references/subtext-performance.md",
+        "anchor": "gesture-subtext"
+      }
     },
     {
       "id": "performance-context",
@@ -815,7 +855,11 @@
       ],
       "sources": [
         "yale-sound"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-sound/references/voice-space.md",
+        "anchor": "sound-world"
+      }
     },
     {
       "id": "offscreen-cause",
@@ -845,7 +889,11 @@
       ],
       "sources": [
         "yale-sound"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-post/references/sound-picture-rhythm.md",
+        "anchor": "offscreen-cause"
+      }
     },
     {
       "id": "dialogue-space",
@@ -875,7 +923,11 @@
       ],
       "sources": [
         "yale-sound"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-sound/references/voice-space.md",
+        "anchor": "dialogue-space"
+      }
     },
     {
       "id": "action-geometry",
@@ -1027,7 +1079,11 @@
       ],
       "sources": [
         "bbc-dialogue"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-script/references/subtext-performance.md",
+        "anchor": "dialogue-subtext"
+      }
     },
     {
       "id": "dialogue-environment",
@@ -1086,7 +1142,11 @@
       ],
       "sources": [
         "bfi-short-script"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-script/references/scene-action.md",
+        "anchor": "short-film-focus"
+      }
     },
     {
       "id": "episode-causal-handoff",

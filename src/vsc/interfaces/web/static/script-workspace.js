@@ -759,6 +759,10 @@ export function createScriptWorkspace(container, ctx) {
         el('small', 'note-baseline', baseline),
         el('small', '', `${note.author} · ${String(note.created_at || '').slice(0, 19)} · ${{open: '待处理', resolved: '已解决', dismissed: '已忽略'}[note.status]}`));
       if (note.status === 'open') {
+        if(note.line_id && note.base_draft_revision!=null){
+          const action=(label,newAttempt=false)=>{const propose=el('button','',label),target=session,key=crypto.randomUUID();propose.addEventListener('click',async()=>{if(!sameSession(target))return;propose.disabled=true;try{await waitForSave();if(!sameSession(target))return;await write('review-process',{script_note_id:note.id,...(newAttempt?{new_attempt:true}:{})},false,target,key);if(sameSession(target))await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}finally{if(sameSession(target))propose.disabled=false;}});return propose;};
+          item.append(action('按此意见提出局部修改'));if(note.review_history?.responses?.length)item.append(action('明确新一轮局部修改',true));
+        }
         const resolve = el('button', '', '解决');
         resolve.addEventListener('click', async () => {
           const reason = prompt('解决说明：'); if (!reason) return;
@@ -771,6 +775,7 @@ export function createScriptWorkspace(container, ctx) {
         });
         item.append(resolve, dismiss);
       }
+      if(note.review_history){const history=el('div','note-results');for(const response of note.review_history.responses || []){history.append(el('p','',response.explanation),el('p','hint',response.limitations));for(const run of response.runs || []){history.append(el('p','',({completed:'已有局部建议，请在差异区决定',submission_unknown:'提交结果待核实，不会自动重发',failed:'此次处理失败，原意见保留',stale:'稿次已变化，请重新定位'})[run.status] || '仍在处理，刷新回看'));for(const suggestion of run.suggestions || [])history.append(el('s','',suggestion.before_value),el('b','',suggestion.after_value));}}item.append(history);}
       list.append(item);
     }
     if (!notes.length) list.append(el('li', 'hint', '还没有批注；在台词或行动行点“批注”。'));

@@ -5,6 +5,8 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 # VSC 制作
 
+需要查阅专业案例时按[固定读取](../vsc/references/method-practice.md)只读当前执行问题的章节，将表达要求映射实际支持的请求/参考或后期任务；方法建议不会增加用量、授权或解除原Gate。
+
 只根据已批准的 ShotPlan、AssetBible、声音方案和项目策略生产候选 take；图像、视频、音频候选都不是自动选中版本。
 
 按[专业制作与返工控制](../vsc/references/creative-production.md)固定必要条件、容差和停止条件；用 `scripts/production/quality.py check <检查包.json> --root <证据目录>` 核对要求到实际输入字段的覆盖，并按逻辑镜头／用途跨新任务累计缺陷。用 `scripts/production/run.py plan --quality-plan` 将检查包固定到 run，批准、执行和付费提交复核会实际阻断缺项、漂移与停止阈值。预演前本地有限试片使用 `--phase trial --trial-spec`，复用已有 pilot 上下文、script Gate、上游批准与共享预算；试片不是正式采用，细则见同一方法文档。数据库项目使用原权威入口。达到约定阈值先比较局部修复或换方法；报告未知不能视为质量通过。

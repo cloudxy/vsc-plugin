@@ -252,9 +252,25 @@ class RoleMemoryRepository:
             return {"id": version["memory_id"], "version_id": version["id"], "status": outcome, "decision_id": decision_id}
         return self._mutate(project_id, "decide_role_memory", payload, callback=work, **kw)
 
-    def create_role_dispatch(self, project_id, payload, **kw):
+    def create_role_dispatch(self, project_id, payload, _packet_builder=None, **kw):
         def work(conn, project):
-            packet = required(payload, "packet")
+            if _packet_builder and payload.get("artifact_note_id") and payload.get("new_attempt") is not True:
+                from .review_store import ReviewRepository
+                ReviewRepository(self).source(conn, project["id"], payload, current=True)
+                previous = conn.execute(select(S.role_dispatches, S.review_dispatches.c.response_id).join(S.review_dispatches,
+                    (S.review_dispatches.c.project_id == S.role_dispatches.c.project_id) &
+                    (S.review_dispatches.c.dispatch_id == S.role_dispatches.c.id)).join(S.review_responses,
+                        (S.review_responses.c.project_id == S.review_dispatches.c.project_id) &
+                        (S.review_responses.c.id == S.review_dispatches.c.response_id)).where(
+                            S.role_dispatches.c.project_id == project["id"],
+                            S.review_responses.c.artifact_note_id == payload["artifact_note_id"])
+                    .order_by(S.role_dispatches.c.created_at.desc()).limit(1)).mappings().first()
+                if previous:
+                    if previous["expires_at"] <= datetime.now(timezone.utc):
+                        raise Conflict("原专业任务已到期；原意见和结果保留，可明确发起新一轮处理", "review_dispatch_expired")
+                    return {"dispatch_id": previous["id"], "context_id": previous["context_id"], "packet": previous["packet"],
+                            "response_id": previous["response_id"], "reused": True}
+            packet = _packet_builder(conn, project) if _packet_builder else required(payload, "packet")
             if not isinstance(packet, dict):
                 raise ResourceError("角色任务包必须是对象", "invalid_role_context")
             errors = validate_packet(packet, current_card=self._role(packet.get("role", {}).get("id")))
@@ -319,7 +335,17 @@ class RoleMemoryRepository:
                     raise ResourceError("任务包记忆与角色策略或固定版本不符", "context_memory_policy")
                 conn.execute(insert(S.dispatch_memory_refs).values(project_id=project["id"], dispatch_id=d["id"],
                     memory_version_id=m["version_id"], decision_id=m["decision_id"]))
-            return {"dispatch_id": d["id"], "context_id": packet["context_id"], "packet": packet}
+            response_id = None
+            if payload.get("artifact_note_id"):
+                from .review_store import ReviewRepository, ROLES
+                reviews = ReviewRepository(self)
+                _, note = reviews.source(conn, project["id"], payload, current=True)
+                if d["role_id"] != ROLES[note["category"]] or note["artifact_id"] not in {a["id"] for a in packet["inputs"]}:
+                    raise ResourceError("专业角色或固定输入与原意见不符", "review_dispatch_mismatch")
+                response_id = reviews.response(conn, project["id"], payload, "professional", kw["actor"],
+                    limitations="已派给原专业角色，尚无实际结果；返回新产物后请回看，派单不表示完成。")
+                conn.execute(insert(S.review_dispatches).values(project_id=project["id"], response_id=response_id, dispatch_id=d["id"]))
+            return {"dispatch_id": d["id"], "context_id": packet["context_id"], "packet": packet, "response_id": response_id}
         return self._mutate(project_id, "create_role_dispatch", payload, callback=work, **kw)
 
     def get_role_dispatch(self, project_id, dispatch_id):
@@ -416,6 +442,21 @@ class RoleMemoryRepository:
                 artifact = self._one(conn, S.artifact_versions, project["id"], ref["id"])
                 if artifact["sha256"] != ref["sha256"]:
                     raise ResourceError("返回产物固定摘要不符", "return_artifact_sha")
+                original = conn.execute(select(S.artifact_review_notes.c.artifact_id).join(S.review_responses,
+                    (S.review_responses.c.project_id == S.artifact_review_notes.c.project_id) &
+                    (S.review_responses.c.artifact_note_id == S.artifact_review_notes.c.id)).join(S.review_dispatches,
+                        (S.review_dispatches.c.project_id == S.review_responses.c.project_id) &
+                        (S.review_dispatches.c.response_id == S.review_responses.c.id)).where(
+                            S.review_dispatches.c.project_id == project["id"],
+                            S.review_dispatches.c.dispatch_id == stored["id"])).scalar_one_or_none()
+                if original:
+                    source = self._one(conn, S.artifact_versions, project["id"], original)
+                    dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
+                        S.artifact_dependencies.c.project_id == project["id"],
+                        S.artifact_dependencies.c.artifact_id == artifact["id"])).scalars())
+                    if (artifact["id"] == original or artifact["artifact_type"] != source["artifact_type"] or
+                            (artifact["supersedes_id"] != original and original not in dependencies)):
+                        raise ResourceError("专业返回须为原类型的新产物并明确依赖或修订被审版本", "review_result_mismatch")
                 conn.execute(insert(S.dispatch_result_artifacts).values(project_id=project["id"], return_id=row_id, artifact_id=ref["id"]))
             return {"return_id": row_id, "memory_proposals": proposals, "closed": payload.get("closed", True) is True}
         return self._mutate(project_id, "return_role_dispatch", payload, callback=work, **kw)

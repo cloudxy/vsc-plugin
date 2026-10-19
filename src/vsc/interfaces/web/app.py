@@ -24,6 +24,7 @@ from vsc.interfaces.web.script_workspace import install_script_routes
 from vsc.interfaces.web.local_production import install_local_routes
 from vsc.interfaces.web.memory import install_memory_routes
 from vsc.interfaces.web.source_resource import install_source_resource_routes
+from vsc.interfaces.web.review import install_review_routes
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -271,6 +272,7 @@ def create_app(config=None, catalog=None, service=None):
     install_local_routes(router, catalog, etag)
     install_memory_routes(router, catalog, etag, actor)
     install_source_resource_routes(router, catalog, etag)
+    install_review_routes(router, catalog, etag, actor)
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

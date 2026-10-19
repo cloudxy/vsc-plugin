@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0010_source_resources"
+SCHEMA_REVISION = "0011_review_feedback"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -889,7 +889,63 @@ for _name in RESOURCE_MODEL_TABLES:
 # links are immutable. New revisions append; there is no independent editing API.
 # Replace asset_identities asset_kind CHECK using IDENTITY_KINDS (10 codes).
 
-APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + (
+artifact_review_notes = project_table("artifact_review_notes",
+    uid("artifact_id", nullable=False), Column("artifact_sha256", String(64), nullable=False),
+    Column("category", Text, nullable=False), Column("body", Text, nullable=False),
+    Column("author", Text, nullable=False), stamp(),
+    *ref("shot_design_units", "design_unit_id", nullable=True),
+    *ref("asset_spec_versions", "spec_version_id", nullable=True),
+    *ref("asset_use_instances", "instance_id", nullable=True),
+    *ref("render_versions", "render_id", nullable=True),
+    *ref("render_outputs", "render_output_id", nullable=True),
+    Column("media_sha256", String(64)), Column("start_frame", Integer), Column("end_frame", Integer),
+    ForeignKeyConstraint(["project_id", "artifact_id", "artifact_sha256"],
+                         ["artifact_versions.project_id", "artifact_versions.id", "artifact_versions.sha256"]),
+    CheckConstraint("length(body) BETWEEN 1 AND 4000", name="body"),
+    CheckConstraint("(category='director' AND design_unit_id IS NOT NULL AND spec_version_id IS NULL AND instance_id IS NULL AND render_id IS NULL) OR "
+                    "(category='asset' AND num_nonnulls(spec_version_id,instance_id)=1 AND design_unit_id IS NULL AND render_id IS NULL) OR "
+                    "(category IN ('subtitle','edit') AND render_id IS NOT NULL AND render_output_id IS NOT NULL AND media_sha256 IS NOT NULL "
+                    "AND start_frame IS NOT NULL AND end_frame IS NOT NULL AND start_frame >= 0 AND end_frame > start_frame AND design_unit_id IS NULL AND spec_version_id IS NULL AND instance_id IS NULL)", name="typed_target"),
+    CheckConstraint("(render_id IS NOT NULL) OR (render_output_id IS NULL AND media_sha256 IS NULL AND start_frame IS NULL AND end_frame IS NULL)", name="render_range"))
+script_note_anchors = Table("script_note_anchors", metadata,
+    uid("project_id", nullable=False), *ref("script_notes", "note_id"),
+    Column("kind", Text, nullable=False), Column("field", Text, nullable=False),
+    Column("excerpt", Text, nullable=False), Column("start_char", Integer, nullable=False),
+    Column("end_char", Integer, nullable=False),
+    PrimaryKeyConstraint("project_id", "note_id"),
+    CheckConstraint("kind IN ('scene','action','dialogue','silence')", name="kind"),
+    CheckConstraint("field IN ('text','speaker','scene')", name="field"),
+    CheckConstraint("start_char >= 0 AND end_char >= start_char AND end_char <= length(excerpt)", name="character_range"))
+review_responses = project_table("review_responses",
+    *ref("script_notes", "script_note_id", nullable=True),
+    *ref("media_reviews", "media_review_id", nullable=True),
+    *ref("artifact_review_notes", "artifact_note_id", nullable=True),
+    Column("action", Text, nullable=False), Column("explanation", Text, nullable=False),
+    Column("preserve", Text, nullable=False), Column("limitations", Text, nullable=False),
+    Column("author", Text, nullable=False), stamp(),
+    CheckConstraint("num_nonnulls(script_note_id,media_review_id,artifact_note_id)=1", name="one_source"),
+    CheckConstraint("(script_note_id IS NULL OR action='script_suggestions') AND "
+                    "(media_review_id IS NULL OR action IN ('redo_sound','resample')) AND "
+                    "(artifact_note_id IS NULL OR action='professional')", name="source_action"),
+    CheckConstraint("action IN ('script_suggestions','redo_sound','resample','replace_instance','professional')", name="action"))
+
+def review_bridge(name, left_table, left_field, right_table, right_field):
+    return Table(name, metadata, uid("project_id", nullable=False),
+        *ref(left_table, left_field), *ref(right_table, right_field),
+        PrimaryKeyConstraint("project_id", left_field, right_field),
+        UniqueConstraint("project_id", right_field))
+
+review_script_runs = review_bridge("review_script_runs", "review_responses", "response_id", "script_suggestion_runs", "run_id")
+script_run_suggestions = review_bridge("script_run_suggestions", "script_suggestion_runs", "run_id", "script_suggestions", "suggestion_id")
+review_proposals = review_bridge("review_proposals", "review_responses", "response_id", "artifact_versions", "artifact_id")
+review_dispatches = review_bridge("review_dispatches", "review_responses", "response_id", "role_dispatches", "dispatch_id")
+REVIEW_TABLES = ("artifact_review_notes", "script_note_anchors", "review_responses", "review_script_runs", "script_run_suggestions", "review_proposals", "review_dispatches")
+for _name in REVIEW_TABLES:
+    for _col in metadata.tables[_name].c:
+        if _col.name.endswith("_id") and _col.name != "project_id":
+            Index("ix_%s_project_%s" % (_name, _col.name), metadata.tables[_name].c.project_id, _col)
+
+APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
     "provider_configurations",
     "budget_limit_versions",

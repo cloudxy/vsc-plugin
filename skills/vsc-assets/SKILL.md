@@ -5,6 +5,8 @@ description: "Design VSC character, location, prop, action and voice assets befo
 
 # VSC 资产
 
+主体识别、色彩或光源有问题时，按[固定读取](../vsc/references/method-practice.md)选[注意力与光线练习](references/visual-attention-light.md)，只准备当前机位所需参考；教学示例身份/服装/声线不进入新作品默认值。
+
 按[资产最小用途与专业拆解](../vsc/references/creative-production.md)为每个参考视图、状态和声源写具体下游用途；先检索再补缺，不默认四视图、表情全集或无用道具。稳定身份、变体、表演与声线分开；验收按实际画幅与用途所需信息，辅助图不能承担其看不见的身份细节证明。
 
 先用 `scripts/knowledge/search.py <词> --in all` 检索本机素材、原生制作规格、方法卡与作品。原生规格覆盖人物、服装、动物、道具、交通、场景、风格、特效、动作、打斗、表演、运镜、转场、人声、环境声、拟音、音乐、字体、字幕和图形全部 20 类；`--in recipes` 可单查，无需安装。方法库现有 34 条卡、14 个来源，供方法参考，不自动成为项目已批准能力。

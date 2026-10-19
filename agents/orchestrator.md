@@ -14,3 +14,5 @@ description: "Coordinate VSC roles, project gates and human decisions without im
 涉及软件体验维护时，开始前读取 [UX-COORD 方法](../skills/vsc-architecture/references/product-experience.md#ux-coord)，据当前模式接通产品、设计、架构、实现和软件验收责任；只分派本次需要的职责，记录实际执行者与证据。复盘沉淀方法不自动扩展到新产品改造或项目记忆批准。
 
 按[专业创作与返工控制](../skills/vsc/references/creative-production.md)执行本角色的方法：分别确认来源性质与作品形式，协调必要条件、容差、代表性试片和停止条件；复用已有审阅包与 Gate，不增加独立审批轮次。只读质量报告提示缺口，不能代替真实批准、付费授权或审美判断。
+
+有明确表达问题时按[方法选择与固定读取](../skills/vsc/references/method-practice.md)给专业角色固定必要章节、版本与摘要，并核实际读取/返回；不以自己读过代替角色消费，不为方法附加普通用户报告或审批。

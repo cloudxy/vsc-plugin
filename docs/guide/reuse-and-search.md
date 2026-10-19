@@ -64,6 +64,9 @@ python3 -B scripts/assets/library.py use voice-01 --project projects/雨夜来�
 ```bash
 python3 -B scripts/knowledge/craft.py search "眼神" --stage direct
 python3 -B scripts/knowledge/craft.py show eyeline-match
+python3 -B scripts/knowledge/craft.py show eyeline-match --with-teaching
+# 专业角色接任务后，用上次返回的 teaching_sha256 固定读取：
+python3 -B scripts/knowledge/craft.py show eyeline-match --expected-sha <固定摘要>
 python3 -B scripts/knowledge/craft.py validate
 python3 -B scripts/knowledge/search.py "声音桥" --in all
 python3 -B scripts/knowledge/search.py "对白" --in craft
@@ -73,6 +76,10 @@ python3 -B scripts/knowledge/search.py "递物" --in library --json
 ```
 
 方法库现有 **34 条方法卡、14 个来源**，涉及镜头、场面调度、表演、剪接、声音、对白与短片写作。方法条目的 `source_basis` 是简要概念依据；`principle`、`steps` 和 `pitfalls` 是 VSC 的应用建议。来源标题、机构、链接和核查日期只保存在方法库的 `sources`，条目通过 ID 引用。资料包括耶鲁电影分析教材、哥伦比亚电影语言词汇表、BFI、BBC 及情绪感知研究；库中只保存自行概括与应用，不收录影片素材或文章全文。公开方法是可查阅的建议；项目内受控能力卡的试用、评测和批准仍按 [记忆与学习](../design/memory-and-learning.md) 执行，不自动装入已批准角色上下文。
+
+其中15卡可按需读取六组原创教学，涵盖行动与信息、潜台词与表演、注意力与光线、调度与覆盖、声画节奏、选声与空间。`--with-teaching`返回完整自足章节、适用/不适用例和`teaching_sha256`；无教学卡明确返回null。摘要覆盖卡、所引来源与该章节，改变其中任何内容后旧摘要拒绝，不静默换最新版。每次只选择当前问题需要的方法；超过1600字符软目标仍完整返回，不截断反例。
+
+编排者把方法ID、路径/锚点、发布版本及摘要放入原最小context；专业角色consume后实际固定读取，在原产物定位使用位置和取舍，再按原return回收。具体方法及有限比较见[任务中使用方法](../../skills/vsc/references/method-practice.md)，机器JSON、草拟框架和教材例子的分工见[模板使用](../../templates/README.md)。这些步骤由AI处理，普通用户直接读作品和差异。
 
 统一检索按名称、ID、标签、摘要和正文加权，支持中文相邻双字匹配，多个查询词须同时命中；不是向量检索。结果标注来源域、路径与短摘录；`recipes` 摘要标明“制作规格（非媒体）”，尚未安装也可检索。`--catalog` 指定 craft 方法库文件；自定义规格包用 `scripts/knowledge/recipes.py --catalog` 检索。项目检索覆盖创作对象、登记产物的范围／依赖／状态及工作文本；默认排除原始来源、批准快照、上下文和构建缓存。它不验证产物批准是否仍有效，继续任务须运行 `scripts/project/state.py status`、`next` 并读取有效基线。
 
