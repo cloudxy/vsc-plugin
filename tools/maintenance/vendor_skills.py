@@ -62,6 +62,11 @@ ROUTES = {
         ("mattpocock-skills", "skills/engineering/codebase-design/SKILL.md", "guide", "提供模块、接口、深度、接缝、适配器、杠杆和局部性的共享词汇。"),
         ("mattpocock-skills", "skills/productivity/grilling/SKILL.md", "guide", "在选定架构候选后澄清约束和设计取舍。"),
         ("mattpocock-skills", "skills/engineering/domain-modeling/SKILL.md", "guide", "维护 VSC 术语表和 ADR，使架构决定可追溯。"),
+        ("anthropic-frontend-design", "skills/frontend-design/SKILL.md", "guide", "界面新建或重塑时，采用有意图的视觉、排版与文案方法；保留本次范围和已有设计约束。"),
+        ("vercel-web-interface-guidelines", "command.md", "guide", "使用固定版本的 canonical 原始规则检查界面；不抓取 main 或执行 wrapper。"),
+        ("agency-product-design", "product/product-manager.md", "guide", "参考用户问题、范围取舍与交接方法；VSC 角色身份、权限和记忆规则优先。"),
+        ("agency-product-design", "design/design-ui-designer.md", "guide", "参考信息层级、组件状态和设计交接方法，不加载上游人格或固定指标。"),
+        ("agency-product-design", "design/design-ux-researcher.md", "guide", "参考研究问题和可用性任务设计，未实测不得声称用户研究结论。"),
     ),
 }
 
@@ -124,7 +129,7 @@ def resolve(stage, vendor_root=VENDOR):
         records.append({
             "stage": stage,
             "source_id": source_id,
-            "name": meta.get("name", Path(relative_path).parent.name),
+            "name": meta.get("name") or (Path(relative_path).parent.name if Path(relative_path).name == "SKILL.md" else Path(relative_path).stem),
             "description": meta.get("description", ""),
             "relative_path": skill_path.relative_to(vendor_root).as_posix() if skill_path.is_file() else f"{source_id}/{relative_path}",
             "readiness": readiness if skill_path.is_file() else "missing: install source",

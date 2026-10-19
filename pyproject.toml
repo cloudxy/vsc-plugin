@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vsc-workflow"
-version = "0.35.0"
+version = "0.36.0"
 description = "Provider-neutral short drama workflow and resource panel"
 requires-python = ">=3.9"
 dependencies = []
@@ -40,7 +40,7 @@ namespaces = false
 "share/vsc-workflow/skills/vsc/references" = ["skills/vsc/references/source-handoff.md", "skills/vsc/references/creative-production.md"]
 "share/vsc-workflow/skills/vsc-adapt" = ["skills/vsc-adapt/SKILL.md"]
 "share/vsc-workflow/skills/vsc-architecture" = ["skills/vsc-architecture/SKILL.md"]
-"share/vsc-workflow/skills/vsc-architecture/references" = ["skills/vsc-architecture/references/execution-checks.md"]
+"share/vsc-workflow/skills/vsc-architecture/references" = ["skills/vsc-architecture/references/execution-checks.md", "skills/vsc-architecture/references/product-experience.md"]
 "share/vsc-workflow/skills/vsc-assets" = ["skills/vsc-assets/SKILL.md"]
 "share/vsc-workflow/skills/vsc-continuity" = ["skills/vsc-continuity/SKILL.md"]
 "share/vsc-workflow/skills/vsc-direct" = ["skills/vsc-direct/SKILL.md"]
@@ -52,7 +52,7 @@ namespaces = false
 "share/vsc-workflow/skills/vsc-script" = ["skills/vsc-script/SKILL.md"]
 "share/vsc-workflow/skills/vsc-sound" = ["skills/vsc-sound/SKILL.md"]
 "share/vsc-workflow/skills/vsc-vendor" = ["skills/vsc-vendor/SKILL.md"]
-"share/vsc-workflow/agents" = ["agents/adaptation-editor.md", "agents/asset-director.md", "agents/continuity-supervisor.md", "agents/director.md", "agents/editor.md", "agents/generation-producer.md", "agents/music-supervisor.md", "agents/orchestrator.md", "agents/post-reviewer.md", "agents/remotion-composer.md", "agents/screenwriter.md", "agents/story-analyst.md"]
+"share/vsc-workflow/agents" = ["agents/adaptation-editor.md", "agents/asset-director.md", "agents/continuity-supervisor.md", "agents/director.md", "agents/editor.md", "agents/generation-producer.md", "agents/music-supervisor.md", "agents/orchestrator.md", "agents/post-reviewer.md", "agents/product-designer.md", "agents/product-manager.md", "agents/remotion-composer.md", "agents/screenwriter.md", "agents/story-analyst.md"]
 "share/vsc-workflow/commands" = ["commands/vsc-adapt.md", "commands/vsc-architecture.md", "commands/vsc-assets.md", "commands/vsc-continuity.md", "commands/vsc-direct.md", "commands/vsc-learn.md", "commands/vsc-post.md", "commands/vsc-produce.md", "commands/vsc-remotion.md", "commands/vsc-script.md", "commands/vsc-sound.md", "commands/vsc-vendor.md", "commands/vsc.md"]
 "share/vsc-workflow/knowledge" = ["knowledge/asset-recipes.json", "knowledge/craft.json"]
 "share/vsc-workflow/scripts" = ["scripts/README.md"]
@@ -72,7 +72,7 @@ namespaces = false
 "share/vsc-workflow/docs/governance" = ["docs/governance/production-evidence.md", "docs/governance/vendor-governance.md", "docs/governance/vendor-updates.md"]
 "share/vsc-workflow/docs/design" = ["docs/design/continuity-and-sound.md", "docs/design/creative-production.md", "docs/design/engineering-production.md", "docs/design/memory-and-learning.md", "docs/design/profiles-and-validation.md", "docs/design/remotion.md"]
 "share/vsc-workflow/docs/architecture" = ["docs/architecture/ark-agent-plan-personal.md", "docs/architecture/doubao-audio.md", "docs/architecture/doubao-speech.md", "docs/architecture/generation-adapters.md", "docs/architecture/kernel-refactor.md", "docs/architecture/reference-architecture.md", "docs/architecture/xai-grok-subscription.md"]
-"share/vsc-workflow/docs/releases" = ["docs/releases/v0.10.md", "docs/releases/v0.11.1.md", "docs/releases/v0.11.md", "docs/releases/v0.12.0.md", "docs/releases/v0.13.0.md", "docs/releases/v0.13.1.md", "docs/releases/v0.14.0.md", "docs/releases/v0.15.0.md", "docs/releases/v0.16.0.md", "docs/releases/v0.17.0.md", "docs/releases/v0.17.1.md", "docs/releases/v0.17.2.md", "docs/releases/v0.18.0.md", "docs/releases/v0.18.1.md", "docs/releases/v0.18.2.md", "docs/releases/v0.18.3.md", "docs/releases/v0.18.4.md", "docs/releases/v0.19.0.md", "docs/releases/v0.19.1.md", "docs/releases/v0.19.2.md", "docs/releases/v0.2.md", "docs/releases/v0.20.0.md", "docs/releases/v0.21.0.md", "docs/releases/v0.21.1.md", "docs/releases/v0.22.0.md", "docs/releases/v0.22.1.md", "docs/releases/v0.22.2.md", "docs/releases/v0.23.0.md", "docs/releases/v0.24.0.md", "docs/releases/v0.25.0.md", "docs/releases/v0.26.0.md", "docs/releases/v0.27.0.md", "docs/releases/v0.28.0.md", "docs/releases/v0.29.0.md", "docs/releases/v0.30.0.md", "docs/releases/v0.31.0.md", "docs/releases/v0.32.0.md", "docs/releases/v0.33.0.md", "docs/releases/v0.33.1.md", "docs/releases/v0.34.0.md", "docs/releases/v0.35.0.md", "docs/releases/v0.9.md"]
+"share/vsc-workflow/docs/releases" = ["docs/releases/v0.10.md", "docs/releases/v0.11.1.md", "docs/releases/v0.11.md", "docs/releases/v0.12.0.md", "docs/releases/v0.13.0.md", "docs/releases/v0.13.1.md", "docs/releases/v0.14.0.md", "docs/releases/v0.15.0.md", "docs/releases/v0.16.0.md", "docs/releases/v0.17.0.md", "docs/releases/v0.17.1.md", "docs/releases/v0.17.2.md", "docs/releases/v0.18.0.md", "docs/releases/v0.18.1.md", "docs/releases/v0.18.2.md", "docs/releases/v0.18.3.md", "docs/releases/v0.18.4.md", "docs/releases/v0.19.0.md", "docs/releases/v0.19.1.md", "docs/releases/v0.19.2.md", "docs/releases/v0.2.md", "docs/releases/v0.20.0.md", "docs/releases/v0.21.0.md", "docs/releases/v0.21.1.md", "docs/releases/v0.22.0.md", "docs/releases/v0.22.1.md", "docs/releases/v0.22.2.md", "docs/releases/v0.23.0.md", "docs/releases/v0.24.0.md", "docs/releases/v0.25.0.md", "docs/releases/v0.26.0.md", "docs/releases/v0.27.0.md", "docs/releases/v0.28.0.md", "docs/releases/v0.29.0.md", "docs/releases/v0.30.0.md", "docs/releases/v0.31.0.md", "docs/releases/v0.32.0.md", "docs/releases/v0.33.0.md", "docs/releases/v0.33.1.md", "docs/releases/v0.34.0.md", "docs/releases/v0.35.0.md", "docs/releases/v0.36.0.md", "docs/releases/v0.9.md"]
 "share/vsc-workflow/migrations/postgres" = ["migrations/postgres/alembic.ini", "migrations/postgres/env.py", "migrations/postgres/script.py.mako"]
 "share/vsc-workflow/migrations/postgres/versions" = ["migrations/postgres/versions/0001_resource_graph.py", "migrations/postgres/versions/0002_review_delegation.py", "migrations/postgres/versions/0003_resource_settings.py", "migrations/postgres/versions/0004_trial_adoptions.py", "migrations/postgres/versions/0005_creative_relations.py", "migrations/postgres/versions/0006_script_workspace.py", "migrations/postgres/versions/0007_script_suggestions.py", "migrations/postgres/versions/0008_script_note_baselines.py", "migrations/postgres/versions/0009_role_memory.py"]
 "share/vsc-workflow" = ["README.md", "AGENTS.md", "GLOSSARY.md", "marketplace.json"]

@@ -670,6 +670,124 @@
         ],
         "human_approval": false
       }
+    },
+    {
+      "id": "product-manager",
+      "agent": "agents/product-manager.md",
+      "identity": "VSC 产品经理",
+      "temperament": "以用户任务与证据收敛范围，明确取舍和未知",
+      "authority": "定义软件与工作流需求、优先级和验收任务，不决定作品创作方向或代替人工批准",
+      "memory_scope": "project",
+      "deliverables": [
+        "用户问题与范围说明",
+        "任务优先级与取舍",
+        "产品验收任务与结果"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work",
+          "design",
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
+    },
+    {
+      "id": "product-designer",
+      "agent": "agents/product-designer.md",
+      "identity": "VSC 产品设计师",
+      "temperament": "重视理解、阅读与操作，克制装饰并以实际界面核验",
+      "authority": "设计并复核软件信息、交互与视觉体验，按声明归属编辑，不接管影视资产或人工批准",
+      "memory_scope": "project",
+      "deliverables": [
+        "信息与交互方案",
+        "界面状态与视觉规格",
+        "体验走查与返工建议"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work",
+          "design",
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     }
   ]
 }

@@ -1,5 +1,6 @@
+import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
-const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0,compareRequest:0, view: 'workbench'};
+const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, view: 'workbench'};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
@@ -67,6 +68,7 @@ async function loadScriptWorkspace() {
   if (state.view === 'script') await scriptWorkspace.load({projectId: state.project});
 }
 async function selectObject(id) {
+  if (state.object !== id) resetArtifactReader();
   state.object = id; state.offset = 0;
   const lookup = new Map(state.treeNodes.map(row => [row.id, row]));
   let parent = lookup.get(id)?.parent_id; const visited = new Set();
@@ -84,7 +86,7 @@ async function loadCanvas(focus = null) {
         if (node.kind === 'media') await openMedia(node.entity_id);
         else if (['artifact','artifact_version'].includes(node.kind)) { await switchView('artifacts'); await openArtifact(node.entity_id); }
         else if (node.kind === 'object') { state.view = 'workbench'; await selectObject(node.entity_id); }
-      }),onScope:id=>{state.object=id;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(b=>{const chosen=b.dataset.id===id;b.classList.toggle('active',chosen);if(chosen)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');});},
+      }),onScope:id=>{if(state.object!==id)resetArtifactReader();state.object=id;state.offset=0;$('tree').querySelectorAll('.tree-item').forEach(b=>{const chosen=b.dataset.id===id;b.classList.toggle('active',chosen);if(chosen)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');});},
       onCollection:guard(async section=>{await switchView('workbench');await creativeWorkbench.focus(section);}),onError: error => notice(error.message || String(error)),
     });
   }
@@ -92,6 +94,7 @@ async function loadCanvas(focus = null) {
 }
 async function switchView(view, focus = null) {
   state.view = view;
+  document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('reading-artifacts',view==='artifacts'));
   for (const [tab, target] of [['workbench','creative-workbench'],['script','script-view'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']]) {
     $(target).hidden = tab !== view; $(`tab-${tab}`).setAttribute('aria-selected', String(tab === view));
   }
@@ -135,7 +138,7 @@ async function loadProjects() {
 async function selectProject(id) {
   if (state.project !== id) {
     state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});
-    state.mediaRequest++;state.documentRequest++;state.compareRequest++;$('media-dialog').close();$('compare-dialog').close();$('document').replaceChildren();
+    state.mediaRequest++;resetArtifactReader();state.compareRequest++;$('media-dialog').close();$('compare-dialog').close();
   }
   state.project = id; state.offset = 0; state.resourceRequest++; state.artifactRequest++; state.comparisons.clear(); updateCompare();
   const request = ++state.treeRequest;
@@ -146,7 +149,7 @@ async function selectProject(id) {
   state.writable=project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
   $('project-meta').replaceChildren(el('p', 'hint', `${project.storage_policy || '关系库'} · r${state.revision} · ${project.read_only ? '只读' : '共享服务'}`));
   const selected = (data.nodes || []).find(node => node.id === state.object);
-  if (!paged && !selected) { state.object = null; state.offset = 0; }
+  if (!paged && !selected) { if(state.object!==null)resetArtifactReader();state.object = null; state.offset = 0; }
   state.treeMode=paged?'paged':'legacy';state.treeNodes = data.nodes || [];
   if(paged)renderPagedTree(data,id,request);else renderTree(state.treeNodes);
   if (data.gaps?.length) notice(data.gaps.join('\n'));
@@ -348,28 +351,86 @@ function previewForm(media) {
   field.append(select,button,refresh,el('p','hint','转换由本机持久执行器处理，可续接；预览副本与原素材、正式用途选择分别保存。'));form.append(field);
   form.addEventListener('submit',guard(async event=>{event.preventDefault();const result=await api(`${base()}/preview-jobs`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{media_id:media.id,purpose:select.value,recipe_version:state.previewCapabilities.recipe_version},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;notice(result.status==='failed'?'该预览任务此前失败，请查看错误并明确请求重试。':result.status==='succeeded'?'此配方已有完成的预览副本，刷新状态即可查看。':'预览任务已持久入队，等待本机执行器。完成后刷新状态即可查看。');}));return form;
 }
+function markArtifactSelection() {
+  let selected = null;
+  $('artifacts').querySelectorAll('.artifact-item').forEach(button=>{
+    const active=button.dataset.id===state.selectedArtifact;
+    button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+    if(active){button.setAttribute('aria-current','true');selected=button;}else button.removeAttribute('aria-current');
+  });
+  if(selected)$('document').setAttribute('aria-labelledby',selected.id);
+  else $('document').removeAttribute('aria-labelledby');
+}
+function resetArtifactReader() {
+  state.documentRequest++;state.selectedArtifact=null;
+  $('artifacts').replaceChildren();
+  $('artifacts').setAttribute('aria-busy','false');
+  $('document').replaceChildren(el('p','empty','选择文案或固定版本阅读。'));
+  $('document').setAttribute('aria-label','文案正文');$('document').setAttribute('aria-busy','false');
+  $('document').removeAttribute('data-artifact-id');markArtifactSelection();
+}
+function artifactVersionLabel(artifact) {
+  const status=artifact.status ? names[artifact.status] || artifact.status : artifact.approved===true ? '已批准' : '待决定';
+  const version=artifact.version != null ? `v${artifact.version}` : '固定版本';
+  const current=artifact.current===true ? ' · 当前版本' : artifact.current===false && (artifact.approved===true || artifact.status==='approved') ? ' · 历史版本' : '';
+  return `${version} · ${status}${current}`;
+}
 async function loadArtifacts() {
   const request=++state.artifactRequest, project=state.project, object=state.object;
-  const data=await api(`${base()}/artifacts${state.object ? '?object_id='+encodeURIComponent(state.object) : ''}`);
-  if(request!==state.artifactRequest || project!==state.project || object!==state.object)return;
-  const rows=Array.isArray(data) ? data : data.items || []; $('artifacts').replaceChildren();
-  for(const artifact of [...rows].reverse()){const button=el('button','artifact-item',artifact.type || artifact.name || artifact.id);button.append(el('small','',`${artifact.id} · ${names[artifact.status] || artifact.status || '固定版本'}`));if(artifact.integrity==='mismatch' || artifact.availability==='missing')button.append(badge(artifact.integrity==='mismatch'?'mismatch':'missing','danger'));button.addEventListener('click',guard(()=>openArtifact(artifact.id)));$('artifacts').append(button);}
-  if(!rows.length)$('artifacts').append(el('p','empty','此范围未建立文案版本关系。'));
+  const alive=()=>request===state.artifactRequest && project===state.project && object===state.object;
+  $('artifacts').setAttribute('aria-busy','true');
+  if(!$('artifacts').childElementCount)$('artifacts').append(el('p','empty','正在读取文案版本…'));
+  try {
+    const data=await api(`${base()}/artifacts${object ? '?object_id='+encodeURIComponent(object) : ''}`);
+    if(!alive())return;
+    const rows=Array.isArray(data) ? data : data.items || []; $('artifacts').replaceChildren();
+    for(const artifact of [...rows].reverse()){
+      const button=el('button','artifact-item'),title=el('span','artifact-title',artifactTitle(artifact));
+      button.type='button';button.dataset.id=artifact.id;button.id='artifact-'+encodeURIComponent(artifact.id);
+      button.setAttribute('aria-controls','document');button.append(title);
+      button.append(el('small','artifact-state',artifactVersionLabel(artifact)));
+      if(artifact.integrity==='mismatch' || artifact.availability==='missing')button.append(badge(artifact.integrity==='mismatch'?'mismatch':'missing','danger'));
+      button.addEventListener('click',guard(event=>openArtifact(artifact.id,{focusFrom:event.detail===0?button:null})));$('artifacts').append(button);
+    }
+    if(!rows.length)$('artifacts').append(el('p','empty','此范围未建立文案版本关系。'));
+    markArtifactSelection();
+  } catch(error) {
+    if(!alive())return;
+    const failure=el('section','artifact-list-error'),retry=el('button','','重新读取文案版本');
+    retry.type='button';failure.setAttribute('role','status');
+    failure.append(el('p','empty',`文案版本读取失败：${error.message}`),retry);
+    retry.addEventListener('click',guard(async()=>{if(!alive())return;retry.disabled=true;retry.textContent='正在重试…';await loadArtifacts();}));
+    $('artifacts').replaceChildren(failure);markArtifactSelection();throw error;
+  }
+  finally { if(alive())$('artifacts').setAttribute('aria-busy','false'); }
 }
-async function openArtifact(id) {
-  const project=state.project, request=++state.documentRequest;
-  const artifact=await api(`${base()}/artifacts/${encodeURIComponent(id)}`);if(project!==state.project || request!==state.documentRequest)return;const header=el('header');header.append(el('h2','',artifact.type || artifact.name || artifact.id),el('p','hint',`${artifact.id} · ${names[artifact.status] || artifact.status || ''} · ${names[artifact.integrity] || '固定内容'}`));
-  let content=artifact.content ?? artifact.document ?? '';if(typeof content !== 'string')content=pretty(content);
-  let structured=false;try{const value=JSON.parse(content);content=pretty(value);structured=true;}catch{}
-  $('document').replaceChildren(header,el('pre',structured?'structured':'readable',content || '内容缺失或超过内置阅读限额。'));
+async function openArtifact(id,{focusFrom=null}={}) {
+  const project=state.project, object=state.object, request=++state.documentRequest;
+  const alive=()=>project===state.project && object===state.object && request===state.documentRequest;
+  state.selectedArtifact=id;markArtifactSelection();
+  $('document').replaceChildren(el('p','empty','正在读取文案…'));
+  $('document').setAttribute('aria-busy','true');$('document').removeAttribute('data-artifact-id');
+  let artifact;
+  try { artifact=await api(`${base()}/artifacts/${encodeURIComponent(id)}`); }
+  catch(error) { if(alive()){$('document').replaceChildren(el('p','empty','文案读取失败，请再次选择该版本重试。'));throw error;}return; }
+  finally { if(alive())$('document').setAttribute('aria-busy','false'); }
+  if(!alive())return;
+  const content=artifact.content === null && artifact.document !== undefined ? artifact.document : artifact.content !== undefined ? artifact.content : artifact.document !== undefined ? artifact.document : '';
+  // Legacy envelopes use null for unread file bytes; a JSON null document arrives as the string "null".
+  const unavailable=content===null && artifact.availability != null;
+  const {body,value:fixed}=unavailable ? {body:el('p','empty',artifact.size_bytes>16*1024*1024 ? '正文超过内置阅读限额，请在原文件中阅读完整内容。' : '正文未载入，请核对来源文件是否可读。')} : renderArtifactContent(content);
+  $('document').replaceChildren(body);$('document').setAttribute('aria-label',artifactTitle(artifact));
+  $('document').setAttribute('data-artifact-id',id);$('document').scrollTop=0;
+  const selected=[...$('artifacts').querySelectorAll('.artifact-item')].find(button=>button.dataset.id===id);
+  if(selected){selected.querySelector('.artifact-title').textContent=artifactTitle(artifact);selected.querySelector('.artifact-state').textContent=artifactVersionLabel(artifact);}
   if (artifact.revision != null && state.writable) {
-    let fixed;try{fixed=JSON.parse(content);}catch{}
-    const controls=el('section','detail-panel'),reason=el('input');reason.placeholder='批准或退回所见版本的理由';
+    const controls=el('section','detail-panel artifact-decisions'),reason=el('input');reason.placeholder='批准或退回所见版本的理由';reason.setAttribute('aria-label','版本决定理由');
     const execute=async(action,payload,key)=>{
-      if(project!==state.project || request!==state.documentRequest)throw new Error('项目或所见版本已切换，请重新读取');
+      if(!alive())throw new Error('项目、范围或所见版本已切换，请重新读取');
       if(!state.actor)throw new Error('请先建立人工操作会话');
       const result=await api(`/api/v1/projects/${encodeURIComponent(project)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,expected_revision:artifact.revision,idempotency_key:key,confirmed:true})});
-      if(project===state.project){state.revision=result.revision;await openArtifact(id);}return result;
+      if(project===state.project)state.revision=result.revision;
+      if(alive())await openArtifact(id);return result;
     };
     if(!artifact.approved){
       controls.append(reason);
@@ -383,7 +444,13 @@ async function openArtifact(id) {
     }
     if(controls.childElementCount)$('document').append(controls);
   }
+  const evidence=el('details','artifact-evidence');evidence.append(el('summary','','版本与核验'));
+  evidence.append(el('p','hint',`${artifact.id} · ${artifact.version != null ? 'v'+artifact.version+' · ' : ''}${names[artifact.status] || artifact.status || (artifact.approved ? '已批准' : '待决定')} · ${names[artifact.integrity] || '固定内容'}`));
+  if(artifact.sha256)evidence.append(el('p','hint',`内容摘要：${artifact.sha256}`));
+  $('document').append(evidence);
   if(artifact.integrity==='mismatch')$('document').prepend(el('p','badge danger','该固定版本的文件摘要变化，当前仅供诊断浏览，不能正式消费。'));
+  if(artifact.availability==='missing')$('document').prepend(el('p','badge danger','该固定版本的内容缺失，请核对来源文件。'));
+  if(focusFrom && document.activeElement===focusFrom && state.view==='artifacts' && alive())$('document').focus();
 }
 function updateCompare(){$('compare-count').textContent=state.comparisons.size;}
 $('compare-open').addEventListener('click',guard(async()=>{const project=state.project,ticket=++state.compareRequest,sections=[];for(const media of state.comparisons.values()){const section=el('section');section.append(el('h3','',media.name||media.id),await player(media),facts('用途与来源',{bindings:media.bindings||[],rights:media.rights,sha256:media.sha256}));if(project!==state.project||ticket!==state.compareRequest)return;sections.push(section);}if(project!==state.project||ticket!==state.compareRequest)return;$('compare-grid').replaceChildren(...sections);if(!sections.length)$('compare-grid').append(el('p','empty','先在素材卡或工作台中选择需要比较的候选。'));$('compare-dialog').showModal();}));

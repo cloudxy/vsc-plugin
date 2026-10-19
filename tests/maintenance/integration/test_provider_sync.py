@@ -74,6 +74,23 @@ class ProviderSyncTest(unittest.TestCase):
         self.assertEqual("human", report["adoption"]["actor"])
         self.assertEqual("up_to_date", self.updater.check("test-tool")["tools"][0]["status"])
 
+    def test_sparse_update_keeps_declared_install_scope(self):
+        unrelated = self.remote / "skills/unselected/SKILL.md"
+        unrelated.parent.mkdir(parents=True)
+        unrelated.write_text("This unrelated skill must not be installed.")
+        self.git("-C", str(self.remote), "add", ".")
+        self.git("-C", str(self.remote), "commit", "-qm", "unselected skill")
+        latest = self.git("-C", str(self.remote), "rev-parse", "HEAD")
+        data = json.loads(self.lock.read_text())
+        data["sources"][0]["sparse_paths"] = ["LICENSE", "skills/example"]
+        self.lock.write_text(json.dumps(data))
+        result = self.updater.update("test-tool", latest, "human")
+        self.assertEqual(result["status"], "updated")
+        self.assertTrue((self.vendor / "test-tool/skills/example/SKILL.md").is_file())
+        self.assertFalse((self.vendor / "test-tool/skills/unselected").exists())
+        report = json.loads(next((self.vendor / ".reviews").glob("*.json")).read_text())
+        self.assertEqual(set(report["bundles"]["candidate"]), {"skills/example/SKILL.md"})
+
     def test_switch_failure_restores_old_tree_and_lock(self):
         original = sync.vendor_review.write_atomic
         def fail(path, data):

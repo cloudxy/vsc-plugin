@@ -1,6 +1,6 @@
 ---
 name: vsc-architecture
-description: "Use when a VSC user wants to audit, plan, or implement workflow improvements to VSC, a Profile, an adapter, or a business extension. Preserve the requested mode and distinguish proposed capabilities from verified implementation."
+description: "Use when a VSC user wants to audit, plan, or implement improvements to VSC workflow, software product experience, a Profile, an adapter, or a business extension. Preserve the requested mode and distinguish proposals from verified implementation."
 ---
 
 # VSC 架构维护
@@ -26,6 +26,8 @@ python3 -B scripts/maintenance/vendor_skills.py --resolve architecture
 ```
 
 架构探索时，若 `mattpocock-skills` 已安装，阅读其中的 `improve-codebase-architecture`，以及其要求的 `codebase-design`、`grilling` 和 `domain-modeling` 原始 Skill；按当前问题采用其方法，不把候选讨论、ADR 修改或实施步骤当作超出本次范围的授权。明确的小范围规则更新不必另起整仓架构探索。VSC 术语、ADR、权属、人工批准与 Vendor 规则继续适用。
+
+涉及面板、阅读、导航、交互或视觉体验时，读取[产品与体验维护](references/product-experience.md)，按任务需要路由 `product-manager` 的问题/验收职责与 `product-designer` 的信息/交互/视觉职责；影视美术继续走 `asset-director`。两者使用相同的角色上下文与记忆协议，不新增创作阶段。上游产品与设计方法从 architecture Vendor 解析结果按需读取。
 
 先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`，核对当前 HEAD、工作区差异、相关提交和证据适用范围。旧审计不能直接代表新实现；已有提交先核消费者与验收缺口，不重复建设。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题。
 

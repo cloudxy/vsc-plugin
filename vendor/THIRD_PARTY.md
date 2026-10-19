@@ -11,6 +11,9 @@
 | [openmontage](https://github.com/calesthio/OpenMontage) | 本地调用镜头编排、制作管线、供应商选择与渲染质量检查能力。 | AGPL-3.0-only | `openmontage` |
 | [remotion](https://github.com/remotion-dev/remotion) | 本地使用 Composition、Player、字幕、时间线和 Renderer，为 VSC 的剪辑预演与确定性成片渲染提供可选实现。 | LicenseRef-Remotion | `remotion` |
 | [mattpocock-skills](https://github.com/mattpocock/skills) | 本地直接使用架构改进、代码库设计、澄清与领域建模 Skill，维护 VSC 及其业务扩展。 | MIT | `mattpocock-skills` |
+| [anthropic-frontend-design](https://github.com/anthropics/skills) | 本机读取 Anthropic 官方 frontend-design 原始 Skill，辅助 VSC 软件界面视觉、排版与文案设计。 | Apache-2.0 | `anthropic-frontend-design` |
+| [vercel-web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines) | 本机读取 Vercel 官方固定版 Web Interface Guidelines 原始 command.md，检查 VSC 软件可访问性、内容、导航与交互。 | MIT | `vercel-web-interface-guidelines` |
+| [agency-product-design](https://github.com/msitarzewski/agency-agents) | 本机只读取 Agency Agents 的 Product Manager、UI Designer 与 UX Researcher 三张原始角色卡，作为 VSC 产品与设计方法参考。 | MIT | `agency-product-design` |
 | [moneyprinterturbo](https://github.com/harry0703/MoneyPrinterTurbo) | 学习来源：src/vsc/post/subtitles.py 移植了其断句、逐词字幕聚合与换行逻辑；本地目录只供对照。 | MIT | `moneyprinterturbo` |
 | [moneyprinterturbo-assets](https://github.com/harry0703/MoneyPrinterTurbo) | MoneyPrinterTurbo 附带的字幕字体与背景音乐，供用户在本机评估效果；字幕烧录或混音时由用户显式指定文件路径使用。 | NOASSERTION | `moneyprinterturbo-assets`（需显式安装） |
 | [narratoai](https://github.com/linyqh/NarratoAI) | 学习来源：src/vsc/adapters/editors/jianying_draft.py 移植了其剪映草稿构件；本地目录只供对照。 | MIT | `narratoai` |

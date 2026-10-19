@@ -17,7 +17,7 @@ description: "Use when the user wants to assess, install, manually check updates
 
 下载不是终点。安装完成后运行 `python3 scripts/maintenance/vendor_skills.py --scan`，在本机生成 `vendor/skill-catalog.json`。当用户进入某个创作或维护阶段，运行 `python3 scripts/maintenance/vendor_skills.py --resolve adapt|script|direct|assets|produce|sound|post|architecture`：
 
-1. 对 `guide` 条目，读取输出路径对应的**上游原始** `SKILL.md`，并直接采用其方法；不复制到 VSC 核心。
+1. 对 `guide` 条目，读取输出路径对应的**上游原始** Skill、指南或角色方法文件，并直接采用适用方法；不复制到 VSC 核心，不替换 VSC 角色身份与权限。已路由的非 `SKILL.md` 原文同样进入候选资源包及变化/删除检查。
 2. 对 `runtime: ...` 条目，先检查所列 CLI、MCP、密钥或依赖；就绪后才调用它的原生能力。
 3. 将结果映射回 VSC 的改编、剧本、ShotPlan、资产、Cue、时间线等产物，不让上游 Skill 绕过 VSC 的批准、连续性或权属边界。
 

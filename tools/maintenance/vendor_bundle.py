@@ -104,6 +104,8 @@ def referenced_paths(text, origin, inventory, missing=None, runtime=None):
     links = LINK.findall(text)
     references = [(value, "link") for value in links]
     for code in BACKTICK.findall(text):
+        if code.strip() == "file:line":
+            continue  # Diagnostic output notation, not a file: URI or a runtime resource.
         if code.strip() in {"/tmp", "/private/tmp"}:
             if runtime is not None:
                 runtime.append({"origin": origin, "reference": code, "kind": "runtime_output_directory_not_bundled"})
@@ -175,9 +177,11 @@ def referenced_paths(text, origin, inventory, missing=None, runtime=None):
     return result
 
 
-def build_bundles(inventory, read_file, allow_missing=False):
+def build_bundles(inventory, read_file, allow_missing=False, entry_paths=()):
     """Return Skill manifests plus selected bytes. Reader may be filesystem or non-checkout Git."""
-    skills = sorted(path for path in inventory if PurePosixPath(path).name == "SKILL.md")
+    skills = {path for path in inventory if PurePosixPath(path).name == "SKILL.md"}
+    skills.update(safe_relative(path) for path in entry_paths if path in inventory)
+    skills = sorted(skills)
     shared = {path for path in inventory if metadata_path(path)}
     content = {}
 
@@ -209,7 +213,10 @@ def build_bundles(inventory, read_file, allow_missing=False):
         rejected = {}
         directory = PurePosixPath(skill).parent.as_posix()
         paths = set(shared)
-        paths.update(path for path in inventory if directory == "." or path.startswith(directory + "/"))
+        if PurePosixPath(skill).name == "SKILL.md":
+            paths.update(path for path in inventory if directory == "." or path.startswith(directory + "/"))
+        else:
+            paths.add(skill)  # Explicit guide/agent entry: include its closure, not a whole agent catalog.
         pending = sorted(paths)
         done = set()
         while pending:
@@ -249,7 +256,7 @@ def build_bundles(inventory, read_file, allow_missing=False):
     return bundles, content
 
 
-def scan(root, allow_missing=False):
+def scan(root, allow_missing=False, entry_paths=()):
     root = Path(root)
     metadata = root / ".vsc-candidate.json"
     candidate = None
@@ -276,4 +283,4 @@ def scan(root, allow_missing=False):
                 if stat.S_ISREG(record["mode"]) and (record["size"] is None or record["size"] <= MAX_FILE_BYTES):
                     raise BundleError("拒绝资源清单不能指示可读取的普通文件")
                 inventory[path] = record
-    return build_bundles(inventory, lambda path: (root / path).read_bytes(), allow_missing=allow_missing)
+    return build_bundles(inventory, lambda path: (root / path).read_bytes(), allow_missing=allow_missing, entry_paths=entry_paths)
