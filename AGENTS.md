@@ -53,3 +53,9 @@
 - 已读取到密钥而接口返回 401／认证错误时，说明需核对凭证及服务权限；反复加载文件不能解决无效凭证。详细操作见 `docs/guide/workspace-setup.md`。
 
 接入、验证与各客户端用法见 `docs/guide/workspace-setup.md`。
+
+## 本机数据库 MCP
+
+- 各宿主统一使用 `vsc-databases`，共享本工作区 `.vsc-local/database-mcp/start` 与 `connections/` 配置；接线和新增数据库的步骤见 `docs/guide/workspace-setup.md` 的“跨平台数据库 MCP”。
+- 操作前确认当前会话实际暴露的工具及目标数据库。正式库查询使用 `postgres_query`，测试库使用 `postgres_test_execute`；正式项目状态写入继续走 VSC CLI。未暴露时提示新会话或重连，不把已落盘的配置当作当前会话可用。
+- MySQL、Redis、SQLite、MongoDB 由同一 MCP 兼容；只有已配置并真实连通的来源才报告为可用，不为验证兼容性额外启动数据库实例。

@@ -248,6 +248,36 @@
       "redistribution": "local_only",
       "sparse_paths": ["Sans/LICENSE", "Sans/SubsetOTF/SC/NotoSansSC-Regular.otf", "Sans/SubsetOTF/SC/NotoSansSC-Bold.otf"],
       "usage": {"mode": "local_component", "interface": "file", "modified": false}
+    },
+    {
+      "id": "google-mcp-toolbox",
+      "type": "git",
+      "url": "https://github.com/googleapis/mcp-toolbox.git",
+      "revision": "6b743efff8bf0541d0ec6b204084a6a7ce492adf",
+      "license_spdx": "Apache-2.0",
+      "license_evidence": "https://github.com/googleapis/mcp-toolbox/blob/6b743efff8bf0541d0ec6b204084a6a7ce492adf/LICENSE",
+      "purpose": "本机通过统一 stdio MCP 接入 PostgreSQL、MySQL、Redis、SQLite 与 MongoDB；五种 AI 宿主共用官方 Toolbox CLI。",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "sparse_paths": [
+        "LICENSE",
+        "README.md",
+        "go.mod",
+        "go.sum",
+        "docs/en/integrations/postgres",
+        "docs/en/integrations/mysql",
+        "docs/en/integrations/redis",
+        "docs/en/integrations/mongodb",
+        "docs/en/integrations/sqlite",
+        "docs/en/reference",
+        "docs/en/documentation/configuration"
+      ],
+      "notice": "Google 官方 Apache-2.0 项目；保留 LICENSE。使用固定 v1.14.0 官方原生二进制，本机另存下载来源、SHA-256 与官方 GCS MD5 校验证据，不运行安装脚本、不包含模型权重或创作素材。Go 依赖边界见固定版 go.mod/go.sum；未修改、未再分发，不将下载校验等同于签名或依赖审计。数据库地址与宿主配置仅在本机维护，未配置的数据库不宣称已连接。",
+      "usage": {
+        "mode": "local_component",
+        "interface": "cli",
+        "modified": false
+      }
     }
   ]
 }
