@@ -118,7 +118,7 @@ PostgreSQL 可选依赖与 FFmpeg/ffprobe 是新生产路径的运行依赖；PD
 
 ## 验证边界
 
-新关系库使用真实隔离 PostgreSQL 测试；测试库变量是 `VSC_TEST_DATABASE_URL`，随机 schema 在测试后删除。受影响测试按领域运行：
+新关系库使用真实隔离 PostgreSQL 测试。本工作区正式库 `vsc_resources` 与测试库 `vsc_resources_test` 共用 `55432` 实例，连接分别由 `VSC_DATABASE_URL` 与 `VSC_TEST_DATABASE_URL` 指定；随机 schema 只在测试库建立并在测试后删除。配置位置见[工作区接入](workspace-setup.md#本机数据库一个实例两个数据库)。受影响测试按领域运行：
 
 ```bash
 .venv/bin/python -B tests/run.py --test assets.integration.test_resource_store project.integration.test_resource_panel_postgres production.integration.test_resource_worker
