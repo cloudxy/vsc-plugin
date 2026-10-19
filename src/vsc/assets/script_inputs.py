@@ -25,6 +25,8 @@ def editor_inputs(service, project_id, draft):
         if row["kind"] == "scene" and row["id"] in selected:
             choices.append({"id": row["id"], "label": row.get("title") or row.get("display_code") or row["id"]})
     draft["scene_choices"], draft["narrative_choices"] = choices, narrative
+    draft["character_choices"] = [{"id": row["id"], "label": row.get("title") or row.get("display_code")}
+        for row in nodes if row["kind"] == "asset" and row.get("asset_kind") == "character"]
     if not draft["exists"]:
         draft["template_content"] = {"format": "vsc.screenplay/v1", "body": "", "scenes": [],
             "adaptation_refs": [{"id": pin["id"], "sha256": pin["sha256"]} for pin in plans]}

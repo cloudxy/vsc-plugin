@@ -7,3 +7,6 @@ SCRIPTS = ROOT / "scripts"
 for path in (ROOT / "src", ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+# Test database selection follows the same local initialization as every host.
+import vsc  # noqa: F401

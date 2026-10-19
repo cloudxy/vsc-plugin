@@ -123,8 +123,14 @@ class LocalStorage:
             if duration is not None:
                 metadata["duration_ms"] = round(duration * 1000)
         elif suffix in {".txt", ".md", ".json", ".srt", ".vtt", ".csv"}:
-            path.read_text("utf-8")
-            metadata.update(modality="text", mime_type="text/plain")
+            try:
+                path.read_text("utf-8")
+            except UnicodeError:
+                # Preserve encoded source files without pretending they are a
+                # UTF-8 preview. The source extractor owns decoding and errors.
+                metadata.update(modality="document", mime_type="application/octet-stream")
+            else:
+                metadata.update(modality="text", mime_type="text/plain")
         return metadata
 
     def commit_upload(self, token):

@@ -26,6 +26,8 @@ from .source_reader import SourceRepository
 from .script_workspace import ScriptWorkspaceRepository
 from .script_ai import ScriptSuggestionRepository
 from .memory_store import RoleMemoryRepository
+from .source_intake import SourceIntakeRepository
+from .resource_model import ResourceModelRepository
 from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CURRENT_REVISION
 
 
@@ -42,7 +44,8 @@ from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CU
 
 
 class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository,
-                            ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository):
+                            ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository,
+                            SourceIntakeRepository, ResourceModelRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:
             raise ResourceError("PostgreSQL 连接未配置", "database_not_configured", 503)
@@ -202,27 +205,29 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             raise Conflict("项目 ID 已存在", "project_exists") from exc
 
     def create_object(self, project_id, payload, **kw):
-        def work(conn, project):
-            kind = required(payload, "kind")
-            tables = {"work": S.works, "episode": S.episodes, "scene": S.scenes,
-                      "sequence": S.sequences, "shot": S.shots, "asset": S.asset_identities}
-            if kind not in tables:
-                raise ResourceError("未知创作对象类型")
-            row_id = checked_id(payload.get("id", new_id()))
-            conn.execute(insert(S.creative_objects).values(project_id=project["id"], id=row_id,
-                kind=kind, display_code=required(payload, "display_code"), title=payload.get("title", payload["display_code"])))
-            values = {"project_id": project["id"], "id": row_id, "object_kind": kind}
-            if kind == "asset":
-                values["asset_kind"] = required(payload, "asset_kind")
-            else:
-                values["ordinal"] = int(payload.get("ordinal", 0))
-                if kind != "work":
-                    values["parent_id"] = checked_id(required(payload, "parent_id"))
-                if kind == "shot":
-                    values["duration_ms"] = payload.get("duration_ms")
-            conn.execute(insert(tables[kind]).values(**values))
-            return dict(payload, id=row_id)
-        return self._mutate(project_id, "create_object", payload, callback=work, **kw)
+        return self._mutate(project_id, "create_object", payload,
+                            callback=lambda conn, project: self._create_object(conn, project, payload), **kw)
+
+    def _create_object(self, conn, project, payload):
+        kind = required(payload, "kind")
+        tables = {"work": S.works, "episode": S.episodes, "scene": S.scenes,
+                  "sequence": S.sequences, "shot": S.shots, "asset": S.asset_identities}
+        if kind not in tables:
+            raise ResourceError("未知创作对象类型")
+        row_id = checked_id(payload.get("id", new_id()))
+        conn.execute(insert(S.creative_objects).values(project_id=project["id"], id=row_id,
+            kind=kind, display_code=required(payload, "display_code"), title=payload.get("title", payload["display_code"])))
+        values = {"project_id": project["id"], "id": row_id, "object_kind": kind}
+        if kind == "asset":
+            values["asset_kind"] = required(payload, "asset_kind")
+        else:
+            values["ordinal"] = int(payload.get("ordinal", 0))
+            if kind != "work":
+                values["parent_id"] = checked_id(required(payload, "parent_id"))
+            if kind == "shot":
+                values["duration_ms"] = payload.get("duration_ms")
+        conn.execute(insert(tables[kind]).values(**values))
+        return dict(payload, id=row_id)
 
     def get_project_tree(self, project_id):
         with self.engine.connect() as conn:
@@ -420,6 +425,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             project_relations(self, conn, p, artifact_id, document, payload.get("dependency_ids", []))
             from .quality_relations import project_quality_document
             project_quality_document(self, conn, p, artifact_id, document)
+            self._project_resource_model(conn, project, artifact_id, document, payload.get("dependency_ids", []))
             return {"id": artifact_id, "artifact_key": artifact_key, "version": version, "sha256": sha}
 
     def _register_asset_refs(self, conn, p, artifact_id, references):
@@ -586,48 +592,50 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             return clean({"items": rows, "total": len(rows), "revision": project["revision"]})
 
     def register_media(self, project_id, payload, actor, **kw):
-        def work(conn, project):
-            p = project["id"]
-            sha = verify_sha(required(payload, "sha256"))
-            size = required(payload, "size_bytes")
-            if not isinstance(size, int) or size < 0:
-                raise ResourceError("size_bytes 必须是非负整数")
-            storage, key = required(payload, "storage"), required(payload, "object_key")
-            if (not isinstance(key, str) or storage not in {"local", "s3", "minio"}
-                    or ".." in key.split("/") or "\\" in key or key.startswith("/")):
-                raise ResourceError("媒体位置必须是受控存储中的相对对象键", "unsafe_location")
-            proposed_blob_id = new_id()
-            conn.execute(pg_insert(S.media_blobs).values(id=proposed_blob_id, sha256=sha,
-                size_bytes=size, mime_type=required(payload, "mime_type"),
-                **{k: payload.get(k) for k in ("width", "height", "duration_ms", "sample_rate")}, probe=payload.get("probe", {}))
-                .on_conflict_do_nothing(index_elements=[S.media_blobs.c.sha256]))
-            blob = conn.execute(select(S.media_blobs).where(S.media_blobs.c.sha256 == sha)).mappings().one()
-            if blob["size_bytes"] != size or blob["mime_type"] != payload["mime_type"]:
-                raise Conflict("相同摘要的文件信息不一致", "blob_mismatch")
-            conn.execute(pg_insert(S.blob_locations).values(id=new_id(), blob_id=blob["id"], storage=storage, object_key=key)
-                .on_conflict_do_nothing(index_elements=[S.blob_locations.c.blob_id, S.blob_locations.c.storage, S.blob_locations.c.object_key]))
-            media_id = checked_id(payload.get("id", new_id()))
-            conn.execute(insert(S.media_items).values(project_id=p, id=media_id, blob_id=blob["id"],
-                name=required(payload, "name"), modality=required(payload, "modality"), registered_by=actor))
-            source = payload.get("source")
-            source_id = None
-            if source:
-                source_id = self._insert_source(conn, p, source)
-                conn.execute(insert(S.media_sources).values(project_id=p, id=new_id(), media_id=media_id,
-                    source_id=source_id, role=source.get("role", "origin"), citation=source.get("citation", {})))
-            rights = payload.get("rights", "unknown")
-            if rights in {"owned", "licensed"} and not source_id:
-                raise ResourceError("已知权利判定必须绑定来源证据", "rights_evidence_required")
-            if rights == "licensed" and not payload.get("rights_scope"):
-                raise ResourceError("授权素材需要明确适用用途范围", "rights_scope_required")
-            scope = payload.get("rights_scope", {"purposes": ["*"] if rights == "owned" else []})
-            if not isinstance(scope, dict) or not isinstance(scope.get("purposes"), list):
-                raise ResourceError("权利范围必须包含 purposes 列表", "invalid_rights_scope")
-            conn.execute(insert(S.rights_decisions).values(project_id=p, id=new_id(), media_id=media_id,
-                source_id=source_id, outcome=rights, scope=scope,
-                **self._decision(conn, project, actor, payload.get("rights_reason", "登记时明确的权利状态"))))
-            return {"id": media_id, "sha256": sha, "blob_id": blob["id"], "rights": rights}
-        return self._mutate(project_id, "register_media", payload, actor=actor, callback=work, **kw)
+        return self._mutate(project_id, "register_media", payload, actor=actor,
+                            callback=lambda conn, project: self._register_media(conn, project, payload, actor), **kw)
+
+    def _register_media(self, conn, project, payload, actor):
+        p = project["id"]
+        sha = verify_sha(required(payload, "sha256"))
+        size = required(payload, "size_bytes")
+        if not isinstance(size, int) or size < 0:
+            raise ResourceError("size_bytes 必须是非负整数")
+        storage, key = required(payload, "storage"), required(payload, "object_key")
+        if (not isinstance(key, str) or storage not in {"local", "s3", "minio"}
+                or ".." in key.split("/") or "\\" in key or key.startswith("/")):
+            raise ResourceError("媒体位置必须是受控存储中的相对对象键", "unsafe_location")
+        proposed_blob_id = new_id()
+        conn.execute(pg_insert(S.media_blobs).values(id=proposed_blob_id, sha256=sha,
+            size_bytes=size, mime_type=required(payload, "mime_type"),
+            **{k: payload.get(k) for k in ("width", "height", "duration_ms", "sample_rate")}, probe=payload.get("probe", {}))
+            .on_conflict_do_nothing(index_elements=[S.media_blobs.c.sha256]))
+        blob = conn.execute(select(S.media_blobs).where(S.media_blobs.c.sha256 == sha)).mappings().one()
+        if blob["size_bytes"] != size or blob["mime_type"] != payload["mime_type"]:
+            raise Conflict("相同摘要的文件信息不一致", "blob_mismatch")
+        conn.execute(pg_insert(S.blob_locations).values(id=new_id(), blob_id=blob["id"], storage=storage, object_key=key)
+            .on_conflict_do_nothing(index_elements=[S.blob_locations.c.blob_id, S.blob_locations.c.storage, S.blob_locations.c.object_key]))
+        media_id = checked_id(payload.get("id", new_id()))
+        conn.execute(insert(S.media_items).values(project_id=p, id=media_id, blob_id=blob["id"],
+            name=required(payload, "name"), modality=required(payload, "modality"), registered_by=actor))
+        source = payload.get("source")
+        source_id = None
+        if source:
+            source_id = self._insert_source(conn, p, source)
+            conn.execute(insert(S.media_sources).values(project_id=p, id=new_id(), media_id=media_id,
+                source_id=source_id, role=source.get("role", "origin"), citation=source.get("citation", {})))
+        rights = payload.get("rights", "unknown")
+        if rights in {"owned", "licensed"} and not source_id:
+            raise ResourceError("已知权利判定必须绑定来源证据", "rights_evidence_required")
+        if rights == "licensed" and not payload.get("rights_scope"):
+            raise ResourceError("授权素材需要明确适用用途范围", "rights_scope_required")
+        scope = payload.get("rights_scope", {"purposes": ["*"] if rights == "owned" else []})
+        if not isinstance(scope, dict) or not isinstance(scope.get("purposes"), list):
+            raise ResourceError("权利范围必须包含 purposes 列表", "invalid_rights_scope")
+        conn.execute(insert(S.rights_decisions).values(project_id=p, id=new_id(), media_id=media_id,
+            source_id=source_id, outcome=rights, scope=scope,
+            **self._decision(conn, project, actor, payload.get("rights_reason", "登记时明确的权利状态"))))
+        return {"id": media_id, "sha256": sha, "blob_id": blob["id"], "rights": rights}
 
     @staticmethod
     def _insert_source(conn, p, source):
@@ -1262,7 +1270,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             if owner and owner not in object_keys[kind]:
                 return False
         if document.get("format") == "vsc.continuity-plan/v1" and isinstance(document.get("shots"), list):
-            return any(row.get("id") in object_keys["shot"] for row in document["shots"] if isinstance(row, dict))
+            return (any(row.get("id") in object_keys["shot"] for row in document["shots"] if isinstance(row, dict))
+                    or any(link.get("shot_id") in object_keys["shot"] for unit in document.get("design_units", [])
+                           for link in unit.get("shots", []) if isinstance(link, dict)))
         return True
 
     def _compatible_context_specs(self, conn, p, first, second):
@@ -1391,10 +1401,32 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 if spec["asset_id"] != entity["asset_id"]:
                     gaps.append({"code": "state_spec_identity_mismatch", "asset_id": entity["asset_id"]})
                 extra_artifact_ids.add(spec["artifact_id"])
+        resource_refs = self._resource_context_asset_refs(conn, project, shot_id=shot_id,
+            scene_id=scene["id"], purpose=purpose, artifact_ids=artifact_ids)
+        primary_locations = {row["asset_id"] for row in resource_refs
+                             if row["source"] == "scene_location" and row.get("role") == "primary"}
+        if state and len(primary_locations) == 1 and state["location_id"] not in primary_locations:
+            explicit_entities = {row["asset_id"] for row in entity_refs
+                                 if row["relation"] in {"in_frame", "held", "costume"}}
+            if state["location_id"] not in explicit_entities:
+                asset_ids.discard(state["location_id"])
+        asset_ids.update(row["asset_id"] for row in resource_refs)
         slots = conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
             S.binding_slots.c.target_object_id.in_([shot_id] + sorted(asset_ids)),
             S.binding_slots.c.role.in_(tuple(ROLE_MATRIX)))).mappings().all()
         spec_by_identity = {r["asset_id"]: r["spec_version_id"] for r in entity_refs if r["spec_version_id"]}
+        resource_conflicts = set()
+        for reference in resource_refs:
+            if not reference["spec_version_id"]:
+                continue
+            spec = self._one(conn, S.asset_spec_versions, p, reference["spec_version_id"])
+            prior_id = spec_by_identity.get(reference["asset_id"])
+            if prior_id and not self._compatible_context_specs(conn, p,
+                    self._one(conn, S.asset_spec_versions, p, prior_id), spec):
+                resource_conflicts.add(reference["asset_id"])
+            else:
+                spec_by_identity.setdefault(reference["asset_id"], spec["id"])
+            extra_artifact_ids.add(spec["artifact_id"])
         fixed_asset_refs = {}
         references = conn.execute(select(S.artifact_asset_spec_refs, S.artifact_versions.c.version)
             .select_from(S.artifact_asset_spec_refs.join(S.asset_spec_versions, and_(
@@ -1406,7 +1438,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                    S.artifact_asset_spec_refs.c.artifact_id.in_(artifact_ids),
                    S.artifact_asset_spec_refs.c.asset_id.in_(sorted(asset_ids)))
             .order_by(S.artifact_versions.c.version, S.artifact_asset_spec_refs.c.spec_version_id)).mappings()
-        conflicted_assets = set()
+        conflicted_assets = set(resource_conflicts)
         for ref in references:
             spec = self._one(conn, S.asset_spec_versions, p, ref["spec_version_id"])
             previous = fixed_asset_refs.setdefault(ref["asset_id"], spec)
@@ -1422,6 +1454,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 if existing:
                     fixed_asset_refs[asset_id] = existing
         gaps.extend({"code": "asset_version_conflict", "asset_id": asset_id} for asset_id in sorted(conflicted_assets))
+        slot_instances = self._resource_slot_instances(conn, p, artifact_ids=artifact_ids,
+            shot_id=shot_id, scene_id=scene["id"])
         ranked_slots = {}
         for slot in slots:
             if slot["role"] in POST_ROLES:
@@ -1429,6 +1463,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             identity_id = slot["identity_asset_id"] or (slot["target_object_id"] if slot["target_object_id"] != shot_id else None)
             if slot["role"] in INHERITED_REFERENCE_ROLES and identity_id:
                 key = (identity_id, slot["role"])
+                if slot["id"] in slot_instances:
+                    key += (slot_instances[slot["id"]],)
                 if slot["target_object_id"] == shot_id:
                     rank = 0
                 elif slot["variant_spec_id"]:
@@ -1480,7 +1516,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         for identity_id in sorted(asset_ids):
             identity = self._one(conn, S.asset_identities, p, identity_id)
             required_roles = {"character": {"identity_face"}, "location": {"location_master", "location_view"},
-                              "prop": {"prop"}, "voice": {"voice_sample"}, "style": {"style_reference"},
+                              "prop": {"prop"}, "object": {"prop"}, "creature": {"prop"},
+                              "vehicle": {"prop"}, "plant": {"prop"}, "voice": {"voice_sample"}, "style": {"style_reference"},
                               "costume": {"costume"}}.get(identity["asset_kind"], set())
             if required_roles and not any(m["role"] in required_roles and
                     (m["target_object_id"] == identity_id or any(s["id"] == m["slot_id"] and s["identity_asset_id"] == identity_id for s in slots))
@@ -1502,6 +1539,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         context["semantic_inputs"] = self._semantic_inputs(conn, p, shot_id, scene["id"], purpose,
             selected_artifacts, asset_ids, spec_by_identity, lines, voices,
             {key: value["artifact_id"] for key, value in fixed_asset_refs.items()})
+        self._extend_resource_context(conn, project, context, artifacts=selected_artifacts, scene_id=scene["id"])
         context["sha256"] = context_digest(clean(context))
         return context
 
@@ -1531,6 +1569,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 doc = json.loads(artifact["document"])
             except (ValueError, UnicodeDecodeError):
                 doc = clean(artifact["document"])
+            if isinstance(doc, dict):
+                doc = {key: value for key, value in doc.items()
+                       if key not in {"design_units", "scene_locations", "resource_requirements"}}
             fmt = doc.get("format") if isinstance(doc, dict) else None
             kind = artifact["artifact_type"]
             fragment = doc

@@ -21,7 +21,7 @@ PostgreSQL 可选依赖与 FFmpeg/ffprobe 是新生产路径的运行依赖；PD
 
 ## 新建数据库项目
 
-在 `~/.zshenv` 配置 `VSC_DATABASE_URL`（PostgreSQL 连接）和可选 `VSC_MEDIA_ROOT`（受控媒体根），由启动进程显式加载。不要把连接凭据写进项目或源码。应用启动只检查 schema，不自动建表；首次明确执行迁移：
+在工作区根目录 `.env` 配置 `VSC_DATABASE_URL`（PostgreSQL 连接）和可选 `VSC_MEDIA_ROOT`（受控媒体根），启动时自动读取。新工作区可复制 `.env.example`；真实文件不提交、不打包。应用启动只检查 schema，不自动建表；首次明确执行迁移：
 
 ```bash
 .venv/bin/python -B scripts/project/schema.py migrate --database-env VSC_DATABASE_URL

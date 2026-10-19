@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0009_role_memory"
+SCHEMA_REVISION = "0010_source_resources"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -94,7 +94,7 @@ asset_identities = project_table("asset_identities",
     Column("object_kind", Text, nullable=False, server_default="asset"),
     Column("asset_kind", Text, nullable=False),
     CheckConstraint("object_kind = 'asset'", name="typed_object"),
-    CheckConstraint("asset_kind IN ('character','location','prop','voice','style','costume')", name="asset_kind"),
+    CheckConstraint("asset_kind IN ('character','location','prop','voice','style','costume','object','creature','vehicle','plant')", name="asset_kind"),
     ForeignKeyConstraint(["project_id", "id", "object_kind"],
                          ["creative_objects.project_id", "creative_objects.id", "creative_objects.kind"]))
 
@@ -721,7 +721,175 @@ for _name, _fields in {
     for _field in _fields:
         Index("ix_%s_project_%s" % (_name, _field), metadata.tables[_name].c.project_id, metadata.tables[_name].c[_field])
 
-APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + (
+# Insert before APPEND_ONLY_TABLES and the final SHA constraints in schema.py.
+parse_jobs = project_table("parse_jobs",
+    Column("parser_version", Text, nullable=False), Column("schema_version", Text, nullable=False),
+    Column("intent", Text, nullable=False), Column("parameters", JSONB, nullable=False),
+    Column("signature_sha256", String(64), nullable=False), Column("created_by", Text, nullable=False), stamp(),
+    CheckConstraint("intent IN ('screenplay','novel','outline')", name="intent"))
+parse_job_inputs = project_table("parse_job_inputs", *ref("parse_jobs", "job_id"),
+    *ref("source_versions", "source_id"), Column("source_sha256", String(64), nullable=False),
+    Column("format", Text, nullable=False), Column("role", Text, nullable=False), Column("ordinal", Integer, nullable=False),
+    ForeignKeyConstraint(["project_id", "source_id", "source_sha256"],
+                         ["source_versions.project_id", "source_versions.id", "source_versions.sha256"]),
+    CheckConstraint("ordinal >= 0", name="ordinal"), UniqueConstraint("project_id", "job_id", "ordinal"),
+    UniqueConstraint("project_id", "job_id", "source_id", "role"))
+parse_attempts = project_table("parse_attempts", *ref("parse_jobs", "job_id"),
+    Column("attempt_no", Integer, nullable=False), Column("status", Text, nullable=False),
+    Column("error_code", Text), Column("error_message", Text), stamp(),
+    CheckConstraint("attempt_no > 0", name="attempt_no"),
+    CheckConstraint("status IN ('succeeded','failed')", name="status"),
+    UniqueConstraint("project_id", "job_id", "attempt_no"))
+source_extractions = project_table("source_extractions", *ref("parse_attempts", "attempt_id"),
+    *ref("source_versions", "source_id"), Column("source_sha256", String(64), nullable=False),
+    Column("output_key", Text, nullable=False), Column("text", Text, nullable=False),
+    Column("text_sha256", String(64), nullable=False), Column("layout", JSONB, nullable=False),
+    Column("warnings", JSONB, nullable=False), stamp(),
+    ForeignKeyConstraint(["project_id", "source_id", "source_sha256"],
+                         ["source_versions.project_id", "source_versions.id", "source_versions.sha256"]),
+    UniqueConstraint("project_id", "attempt_id", "output_key"),
+    UniqueConstraint("project_id", "id", "source_id"),
+    CheckConstraint("encode(sha256(convert_to(text, 'UTF8')), 'hex') = text_sha256", name="text_sha256"))
+source_anchors = project_table("source_anchors", *ref("source_extractions", "extraction_id"),
+    *ref("source_versions", "source_id"), Column("anchor_key", Text, nullable=False),
+    Column("start_char", Integer, nullable=False), Column("end_char", Integer, nullable=False),
+    Column("locator", JSONB, nullable=False),
+    ForeignKeyConstraint(["project_id", "extraction_id", "source_id"],
+                         ["source_extractions.project_id", "source_extractions.id", "source_extractions.source_id"]),
+    CheckConstraint("start_char >= 0 AND end_char > start_char", name="character_range"),
+    UniqueConstraint("project_id", "extraction_id", "anchor_key"))
+draft_source_refs = project_table("draft_source_refs", *ref("script_drafts", "draft_id"),
+    Column("draft_revision", BigInteger, nullable=False), Column("scene_key", Text, nullable=False),
+    Column("line_key", Text, nullable=False), *ref("source_anchors", "anchor_id"), Column("role", Text, nullable=False),
+    CheckConstraint("draft_revision > 0", name="draft_revision"),
+    UniqueConstraint("project_id", "draft_id", "draft_revision", "scene_key", "line_key", "anchor_id", "role"))
+script_line_sources = project_table("script_line_sources", *ref("script_lines", "line_id"),
+    *ref("source_anchors", "anchor_id"), Column("role", Text, nullable=False),
+    UniqueConstraint("project_id", "line_id", "anchor_id", "role"))
+Index("ix_parse_inputs_source", parse_job_inputs.c.project_id, parse_job_inputs.c.source_id)
+Index("ix_source_anchor_lookup", source_anchors.c.project_id, source_anchors.c.source_id)
+Index("ix_script_line_sources_anchor", script_line_sources.c.project_id, script_line_sources.c.anchor_id)
+# Insert alongside source intake declarations; add name to SOURCE_INTAKE_TABLES.
+# One immutable intake registration for an exact source version; no synthetic id.
+source_intake_documents = Table("source_intake_documents", metadata,
+    uid("project_id", nullable=False), uid("source_id", nullable=False),
+    Column("title", Text, nullable=False), Column("intent", Text, nullable=False),
+    Column("format", Text, nullable=False), stamp(),
+    PrimaryKeyConstraint("project_id", "source_id"),
+    ForeignKeyConstraint(["project_id", "source_id"], ["source_versions.project_id", "source_versions.id"], ondelete="RESTRICT"),
+    CheckConstraint("length(trim(title)) > 0", name="title"),
+    CheckConstraint("intent IN ('screenplay','novel','outline','reference')", name="intent"),
+    CheckConstraint("format IN ('paste','txt','md','docx','pdf','xlsx','image','audio','video','unknown')", name="format"))
+
+SOURCE_INTAKE_TABLES = ("source_intake_documents", "parse_jobs", "parse_job_inputs", "parse_attempts", "source_extractions",
+                        "source_anchors", "draft_source_refs", "script_line_sources")
+
+# Insert before CREATIVE_TABLES in schema.py; helpers/imports are already there.
+# Dictionary codes are global immutable vocabulary; links are project-owned.
+asset_categories = Table("asset_categories", metadata,
+    Column("code", Text, primary_key=True), Column("label", Text, nullable=False),
+    Column("parent_code", Text, ForeignKey("asset_categories.code", ondelete="RESTRICT")),
+    Column("ordinal", Integer, nullable=False),
+    CheckConstraint("length(code) > 0 AND ordinal >= 0", name="category_code"),
+    CheckConstraint("parent_code IS NULL OR parent_code <> code", name="category_parent"))
+
+def category_link(name, target, field):
+    return Table(name, metadata, uid("project_id", nullable=False), *ref(target, field),
+        Column("category_code", Text, ForeignKey("asset_categories.code", ondelete="RESTRICT"), nullable=False),
+        Column("registered_by", Text, nullable=False), stamp(),
+        PrimaryKeyConstraint("project_id", field, "category_code"))
+
+identity_category_links = category_link("identity_category_links", "asset_identities", "asset_id")
+media_category_links = category_link("media_category_links", "media_items", "media_id")
+artifact_category_links = category_link("artifact_category_links", "artifact_versions", "artifact_id")
+
+shot_design_units = project_table("shot_design_units", *ref("artifact_versions", "artifact_id"),
+    *ref("scenes", "scene_id", nullable=True), Column("source_sha256", String(64), nullable=False),
+    Column("design_key", Text, nullable=False), Column("ordinal", Integer, nullable=False),
+    Column("content", JSONB, nullable=False),
+    ForeignKeyConstraint(["project_id", "artifact_id", "source_sha256"],
+        ["artifact_versions.project_id", "artifact_versions.id", "artifact_versions.sha256"]),
+    UniqueConstraint("project_id", "artifact_id", "design_key"),
+    UniqueConstraint("project_id", "artifact_id", "id"),
+    CheckConstraint("length(design_key) > 0 AND ordinal >= 0", name="design_key"))
+shot_design_shots = project_table("shot_design_shots", *ref("artifact_versions", "artifact_id"),
+    uid("design_unit_id", nullable=False), *ref("shots", "shot_id"), *ref("scenes", "scene_id"),
+    Column("purpose", Text, nullable=False), Column("role", Text, nullable=False),
+    Column("ordinal", Integer, nullable=False),
+    ForeignKeyConstraint(["project_id", "artifact_id", "design_unit_id"],
+        ["shot_design_units.project_id", "shot_design_units.artifact_id", "shot_design_units.id"]),
+    CheckConstraint("role IN ('primary','alternate','reference') AND ordinal >= 0 AND length(purpose) > 0", name="design_shot_role"),
+    UniqueConstraint("project_id", "design_unit_id", "shot_id", "purpose", "role"))
+Index("uq_shot_design_shots_primary", shot_design_shots.c.project_id, shot_design_shots.c.artifact_id,
+    shot_design_shots.c.shot_id, shot_design_shots.c.purpose, unique=True,
+    postgresql_where=shot_design_shots.c.role == "primary")
+shot_design_panels = project_table("shot_design_panels", *ref("shot_design_units", "design_unit_id"),
+    *ref("media_items", "media_id", nullable=True), Column("panel_key", Text, nullable=False),
+    Column("ordinal", Integer, nullable=False), Column("content", JSONB, nullable=False),
+    UniqueConstraint("project_id", "design_unit_id", "panel_key"),
+    UniqueConstraint("project_id", "design_unit_id", "ordinal"),
+    CheckConstraint("length(panel_key) > 0 AND ordinal >= 0", name="panel_key"))
+shot_design_line_refs = Table("shot_design_line_refs", metadata,
+    uid("project_id", nullable=False), *ref("shot_design_units", "design_unit_id"), *ref("script_lines", "line_id"),
+    PrimaryKeyConstraint("project_id", "design_unit_id", "line_id"))
+
+scene_location_refs = project_table("scene_location_refs", *ref("artifact_versions", "artifact_id"),
+    Column("source_sha256", String(64), nullable=False), *ref("scenes", "scene_id"),
+    *ref("shots", "shot_id", nullable=True), *ref("asset_identities", "location_id"),
+    *ref("asset_spec_versions", "spec_version_id", nullable=True),
+    Column("role", Text, nullable=False), Column("ordinal", Integer, nullable=False),
+    ForeignKeyConstraint(["project_id", "artifact_id", "source_sha256"],
+        ["artifact_versions.project_id", "artifact_versions.id", "artifact_versions.sha256"]),
+    ForeignKeyConstraint(["project_id", "location_id", "spec_version_id"],
+        ["asset_spec_versions.project_id", "asset_spec_versions.asset_id", "asset_spec_versions.id"]),
+    CheckConstraint("role IN ('primary','secondary','insert') AND ordinal >= 0", name="location_role"))
+Index("uq_scene_location_refs_scope_order", scene_location_refs.c.project_id, scene_location_refs.c.artifact_id,
+    scene_location_refs.c.scene_id, func.coalesce(scene_location_refs.c.shot_id, text("'00000000-0000-0000-0000-000000000000'::uuid")),
+    scene_location_refs.c.role, scene_location_refs.c.ordinal, unique=True)
+Index("uq_scene_location_refs_primary", scene_location_refs.c.project_id, scene_location_refs.c.artifact_id,
+    scene_location_refs.c.scene_id, func.coalesce(scene_location_refs.c.shot_id, text("'00000000-0000-0000-0000-000000000000'::uuid")),
+    unique=True, postgresql_where=scene_location_refs.c.role == "primary")
+
+asset_requirements = project_table("asset_requirements", *ref("artifact_versions", "artifact_id"),
+    Column("source_sha256", String(64), nullable=False), Column("requirement_key", Text, nullable=False),
+    Column("category_code", Text, ForeignKey("asset_categories.code", ondelete="RESTRICT"), nullable=False),
+    Column("purpose", Text, nullable=False), Column("description", Text, nullable=False),
+    *ref("scenes", "scene_id", nullable=True), *ref("shots", "shot_id", nullable=True),
+    *ref("asset_identities", "asset_id", nullable=True), *ref("asset_spec_versions", "spec_version_id", nullable=True),
+    *ref("asset_use_instances", "instance_id", nullable=True),
+    ForeignKeyConstraint(["project_id", "artifact_id", "source_sha256"],
+        ["artifact_versions.project_id", "artifact_versions.id", "artifact_versions.sha256"]),
+    ForeignKeyConstraint(["project_id", "asset_id", "spec_version_id"],
+        ["asset_spec_versions.project_id", "asset_spec_versions.asset_id", "asset_spec_versions.id"]),
+    UniqueConstraint("project_id", "artifact_id", "requirement_key"),
+    CheckConstraint("length(requirement_key)>0 AND length(purpose)>0 AND length(description)>0", name="requirement_text"),
+    CheckConstraint("shot_id IS NULL OR scene_id IS NOT NULL", name="requirement_scope"),
+    CheckConstraint("spec_version_id IS NULL OR asset_id IS NOT NULL", name="requirement_spec"))
+requirement_line_refs = Table("requirement_line_refs", metadata,
+    uid("project_id", nullable=False), *ref("asset_requirements", "requirement_id"), *ref("script_lines", "line_id"),
+    PrimaryKeyConstraint("project_id", "requirement_id", "line_id"))
+requirement_slots = Table("requirement_slots", metadata,
+    uid("project_id", nullable=False), *ref("asset_requirements", "requirement_id"), *ref("binding_slots", "slot_id"),
+    Column("role", Text, nullable=False), PrimaryKeyConstraint("project_id", "requirement_id", "slot_id", "role"),
+    CheckConstraint("role IN ('fulfills','reference','post')", name="requirement_slot_role"))
+
+RESOURCE_MODEL_TABLES = ("asset_categories", "identity_category_links", "media_category_links", "artifact_category_links",
+    "shot_design_units", "shot_design_shots", "shot_design_panels", "shot_design_line_refs", "scene_location_refs",
+    "asset_requirements", "requirement_line_refs", "requirement_slots")
+for _name in RESOURCE_MODEL_TABLES:
+    _tab = metadata.tables[_name]
+    if "project_id" in _tab.c:
+        for _col in _tab.c:
+            if _col.name.endswith("_id") and _col.name not in {"project_id", "id"}:
+                Index("ix_%s_project_%s" % (_name, _col.name), _tab.c.project_id, _col)
+        if "category_code" in _tab.c:
+            Index("ix_%s_category" % _name, _tab.c.project_id, _tab.c.category_code)
+
+# Add RESOURCE_MODEL_TABLES to APPEND_ONLY_TABLES. All projections and vocabulary
+# links are immutable. New revisions append; there is no independent editing API.
+# Replace asset_identities asset_kind CHECK using IDENTITY_KINDS (10 codes).
+
+APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + (
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
     "provider_configurations",
     "budget_limit_versions",
