@@ -57,5 +57,5 @@
 ## 本机数据库 MCP
 
 - 各宿主统一使用 `vsc-databases`，共享本工作区 `.vsc-local/database-mcp/start` 与 `connections/` 配置；接线和新增数据库的步骤见 `docs/guide/workspace-setup.md` 的“跨平台数据库 MCP”。
-- 操作前确认当前会话实际暴露的工具及目标数据库。正式库查询使用 `postgres_query`，测试库使用 `postgres_test_execute`；正式项目状态写入继续走 VSC CLI。未暴露时提示新会话或重连，不把已落盘的配置当作当前会话可用。
+- 操作前确认当前会话实际暴露的工具及目标数据库。MCP 连接正式库仅使用 `postgres_query` 的专用只读账号，测试库使用 `postgres_test_execute`。程序及迁移、升级、改造通过 `VSC_DATABASE_URL` 的独立读写账号连接正式库，保留其读写与结构修改权限；只读设置限于 MCP 专用账号与连接。正式项目状态写入继续走 VSC CLI。未暴露时提示新会话或重连，不把已落盘的配置当作当前会话可用。
 - MySQL、Redis、SQLite、MongoDB 由同一 MCP 兼容；只有已配置并真实连通的来源才报告为可用，不为验证兼容性额外启动数据库实例。
