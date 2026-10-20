@@ -501,8 +501,9 @@ async function openArtifact(id,{focusFrom=null}={}) {
   const content=artifact.content === null && artifact.document !== undefined ? artifact.document : artifact.content !== undefined ? artifact.content : artifact.document !== undefined ? artifact.document : '';
   // Legacy envelopes use null for unread file bytes; a JSON null document arrives as the string "null".
   const unavailable=content===null && artifact.availability != null;
-  const {body,value:fixed}=unavailable ? {body:el('p','empty',artifact.size_bytes>16*1024*1024 ? '正文超过内置阅读限额，请在原文件中阅读完整内容。' : '正文未载入，请核对来源文件是否可读。')} : renderArtifactContent(content);
+  const {body,value:fixed,mediaKind}=unavailable ? {body:el('p','empty',artifact.size_bytes>16*1024*1024 ? '正文超过内置阅读限额，请在原文件中阅读完整内容。' : '正文未载入，请核对来源文件是否可读。')} : renderArtifactContent(content,{mimeType:artifact.mime_type});
   $('document').replaceChildren(body);$('document').setAttribute('aria-label',artifactTitle(artifact));
+  if(mediaKind){const browse=el('button','','查看项目素材');browse.addEventListener('click',guard(()=>switchView('media')));$('document').append(browse);}
   $('document').setAttribute('data-artifact-id',id);$('document').scrollTop=0;
   const selected=[...$('artifacts').querySelectorAll('.artifact-item')].find(button=>button.dataset.id===id);
   if(selected){selected.querySelector('.artifact-title').textContent=artifactTitle(artifact);selected.querySelector('.artifact-state').textContent=artifactVersionLabel(artifact);}

@@ -66,6 +66,14 @@ test('large plain and structured text read in explicit chunks without losing the
   }
 });
 
+test('media artifacts never render decoded binary bytes as document text',async()=>{
+  const data=project('A',{artifactDetails:{clip:{id:'clip',content:'\0\0ftypisom undecodable media',mime_type:'video/mp4'}}});
+  const app=await start(new Map([['A',data]]));await app.panel.openArtifact('clip');
+  assert.ok(reader(app).textContent.includes('这份资料是视频'));
+  assert.ok(!reader(app).textContent.includes('ftypisom'));
+  assert.ok(button(reader(app),'查看项目素材'));
+});
+
 test('server read-only overrides a writable project while valid sessions retain project restrictions',async()=>{
   const editable=project('A',{project:{id:'A',name:'A',storage_policy:'postgres-series-v1',read_only:false}});
   const app=await start(new Map([['A',editable],['B',project('B')]]));

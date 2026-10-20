@@ -124,8 +124,8 @@ export function createAssistedDesk(root, ctx) {
     const identity=`${state.project}:${state.scope}:${state.page}:${state.bucket}`;
     if(previous!==identity){state.offset=0;state.selected=null;}
     const ticket=++state.ticket;state.objectTicket++;clearTimeout(timer);
-    if(state.page==='projects'||!state.project){await projects();return;}
-    if(state.page==='trash'){await recycle(options.recycleView||'trash');return;}
+    if(state.page==='projects'||!state.project){state.page='projects';await projects();updateLink();return;}
+    if(state.page==='trash'){await recycle(options.recycleView||'trash');updateLink();return;}
     scaffold();
     const alive=()=>ticket===state.ticket;
     root.setAttribute('aria-busy','true');
@@ -237,7 +237,13 @@ export function createAssistedDesk(root, ctx) {
       if(ref.kind==='artifact'){
         const fixed=value.content!==undefined?value.content:value.document;
         if(fixed==null)content.append(el('p','正文暂不可读，请在版本与核验中检查来源。','empty'));
-        else content.append(renderArtifactContent(fixed).body);
+        else {
+          const rendered=renderArtifactContent(fixed,{mimeType:value.mime_type});
+          content.append(rendered.body);
+          if(rendered.mediaKind)content.append(button('打开已有结果',async()=>{
+            state.bucket='results';state.offset=0;state.selected=null;await load(current());
+          }));
+        }
         if(value.integrity==='mismatch')content.prepend(el('p','所见文件摘要变化，当前仅供核对。','desk-blocked'));
       }else if(ref.kind==='media'){
         const node=await ctx.player(value);if(!alive())return;content.append(node);
