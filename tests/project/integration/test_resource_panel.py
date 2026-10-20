@@ -150,6 +150,44 @@ class ResourcePanelTests(unittest.TestCase):
         self.assertEqual(service.call[2]["idempotency_key"], "once")
         client.close()
 
+    def test_local_auto_session_skips_login_but_preserves_write_boundaries(self):
+        class Catalog:
+            def __init__(self): self.calls, self.service = [], self
+            def decide_artifact(self, *args, **kwargs): return {"revision": 9}
+            def write(self, action, project_id, payload, **kwargs):
+                self.calls.append((action, project_id, payload, kwargs))
+                return {"revision": 9}
+        catalog = Catalog()
+        config = {"allowed_hosts": ["testserver"], "allowed_origins": ["http://testserver"],
+                  "human_identity": "local-fixture", "access_token": "test-only",
+                  "local_auto_session": True}
+        with TestClient(create_app(config, catalog=catalog), client=("127.0.0.1", 50000)) as client:
+            session = client.get("/api/v1/session")
+            self.assertEqual(session.status_code, 200)
+            self.assertEqual(session.json()["actor"], "local-fixture")
+            self.assertIn("HttpOnly", session.headers["set-cookie"])
+            self.assertIn("SameSite=strict", session.headers["set-cookie"])
+            self.assertEqual(client.get("/api/v1/session").json(), session.json())
+            url = "/api/v1/projects/p1/artifact-decisions"
+            body = {"payload": {"artifact_id": "fixed", "outcome": "reject", "reason": "fixture"},
+                    "expected_revision": 8, "idempotency_key": "once", "confirmed": True}
+            headers = {"Origin": "http://testserver", "X-CSRF-Token": session.json()["csrf_token"]}
+            self.assertEqual(client.post(url, json=body).status_code, 403)
+            self.assertEqual(client.post(url, json=body, headers={**headers, "Origin": "http://evil"}).status_code, 403)
+            self.assertEqual(client.post(url, json={**body, "confirmed": False}, headers=headers).status_code, 422)
+            self.assertEqual(catalog.calls, [])
+            self.assertEqual(client.post(url, json=body, headers=headers).status_code, 200)
+            self.assertEqual(catalog.calls[0][3]["actor"], "local-fixture")
+            self.assertEqual(catalog.calls[0][3]["expected_revision"], 8)
+        for remote, headers in [(("192.0.2.1", 50000), {}), (("127.0.0.1", 50000), {"Sec-Fetch-Site": "cross-site"}),
+                                (("127.0.0.1", 50000), {"Origin": "http://evil"})]:
+            with self.subTest(remote=remote, headers=headers), TestClient(create_app(config, catalog=catalog), client=remote) as client:
+                self.assertEqual(client.get("/api/v1/session", headers=headers).status_code, 403)
+                self.assertNotIn("vsc_session", client.cookies)
+        for changes in ({"local_auto_session": False}, {"access_token": None}, {"human_identity": None}):
+            with self.subTest(changes=changes), TestClient(create_app({**config, **changes}, catalog=catalog), client=("127.0.0.1", 50000)) as client:
+                self.assertIsNone(client.get("/api/v1/session").json()["actor"])
+
     def test_postgres_bytes_require_controlled_location_and_hash(self):
         media_root = self.root / "blob-store"
         media_root.mkdir()

@@ -156,6 +156,13 @@ def create_app(config=None, catalog=None, service=None):
     @app.get("/api/v1/session")
     def current_session(request: Request):
         session = sessions.get(request.cookies.get("vsc_session", ""))
+        if not session and config.get("local_auto_session") and config.get("access_token") and config.get("human_identity"):
+            if (not request.client or request.client.host not in {"127.0.0.1", "::1"}
+                    or request.headers.get("sec-fetch-site") == "cross-site"):
+                raise HTTPException(403, "免登录操作仅接受本机同源页面")
+            if request.headers.get("origin") is not None:
+                origin(request)
+            return new_session()
         return {"actor": session["actor"] if session else None, "csrf_token": session["csrf"] if session else None,
                 "write_available": bool(config.get("access_token") and config.get("human_identity"))}
 

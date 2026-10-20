@@ -2,3 +2,4 @@
 MEDIA_ROOT = ".vsc-resource-media"
 PANEL_WRITABLE = false
 PANEL_HUMAN_IDENTITY = ""
+PANEL_REQUIRE_LOGIN = true

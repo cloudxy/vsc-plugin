@@ -59,6 +59,22 @@ class WorkspaceConfigurationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), ['process-app', 'process-test', '.vsc-resource-media'])
 
+    def test_panel_local_login_setting_reaches_startup_without_printing_a_credential(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_settings(directory,
+                'VSC_PANEL_WRITABLE=true\nVSC_PANEL_HUMAN_IDENTITY=fixture-local\nVSC_PANEL_REQUIRE_LOGIN=false\n',
+                code='from unittest.mock import patch; from vsc.interfaces.web.__main__ import main; '
+                     'import json; '
+                     '\nwith patch("vsc.interfaces.web.app.create_app") as create, patch("uvicorn.run"):'
+                     '\n main([])'
+                     '\n config=create.call_args.args[0]'
+                     '\n print(json.dumps({"human":config["human_identity"],"auto":config["local_auto_session"],'
+                     '"has_token":bool(config["access_token"])}))')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('本次凭据', result.stdout)
+            self.assertEqual(json.loads(result.stdout.splitlines()[-1]),
+                             {"human": "fixture-local", "auto": True, "has_token": True})
+
     def test_explicit_isolation_disables_dotenv_even_when_it_exists(self):
         self.assertIsNone(workspace_env_path({'VSC_ENV_FILE': ''}))
         with tempfile.TemporaryDirectory() as directory:

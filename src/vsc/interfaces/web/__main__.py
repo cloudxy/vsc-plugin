@@ -34,9 +34,10 @@ def main(argv=None):
     bootstrap_token = secrets.token_urlsafe(32) if token and args.open else None
     config = {"projects_root": args.projects_root, "media_root": media_root, "close_service_on_shutdown": True,
               "human_identity": human, "access_token": token, "bootstrap_token": bootstrap_token,
+              "local_auto_session": get_config("VSC_PANEL_REQUIRE_LOGIN", True) is False,
               "background_enabled": bool(human),
               "allowed_origins": ["http://127.0.0.1:" + str(args.port), "http://localhost:" + str(args.port)]}
-    if token and not args.open:
+    if token and not args.open and not config["local_auto_session"]:
         print("本次人工操作身份：" + human)
         print("在面板的操作会话中输入本次凭据（勿写入项目或日志）：" + token)
     print("VSC 资源面板：http://127.0.0.1:" + str(args.port))
