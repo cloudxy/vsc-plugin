@@ -94,10 +94,35 @@ test('read-only service does not promise login or creation, including an empty p
   assert.ok(f.container.textContent.includes('还没有可浏览的项目'));
 });
 
+test('a fixed link to an old media document leads to results without rendering binary text',async()=>{
+  const f=await fixture(async(url,options)=>{
+    const value=await basic(url,options);
+    if(url.includes('/artifacts/'))return {...value,mime_type:'video/mp4',content:'\0ftypisom binary'};
+    return value;
+  });
+  await f.desk.load({projectId:'p'});
+  assert.ok(!f.container.textContent.includes('ftypisom'));
+  assert.ok(button(f.container,'打开已有结果'));
+  await button(f.container,'打开已有结果').click();
+  assert.ok(f.calls.some(call=>call.url.includes('bucket=results')));
+});
+
 test('empty projects provide creation and trash never claims freed bytes',async()=>{
   const f=await fixture(async url=>url.includes('/recycle?')?{revision:1,items:[],total:0}:basic(url));
   await f.desk.load({projectId:null,page:'projects'});assert.ok(button(f.container,'建立项目'));
   await f.desk.load({projectId:'p',page:'trash'});assert.ok(f.container.textContent.includes('0 字节'));assert.ok(f.container.textContent.includes('回收站是空的'));
+});
+
+test('project and trash navigation preserve their own reloadable URL without the previous work selection',async()=>{
+  const routes=[];
+  const f=await fixture(async(url,options)=>url.includes('/recycle?')?{revision:1,items:[],total:0}:basic(url,options));
+  f.ctx.route=route=>routes.push(f.module.parseDeskLocation(f.module.deskLink(route)));
+  await f.desk.load({projectId:'p'});
+  assert.equal(routes.at(-1).object,'artifact:a');
+  await f.desk.load({projectId:'p',page:'projects'});
+  assert.equal(routes.at(-1).page,'projects');assert.equal(routes.at(-1).object,null);
+  await f.desk.load({projectId:'p',page:'trash'});
+  assert.equal(routes.at(-1).page,'trash');assert.equal(routes.at(-1).object,null);
 });
 
 test('durable returned preview is playable after reopening the original opinion',async()=>{

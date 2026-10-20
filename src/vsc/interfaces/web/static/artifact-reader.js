@@ -83,12 +83,17 @@ function appendReadableText(parent, text, className) {
   more.addEventListener('click',next);next();
 }
 
-export function renderArtifactContent(content) {
+export function renderArtifactContent(content, {mimeType=''}={}) {
+  const body = node('div', 'document-content');
+  const mediaKind=/^(video|audio|image)\//.exec(mimeType)?.[1];
+  if(mediaKind){
+    body.append(node('p','document-media',`这份资料是${{video:'视频',audio:'音频',image:'图片'}[mediaKind]}，请打开对应素材查看。`));
+    return {body,value:undefined,mediaKind};
+  }
   let value = content, structured = typeof content !== 'string';
   if (!structured) {
     try { value = JSON.parse(content); structured = true; } catch { /* Plain text stays literal. */ }
   }
-  const body = node('div', 'document-content');
   if (!structured) {
     appendReadableText(body,content || '内容缺失或超过内置阅读限额。','readable');
     return {body, value: undefined};
