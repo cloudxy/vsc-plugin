@@ -1,9 +1,13 @@
 """Generate bounded line suggestions without granting an AI editorial authority."""
 import json
+import os
 import re
+import selectors
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -20,13 +24,64 @@ SUGGESTION_SCHEMA = {
             "after_value": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}}}}}
 
 
+def host_environment(environ=None):
+    """Keep CLI subscription login at ~/.grok/auth.json; never pass app secrets."""
+    environ = os.environ if environ is None else environ
+    allowed = {"HOME", "PATH", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE",
+               "SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT"}
+    return {key: value for key, value in environ.items() if key in allowed}
+
+
+def _run_bounded(command, *, cwd, env, timeout, capture_output=True, text=True, check=False,
+                 maximum_bytes=2 * 1024 * 1024):
+    """Bound both pipe buffers and lifetime, without shells or inherited tools."""
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, start_new_session=True)
+    output = {"stdout": bytearray(), "stderr": bytearray()}
+    deadline, size = time.monotonic() + timeout, 0
+    completed = False
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+            selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                for key, _ in selector.select(min(remaining, .1)):
+                    data = os.read(key.fileobj.fileno(), 65536)
+                    if not data:
+                        selector.unregister(key.fileobj)
+                        continue
+                    size += len(data)
+                    if size > maximum_bytes:
+                        raise ResourceError("建议宿主输出超过上限；不会自动重试", "suggestion_output_limit", 502)
+                    output[key.data].extend(data)
+            process.wait(timeout=max(.01, deadline - time.monotonic()))
+        completed = True
+        return subprocess.CompletedProcess(command, process.returncode,
+            bytes(output["stdout"]).decode("utf-8", "replace"),
+            bytes(output["stderr"]).decode("utf-8", "replace"))
+    finally:
+        if not completed or process.poll() is None:
+            # The child has a separate session. Descendants cannot keep its
+            # pipes alive after a timeout or exceed the output budget.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        process.stdout.close()
+        process.stderr.close()
+
+
 class GrokBuildSuggestions:
     """A tool-free, single-turn Grok Build host invocation, separate from Imagine."""
     name = "grok-build"
 
     def __init__(self, executable="grok", timeout=120, runner=None):
         self.executable, self.timeout = executable, timeout
-        self.runner = runner or subprocess.run
+        self.runner = runner or _run_bounded
 
     def available(self):
         return bool(shutil.which(self.executable))
@@ -50,7 +105,7 @@ class GrokBuildSuggestions:
                 "--json-schema", json.dumps(SUGGESTION_SCHEMA, ensure_ascii=False)]
             try:
                 result = self.runner(command, cwd=directory, capture_output=True, text=True,
-                                     timeout=self.timeout, check=False)
+                                     timeout=self.timeout, check=False, env=host_environment())
             except subprocess.TimeoutExpired as exc:
                 raise ResourceError("建议生成超时，调用结果未知；不会自动重试", "suggestion_submission_unknown", 504) from exc
             except OSError as exc:

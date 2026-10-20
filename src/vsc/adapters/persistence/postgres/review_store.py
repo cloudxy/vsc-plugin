@@ -87,7 +87,12 @@ class ReviewRepository:
                     S.artifact_versions.c.project_id == p,
                     S.artifact_versions.c.artifact_key == artifact["artifact_key"])).scalar_one()
                 if latest != artifact["version"]:
-                    raise Conflict("被审文案已有新版本；原时码与意见保留，请重新定位", "review_target_stale")
+                    if note["category"] == "subtitle" and note.get("render_id"):
+                        from .edit_preview_store import EditPreviewRepository
+                        render = self.store._one(conn, S.render_versions, p, note["render_id"])
+                        EditPreviewRepository(self.store)._baseline(conn, p, render)
+                    else:
+                        raise Conflict("被审文案已有新版本；原时码与意见保留，请重新定位", "review_target_stale")
             note["body_text"] = note["body"]
         return field, note
 
@@ -147,6 +152,9 @@ class ReviewRepository:
                 _, note = self.source(conn, p, {field: note["id"]})
                 entry = {"source": {field: note["id"]}, "body": note.get("body", note.get("reason")), "note": note,
                          "responses": []}
+                if field == "artifact_note_id":
+                    from .edit_preview_store import EditPreviewRepository
+                    entry["edit_previews"] = EditPreviewRepository(self.store).list(p, note["id"])["items"]
                 if field == "media_review_id":
                     entry["source_jobs"] = [dict(row) for row in conn.execute(select(S.generation_jobs.c.id,
                         S.generation_jobs.c.shot_id, S.generation_jobs.c.purpose, S.generation_jobs.c.modality).join(S.job_outputs,

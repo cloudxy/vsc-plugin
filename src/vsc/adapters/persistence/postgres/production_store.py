@@ -14,11 +14,52 @@ from .production_guard import validate_guard, validate_submission
 
 
 class ProductionRepository:
+    @staticmethod
+    def _generation_lease(job, worker_id, claim_epoch):
+        if (not worker_id or type(claim_epoch) is not int or claim_epoch != job["claim_epoch"]
+                or job["claim_owner"] != worker_id or not job["claim_until"]
+                or job["claim_until"] <= datetime.now(timezone.utc)):
+            raise Conflict("任务worker租约已过期、轮次失效或归属不同", "worker_lease_conflict")
+
+    def renew_generation_job_lease(self, project_id, job_id, worker_id, claim_epoch, lease_seconds=300):
+        if type(lease_seconds) is not int or not 1 <= lease_seconds <= 3600:
+            raise ResourceError("worker租约需要1..3600秒")
+        with self.engine.begin() as conn:
+            project = self._project(conn, project_id, lock=True)
+            job = self._one(conn, S.generation_jobs, project["id"], checked_id(job_id))
+            self._generation_lease(job, worker_id, claim_epoch)
+            until = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+            conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"],
+                S.generation_jobs.c.id == job["id"]).values(claim_until=until))
+            return clean({"id": job["id"], "claim_epoch": claim_epoch, "claim_until": until})
+
+    def release_generation_job_lease(self, project_id, job_id, worker_id, claim_epoch,
+                                     retry_seconds=0, error_code=None):
+        if not isinstance(retry_seconds, (int, float)) or not 0 <= retry_seconds <= 3600:
+            raise ResourceError("worker退避需要0..3600秒")
+        with self.engine.begin() as conn:
+            project = self._project(conn, project_id, lock=True)
+            job = self._one(conn, S.generation_jobs, project["id"], checked_id(job_id))
+            self._generation_lease(job, worker_id, claim_epoch)
+            now = datetime.now(timezone.utc)
+            conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"],
+                S.generation_jobs.c.id == job["id"]).values(claim_owner=None, claim_until=None,
+                    next_attempt_at=now + timedelta(seconds=retry_seconds), updated_at=now))
+            if error_code:
+                # Exception text can contain provider credentials or transcripts.
+                code = str(error_code)
+                if not re.fullmatch(r"[a-zA-Z0-9_]{1,100}", code):
+                    code = "worker_error"
+                conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(),
+                    job_id=job["id"], event_type="worker_retry",
+                    evidence={"error_code": code, "retry_seconds": retry_seconds, "claim_epoch": claim_epoch}))
+            return {"id": job["id"], "status": job["status"]}
+
     def record_submission_result(self, project_id, payload, **kw):
         def work(conn, project):
             job = self._one(conn, S.generation_jobs, project["id"], required(payload, "job_id"))
-            if (job["status"] != "submission_unknown" or job["claim_owner"] != required(payload, "worker_id")
-                    or not job["claim_until"] or job["claim_until"] <= datetime.now(timezone.utc)):
+            self._generation_lease(job, required(payload, "worker_id"), payload.get("claim_epoch"))
+            if job["status"] != "submission_unknown":
                 raise Conflict("提交响应不属于有效worker意图", "worker_lease_conflict")
             external = payload.get("external_task_id")
             provider_status = required(payload, "provider_status")
@@ -26,8 +67,6 @@ class ProductionRepository:
                 raise ResourceError("Provider响应状态无效")
             values = {"raw_response": required(payload, "raw_response"), "external_task_id": external,
                       "status": "submitted" if external else "submission_unknown", "updated_at": datetime.now(timezone.utc)}
-            if external and provider_status in {"submitted", "running"}:
-                values.update(claim_owner=None, claim_until=None)
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"]).values(**values))
             conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job["id"], event_type="response_recorded",
                 evidence={"provider_status": provider_status, "worker_id": payload["worker_id"], "external_task_id": external}))
@@ -134,14 +173,34 @@ class ProductionRepository:
             rows = [dict(r) for r in conn.execute(query.order_by(S.generation_jobs.c.created_at, S.generation_jobs.c.id).offset(offset).limit(limit)).mappings()]
             return clean({"items": rows, "total": total, "offset": offset, "limit": limit, "revision": project["revision"]})
 
-    def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",)):
+    def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",),
+                             job_id=None, recovery=False, serialize=False, managed_only=False, resume_storage=False):
         if not isinstance(lease_seconds, int) or not 1 <= lease_seconds <= 3600:
             raise ResourceError("worker租约需要1..3600秒")
         statuses = tuple(statuses)
-        if not statuses or any(status not in {"created", "submitted", "running"} for status in statuses):
+        allowed = {"created", "submitted", "running"}
+        if recovery and job_id and project_id:
+            allowed = {"submitted", "running", "submission_unknown"}
+        if not statuses or any(status not in allowed for status in statuses):
             raise ResourceError("只能领取可提交或可轮询任务，unknown禁止自动重提", "job_not_claimable")
         now = datetime.now(timezone.utc)
-        eligible = and_(S.generation_jobs.c.status.in_(statuses), or_(S.generation_jobs.c.claim_until.is_(None), S.generation_jobs.c.claim_until <= now))
+        status_match = S.generation_jobs.c.status.in_(statuses)
+        if resume_storage:
+            success_receipt = select(S.job_events.c.id).where(
+                S.job_events.c.project_id == S.generation_jobs.c.project_id,
+                S.job_events.c.job_id == S.generation_jobs.c.id,
+                S.job_events.c.evidence["source"].astext == "provider_success_awaiting_storage").exists()
+            status_match = or_(status_match, and_(S.generation_jobs.c.status == "submission_unknown",
+                S.generation_jobs.c.raw_response.is_not(None), success_receipt))
+        eligible = and_(status_match,
+            or_(S.generation_jobs.c.claim_until.is_(None), S.generation_jobs.c.claim_until <= now))
+        if job_id:
+            eligible = and_(eligible, S.generation_jobs.c.id == checked_id(job_id))
+        if recovery:
+            eligible = and_(eligible, S.generation_jobs.c.raw_response.is_not(None))
+        else:
+            eligible = and_(eligible, or_(S.generation_jobs.c.next_attempt_at.is_(None),
+                                         S.generation_jobs.c.next_attempt_at <= now))
         with self.engine.begin() as conn:
             # Lock order is always project then job, matching manual mutations.
             projects = select(S.projects).where(S.projects.c.id.in_(select(S.generation_jobs.c.project_id).where(eligible)))
@@ -149,13 +208,18 @@ class ProductionRepository:
                 S.project_revisions.c.action == "migration_import", ~S.project_revisions.c.project_id.in_(
                     select(S.project_revisions.c.project_id).where(S.project_revisions.c.action == "migration_activate")))
             projects = projects.where(~S.projects.c.id.in_(pending_imports))
+            if managed_only:
+                projects = projects.where(S.projects.c.profile_snapshot["contract_policy"].astext == "production-v2")
             if project_id:
                 projects = projects.where(S.projects.c.id == checked_id(project_id))
             # Read the candidate identities without locking every project at
             # once. Recheck eligibility while taking each project lock before
             # its job locks, and continue past blocked projects in global mode.
+            last_claim = select(func.max(S.job_events.c.created_at)).where(
+                S.job_events.c.project_id == S.projects.c.id,
+                S.job_events.c.event_type == "lease_claimed").correlate(S.projects).scalar_subquery()
             project_ids = list(conn.execute(projects.with_only_columns(S.projects.c.id)
-                                            .order_by(S.projects.c.id)).scalars())
+                .order_by(last_claim.asc().nullsfirst(), S.projects.c.id)).scalars())
             for identifier in project_ids:
                 row = conn.execute(projects.where(S.projects.c.id == identifier)
                     .with_for_update(skip_locked=True)).mappings().first()
@@ -163,9 +227,24 @@ class ProductionRepository:
                     continue
                 project = dict(row)
                 jobs = conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], eligible)
-                    .order_by(S.generation_jobs.c.created_at, S.generation_jobs.c.id).with_for_update(skip_locked=True)).mappings()
+                    .order_by(S.generation_jobs.c.updated_at, S.generation_jobs.c.created_at,
+                              S.generation_jobs.c.id).with_for_update(skip_locked=True)).mappings()
                 job, blocked = None, None
                 for candidate in jobs:
+                    if serialize:
+                        # Try, never wait while holding a project lock. The DB
+                        # lease enforces the conservative one-call limit across
+                        # application processes as well as within one runtime.
+                        locked = conn.execute(text("SELECT pg_try_advisory_xact_lock(hashtextextended(:provider, 913))"),
+                            {"provider": candidate["provider_id"]}).scalar_one()
+                        if not locked:
+                            continue
+                        active = conn.execute(select(S.generation_jobs.c.id).where(
+                            S.generation_jobs.c.claim_until > now,
+                            or_(S.generation_jobs.c.project_id == project["id"],
+                                S.generation_jobs.c.provider_id == candidate["provider_id"])).limit(1)).first()
+                        if active:
+                            continue
                     if candidate["status"] == "created":
                         try:
                             self.check_job_script_confirmation(conn, project, shot_id=candidate["shot_id"],
@@ -182,9 +261,11 @@ class ProductionRepository:
                         raise blocked
                     continue
                 conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"])
-                    .values(claim_owner=worker_id, claim_until=now + timedelta(seconds=lease_seconds), updated_at=now))
+                    .values(claim_owner=worker_id, claim_until=now + timedelta(seconds=lease_seconds),
+                            claim_epoch=job["claim_epoch"] + 1, next_attempt_at=None, updated_at=now))
                 conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job["id"],
-                    event_type="lease_claimed", evidence={"worker_id": worker_id, "lease_seconds": lease_seconds}))
+                    event_type="lease_claimed", evidence={"worker_id": worker_id, "lease_seconds": lease_seconds,
+                                                        "claim_epoch": job["claim_epoch"] + 1}))
                 project["revision"] += 1
                 conn.execute(update(S.projects).where(S.projects.c.id == project["id"]).values(revision=project["revision"]))
                 conn.execute(insert(S.project_revisions).values(project_id=project["id"], revision=project["revision"],
@@ -196,9 +277,10 @@ class ProductionRepository:
         def work(conn, project):
             job = self._one(conn, S.generation_jobs, project["id"], required(payload, "job_id"))
             worker = required(payload, "worker_id")
-            if (job["status"] != "created" or job["claim_owner"] != worker or not job["claim_until"]
-                    or job["claim_until"] <= datetime.now(timezone.utc)):
+            self._generation_lease(job, worker, payload.get("claim_epoch"))
+            if job["status"] != "created":
                 raise Conflict("提交任务的worker租约无效", "worker_lease_conflict")
+            self._validate_generation_submit(conn, project, job)
             validate_submission(self, conn, project, job)
             self._reserve_budget(conn, project, job)
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"])
@@ -207,6 +289,19 @@ class ProductionRepository:
                 event_type="submission_started", evidence={"worker_id": worker}))
             return {"id": job["id"], "status": "submission_unknown"}
         return self._mutate(project_id, "mark_submission_started", payload, callback=work, **kw)
+
+    def _validate_generation_submit(self, conn, project, job):
+        if not self._artifact_approved(conn, project["id"], job["run_version_id"]):
+            raise ResourceError("运行包批准已失效，不能提交", "run_unapproved")
+        context = (self._compile_asset_context(conn, project, job["asset_id"], job["purpose"])
+                   if job.get("asset_id") else self._compile_context(conn, project, job["shot_id"], job["purpose"]))
+        if not context["ready"] or context["sha256"] != job["context_sha256"]:
+            raise ResourceError("任务固定输入已失效，须重编译后创建新候选", "stale_job")
+        enabled = conn.execute(select(S.provider_models.c.enabled, S.providers.c.enabled.label("provider_enabled"))
+            .join(S.providers, S.providers.c.id == S.provider_models.c.provider_id)
+            .where(S.provider_models.c.id == job["model_id"])).mappings().one()
+        if not enabled["enabled"] or not enabled["provider_enabled"]:
+            raise ResourceError("任务固定供应商或模型已停用", "provider_disabled")
 
     def create_generation_job(self, project_id, payload, **kw):
         return self._mutate(project_id, "create_generation_job", payload,
@@ -308,20 +403,45 @@ class ProductionRepository:
         conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=row_id, event_type="intent_recorded", evidence={}))
         return {"id": row_id, "status": "created", "idempotency_key": key, "request_sha256": request_sha}
 
+    def recover_generation_job(self, project_id, payload, *, confirmation_id, **kw):
+        if not isinstance(confirmation_id, str) or not confirmation_id:
+            raise ResourceError("恢复需要已验证人工决定", "human_confirmation_required", 403)
+        if (not isinstance(payload.get("reason"), str) or not payload["reason"].strip()
+                or not isinstance(payload.get("recovery_evidence"), dict) or not payload["recovery_evidence"]
+                or payload.get("status") not in {"submitted", "succeeded", "failed"}
+                or payload.get("worker_id") or "claim_epoch" in payload):
+            raise ResourceError("人工恢复需要原因、核对证据及确定结果", "recovery_evidence_required")
+        return self._update_generation_job(project_id, payload, confirmation_id=confirmation_id, **kw)
+
     def update_generation_job(self, project_id, payload, **kw):
+        return self._update_generation_job(project_id, payload, **kw)
+
+    def _update_generation_job(self, project_id, payload, *, confirmation_id=None, **kw):
         allowed = {"created": {"submitted", "submission_unknown", "failed", "cancelled"},
                    "submitted": {"running", "succeeded", "failed"}, "running": {"running", "succeeded", "failed"},
-                   "submission_unknown": {"submitted", "succeeded", "failed"}, "succeeded": set(), "failed": set(), "cancelled": set()}
+                   "submission_unknown": {"submitted", "submission_unknown", "succeeded", "failed"},
+                   "succeeded": set(), "failed": set(), "cancelled": set()}
         def work(conn, project):
             p = project["id"]
             job = self._one(conn, S.generation_jobs, p, required(payload, "job_id"))
             status = required(payload, "status")
-            if payload.get("worker_id") and (job["claim_owner"] != payload["worker_id"] or not job["claim_until"]
-                    or job["claim_until"] <= datetime.now(timezone.utc)):
-                raise Conflict("任务worker租约已过期或归属不同", "worker_lease_conflict")
+            if confirmation_id:
+                if job["status"] != "submission_unknown":
+                    raise Conflict("人工对账仅恢复未知提交任务", "invalid_job_transition")
+                if job["claim_until"] and job["claim_until"] > datetime.now(timezone.utc):
+                    raise Conflict("任务仍有执行中的worker，不能人工覆盖", "worker_lease_conflict")
+            elif payload.get("worker_id"):
+                self._generation_lease(job, payload["worker_id"], payload.get("claim_epoch"))
+            elif job["claim_epoch"] > 0:
+                raise Conflict("已领取任务需要当前worker轮次或独立人工恢复", "worker_lease_conflict")
             if status not in allowed[job["status"]]:
                 raise Conflict("生成任务状态转换不允许", "invalid_job_transition")
+            if job["status"] == status == "submission_unknown" and (
+                    not payload.get("worker_id") or not payload.get("raw_response")
+                    or (payload.get("recovery_evidence") or {}).get("source") != "provider_success_awaiting_storage"):
+                raise ResourceError("未知结果只有当前worker的成功响应可以登记为待转存", "recovery_evidence_required")
             if job["status"] == "created" and status in {"submitted", "submission_unknown"}:
+                self._validate_generation_submit(conn, project, job)
                 validate_submission(self, conn, project, job)
                 self._reserve_budget(conn, project, job)
             if job["status"] == "submission_unknown" and not payload.get("recovery_evidence"):
@@ -342,8 +462,12 @@ class ProductionRepository:
                     media_id=media["id"], asset_type=output.get("asset_type", job["modality"]), original_uri=output.get("original_uri")))
             if status == "succeeded" and job["request_payload"].get("operation"):
                 self._register_job_video_operation(conn, p, job, outputs, payload.get("raw_response", job["raw_response"]))
-            values = {"status": status, "external_task_id": external, "updated_at": datetime.now(timezone.utc),
-                      "claim_owner": None, "claim_until": None}
+            values = {"status": status, "external_task_id": external, "updated_at": datetime.now(timezone.utc)}
+            # The active worker keeps its lease across provider response,
+            # download and storage registration. Only terminal writes release.
+            if (confirmation_id or not payload.get("worker_id") or not payload.get("keep_lease")
+                    or status in {"succeeded", "failed", "cancelled"}):
+                values.update(claim_owner=None, claim_until=None, next_attempt_at=None)
             for field in ("cost", "latency_ms", "raw_response"):
                 if field in payload:
                     values[field] = payload[field]
@@ -352,10 +476,16 @@ class ProductionRepository:
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == p, S.generation_jobs.c.id == job["id"]).values(**values))
             if status in {"succeeded", "failed", "cancelled"}:
                 self._settle_budget(conn, p, job, payload.get("actual_units"))
+            evidence = dict(payload.get("recovery_evidence", {}))
+            if confirmation_id:
+                evidence.update(human_confirmation_id=confirmation_id, reason=payload["reason"])
+            elif payload.get("worker_id"):
+                evidence.update(worker_id=payload["worker_id"], claim_epoch=payload["claim_epoch"])
             conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=job["id"], event_type=status,
-                evidence=payload.get("recovery_evidence", {})))
+                evidence=evidence))
             return {"id": job["id"], "status": status}
-        return self._mutate(project_id, "update_generation_job", payload, callback=work, **kw)
+        return self._mutate(project_id, "recover_generation_job" if confirmation_id else "update_generation_job",
+                            payload, callback=work, **kw)
 
     def _register_job_video_operation(self, conn, p, job, outputs, raw_response):
         """Success and typed input/output lineage commit atomically with the job."""

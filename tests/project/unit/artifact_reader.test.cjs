@@ -52,6 +52,14 @@ test('plain text and primitive JSON are readable without dropping zero, false or
   }
 });
 
+test('a document title takes precedence over an internal artifact key',async()=>{
+  const data=project('A',{artifacts:[{id:'named',artifact_key:'reader-0'}],artifactDetails:{named:{id:'named',artifact_type:'screenplay',
+    artifact_key:'reader-0',content:{title:'可读剧本标题',scenes:[]}}}});
+  const app=await start(new Map([['A',data]]));
+  await app.panel.openArtifact('named');
+  assert.equal(item(app,'named').querySelector('.artifact-title').textContent,'可读剧本标题');
+});
+
 test('technical keys use known type titles and unapproved new drafts never appear as historical',async()=>{
   const rows=[
     {id:'brief',artifact_key:'vsc.creative_brief',artifact_type:'vsc.creative_brief'},

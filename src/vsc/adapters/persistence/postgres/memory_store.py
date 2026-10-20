@@ -410,8 +410,10 @@ class RoleMemoryRepository:
                     "role_sha256": d["role_sha256"], "context_sha256": d["context_sha256"], "consumed": True}
         return self._mutate(project_id, "consume_role_dispatch", payload, callback=work, **kw)
 
-    def return_role_dispatch(self, project_id, payload, **kw):
+    def return_role_dispatch(self, project_id, payload, _fence=None, **kw):
         def work(conn, project):
+            if _fence is not None:
+                _fence(conn, project)
             stored = self._one(conn, S.role_dispatches, project["id"], required(payload, "dispatch_id"))
             result = required(payload, "result")
             errors = validate_return(stored["packet"], result)

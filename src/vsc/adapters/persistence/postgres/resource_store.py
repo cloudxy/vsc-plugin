@@ -189,8 +189,27 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         with self.engine.connect() as conn:
             return clean(self._project(conn, project_id))
 
+    def get_operation_receipt(self, project_id, key, actor):
+        if not isinstance(key, str) or not 1 <= len(key) <= 200:
+            raise ResourceError("操作标识不合法", "invalid_idempotency_key")
+        with self.engine.connect() as conn:
+            p = self._project(conn, project_id)["id"]
+            response = conn.execute(select(S.command_receipts.c.response).select_from(
+                S.command_receipts.join(S.project_revisions, and_(
+                    S.command_receipts.c.project_id == S.project_revisions.c.project_id,
+                    S.command_receipts.c.idempotency_key == S.project_revisions.c.command_key))
+            ).where(S.command_receipts.c.project_id == p,
+                    S.command_receipts.c.idempotency_key == key,
+                    S.project_revisions.c.actor == actor)).scalar_one_or_none()
+            return {"found": response is not None, "response": clean(response)}
+
     def create_project(self, payload, actor, **kwargs):
-        project_id = checked_id(payload.get("id", new_id()))
+        key = kwargs.get("idempotency_key")
+        if key is not None and (not isinstance(key, str) or not 1 <= len(key) <= 200):
+            raise ResourceError("创建请求需要有效操作标识", "invalid_idempotency_key")
+        project_id = checked_id(payload.get("id", str(uuid.uuid5(
+            uuid.NAMESPACE_URL, "vsc:project:" + actor + ":" + key)) if key else new_id()))
+        request_sha = digest({"payload": payload, "actor": actor})
         profile = payload.get("profile", "vsc.series-pg")
         snapshot = payload.get("profile_snapshot", {})
         # Creation is an explicit PG operation; never inferred from a directory.
@@ -198,9 +217,23 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             raise ResourceError("创建 PostgreSQL 项目必须显式采用 postgres-series-v1")
         try:
             with self.engine.begin() as conn:
+                if key:
+                    conn.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                                 {"key": "vsc-create:" + project_id})
+                    receipt = conn.execute(select(S.command_receipts).where(
+                        S.command_receipts.c.project_id == project_id,
+                        S.command_receipts.c.idempotency_key == "create:" + key)).mappings().first()
+                    if receipt:
+                        if receipt["request_sha256"] != request_sha:
+                            raise Conflict("创建请求已用于不同内容", "idempotency_conflict")
+                        return receipt["response"]
                 conn.execute(insert(S.projects).values(id=project_id, name=required(payload, "name"),
                     profile=profile, profile_snapshot=snapshot, storage_policy="postgres-series-v1"))
-                return clean(self._project(conn, project_id))
+                result = clean(self._project(conn, project_id))
+                if key:
+                    conn.execute(insert(S.command_receipts).values(project_id=project_id,
+                        idempotency_key="create:" + key, request_sha256=request_sha, response=result))
+                return result
         except IntegrityError as exc:
             raise Conflict("项目 ID 已存在", "project_exists") from exc
 
@@ -740,6 +773,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             project = self._project(conn, project_id)
             p = project["id"]
             query = self._media_query(p)
+            if filters.get("status") != "deprecated" and not filters.get("include_recycled"):
+                from .media_recycle import recycled_ids
+                query = query.where(~S.media_items.c.id.in_(recycled_ids(p)))
             if object_id:
                 self._one(conn, S.creative_objects, p, object_id)
                 scoped_objects = self._descendant_ids(conn, p, object_id)
@@ -1752,6 +1788,15 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             conn.execute(insert(S.render_versions).values(project_id=p, id=row_id, timeline_id=timeline["id"], artifact_id=artifact["id"],
                 subtitle_version_id=payload.get("subtitle_version_id"), style_version_id=payload.get("style_version_id"),
                 tool=required(payload, "tool"), tool_version=required(payload, "tool_version"), parameters=payload.get("parameters", {})))
+            if payload.get("caption_inputs"):
+                from .edit_preview_store import EditPreviewRepository
+                caption_inputs = EditPreviewRepository(self)._inputs(conn, p,
+                    {"id": row_id, "timeline_id": timeline["id"], "parameters": payload.get("parameters", {})},
+                    json.loads(artifact["document"]), outputs=payload["caption_inputs"])
+                for source in caption_inputs:
+                    if source["role"] in {"clean_master", "subtitle_font"}:
+                        conn.execute(insert(S.render_caption_inputs).values(project_id=p, id=new_id(), render_id=row_id,
+                            media_id=source["id"], blob_id=source["blob_id"], blob_sha256=source["sha256"], role=source["role"]))
             items = select(S.timeline_items.c.id).where(S.timeline_items.c.project_id == p, S.timeline_items.c.timeline_id == timeline["id"])
             for source in conn.execute(select(S.timeline_item_media).where(S.timeline_item_media.c.project_id == p,
                     S.timeline_item_media.c.item_id.in_(items))).mappings():

@@ -26,6 +26,9 @@ class ResourceFixture:
         self.artifact("scene-state", "scene-state", {"state_versions": [{"scene_id": self.objects["scene"], "shot_id": self.objects["shot"], "entities": []}]})
 
     def write(self, action, payload, key=None):
+        if action in {"mark_submission_started", "record_submission_result", "update_generation_job"} and payload.get("worker_id"):
+            payload = dict(payload)
+            payload.setdefault("claim_epoch", self.service.get_generation_job(self.p, payload["job_id"])["claim_epoch"])
         return getattr(self.service, action)(self.p, payload,
             expected_revision=self.service.get_project(self.p)["revision"],
             idempotency_key=key or uuid.uuid4().hex, actor="fixture-human")

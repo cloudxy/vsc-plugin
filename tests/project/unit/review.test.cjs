@@ -74,6 +74,29 @@ test('professional preview appears only for a returned artifact with real render
   assert.ok(!ready.textContent.includes('新预览尚未登记'));const button=ready.querySelectorAll('button').find(row=>row.textContent==='预览专业修改结果');await button.click();assert.deepEqual(opened,['real-local-preview']);
 });
 
+test('persisted edit preview removes obsolete waiting text and a nested history omits its duplicate heading',async()=>{
+  const f=await fixture();
+  const node=f.renderReviewHistory({items:[{source:{artifact_note_id:'note'},note:{category:'subtitle'},body:'向上移动',
+    edit_previews:[{status:'succeeded',output:{content_url:'/api/v1/projects/P/edit-previews/J/content'}}],
+    responses:[{explanation:'局部修改',limitations:'已派给原专业角色，尚无实际结果',dispatches:[
+      {message:'已有专业返回',returns:[{artifacts:[{id:'draft',previews:[]}]}]}]}]}]}, {heading:false});
+  assert.equal(node.querySelectorAll('video').length,1);
+  assert.equal(node.querySelectorAll('h3').length,0);
+  assert.ok(!node.textContent.includes('新预览尚未登记'));
+  assert.ok(!node.textContent.includes('尚无实际结果'));
+});
+
+test('a failed preview retries the existing job and keeps its key across a lost response',async()=>{
+  const f=await fixture(),calls=[];
+  const node=f.renderReviewHistory({items:[{source:{artifact_note_id:'note'},body:'原意见',
+    edit_previews:[{id:'job',status:'failed'}],responses:[]}]},
+    {retryPreview:async(preview,item,key)=>{calls.push([preview.id,item.source.artifact_note_id,key]);if(calls.length===1)throw new Error('响应中断');},onError:()=>{}});
+  const retry=node.querySelector('button');
+  await retry.click();await retry.click();
+  assert.deepEqual(calls[0],calls[1]);
+  assert.deepEqual(calls[0].slice(0,2),['job','note']);
+});
+
 test('the media reader puts playback and opinions before default-collapsed technical history',async()=>{
   const f=await fixture(),document=new Document(fs.readFileSync(path.join(root,'src/vsc/interfaces/web/templates/index.html'),'utf8')),requests=[];
   for(const dialog of document.querySelectorAll('dialog')){dialog.close=()=>{dialog.open=false;};dialog.showModal=()=>{dialog.open=true;};}
