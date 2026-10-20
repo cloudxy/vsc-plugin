@@ -353,7 +353,7 @@ class PostgresResourceTest(ResourceStoreFixture, unittest.TestCase):
             self.write("mark_submission_started", {"job_id": b["id"], "worker_id": "budget-b"})
         self.assertEqual(caught.exception.code, "budget_exceeded")
         self.assertEqual(self.service.budget_status(self.p)["used"], {"remote_jobs": 1, "video_seconds": 5})
-        self.write("update_generation_job", {"job_id": a["id"], "status": "failed", "recovery_evidence": {"human_confirmed_not_submitted": True},
+        self.write("update_generation_job", {"job_id": a["id"], "worker_id": "budget-a", "status": "failed", "recovery_evidence": {"human_confirmed_not_submitted": True},
             "actual_units": {"remote_jobs": 0, "video_seconds": 0}})
         self.write("mark_submission_started", {"job_id": b["id"], "worker_id": "budget-b"})
         self.assertEqual(self.service.budget_status(self.p)["remaining"], {"remote_jobs": 0, "video_seconds": 0})

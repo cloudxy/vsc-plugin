@@ -58,7 +58,9 @@ function readableTitle(raw) {
   return technical ? '' : words(filename);
 }
 export function artifactTitle(artifact) {
-  for(const candidate of [artifact.title,artifact.name,artifact.artifact_key]){
+  let content=artifact.content ?? artifact.document;
+  if(typeof content==='string'){try{content=JSON.parse(content);}catch{content=null;}}
+  for(const candidate of [artifact.title,artifact.name,content?.title,content?.['标题'],artifact.artifact_key]){
     const title=readableTitle(candidate);if(title)return title;
   }
   return typeTitle(artifact.artifact_type || artifact.type || '') || '文案';

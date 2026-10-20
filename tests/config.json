@@ -7,6 +7,67 @@
     "system"
   ],
   "modules": {
+    "assets.integration.test_assisted_desk": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/assisted_desk.py",
+        "src/vsc/adapters/persistence/postgres/assisted_desk.py",
+        "src/vsc/interfaces/web/assisted_desk.py"
+      ]
+    },
+    "project.unit.test_assisted_desk_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/assisted-desk.js",
+        "src/vsc/interfaces/web/static/assisted-desk.css",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/static/review.js",
+        "src/vsc/interfaces/web/static/local-production.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/assisted_desk.test.cjs"
+      ]
+    },
+    "assets.integration.test_edit_preview": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/edit_preview.py",
+        "src/vsc/post/edit_preview.py",
+        "src/vsc/adapters/persistence/postgres/edit_preview_store.py",
+        "src/vsc/interfaces/web/edit_preview.py",
+        "src/vsc/interfaces/web/app.py"
+      ]
+    },
+    "assets.integration.test_media_recycle": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/media_recycle.py",
+        "src/vsc/adapters/persistence/postgres/media_recycle.py",
+        "src/vsc/interfaces/web/media_recycle.py",
+        "src/vsc/interfaces/web/app.py",
+        "src/vsc/interfaces/web/__main__.py"
+      ]
+    },
+    "production.integration.test_generation_runtime": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/runtime.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/persistence/postgres/production_store.py",
+        "src/vsc/assets/generation_recovery.py"
+      ]
+    },
+    "assets.unit.test_script_host_isolation": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/script_ai.py"
+      ]
+    },
     "assets.integration.test_review_delegation": {
       "owner": "assets",
       "layer": "integration",

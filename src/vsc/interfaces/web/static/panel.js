@@ -1,6 +1,9 @@
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
-const state = {project: null, object: null, offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, view: 'workbench'};
+const entry = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+const mainViews = ['desk','projects','collection','trash'];
+const initialView = mainViews.includes(entry.get('page')) ? entry.get('page') : 'desk';
+const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:initialView, view: typeof window === 'undefined' ? 'workbench' : initialView};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
@@ -36,6 +39,34 @@ let roleMemory = null;
 let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, scriptWorkspace = null;
 let sourceIntake = null, designWorkspace = null, resourceLibrary = null;
 let localProduction = null;
+let assistedDesk = null;
+let pendingDeskRef = entry.get('object'), pendingDeskVersion = entry.get('version');
+let pendingDeskBucket = entry.get('bucket');
+let deskRouteReady=false,restoringDeskRoute=false;
+async function loadAssistedDesk() {
+  if(!assistedDesk){
+    const {createAssistedDesk,deskLink}=await import('./assisted-desk.js');
+    if(!assistedDesk)assistedDesk=createAssistedDesk($('assisted-desk'),{
+      api,player,notice,local:openLocalProduction,media:openMedia,
+      artifact:async id=>{await switchView('artifacts');await openArtifact(id);},
+      specialist:switchView,navigate:switchView,login:()=>$('session-dialog').showModal(),
+      session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable}),
+      revision:value=>{state.revision=value;},
+      projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,
+      chooseProject:async(id,page)=>{state.view=page;await selectProject(id);},
+      created:async id=>{state.project=id;state.object=null;state.view='projects';await loadProjects();await switchView('source');},
+      route:route=>{if(typeof window!=='undefined'&&mainViews.includes(state.view)){
+        const link=deskLink(route);if(window.location.search!==link){
+          const method=!deskRouteReady||restoringDeskRoute?'replaceState':'pushState';window.history[method](null,'',link);
+        }deskRouteReady=true;
+      }},
+    });
+  }
+  const ref=pendingDeskRef,version=pendingDeskVersion;pendingDeskRef=null;pendingDeskVersion=null;
+  const bucket=pendingDeskBucket;pendingDeskBucket=null;
+  await assistedDesk.load({projectId:state.project,objectId:state.object,page:state.view,
+    bucket:bucket||undefined,ref,version});
+}
 async function openLocalProduction(action, row) {
   if (!localProduction) {
     const {createLocalProduction} = await import('./local-production.js');
@@ -120,13 +151,20 @@ async function loadCanvas(focus = null) {
 }
 async function switchView(view, focus = null) {
   state.view = view;
+  const assisted=mainViews.includes(view);
+  if(assisted)state.primary=view;else assistedDesk?.suspend();
+  $('assisted-desk').hidden=!assisted;
+  $('specialist-tabs').hidden=assisted;$('specialist-heading').hidden=assisted;
+  document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('assisted-mode',assisted));
+  for(const key of mainViews){const link=$(`nav-${key}`);link.href='?'+new URLSearchParams({page:key,...(state.project?{project:state.project}:{}),...(state.object?{scope:state.object}:{})});if(key===state.primary)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
   if(view!=='source')sourceIntake?.suspend();if(view!=='designs')designWorkspace?.suspend();if(view!=='library')resourceLibrary?.suspend();
   document.querySelectorAll('.workspace').forEach(node=>{node.classList.toggle('reading-artifacts',view==='artifacts');node.classList.toggle('reading-production',['source','designs','library'].includes(view));});
   const views=[['source','source-view'],['script','script-view'],['designs','design-view'],['library','asset-library-view'],['candidates','creative-workbench'],['delivery','creative-workbench'],['workbench','creative-workbench'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']];
   const active=views.find(([tab])=>tab===view)?.[1];
   for(const target of new Set(views.map(([,target])=>target)))$(target).hidden=target!==active;
   for(const [tab,target]of views){$(`tab-${tab}`).setAttribute('aria-selected',String(tab===view));$(`tab-${tab}`).setAttribute('aria-controls',target);}
-  if (view === 'canvas') await loadCanvas(focus);
+  if (assisted) await loadAssistedDesk();
+  else if (view === 'canvas') await loadCanvas(focus);
   else if (['workbench','candidates','delivery'].includes(view)) await loadWorkbench();
   else if(view==='source')await loadSourceIntake();
   else if(view==='designs'||view==='library')await loadResourceModel(view);
@@ -161,16 +199,18 @@ async function loadProjects() {
     const option = el('option', '', project.name + (project.unavailable ? ' · 权威不可用' : ''));
     option.value = project.id; $('projects').append(option);
   }
-  if (!data.items.length) { $('projects').append(el('option', '', '没有已登记项目')); $('resources').replaceChildren(el('p', 'empty', '在配置的 projects 目录中建立项目后即可浏览。')); return; }
+  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', '没有已登记项目')); await switchView('projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
   await selectProject($('projects').value);
 }
-async function selectProject(id) {
+async function selectProject(id,{scope}={}) {
   if (state.project !== id) {
+    assistedDesk?.suspend();
     sourceIntake?.suspend();designWorkspace?.suspend();resourceLibrary?.suspend();
     state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});
     state.mediaRequest++;resetArtifactReader();state.compareRequest++;$('media-dialog').close();$('compare-dialog').close();
   }
+  if(scope!==undefined)state.object=scope;
   state.project = id; state.offset = 0; state.resourceRequest++; state.artifactRequest++; state.comparisons.clear(); updateCompare();
   const request = ++state.treeRequest;
   const paged=state.projectRows.get(id)?.storage_policy==='postgres-series-v1';
@@ -178,7 +218,7 @@ async function selectProject(id) {
   if (request !== state.treeRequest || state.project !== id) return;
   const project = (paged?state.projectRows.get(id):data.project) || {}; state.revision = data.revision ?? project.revision ?? 0;
   state.writable=project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
-  $('project-meta').replaceChildren(el('p', 'hint', `${project.storage_policy || '关系库'} · r${state.revision} · ${project.read_only ? '只读' : '共享服务'}`));
+  $('project-meta').replaceChildren(el('p', 'hint', project.read_only ? '此项目只读，可回看已有内容。' : '项目内容共享，决定保留记录。'));
   const selected = (data.nodes || []).find(node => node.id === state.object);
   if (!paged && !selected) { if(state.object!==null)resetArtifactReader();state.object = null; state.offset = 0; }
   state.treeMode=paged?'paged':'legacy';state.treeNodes = data.nodes || [];
@@ -496,13 +536,30 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
+for(const key of mainViews)$(`nav-${key}`).addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await switchView(key);}));
+$('back-to-desk').addEventListener('click',guard(()=>switchView(state.primary)));
 for(const tab of ['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
 $('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
 $('role-memory-open').addEventListener('click',guard(openRoleMemory));
 $('session-open').addEventListener('click',()=>$('session-dialog').showModal());
-$('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';state.actor=session.actor;state.csrf=session.csrf_token;$('session-label').textContent=`操作人：${state.actor}`;$('upload-open').disabled=!state.writable;$('session-dialog').close();}));
+$('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';state.actor=session.actor;state.csrf=session.csrf_token;$('session-label').textContent=`操作人：${state.actor}`;$('upload-open').disabled=!state.writable;$('session-dialog').close();if(mainViews.includes(state.view))await loadAssistedDesk();}));
 $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());
 $('upload-form').addEventListener('submit',guard(async event=>{event.preventDefault();const file=$('upload-file').files[0];if(!file)throw new Error('请选择文件');const rights=$('upload-rights').value;const scope=$('upload-scope').value.split(',').map(value=>value.trim()).filter(Boolean);if(rights!=='unknown' && !scope.length)throw new Error('请明确填写权利适用的用途');const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const receipt=await api(`${base()}/uploads`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name),'X-CSRF-Token':state.csrf},body:file});const result=await api(`${base()}/media`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{staged_upload:receipt.staged_upload,name:file.name,rights,rights_scope:{purposes:scope},source:{kind:'user_upload',content:$('upload-source').value}},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('upload-dialog').close();event.target.reset();await loadResources();notice('素材已转存并登记，尚未绑定或批准用途。');}finally{button.disabled=false;}}));
-guard(async()=>{const session=await api('/api/v1/session');state.actor=session.actor;state.csrf=session.csrf_token;if(session.actor)$('session-label').textContent=`操作人：${session.actor}`;state.previewCapabilities=await api('/api/v1/preview-capabilities');await loadProjects();})();
+if(typeof window!=='undefined'){
+  window.addEventListener('beforeunload',event=>{if(assistedDesk?.hasDrafts()){event.preventDefault();event.returnValue='';}});
+  window.addEventListener('popstate',guard(async()=>{const route=new URLSearchParams(window.location.search);state.view=mainViews.includes(route.get('page'))?route.get('page'):'desk';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');restoringDeskRoute=true;try{await selectProject(route.get('project')||state.project,{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
+}
+guard(async()=>{
+  let session;
+  if(typeof window!=='undefined'){
+    const fragment=new URLSearchParams(window.location.hash.slice(1)),token=fragment.get('setup');
+    if(token){
+      fragment.delete('setup');window.history.replaceState(null,'',window.location.pathname+window.location.search+(fragment.size?'#'+fragment:''));
+      try{session=await api('/api/v1/session/bootstrap',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});}
+      catch(error){notice(`本次登录引导未能完成：${error.message}。可从账户入口继续。`);}
+    }
+  }
+  session ||= await api('/api/v1/session');state.actor=session.actor;state.csrf=session.csrf_token;if(session.actor)$('session-label').textContent=`操作人：${session.actor}`;state.previewCapabilities=await api('/api/v1/preview-capabilities');await loadProjects();
+})();

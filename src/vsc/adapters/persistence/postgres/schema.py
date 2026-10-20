@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0011_review_feedback"
+SCHEMA_REVISION = "0012_assisted_workflow"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -225,7 +225,13 @@ rights_decisions = project_table("rights_decisions", *ref("media_items", "media_
     CheckConstraint("outcome IN ('owned','licensed','unknown','restricted','revoked')", name="outcome"))
 media_lifecycle_decisions = project_table("media_lifecycle_decisions", *ref("media_items", "media_id"),
     Column("outcome", Text, nullable=False), *decision_columns(),
+    UniqueConstraint("project_id", "media_id", "id"),
     CheckConstraint("outcome IN ('deprecate','restore')", name="outcome"))
+media_recycle_actions = project_table("media_recycle_actions",
+    *ref("media_items", "media_id"), *ref("media_lifecycle_decisions", "decision_id"),
+    UniqueConstraint("project_id", "decision_id"),
+    ForeignKeyConstraint(["project_id", "media_id", "decision_id"],
+        ["media_lifecycle_decisions.project_id", "media_lifecycle_decisions.media_id", "media_lifecycle_decisions.id"]))
 library_reuses = project_table("library_reuses", *ref("media_items", "media_id"),
     *ref("source_versions", "source_id"), Column("library_key", Text, nullable=False),
     Column("library_version", Text, nullable=False), Column("reuse_mode", Text, nullable=False), stamp())
@@ -366,6 +372,9 @@ generation_jobs = project_table("generation_jobs", *ref("artifact_versions", "ru
     Column("context_sha256", String(64), nullable=False), Column("idempotency_key", Text, nullable=False),
     Column("status", Text, nullable=False), Column("attempt", Integer, nullable=False),
     Column("claim_owner", Text), Column("claim_until", DateTime(timezone=True)),
+    Column("claim_epoch", Integer, nullable=False, server_default="0"),
+    Column("next_attempt_at", DateTime(timezone=True)),
+    CheckConstraint("claim_epoch >= 0", name="claim_epoch"),
     Column("cost", Numeric(18, 6)), Column("latency_ms", Integer), Column("raw_response", JSONB), stamp(),
     Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
     UniqueConstraint("project_id", "idempotency_key"),
@@ -379,6 +388,8 @@ generation_jobs = project_table("generation_jobs", *ref("artifact_versions", "ru
 Index("uq_generation_jobs_target_candidate", generation_jobs.c.project_id, generation_jobs.c.run_version_id,
       func.coalesce(generation_jobs.c.shot_id, generation_jobs.c.asset_id), generation_jobs.c.purpose,
       generation_jobs.c.candidate_no, unique=True)
+Index("ix_generation_jobs_provider_lease", generation_jobs.c.provider_id, generation_jobs.c.claim_until)
+Index("ix_generation_jobs_due", generation_jobs.c.status, generation_jobs.c.next_attempt_at, generation_jobs.c.claim_until)
 job_events = project_table("job_events", *ref("generation_jobs", "job_id"),
     Column("event_type", Text, nullable=False), Column("evidence", JSONB, nullable=False), stamp())
 job_input_media = project_table("job_input_media", *ref("generation_jobs", "job_id"),
@@ -945,7 +956,76 @@ for _name in REVIEW_TABLES:
         if _col.name.endswith("_id") and _col.name != "project_id":
             Index("ix_%s_project_%s" % (_name, _col.name), metadata.tables[_name].c.project_id, _col)
 
+# One job is one accepted, fixed subtitle opinion. Execution state is a queue
+# projection; inputs, attempts' receipts and outputs preserve the evidence.
+render_caption_inputs = project_table("render_caption_inputs",
+    *ref("render_versions", "render_id"), *ref("media_items", "media_id"),
+    uid("blob_id", nullable=False), Column("blob_sha256", String(64), nullable=False),
+    Column("role", Text, nullable=False),
+    ForeignKeyConstraint(["project_id", "media_id", "blob_id"],
+        ["media_items.project_id", "media_items.id", "media_items.blob_id"]),
+    ForeignKeyConstraint(["blob_id", "blob_sha256"], ["media_blobs.id", "media_blobs.sha256"]),
+    UniqueConstraint("project_id", "render_id", "role"),
+    CheckConstraint("role IN ('clean_master','subtitle_font')", name="role"))
+edit_preview_jobs = project_table("edit_preview_jobs",
+    *ref("artifact_review_notes", "note_id"), *ref("render_versions", "render_id"),
+    *ref("artifact_versions", "source_artifact_id"),
+    *ref("artifact_versions", "draft_artifact_id", nullable=True),
+    *ref("role_dispatches", "dispatch_id", nullable=True),
+    Column("request_sha256", String(64), nullable=False),
+    Column("recipe_version", Text, nullable=False), Column("tool_version", Text, nullable=False),
+    Column("caption_id", Text, nullable=False), Column("operation", Text, nullable=False),
+    Column("layout", JSONB, nullable=False), Column("diff", JSONB, nullable=False),
+    Column("start_frame", Integer, nullable=False), Column("end_frame", Integer, nullable=False),
+    Column("status", Text, nullable=False), Column("attempt", Integer, nullable=False, server_default="0"),
+    Column("claim_owner", Text), Column("claim_until", DateTime(timezone=True)),
+    Column("error", Text), Column("explanation", Text, nullable=False), stamp(),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+    UniqueConstraint("project_id", "note_id", "request_sha256"),
+    UniqueConstraint("project_id", "dispatch_id"),
+    CheckConstraint("status IN ('queued','running','succeeded','failed','blocked','stale')", name="status"),
+    CheckConstraint("start_frame >= 0 AND end_frame > start_frame AND attempt >= 0", name="range_attempt"))
+Index("uq_edit_preview_active_note", edit_preview_jobs.c.project_id, edit_preview_jobs.c.note_id,
+      unique=True, postgresql_where=text("status IN ('queued','running')"))
+edit_preview_inputs = project_table("edit_preview_inputs",
+    *ref("edit_preview_jobs", "job_id"), *ref("media_items", "media_id"),
+    *ref("timeline_items", "timeline_item_id", nullable=True),
+    *ref("binding_decisions", "binding_decision_id", nullable=True),
+    uid("blob_id", nullable=False), Column("blob_sha256", String(64), nullable=False),
+    Column("role", Text, nullable=False), Column("start_frame", Integer, nullable=False),
+    Column("end_frame", Integer, nullable=False), Column("source_path", Text, nullable=False, server_default=""),
+    ForeignKeyConstraint(["project_id", "media_id", "blob_id"],
+        ["media_items.project_id", "media_items.id", "media_items.blob_id"]),
+    ForeignKeyConstraint(["blob_id", "blob_sha256"], ["media_blobs.id", "media_blobs.sha256"]),
+    UniqueConstraint("project_id", "job_id", "role", "source_path", "timeline_item_id", postgresql_nulls_not_distinct=True),
+    CheckConstraint("role IN ('clean_master','subtitle_font','subtitle_audio')", name="role"),
+    CheckConstraint("(role='subtitle_audio' AND timeline_item_id IS NOT NULL AND binding_decision_id IS NOT NULL AND length(source_path)>0) OR "
+        "(role<>'subtitle_audio' AND timeline_item_id IS NULL AND binding_decision_id IS NULL AND source_path='')", name="audio_binding"),
+    CheckConstraint("start_frame >= 0 AND end_frame > start_frame", name="range"))
+edit_preview_attempts = project_table("edit_preview_attempts",
+    *ref("edit_preview_jobs", "job_id"), Column("attempt", Integer, nullable=False),
+    Column("worker_id", Text, nullable=False), Column("status", Text, nullable=False),
+    Column("receipt", JSONB, nullable=False, server_default="{}"),
+    Column("error", Text), stamp(), Column("finished_at", DateTime(timezone=True)),
+    UniqueConstraint("project_id", "job_id", "attempt"),
+    CheckConstraint("attempt > 0", name="attempt"),
+    CheckConstraint("status IN ('running','succeeded','failed','stale','expired')", name="status"))
+edit_preview_outputs = project_table("edit_preview_outputs",
+    *ref("edit_preview_jobs", "job_id"), *ref("edit_preview_attempts", "attempt_id"),
+    uid("blob_id", nullable=False), Column("blob_sha256", String(64), nullable=False),
+    Column("start_frame", Integer, nullable=False), Column("end_frame", Integer, nullable=False),
+    Column("duration_ms", Integer, nullable=False), Column("receipt", JSONB, nullable=False), stamp(),
+    ForeignKeyConstraint(["blob_id", "blob_sha256"], ["media_blobs.id", "media_blobs.sha256"]),
+    UniqueConstraint("project_id", "attempt_id"),
+    CheckConstraint("start_frame >= 0 AND end_frame > start_frame AND duration_ms > 0", name="range"))
+EDIT_PREVIEW_TABLES = ("render_caption_inputs", "edit_preview_jobs", "edit_preview_inputs", "edit_preview_attempts", "edit_preview_outputs")
+for _name in (*EDIT_PREVIEW_TABLES, "media_recycle_actions"):
+    for _col in metadata.tables[_name].c:
+        if _col.name.endswith("_id") and _col.name != "project_id":
+            Index("ix_%s_project_%s" % (_name, _col.name), metadata.tables[_name].c.project_id, _col)
+
 APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
+    "render_caption_inputs", "edit_preview_inputs", "edit_preview_outputs", "media_recycle_actions",
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
     "provider_configurations",
     "budget_limit_versions",

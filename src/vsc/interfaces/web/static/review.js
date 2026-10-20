@@ -2,16 +2,34 @@
 const el=(tag,text)=>{const node=document.createElement(tag);if(text!=null)node.textContent=text;return node;};
 export function renderReviewHistory(history,ctx={}) {
   const root=el('section');root.className='review-history detail-panel';
-  root.append(el('h3','意见与本轮结果'));
+  if(ctx.heading!==false)root.append(el('h3','意见与本轮结果'));
   for(const item of history?.items || []){
     const block=el('article');block.append(el('blockquote',item.body));
+    for(const preview of item.edit_previews || []){
+      const result=el('section');result.className='edit-preview-result';
+      result.append(el('p',preview.explanation || ({queued:'等待执行器',running:'正在制作局部预览',succeeded:'新预览已返回，请回看',failed:'预览制作受阻',blocked:'预览前置未满足',stale:'已有旧基线结果，待重新评估'})[preview.status] || '等待回看'));
+      if(preview.error)result.append(el('p',preview.error));
+      if(preview.status==='failed' && ctx.retryPreview){
+        const retry=el('button','重试这次预览'),key=crypto.randomUUID();retry.type='button';
+        retry.addEventListener('click',async()=>{if(retry.disabled)return;retry.disabled=true;try{await ctx.retryPreview(preview,item,key);}catch(error){ctx.onError?.(error);}finally{retry.disabled=false;}});
+        result.append(retry);
+      }
+      // Content URLs come from the project-gated read endpoint, never arbitrary locations.
+      if(preview.output?.content_url?.startsWith('/api/v1/projects/')){
+        const video=el('video');video.className='media-player';video.controls=true;video.preload='metadata';video.src=preview.output.content_url;
+        result.append(video,el('p','局部草稿预览；正式采用仍需审阅固定版本。'));
+      }
+      block.append(result);
+    }
     if(item.note?.range_seconds)block.append(el('p',`所见片段 ${item.note.range_seconds.start.toFixed(2)}–${item.note.range_seconds.end.toFixed(2)} 秒`));
     if(item.note?.anchor?.excerpt)block.append(el('p',`所见原文：${item.note.anchor.excerpt}`));
     if(ctx.process && item.source.artifact_note_id){const action=(label,newAttempt=false)=>{const process=el('button',label),key=crypto.randomUUID();process.type='button';process.addEventListener('click',async()=>{process.disabled=true;try{await ctx.process({...item.source,...(newAttempt?{new_attempt:true}:{})},key);}catch(error){ctx.onError?.(error);}finally{process.disabled=false;}});return process;};block.append(action('交专业角色处理'));if(item.responses?.some(row=>row.dispatches?.length))block.append(action('明确新一轮专业处理',true));}
     for(const job of item.source_jobs || [])if(job.modality==='audio' && job.shot_id && ctx.local){const button=el('button','按原参数重做本镜声音');button.type='button';button.addEventListener('click',()=>ctx.local('redo_sound',{...job,media_review_id:item.source.media_review_id}));block.append(button);}
     for(const [index,response] of (item.responses || []).entries()){
       const resultBlock=el('section');if(index<item.responses.length-1){const earlier=el('details');earlier.append(el('summary','较早处理记录'),resultBlock);block.append(earlier);}else block.append(resultBlock);
-      resultBlock.append(el('p',response.explanation),el('p',response.limitations));
+      resultBlock.append(el('p',response.explanation));
+      const returned=response.dispatches?.some(dispatch=>dispatch.returns?.length);
+      if(!(returned && response.limitations?.startsWith('已派给原专业角色')))resultBlock.append(el('p',response.limitations));
       if(response.preserve)resultBlock.append(el('p',response.preserve));
       for(const run of response.runs || []){
         resultBlock.append(el('p',({running:'仍在处理；刷新回看，不重复提交',completed:'已有局部建议，请在原差异区接受或拒绝',failed:'此次建议失败，原意见保留',stale:'所见内容已变化，原意见保留',submission_unknown:'提交结果待核实；不会自动重新调用'})[run.status] || '待回看'));
@@ -19,9 +37,9 @@ export function renderReviewHistory(history,ctx={}) {
       }
       const open=(kind,id,label)=>{const button=el('button',label);button.type='button';button.addEventListener('click',()=>ctx[kind]?.(id));resultBlock.append(button);};
       for(const proposal of response.proposals || []){open('artifact',proposal.id,proposal.approved?'回看已批准局部方案':'回看待审局部方案');if(!proposal.jobs.length)resultBlock.append(el('p','尚未执行；没有新媒体结果。'));for(const job of proposal.jobs){resultBlock.append(el('p',({succeeded:'已有输出，请试听后决定采用',failed:'执行失败，意见保留',submission_unknown:'提交结果待核实'})[job.status] || '任务尚未产生可回看结果'));for(const output of job.outputs || [])open('media',output.media_id,'试听／预览新结果');}}
-      for(const dispatch of response.dispatches || []){resultBlock.append(el('p',dispatch.message));for(const result of dispatch.returns || []){if(result.summary)resultBlock.append(el('p',result.summary));for(const artifact of result.artifacts || []){open('artifact',artifact.id,'回看专业修改结果');for(const preview of artifact.previews || [])open('media',preview.media_id,'预览专业修改结果');if(['subtitle','edit'].includes(item.note?.category) && !artifact.previews?.length)resultBlock.append(el('p','新预览尚未登记，请由专业流程继续制作后回看。'));}}}
+      for(const dispatch of response.dispatches || []){resultBlock.append(el('p',dispatch.message));for(const result of dispatch.returns || []){if(result.summary)resultBlock.append(el('p',result.summary));for(const artifact of result.artifacts || []){open('artifact',artifact.id,'回看专业修改结果');for(const preview of artifact.previews || [])open('media',preview.media_id,'预览专业修改结果');if(['subtitle','edit'].includes(item.note?.category) && !artifact.previews?.length && !item.edit_previews?.some(p=>p.output?.content_url))resultBlock.append(el('p','新预览尚未登记，请由专业流程继续制作后回看。'));}}}
     }
-    if(!item.responses?.length)block.append(el('p',item.note?.outcome==='pass'?'用途审查已记录。':'原意见已保存，尚无处理结果。'));
+    if(!item.responses?.length&&!item.edit_previews?.length)block.append(el('p',item.note?.outcome==='pass'?'用途审查已记录。':'原意见已保存，尚无处理结果。'));
     if(item.source.media_review_id && item.note?.outcome==='pass' && !item.responses?.length){const earlier=el('details');earlier.append(el('summary','已通过的用途审查'),block);root.append(earlier);}else root.append(block);
   }
   if(!history?.items?.length)root.append(el('p','尚无原意见。'));

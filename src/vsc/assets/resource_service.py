@@ -104,9 +104,12 @@ from vsc.assets.role_memory import RoleMemoryService
 from vsc.assets.source_resource import SourceResourceService
 from vsc.assets.resource_model import ResourceModelService
 from vsc.assets.feedback import ReviewService
+from vsc.assets.media_recycle import MediaRecycleService
+from vsc.assets.edit_preview import EditPreviewService
 
 
-class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService):
+class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
+                      MediaRecycleService, EditPreviewService):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
@@ -137,6 +140,10 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def get_project(self, project_id):
         return self.store.get_project(project_id)
+
+    def get_operation_receipt(self, project_id, key, actor=None):
+        self._actor(actor)
+        return self.store.get_operation_receipt(project_id, key, actor)
 
     def get_project_tree(self, project_id):
         return self.store.get_project_tree(project_id)
@@ -551,10 +558,33 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
             raise ResourceError("任务分页范围不正确")
         return self.store.list_generation_jobs(project_id, status=status, offset=offset, limit=limit)
 
-    def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",)):
+    def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",),
+                             job_id=None, recovery=False, serialize=False, managed_only=False,
+                             resume_storage=False):
         self._actor(worker_id)
         return self.store.claim_generation_job(worker_id=worker_id, project_id=project_id,
-            lease_seconds=lease_seconds, statuses=statuses)
+            lease_seconds=lease_seconds, statuses=statuses, job_id=job_id,
+            recovery=recovery, serialize=serialize, managed_only=managed_only,
+            resume_storage=resume_storage)
+
+    def renew_generation_job_lease(self, project_id, job_id, worker_id, claim_epoch, lease_seconds=300):
+        return self.store.renew_generation_job_lease(project_id, job_id, worker_id, claim_epoch,
+                                                    lease_seconds=lease_seconds)
+
+    def release_generation_job_lease(self, project_id, job_id, worker_id, claim_epoch,
+                                     retry_seconds=0, error_code=None):
+        return self.store.release_generation_job_lease(project_id, job_id, worker_id, claim_epoch,
+                                                       retry_seconds=retry_seconds, error_code=error_code)
+
+    def recover_generation_job(self, project_id, payload, *, human_decision=None, **kw):
+        from vsc.assets.generation_recovery import require_generation_recovery
+        require_generation_recovery(human_decision, kw.get("actor"))
+        self._validate_write(payload, **kw)
+        if self.storage is not None and payload.get("status") == "succeeded":
+            for item in payload.get("outputs", []):
+                self._verify_media(project_id, required(item, "media_id"))
+        return self.store.recover_generation_job(project_id, payload,
+            confirmation_id=human_decision.confirmation_id, **kw)
 
     def mark_submission_started(self, project_id, payload, **kw):
         return self._write("mark_submission_started", project_id, payload, **kw)
@@ -586,6 +616,6 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         if self.storage is not None:
             for media in self.store.get_timeline_media(project_id, required(payload, "timeline_id")):
                 self._verify_media(project_id, media["media_id"], expected_sha=media["blob_sha256"])
-            for media in payload.get("outputs", []):
+            for media in payload.get("outputs", []) + payload.get("caption_inputs", []):
                 self._verify_media(project_id, required(media, "media_id"))
         return self._write("freeze_render", project_id, payload, **kw)

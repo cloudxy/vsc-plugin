@@ -240,6 +240,17 @@ def main():
         return
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
+    producer = commands.add_parser("caption-render", help="用已批准PG计划烧录已合成无字幕底片，并固定后续局部预览的来源")
+    producer.add_argument("project_id")
+    producer.add_argument("--timeline-id", required=True)
+    producer.add_argument("--artifact-id", required=True)
+    producer.add_argument("--clean-master-media-id", required=True, help="明确已无字幕、含原合成音轨的完整底片素材")
+    producer.add_argument("--font-media-id", required=True)
+    producer.add_argument("--expected-revision", type=int, required=True)
+    producer.add_argument("--key", required=True)
+    producer.add_argument("--by", required=True)
+    producer.add_argument("--database-env", default="VSC_DATABASE_URL")
+    producer.add_argument("--media-root")
     command = commands.add_parser("burn", help="把 SRT 烧进视频")
     command.add_argument("video")
     command.add_argument("srt", nargs="?")
@@ -259,6 +270,23 @@ def main():
     command.add_argument("--background", help="字幕底色，如 #000000")
     command.add_argument("--rounded", action="store_true", default=None, help="半透明圆角底")
     args = parser.parse_args()
+    if args.command == "caption-render":
+        from vsc.bootstrap import service_from_environment
+        from vsc.assets.resource_service import ResourceError
+        service = None
+        try:
+            service = service_from_environment(args.database_env, args.media_root)
+            result = service.produce_captioned_render(args.project_id, {
+                "timeline_id": args.timeline_id, "artifact_id": args.artifact_id,
+                "clean_master_media_id": args.clean_master_media_id, "font_media_id": args.font_media_id},
+                actor=args.by, expected_revision=args.expected_revision, idempotency_key=args.key)
+            print(json.dumps(result, ensure_ascii=False))
+        except (ResourceError, ValueError, OSError) as error:
+            raise SystemExit("错误：" + str(error))
+        finally:
+            if service is not None:
+                service.store.close()
+        return
     overrides = {"font": args.font, "font_size": args.font_size, "color": args.color, "stroke_color": args.stroke_color,
                  "stroke_width": args.stroke_width, "position": args.position, "custom_position": args.custom_position,
                  "background": args.background, "rounded": args.rounded}

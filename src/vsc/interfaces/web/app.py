@@ -3,6 +3,8 @@ import hashlib
 import json
 import secrets
 import tempfile
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import unquote
@@ -25,25 +27,38 @@ from vsc.interfaces.web.local_production import install_local_routes
 from vsc.interfaces.web.memory import install_memory_routes
 from vsc.interfaces.web.source_resource import install_source_resource_routes
 from vsc.interfaces.web.review import install_review_routes
+from vsc.interfaces.web.media_recycle import install_recycle_routes
+from vsc.interfaces.web.assisted_desk import install_assisted_desk_routes
+from vsc.interfaces.web.edit_preview import install_edit_preview_routes
 
 
 def create_app(config=None, catalog=None, service=None):
     config = dict(config or {})
     catalog = catalog or ResourceCatalog(config.get("projects_root", "projects"), service=service,
                                          media_root=config.get("media_root"))
+    from vsc.assets.execution_runtime import ExecutionRuntime
+    runtime = config.get("execution_runtime") or ExecutionRuntime(
+        getattr(catalog, "service", None),
+        enabled=bool(config.get("background_enabled") and config.get("human_identity") and config.get("access_token")))
     @asynccontextmanager
     async def lifespan(app):
         store = getattr(getattr(catalog, "service", None), "store", None)
         try:
             if store is not None and hasattr(store, "check_schema"):
                 await run_in_threadpool(store.check_schema)
+            await run_in_threadpool(runtime.start)
             yield
         finally:
-            if config.get("close_service_on_shutdown") and store is not None:
+            await run_in_threadpool(runtime.stop)
+            if config.get("close_service_on_shutdown") and store is not None and not runtime.has_live_workers():
                 await run_in_threadpool(store.close)
     app = FastAPI(title="VSC 资源面板", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.catalog = catalog
+    app.state.execution_runtime = runtime
     sessions = {}
+    bootstrap_lock = threading.Lock()
+    bootstrap = {"token": config.get("bootstrap_token"),
+                 "expires": time.monotonic() + min(120, max(1, config.get("bootstrap_ttl", 120)))}
     root = Path(__file__).resolve().parent
     allowed_hosts = set(config.get("allowed_hosts", ["127.0.0.1", "localhost", "[::1]"]))
     origins = set(config.get("allowed_origins", ["http://127.0.0.1:8765", "http://localhost:8765"]))
@@ -89,6 +104,11 @@ def create_app(config=None, catalog=None, service=None):
 
     def actor(request):
         origin(request)
+        return read_actor(request)
+
+    def read_actor(request):
+        if request.headers.get("origin") is not None:
+            origin(request)
         session = sessions.get(request.cookies.get("vsc_session", ""))
         if not session or not secrets.compare_digest(request.headers.get("x-csrf-token", ""), session["csrf"]):
             raise HTTPException(403, "请先建立本机人工操作会话")
@@ -98,20 +118,40 @@ def create_app(config=None, catalog=None, service=None):
     def index():
         return HTMLResponse((root / "templates" / "index.html").read_text("utf-8"))
 
-    @app.post("/api/v1/session")
-    def login(request: Request, body: dict):
-        origin(request)
-        token = config.get("access_token")
+    def new_session():
         identity = config.get("human_identity")
-        if not token or not identity:
+        if not config.get("access_token") or not identity:
             raise HTTPException(403, "本次面板以只读方式启动")
-        if not isinstance(body.get("token"), str) or not secrets.compare_digest(body["token"], token):
-            raise HTTPException(403, "本机会话凭据无效")
         key, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         sessions[key] = {"actor": identity, "csrf": csrf}
         response = JSONResponse({"actor": identity, "csrf_token": csrf})
         response.set_cookie("vsc_session", key, httponly=True, samesite="strict", path="/")
         return response
+
+    @app.post("/api/v1/session")
+    def login(request: Request, body: dict):
+        origin(request)
+        token = config.get("access_token")
+        if not token or not config.get("human_identity"):
+            raise HTTPException(403, "本次面板以只读方式启动")
+        if not isinstance(body.get("token"), str) or not secrets.compare_digest(body["token"], token):
+            raise HTTPException(403, "本机会话凭据无效")
+        return new_session()
+
+    @app.post("/api/v1/session/bootstrap")
+    def local_bootstrap(request: Request, body: dict):
+        origin(request)
+        if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+            raise HTTPException(403, "首次操作引导仅接受本机连接")
+        with bootstrap_lock:
+            token = bootstrap["token"]
+            if (not token or time.monotonic() >= bootstrap["expires"]
+                    or not isinstance(body.get("token"), str)
+                    or not secrets.compare_digest(token, body["token"])):
+                raise HTTPException(403, "本次引导已失效，请从本机启动器重新打开")
+            response = new_session()
+            bootstrap["token"] = None
+            return response
 
     @app.get("/api/v1/session")
     def current_session(request: Request):
@@ -119,15 +159,53 @@ def create_app(config=None, catalog=None, service=None):
         return {"actor": session["actor"] if session else None, "csrf_token": session["csrf"] if session else None,
                 "write_available": bool(config.get("access_token") and config.get("human_identity"))}
 
+    @app.post("/api/v1/session/logout")
+    def logout(request: Request):
+        actor(request)
+        sessions.pop(request.cookies.get("vsc_session", ""), None)
+        response = JSONResponse({"actor": None, "csrf_token": None})
+        response.delete_cookie("vsc_session", path="/")
+        return response
+
+    @app.get("/api/v1/execution")
+    def execution_status():
+        return runtime.status()
+
+    @app.post("/api/v1/execution")
+    def execution_control(request: Request, body: dict):
+        actor(request)
+        if set(body) != {"action"}:
+            raise HTTPException(422, "只接受暂停或继续后台处理")
+        return runtime.control(body["action"])
+
     router = APIRouter(prefix="/api/v1/projects")
 
     @router.get("")
     def projects(request: Request):
         return etag(request, catalog.list_projects())
 
+    @router.post("")
+    def create_project(request: Request, body: dict):
+        identity = actor(request)
+        payload, key = body.get("payload"), body.get("idempotency_key")
+        if (not isinstance(payload, dict) or set(payload) - {"name", "profile"}
+                or not isinstance(payload.get("name"), str) or not payload["name"].strip()
+                or len(payload["name"]) > 200 or not isinstance(key, str) or not 1 <= len(key) <= 200):
+            raise HTTPException(422, "填写作品名称；创建请求需要有效的操作标识")
+        if catalog.service is None:
+            raise HTTPException(409, "本次服务没有配置项目数据库")
+        return catalog.service.create_project(payload, actor=identity, idempotency_key=key)
+
     @router.get("/{project_id}/tree")
     def tree(project_id: str, request: Request):
         return etag(request, catalog.project_tree(project_id))
+
+    @router.get("/{project_id}/operation-receipts/{key}")
+    def operation_receipt(project_id: str, key: str, request: Request):
+        identity = read_actor(request)
+        if catalog.service is None or catalog._reader(project_id) is not None:
+            raise HTTPException(409, "此项目没有可恢复的数据库操作回执")
+        return catalog.service.get_operation_receipt(project_id, key, actor=identity)
 
     @router.get("/{project_id}/artifacts")
     def artifacts(project_id: str, request: Request, object_id: str = None):
@@ -273,6 +351,22 @@ def create_app(config=None, catalog=None, service=None):
     install_memory_routes(router, catalog, etag, actor)
     install_source_resource_routes(router, catalog, etag)
     install_review_routes(router, catalog, etag, actor)
+    install_recycle_routes(router, catalog, etag, actor)
+    install_assisted_desk_routes(router, catalog, etag)
+    install_edit_preview_routes(router, catalog, etag, actor)
+
+    @router.post("/{project_id}/generation-recoveries")
+    def recover_generation(project_id: str, request: Request, body: dict):
+        from vsc.assets.generation_recovery import verified_generation_recovery
+        identity = actor(request)
+        if body.get("confirmed") is not True:
+            raise HTTPException(422, "请确认实际回执及本次对账结果")
+        if catalog.service is None or catalog._reader(project_id) is not None:
+            raise HTTPException(409, "只读项目无法变更制作回执")
+        return catalog.service.recover_generation_job(
+            project_id, body.get("payload"), human_decision=verified_generation_recovery(identity),
+            actor=identity, expected_revision=body.get("expected_revision"),
+            idempotency_key=body.get("idempotency_key"))
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

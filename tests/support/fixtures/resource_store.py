@@ -32,6 +32,9 @@ class ResourceStoreFixture:
 
 
     def write(self, method, payload, **kw):
+        if method in {"mark_submission_started", "record_submission_result", "update_generation_job"} and payload.get("worker_id"):
+            payload = dict(payload)
+            payload.setdefault("claim_epoch", self.service.get_generation_job(self.p, payload["job_id"])["claim_epoch"])
         result = getattr(self.service, method)(self.p, payload, expected_revision=self.rev,
             idempotency_key=kw.pop("idempotency_key", uuid.uuid4().hex), actor=kw.pop("actor", "test-human"), **kw)
         self.rev = result["revision"]
