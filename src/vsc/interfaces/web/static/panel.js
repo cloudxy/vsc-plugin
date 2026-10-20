@@ -3,12 +3,20 @@ const $ = (id) => document.getElementById(id);
 const entry = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
 const mainViews = ['desk','projects','collection','trash'];
 const initialView = mainViews.includes(entry.get('page')) ? entry.get('page') : 'desk';
-const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:initialView, view: typeof window === 'undefined' ? 'workbench' : initialView};
+const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writeAvailable: false, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:initialView, view: typeof window === 'undefined' ? 'workbench' : initialView};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function notice(message) { $('notice').textContent = message || ''; $('notice').hidden = !message; }
+function applySession(session) {
+  state.actor=session.actor;state.csrf=session.csrf_token;state.writeAvailable=session.write_available===true;
+  const project=state.projectRows.get(state.project);
+  state.writable=state.writeAvailable && project?.storage_policy==='postgres-series-v1' && !project.read_only;
+  $('session-label').textContent=!state.writeAvailable?'只读浏览':state.actor?`操作人：${state.actor}`:'浏览中';
+  $('session-open').disabled=!state.writeAvailable;
+  $('upload-open').disabled=!(state.writable && state.actor);
+}
 async function api(path, options = {}) {
   const response = await fetch(path, {credentials: 'same-origin', ...options});
   const value = await response.json().catch(() => ({}));
@@ -50,7 +58,7 @@ async function loadAssistedDesk() {
       api,player,notice,local:openLocalProduction,media:openMedia,
       artifact:async id=>{await switchView('artifacts');await openArtifact(id);},
       specialist:switchView,navigate:switchView,login:()=>$('session-dialog').showModal(),
-      session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable}),
+      session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable,writeAvailable:state.writeAvailable}),
       revision:value=>{state.revision=value;},
       projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,
       chooseProject:async(id,page)=>{state.view=page;await selectProject(id);},
@@ -217,8 +225,8 @@ async function selectProject(id,{scope}={}) {
   const data = await api(paged?`${base()}/workbench?section=children&limit=60`:`${base()}/tree`);
   if (request !== state.treeRequest || state.project !== id) return;
   const project = (paged?state.projectRows.get(id):data.project) || {}; state.revision = data.revision ?? project.revision ?? 0;
-  state.writable=project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
-  $('project-meta').replaceChildren(el('p', 'hint', project.read_only ? '此项目只读，可回看已有内容。' : '项目内容共享，决定保留记录。'));
+  state.writable=state.writeAvailable && project.storage_policy==='postgres-series-v1' && !project.read_only; $('upload-open').disabled=!(state.writable && state.actor);
+  $('project-meta').replaceChildren(el('p', 'hint', !state.writeAvailable ? '本次服务只读，可回看已有内容。' : project.read_only ? '此项目只读，可回看已有内容。' : '项目内容共享，决定保留记录。'));
   const selected = (data.nodes || []).find(node => node.id === state.object);
   if (!paged && !selected) { if(state.object!==null)resetArtifactReader();state.object = null; state.offset = 0; }
   state.treeMode=paged?'paged':'legacy';state.treeNodes = data.nodes || [];
@@ -544,7 +552,7 @@ document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListen
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
 $('role-memory-open').addEventListener('click',guard(openRoleMemory));
 $('session-open').addEventListener('click',()=>$('session-dialog').showModal());
-$('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';state.actor=session.actor;state.csrf=session.csrf_token;$('session-label').textContent=`操作人：${state.actor}`;$('upload-open').disabled=!state.writable;$('session-dialog').close();if(mainViews.includes(state.view))await loadAssistedDesk();}));
+$('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';applySession(session);$('session-dialog').close();if(mainViews.includes(state.view))await loadAssistedDesk();}));
 $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());
 $('upload-form').addEventListener('submit',guard(async event=>{event.preventDefault();const file=$('upload-file').files[0];if(!file)throw new Error('请选择文件');const rights=$('upload-rights').value;const scope=$('upload-scope').value.split(',').map(value=>value.trim()).filter(Boolean);if(rights!=='unknown' && !scope.length)throw new Error('请明确填写权利适用的用途');const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const receipt=await api(`${base()}/uploads`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name),'X-CSRF-Token':state.csrf},body:file});const result=await api(`${base()}/media`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{staged_upload:receipt.staged_upload,name:file.name,rights,rights_scope:{purposes:scope},source:{kind:'user_upload',content:$('upload-source').value}},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('upload-dialog').close();event.target.reset();await loadResources();notice('素材已转存并登记，尚未绑定或批准用途。');}finally{button.disabled=false;}}));
 if(typeof window!=='undefined'){
@@ -561,5 +569,5 @@ guard(async()=>{
       catch(error){notice(`本次登录引导未能完成：${error.message}。可从账户入口继续。`);}
     }
   }
-  session ||= await api('/api/v1/session');state.actor=session.actor;state.csrf=session.csrf_token;if(session.actor)$('session-label').textContent=`操作人：${session.actor}`;state.previewCapabilities=await api('/api/v1/preview-capabilities');await loadProjects();
+  session ||= await api('/api/v1/session');applySession(session);state.previewCapabilities=await api('/api/v1/preview-capabilities');await loadProjects();
 })();

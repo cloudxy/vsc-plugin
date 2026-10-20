@@ -75,6 +75,7 @@ class MediaRecycleTests(ResourceStoreFixture, unittest.TestCase):
                 self.assertEqual(client.post(url, json={"token": "one-use"}).status_code, 403)
                 session = client.post(url, headers={"Origin": "http://testserver"}, json={"token": "one-use"})
                 self.assertEqual(session.status_code, 200, session.text)
+                self.assertTrue(session.json()["write_available"])
                 self.assertIn("HttpOnly", session.headers["set-cookie"])
                 self.assertEqual(client.post(url, headers={"Origin": "http://testserver"},
                                              json={"token": "one-use"}).status_code, 403)

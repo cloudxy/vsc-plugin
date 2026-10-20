@@ -54,3 +54,27 @@ class AssistedDeskTest(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(results["total"], 1)
         self.assertEqual(results["items"][0]["ref"]["id"], b)
         self.assertEqual(self.service.get_media(self.p, a)["id"], a)
+
+    def test_internal_and_legacy_documents_remain_in_versions_not_daily_review(self):
+        import hashlib
+        from uuid import uuid4
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres.schema import artifact_versions
+        self.hierarchy()
+        for kind in ("vsc.animatic", "vsc.generation_record", "vsc.legacy-fact/v1",
+                     "vsc.legacy-snapshot/v1", "vsc.migration-manifest/v1",
+                     "timeline", "vsc.timeline", "render-plan", "vsc.delivery_manifest"):
+            # Model historical imported document types without creating a second
+            # import/validation authority in this projection-only test.
+            raw = b'{"text":"synthetic historical technical document"}'
+            with self.store.engine.begin() as conn:
+                conn.execute(insert(artifact_versions).values(project_id=self.p, id=uuid4(),
+                    artifact_key=kind, artifact_type=kind, version=1, stage="migration",
+                    document=raw, sha256=hashlib.sha256(raw).hexdigest(),
+                    mime_type="application/json", project_wide=True, parser_version="fixture"))
+        visible = self.write("create_artifact", dict(artifact_key="读得懂的剧本",
+            artifact_type="generic", document={"正文": "待人审阅的正文"}))
+        page = self.query()
+        self.assertEqual(page["total"], 1)
+        self.assertEqual(page["items"][0]["ref"]["id"], visible["id"])
+        self.assertEqual(self.store.list_artifacts(self.p)["total"], 10)

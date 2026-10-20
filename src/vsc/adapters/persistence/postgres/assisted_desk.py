@@ -19,12 +19,19 @@ def query_assisted_desk(store, project_id, *, bucket="review", object_id=None, l
       candidates AS (""" + QUERIES["candidates"] + """),
       jobs AS (""" + QUERIES["jobs"] + """),
       materials AS (""" + QUERIES["materials"] + """),
+      readable_versions AS (
+        SELECT * FROM versions WHERE kind NOT LIKE 'vsc.legacy-%'
+          AND kind <> 'vsc.migration-manifest/v1'
+          AND replace(replace(kind,'vsc.',''),'_','-') NOT IN
+            ('timeline','render-plan','coverage-plan','generation-record',
+             'production-run','selected-takes','delivery-manifest','animatic')
+      ),
       desk AS (
         SELECT CASE WHEN status='draft' THEN 'review' ELSE 'results' END bucket,
           'artifact:'||id id,'artifact' kind,title,status,
           jsonb_build_object('kind','artifact','id',id,'version_id',id,'sha256',sha256) ref,
           CAST(:scope AS uuid) object_id, version, kind content_kind
-        FROM versions v WHERE (status='approved' AND kind NOT IN ('timeline','render-plan','coverage-plan') AND EXISTS(
+        FROM readable_versions v WHERE (status='approved' AND EXISTS(
           SELECT 1 FROM current_artifact_versions current WHERE current.project_id=:p AND current.artifact_id=v.id))
           OR (status='draft' AND NOT EXISTS(
           SELECT 1 FROM artifact_versions newer JOIN artifact_versions own ON own.project_id=newer.project_id

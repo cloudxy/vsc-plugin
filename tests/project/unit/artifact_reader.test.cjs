@@ -52,6 +52,37 @@ test('plain text and primitive JSON are readable without dropping zero, false or
   }
 });
 
+test('large plain and structured text read in explicit chunks without losing the final characters',async()=>{
+  const text='可读长文\n'.repeat(10000)+'末尾验收文字';
+  const data=project('A',{artifactDetails:{long:{id:'long',content:text}}});
+  const app=await start(new Map([['A',data]]));
+  for(const content of [text,JSON.stringify({正文:text})]){
+    data.artifactDetails.long.content=content;await app.panel.openArtifact('long');
+    assert.ok(reader(app).textContent.length<20000);
+    assert.ok(!reader(app).textContent.includes('末尾验收文字'));
+    while(reader(app).querySelector('.document-more'))await reader(app).querySelector('.document-more').pressKey('Enter');
+    const chunks=reader(app).querySelectorAll(typeof content==='string'&&content===text?'.readable':'.document-value');
+    assert.equal(chunks.map(row=>row.textContent).join(''),text);
+  }
+});
+
+test('server read-only overrides a writable project while valid sessions retain project restrictions',async()=>{
+  const editable=project('A',{project:{id:'A',name:'A',storage_policy:'postgres-series-v1',read_only:false}});
+  const app=await start(new Map([['A',editable],['B',project('B')]]));
+  await app.panel.loadProjects();
+  app.panel.applySession({actor:null,csrf_token:null,write_available:false});
+  await app.panel.selectProject('A');
+  assert.equal(app.panel.state.writable,false);
+  assert.equal(app.document.getElementById('session-label').textContent,'只读浏览');
+  assert.equal(app.document.getElementById('session-open').disabled,true);
+  app.panel.applySession({actor:'human',csrf_token:'csrf',write_available:true});
+  assert.equal(app.panel.state.writable,true);
+  assert.equal(app.document.getElementById('session-open').disabled,false);
+  assert.equal(app.document.getElementById('upload-open').disabled,false);
+  await app.panel.selectProject('B');assert.equal(app.panel.state.writable,false);
+  await app.panel.selectProject('A');assert.equal(app.panel.state.writable,true);
+});
+
 test('a document title takes precedence over an internal artifact key',async()=>{
   const data=project('A',{artifacts:[{id:'named',artifact_key:'reader-0'}],artifactDetails:{named:{id:'named',artifact_type:'screenplay',
     artifact_key:'reader-0',content:{title:'可读剧本标题',scenes:[]}}}});

@@ -140,6 +140,7 @@ class ResourcePanelTests(unittest.TestCase):
         self.assertEqual(client.post(url, json=body).status_code, 403)
         self.assertEqual(client.post("/api/v1/session", json={"token": "local-token"}, headers={"Origin": "http://evil"}).status_code, 403)
         login = client.post("/api/v1/session", json={"token": "local-token"}, headers={"Origin": "http://testserver"})
+        self.assertTrue(login.json()["write_available"])
         headers = {"Origin": "http://testserver", "X-CSRF-Token": login.json()["csrf_token"]}
         self.assertEqual(client.post(url, json={**body, "actor": "伪造"}, headers=headers).status_code, 422)
         self.assertEqual(client.post(url, json={**body, "confirmed": False}, headers=headers).status_code, 422)
