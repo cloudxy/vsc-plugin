@@ -124,7 +124,7 @@ def create_app(config=None, catalog=None, service=None):
             raise HTTPException(403, "本次面板以只读方式启动")
         key, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         sessions[key] = {"actor": identity, "csrf": csrf}
-        response = JSONResponse({"actor": identity, "csrf_token": csrf})
+        response = JSONResponse({"actor": identity, "csrf_token": csrf, "write_available": True})
         response.set_cookie("vsc_session", key, httponly=True, samesite="strict", path="/")
         return response
 

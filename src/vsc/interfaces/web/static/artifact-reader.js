@@ -66,6 +66,23 @@ export function artifactTitle(artifact) {
   return typeTitle(artifact.artifact_type || artifact.type || '') || '文案';
 }
 
+function appendReadableText(parent, text, className) {
+  const chunkSize=16384;
+  if(text.length<=chunkSize){parent.append(node('div',className,text));return;}
+  let offset=0;
+  const more=node('button','document-more');more.type='button';
+  const next=()=>{
+    more.remove();
+    parent.append(node('div',className,text.slice(offset,offset+chunkSize)));
+    offset=Math.min(text.length,offset+chunkSize);
+    if(offset<text.length){
+      more.textContent=`继续显示文字（已显示 ${offset} / ${text.length} 字符）`;
+      parent.append(more);
+    }
+  };
+  more.addEventListener('click',next);next();
+}
+
 export function renderArtifactContent(content) {
   let value = content, structured = typeof content !== 'string';
   if (!structured) {
@@ -73,7 +90,7 @@ export function renderArtifactContent(content) {
   }
   const body = node('div', 'document-content');
   if (!structured) {
-    body.append(node('div', 'readable', content || '内容缺失或超过内置阅读限额。'));
+    appendReadableText(body,content || '内容缺失或超过内置阅读限额。','readable');
     return {body, value: undefined};
   }
   // An explicit stack keeps every field and array item, even in deeply nested documents.
@@ -82,7 +99,8 @@ export function renderArtifactContent(content) {
     const item = pending.pop(), data = item.value;
     if (data === null || typeof data !== 'object') {
       const text = data === null ? '未填写（null）' : typeof data === 'boolean' ? (data ? '是（true）' : '否（false）') : data === '' ? '空文本（""）' : String(data);
-      item.parent.append(node('p', 'document-value', text));
+      if(text.length>16384)appendReadableText(item.parent,text,'document-value');
+      else item.parent.append(node('p', 'document-value', text));
     } else if (Array.isArray(data)) {
       if (!data.length) { item.parent.append(node('p','document-empty','空列表（[]）')); continue; }
       const list = node('ol','document-array'); item.parent.append(list);

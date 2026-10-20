@@ -141,7 +141,7 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
   vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/artifact-reader.js'),'utf8').replaceAll('export function ','function ')+';globalThis.artifactReader={artifactTitle,renderArtifactContent};})()',context,{filename:'artifact-reader.js'});
   vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench')+';globalThis.createCreativeWorkbench=createCreativeWorkbench;})()',context,{filename:'workbench.js'});
   const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'const {artifactTitle,renderArtifactContent}=globalThis.artifactReader;').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
-  vm.runInContext(source + '\nglobalThis.panel = {state, renderTree, selectProject, selectObject, loadProjects, reviewForm, switchView, loadArtifacts, openArtifact};', context, {filename: 'panel.js'});
+  vm.runInContext(source + '\nglobalThis.panel = {state, applySession, renderTree, selectProject, selectObject, loadProjects, reviewForm, switchView, loadArtifacts, openArtifact};', context, {filename: 'panel.js'});
   return {document, requests, writes, confirmations, panel: context.panel};
 }
 

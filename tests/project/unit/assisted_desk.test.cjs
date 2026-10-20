@@ -83,6 +83,17 @@ test('read-only content offers no write form and untrusted markup remains text',
   assert.ok(f.container.textContent.includes('此项目只读'));assert.equal(f.container.querySelectorAll('img').length,0);
 });
 
+test('read-only service does not promise login or creation, including an empty project list',async()=>{
+  const f=await fixture(basic,{actor:null,writable:false,writeAvailable:false});
+  await f.desk.load({projectId:'p'});
+  assert.ok(f.container.textContent.includes('本次服务只读'));
+  assert.equal(button(f.container,'登录后可提意见'),undefined);
+  await f.desk.load({projectId:null,page:'projects'});
+  assert.equal(button(f.container,'建立项目'),undefined);
+  assert.equal(button(f.container,'先登录'),undefined);
+  assert.ok(f.container.textContent.includes('还没有可浏览的项目'));
+});
+
 test('empty projects provide creation and trash never claims freed bytes',async()=>{
   const f=await fixture(async url=>url.includes('/recycle?')?{revision:1,items:[],total:0}:basic(url));
   await f.desk.load({projectId:null,page:'projects'});assert.ok(button(f.container,'建立项目'));

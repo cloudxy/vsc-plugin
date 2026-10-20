@@ -59,7 +59,7 @@ export function createAssistedDesk(root, ctx) {
     const bar=el('div',null,'desk-scope');
     const project=ctx.projectName?.()||'当前项目';
     bar.append(el('span',project),el('span',state.scope?'当前选择范围':'全部项目内容','hint'));
-    if(!ctx.session().writable)bar.append(el('span','此项目只读','badge'));
+    if(!ctx.session().writable)bar.append(el('span',ctx.session().writeAvailable===false?'本次服务只读':'此项目只读','badge'));
     else if(!ctx.session().actor)bar.append(button('登录后可提意见',()=>ctx.login()));
     bar.append(button('刷新',()=>load({...current(),refresh:true})));
     if(state.bucket==='progress')bar.append(runtimeControls());
@@ -353,12 +353,13 @@ export function createAssistedDesk(root, ctx) {
     const list=el('div',null,'desk-projects');root.append(list);
     for(const project of ctx.projects()){
       const card=el('article',null,'desk-project');
-      card.append(el('h2',project.name),el('p',project.read_only?'只读项目':'可继续创作','hint'),
+      card.append(el('h2',project.name),el('p',ctx.session().writeAvailable===false?'可回看已有内容':project.read_only?'只读项目':'可继续创作','hint'),
         button('打开工作台',()=>ctx.chooseProject(project.id,'desk')),
         button('创意与原稿',async()=>{await ctx.chooseProject(project.id,'projects');await ctx.specialist('source');}));
       list.append(card);
     }
-    if(!ctx.projects().length)list.append(el('p','还没有项目。先建立一个项目，再加入创意或原稿。','empty'));
+    if(!ctx.projects().length)list.append(el('p',ctx.session().writeAvailable===false?'还没有可浏览的项目。':'还没有项目。先建立一个项目，再加入创意或原稿。','empty'));
+    if(ctx.session().writeAvailable===false){root.append(el('p','本次服务只读，可查看已有作品。','hint'));return;}
     const form=el('form',null,'desk-create'),name=el('input'),label=el('label','新项目名称'),submit=el('button','建立项目'),status=el('p');
     name.name='project_name';name.required=true;name.maxLength=120;name.autocomplete='off';label.append(name);
     submit.type='submit';status.setAttribute('role','status');form.append(label,submit,status);root.append(form);
