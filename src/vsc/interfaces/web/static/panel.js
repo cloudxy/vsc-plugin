@@ -446,6 +446,7 @@ function markArtifactSelection() {
 }
 function resetArtifactReader() {
   state.documentRequest++;state.selectedArtifact=null;
+  $('artifact-actions').replaceChildren();$('artifact-actions').hidden=true;
   $('artifacts').replaceChildren();
   $('artifacts').setAttribute('aria-busy','false');
   $('document').replaceChildren(el('p','empty','选择文案或固定版本阅读。'));
@@ -491,6 +492,7 @@ async function openArtifact(id,{focusFrom=null}={}) {
   const project=state.project, object=state.object, request=++state.documentRequest;
   const alive=()=>project===state.project && object===state.object && request===state.documentRequest;
   state.selectedArtifact=id;markArtifactSelection();
+  $('artifact-actions').replaceChildren();$('artifact-actions').hidden=true;
   $('document').replaceChildren(el('p','empty','正在读取文案…'));
   $('document').setAttribute('aria-busy','true');$('document').removeAttribute('data-artifact-id');
   let artifact;
@@ -507,31 +509,54 @@ async function openArtifact(id,{focusFrom=null}={}) {
   $('document').setAttribute('data-artifact-id',id);$('document').scrollTop=0;
   const selected=[...$('artifacts').querySelectorAll('.artifact-item')].find(button=>button.dataset.id===id);
   if(selected){selected.querySelector('.artifact-title').textContent=artifactTitle(artifact);selected.querySelector('.artifact-state').textContent=artifactVersionLabel(artifact);}
-  if (artifact.revision != null && state.writable) {
-    const controls=el('section','detail-panel artifact-decisions'),reason=el('input');reason.placeholder='批准或退回所见版本的理由';reason.setAttribute('aria-label','版本决定理由');
+  const actions=$('artifact-actions');
+  actions.setAttribute('aria-label',`${artifactTitle(artifact)} · 审核与核对`);actions.hidden=false;
+  const blocked=unavailable || artifact.integrity==='mismatch' || artifact.availability==='missing';
+  const restriction=blocked ? '当前版本内容缺失或无法核验，请恢复固定内容后再审核。' :
+    !state.writeAvailable ? '当前工作台为只读模式，审核尚未启用。可先核对版本内容。' :
+    !state.writable || artifact.revision == null ? '此项目或版本只支持查阅，暂不能在工作台记录审核决定。' :
+    !state.actor ? '登录实际操作人后，即可审核当前版本。' : '';
+  if (restriction) actions.append(el('p','hint',restriction));
+  if (state.writeAvailable && state.writable && !state.actor && !blocked) {
+    const login=el('button','','登录后审核');
+    login.addEventListener('click',()=>{if(alive())$('session-dialog').showModal();});actions.append(login);
+  }
+  if (!artifact.approved || ['resample','redo_sound'].includes(fixed?.local_action)) {
+    const controls=el('section','artifact-decisions'),reason=el('input');reason.placeholder='审核理由…';reason.setAttribute('aria-label','版本决定理由');reason.name='artifact_decision_reason';reason.autocomplete='off';
     const execute=async(action,payload,key)=>{
       if(!alive())throw new Error('项目、范围或所见版本已切换，请重新读取');
+      if(!state.writable)throw new Error('当前项目不允许写入审核决定');
       if(!state.actor)throw new Error('请先建立人工操作会话');
       const result=await api(`/api/v1/projects/${encodeURIComponent(project)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,expected_revision:artifact.revision,idempotency_key:key,confirmed:true})});
       if(project===state.project)state.revision=result.revision;
-      if(alive())await openArtifact(id);return result;
+      if(alive()){
+        if(action==='artifact-decisions')notice(`${artifactTitle(artifact)}${artifact.version != null ? ' v'+artifact.version : ''}：${payload.outcome==='reject'?'退回决定已记录':'批准决定已记录'}。`);
+        await openArtifact(id);
+      }return result;
     };
     if(!artifact.approved){
-      controls.append(reason);
+      if(!restriction)controls.append(reason);
       for(const [outcome,text] of [['approve','批准所见版本'],['reject','退回此版本']]){
-        const button=el('button','',text),key=crypto.randomUUID();
+        const button=el('button',outcome==='approve'?'artifact-approve':'artifact-reject',text),key=crypto.randomUUID();
+        button.disabled=!!restriction;
         button.addEventListener('click',guard(async()=>{if(!reason.value.trim())throw new Error('请填写决定理由');if(!confirm(`${text}？决定仅针对当前固定内容与范围。`))return;button.disabled=true;try{await execute('artifact-decisions',{artifact_id:id,outcome,reason:reason.value},key);}finally{button.disabled=false;}}));controls.append(button);
       }
     }else if(['resample','redo_sound'].includes(fixed?.local_action)){
       const button=el('button','','将已批准的局部方案入队'),key=crypto.randomUUID();
+      button.disabled=!!restriction;
       button.addEventListener('click',guard(async()=>{if(!confirm('仅将这个已批准方案的目标入队？实际调用仍由生成worker执行。'))return;button.disabled=true;try{const result=await execute('local-production-enqueue',{artifact_id:id},key);notice(`已登记 ${result.jobs.length} 个固定任务。`);}finally{button.disabled=false;}}));controls.append(button);
     }
-    if(controls.childElementCount)$('document').append(controls);
-  }
+    actions.append(controls);
+  }else actions.append(el('span','hint','此固定版本已批准。'));
   const evidence=el('details','artifact-evidence');evidence.append(el('summary','','版本与核验'));
   evidence.append(el('p','hint',`${artifact.id} · ${artifact.version != null ? 'v'+artifact.version+' · ' : ''}${names[artifact.status] || artifact.status || (artifact.approved ? '已批准' : '待决定')} · ${names[artifact.integrity] || '固定内容'}`));
   if(artifact.sha256)evidence.append(el('p','hint',`内容摘要：${artifact.sha256}`));
+  const lastDecision=artifact.decisions?.at(-1);
+  if(lastDecision)evidence.append(el('p','hint',`最近决定：${lastDecision.outcome==='reject'?'退回':lastDecision.outcome==='approve'?'批准':lastDecision.outcome}。理由：${lastDecision.reason || '未填写'}`));
   $('document').append(evidence);
+  const inspect=el('button','artifact-inspect','核对版本');inspect.type='button';inspect.setAttribute('aria-controls','artifact-evidence');
+  evidence.id='artifact-evidence';
+  inspect.addEventListener('click',()=>{if(!alive())return;evidence.open=true;evidence.scrollIntoView?.({block:'nearest'});evidence.querySelector('summary').focus();});actions.append(inspect);
   if(artifact.review_history){const {renderReviewHistory,createArtifactReviewForm}=await import('./review.js');if(!alive())return;const context=reviewContext(project,alive,()=>openArtifact(id));$('document').append(renderReviewHistory(artifact.review_history,context));if(state.actor && artifact.review_targets?.length)$('document').append(createArtifactReviewForm(artifact.review_targets,context));}
   if(artifact.integrity==='mismatch')$('document').prepend(el('p','badge danger','该固定版本的文件摘要变化，当前仅供诊断浏览，不能正式消费。'));
   if(artifact.availability==='missing')$('document').prepend(el('p','badge danger','该固定版本的内容缺失，请核对来源文件。'));
@@ -553,7 +578,7 @@ document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListen
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
 $('role-memory-open').addEventListener('click',guard(openRoleMemory));
 $('session-open').addEventListener('click',()=>$('session-dialog').showModal());
-$('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';applySession(session);$('session-dialog').close();if(mainViews.includes(state.view))await loadAssistedDesk();}));
+$('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';applySession(session);$('session-dialog').close();if(mainViews.includes(state.view))await loadAssistedDesk();else if(state.view==='artifacts' && state.selectedArtifact)await openArtifact(state.selectedArtifact);}));
 $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());
 $('upload-form').addEventListener('submit',guard(async event=>{event.preventDefault();const file=$('upload-file').files[0];if(!file)throw new Error('请选择文件');const rights=$('upload-rights').value;const scope=$('upload-scope').value.split(',').map(value=>value.trim()).filter(Boolean);if(rights!=='unknown' && !scope.length)throw new Error('请明确填写权利适用的用途');const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const receipt=await api(`${base()}/uploads`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name),'X-CSRF-Token':state.csrf},body:file});const result=await api(`${base()}/media`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{staged_upload:receipt.staged_upload,name:file.name,rights,rights_scope:{purposes:scope},source:{kind:'user_upload',content:$('upload-source').value}},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('upload-dialog').close();event.target.reset();await loadResources();notice('素材已转存并登记，尚未绑定或批准用途。');}finally{button.disabled=false;}}));
 if(typeof window!=='undefined'){

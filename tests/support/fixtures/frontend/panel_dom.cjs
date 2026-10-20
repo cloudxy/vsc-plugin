@@ -112,7 +112,10 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
   const folder = path.join(root, 'src/vsc/interfaces/web');
   const document = new Document(fs.readFileSync(path.join(folder, 'templates/index.html'), 'utf8'));
   const requests = [], writes = [], confirmations=[];
-  for(const dialog of document.querySelectorAll('dialog'))dialog.close = () => {};
+  for(const dialog of document.querySelectorAll('dialog')){
+    dialog.close = () => {dialog.open=false;};
+    dialog.showModal = () => {dialog.open=true;};
+  }
   const fetch = async (url, options={}) => {
     requests.push(url);
     if(options.method==='POST')writes.push({url,headers:options.headers,body:JSON.parse(options.body)});

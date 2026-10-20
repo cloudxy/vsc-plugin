@@ -7,6 +7,7 @@ const project = (id, extra={}) => ({project:{id,name:id,storage_policy:'legacy-j
   nodes:[{id:'scene',kind:'scene',title:'场次',parent_id:null}],artifacts:[],artifactDetails:{},...extra});
 const item = (app,id) => app.document.getElementById('artifacts').querySelectorAll('.artifact-item').find(row=>row.dataset.id===id);
 const reader = app => app.document.getElementById('document');
+const actions = app => app.document.getElementById('artifact-actions');
 async function start(projects,options={}) {
   const app=createPanel(root,projects,null,options);app.panel.state.view='artifacts';await app.panel.selectProject('A');return app;
 }
@@ -218,19 +219,22 @@ test('latest document and project selection win, including a late request failur
 
 test('version decisions retain session, confirmation, fixed revision and stale-control checks',async()=>{
   const data=project('A',{artifactDetails:{fixed:{id:'fixed',content:'所见文案',revision:37,approved:false}}});
-  const app=await start(new Map([['A',data]]));app.panel.state.writable=true;await app.panel.openArtifact('fixed');
-  let approve=button(reader(app),'批准所见版本');reader(app).querySelector('input').value='已阅读所见版本';
-  await approve.click();assert.equal(app.writes.length,0);assert.match(app.document.getElementById('notice').textContent,/人工操作会话/);
+  const app=await start(new Map([['A',data]]));Object.assign(app.panel.state,{writeAvailable:true,writable:true});await app.panel.openArtifact('fixed');
+  let approve=button(actions(app),'批准所见版本');
+  assert.equal(approve.disabled,true);await approve.click();assert.equal(app.writes.length,0);
+  assert.match(actions(app).textContent,/登录实际操作人/);
   app.panel.state.actor='human';app.panel.state.csrf='csrf';app.panel.state.revision=999;
+  await app.panel.openArtifact('fixed');approve=button(actions(app),'批准所见版本');actions(app).querySelector('input').value='已阅读所见版本';
   await approve.click();assert.equal(app.writes.length,1);
   const write=app.writes[0];assert.equal(write.url,'/api/v1/projects/A/artifact-decisions');
   assert.deepEqual(write.body.payload,{artifact_id:'fixed',outcome:'approve',reason:'已阅读所见版本'});
   assert.equal(write.body.expected_revision,37);assert.equal(write.headers['X-CSRF-Token'],'csrf');
   assert.equal(write.body.confirmed,true);assert.ok(write.body.idempotency_key);
   assert.ok(app.confirmations.length>=1);
-  const reject=button(reader(app),'退回此版本');reader(app).querySelector('input').value='调整对白';
+  const reject=button(actions(app),'退回此版本');actions(app).querySelector('input').value='调整对白';
   await reject.click();assert.equal(app.writes[1].body.payload.outcome,'reject');
-  const stale=button(reader(app),'批准所见版本');reader(app).querySelector('input').value='过时决定';
+  assert.match(app.document.getElementById('notice').textContent,/退回决定已记录/);
+  const stale=button(actions(app),'批准所见版本');actions(app).querySelector('input').value='过时决定';
   await app.panel.selectObject('scene');await stale.click();assert.equal(app.writes.length,2);
   assert.match(app.document.getElementById('notice').textContent,/范围或所见版本已切换/);
 });
@@ -238,8 +242,8 @@ test('version decisions retain session, confirmation, fixed revision and stale-c
 test('a pending decision cannot reopen an old document after another version is selected',async()=>{
   const write=deferred();const data=project('A',{artifactDetails:{fixed:{id:'fixed',content:'旧正文',revision:37},next:{id:'next',content:'现在阅读'}}});
   const app=await start(new Map([['A',data]]),{handleRequest:(url,options)=>options.method==='POST'?write.promise:undefined});
-  Object.assign(app.panel.state,{writable:true,actor:'human',csrf:'csrf'});await app.panel.openArtifact('fixed');
-  reader(app).querySelector('input').value='本人决定';const approve=button(reader(app),'批准所见版本');const pending=approve.click();
+  Object.assign(app.panel.state,{writeAvailable:true,writable:true,actor:'human',csrf:'csrf'});await app.panel.openArtifact('fixed');
+  actions(app).querySelector('input').value='本人决定';const approve=button(actions(app),'批准所见版本');const pending=approve.click();
   assert.equal(approve.disabled,true);await approve.click();
   await app.panel.openArtifact('next');write.resolve({revision:38});await pending;
   assert.equal(app.writes.length,1);assert.ok(reader(app).textContent.includes('现在阅读'));
@@ -252,21 +256,87 @@ test('after approving a fixed version, the selected list entry reflects its new 
   const app=await start(new Map([['A',data]]),{handleRequest:(_url,options)=>{
     if(options.method==='POST'){data.artifactDetails.fixed.approved=true;data.artifactDetails.fixed.current=true;return {revision:38};}
   }});
-  Object.assign(app.panel.state,{writable:true,actor:'human',csrf:'csrf'});await item(app,'fixed').click();
-  reader(app).querySelector('input').value='本人确认';await button(reader(app),'批准所见版本').click();
+  Object.assign(app.panel.state,{writeAvailable:true,writable:true,actor:'human',csrf:'csrf'});await item(app,'fixed').click();
+  actions(app).querySelector('input').value='本人确认';await button(actions(app),'批准所见版本').click();
   assert.match(item(app,'fixed').textContent,/v2 · 已批准 · 当前版本/);
-  assert.equal(button(reader(app),'批准所见版本'),undefined);
+  assert.equal(button(actions(app),'批准所见版本'),undefined);
   assert.equal(item(app,'fixed').getAttribute('aria-current'),'true');
 });
 
 test('approved local plans retain exact-version enqueue and visible integrity warnings',async()=>{
   const data=project('A',{artifactDetails:{plan:{id:'plan',document:JSON.stringify({local_action:'redo_sound',targets:[{id:'shot'}]}),revision:72,approved:true,integrity:'mismatch',availability:'missing'}}});
-  const app=await start(new Map([['A',data]]));Object.assign(app.panel.state,{writable:true,actor:'human',csrf:'csrf'});await app.panel.openArtifact('plan');
+  const app=await start(new Map([['A',data]]));Object.assign(app.panel.state,{writeAvailable:true,writable:true,actor:'human',csrf:'csrf'});await app.panel.openArtifact('plan');
   assert.match(reader(app).textContent,/文件摘要变化/);assert.match(reader(app).textContent,/内容缺失/);
-  assert.equal(reader(app).querySelector('input'),null);
-  await button(reader(app),'将已批准的局部方案入队').click();
+  assert.equal(actions(app).querySelector('input'),null);
+  assert.equal(button(actions(app),'将已批准的局部方案入队').disabled,true);
+  await button(actions(app),'将已批准的局部方案入队').click();assert.equal(app.writes.length,0);
+  data.artifactDetails.plan.integrity='verified';data.artifactDetails.plan.availability='available';
+  await app.panel.openArtifact('plan');
+  await button(actions(app),'将已批准的局部方案入队').click();
   assert.equal(app.writes[0].url,'/api/v1/projects/A/local-production-enqueue');
   assert.deepEqual(app.writes[0].body.payload,{artifact_id:'plan'});assert.equal(app.writes[0].body.expected_revision,72);
-  const denied=await start(new Map([['A',data]]),{confirm:()=>false});Object.assign(denied.panel.state,{writable:true,actor:'human'});
-  await denied.panel.openArtifact('plan');await button(reader(denied),'将已批准的局部方案入队').click();assert.equal(denied.writes.length,0);
+  const denied=await start(new Map([['A',data]]),{confirm:()=>false});Object.assign(denied.panel.state,{writeAvailable:true,writable:true,actor:'human'});
+  await denied.panel.openArtifact('plan');await button(actions(denied),'将已批准的局部方案入队').click();assert.equal(denied.writes.length,0);
+});
+
+test('version inspection exposes the latest persisted decision and its reason',async()=>{
+  const data=project('A',{artifactDetails:{fixed:{id:'fixed',content:'文案',version:2,revision:7,
+    decisions:[{outcome:'approve',reason:'旧意见'},{outcome:'reject',reason:'需要调整末尾对白'}]}}});
+  const app=await start(new Map([['A',data]]));await app.panel.openArtifact('fixed');
+  await button(actions(app),'核对版本').click();
+  const evidence=reader(app).querySelector('.artifact-evidence');
+  assert.match(evidence.textContent,/最近决定：退回。理由：需要调整末尾对白/);
+  assert.ok(!evidence.textContent.includes('旧意见'));
+});
+
+test('read-only artifacts retain visible review actions, an explicit reason and usable version inspection',async()=>{
+  const data=project('A',{artifactDetails:{fixed:{id:'fixed',content:'长正文'.repeat(2000),revision:37,version:2,sha256:'a'.repeat(64)}}});
+  const app=await start(new Map([['A',data]]));await app.panel.openArtifact('fixed');
+  const bar=actions(app);
+  assert.equal(bar.hidden,false);assert.equal(reader(app).querySelector('.artifact-decisions'),null);
+  assert.equal(button(bar,'批准所见版本').className,'artifact-approve');
+  assert.equal(button(bar,'退回此版本').className,'artifact-reject');
+  assert.equal(button(bar,'核对版本').className,'artifact-inspect');
+  assert.match(bar.textContent,/只读模式/);
+  for(const label of ['批准所见版本','退回此版本']){
+    assert.equal(button(bar,label).disabled,true);await button(bar,label).click();
+  }
+  assert.equal(app.writes.length,0);
+  await button(bar,'核对版本').pressKey('Enter');
+  const evidence=reader(app).querySelector('.artifact-evidence');
+  assert.equal(evidence.open,true);assert.equal(app.document.activeElement,evidence.querySelector('summary'));
+  assert.match(evidence.textContent,/v2/);assert.ok(evidence.textContent.includes('a'.repeat(64)));
+  await app.panel.selectObject('scene');assert.equal(bar.hidden,true);assert.equal(bar.childElementCount,0);
+});
+
+test('changing or failing to load a version removes all stale fixed action controls',async()=>{
+  const late=deferred();
+  const data=project('A',{artifactDetails:{old:{id:'old',content:'旧稿',revision:37}}});
+  const app=await start(new Map([['A',data]]),{handleRequest:url=>url.endsWith('/artifacts/broken')?late.promise:undefined});
+  Object.assign(app.panel.state,{writeAvailable:true,writable:true,actor:'human',csrf:'csrf'});
+  await app.panel.openArtifact('old');actions(app).querySelector('input').value='旧决定';
+  const old=button(actions(app),'批准所见版本');
+  const pending=app.panel.openArtifact('broken');
+  assert.equal(actions(app).hidden,true);assert.equal(actions(app).childElementCount,0);
+  await old.click();assert.equal(app.writes.length,0);
+  late.reject(new Error('读取失败'));await assert.rejects(pending,/读取失败/);
+  assert.equal(actions(app).hidden,true);
+});
+
+test('logging in from the version reader enables review of that same selected version',async()=>{
+  const data=project('A',{project:{id:'A',name:'A',storage_policy:'postgres-series-v1'},
+    artifacts:[{id:'fixed'}],artifactDetails:{fixed:{id:'fixed',content:'当前稿',revision:37}}});
+  const app=await start(new Map([['A',data]]),{handleRequest:(url,options)=>
+    url==='/api/v1/session'&&options.method==='POST'?{actor:'human',csrf_token:'new-csrf',write_available:true}:undefined});
+  await app.panel.loadProjects();
+  app.panel.applySession({actor:null,write_available:true});await app.panel.openArtifact('fixed');
+  await button(actions(app),'登录后审核').click();
+  assert.equal(app.document.getElementById('session-dialog').open,true);
+  app.document.getElementById('session-token').value='synthetic-test-token';
+  await app.document.getElementById('session-form').dispatch('submit');
+  assert.equal(app.document.getElementById('session-dialog').open,false);
+  assert.equal(app.panel.state.selectedArtifact,'fixed');
+  assert.equal(button(actions(app),'批准所见版本').disabled,false);
+  assert.ok(actions(app).querySelector('input'));
+  assert.equal(app.writes.length,1);assert.equal(app.writes[0].url,'/api/v1/session');
 });
