@@ -7,6 +7,8 @@ description: "Use when VSC needs scene-aware BGM, ambience, dialogue space, soun
 
 对白角色、可懂度或空间感需要实例时，按[固定读取](../vsc/references/method-practice.md)选[选声与空间练习](references/voice-space.md)，将选声、演绎与混音分步比较；不支持的DSP控制须用实际工具处理后导入，不能发明接口。
 
+按[实际读取与交接检查](../vsc/references/review-and-feedback.md#consumer-check)分别交声音意图/Cue与本轮要求的实际音频、固定版本和时码。editor 实际试听覆盖、对白可懂度及衔接后用于时间线；配乐清单不当作音乐文件，解码成功不当作表演通过。缺声源回声音准备，时码/混音问题回所属后期任务。
+
 设计前检索素材库的 voice、ambience、sfx、music，复用既有声线与声场；需要声音桥方法时查询 `scripts/knowledge/craft.py search <需求> --stage sound`。操作见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
 
 先写声音提示表，再找/生成音乐。按[作品形式与声画设计](../vsc/references/creative-production.md)，剧情考虑角色知情与信息转向，散文考虑感官关联和情绪流动，纪实考虑证据与理解空间；共同回答观众此刻应感知什么。每个 Cue 要有表达功能、情绪、强度 0–5、音色/节奏方向、进出方式、可控 stem/混音层、环境底、对白避让和使用权。声源远近、空间感与画内外关系写清，静默也需有用途。

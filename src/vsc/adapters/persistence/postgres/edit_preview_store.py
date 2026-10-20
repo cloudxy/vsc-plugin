@@ -355,13 +355,19 @@ class EditPreviewRepository:
                 raise Conflict("字幕输出执行身份不符。", "edit_preview_attempt_mismatch")
             fixed = self.store._one(conn, S.edit_preview_jobs, p, job["id"])
             draft = self.store._one(conn, S.artifact_versions, p, fixed["draft_artifact_id"])
+            composition = RP.render_plan(json.loads(draft["document"]))["composition"]
+            fps = RP.frame_rate(composition["fps"])
+            expected_ms = (fixed["end_frame"] - fixed["start_frame"]) / fps * 1000
             pins = {row["role"]: row["blob_sha256"] for row in conn.execute(select(S.edit_preview_inputs).where(
                 S.edit_preview_inputs.c.project_id == p, S.edit_preview_inputs.c.job_id == job["id"])).mappings()}
             if (receipt.get("source_sha256") != pins["clean_master"] or receipt.get("font_sha256") != pins["subtitle_font"]
                     or receipt.get("draft_sha256") != draft["sha256"] or receipt.get("recipe_version") != fixed["recipe_version"]
                     or receipt.get("tool_version") != fixed["tool_version"] or receipt.get("full_decode") != "passed"
                     or receipt.get("start_frame") != fixed["start_frame"] or receipt.get("end_frame") != fixed["end_frame"]
-                    or media.get("mime_type") != "video/mp4"):
+                    or media.get("mime_type") != "video/mp4" or media.get("modality") != "video"
+                    or (media.get("width"), media.get("height")) != (composition["width"], composition["height"])
+                    or not isinstance(media.get("duration_ms"), (int, float))
+                    or abs(media["duration_ms"] - expected_ms) > max(60, 1000 / fps)):
                 raise ResourceError("字幕预览输出与固定用料或配方不一致。", "edit_preview_output_mismatch")
             key = required(media, "object_key")
             if media.get("storage") != "local" or key.startswith("/") or ".." in key.split("/") or "\\" in key:

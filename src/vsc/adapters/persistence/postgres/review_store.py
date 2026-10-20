@@ -216,9 +216,12 @@ class ReviewRepository:
                                                     S.render_versions.c.project_id == p,
                                                     S.render_versions.c.artifact_id == artifact["id"],
                                                     S.media_items.c.modality.in_(["video", "audio", "image"]))).mappings()]
-                            returns.append({"id": returned["id"], "summary": returned["summary"], "artifacts": artifacts})
+                            returns.append({"id": returned["id"], "summary": returned["summary"], "artifacts": artifacts,
+                                "closed": returned["closed"], "result_refs": returned["result"]["result_refs"]})
                         value["dispatches"].append({"id": dispatch_id, "role": dispatch["role_id"], "returns": returns,
+                            "delivery": dispatch["packet"].get("delivery"),
                             "message": "已有专业返回，请回看实际产物" if any(r["artifacts"] for r in returns)
+                                       else "专业任务尚缺成果，请查看返回中的具体受阻原因；意见保持待处理" if returns
                                        else "已派给专业角色，尚无实际结果；意见保持待处理"})
                     entry["responses"].append(value)
                 items.append(entry)

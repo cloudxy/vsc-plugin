@@ -31,6 +31,8 @@ python3 -B scripts/maintenance/vendor_skills.py --resolve architecture
 
 软件体验维护开始前，按该参考中的[角色方法与能力](references/product-experience.md#角色方法与能力)选择相关职责、输入、交付和退出证据；交付前选用[代表性验收场景](references/product-experience.md#代表性验收场景)检查实际行为。复盘与经验沉淀沿[经验与证据的存放](references/product-experience.md#经验与证据的存放)执行，不将更新方法当作重新实施产品或自动批准项目记忆的授权。
 
+涉及成果展示、接续或存储时，架构责任读取[成果的权威与真实引用](references/product-experience.md#result-authority)，将创作工具的顺序和就近操作落到原领域消费者；实际引用、检查、采用与消费分别核验，文档和卡片数量不能代替成果。
+
 先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`，核对当前 HEAD、工作区差异、相关提交和证据适用范围。旧审计不能直接代表新实现；已有提交先核消费者与验收缺口，不重复建设。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题。
 
 临时审计、探索稿与中间产物放系统 tmp；需要执行或持续维护的方案存入本机 `docs/plans/`，沿已有主题入口按职责组织，当前状态只维护一处。该目录受 Git 忽略，不提交、不打包、不进入公开文档索引。公开 Skill 只保存通用方法，不链接私有计划或复制作品证据。

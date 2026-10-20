@@ -99,6 +99,23 @@ python3 scripts/project/state.py context return ./projects/雨夜来信 \
 
 返回JSON须回显 `role_id/role_sha256/context_id/context_sha256/dispatch_id/instance_id`，并包含 `result_refs`、`memory_proposals` 数组。提案包含 `kind/content/sources`（typed ID和SHA）、敏感度和适用对象，自动登记draft。相同返回键重试不重复；结果不同则冲突。`--keep-open`加返回中的 `session_summary` 保留有期限的接续摘要，下次用 `--resume-dispatch`。PG已接通角色memory；capability/pilot尚未迁移，不能据此报告为可用。宿主文件生成检查不代表客户端已实际加载角色或已完成独立专业审查。
 
+创作成果任务由编排者给 `context build` 附加 `--delivery ./task-delivery.json`，在原包中冻结本轮用途、成果类型、消费者、检查方法与保留项。面板原意见的专业派单自动带入这些要求，普通用户无需填写文件。例如：
+
+```json
+{
+  "format": "vsc.role-delivery/v1",
+  "purpose": "把固定剧本转为可执行的镜头设计",
+  "artifact_type": "vsc.coverage_plan",
+  "consumer": "asset-director 与 generation-producer",
+  "validation": "读取镜头动作、时长及进出状态，核对所用剧本版本",
+  "preserve": ["已确定的人物动机、对白和场景范围"]
+}
+```
+
+`delivery` 的文字说明是任务要求，不是检查已通过的证据。返回引用仍采用 `{"kind":"artifact","id":"固定产物ID","sha256":"完整SHA256"}`；系统读取实际登记版本，核正文及原契约、类型、范围、与全部固定输入的依赖或修订关系。`--scope` 可在 JSON、SQLite 和 PG 项目中固定已登记对象；普通成果须位于该范围内，原意见返工须保持原产物完整范围。模型给出的任意文件路径或URL不能代替登记引用，尚未采用的真实候选无需先批准即可返回。
+
+带 `delivery` 的任务没有成果时，使用空 `result_refs`、具体受阻原因的 `session_summary` 和 `--keep-open` 保存接续；不能直接关闭创作任务。`--resume-dispatch` 会恢复原成果要求与已返回的固定引用，并重新检查其依据；改变用途须建立新任务。无 `delivery` 的旧任务及维护、诊断任务继续支持报告或空结果返回。媒体实际可用性由原生成、剪辑与预览消费者检查；角色返回和正文可读不代表声画效果通过或用户采用。
+
 “从视频、图片或文本学习武术、打斗、特效、布局、情绪、对白或声音”在 VSC 中是一个受控闭环，而非让系统照搬素材或自行训练：
 
 ```mermaid

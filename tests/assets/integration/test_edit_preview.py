@@ -208,6 +208,54 @@ class EditPreviewTests(EditPreviewFixture, unittest.TestCase):
             self.assertEqual(row["ref"]["artifact_note_id"], requested["note_id"])
             self.assertEqual(len(self.repository.list(self.p, requested["note_id"])["items"]), 1)
 
+    def test_missing_preview_bytes_do_not_erase_success_or_claim_playable_output(self):
+        self.seed()
+        requested = self.request()
+        worker = self.worker()
+        self.assertEqual(worker.run_once(self.p)["status"], "succeeded")
+        listed = self.service.list_edit_previews(self.p, requested["note_id"])["items"][0]
+        self.assertEqual(listed["result_availability"]["status"], "available")
+        self.assertIn("content_url", listed["output"])
+        path, fixed = self.service.edit_preview_content(self.p, requested["job_id"])
+        original = path.read_bytes()
+        path.write_bytes(b"synthetic truncated result")
+        unavailable = self.service.list_edit_previews(self.p, requested["note_id"])["items"][0]
+        self.assertEqual(unavailable["status"], "succeeded", "Execution history is not a read-time availability verdict.")
+        self.assertEqual(unavailable["result_availability"]["status"], "unavailable")
+        self.assertNotIn("content_url", unavailable["output"])
+        self.assertEqual(unavailable["output"]["blob_sha256"], fixed["blob_sha256"])
+        history = self.service.get_review_history(self.p, artifact_note_id=requested["note_id"])
+        reviewed = history["items"][0]["edit_previews"][0]
+        self.assertEqual(reviewed["result_availability"]["status"], "unavailable")
+        self.assertNotIn("content_url", reviewed["output"])
+        with self.assertRaises(ResourceError):
+            self.service.edit_preview_content(self.p, requested["job_id"])
+        path.write_bytes(original)
+        restored = self.service.list_edit_previews(self.p, requested["note_id"])["items"][0]
+        self.assertEqual(restored["result_availability"]["status"], "available")
+        self.assertEqual(restored["attempt"], listed["attempt"])
+        self.assertFalse(restored["adopted"])
+
+    def test_preview_output_must_match_actual_composition_and_duration(self):
+        from vsc.post import subtitle_burn as SB
+        self.seed()
+        self.request()
+        worker = self.worker()
+        job = self.repository.claim(worker.worker_id, self.p, 60)
+        prepared = self.repository.prepare(job, worker.worker_id)
+        with tempfile.TemporaryDirectory(dir=self.root) as directory:
+            output, receipt = self.converter.convert(prepared, self.master, SB.DEFAULT_FONT, directory)
+            with output.open("rb") as stream:
+                staged = self.storage.stage_upload(stream, output.name)
+            media = self.storage.commit_upload(staged["staged_upload"])
+            for changes in ({"width": media["width"] + 1}, {"duration_ms": media["duration_ms"] + 1000},
+                            {"modality": "image"}):
+                with self.subTest(changes=changes), self.assertRaises(ResourceError) as caught:
+                    self.repository.record_output(prepared, worker.worker_id, dict(media, **changes), receipt)
+                self.assertEqual(caught.exception.code, "edit_preview_output_mismatch")
+            self.repository.record_output(prepared, worker.worker_id, media, receipt)
+        self.assertEqual(self.repository.finish(prepared, worker.worker_id)["status"], "succeeded")
+
     def produce_output(self, worker, job):
         prepared = self.repository.prepare(job, worker.worker_id)
         self.save_output(worker,prepared)

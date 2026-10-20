@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from vsc.assets.resource_service import ResourceError, Conflict
-from vsc.project.role_runtime import digest, validate_packet, validate_return
+from vsc.project.role_runtime import digest, validate_packet, validate_return, result_artifact_errors
 
 
 def content_sha(item):
@@ -134,6 +134,43 @@ def mutate_memory(project, action, payload, *, actor, expected_revision, idempot
         return result
 
 
+def validate_results(project, state, packet, result):
+    """Read fixed files through the existing artifact/contract validator."""
+    from vsc.project import state as ST
+    from vsc.project.artifacts import in_scope
+    artifacts = {row["id"]: row for row in state["artifacts"]}
+    normalized = []
+    for ref in result["result_refs"]:
+        artifact = artifacts.get(ref["id"])
+        if not artifact or ref["sha256"] != artifact.get("sha256"):
+            raise ResourceError("返回产物不存在或固定摘要不符", "return_artifact_sha")
+        errors = ST.validate_artifact(project, state, artifact, require_approved=False)
+        if errors:
+            raise ResourceError("返回产物不可用：" + "；".join(errors), "return_artifact_invalid")
+        path = Path(project) / artifact["path"]
+        try:
+            with path.open("rb") as stream:
+                if not any(block.strip() for block in iter(lambda: stream.read(65536), b"")):
+                    raise ResourceError("返回产物正文为空", "return_artifact_invalid")
+        except OSError as exc:
+            raise ResourceError("返回产物正文不可读取", "return_artifact_invalid") from exc
+        pending, ancestors = [artifact["id"]], set()
+        while pending:
+            current = artifacts.get(pending.pop())
+            if current:
+                for identifier in [*current.get("depends_on", []), current.get("supersedes")]:
+                    if identifier and identifier not in ancestors:
+                        ancestors.add(identifier)
+                        pending.append(identifier)
+        scope, actual_scope = packet.get("scope", "project"), artifact.get("scope", "project")
+        normalized.append({"id": artifact["id"], "artifact_type": artifact["type"], "input_ids": ancestors,
+            "scope_matches": scope == "project" or (actual_scope != "project"
+                and in_scope(ST.object_index(state), actual_scope, scope))})
+    errors = result_artifact_errors(packet, normalized)
+    if errors:
+        raise ResourceError("；".join(errors), "return_delivery_mismatch")
+
+
 def dispatch_command(args):
     from vsc.project import state as ST
     from vsc.knowledge import learning
@@ -152,7 +189,7 @@ def dispatch_command(args):
         ST.die("派单主体、固定任务包或项目不一致")
     if args.action == "return":
         result = ST.read_json(Path(args.result))
-        errors = validate_return(packet, result)
+        errors = validate_return(packet, result, closed=not args.keep_open)
         if errors:
             ST.die("; ".join(errors))
         previous = next((r for r in context.get("returns", []) if r["return_key"] == args.return_key), None)
@@ -181,10 +218,10 @@ def dispatch_command(args):
     else:
         if not context.get("consumptions"):
             ST.die("必须先确认消费固定上下文")
-        for ref in result["result_refs"]:
-            artifact = ST.artifact_by_id(state, ref["id"])
-            if ref["sha256"] != artifact.get("sha256"):
-                ST.die("返回产物固定摘要不符")
+        try:
+            validate_results(project, state, packet, result)
+        except ResourceError as exc:
+            ST.die(str(exc))
         for index, proposal in enumerate(result["memory_proposals"]):
             if proposal.get("role", args.role) != args.role or proposal.get("scope", "role") != "role":
                 ST.die("代理只能提案自己的角色记忆")
@@ -238,7 +275,12 @@ def resume_summary(project, state, dispatch_id, role):
                 or current.get("decision") != m.get("decision") or current["content"] != m["content"]):
             raise ResourceError("原任务记忆来源或决定失效", "resume_memory_invalid")
     for a in context.get("input_versions", []):
-        if ST.validate_artifact(project, state, ST.artifact_by_id(state, a["id"]), require_approved=True):
+        current = ST.artifact_by_id(state, a["id"])
+        if (ST.validate_artifact(project, state, current, require_approved=True)
+                or learning.artifact_snapshot(current) != a):
             raise ResourceError("接续依据失效，请从权威输入重建", "resume_source_invalid")
+    validate_results(project, state, packet, result["result"])
     return {"content": result["summary"], "created_at": result["created_at"], "expires_at": result["expires_at"],
-            "dispatch_id": dispatch_id, "persistence": "temporary_resume_only"}
+            "dispatch_id": dispatch_id, "persistence": "temporary_resume_only",
+            "result_refs": result["result"]["result_refs"],
+            **({"delivery": packet["delivery"]} if "delivery" in packet else {})}

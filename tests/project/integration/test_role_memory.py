@@ -44,9 +44,16 @@ class RoleMemoryTests(ResourceStoreFixture, unittest.TestCase):
 
     @staticmethod
     def result(packet, proposals=None, **extra):
-        return dict(role_id=packet["role"]["id"], role_sha256=packet["dispatch"]["role_sha256"], context_id=packet["context_id"],
+        result = dict(role_id=packet["role"]["id"], role_sha256=packet["dispatch"]["role_sha256"], context_id=packet["context_id"],
             context_sha256=packet["context_sha256"], dispatch_id=packet["dispatch"]["id"], instance_id=packet["dispatch"]["instance_id"],
-            result_refs=[], memory_proposals=proposals or [], **extra)
+            result_refs=[], memory_proposals=proposals or [])
+        return dict(result, **extra)
+
+    @staticmethod
+    def delivery(kind="synthetic-result"):
+        return {"format": "vsc.role-delivery/v1", "purpose": "固定剧本交镜头设计",
+            "artifact_type": kind, "consumer": "director", "validation": "读取实际动作与对白，核固定输入关系",
+            "preserve": ["原人物及场景范围"]}
 
     def proposal(self, source, content="镜头检查必须核对证据", **extra):
         return dict(kind="lesson", content=content, sources=[{"kind": "artifact", "id": source,
@@ -403,3 +410,124 @@ class RoleMemoryTests(ResourceStoreFixture, unittest.TestCase):
         packet["dispatch"]["expires_at"] = "2100-01-02T00:00:00+00:00"
         packet["context_sha256"] = digest({k: v for k, v in packet.items() if k != "context_sha256"})
         with self.assertRaises(ResourceError): self.write("create_role_dispatch", {"packet": packet})
+
+    def test_delivery_rejects_false_completion_and_recovers_unapproved_result(self):
+        from vsc.assets.resource_service import ResourceError
+        source = self.artifact()
+        packet = self.dispatch(inputs=[source], delivery=self.delivery())
+        self.consume(packet)
+        with self.assertRaises(ResourceError) as caught:
+            self.return_packet(packet, session_summary="已全部完成，检查通过")
+        self.assertEqual(caught.exception.code, "invalid_dispatch_return")
+        identity = self.identity(packet)
+        blocked = self.result(packet, session_summary="尚缺可读镜头正文，完成后重新登记并返回")
+        self.write("return_role_dispatch", dict(identity, result=blocked, return_key="blocked", closed=False),
+            actor=packet["dispatch"]["actor"])
+        restored = self.service.resume_role_summary(self.p, packet["dispatch"]["id"], "director")
+        self.assertEqual(restored["delivery"], self.delivery())
+        self.assertEqual(restored["result_refs"], [])
+        foreign_project = self.service.create_project({"name": "独立项目", "profile_snapshot": {
+            "profile_id": "vsc.synthetic", "version": "1", "stages": []}}, actor="test-human")
+        foreign = self.service.create_artifact(foreign_project["id"], {"artifact_key": "foreign-result",
+            "artifact_type": "synthetic-result", "document": "其他项目正文"}, expected_revision=0,
+            idempotency_key=uuid.uuid4().hex, actor="test-human")
+        with self.assertRaises(ResourceError):
+            self.return_packet(packet, result_refs=[{"kind": "artifact", "id": foreign["id"], "sha256": foreign["sha256"]}])
+        for values in (
+            {"artifact_type": "synthetic-report", "dependency_ids": [source]},
+            {"artifact_type": "synthetic-result", "dependency_ids": []},
+        ):
+            output = self.write("create_artifact", dict(artifact_key=uuid.uuid4().hex,
+                document="已登记但不符合本任务要求的正文", **values))
+            with self.assertRaises(ResourceError) as caught:
+                self.return_packet(packet, result_refs=[{"kind": "artifact", "id": output["id"], "sha256": output["sha256"]}])
+            self.assertEqual(caught.exception.code, "return_delivery_mismatch")
+        output = self.write("create_artifact", {"artifact_key": "actual-result", "artifact_type": "synthetic-result",
+            "document": "近景：角色手指压住门把，停顿一拍再放开。", "dependency_ids": [source]})
+        refs = [{"kind": "artifact", "id": output["id"], "sha256": output["sha256"]}]
+        with self.assertRaises(ResourceError):
+            self.return_packet(packet, result_refs=[dict(refs[0], sha256="0" * 64)])
+        self.return_packet(packet, key="finished", result_refs=refs)
+        replay = self.return_packet(packet, key="finished", result_refs=refs)
+        self.assertTrue(replay["reused"])
+        self.assertFalse(self.service.get_artifact_version(self.p, output["id"])["approved"])
+        with self.assertRaises(ResourceError):
+            self.service.resume_role_summary(self.p, packet["dispatch"]["id"], "director")
+
+    def test_delivery_validates_real_contract_scope_and_fixed_input(self):
+        from vsc.assets.resource_service import ResourceError
+        objects = self.hierarchy()
+        source = self.artifact(objects=[objects["scene"]])
+        for metadata in ({"type": "false-type"}, {"version": 999}):
+            bad = self.packet(inputs=[source], delivery=self.delivery())
+            bad["inputs"][0].update(metadata)
+            bad["context_sha256"] = digest({k: v for k, v in bad.items() if k != "context_sha256"})
+            with self.assertRaises(ResourceError) as caught:
+                self.write("create_role_dispatch", {"packet": bad})
+            self.assertEqual(caught.exception.code, "context_input_invalid")
+        packet = self.dispatch(inputs=[source], scope=objects["scene"], delivery=self.delivery())
+        self.consume(packet)
+        wrong_scope = self.write("create_artifact", {"artifact_key": "wide-result", "artifact_type": "synthetic-result",
+            "document": "扩大为整个项目的结果", "dependency_ids": [source]})
+        with self.assertRaises(ResourceError) as caught:
+            self.return_packet(packet, result_refs=[{"kind": "artifact", "id": wrong_scope["id"], "sha256": wrong_scope["sha256"]}])
+        self.assertEqual(caught.exception.code, "return_delivery_mismatch")
+        with self.assertRaises(ResourceError):
+            self.write("create_artifact", {"artifact_key": "blank", "artifact_type": "synthetic-result", "document": "   "})
+        for content in ("{}", "[]"):
+            empty = self.write("create_artifact", {"artifact_key": uuid.uuid4().hex, "artifact_type": "synthetic-result",
+                "document": content, "dependency_ids": [source], "object_ids": [objects["scene"]]})
+            with self.assertRaises(ResourceError) as caught:
+                self.return_packet(packet, result_refs=[{"kind": "artifact", "id": empty["id"], "sha256": empty["sha256"]}])
+            self.assertEqual(caught.exception.code, "return_artifact_invalid")
+        output = self.write("create_artifact", {"artifact_key": "scoped-result", "artifact_type": "synthetic-result",
+            "document": "本场景中的近景设计", "dependency_ids": [source], "object_ids": [objects["shot"]]})
+        refs = [{"kind": "artifact", "id": output["id"], "sha256": output["sha256"]}]
+        self.return_packet(packet, result_refs=refs)
+        # The repository return also rejects an invalid canonical document
+        # imported below the public registration validator.
+        invalid = self.store.create_artifact(self.p, {"artifact_key": "invalid-brief", "artifact_type": "vsc.creative_brief",
+            "document": {"format": "vsc.creative-brief/v1", "audience": "待填写"}},
+            expected_revision=self.rev, idempotency_key=uuid.uuid4().hex, actor="test-human")
+        self.rev = invalid["revision"]
+        new_packet = self.dispatch(delivery=self.delivery("vsc.creative_brief"))
+        self.consume(new_packet)
+        with self.assertRaises(ResourceError) as caught:
+            self.return_packet(new_packet, result_refs=[{"kind": "artifact", "id": invalid["id"], "sha256": invalid["sha256"]}])
+        self.assertEqual(caught.exception.code, "return_artifact_invalid")
+
+    def test_pg_context_cli_build_consume_return_and_resume_delivery(self):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        from vsc.interfaces.cli.pg_state import execute
+        from vsc.assets.resource_service import ResourceError
+        source = self.artifact()
+        with tempfile.TemporaryDirectory() as root:
+            definition = Path(root) / "delivery.json"
+            definition.write_text(json.dumps(self.delivery()), encoding="utf-8")
+            options = dict(command="context", action="build", project=root, role="director", task="产生可读镜头设计",
+                scope="project", source=None, artifact=[source], capability=None, pilot=None, memory=None,
+                parent_brief=None, budget_chars=2200, review_mode=None, include_restricted=False,
+                host="cli-test", actor="agent:cli", instance_id="cli-test", owns=None, resume_dispatch=None,
+                delivery=str(definition))
+            def run(**updates):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    execute(self.service, self.p, SimpleNamespace(**dict(options, **updates)))
+                self.rev = self.service.get_project(self.p)["revision"]
+            run()
+            path = next(Path(root).glob("10-记忆/上下文/*.json"))
+            packet = json.loads(path.read_text())
+            self.assertEqual(packet["delivery"], self.delivery())
+            run(action="consume", file=str(path))
+            result = self.result(packet, session_summary="尚缺镜头正文，接续继续完成")
+            returned = Path(root) / "result.json"; returned.write_text(json.dumps(result), encoding="utf-8")
+            run(action="return", file=str(path), result=str(returned), return_key="partial", keep_open=True)
+            run(delivery=None, resume_dispatch=packet["dispatch"]["id"], instance_id="resumed")
+            restored = [json.loads(p.read_text()) for p in Path(root).glob("10-记忆/上下文/*.json")
+                if p != path][0]
+            self.assertEqual(restored["delivery"], packet["delivery"])
+            self.assertEqual(restored["parent_brief"]["result_refs"], [])
+            definition.write_text(json.dumps(self.delivery("different-type")), encoding="utf-8")
+            with self.assertRaises(ResourceError):
+                run(resume_dispatch=packet["dispatch"]["id"], instance_id="changed")

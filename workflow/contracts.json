@@ -459,6 +459,7 @@
     {
       "format": "vsc.role-context/v2",
       "owner": "项目角色运行协议",
+      "description": "可选 delivery 使用 vsc.role-delivery/v1，固定 purpose、artifact_type、consumer、validation 与 preserve；输入及范围复用原包。用途文字不代表检查通过；成果返回须引用实际登记版本，无成果仅可保持任务开放。旧包可读及维护报告兼容。",
       "template": null,
       "validator": {
         "script": "scripts/project/state.py",

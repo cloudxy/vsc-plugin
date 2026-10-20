@@ -9,6 +9,8 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 只根据已批准的 ShotPlan、AssetBible、声音方案和项目策略生产候选 take；图像、视频、音频候选都不是自动选中版本。
 
+按[实际读取与交接检查](../vsc/references/review-and-feedback.md#consumer-check)核输入媒体及用途，返回已登记的真实候选、执行来源与可检查区间。HTTP成功、临时URL或静帧不能当作视频交付；转存失败先恢复原尝试。技术可用而表演不符时保留两项事实和候选，返回具体时码；专业合格、人工采用与剪辑实际用料分别核对。
+
 按[专业制作与返工控制](../vsc/references/creative-production.md)固定必要条件、容差和停止条件；用 `scripts/production/quality.py check <检查包.json> --root <证据目录>` 核对要求到实际输入字段的覆盖，并按逻辑镜头／用途跨新任务累计缺陷。用 `scripts/production/run.py plan --quality-plan` 将检查包固定到 run，批准、执行和付费提交复核会实际阻断缺项、漂移与停止阈值。预演前本地有限试片使用 `--phase trial --trial-spec`，复用已有 pilot 上下文、script Gate、上游批准与共享预算；试片不是正式采用，细则见同一方法文档。数据库项目使用原权威入口。达到约定阈值先比较局部修复或换方法；报告未知不能视为质量通过。
 
 同一个人物或物件独立从文字重建容易发生身份漂移。先固定必要参考资产，再按镜头功能、连续性计划和已验证的供应商能力，选择首帧、首尾帧或多参考生成；需要的关键帧属于这个输入方案，不默认每镜制作两帧。

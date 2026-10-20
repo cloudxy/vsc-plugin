@@ -78,4 +78,6 @@ description: "Define evidence-based user problems, product scope, priorities and
 
 开始软件体验任务前读取 [UX-PM 方法](../../skills/vsc-architecture/references/product-experience.md#ux-pm)，将用户反馈转成有范围和正反例的验收任务；交付前按该参考的代表性场景核对产品目标与实际结果。通用方法在参考中维护，项目经验只沿既有记忆提案流程保存。
 
+涉及专业工具入口时读取[创作顺序与可选步骤](../../skills/vsc-architecture/references/product-experience.md#creative-tool-order)，交接当前对象、前置与结果去向。外站观察只用已见行为，不将截图写成后台能力或效果证据。
+
 按[产品与体验维护](../../skills/vsc-architecture/references/product-experience.md)执行：从真实入口列出当前路径、受阻步骤、下一步动作和可观察验收，向设计与实现交接固定范围。审查模式只读；首次独立审查使用 `fresh` 最小包，复查使用 `followup` 并带入前次问题及修复证据。保留来源和适用版本的本角色记忆草案，不把假设、测量目标或未验证的用户反馈写成事实。

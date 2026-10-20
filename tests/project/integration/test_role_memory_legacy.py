@@ -54,11 +54,13 @@ class LegacyRoleMemoryTests(unittest.TestCase):
         return self.cli("context", "consume", project, "--file", path, "--role", packet["role"]["id"],
             "--instance-id", packet["dispatch"]["instance_id"], "--actor", "agent:one", **kw)
 
-    def return_packet(self, project, path, packet, proposals, keep_open=False, **extra):
+    def return_packet(self, project, path, packet, proposals, keep_open=False, expected=0,
+                      return_key="stable-return", **extra):
         result = self.result(packet, proposals); result.update(extra)
         result_path = self.root / "return.json"; result_path.write_text(json.dumps(result, ensure_ascii=False))
         return self.cli("context", "return", project, "--file", path, "--result", result_path, "--role", packet["role"]["id"],
-            "--instance-id", packet["dispatch"]["instance_id"], "--actor", "agent:one", "--return-key", "stable-return", *(["--keep-open"] if keep_open else []))
+            "--instance-id", packet["dispatch"]["instance_id"], "--actor", "agent:one", "--return-key", return_key,
+            *(["--keep-open"] if keep_open else []), expected=expected)
 
     def test_json_and_sqlite_proposal_human_web_decision_retrieval_and_return(self):
         from fastapi.testclient import TestClient
@@ -171,3 +173,91 @@ class LegacyRoleMemoryTests(unittest.TestCase):
         decide_legacy_memory(project, memory)
         _, packet = self.packet(project, target, role="post-reviewer", review_mode="fresh")
         self.assertEqual(packet["approved_memories"], [])
+
+    def test_delivery_json_sqlite_real_results_blocked_resume_and_file_damage(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.project.role_runtime_legacy import resume_summary
+        delivery = {"format": "vsc.role-delivery/v1", "purpose": "固定剧本交镜头设计",
+            "artifact_type": "vsc.synthetic_result", "consumer": "director",
+            "validation": "读取实际镜头动作并核版本", "preserve": ["原人物和场景"]}
+        definition = self.root / "delivery.json"
+        definition.write_text(json.dumps(delivery), encoding="utf-8")
+        for profile in ("vsc.light-short", "vsc.series-db"):
+            with self.subTest(profile=profile):
+                project, source = self.project(profile)
+                path, packet = self.packet(project, source, delivery=definition)
+                self.assertEqual(packet["delivery"], delivery)
+                self.consume(project, path, packet)
+                self.return_packet(project, path, packet, [], session_summary="已完成", expected=1)
+                self.return_packet(project, path, packet, [], keep_open=True, return_key="blocked",
+                    session_summary="还缺实际镜头正文；补齐后返回")
+                _, resumed = self.packet(project, source, resume_dispatch=packet["dispatch"]["id"])
+                self.assertEqual(resumed["delivery"], delivery)
+                self.assertEqual(resumed["parent_brief"]["result_refs"], [])
+                document = self.root / "result.md"
+                document.write_text("近景：手指按下门把，停一拍后松开。", encoding="utf-8")
+                def register(kind="vsc.synthetic_result", depends=True):
+                    identifier = self.cli("artifact", "add", project, "--stage", "brief", "--type", kind,
+                        "--file", document, *(["--depends", source] if depends else [])).split()[1]
+                    return ST.artifact_by_id(ST.project_state(project), identifier)
+                for wrong in (register("vsc.synthetic_report"), register(depends=False)):
+                    self.return_packet(project, path, packet, [], expected=1,
+                        result_refs=[{"kind": "artifact", "id": wrong["id"], "sha256": wrong["sha256"]}])
+                output = register()
+                refs = [{"kind": "artifact", "id": output["id"], "sha256": output["sha256"]}]
+                self.return_packet(project, path, packet, [], expected=1,
+                    result_refs=[dict(refs[0], sha256="0" * 64)])
+                self.return_packet(project, path, packet, [], expected=1,
+                    result_refs=[{"kind": "artifact", "id": "/tmp/unregistered.md", "sha256": output["sha256"]}])
+                fixed = project / output["path"]
+                original = fixed.read_bytes()
+                fixed.unlink()
+                self.return_packet(project, path, packet, [], expected=1, result_refs=refs)
+                fixed.write_bytes(original + b"\nchanged")
+                self.return_packet(project, path, packet, [], expected=1, result_refs=refs)
+                fixed.write_bytes(original)
+                self.return_packet(project, path, packet, [], keep_open=True, return_key="draft",
+                    result_refs=refs, session_summary="已有可读草稿，待专业阅读")
+                restored = resume_summary(project, ST.project_state(project), packet["dispatch"]["id"], "director")
+                self.assertEqual(restored["result_refs"], refs)
+                self.assertEqual(ST.artifact_by_id(ST.project_state(project), output["id"])["status"], "draft")
+                fixed.write_bytes(original + b"\nchanged")
+                with self.assertRaises(ResourceError):
+                    resume_summary(project, ST.project_state(project), packet["dispatch"]["id"], "director")
+                fixed.write_bytes(original)
+                self.return_packet(project, path, packet, [], result_refs=refs)
+                self.return_packet(project, path, packet, [], result_refs=refs)
+                self.assertEqual(len(ST.project_state(project)["contexts"][0]["returns"]), 3)
+
+    def test_delivery_scope_and_template_contract_remain_enforced(self):
+        delivery = {"format": "vsc.role-delivery/v1", "purpose": "制作本集设计",
+            "artifact_type": "vsc.synthetic_result", "consumer": "director",
+            "validation": "阅读固定正文", "preserve": []}
+        definition = self.root / "scope-delivery.json"; definition.write_text(json.dumps(delivery), encoding="utf-8")
+        for profile in ("vsc.light-short", "vsc.series-db"):
+            with self.subTest(profile=profile):
+                project, source = self.project(profile)
+                self.cli("object", "add", project, "--kind", "episode", "--id", "EP-001", "--label", "合成范围")
+                path, packet = self.packet(project, source, delivery=definition, scope="EP-001")
+                self.consume(project, path, packet)
+                document = self.root / "scoped.md"; document.write_text("本集明确动作设计", encoding="utf-8")
+                for scope, expected in (("project", 1), ("EP-001", 0)):
+                    identifier = self.cli("artifact", "add", project, "--stage", "brief", "--type", "vsc.synthetic_result",
+                        "--file", document, "--depends", source, "--scope", scope).split()[1]
+                    row = ST.artifact_by_id(ST.project_state(project), identifier)
+                    self.return_packet(project, path, packet, [], expected=expected,
+                        result_refs=[{"kind": "artifact", "id": row["id"], "sha256": row["sha256"]}])
+                # Draft registration preserves incomplete work; a template shell
+                # must still fail when returned as the task's deliverable.
+                template = self.root / "empty-brief.json"
+                template.write_text(json.dumps({"format": "vsc.creative-brief/v1", "audience": "待填写"}), encoding="utf-8")
+                identifier = self.cli("artifact", "add", project, "--stage", "brief", "--type", "vsc.creative_brief",
+                    "--file", template, "--depends", source).split()[1]
+                row = ST.artifact_by_id(ST.project_state(project), identifier)
+                definition.write_text(json.dumps(dict(delivery, artifact_type="vsc.creative_brief")), encoding="utf-8")
+                brief_path, brief_packet = self.packet(project, source, delivery=definition)
+                self.consume(project, brief_path, brief_packet)
+                message = self.return_packet(project, brief_path, brief_packet, [], expected=1,
+                    result_refs=[{"kind": "artifact", "id": row["id"], "sha256": row["sha256"]}])
+                self.assertIn("返回产物不可用", message)
+                definition.write_text(json.dumps(delivery), encoding="utf-8")

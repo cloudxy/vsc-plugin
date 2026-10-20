@@ -106,6 +106,65 @@ class ResourceWorkerTests(unittest.TestCase):
         self.assertIn(spec, {version["artifact_id"] for version in result["input_versions"]})
         self.assertEqual(adapter.submits, 1)
 
+    def test_video_thumbnail_cannot_complete_video_job(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.production.resource_worker import ResourceWorker
+        staged = self.service.storage.stage_upload(BytesIO(png_bytes()), "first.png")
+        frame = self.fixture.write("register_media", {"staged_upload": staged["staged_upload"],
+            "source": {"kind": "fixture", "content": "合成首帧"}, "rights": "unknown"})["id"]
+        self.fixture.select_media(frame, "first_frame")
+        job = self.fixture.job("video", "video_clip", self.model("video", ["video_clip"]),
+                               {"first_frame_media_id": frame, "duration_ms": 1000})
+        adapter = FakeProvider("image")
+        worker = ResourceWorker(self.service, lambda job, storage: adapter)
+        with self.assertRaises(ResourceError) as caught:
+            worker.run_once(self.fixture.p)
+        self.assertEqual(caught.exception.code, "job_primary_output_required")
+        saved = self.service.get_generation_job(self.fixture.p, job["id"])
+        self.assertNotEqual(saved["status"], "succeeded")
+        self.assertEqual(saved["outputs"], [])
+        self.assertTrue(saved["raw_response"])
+        with self.assertRaises(ResourceError):
+            worker.finalize(self.fixture.p, job["id"])
+        self.assertEqual(adapter.submits, 1, "Recover the saved response, never resubmit for a missing video.")
+
+    def test_declared_video_with_image_bytes_is_not_a_video_result(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.production.resource_worker import ResourceWorker
+        staged = self.service.storage.stage_upload(BytesIO(png_bytes()), "first.png")
+        frame = self.fixture.write("register_media", {"staged_upload": staged["staged_upload"],
+            "source": {"kind": "fixture", "content": "合成首帧"}, "rights": "unknown"})["id"]
+        self.fixture.select_media(frame, "first_frame")
+        job = self.fixture.job("video", "video_clip", self.model("video", ["video_clip"]),
+                               {"first_frame_media_id": frame, "duration_ms": 1000})
+        adapter = FakeProvider("video", png_bytes())
+        with self.assertRaises(ResourceError) as caught:
+            ResourceWorker(self.service, lambda job, storage: adapter).run_once(self.fixture.p)
+        self.assertEqual(caught.exception.code, "output_changed")
+        self.assertEqual(self.service.get_generation_job(self.fixture.p, job["id"])["outputs"], [])
+        self.assertEqual(adapter.submits, 1)
+
+    def test_decode_failure_keeps_response_and_recovers_without_post(self):
+        from vsc.adapters.media.qa import LocalProbeAdapter, ProbeFailure
+        from vsc.production.resource_worker import ResourceWorker
+        job = self.fixture.job("image", "keyframe", self.model("image", ["keyframe"]))
+        adapter = FakeProvider()
+        worker = ResourceWorker(self.service, lambda job, storage: adapter)
+        with mock.patch.object(LocalProbeAdapter, "decode", side_effect=ProbeFailure("decode_error", "synthetic failure")):
+            with self.assertRaises(ProbeFailure):
+                worker.run_once(self.fixture.p)
+        saved = self.service.get_generation_job(self.fixture.p, job["id"])
+        self.assertTrue(saved["raw_response"])
+        self.assertNotEqual(saved["status"], "succeeded")
+        self.assertEqual(saved["outputs"], [])
+        media_id = str(uuid.uuid5(uuid.UUID(job["id"]), "output:0"))
+        worker.finalize(self.fixture.p, job["id"])
+        saved = self.service.get_generation_job(self.fixture.p, job["id"])
+        self.assertEqual(saved["status"], "succeeded")
+        self.assertEqual(saved["outputs"][0]["media_id"], media_id)
+        self.assertEqual(adapter.submits, 1)
+        self.assertEqual(self.service.get_media_usage(self.fixture.p, media_id)["current_bindings"], [])
+
     def test_unknown_submit_is_never_automatically_posted_again(self):
         from vsc.production.resource_worker import ResourceWorker
         job = self.fixture.job("image", "keyframe", self.model("image", ["keyframe"]))

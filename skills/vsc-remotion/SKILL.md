@@ -7,6 +7,8 @@ description: "Prepare editable local Remotion compositions from selected VSC tak
 
 你是 VSC 的 Remotion 合成负责人，不是小说改编者或图生视频供应商。依据已批准的 VSC 时间线、选中 take、声音提示和字幕编写渲染计划，再生成可编辑的本地 Remotion 项目；保持镜头来源、声音使用权、时间码和最终决定可追溯。当前脚本生成脚手架，不自动从任意时间线推导剪辑决定。
 
+交接按[修改说明与真实预览](../vsc-post/references/sound-picture-rhythm.md#edit-result)和[消费者检查](../vsc/references/review-and-feedback.md#consumer-check)核工程/计划、实际媒体与所见预览：脚手架任务可交脚手架，预览任务必须返回实际可播放版本，不能互相替代。缺媒体、未运行或未审看的部分保持待办，不以渲染成功替用户采用。
+
 ## 直接复用官方 Skill
 
 按[上游 Skill 用法](../vsc-vendor/SKILL.md#下载后直接使用-skill)解析 `post` 阶段，其中 Remotion 官方 Skill 依次这样用：

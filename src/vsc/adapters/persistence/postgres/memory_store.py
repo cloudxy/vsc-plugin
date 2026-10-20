@@ -5,11 +5,12 @@ is deliberately no JSON fallback and no actor-label based approval shortcut.
 """
 from datetime import datetime, timezone, timedelta
 import hashlib
+import json
 
 from sqlalchemy import insert, select, func
 
 from vsc.assets.resource_service import ResourceError, Conflict, required
-from vsc.project.role_runtime import digest, validate_packet, validate_return, memory_allowed
+from vsc.project.role_runtime import digest, validate_packet, validate_return, memory_allowed, result_artifact_errors
 from . import schema as S
 from .values import checked_id, clean, new_id
 
@@ -68,7 +69,7 @@ class RoleMemoryRepository:
             rows.append(item)
         return rows
 
-    def _artifact_evidence_closure(self, conn, p, roots):
+    def _artifact_evidence_closure(self, conn, p, roots, *, include_supersedes=False):
         pending, visited, rows = list(roots), set(), []
         while pending:
             identifier = pending.pop()
@@ -78,12 +79,20 @@ class RoleMemoryRepository:
             rows.append(self._one(conn, S.artifact_versions, p, identifier))
             pending.extend(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
                 S.artifact_dependencies.c.project_id == p, S.artifact_dependencies.c.artifact_id == identifier)).scalars())
+            if include_supersedes and rows[-1]["supersedes_id"]:
+                pending.append(rows[-1]["supersedes_id"])
         return rows
 
     def _validate_dispatch_evidence(self, conn, p, packet):
         approvals = self._approval_map(conn, p)
         if any(not approvals.get(a["id"]) for a in packet["inputs"]):
             raise ResourceError("固定任务输入已撤销批准", "context_input_invalid")
+        for ref in packet["inputs"]:
+            artifact = self._one(conn, S.artifact_versions, p, ref["id"])
+            if (artifact["sha256"] != ref.get("sha256")
+                    or any(ref[key] != artifact["artifact_type"] for key in ("type", "artifact_type") if key in ref)
+                    or ("version" in ref and ref["version"] != artifact["version"])):
+                raise ResourceError("固定任务输入类型、版本或摘要不符", "context_input_invalid")
         for source in packet.get("source_refs", []):
             row = self._one(conn, S.source_versions, p, source["id"])
             newest = conn.execute(select(func.max(S.source_versions.c.version)).where(
@@ -96,6 +105,58 @@ class RoleMemoryRepository:
         active = {r["version_id"]: r for r in self._memory_rows(conn, p) if r["status"] == "approved" and not r["invalid_reasons"]}
         if any(m["version_id"] not in active or m["decision_id"] != active[m["version_id"]]["decision_id"] for m in packet["approved_memories"]):
             raise ResourceError("固定记忆批准或来源失效", "context_memory_invalid")
+
+    def _validate_dispatch_results(self, conn, project, packet, result):
+        """Resolve registered bytes, type, lineage and scope in this transaction."""
+        from vsc.project.pg_workflow import validate_contract
+        p = project["id"]
+        original = conn.execute(select(S.artifact_review_notes.c.artifact_id).join(S.review_responses,
+            (S.review_responses.c.project_id == S.artifact_review_notes.c.project_id) &
+            (S.review_responses.c.artifact_note_id == S.artifact_review_notes.c.id)).join(S.review_dispatches,
+                (S.review_dispatches.c.project_id == S.review_responses.c.project_id) &
+                (S.review_dispatches.c.response_id == S.review_responses.c.id)).where(
+                    S.review_dispatches.c.project_id == p,
+                    S.review_dispatches.c.dispatch_id == packet["dispatch"]["id"])).scalar_one_or_none()
+        source = self._one(conn, S.artifact_versions, p, original) if original else None
+        scope = packet.get("scope", "project")
+        allowed = self._descendant_ids(conn, p, scope) if scope != "project" else set()
+        normalized = []
+        for ref in result["result_refs"]:
+            artifact = self._one(conn, S.artifact_versions, p, ref["id"])
+            raw = bytes(artifact["document"])
+            if artifact["sha256"] != ref["sha256"] or hashlib.sha256(raw).hexdigest() != ref["sha256"]:
+                raise ResourceError("返回产物固定摘要不符", "return_artifact_sha")
+            errors = validate_contract(raw, artifact["artifact_type"],
+                project["profile_snapshot"].get("contract_policy", "production-v2"))
+            if not raw.strip():
+                errors.append("产物正文为空")
+            try:
+                if json.loads(raw) in ({}, [], None, ""):
+                    errors.append("产物正文为空壳")
+            except (ValueError, UnicodeError):
+                pass  # The existing type contract decides whether JSON is needed.
+            if errors:
+                raise ResourceError("返回产物不可用：" + "；".join(errors), "return_artifact_invalid")
+            dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
+                S.artifact_dependencies.c.project_id == p,
+                S.artifact_dependencies.c.artifact_id == artifact["id"])).scalars())
+            scopes = self._artifact_scopes(conn, p, artifact["id"])
+            scope_matches = scope == "project" or (not artifact["project_wide"] and bool(scopes) and scopes <= allowed)
+            if source:
+                if (artifact["id"] == original or artifact["artifact_type"] != source["artifact_type"] or
+                        (artifact["supersedes_id"] != original and original not in dependencies)):
+                    raise ResourceError("专业返回须为原类型的新产物并明确依赖或修订被审版本", "review_result_mismatch")
+                scope_matches = (artifact["project_wide"] == source["project_wide"]
+                    and scopes == self._artifact_scopes(conn, p, original))
+                if not scope_matches:
+                    raise ResourceError("专业返回必须保留被审产物的完整范围", "review_result_scope")
+            ancestors = {row["id"] for row in self._artifact_evidence_closure(
+                conn, p, [artifact["id"]], include_supersedes=True)} - {artifact["id"]}
+            normalized.append({"id": artifact["id"], "artifact_type": artifact["artifact_type"],
+                "input_ids": ancestors, "scope_matches": scope_matches})
+        errors = result_artifact_errors(packet, normalized)
+        if errors:
+            raise ResourceError("；".join(errors), "return_delivery_mismatch")
 
     def list_role_memories(self, project_id, role=None, scope=None):
         with self.engine.connect() as conn:
@@ -354,7 +415,8 @@ class RoleMemoryRepository:
 
     def resume_role_summary(self, project_id, dispatch_id, role):
         with self.engine.connect() as conn:
-            p = self._project(conn, project_id)["id"]
+            project = self._project(conn, project_id)
+            p = project["id"]
             d = self._one(conn, S.role_dispatches, p, dispatch_id)
             returns = conn.execute(select(S.dispatch_returns).where(S.dispatch_returns.c.project_id == p,
                 S.dispatch_returns.c.dispatch_id == d["id"]).order_by(S.dispatch_returns.c.created_at.desc())).mappings().all()
@@ -373,8 +435,11 @@ class RoleMemoryRepository:
                     S.artifact_versions.c.project_id == p, S.artifact_versions.c.artifact_key == art["artifact_key"])).scalar_one()
                 if not approvals.get(a["id"]) or art["version"] != newest:
                     raise ResourceError("接续摘要来源失效", "resume_source_invalid")
+            self._validate_dispatch_results(conn, project, d["packet"], latest["result"])
             return clean({"content": latest["summary"], "dispatch_id": d["id"], "created_at": latest["created_at"],
-                "expires_at": latest["expires_at"], "persistence": "temporary_resume_only"})
+                "expires_at": latest["expires_at"], "persistence": "temporary_resume_only",
+                "result_refs": latest["result"]["result_refs"],
+                **({"delivery": d["packet"]["delivery"]} if "delivery" in d["packet"] else {})})
 
     def _dispatch(self, conn, project, payload, actor, require_consumed=False):
         d = self._one(conn, S.role_dispatches, project["id"], required(payload, "dispatch_id"))
@@ -416,7 +481,7 @@ class RoleMemoryRepository:
                 _fence(conn, project)
             stored = self._one(conn, S.role_dispatches, project["id"], required(payload, "dispatch_id"))
             result = required(payload, "result")
-            errors = validate_return(stored["packet"], result)
+            errors = validate_return(stored["packet"], result, closed=payload.get("closed", True) is True)
             if errors:
                 raise ResourceError("; ".join(errors), "invalid_dispatch_return")
             return_key = required(payload, "return_key")
@@ -430,6 +495,7 @@ class RoleMemoryRepository:
                     raise Conflict("同一返回键不能覆盖不同结果", "idempotency_conflict")
                 return {"return_id": prior["id"], "memory_proposals": [], "reused": True}
             d = self._dispatch(conn, project, payload, kw["actor"], require_consumed=True)
+            self._validate_dispatch_results(conn, project, d["packet"], result)
             proposals = []
             for i, proposal in enumerate(result["memory_proposals"]):
                 proposals.append(self._propose_memory(conn, project, dict(proposal, proposal_key=return_key + ":" + str(i)), d))
@@ -441,24 +507,6 @@ class RoleMemoryRepository:
                 return_key=return_key, result_sha256=return_sha, result=result, summary=summary,
                 expires_at=d["expires_at"] if summary else None, closed=payload.get("closed", True) is True))
             for ref in result["result_refs"]:
-                artifact = self._one(conn, S.artifact_versions, project["id"], ref["id"])
-                if artifact["sha256"] != ref["sha256"]:
-                    raise ResourceError("返回产物固定摘要不符", "return_artifact_sha")
-                original = conn.execute(select(S.artifact_review_notes.c.artifact_id).join(S.review_responses,
-                    (S.review_responses.c.project_id == S.artifact_review_notes.c.project_id) &
-                    (S.review_responses.c.artifact_note_id == S.artifact_review_notes.c.id)).join(S.review_dispatches,
-                        (S.review_dispatches.c.project_id == S.review_responses.c.project_id) &
-                        (S.review_dispatches.c.response_id == S.review_responses.c.id)).where(
-                            S.review_dispatches.c.project_id == project["id"],
-                            S.review_dispatches.c.dispatch_id == stored["id"])).scalar_one_or_none()
-                if original:
-                    source = self._one(conn, S.artifact_versions, project["id"], original)
-                    dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
-                        S.artifact_dependencies.c.project_id == project["id"],
-                        S.artifact_dependencies.c.artifact_id == artifact["id"])).scalars())
-                    if (artifact["id"] == original or artifact["artifact_type"] != source["artifact_type"] or
-                            (artifact["supersedes_id"] != original and original not in dependencies)):
-                        raise ResourceError("专业返回须为原类型的新产物并明确依赖或修订被审版本", "review_result_mismatch")
                 conn.execute(insert(S.dispatch_result_artifacts).values(project_id=project["id"], return_id=row_id, artifact_id=ref["id"]))
             return {"return_id": row_id, "memory_proposals": proposals, "closed": payload.get("closed", True) is True}
         return self._mutate(project_id, "return_role_dispatch", payload, callback=work, **kw)

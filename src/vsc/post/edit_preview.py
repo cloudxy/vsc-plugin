@@ -129,7 +129,11 @@ class EditPreviewConverter:
                      "-c:a", "aac", "-b:a", "192k"]
         args += ["-movflags", "+faststart", str(output)]
         self._run(args)
-        self._run([self.ffmpeg, "-nostdin", "-v", "error", "-i", str(output), "-f", "null", "-"])
+        self._run([self.ffmpeg, "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode",
+                   "-i", str(output), "-map", "0:v:0", "-map", "0:a?", "-f", "null", "-"])
+        output_probe = json.loads(self._run([self.ffprobe, "-v", "error", "-show_streams", "-of", "json", str(output)]))
+        if has_audio != any(s.get("codec_type") == "audio" for s in output_probe["streams"]):
+            raise ResourceError("字幕预览没有保留原底片的音轨覆盖。", "edit_preview_audio_mismatch")
         _, _, actual_duration = SB.probe_video(output)
         if abs(actual_duration - (end-start)/fps) > max(0.06, 1/fps):
             raise ResourceError("字幕预览实际时长与固定区间不一致。", "edit_preview_duration_mismatch")
