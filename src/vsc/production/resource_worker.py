@@ -262,10 +262,13 @@ class ResourceWorker:
                 "source": {"kind": "generation", "source_key": job_id + ":" + str(index),
                     "content": {"job_id": job_id, "request_sha256": job["request_sha256"], "provider": job["provider_id"],
                                 "model_version": job["model_version"], "original_uri": original}}}, "output:" + job_id + ":" + str(index))
-            registered.append({"media_id": result["id"], "asset_type": output.modality, "original_uri": original})
+            # Use the same fixed-byte/type/decode checks for a new registration
+            # and recovery. A provider's claimed modality is not evidence.
+            registered.append(self._registered_output(job, result["id"], output.modality))
         return self._write("update_generation_job", project_id, {"job_id": job_id, "status": "succeeded",
             "outputs": registered, "raw_response": raw, "latency_ms": latency_ms,
-            "recovery_evidence": {"source": "provider_response_and_verified_storage"}}, "finalize:" + job_id)
+            "recovery_evidence": {"source": "provider_response_and_verified_storage",
+                                  "full_decode": "passed", "professional_review": "not_performed"}}, "finalize:" + job_id)
 
     def _registered_output(self, job, media_id, modality):
         """Recover the registration/commit gap without a new upload token."""
@@ -291,7 +294,22 @@ class ResourceWorker:
             raise ResourceError("已登记输出没有匹配的任务来源事实", "output_changed")
         for location in media.get("locations", []):
             if location["storage"] == "local" and location["available"]:
-                self.storage.verify(location["object_key"], media["sha256"])
+                from vsc.adapters.media.qa import LocalProbeAdapter, ProbeFailure
+                path = self.storage.verify(location["object_key"], media["sha256"])
+                proof = media.get("probe", {})
+                decoded = proof.get("decode", {}) if (
+                    proof.get("sha256") == media["sha256"] and proof.get("bytes") == media["size_bytes"]) else {}
+                # Registration already decodes current uploads. Reuse its proof
+                # after verifying identical bytes; only older records need a probe.
+                if decoded.get("status") != "passed" or decoded.get("mode") != "complete":
+                    probe = self.storage.probe or LocalProbeAdapter()
+                    try:
+                        decoded = probe.decode(path)
+                    except (ProbeFailure, OSError, AttributeError) as error:
+                        raise ResourceError("生成结果尚未通过完整解码；已保存的响应和素材可继续恢复。",
+                                            "output_decode_failed") from error
+                if decoded.get("status") != "passed" or decoded.get("mode") != "complete":
+                    raise ResourceError("生成结果没有完整解码证据，不能标记为制作完成。", "output_decode_failed")
                 return {"media_id": media_id, "asset_type": modality, "original_uri": evidence.get("original_uri")}
         raise ResourceError("已登记输出字节不可读取", "media_unavailable")
 

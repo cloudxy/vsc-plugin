@@ -7,6 +7,8 @@ description: "Write or revise VSC screenplays from an approved adaptation plan."
 
 需要同题修改实例时，按[方法选择与固定读取](../vsc/references/method-practice.md)读取[行动与信息](references/scene-action.md)或[潜台词与表演](references/subtext-performance.md)对应章节；保留事实与有效旁白，选择后再映射正式screenplay。
 
+交编导前按[实际读取与交接检查](../vsc/references/review-and-feedback.md#consumer-check)核当前场次的具体动作、对白/静默及场景条件；让 director 从实际正文安排一次镜头覆盖。只有梗概或角色简介时保持待写剧本，缺动机或来源时返回具体上游段落，不用字段齐全代替可拍内容。
+
 对白、信息揭示或可表演行为需要参考时，用 `scripts/knowledge/craft.py search <需求> --stage script` 查公开方法及来源；条目是建议，不替代本项目改编批准。入口见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
 
 只把已批准的改编设计外化为可表演、可拍摄、可听的场次。依[作品形式与专业拆解](../vsc/references/creative-production.md)，剧情场次写人物目标、阻力、行动、变化与观众新增信息；散文段落写意象、视点、感官及情绪联系；纪实段落写主张、证据与信息增量。共用对白/旁白、声音提示和预计时长；不适用项说明理由，不强造冲突。表演写诱因、对象、意图、策略、反应和可见的呼吸／眼神／停顿，不能只有情绪标签。不要把小说心理描写原样改成台词。若剧情动机、信息顺序或新增内容需要改变，退回改编角色并登记决定，不在剧本里悄悄修改。

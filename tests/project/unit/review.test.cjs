@@ -22,6 +22,54 @@ test('new component reads persisted result references and opens exact artifact a
   assert.deepEqual(opened,[['artifact','run-fixed'],['media','audio-fixed']]);assert.ok(node.textContent.includes('试听后再决定'));assert.ok(!node.textContent.includes('意见已完成'));
 });
 
+test('succeeded preview without an accessible result never turns the original opinion into a completed edit',async()=>{
+  const f=await fixture();
+  for(const preview of [
+    {status:'succeeded',explanation:'新预览已返回'},
+    {status:'succeeded',explanation:'新预览已返回',output:{content_url:'https://external.example/not-a-result'}},
+    {status:'succeeded',output:{content_url:'/api/v1/projects/P/edit-previews/J/content'},
+      result_availability:{status:'unavailable',message:'预览文件缺失，请恢复原输出'}}
+  ]){
+    const node=f.renderReviewHistory({items:[{source:{artifact_note_id:'note'},body:'字幕上移',edit_previews:[preview]}]});
+    assert.equal(node.querySelector('video'),null);
+    assert.ok(node.textContent.includes('执行：已结束'));
+    assert.ok(node.textContent.includes('尚无可回看的预览')||node.textContent.includes('预览文件缺失'));
+    assert.ok(!node.textContent.includes('新预览已返回'));
+    assert.ok(!node.textContent.includes('意见已完成'));
+  }
+});
+
+test('registered preview keeps availability, actual playback and adoption as distinct facts',async()=>{
+  const f=await fixture();let reloaded=0;
+  const node=f.renderEditPreviewResult({status:'succeeded',output:{content_url:'/api/v1/projects/P/edit-previews/J/content'},
+    result_availability:{status:'unverified',message:'当前存储未能验证，请读取原输出'}},{reload:async()=>{reloaded++;}});
+  assert.ok(node.textContent.includes('当前存储未能验证'));
+  assert.ok(node.textContent.includes('预览已登记'));
+  assert.ok(node.textContent.includes('正式采用仍需审阅固定版本'));
+  const video=node.querySelector('video');await video.dispatch('loadedmetadata');
+  assert.ok(node.textContent.includes('预览已载入，修改效果待审'));
+  await video.dispatch('error');await video.dispatch('error');
+  assert.ok(node.textContent.includes('预览播放受阻'));
+  assert.equal(node.querySelectorAll('.preview-playback-error').length,1);
+  await node.querySelector('button').click();assert.equal(reloaded,1);
+});
+
+test('empty successful runs and professional receipt summaries preserve the concrete result gap',async()=>{
+  const f=await fixture();
+  const node=f.renderReviewHistory({items:[{source:{artifact_note_id:'note'},body:'调整修改',
+    responses:[{explanation:'这一轮处理',preserve:'保留原视频与声音',limitations:'已派给原专业角色，尚无实际结果',
+      runs:[{status:'completed',suggestions:[]}],
+      proposals:[{id:'proposal',approved:true,jobs:[{status:'succeeded',outputs:[]}]}],
+      dispatches:[{message:'收到返回',returns:[{summary:'已完成',artifacts:[]}]}]}]}]});
+  assert.ok(node.textContent.includes('本轮处理：这一轮处理'));
+  assert.ok(node.textContent.includes('保留项：保留原视频与声音'));
+  assert.ok(node.textContent.includes('尚无可回看的修改建议'));
+  assert.ok(node.textContent.includes('尚无已登记的新媒体'));
+  assert.ok(node.textContent.includes('尚无可回看的专业成果'));
+  assert.ok(node.textContent.includes('尚无实际结果'));
+  assert.equal(node.querySelectorAll('button').length,1);
+});
+
 test('artifact opinion pins server target and seconds to frame range, reusing uncertain command key',async()=>{
   const f=await fixture(),writes=[];let fail=true;
   const target={artifact_id:'fixed-artifact',artifact_sha256:'a'.repeat(64),category:'subtitle',render_id:'fixed-render',render_output_id:'fixed-output',media_sha256:'b'.repeat(64),start_frame:0,end_frame:360};

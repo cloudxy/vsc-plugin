@@ -155,7 +155,9 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                                          limit=limit, modality=modality, **filters)
 
     def get_media(self, project_id, media_id):
+        from vsc.assets.media_availability import media_availability
         value = self.store.get_media(project_id, media_id)
+        value["result_availability"] = media_availability(self.storage, value)
         value["review_history"] = self.get_review_history(project_id, media_id=media_id)
         value["review_targets"] = self._reviews().targets(project_id, media_id=media_id)
         return value

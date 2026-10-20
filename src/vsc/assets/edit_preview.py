@@ -27,7 +27,24 @@ class EditPreviewService:
         return self._edit_previews().request(project_id, payload, tool, **kw)
 
     def list_edit_previews(self, project_id, artifact_note_id=None):
-        return self._edit_previews().list(project_id, artifact_note_id)
+        repository = self._edit_previews()
+        result = repository.list(project_id, artifact_note_id)
+        self._observe_edit_previews(project_id, result["items"])
+        return result
+
+    def _observe_edit_previews(self, project_id, items):
+        """Apply the same observation to polling and the original opinion view."""
+        from vsc.assets.media_availability import media_availability
+        repository = self._edit_previews()
+        for item in items:
+            if item.get("output"):
+                fixed = repository.content(project_id, item["id"])
+                item["result_availability"] = media_availability(self.storage, fixed)
+                if item["result_availability"]["status"] == "unavailable":
+                    item["output"].pop("content_url", None)
+            else:
+                item["result_availability"] = {"status": "unavailable", "check": "registration",
+                                               "message": "本次任务尚未登记可回看的预览。"}
 
     def retry_edit_preview(self, project_id, job_id, payload, **kw):
         from vsc.assets.resource_service import ResourceError

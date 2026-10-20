@@ -454,12 +454,21 @@ class ProductionRepository:
             outputs = payload.get("outputs", [])
             if status == "succeeded" and not outputs:
                 raise ResourceError("成功任务必须有已转存的输出素材", "job_output_required")
+            primary_output = False
             for output in outputs:
                 media = self._media(conn, p, required(output, "media_id"))
+                output_type = output.get("asset_type", media["modality"])
+                if (output_type != media["modality"]
+                        or (media["modality"] != job["modality"]
+                            and not (job["modality"] == "video" and media["modality"] == "image"))):
+                    raise ResourceError("任务输出类型与实际素材或制作用途不符", "job_output_modality")
+                primary_output = primary_output or media["modality"] == job["modality"]
                 if not any(location["available"] for location in media["locations"]):
                     raise ResourceError("任务输出字节未完成转存", "job_output_missing")
                 conn.execute(insert(S.job_outputs).values(project_id=p, id=new_id(), job_id=job["id"],
-                    media_id=media["id"], asset_type=output.get("asset_type", job["modality"]), original_uri=output.get("original_uri")))
+                    media_id=media["id"], asset_type=output_type, original_uri=output.get("original_uri")))
+            if status == "succeeded" and not primary_output:
+                raise ResourceError("成功任务缺少本次用途的实际输出；封面或缩略图不能代替视频", "job_primary_output_required")
             if status == "succeeded" and job["request_payload"].get("operation"):
                 self._register_job_video_operation(conn, p, job, outputs, payload.get("raw_response", job["raw_response"]))
             values = {"status": status, "external_task_id": external, "updated_at": datetime.now(timezone.utc)}

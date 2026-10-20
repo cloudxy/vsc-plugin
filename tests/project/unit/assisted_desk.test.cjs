@@ -39,6 +39,90 @@ test('first result opens real reader, with separate list, work and feedback pane
     {page:'desk',project:'p',scope:'s',object:'artifact:a',version:'a',bucket:'results'});
 });
 
+test('one toolbar keeps identity with scope and the tools and refresh share an action group',async()=>{
+  const f=await fixture(url=>url.includes('assisted-desk?')?{...page(),scope:{title:'第二集'}}:basic(url),
+    {actor:'human',writable:false});
+  await f.desk.load({projectId:'p',objectId:'episode'});
+  const header=f.container.querySelector('.desk-heading'),identity=header.querySelector('.desk-identity'),actions=header.querySelector('.desk-actions');
+  assert.equal(identity.querySelector('h1').textContent,'工作台');
+  assert.ok(identity.textContent.includes('合成作品'));
+  assert.ok(identity.textContent.includes('第二集'));
+  assert.ok(identity.textContent.includes('此项目只读'));
+  assert.equal(header.querySelector('.desk-tools').parentElement,actions);
+  assert.equal(button(f.container,'刷新').parentElement,actions);
+  assert.equal(f.container.children.filter(node=>node.classList.contains('desk-scope')).length,0);
+  await button(f.container,'刷新').pressKey('Enter');
+  assert.equal(f.calls.filter(call=>call.url.includes('assisted-desk?')).length,2);
+});
+
+test('professional tools follow the creative sequence and retain keyboard return from their menu',async()=>{
+  const f=await fixture(basic),opened=[];f.ctx.specialist=view=>opened.push(view);
+  await f.desk.load({projectId:'p'});
+  const groups=f.container.querySelectorAll('.desk-tool-group'),tools=f.container.querySelector('.desk-tools');
+  assert.deepEqual(groups.map(group=>group.querySelector('h2').textContent),['创作','查阅']);
+  assert.deepEqual(groups[0].querySelectorAll('button').map(item=>item.textContent),
+    ['创意与原稿','剧本编辑','场镜设计','候选比较','剪辑交付']);
+  assert.deepEqual(groups[1].querySelectorAll('button').map(item=>item.textContent),['场镜关系','文案版本','关系画布']);
+  tools.open=true;await tools.dispatch('keydown',{key:'Escape'});
+  assert.equal(tools.open,false);assert.equal(f.document.activeElement,tools.querySelector('summary'));
+  tools.open=true;await button(tools,'场镜设计').pressKey('Enter');
+  assert.equal(tools.open,false);assert.deepEqual(opened,['designs']);
+});
+
+test('successful execution without outputs reports the missing result and keeps a read recovery action',async()=>{
+  const job={id:'job:job',kind:'job',title:'制作任务',status:'succeeded',status_label:'请回看结果',ref:{kind:'job',id:'job'}};
+  const f=await fixture(url=>url.includes('assisted-desk?')?page([job]):{sections:{job_attempts:{items:[{status:'succeeded',outputs:[]}]}}});
+  await f.desk.load({projectId:'p',bucket:'progress'});
+  const content=f.container.querySelector('.desk-content');
+  assert.ok(content.textContent.includes('执行：已结束'));
+  assert.ok(content.textContent.includes('尚无已登记结果'));
+  assert.equal(button(content,'查看本次结果'),undefined);
+  assert.ok(button(content,'重新读取任务'));
+  assert.ok(f.container.querySelector('.desk-queue').querySelector('.desk-runtime'));
+  assert.equal(f.container.querySelector('.desk-heading').querySelector('.desk-runtime'),null);
+  await button(content,'重新读取任务').click();
+  assert.equal(f.calls.filter(call=>call.url.includes('job_attempts')).length,2);
+});
+
+test('a missing media result renders its actual gap and never mounts a player',async()=>{
+  const media={id:'media:m',kind:'media',title:'登记结果',ref:{kind:'media',id:'m'}};
+  const f=await fixture(url=>url.includes('assisted-desk?')?page([media]):
+    {id:'m',result_availability:{status:'unavailable',message:'固定媒体副本缺失'},review_history:{items:[]}});
+  await f.desk.load({projectId:'p'});
+  const content=f.container.querySelector('.desk-content');
+  assert.equal(content.querySelector('video'),null);
+  assert.ok(content.textContent.includes('固定媒体副本缺失'));
+  assert.ok(button(content,'重新读取素材'));
+  assert.ok(button(content,'用途、来源与候选决定'));
+});
+
+test('polling a completed preview without bytes stops at the gap and does not promise a returned result',async()=>{
+  let finished=false;
+  const job={status:'succeeded',explanation:'新预览已返回',
+    output:{content_url:'/api/v1/projects/p/edit-previews/j/content'},
+    result_availability:{status:'unavailable',message:'预览文件缺失，请恢复固定输出'}};
+  const f=await fixture((url,options)=>{
+    if(url.endsWith('edit-preview-requests'))return {revision:6,note_id:'n'};
+    if(url.includes('edit-previews?')){finished=true;return {items:[job]};}
+    if(url.includes('review-history?'))return {items:[{body:'字幕上移',source:{artifact_note_id:'n'},
+      edit_previews:[finished?job:{status:'queued'}]}]};
+    return basic(url,options);
+  });
+  await f.desk.load({projectId:'p'});const input=f.container.querySelector('textarea');input.value='字幕上移';await input.dispatch('input');
+  await f.container.querySelector('.desk-opinion').dispatch('submit');
+  // The existing form starts a background read after the durable history reload.
+  await new Promise(resolve=>setImmediate(resolve));
+  const feedback=f.container.querySelector('.desk-feedback');
+  assert.equal(feedback.querySelector('video'),null);
+  assert.ok(feedback.textContent.includes('预览文件缺失'));
+  assert.ok(feedback.textContent.includes('执行：已结束'));
+  assert.ok(!feedback.textContent.includes('执行：等待执行器'));
+  assert.equal(feedback.querySelectorAll('.edit-preview-result').length,1);
+  assert.ok(!feedback.textContent.includes('新预览已返回'));
+  assert.ok(button(feedback,'重新读取本次结果'));
+  f.desk.suspend();
+});
+
 test('late success and error from another project cannot replace current content',async()=>{
   const old=deferred();let fail=false;
   const f=await fixture(async(url,options)=>url.includes('/old/assisted-desk')?old.promise:basic(url,options));

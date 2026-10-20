@@ -34,6 +34,7 @@
       "layer": "integration",
       "sources": [
         "src/vsc/assets/edit_preview.py",
+        "src/vsc/assets/media_availability.py",
         "src/vsc/post/edit_preview.py",
         "src/vsc/adapters/persistence/postgres/edit_preview_store.py",
         "src/vsc/interfaces/web/edit_preview.py",

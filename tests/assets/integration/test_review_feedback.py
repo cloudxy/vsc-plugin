@@ -230,8 +230,11 @@ class ReviewFeedbackTests(ResourceStoreFixture, unittest.TestCase):
             self.assertEqual(duplicate["dispatch_id"], dispatch["dispatch_id"])
             self.assertEqual(len(self.service.get_review_history(self.p, artifact_note_id=note)["items"][0]["responses"]), 1)
             self.assertEqual(dispatch["packet"]["role"]["id"], role)
+            self.assertEqual(dispatch["packet"]["delivery"]["format"], "vsc.role-delivery/v1")
+            self.assertEqual(dispatch["packet"]["delivery"]["artifact_type"], source["artifact_type"])
             pending = self.service.get_review_history(self.p, artifact_note_id=note)["items"][0]["responses"][0]["dispatches"][0]
             self.assertEqual(pending["returns"], [])
+            self.assertEqual(pending["delivery"], dispatch["packet"]["delivery"])
             dispatched.append((note, source, role, dispatch))
         for note, source, role, dispatch in dispatched:
             content = json.loads(self.service.get_artifact_version(self.p, source["id"])["content"])
@@ -262,6 +265,51 @@ class ReviewFeedbackTests(ResourceStoreFixture, unittest.TestCase):
             self.assertEqual(result["artifacts"][0]["previews"], [])
             self.assertFalse(self.service.get_artifact_version(self.p, changed["id"])["approved"])
         self.http_write(client, headers, "review-process", {"artifact_note_id": notes[0][0]}, status=409)
+
+    def test_professional_empty_completion_blocked_recovery_and_scope(self):
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        objects = self.hierarchy()
+        document = {"design_units": [{"design_key": "door", "scene_id": objects["scene"],
+            "picture": "手握门把", "shots": [{"shot_id": objects["shot"]}]}]}
+        source = self.write("create_artifact", {"artifact_key": "review-source", "artifact_type": "shot-plan",
+            "document": document})
+        self.write("decide_artifact", {"artifact_id": source["id"], "reason": "固定合成原稿"})
+        with self.engine.connect() as conn:
+            design = conn.execute(select(S.shot_design_units.c.id).where(S.shot_design_units.c.project_id == self.p,
+                S.shot_design_units.c.artifact_id == source["id"])).scalar_one()
+        note = self.artifact_note(source["id"], "director", design_unit_id=design)
+        dispatch = self.write("process_review", {"artifact_note_id": note})
+        packet = dispatch["packet"]
+        binding = {"dispatch_id": dispatch["dispatch_id"], "role_id": packet["role"]["id"],
+            "context_sha256": packet["context_sha256"], "instance_id": packet["dispatch"]["instance_id"]}
+        actor = packet["dispatch"]["actor"]
+        self.write("consume_role_dispatch", dict(binding, packet=packet), actor=actor)
+        result = dict(binding, role_sha256=packet["dispatch"]["role_sha256"], context_id=packet["context_id"],
+            result_refs=[], memory_proposals=[], session_summary="无法交付：本轮镜头正文尚未改写")
+        with self.assertRaises(ResourceError) as caught:
+            self.write("return_role_dispatch", dict(binding, result=result, return_key="empty-finish"), actor=actor)
+        self.assertEqual(caught.exception.code, "invalid_dispatch_return")
+        self.write("return_role_dispatch", dict(binding, result=result, return_key="blocked", closed=False), actor=actor)
+        history = self.service.get_review_history(self.p, artifact_note_id=note)["items"][0]
+        pending = history["responses"][0]["dispatches"][0]
+        self.assertFalse(pending["returns"][0]["closed"])
+        self.assertEqual(pending["returns"][0]["artifacts"], [])
+        self.assertIn("尚缺成果", pending["message"])
+        changed = copy.deepcopy(document)
+        changed["design_units"][0]["picture"] = "近景：手指压住门把，停一拍后松开"
+        wrong_scope = self.write("create_artifact", {"artifact_key": "wrong-scope", "artifact_type": "shot-plan",
+            "document": changed, "dependency_ids": [source["id"]], "object_ids": [objects["scene"]]})
+        with self.assertRaises(ResourceError) as caught:
+            self.professional_return(dispatch, wrong_scope)
+        self.assertEqual(caught.exception.code, "review_result_scope")
+        actual = self.write("create_artifact", {"artifact_key": "review-source", "artifact_type": "shot-plan",
+            "document": changed, "supersedes_id": source["id"]})
+        self.professional_return(dispatch, actual)
+        restored = self.service.get_review_history(self.p, artifact_note_id=note)["items"][0]["responses"][0]["dispatches"][0]
+        self.assertEqual(len(restored["returns"]), 2)
+        self.assertTrue(restored["returns"][-1]["closed"])
+        self.assertEqual(restored["returns"][-1]["artifacts"][0]["id"], actual["id"])
 
     def test_returned_plan_reads_only_real_render_output_preview_after_service_rebuild(self):
         import shutil

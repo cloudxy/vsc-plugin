@@ -7,6 +7,8 @@ description: "Turn approved scripts into VSC shot plans, camera movement, transi
 
 调度、视线或覆盖不清时，按[固定读取](../vsc/references/method-practice.md)选[调度与覆盖练习](references/blocking-coverage.md)，用同一场段/顶视图比较并写回原shot_plan/coverage；面板和术语不证明真实运动已实现。
 
+交接镜头设计时按[同题可执行镜头](references/blocking-coverage.md#usable-shot)让资产与生成消费者从同一版本指出持物、动作、时长、进出状态和参考用途；具体缺项回该镜设计或上游剧本。实际读取与消费沿[原交接检查](../vsc/references/review-and-feedback.md#consumer-check)，不为两方另写同义报告。
+
 需要运镜、构图、视觉或表演方法时，用 `scripts/knowledge/craft.py search <需求> --stage direct` 找依据，再用 `show` 阅读步骤、限制与来源。将选择落入本片镜头规格；用法见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
 
 镜头不是提示词列表。每镜写叙事目的、景别、机位、构图、运镜、人物站位与动作、光线、声音、转场、时长和参考资产；运镜必须服务信息、情绪或动作，不为炫技。先做带临时对白、音效和音乐节拍的预演；叙事不清时退回剧本/改编，技术不可行时退回镜头或资产设计。

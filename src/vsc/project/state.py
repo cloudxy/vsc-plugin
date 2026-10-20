@@ -607,7 +607,7 @@ def public_capability_view(item):
 
 
 def cmd_context(args):
-    from vsc.project.role_runtime import bind_packet, validate_packet
+    from vsc.project.role_runtime import attach_delivery, bind_packet, validate_packet
     if args.action == "validate":
         packet = read_json(Path(args.file))
         errors = validate_packet(packet, expected_role=getattr(args, "role", None))
@@ -618,11 +618,14 @@ def cmd_context(args):
     if args.action in {"consume", "return"}:
         from vsc.project.role_runtime_legacy import dispatch_command
         return dispatch_command(args)
-    if getattr(args, "scope", "project") != "project" or getattr(args, "source", None):
-        die("context --scope／--source 仅用于 PostgreSQL 项目；旧项目通过 --artifact 缩小输入")
+    if getattr(args, "source", None):
+        die("context --source 仅用于 PostgreSQL 项目；旧项目通过 --artifact 缩小输入")
     from vsc.knowledge import learning as learning
     project = Path(args.project)
     state = project_state(project)
+    scope = getattr(args, "scope", "project")
+    if scope != "project" and scope not in object_index(state):
+        die("任务范围对象不存在：" + scope)
     card = role_card(args.role)
     task = nonempty(args.task, "--task")
     if len(task) > 6000:
@@ -651,6 +654,8 @@ def cmd_context(args):
     if mode == "fresh" and (args.capability or args.pilot):
         die("fresh审查只读取符合隔离策略的本角色lesson/check_method，不注入能力试用或旧通过结论")
     target_lineage = {x["id"] for x in artifacts}
+    if scope != "project":
+        target_lineage.add(scope)
     target_lineage.update(x.get("scope") for x in artifacts if x.get("scope") not in {None, "project"})
     changed = True
     while changed:
@@ -747,7 +752,7 @@ def cmd_context(args):
     packet = {
         "format": "vsc.role-context/v1", "context_id": context_id, "created_at": now(),
         "project": {key: state.get(key, "") for key in ("project_id", "title", "profile_id", "profile_version", "owner")},
-        "role": {"id": args.role, **card}, "task": task, "inputs": artifacts,
+        "role": {"id": args.role, **card}, "task": task, "inputs": artifacts, "scope": scope,
         "approved_memories": memories, "approved_capabilities": capabilities,
         "pilot_capabilities": pilot_capabilities, "retrieval": retrieval,
         "parent_brief": {"content": args.parent_brief, "persistence": "context_file_only_not_long_term_memory"} if args.parent_brief else None,
@@ -764,13 +769,15 @@ def cmd_context(args):
         if mode == "fresh":
             die("fresh审查不能接续旧任务摘要")
         packet["parent_brief"] = resume_summary(project, state, args.resume_dispatch, args.role)
-    if len(json.dumps(packet, ensure_ascii=False)) > 150000:
-        die("完整任务包超过 150000 字符；请缩小任务输入与检索预算")
     try:
+        delivery = read_json(Path(args.delivery)) if getattr(args, "delivery", None) else None
+        attach_delivery(packet, delivery, packet.get("parent_brief") if args.resume_dispatch else None)
         bind_packet(packet, host=args.host, instance_id=args.instance_id, actor=args.actor,
             review_mode=mode, ownership=args.owns)
     except ValueError as exc:
         die(str(exc))
+    if len(json.dumps(packet, ensure_ascii=False)) > 150000:
+        die("完整任务包超过 150000 字符；请缩小任务输入与检索预算")
     for previous in state["contexts"]:
         prior = previous.get("dispatch")
         if (prior and not previous.get("closed") and datetime.datetime.fromisoformat(prior["expires_at"]) > datetime.datetime.now(datetime.timezone.utc)
@@ -1634,7 +1641,7 @@ def main():
     p.set_defaults(fn=cmd_memory)
     p = commands.add_parser("context"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("build"); q.add_argument("project"); q.add_argument("--role", required=True); q.add_argument("--task", required=True)
-    q.add_argument("--scope", default="project", help="PostgreSQL 最小任务范围对象编号")
+    q.add_argument("--scope", default="project", help="已登记的最小任务范围对象编号；默认 project")
     q.add_argument("--source", action="append", help="PostgreSQL 明确引用固定原始来源版本，可重复")
     q.add_argument("--artifact", action="append"); q.add_argument("--parent-brief"); q.add_argument("--include-restricted", action="store_true")
     q.add_argument("--pilot", action="append", help="显式受控试用的 pilot 能力编号")
@@ -1644,6 +1651,7 @@ def main():
     q.add_argument("--instance-id"); q.add_argument("--owns", action="append")
     q.add_argument("--review-mode", choices=("work", "design", "fresh", "followup"))
     q.add_argument("--resume-dispatch")
+    q.add_argument("--delivery", help="编排者生成的 vsc.role-delivery/v1 成果用途约束 JSON")
     q = subs.add_parser("validate"); q.add_argument("file"); q.add_argument("--role")
     for operation in ("consume", "return"):
         q = subs.add_parser(operation); q.add_argument("project"); q.add_argument("--file", required=True)

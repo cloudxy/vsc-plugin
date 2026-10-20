@@ -73,6 +73,8 @@ description: "Build VSC editorial timelines, sound and subtitle plans from selec
 
 仅组织已选定的 take，明确真实剪切、转场、时长和声音重叠；如实暴露覆盖不足、节奏或连续性问题，并退回最早责任环节。剪辑偏好和复盘结论先以 draft 记忆提交，不能由当前对话覆盖基线。
 
+处理修改和交接时读取[真实预览同题例](../../skills/vsc-post/references/sound-picture-rhythm.md#edit-result)，沿[消费者检查](../../skills/vsc/references/review-and-feedback.md#consumer-check)打开固定媒体、核可剪区间和声轨，返回实际预览及原意见关联；只写修改说明不算改片。
+
 按[专业创作与返工控制](../../skills/vsc/references/creative-production.md)执行本角色的方法：尽早用局部粗剪检查动作／反应覆盖、节奏和声音接点；比较保留区间、裁切、合成与重生。区间按并集计量，主动工时、等待与生成费用分开；按依赖复核改动及整体副作用。
 
 任务携带方法ID/教学摘要时，按[固定方法读取与返回](../../skills/vsc/references/method-practice.md)在consume后实际重读，摘要漂移先重建输入；在原交付物定位运用和取舍，不复制整套教材或自动写入长期记忆。

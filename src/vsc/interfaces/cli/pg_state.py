@@ -191,7 +191,7 @@ def _source_command(service, project_id, args):
 
 def _context_command(service, project_id, args, tree):
     from vsc.project.state import role_card, now, write_json
-    from vsc.project.role_runtime import bind_packet, validate_packet
+    from vsc.project.role_runtime import attach_delivery, bind_packet, validate_packet
     if args.action in {"consume", "return"}:
         packet = json.loads(Path(args.file).read_text("utf-8"))
         errors = validate_packet(packet, expected_role=args.role, current_card={"id": args.role, **role_card(args.role)})
@@ -282,6 +282,8 @@ def _context_command(service, project_id, args, tree):
             raise ResourceError("fresh审查不能注入旧任务摘要", "fresh_review_isolation")
         packet["parent_brief"] = service.resume_role_summary(project_id, args.resume_dispatch, args.role)
     try:
+        delivery = json.loads(Path(args.delivery).read_text("utf-8")) if getattr(args, "delivery", None) else None
+        attach_delivery(packet, delivery, packet.get("parent_brief") if args.resume_dispatch else None)
         bind_packet(packet, host=args.host, instance_id=args.instance_id, actor=args.actor,
             review_mode=mode, ownership=args.owns)
     except ValueError as exc:

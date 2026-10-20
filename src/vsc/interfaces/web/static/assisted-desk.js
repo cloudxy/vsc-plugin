@@ -1,5 +1,5 @@
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
-import {renderReviewHistory, createArtifactReviewForm} from './review.js';
+import {renderReviewHistory, createArtifactReviewForm, previewContentUrl} from './review.js';
 
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -24,7 +24,7 @@ export function parseDeskLocation(search) {
 export function createAssistedDesk(root, ctx) {
   const state = {project:null, scope:null, page:'desk', bucket:'review', offset:0, ticket:0, objectTicket:0,
     revision:0, selected:null, data:null, mobilePanel:'content', drafts:new Map(), selections:new Map()};
-  let queue, content, feedback, heading, timer;
+  let queue, content, feedback, scopeLabel, timer;
   const base = () => `/api/v1/projects/${encodeURIComponent(state.project)}`;
   const button = (label, action, className) => {
     const b=el('button',label,className);b.type='button';
@@ -45,25 +45,34 @@ export function createAssistedDesk(root, ctx) {
   function suspend() {state.ticket++;state.objectTicket++;clearTimeout(timer);pauseMedia();}
   function shell(title) {
     pauseMedia();root.replaceChildren();root.className='assisted-desk';
-    const bar=el('header',null,'desk-heading');heading=el('h1',title);
-    const tools=el('details',null,'desk-tools');tools.append(el('summary','专业工具'));
+    const bar=el('header',null,'desk-heading'),identity=el('div',null,'desk-identity');
+    identity.append(el('h1',title));
+    const actions=el('div',null,'desk-actions'),tools=el('details',null,'desk-tools'),summary=el('summary','专业工具');
+    tools.append(summary);
     const links=el('div',null,'desk-tool-links');
-    const entries=state.page==='collection'?[['library','分类资产'],['media','全部素材'],['canvas','关系画布']]:
-      [['source','创意与原稿'],['script','剧本编辑'],['designs','场镜设计'],['candidates','候选比较'],['delivery','剪辑交付'],['workbench','场镜关系'],['artifacts','文案版本'],['canvas','关系画布']];
-    for(const [view,label] of entries)links.append(button(label,()=>ctx.specialist(view)));
-    tools.append(links);bar.append(heading,tools);root.append(bar);
+    const groups=state.page==='collection'?[['素材查阅',[['library','分类资产'],['media','全部素材'],['canvas','关系画布']]]]:
+      [['创作',[['source','创意与原稿'],['script','剧本编辑'],['designs','场镜设计'],['candidates','候选比较'],['delivery','剪辑交付']]],
+        ['查阅',[['workbench','场镜关系'],['artifacts','文案版本'],['canvas','关系画布']]]];
+    for(const [label,entries] of groups){
+      const group=el('section',null,'desk-tool-group');group.append(el('h2',label));
+      for(const [view,name] of entries)group.append(button(name,()=>{tools.open=false;return ctx.specialist(view);}));
+      links.append(group);
+    }
+    tools.addEventListener('keydown',event=>{if(event.key==='Escape'&&tools.open){event.preventDefault();tools.open=false;summary.focus();}});
+    tools.append(links);actions.append(tools);bar.append(identity,actions);root.append(bar);
+    return {identity,actions};
   }
   function scaffold() {
-    shell(state.page==='collection'?'素材库':'工作台');
+    const {identity,actions}=shell(state.page==='collection'?'素材库':'工作台');
     root.classList.add('desk-with-panes');
     const bar=el('div',null,'desk-scope');
     const project=ctx.projectName?.()||'当前项目';
-    bar.append(el('span',project),el('span',state.scope?'当前选择范围':'全部项目内容','hint'));
+    scopeLabel=el('span',state.scope?'当前选择范围':'全部项目内容','desk-scope-label');
+    bar.append(el('span',project,'desk-project-name'),scopeLabel);
     if(!ctx.session().writable)bar.append(el('span',ctx.session().writeAvailable===false?'本次服务只读':'此项目只读','badge'));
     else if(!ctx.session().actor)bar.append(button('登录后可提意见',()=>ctx.login()));
-    bar.append(button('刷新',()=>load({...current(),refresh:true})));
-    if(state.bucket==='progress')bar.append(runtimeControls());
-    root.append(bar);
+    identity.append(bar);
+    actions.append(button('刷新',()=>load({...current(),refresh:true}),'desk-refresh'));
     const mobile=el('nav',null,'desk-mobile-navigation');mobile.setAttribute('aria-label','窄屏工作区切换');
     for(const [panel,label] of [['list','返回列表'],['content','作品'],['feedback','意见与结果']]){
       const b=button(label,()=>setMobilePanel(panel),'desk-panel-switch');b.dataset.panel=panel;mobile.append(b);
@@ -142,6 +151,7 @@ export function createAssistedDesk(root, ctx) {
       }else data=await ctx.api(`${base()}/assisted-desk?${params}`);
       if(!alive())return;
       state.data=data;state.revision=data.revision;ctx.revision?.(data.revision);
+      if(data.scope)scopeLabel.textContent=data.scope.title||data.scope.display_code||'当前选择范围';
       renderQueue(data);
       const desired=options.ref || state.selections.get(identity);
       const chosen=(desired&&data.items.find(r=>`${r.ref.kind}:${r.ref.id}`===desired))||data.items[0];
@@ -159,6 +169,7 @@ export function createAssistedDesk(root, ctx) {
   }
   function renderQueue(data) {
     const filters=queue.firstElementChild || queue.children[0];queue.replaceChildren(filters);
+    if(state.bucket==='progress')queue.append(runtimeControls());
     const selectedForReview=new Map();
     for(const b of filters.querySelectorAll('button')){const n=data.counts?.[b.dataset.bucket];b.textContent=(state.page==='collection'?'项目素材':labels[b.dataset.bucket])+(n==null?'':` ${n}`);}
     if(data.message)queue.append(el('p',data.message,'hint'));
@@ -236,7 +247,9 @@ export function createAssistedDesk(root, ctx) {
       if(row.blocked_reason)content.append(el('p',row.blocked_reason,'desk-blocked'));
       if(ref.kind==='artifact'){
         const fixed=value.content!==undefined?value.content:value.document;
-        if(fixed==null)content.append(el('p','正文暂不可读，请在版本与核验中检查来源。','empty'));
+        if(fixed==null||value.availability==='missing')content.append(
+          el('p','正文暂不可读，请核对该固定版本的来源。','desk-blocked'),
+          button('查看版本与来源',()=>ctx.artifact(ref.id)));
         else {
           const rendered=renderArtifactContent(fixed,{mimeType:value.mime_type});
           content.append(rendered.body);
@@ -246,12 +259,26 @@ export function createAssistedDesk(root, ctx) {
         }
         if(value.integrity==='mismatch')content.prepend(el('p','所见文件摘要变化，当前仅供核对。','desk-blocked'));
       }else if(ref.kind==='media'){
-        const node=await ctx.player(value);if(!alive())return;content.append(node);
+        if(value.result_availability?.status==='unavailable'){
+          content.append(el('p',value.result_availability.message||'当前媒体不可读取，请核对素材来源。','desk-blocked'),
+            button('重新读取素材',()=>select(row)));
+        }else{
+          if(value.result_availability?.status==='unverified'&&value.result_availability.message)content.append(el('p',value.result_availability.message,'hint'));
+          const node=await ctx.player(value);if(!alive())return;content.append(node);
+        }
         content.append(button('用途、来源与候选决定',()=>ctx.media(ref.id)));
       }else{
         const job=value.sections?.job_attempts?.items?.[0];
-        content.append(el('p',row.status_label||'任务状态以执行回执为准'));
-        for(const output of job?.outputs||[])content.append(button('查看本次结果',()=>select({title:'制作结果',ref:{kind:'media',id:output.media_id}})));
+        const outputs=(job?.outputs||[]).filter(output=>output.media_id);
+        content.append(el('p',`执行：${({succeeded:'已结束',failed:'执行受阻',submission_unknown:'提交结果待核实',
+          created:'等待执行',queued:'等待执行',running:'正在执行',submitted:'已提交服务',polling:'正在等待服务',
+          cancelled:'已停止'})[job?.status]||row.status_label||'状态待核实'}`));
+        content.append(el('p',outputs.length?`结果：已登记 ${outputs.length} 项，请打开回看。`:
+          job?.status==='succeeded'?'执行已结束，但尚无已登记结果。请刷新核对；执行回执仍保留。':'尚无已登记结果，原有作品与意见保留。',
+          outputs.length?'hint':'desk-blocked'));
+        for(const output of outputs)content.append(button('查看本次结果',()=>select({title:'制作结果',ref:{kind:'media',id:output.media_id}})));
+        if(outputs.length)content.append(el('p','审阅与采用请以结果对应的用途审查和选择决定为准。','hint'));
+        else content.append(button('重新读取任务',()=>select(row)));
         const details=el('details');details.append(el('summary','执行记录'),el('pre',JSON.stringify(job||{},null,2),'structured'));content.append(details);
       }
       const evidence=el('details',null,'desk-evidence');evidence.append(el('summary','版本与核验'),el('p',`${ref.id}${value.sha256?' · '+value.sha256:''}`,'hint'));content.append(evidence);
@@ -271,14 +298,14 @@ export function createAssistedDesk(root, ctx) {
       const data=await ctx.api(`${base()}/review-history?${ref.kind==='media'?'media_id':'artifact_id'}=${encodeURIComponent(ref.id)}`);
       if(alive())history.replaceChildren(renderReviewHistory(data,reviewCtx));
     };
-    const reviewCtx={heading:false,artifact:id=>select({title:'修改结果',ref:{kind:'artifact',id,version_id:id}}),
+    const reviewCtx={heading:false,reload:reloadHistory,artifact:id=>select({title:'修改结果',ref:{kind:'artifact',id,version_id:id}}),
       media:id=>select({title:'修改结果',ref:{kind:'media',id}}),
       ...(writable()?{retryPreview:async(preview,item,key)=>{
         if(!alive())return;
         await write(`edit-previews/${encodeURIComponent(preview.id)}/retry`,{},key);
         if(!alive())return;await reloadHistory();
         const status=el('p','正在恢复这次预览…','hint');status.setAttribute('role','status');feedback.append(status);
-        pollPreview(item.source.artifact_note_id,alive,status);
+        pollPreview(item.source.artifact_note_id,alive,status,reloadHistory);
       }}:{}),
       local:(action,row)=>ctx.local(action,{...row,onReviewProposed:async()=>{if(alive())await reloadHistory();}}),onError:error=>ctx.notice(error.message)};
     const history=el('div',null,'desk-history');
@@ -332,27 +359,30 @@ export function createAssistedDesk(root, ctx) {
         if(unchanged)state.drafts.delete(key);
         if(!stillHere)return;if(unchanged){body.value='';operationKey=null;}status.textContent=result.explanation||'原意见已保存。';
         await reloadHistory();
-        if(result.note_id)pollPreview(result.note_id,alive,status);
+        if(result.note_id)pollPreview(result.note_id,alive,status,reloadHistory);
       }catch(error){if(alive())status.textContent=`${error.message}；原意见仍保留在输入框。`;}
       finally{if(alive())record.disabled=submit.disabled=false;}
     });
     return form;
   }
-  async function pollPreview(note,alive,status) {
+  async function pollPreview(note,alive,status,reloadHistory) {
     clearTimeout(timer);
     if(!alive())return;
     try{
       const value=await ctx.api(`${base()}/edit-previews?artifact_note_id=${encodeURIComponent(note)}`);
       if(!alive())return;const job=value.items?.at(-1);
-      if(job?.output?.content_url){
-        const panel=el('section',null,'desk-preview'),video=el('video',null,'media-player');video.controls=true;video.preload='metadata';video.src=job.output.content_url;
-        panel.append(el('h3','新预览，请回看'),video,el('p','这是局部草稿预览。正式采用仍需审阅固定版本。','hint'));
-        feedback.append(panel);status.textContent='新预览已返回。';return;
+      if(job&&(previewContentUrl(job)||['succeeded','failed','blocked','cancelled','stale'].includes(job.status))){
+        // Refresh the original opinion instead of appending a second copy that
+        // leaves its earlier queued state visible beside the finished result.
+        await reloadHistory();
+        if(!alive())return;
+        status.textContent=previewContentUrl(job)?'预览已登记，修改效果待回看。':
+          job.result_availability?.message||job.error||(job.status==='succeeded'?'执行已结束，尚无可回看的预览。':'预览尚未完成，原意见保留。');return;
       }
       status.textContent=job?.error||job?.explanation||'已登记，等待执行器处理。';
       if(job && ['failed','blocked','cancelled','stale'].includes(job.status))return;
-      timer=setTimeout(()=>pollPreview(note,alive,status),2500);
-    }catch(error){if(alive()){status.textContent=`读取进度受阻：${error.message}`;feedback.append(button('重新读取进度',()=>pollPreview(note,alive,status)));}}
+      timer=setTimeout(()=>pollPreview(note,alive,status,reloadHistory),2500);
+    }catch(error){if(alive()){status.textContent=`读取进度受阻：${error.message}`;feedback.append(button('重新读取进度',()=>pollPreview(note,alive,status,reloadHistory)));}}
   }
   async function projects() {
     shell('项目');
