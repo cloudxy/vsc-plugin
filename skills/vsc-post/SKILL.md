@@ -7,6 +7,8 @@ description: "Edit VSC takes into a timeline with sound, music, subtitles, revie
 
 切点、反应或声音连接需要实例时，按[固定读取](../vsc/references/method-practice.md)选[声画节奏练习](references/sound-picture-rhythm.md)，同素材一次改一个接点并正常速度听看；有意硬切可保留，确定性剪辑不先重生成。
 
+转场先按[两镜关系与接点](references/sound-picture-rhythm.md#match-action)明确上镜出点、连接点、镜头走法、下镜首个信息与叙事目的，并单独设计声音。只在全遮挡隐藏切接时要求全覆盖；真实可切区间、蒙版/跟踪/变速等工具条件不足先给可成立替代，不以“无缝”描述替代执行或回看。
+
 修改意见按[说明与真实预览的同题对比](references/sound-picture-rhythm.md#edit-result)返回可播放结果及变化位置，检查真实用料、保留项和非目标副作用；有工程需求时交可打开的实际工程。只有计划、脚手架或完成说明时保持待制作，合格候选、用户采用和最终交付按[原成果口径](../vsc/references/review-and-feedback.md#effective-result)分别记录。
 
 按[可用区间与定向复核](../vsc/references/creative-production.md)滚动完成局部粗剪，优先检查动作／反应覆盖、节奏和声音接点。局部缺陷先比较保留区间、裁切、合成、替换、调整剪辑与重生；用 `scripts/production/quality.py check` 汇总区间并集及分单位成本、主动工时与等待。未知审美不得写通过；审查复用仍需现行批准与依赖检查。

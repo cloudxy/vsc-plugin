@@ -7,6 +7,8 @@ description: "Design VSC character, location, prop, action and voice assets befo
 
 主体识别、色彩或光源有问题时，按[固定读取](../vsc/references/method-practice.md)选[注意力与光线练习](references/visual-attention-light.md)，只准备当前机位所需参考；教学示例身份/服装/声线不进入新作品默认值。
 
+动作、施法或特效看不清作用时，固定读取原 effects-layers 的[动作与效果同步](references/visual-attention-light.md#effect-action-sync)：分开概念、当前设计、执行规格和提示词，先核身体/道具动作、效果源、路径、接触与结果，再增细节。跑跳、跌倒、潜行、攻防、剑术和施法按当前风格与世界规则选择检查；静态姿态不证明重量、惯性或动态接触成立。
+
 本轮交规格还是实际参考先说清，按[规格与实际参考的交接例](references/visual-attention-light.md#reference-delivery)检查固定身份、变体、可见侧与用途。接收生成角色实际打开媒体并绑定原任务输入后才有该用途消费；提示词、占位图或可读但不适用的图片不能补足参考任务，未采用候选仍保留真实比较价值。
 
 按[资产最小用途与专业拆解](../vsc/references/creative-production.md)为每个参考视图、状态和声源写具体下游用途；先检索再补缺，不默认四视图、表情全集或无用道具。稳定身份、变体、表演与声线分开；验收按实际画幅与用途所需信息，辅助图不能承担其看不见的身份细节证明。

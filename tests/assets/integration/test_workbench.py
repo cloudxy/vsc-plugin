@@ -5,6 +5,71 @@ from support.fixtures.resource_store import ResourceStoreFixture,HAS_DB_DEPS,TES
 
 @unittest.skipUnless(HAS_DB_DEPS and TEST_URL,'isolated PostgreSQL required')
 class WorkbenchTest(ResourceStoreFixture,unittest.TestCase):
+    def test_self_protection_uses_one_instance_and_a_real_fixed_method(self):
+        """Exercise the documented handoff through PG, not prompt text assertions."""
+        import copy
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.resource_service import ResourceError
+        from vsc.knowledge.learning import method_digest
+        from vsc.production.performance import FIELDS
+
+        h=self.hierarchy()
+        actor=self.write('create_object',dict(kind='asset',display_code='CASTER',asset_kind='character'))['id']
+        package=dict(format='vsc.capability-method/v1',name='Synthetic self protection',kind='vfx',
+            method='A hand gesture forms a shield; contact precedes the ripple; damage remains.',
+            limits='Synthetic contract check only, not provider or quality evidence.',
+            allowed_roles=['asset-director','generation-producer'],tags=['shield'])
+        package['method_sha256']=method_digest(package)
+        method=self.write('create_artifact',dict(artifact_key='shield-method',artifact_type='capability-method',document=package))
+        params={key:'explicit '+key for key in FIELDS['vfx']}
+        params.update(purpose='protect the caster',acceptance='beam stops at shield before ripple',
+            fallback='redesign coverage',route='generation',
+            layers=[dict(name='shield',purpose='show blocking surface',occlusion='between beam and caster')])
+        doc=dict(format='vsc.creative-relations/v1',project_id=self.p,
+            instances=[dict(key='self',asset_id=actor,scene_id=h['scene'],shot_id=h['shot'])],
+            performances=[dict(key='shield',domain='vfx',method_artifact_id=method['id'],shot_ids=[h['shot']],
+                participants=[dict(instance='self',role=role) for role in ('caster','target')],parameters=params)])
+
+        def register(document,dependencies):
+            return self.write('create_artifact',dict(artifact_key='shield-execution',artifact_type='creative-relations',
+                document=document,object_ids=[h['shot']],dependency_ids=dependencies))
+
+        with self.assertRaises(ResourceError) as unapproved:
+            register(doc,[method['id']])
+        self.assertEqual(unapproved.exception.code,'professional_execution_invalid')
+        self.write('decide_artifact',dict(artifact_id=method['id'],reason='Synthetic test decision only'))
+        with self.assertRaises(ResourceError) as missing_dependency:
+            register(doc,[])
+        self.assertEqual(missing_dependency.exception.code,'creative_dependency_missing')
+
+        unrelated=self.write('create_artifact',dict(artifact_key='unrelated',artifact_type='note',document={'method':'not a method artifact'}))
+        self.write('decide_artifact',dict(artifact_id=unrelated['id'],reason='Synthetic unrelated test decision'))
+        wrong=copy.deepcopy(doc)
+        wrong['performances'][0]['method_artifact_id']=unrelated['id']
+        with self.assertRaises(ResourceError) as wrong_type:
+            register(wrong,[unrelated['id']])
+        self.assertEqual(wrong_type.exception.code,'professional_execution_invalid')
+        for identifier in ('effects-layers','0'*64):
+            wrong=copy.deepcopy(doc)
+            wrong['performances'][0]['method_artifact_id']=identifier
+            with self.subTest(identifier=identifier),self.assertRaises(ResourceError):
+                register(wrong,[])
+
+        fixed=register(doc,[method['id']])
+        with self.engine.connect() as conn:
+            execution=conn.execute(select(S.execution_instances).where(
+                S.execution_instances.c.project_id==self.p,S.execution_instances.c.artifact_id==fixed['id'])).mappings().one()
+            participants=list(conn.execute(select(S.execution_participants).where(
+                S.execution_participants.c.project_id==self.p,S.execution_participants.c.execution_id==execution['id'])).mappings())
+        self.assertEqual(execution['method_artifact_id'],method['id'])
+        self.assertEqual({row['role'] for row in participants},{'caster','target'})
+        self.assertEqual(len({row['instance_id'] for row in participants}),1)
+        ordinary=copy.deepcopy(doc)
+        ordinary['performances']=[dict(key='sneak',domain='action',shot_ids=[h['shot']],
+            participants=[dict(instance='self',role='actor')],parameters={'purpose':'move behind cover'})]
+        self.assertTrue(register(ordinary,[])['id'])
+
     def test_attempts_read_frozen_request_events_and_scope(self):
         self.seed_generation_timeline_render()
         jobs=self.query(section='jobs')['sections']['jobs']['items']

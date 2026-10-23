@@ -7,11 +7,13 @@ description: "Turn approved scripts into VSC shot plans, camera movement, transi
 
 调度、视线或覆盖不清时，按[固定读取](../vsc/references/method-practice.md)选[调度与覆盖练习](references/blocking-coverage.md)，用同一场段/顶视图比较并写回原shot_plan/coverage；面板和术语不证明真实运动已实现。
 
+运镜选择或参考结构学习按[运镜判断](references/blocking-coverage.md#camera-choice)与[观察到重建](references/blocking-coverage.md#reference-structure)处理；可固定读取原 motivated-push、tracking-block、pan-reveal 或 reframe-follow 的同一教学单元，不重复注入四份。静图只支持可见构图，主体变大不直接证明推轨；镜长、镜数、开场和运动重音随当前内容选择。
+
 交接镜头设计时按[同题可执行镜头](references/blocking-coverage.md#usable-shot)让资产与生成消费者从同一版本指出持物、动作、时长、进出状态和参考用途；具体缺项回该镜设计或上游剧本。实际读取与消费沿[原交接检查](../vsc/references/review-and-feedback.md#consumer-check)，不为两方另写同义报告。
 
 需要运镜、构图、视觉或表演方法时，用 `scripts/knowledge/craft.py search <需求> --stage direct` 找依据，再用 `show` 阅读步骤、限制与来源。将选择落入本片镜头规格；用法见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
 
-镜头不是提示词列表。每镜写叙事目的、景别、机位、构图、运镜、人物站位与动作、光线、声音、转场、时长和参考资产；运镜必须服务信息、情绪或动作，不为炫技。先做带临时对白、音效和音乐节拍的预演；叙事不清时退回剧本/改编，技术不可行时退回镜头或资产设计。
+镜头不是提示词列表。每镜写叙事目的、景别、机位、构图、运镜、人物站位与动作、光线、声音、转场、时长和参考资产；运镜必须服务信息、情绪或动作。方法或构图交接可先用设计面板；需要判断节奏/声音或适用Profile要求时，再做带临时声音的可播放预演。正式制作仍满足原Gate；叙事不清退回剧本/改编，技术不可行退回镜头或资产设计。
 
 依[专业拆解与返工控制](../vsc/references/creative-production.md)区分相机运动、主体运动与剪辑变化；落实站位、路径、遮挡、轴线、视线、道具交接与接触反馈。剧情、意象、纪实分别按表达功能设计覆盖，提前写采用区间与剪辑手柄。节奏预演与代表性生成试片证明不同问题，未实测的控制精度保持未知。
 

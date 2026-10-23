@@ -5,6 +5,8 @@ description: "Use when VSC needs to preserve character, scene, action, camera, l
 
 # VSC 连续性
 
+动作切接或遮挡转场按[接点与转场选择](../vsc-post/references/sound-picture-rhythm.md#match-action)核两侧状态和声音。镜后伤情、持物、屏障裂痕、残光及尾音传到原scene-state/continuity/Cue；变化须有既定动作、时间省略或设计决定，不由生成结果自动重写故事。普通切镜无需相同像素，match_frame仍按原规则同帧。
+
 需要动作接续或声桥实例时，按[固定读取](../vsc/references/method-practice.md)选择相关方法章节，固定同一入出点/素材对照；返回原连续性计划及差异，不以通用方法替代当前片段实测。
 
 采用[局部修复与证据复用条件](../vsc/references/creative-production.md)：先记录观察到的断点和区间，根因区分已证实／待检验／已排除。按真实依赖界定影响，局部编辑后检查修改区域及整体副作用；只有媒体、依赖、用途、判据和授权范围均匹配的既有审查可作为复用候选。

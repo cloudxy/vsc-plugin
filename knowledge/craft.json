@@ -129,7 +129,11 @@
       ],
       "sources": [
         "columbia-move"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "camera-choice"
+      }
     },
     {
       "id": "tracking-block",
@@ -158,7 +162,11 @@
       ],
       "sources": [
         "columbia-move"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "camera-choice"
+      }
     },
     {
       "id": "pan-reveal",
@@ -187,7 +195,11 @@
       ],
       "sources": [
         "columbia-move"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "camera-choice"
+      }
     },
     {
       "id": "reframe-follow",
@@ -215,7 +227,11 @@
       ],
       "sources": [
         "yale-camera"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "camera-choice"
+      }
     },
     {
       "id": "angle-context",
@@ -957,7 +973,11 @@
       ],
       "sources": [
         "columbia-stage"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-direct/references/blocking-coverage.md",
+        "anchor": "space-blocking"
+      }
     },
     {
       "id": "effects-layers",
@@ -970,7 +990,11 @@
         "烟",
         "动物",
         "环境",
-        "合成"
+        "合成",
+        "施法",
+        "护盾",
+        "接触",
+        "能量轨迹"
       ],
       "stages": [
         "assets",
@@ -980,7 +1004,8 @@
       "source_basis": "场面调度涵盖画面中的环境与运动。",
       "principle": "把稳定场景与可变效果分层，效果只承担指定叙事任务。",
       "steps": [
-        "保存干净场景底图",
+        "先定动作与效果源接触结果，选择可执行路线",
+        "需要分层合成时准备机位匹配的底板和实际效果层",
         "记录特效位置尺度光照和起止",
         "检查特效没有遮掉关键动作或改变道具"
       ],
@@ -990,7 +1015,11 @@
       ],
       "sources": [
         "columbia-stage"
-      ]
+      ],
+      "teaching_ref": {
+        "path": "skills/vsc-assets/references/visual-attention-light.md",
+        "anchor": "effect-action-sync"
+      }
     },
     {
       "id": "emotion-in-context",
