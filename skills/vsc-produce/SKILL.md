@@ -7,6 +7,8 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 需要查阅专业案例时按[固定读取](../vsc/references/method-practice.md)只读当前执行问题的章节，将表达要求映射实际支持的请求/参考或后期任务；方法建议不会增加用量、授权或解除原Gate。
 
+接收动作/特效设计时按[动作与效果同步](../vsc-assets/references/visual-attention-light.md#effect-action-sync)核源、对象、时序、遮挡、作用结果及后继状态；先选具备实际输入和执行者的路线。正式专业实例沿[方法版本接续](../vsc/references/method-practice.md#professional-method)固定适用方法产物；教学摘要、实例登记、完整规格进入请求和输出兑现分别核对。光效遮住关键关系记证据不足，不能从提示词推定生成成功。
+
 只根据已批准的 ShotPlan、AssetBible、声音方案和项目策略生产候选 take；图像、视频、音频候选都不是自动选中版本。
 
 按[实际读取与交接检查](../vsc/references/review-and-feedback.md#consumer-check)核输入媒体及用途，返回已登记的真实候选、执行来源与可检查区间。HTTP成功、临时URL或静帧不能当作视频交付；转存失败先恢复原尝试。技术可用而表演不符时保留两项事实和候选，返回具体时码；专业合格、人工采用与剪辑实际用料分别核对。
