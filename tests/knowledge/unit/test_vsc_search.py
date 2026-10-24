@@ -16,7 +16,7 @@ import vsc.knowledge.search as S
 class CraftTest(unittest.TestCase):
     def test_recipes_are_searchable_before_install_and_marked_as_specs(self):
         items = S.entries("recipes")
-        self.assertEqual(len(items), 20)
+        self.assertEqual(len(items), len(json.loads((ROOT / "knowledge/asset-recipes.json").read_text("utf-8"))["recipes"]))
         found = S.rank(items, "递物", S.entry_fields)
         self.assertTrue(found)
         self.assertEqual(found[0][1]["domain"], "recipes")

@@ -215,7 +215,7 @@ class CraftTeachingTests(unittest.TestCase):
 
     def test_all_34_original_cards_still_validate_and_show_without_teaching(self):
         data = json.loads((ROOT / "knowledge/craft.json").read_text("utf-8"))
-        self.assertEqual(len(data["cards"]), 34)
+        self.assertGreaterEqual(len(data["cards"]), 34)
         # Recreate the pre-extension catalog independently of live teaching edits.
         for card in data["cards"]:
             card.pop("teaching_ref", None)

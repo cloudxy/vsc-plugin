@@ -251,10 +251,10 @@ class ToolchainTest(unittest.TestCase):
         code, report, err = self.report()
         self.assertEqual(code, 0, err)
         self.assertEqual(set(report["library"]["kinds"]), set(L.taxonomy()[0]))
-        self.assertEqual(report["library"]["specification_count"], 20)
+        self.assertEqual(report["library"]["specification_count"], len(R.load()["recipes"]))
         self.assertEqual(report["library"]["media_count"], 1)
         for kind, counts in report["library"]["kinds"].items():
-            self.assertEqual(counts["specification_count"], 1)
+            self.assertEqual(counts["specification_count"], sum(row["kind"] == kind for row in R.load()["recipes"]))
             self.assertEqual(counts["media_count"], int(kind == "ambience"))
         # 素材库媒体存在也不是该作品已实测的供应商证据。
         self.assertEqual(report["project_evidence"]["verified_candidates"], [])

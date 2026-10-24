@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from support.paths import ROOT
 from vsc.assets.resource_service import ResourceError
@@ -25,6 +25,7 @@ def migrated_gate_service():
                 "b": {"id": "b", "sha256": "sha-b", "document": "valid-b"},
                 "snapshot": {"id": "snapshot", "document": json.dumps(snapshot)}}
     service = Mock()
+    service.store.engine.connect.return_value = MagicMock()
     service.get_project.return_value = {"revision": 10, "profile_snapshot": profile}
     service.list_artifacts.return_value = {"items": rows}
     service.get_artifact_version.side_effect = lambda project, version: versions[version]
@@ -48,6 +49,7 @@ class AuthorityAndGateTests(unittest.TestCase):
 
     def test_gate_uses_pinned_profile_and_current_approved_versions(self):
         service = Mock()
+        service.store.engine.connect.return_value = MagicMock()
         service.get_project.return_value = {"revision": 4, "profile_snapshot": {"stages": [
             {"id": "design", "required": ["plain-spec"]}]}}
         service.list_artifacts.return_value = {"items": [{"id": "a", "artifact_type": "plain-spec", "stage": "design", "approved": True, "current": False}]}
@@ -58,6 +60,7 @@ class AuthorityAndGateTests(unittest.TestCase):
 
     def test_scoped_profile_cannot_approve_project_wide_empty_gate(self):
         service = Mock()
+        service.store.engine.connect.return_value = MagicMock()
         service.get_project.return_value = {"revision": 0, "profile_snapshot": {"scope_required_from": "script", "stages": [
             {"id": "script", "required": []}]}}
         service.get_project_tree.return_value = {"nodes": []}
@@ -81,6 +84,7 @@ class AuthorityAndGateTests(unittest.TestCase):
 
     def test_later_gate_cannot_skip_prior_stage_or_source(self):
         service = Mock()
+        service.store.engine.connect.return_value = MagicMock()
         service.get_project.return_value = {"revision": 0, "profile_snapshot": {"stages": [
             {"id": "brief", "required": ["brief-spec"]}, {"id": "post", "required": []}]}}
         service.list_artifacts.return_value = {"items": []}
