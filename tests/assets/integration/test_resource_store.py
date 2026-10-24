@@ -441,6 +441,35 @@ class PostgresResourceTest(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(caught.exception.code, "supersedes_stale")
         self.assertTrue(self.service.get_artifact_version(self.p, old)["approved"])
 
+    def test_replacement_can_receive_first_approval_after_draft_or_rejection(self):
+        for state in ("draft", "rejected", "revoked"):
+            with self.subTest(state=state):
+                key = "first-approval-" + state
+                first = self.write("create_artifact", {"artifact_key": key, "artifact_type": "shot-plan", "document": "Original draft"})
+                if state == "revoked":
+                    self.write("decide_artifact", {"artifact_id": first["id"], "reason": "Original approval"})
+                if state != "draft":
+                    self.write("decide_artifact", {"artifact_id": first["id"], "outcome": "reject", "reason": "Please revise"})
+                revised = self.write("create_artifact", {"artifact_key": key, "artifact_type": "shot-plan",
+                    "document": "Revised draft", "supersedes_id": first["id"]})
+                self.write("decide_artifact", {"artifact_id": revised["id"], "reason": "Approve the revised content"})
+                self.assertTrue(self.service.get_artifact_version(self.p, revised["id"])["approved"])
+                # A fresh confirmation of the same fixed version is not a
+                # competing stale replacement; dependencies still revalidate.
+                self.write("decide_artifact", {"artifact_id": revised["id"], "reason": "Confirm the same fixed content"})
+
+    def test_rejecting_new_baseline_does_not_release_stale_competing_draft(self):
+        from vsc.assets.resource_service import Conflict
+        old = self.artifact("revoked-stream", "shot-plan")
+        payload = {"artifact_key": "revoked-stream", "artifact_type": "shot-plan", "document": "Revision", "supersedes_id": old}
+        accepted = self.write("create_artifact", payload)
+        stale = self.write("create_artifact", dict(payload, document="Competing draft"))
+        self.write("decide_artifact", {"artifact_id": accepted["id"], "reason": "Approve revision"})
+        self.write("decide_artifact", {"artifact_id": accepted["id"], "outcome": "reject", "reason": "Withdraw current revision"})
+        with self.assertRaises(Conflict) as caught:
+            self.write("decide_artifact", {"artifact_id": stale["id"], "reason": "Old competing draft must still fail"})
+        self.assertEqual(caught.exception.code, "supersedes_stale")
+
     def test_worker_claims_once_and_unknown_submission_never_reposts(self):
         from vsc.assets.resource_service import Conflict
         job, model = self.ready_job()

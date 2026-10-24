@@ -77,6 +77,16 @@ class PostgresPanelTests(unittest.TestCase):
         return self.write("media", {"staged_upload": uploaded.json()["staged_upload"], "rights": "owned",
             "rights_scope": {"purposes": ["first_frame"]}, "source": {"kind": "synthetic_test", "content": "test fixture source"}})["id"]
 
+    def test_rejected_first_draft_revision_can_be_approved_from_panel(self):
+        first = self.write("artifacts", {"artifact_key": "brief-revision", "artifact_type": "plain-spec", "document": "Initial draft"})
+        self.write("artifact-decisions", {"artifact_id": first["id"], "outcome": "reject", "reason": "Please revise"})
+        revised = self.write("artifacts", {"artifact_key": "brief-revision", "artifact_type": "plain-spec",
+            "document": "Revised fixed content", "supersedes_id": first["id"]})
+        self.write("artifact-decisions", {"artifact_id": revised["id"], "reason": "Approve the revision"})
+        restored = self.client.get(self.base + "/artifacts/" + revised["id"]).json()
+        self.assertTrue(restored["approved"])
+        self.assertEqual(restored["supersedes_id"], first["id"])
+
     def test_upload_review_select_and_fixed_shot_context(self):
         objects = self.hierarchy()
         state = [{"scene_id": objects["scene"], "shot_id": objects["shot"], "entities": []}]
