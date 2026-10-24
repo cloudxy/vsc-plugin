@@ -34,8 +34,7 @@
         "rights": "temp_only"
       },
       "expression_baseline": {
-        "description": "眉间放松、嘴角自然；动态状态由expression另记",
-        "reference_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        "description": "眉间放松、嘴角自然；动态状态由expression另记"
       }
     },
     {

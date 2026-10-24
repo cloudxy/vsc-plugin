@@ -315,7 +315,8 @@ def reference_errors(project, state, item, visited=None, cache=None):
         from vsc.post.sound_rules import extra_cue_errors
         from vsc.production.handoffs import _Project
         errors.extend(extra_cue_errors(data))
-        sound = _Project(project, state, item)
+        sound = _Project(project, state, item,
+                         lambda p, s, a, **kw: validate_artifact(p, s, a, visited=visited, _cache=cache, **kw))
         for cue in data.get("sfx_cues", []):
             if not isinstance(cue, dict) or cue.get("silence") is True:
                 continue
