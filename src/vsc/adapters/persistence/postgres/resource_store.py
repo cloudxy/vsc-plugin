@@ -553,7 +553,17 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 if artifact["supersedes_id"]:
                     current = conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
                         S.current_artifact_versions.c.project_id == p, S.current_artifact_versions.c.artifact_key == artifact["artifact_key"])).scalar_one_or_none()
-                    if current != artifact["supersedes_id"]:
+                    # A rejected first draft never had a current approval. If
+                    # an approval was later revoked, retain its lineage guard
+                    # rather than letting a competing stale draft take over.
+                    baseline = current
+                    if baseline is None:
+                        baseline = conn.execute(select(S.artifact_decisions.c.artifact_id).join(
+                            S.artifact_versions, and_(S.artifact_versions.c.project_id == S.artifact_decisions.c.project_id,
+                                S.artifact_versions.c.id == S.artifact_decisions.c.artifact_id)).where(
+                            S.artifact_decisions.c.project_id == p, S.artifact_versions.c.artifact_key == artifact["artifact_key"],
+                            S.artifact_decisions.c.outcome == "approve").order_by(S.artifact_decisions.c.decision_sequence.desc()).limit(1)).scalar_one_or_none()
+                    if baseline not in (None, artifact["supersedes_id"], artifact["id"]):
                         raise Conflict("被替代版本已不是当前版本，须重新审查此草稿", "supersedes_stale")
                 for dependency in conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
                         S.artifact_dependencies.c.project_id == p, S.artifact_dependencies.c.artifact_id == artifact["id"])).scalars():

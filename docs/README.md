@@ -6,6 +6,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [v0.42.1](releases/v0.42.1.md) | 修正退回首稿后修订稿的首次批准与旧分支保护 |
 | [v0.42.0](releases/v0.42.0.md) | 对象工作台、共享库固定版与三项工程维护角色 |
 | [AI 客户端接入](guide/workspace-setup.md) | Codex、Claude Code、Grok Build、Kimi Code、ZCode 的入口与验证 |
 | [资源配置与画布](guide/resource-settings.md) | 全局模型配置、默认用途、官方更新与素材关系 |
