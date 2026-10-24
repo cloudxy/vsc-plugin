@@ -107,12 +107,13 @@ def check_gate(service, project_id, stage_id, scope=None):
             return {"stage": stage_id, "scope": scope, "passed": False, "gaps": [{"code": "scope_required"}]}
         results = [check_gate(service, project_id, stage_id, episode) for episode in episodes]
         return {"stage": stage_id, "scope": None, "passed": all(row["passed"] for row in results),
-                "episodes": results, "gaps": [{"scope": row["scope"], **gap} for row in results for gap in row["gaps"]], "revision": project["revision"]}
+                "episodes": results, "gaps": [{"scope": row["scope"], **gap} for row in results for gap in row["gaps"]],
+                "warnings": [{"scope": row["scope"], **warning} for row in results for warning in row.get("warnings", [])], "revision": project["revision"]}
     if scope and not any(node["id"] == scope and node["kind"] == "episode" for node in service.get_project_tree(project_id)["nodes"]):
         raise ResourceError("Gate 范围必须是已登记的集", "invalid_scope")
     artifacts = service.list_artifacts(project_id, object_id=scope)["items"]
     legacy_gate = _migrated_legacy_profile(service, project_id, profile, artifacts)
-    gaps, pins = [], []
+    gaps, pins, warnings = [], [], []
     if stage_index >= 1:
         sources = service.list_sources(project_id)
         if not (sources.get("items", []) if isinstance(sources, dict) else sources):
@@ -130,6 +131,11 @@ def check_gate(service, project_id, stage_id, scope=None):
         for candidate in sorted(candidates, key=lambda row: (str(row.get("created_at") or ""), row.get("artifact_key", ""), row["id"])):
             artifact = service.get_artifact_version(project_id, candidate["id"])
             errors = validate_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"))
+            from vsc.adapters.persistence.postgres.creative_rules import artifact_rule_report
+            with service.store.engine.connect() as conn:
+                report = artifact_rule_report(service.store, conn, project, artifact, context_scope=scope)
+            errors.extend(report["errors"])
+            warnings.extend({"artifact_id": artifact["id"], "message": message} for message in report["warnings"])
             if errors:
                 invalid.append({"code": "invalid_contract", "artifact_id": artifact["id"], "errors": errors})
             else:
@@ -138,7 +144,8 @@ def check_gate(service, project_id, stage_id, scope=None):
             pins.extend(valid)
         else:
             gaps.extend(invalid)
-    return {"stage": stage_id, "scope": scope, "passed": not gaps, "gaps": gaps, "artifacts": pins, "revision": project["revision"]}
+    return {"stage": stage_id, "scope": scope, "passed": not gaps, "gaps": gaps, "warnings": warnings,
+            "artifacts": pins, "revision": project["revision"]}
 
 
 def workflow_status(service, project_id, scope=None):

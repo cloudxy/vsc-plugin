@@ -17,6 +17,20 @@ def editor_inputs(service, project_id, draft):
             if unit.get("scene_id") and unit.get("id"):
                 narrative.setdefault(unit["scene_id"], []).append({"id": unit["id"],
                     "label": unit.get("visible_action") or unit["id"]})
+    if hasattr(service.store, 'script_editor_choices'):
+        speakers = {row.get('speaker') for scene in (draft.get('content') or {}).get('scenes', []) if isinstance(scene, dict)
+                    for row in scene.get('dialogue', []) if isinstance(row, dict) and row.get('speaker')}
+        choices_data = service.store.script_editor_choices(project_id, draft['scope_key'], speakers)
+        draft['scene_choices'] = [{"id": row['id'], "label": row.get('title') or row.get('display_code') or row['id']}
+                                 for row in choices_data['scenes']]
+        draft['character_choices'] = [{"id": row['id'], "label": row.get('title') or row.get('display_code') or row['id']}
+                                     for row in choices_data['characters']]
+        draft['choices_truncated'] = choices_data['scenes_truncated']
+        draft['narrative_choices'] = narrative
+        if not draft['exists']:
+            draft['template_content'] = {"format": "vsc.screenplay/v1", "body": "", "scenes": [],
+                "adaptation_refs": [{"id": pin['id'], "sha256": pin['sha256']} for pin in plans]}
+        return draft
     nodes = service.get_project_tree(project_id)["nodes"]
     selected = {draft["scope_key"]} if draft["scope_key"] else {row["id"] for row in nodes}
     for _ in range(5):

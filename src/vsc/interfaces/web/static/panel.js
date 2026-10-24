@@ -1,12 +1,15 @@
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
 const entry = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
-const mainViews = ['desk','projects','collection','trash'];
-const initialView = mainViews.includes(entry.get('page')) ? entry.get('page') : 'desk';
-const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writeAvailable: false, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:initialView, view: typeof window === 'undefined' ? 'workbench' : initialView};
+const currentEntry=()=>new URLSearchParams(typeof window==='undefined'?'':window.location.search);
+const mainViews = ['desk','projects','project','collection','trash'];
+const navViews = ['projects','desk','collection','trash'];
+const specialistViews=['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'];
+const initialView = [...mainViews,...specialistViews].includes(entry.get('page')) ? entry.get('page') : 'projects';
+const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writeAvailable: false, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:mainViews.includes(initialView)?initialView:'project', view: typeof window === 'undefined' ? 'workbench' : initialView};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
-  verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记'};
+  verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记',video_take:'镜头视频',vfx_overlay:'透明特效叠层',first_frame:'镜头首帧',last_frame:'镜头尾帧',dialogue_dry:'对白干声',identity_face:'人物正脸',composition:'构图参考',voice_sample:'声音参考',music:'配乐',ambience:'环境声',sfx:'音效'};
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; }
 function notice(message) { $('notice').textContent = message || ''; $('notice').hidden = !message; }
 function applySession(session) {
@@ -27,7 +30,7 @@ const base = () => `/api/v1/projects/${encodeURIComponent(state.project)}`;
 const mediaUrl = (id) => `${base()}/media/${encodeURIComponent(id)}/content`;
 function reviewContext(project,alive,reload){
   const write=async(action,payload,key)=>{if(!alive())throw new Error('所见项目或版本已切换，请重新读取。');if(!state.actor)throw new Error('请先建立人工操作会话');const result=await api(`/api/v1/projects/${encodeURIComponent(project)}/${action}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,expected_revision:state.revision,idempotency_key:key})});if(!alive())return;state.revision=result.revision ?? state.revision;await reload();return result;};
-  return {artifact:async id=>{if(alive()){$('media-dialog').close();await switchView('artifacts');await openArtifact(id);}},media:id=>alive()&&openMedia(id),local:(action,row)=>alive()&&openLocalProduction(action,{...row,onReviewProposed:async()=>{if(alive())await reload();}}),onError:error=>notice(error.message),process:state.actor && state.writable?(payload,key)=>write('review-process',payload,key):null,save:(payload,key)=>write('artifact-review-notes',payload,key)};
+  return {historyPage:async(filters,page)=>{const value=await api(`/api/v1/projects/${encodeURIComponent(project)}/review-history?`+new URLSearchParams({...filters,...page}));if(alive())return value;},artifact:async id=>{if(alive()){$('media-dialog').close();await switchView('artifacts');await openArtifact(id);}},media:id=>alive()&&openMedia(id),local:(action,row)=>alive()&&openLocalProduction(action,{...row,onReviewProposed:async()=>{if(alive())await reload();}}),onError:error=>notice(error.message),process:state.actor && state.writable?(payload,key)=>write('review-process',payload,key):null,save:(payload,key)=>write('artifact-review-notes',payload,key)};
 }
 const previewUrl = (id,purpose) => `${base()}/media/${encodeURIComponent(id)}/preview?purpose=${encodeURIComponent(purpose)}`;
 const hasRendition = (media,purpose) => (media.renditions || []).some(row=>row.purpose===purpose);
@@ -48,20 +51,59 @@ let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, sc
 let sourceIntake = null, designWorkspace = null, resourceLibrary = null;
 let localProduction = null;
 let assistedDesk = null;
+const objectReviewers=new WeakMap();
+async function loadObjectReviewer(host,options){
+  let entry=objectReviewers.get(host);
+  if(!entry){entry={binding:options,request:0};objectReviewers.set(host,entry);entry.promise=import('./assisted-desk.js').then(({createAssistedDesk})=>createAssistedDesk(host,{
+    api,player,notice,local:openLocalProduction,media:openMedia,artifact:async id=>{await switchView('artifacts');await openArtifact(id);},
+    specialist:switchView,navigate:switchView,locateObject:async id=>{state.object=id;await switchView('workbench');},login:()=>$('session-dialog').showModal(),
+    session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:entry.binding.projectId===state.project&&state.writable,writeAvailable:state.writeAvailable}),
+    revision:value=>{if(entry.binding.projectId===state.project)state.revision=value;},
+    projectName:()=>state.projectRows.get(entry.binding.projectId)?.name,
+    selectedRef:ref=>{if(entry.binding.projectId!==state.project)return;entry.binding.onRef?.(ref);},
+    mediaActions:async(media,alive,reload)=>{
+      const binding=entry.binding,project=binding.projectId,wrapper=el('section','stage-candidate-actions');
+      const current=()=>alive()&&entry.binding===binding&&project===state.project;
+      async function read(offset=0){
+        const params=new URLSearchParams({section:'candidates',entity_id:media.id,limit:'24',offset:String(offset)});
+        if(binding.targetObjectId||binding.objectId)params.set('object_id',binding.targetObjectId||binding.objectId);
+        const data=await api(`/api/v1/projects/${encodeURIComponent(project)}/workbench?${params}`);if(!current())return;
+        const page=data.sections?.candidates||{items:[],total:0};wrapper.replaceChildren();
+        const candidates=page.items.map(row=>({...row,role:row.purpose,selected:row.status==='selected'}));
+        if(!candidates.length&&media.review_targets?.some(row=>row.target?.render_id))return;
+        wrapper.append(reviewForm({...media,candidates},{alive:current,onChanged:reload}));
+        if(page.total>24){const nav=el('nav','pagination');nav.setAttribute('aria-label','当前素材用途候选分页');for(const [label,next]of [['上一页',offset?Math.max(0,offset-24):null],['下一页',page.next_offset]]){const button=el('button','',label);button.type='button';button.disabled=next==null;button.addEventListener('click',guard(()=>current()&&read(next)));nav.append(button);}wrapper.append(nav);}
+      }
+      await read();return current()?wrapper:null;
+    },
+  }));}
+  entry.binding=options;const request=++entry.request,desk=await entry.promise;if(request!==entry.request)return null;
+  await desk.load({...options,page:'desk',bucket:'results',embedded:true});return request===entry.request?desk:null;
+}
+function stageRef(ref){
+  if(typeof window==='undefined')return;const route=currentEntry();route.set('object',`${ref.kind}:${ref.id}`);if(ref.version_id)route.set('version',ref.version_id);else route.delete('version');if(ref.render_id)route.set('render',ref.render_id);else route.delete('render');const link='?'+route;if(window.location.search!==link)window.history.pushState(null,'',link);
+}
+let sharedLibrary = null;
+async function libraryController(){
+  if(!sharedLibrary){const {createSharedLibrary}=await import('./shared-library.js');sharedLibrary=createSharedLibrary({api,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),projects:()=>[...state.projectRows.values()],canWrite:project=>state.writeAvailable&&state.projectRows.get(project)?.storage_policy==='postgres-series-v1'&&!state.projectRows.get(project)?.read_only,setRevision:(value,project)=>{if(!project||project===state.project)state.revision=value;},notice});}
+  return sharedLibrary;
+}
+async function openLibraryTarget(target){return (await libraryController()).choose({...target,projectId:state.project});}
 let pendingDeskRef = entry.get('object'), pendingDeskVersion = entry.get('version');
 let pendingDeskBucket = entry.get('bucket');
 let deskRouteReady=false,restoringDeskRoute=false;
 async function loadAssistedDesk() {
+  if(state.view==='collection'){assistedDesk?.suspend();await (await libraryController()).load($('assisted-desk'));return;}
   if(!assistedDesk){
     const {createAssistedDesk,deskLink}=await import('./assisted-desk.js');
     if(!assistedDesk)assistedDesk=createAssistedDesk($('assisted-desk'),{
       api,player,notice,local:openLocalProduction,media:openMedia,
       artifact:async id=>{await switchView('artifacts');await openArtifact(id);},
-      specialist:switchView,navigate:switchView,login:()=>$('session-dialog').showModal(),
+      specialist:switchView,navigate:switchView,library:openLibraryTarget,locateObject:async id=>{state.object=id;await switchView('workbench');},login:()=>$('session-dialog').showModal(),
       session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable,writeAvailable:state.writeAvailable}),
       revision:value=>{state.revision=value;},
       projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,
-      chooseProject:async(id,page)=>{state.view=page;await selectProject(id);},
+      chooseProject:async(id,page,scope=null)=>{state.view=page;await selectProject(id,{scope});},
       created:async id=>{state.project=id;state.object=null;state.view='projects';await loadProjects();await switchView('source');},
       route:route=>{if(typeof window!=='undefined'&&mainViews.includes(state.view)){
         const link=deskLink(route);if(window.location.search!==link){
@@ -95,15 +137,17 @@ async function loadWorkbench() {
       onArtifact: async id => { await switchView('artifacts'); await openArtifact(id); },
       onGraph: focus => switchView('canvas', focus), onError: error => notice(error.message),
       onLocalAction: openLocalProduction,
+      onLibrary:openLibraryTarget,
+      createReviewer:loadObjectReviewer,onStageRef:stageRef,
     });
   }
   if (['workbench','candidates','delivery'].includes(state.view)) {
     const view=state.view,project=state.project;
-    await creativeWorkbench.load({projectId: project, objectId: state.object, userId: state.actor || 'reader', task:view});
+    await creativeWorkbench.load({projectId: project, objectId: state.object, userId: state.actor || 'reader', task:view,fixedRef:currentEntry().get('object'),fixedRenderId:currentEntry().get('render')});
   }
 }
 function productionContext() {
-  return {api,session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable,revision:state.revision}),setRevision:value=>{state.revision=value;},onNotice:notice,
+  return {api,session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable,revision:state.revision}),setRevision:value=>{state.revision=value;},onNotice:notice,createReviewer:loadObjectReviewer,onStageRef:stageRef,
     onMedia:openMedia,onArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},
     onObject:async id=>{state.view='workbench';await selectObject(id);},
     onReference:()=>{$('upload-dialog').showModal();},onLocalAction:openLocalProduction,
@@ -112,25 +156,31 @@ function productionContext() {
 async function loadSourceIntake() {
   if(!state.project || state.view!=='source')return;
   if(!sourceIntake){const {createSourceIntake}=await import('./source-intake.js');if(!sourceIntake)sourceIntake=createSourceIntake($('source-view'),productionContext());}
-  if(state.view==='source')await sourceIntake.load({projectId:state.project,objectId:state.object});
+  if(state.view==='source')await sourceIntake.load({projectId:state.project,objectId:state.object,fixedRef:currentEntry().get('object')});
 }
 async function loadResourceModel(mode) {
   if(!state.project || state.view!==mode)return;
   if(mode==='designs'&&!designWorkspace){const {createResourceModel}=await import('./resource-model.js');if(!designWorkspace)designWorkspace=createResourceModel($('design-view'),productionContext(),{mode:'designs'});}
   if(mode==='library'&&!resourceLibrary){const {createResourceModel}=await import('./resource-model.js');if(!resourceLibrary)resourceLibrary=createResourceModel($('asset-library-view'),productionContext());}
-  if(state.view===mode)await(mode==='designs'?designWorkspace:resourceLibrary).load({projectId:state.project,objectId:state.object});
+  if(state.view===mode)await(mode==='designs'?designWorkspace:resourceLibrary).load({projectId:state.project,objectId:state.object,fixedRef:currentEntry().get('object')});
 }
 async function loadScriptWorkspace() {
   if (!state.project || state.view !== 'script') return;
+  if(state.projectRows.get(state.project)?.storage_policy!=='postgres-series-v1'){
+    const button=el('button','','阅读已有剧本版本');button.addEventListener('click',guard(()=>switchView('artifacts')));
+    $('script-view').replaceChildren(el('p','hint','此项目沿原权威只读呈现。剧本工作副本需要明确迁移后才能编辑；已有冻结版本可继续阅读。'),button);return;
+  }
   if (!scriptWorkspace) {
     const {createScriptWorkspace} = await import('./script-workspace.js');
     scriptWorkspace = createScriptWorkspace($('script-view'), {
       api, baseUrl: base, onNotice: notice,
       session: () => ({actor: state.actor, csrf: state.csrf, writable: state.writable, revision: state.revision}),
       setRevision: value => { state.revision = value; },
+      onScope:value=>{state.object=value || null;syncRoute();},
+      onBack:()=>switchView('project'),
     });
   }
-  if (state.view === 'script') await scriptWorkspace.load({projectId: state.project});
+  if (state.view === 'script') await scriptWorkspace.load({projectId: state.project,objectId:state.object,lineId:entry.get('line')});
 }
 async function selectObject(id) {
   if (state.object !== id) resetArtifactReader();
@@ -158,13 +208,18 @@ async function loadCanvas(focus = null) {
   if (state.view === 'canvas') await resourceCanvas.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader', focus,overview:!state.object&&!focus});
 }
 async function switchView(view, focus = null) {
+  if(!['workbench','candidates','delivery'].includes(view))creativeWorkbench?.suspend?.();
   state.view = view;
+  if(view!=='collection')sharedLibrary?.suspend();
   const assisted=mainViews.includes(view);
   if(assisted)state.primary=view;else assistedDesk?.suspend();
   $('assisted-desk').hidden=!assisted;
   $('specialist-tabs').hidden=assisted;$('specialist-heading').hidden=assisted;
   document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('assisted-mode',assisted));
-  for(const key of mainViews){const link=$(`nav-${key}`);link.href='?'+new URLSearchParams({page:key,...(state.project?{project:state.project}:{}),...(state.object?{scope:state.object}:{})});if(key===state.primary)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+  document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('object-production',['workbench','candidates','delivery','designs','library'].includes(view)));
+  if($('specialist-tools'))$('specialist-tools').open=false;
+  for(const key of navViews){const link=$(`nav-${key}`);link.href='?'+new URLSearchParams({page:key,...(state.project?{project:state.project}:{}),...(state.object?{scope:state.object}:{})});if(key===state.primary || key==='projects'&&state.primary==='project')link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+  if(!assisted)syncRoute();
   if(view!=='source')sourceIntake?.suspend();if(view!=='designs')designWorkspace?.suspend();if(view!=='library')resourceLibrary?.suspend();
   document.querySelectorAll('.workspace').forEach(node=>{node.classList.toggle('reading-artifacts',view==='artifacts');node.classList.toggle('reading-production',['source','designs','library'].includes(view));});
   const views=[['source','source-view'],['script','script-view'],['designs','design-view'],['library','asset-library-view'],['candidates','creative-workbench'],['delivery','creative-workbench'],['workbench','creative-workbench'],['media','media-view'],['artifacts','artifact-view'],['canvas','resource-canvas']];
@@ -179,6 +234,12 @@ async function switchView(view, focus = null) {
   else if (view === 'script') await loadScriptWorkspace();
   else if (view === 'media') await loadResources();
   else if (view === 'artifacts') await loadArtifacts();
+}
+function syncRoute(){
+  if(typeof window==='undefined'||restoringDeskRoute)return;
+  const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);
+  if(previous.get('page')===state.view&&previous.get('project')===state.project&&(previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));
+  const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
   if (!resourceSettings) {
@@ -207,8 +268,9 @@ async function loadProjects() {
     const option = el('option', '', project.name + (project.unavailable ? ' · 权威不可用' : ''));
     option.value = project.id; $('projects').append(option);
   }
-  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', '没有已登记项目')); await switchView('projects');return; }
+  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', '没有已登记项目')); await switchView(state.view==='collection'?'collection':'projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
+  if(state.view==='collection'){await switchView('collection');syncRoute();return;}
   await selectProject($('projects').value);
 }
 async function selectProject(id,{scope}={}) {
@@ -385,6 +447,7 @@ async function openMedia(id) {
   $('media-title').textContent = media.name || media.id; $('media-detail').replaceChildren(playback);
   if(media.review_history){const {renderReviewHistory,createArtifactReviewForm}=await import('./review.js');if(project!==state.project || request!==state.mediaRequest)return;const alive=()=>project===state.project && request===state.mediaRequest,context=reviewContext(project,alive,async()=>{$('media-dialog').close();await openMedia(media.id);});context.currentTime=()=>$('media-detail').querySelector('video,audio')?.currentTime || 0;$('media-detail').append(renderReviewHistory(media.review_history,context));if(state.actor && media.review_targets?.length)$('media-detail').append(createArtifactReviewForm(media.review_targets,context));}
   if(state.actor && state.writable && media.registered!==false)$('media-detail').append(reviewForm(media));
+  if(state.actor && state.writable && media.registered!==false){const publish=el('details','media-library-publish');publish.append(el('summary','','发布到公共库'));const body=el('div');publish.append(body);let ready=false;publish.addEventListener('toggle',guard(async()=>{if(publish.open&&!ready){ready=true;(await libraryController()).publish(body,media,project);}}));$('media-detail').append(publish);}
   const evidence=el('details','media-evidence');evidence.append(el('summary','','素材规格、来源与查证'));
   const download=el('a','','下载原文件');download.href=mediaUrl(id)+'?download=true';evidence.append(download);
   const panels=el('div','detail-grid');panels.append(facts('规格与可用性',{id:media.id,modality:media.modality,sha256:media.sha256,size_bytes:media.size_bytes,width:media.width,height:media.height,duration_ms:media.duration_ms,sample_rate:media.sample_rate,availability:media.availability,integrity:media.integrity,rights:media.rights,deprecated:media.deprecated}),lineagePanel(media,lineage),facts('用途与下游引用',usage),facts('审查与决定',{checks:media.checks || [],reviews:media.reviews || [],decisions:media.decisions || [],bindings:media.bindings || []}));evidence.append(panels);
@@ -393,23 +456,27 @@ async function openMedia(id) {
   $('media-detail').append(evidence);
   $('media-dialog').showModal();
 }
-function reviewForm(media) {
+function reviewForm(media,{alive=()=>true,onChanged=null}={}) {
+  const project=state.project,root=base(),current=()=>alive()&&project===state.project;
   const form=el('form','review-form'); const field=el('fieldset'); field.append(el('legend','','人工审查与用途决定'));
-  const candidate=el('select'); const candidates=media.candidates || media.bindings || []; for(const item of candidates){const option=el('option','',`${item.role || item.slot_id || '候选'} · ${item.id}`);option.value=item.candidate_id || item.id;candidate.append(option);}
+  const candidate=el('select');candidate.setAttribute('aria-label','当前素材的用途候选');const candidates=media.candidates || media.bindings || []; for(const item of candidates){const option=el('option','',`${names[item.role] || item.role || '候选'}${item.target_title?' · '+item.target_title:''}${item.selected?' · 当前采用':''}`);option.value=item.candidate_id || item.id;candidate.append(option);}
   if(!candidates.length){field.append(el('p','hint','该素材尚无用途候选；先在对应镜头提出用途绑定。'));form.append(field);return form;}
   const action=el('select'); for(const [value,label] of [['reviews','记录审查意见'],['binding-decisions','选择此候选'],['binding-rejections','拒绝此候选'],['binding-retirements','退役当前用途']]){const option=el('option','',label);option.value=value;action.append(option);}
   const outcome=el('select'); for(const [value,label] of [['pass','通过'],['needs_changes','需要修改'],['fail','不通过']]){const option=el('option','',label);option.value=value;outcome.append(option);}
+  action.setAttribute('aria-label','用途决定');outcome.setAttribute('aria-label','审查结论');
   const reason=el('textarea');reason.placeholder=media.trial_sources?.length?'说明试片符合正式用途的依据，或本次审查／参考用途的理由':'说明用途、连续性、读法或决定依据';reason.required=true;
+  reason.setAttribute('aria-label','用途决定与审查说明');
   const adoption=el('div');adoption.hidden=true;const animatic=el('select');animatic.setAttribute('aria-label','试片正式采用的预演版本');const empty=el('option','','请选择已批准预演（仅正式采用需要）');empty.value='';animatic.append(empty);for(const row of media.trial_animatics || []){const opt=el('option','',`${row.name || row.artifact_key || '预演'} · ${row.id}`);opt.value=row.id;animatic.append(opt);}if(media.trial_sources?.length){adoption.append(el('p','hint','此素材含试片来源。用于正式剪辑时选择已批准预演，并在决定理由中说明采用依据；参考用途可继续试用。'),animatic);action.addEventListener('change',()=>{adoption.hidden=action.value!=='binding-decisions';});}
   const label=el('label');const check=el('input');check.type='checkbox';label.append(check,document.createTextNode('我确认这是本人对当前用途作出的决定'));
   const button=el('button','','提交');button.type='submit';field.append(candidate,action,outcome,reason,adoption,label,button);form.append(field);
-  form.addEventListener('submit',guard(async event=>{event.preventDefault();const choice=candidates.find(row=>(row.candidate_id || row.id)===candidate.value);let payload={candidate_id:candidate.value,reason:reason.value};if(action.value==='binding-decisions' && animatic.value)payload.trial_adoption={reason:reason.value,animatic_version_id:animatic.value};if(action.value==='reviews')payload={...payload,outcome:outcome.value,reviewer_type:'human',criteria_version:'panel-human-v1'};if(action.value==='binding-retirements')payload={slot_id:choice.slot_id,reason:reason.value};const result=await api(`${base()}/${action.value}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,confirmed:check.checked,expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('media-dialog').close();await loadResources();notice('操作已记录；历史版本与决定保留。');}));
+  let command=null;form.addEventListener('input',()=>{command=null;});form.addEventListener('change',()=>{command=null;});
+  form.addEventListener('submit',guard(async event=>{event.preventDefault();if(!current())throw new Error('所见对象已切换，请返回原处继续。');const choice=candidates.find(row=>(row.candidate_id || row.id)===candidate.value);let payload={candidate_id:candidate.value,reason:reason.value};if(action.value==='binding-decisions' && animatic.value)payload.trial_adoption={reason:reason.value,animatic_version_id:animatic.value};if(action.value==='reviews')payload={...payload,outcome:outcome.value,reviewer_type:'human',criteria_version:'panel-human-v1'};if(action.value==='binding-retirements')payload={slot_id:choice.slot_id,reason:reason.value};command ||= crypto.randomUUID();button.disabled=true;try{const result=await api(`${root}/${action.value}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload,confirmed:check.checked,expected_revision:state.revision,idempotency_key:command})});if(!current())return;state.revision=result.revision ?? state.revision;if(onChanged)await onChanged();else{$('media-dialog').close();await loadResources();}notice('操作已记录；历史版本与决定保留。');}finally{if(current())button.disabled=false;}}));
   return form;
 }
 function bindingForm(media) {
   const form=el('form','review-form'); const field=el('fieldset');field.append(el('legend','','提出用途候选'));
   const target=el('input');target.placeholder='目标对象 ID（从结构导航读取）';target.value=state.object || '';target.required=true;
-  const role=el('select');for(const value of ['identity_face','costume','location_master','location_view','composition','first_frame','last_frame','prop','video_take','dialogue_dry','voice_sample','ambience','music','sfx','style_reference']){const option=el('option','',value);option.value=value;role.append(option);}
+  const role=el('select');for(const value of ['identity_face','costume','location_master','location_view','composition','first_frame','last_frame','prop','video_take','vfx_overlay','dialogue_dry','voice_sample','ambience','music','sfx','style_reference']){if(value==='vfx_overlay'&&media.modality!=='image')continue;const option=el('option','',names[value]||value);option.value=value;role.append(option);}
   const slot=el('input');slot.value='main';slot.placeholder='用途槽位 key';slot.required=true;
   const reason=el('textarea');reason.placeholder='说明目标规格与提出依据';reason.required=true;
   const button=el('button','','提交用途候选');button.type='submit';field.append(target,role,slot,reason,button);form.append(field);
@@ -570,8 +637,9 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const key of mainViews)$(`nav-${key}`).addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await switchView(key);}));
+for(const key of navViews)$(`nav-${key}`).addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await switchView(key);}));
 $('back-to-desk').addEventListener('click',guard(()=>switchView(state.primary)));
+if($('specialist-tools'))$('specialist-tools').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();$('specialist-tools').open=false;$('specialist-tools').querySelector('summary').focus();}});
 for(const tab of ['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
 $('resource-settings-open').addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
@@ -583,7 +651,7 @@ $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());
 $('upload-form').addEventListener('submit',guard(async event=>{event.preventDefault();const file=$('upload-file').files[0];if(!file)throw new Error('请选择文件');const rights=$('upload-rights').value;const scope=$('upload-scope').value.split(',').map(value=>value.trim()).filter(Boolean);if(rights!=='unknown' && !scope.length)throw new Error('请明确填写权利适用的用途');const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const receipt=await api(`${base()}/uploads`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name),'X-CSRF-Token':state.csrf},body:file});const result=await api(`${base()}/media`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{staged_upload:receipt.staged_upload,name:file.name,rights,rights_scope:{purposes:scope},source:{kind:'user_upload',content:$('upload-source').value}},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('upload-dialog').close();event.target.reset();await loadResources();notice('素材已转存并登记，尚未绑定或批准用途。');}finally{button.disabled=false;}}));
 if(typeof window!=='undefined'){
   window.addEventListener('beforeunload',event=>{if(assistedDesk?.hasDrafts()){event.preventDefault();event.returnValue='';}});
-  window.addEventListener('popstate',guard(async()=>{const route=new URLSearchParams(window.location.search);state.view=mainViews.includes(route.get('page'))?route.get('page'):'desk';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');restoringDeskRoute=true;try{await selectProject(route.get('project')||state.project,{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
+  window.addEventListener('popstate',guard(async()=>{const route=currentEntry();state.view=[...mainViews,...specialistViews].includes(route.get('page'))?route.get('page'):'projects';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');restoringDeskRoute=true;try{await selectProject(route.get('project')||state.project,{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
 }
 guard(async()=>{
   let session;

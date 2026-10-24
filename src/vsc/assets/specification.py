@@ -138,6 +138,17 @@ def bible_errors(data):
                     errors.append(f"{label}.references[{ref_index}] 含未登记的变体")
         if "generation" in entity and not isinstance(entity["generation"], dict):
             errors.append(f"{label}.generation 必须是对象")
+        if "expression_baseline" in entity:
+            baseline = entity["expression_baseline"]
+            if (kind not in ("character", "creature") or not isinstance(baseline, dict) or not text(baseline.get("description"))
+                    or set(baseline) - {'description','reference_sha256'}):
+                errors.append(f"{label}.expression_baseline 须为人物/生物的可观察 description")
+            elif "reference_sha256" in baseline:
+                fixed = baseline["reference_sha256"]
+                if not isinstance(fixed, str) or not SHA256.fullmatch(fixed) or not any(
+                        ref.get("sha256") == fixed and reference_info(ref)["media_type"] == "image"
+                        for ref in entity.get("references", []) if isinstance(ref, dict)):
+                    errors.append(f"{label}.expression_baseline.reference_sha256 须固定本实体已登记图片")
         voice = entity.get("voice")
         if voice is not None:
             if kind not in ("character", "creature"):

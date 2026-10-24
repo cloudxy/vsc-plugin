@@ -18,6 +18,19 @@ class FakeTransport:
 
 
 class VolcContract(unittest.TestCase):
+    def test_unmapped_visual_parameters_are_rejected_before_any_transport(self):
+        from dataclasses import replace
+        for kind in ('image','video'):
+            transport=FakeTransport([])
+            adapter=(VolcArkImageProvider('image',lambda m:m,lambda w,h:'2K',transport) if kind=='image' else
+                     VolcArkVideoProvider('video',lambda m:m,'720p','9:16',transport=transport))
+            request=(ImageRequest('S','shot_keyframe','sha','fixed prompt') if kind=='image' else
+                     VideoRequest('S','video_clip','sha','fixed prompt',first_frame_media_id='frame'))
+            for params in ({'negative_prompt':'avoid duplication'},{'unmapped_seed':4},None,[]):
+                with self.subTest(kind=kind,params=params),self.assertRaises(VolcAdapterError):
+                    adapter.submit(replace(request,params=params))
+                self.assertEqual(transport.calls,[])
+
     def test_image_maps_logical_request_and_parses_url_or_inline_bytes(self):
         transport = FakeTransport([{"data": [{"url": "https://example.invalid/temporary"}]}])
         adapter = VolcArkImageProvider("symbolic-image-model", lambda media_id: "data:image/png;base64," + media_id,

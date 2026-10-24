@@ -66,15 +66,9 @@ def probe_size(video):
     return probe_video(video)[:2]
 
 
-def placement(position, custom, video_height, image_height):
+def placement(position, custom, video_height, image_height, rules=None):
     """与 MoneyPrinterTurbo 一致：底部留 5%，顶部留 5%，custom 为距顶部的百分比。"""
-    if position == "bottom":
-        return video_height * (1 - subtitles.SAFE_MARGIN) - image_height
-    if position == "top":
-        return video_height * subtitles.SAFE_MARGIN
-    if position == "custom":
-        return (video_height - image_height) * custom / 100
-    return (video_height - image_height) / 2
+    return subtitles.caption_top({"position": position, "custom_position": custom}, video_height, image_height, rules)
 
 
 def render(job_path):
@@ -83,7 +77,10 @@ def render(job_path):
 
     job = json.loads(Path(job_path).read_text("utf-8"))
     style, width, height = job["style"], job["width"], job["height"]
-    font, max_width = subtitles.layout_font(style, width)
+    rules = job.get("creative_rules")
+    from vsc.project.creative_rules import subtitle_policy
+    area = subtitle_policy(rules)["safe_area"]
+    font, max_width = subtitles.layout_font(style, width, rules)
     ascent, descent = font.getmetrics()
     line_height = max(1, ascent + descent)
     interline = int(style["font_size"] * 0.25)
@@ -91,7 +88,7 @@ def render(job_path):
     background = style.get("background")
     pad_x = int(style["font_size"] * (0.4 if style.get("rounded") else 0.6)) if background else 0
     pad_y = int(style["font_size"] * 0.35)
-    compiled = subtitles.compile_cues([(cue["start"], cue["end"], cue["text"]) for cue in job["cues"]], font=font, max_width=max_width, style=style, height=height)
+    compiled = subtitles.compile_cues([(cue["start"], cue["end"], cue["text"]) for cue in job["cues"]], font=font, max_width=max_width, style=style, height=height, rules=rules)
     job["subtitle_checks"] = {**job.get("subtitle_checks", {}), "font_layout": compiled["checks"]["font_layout"]}
     for index, cue in enumerate(job["cues"]):
         cue_style = subtitles.caption_style(style, subtitles.caption_layout(cue["subtitle_style"]) if "subtitle_style" in cue else None)
@@ -115,8 +112,11 @@ def render(job_path):
             y += line_height + interline
         path = Path(job["directory"]) / f"cue-{index:04d}.png"
         image.save(path)
-        cue.update(png=str(path), lines=lines, x=int((width - image_width) / 2),
-                   y=int(placement(cue_style["position"], cue_style["custom_position"], height, image_height)))
+        y = placement(cue_style["position"], cue_style["custom_position"], height, image_height, rules)
+        if subtitle_policy(rules)["safe_area_declared"] and (y < height * area["top"] - 1 or y + image_height > height * (1 - area["bottom"]) + 1):
+            raise subtitles.SubtitleError(["单Cue位置超出声明安全区"])
+        cue.update(png=str(path), lines=lines, x=int(width * area["left"] + (width * (1 - area["left"] - area["right"]) - image_width) / 2),
+                   y=int(y))
     Path(job_path).write_text(json.dumps(job, ensure_ascii=False), "utf-8")
 
 
@@ -134,7 +134,7 @@ def overlay_command(video, cues, output):
 
 
 def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, subtitle_package=None, subtitle_root=None, formal_subtitles=False,
-         render_plan=None):
+         render_plan=None, creative_rules=None):
     video, output = Path(video).resolve(), Path(output).resolve()
     srt = Path(srt).resolve() if srt is not None else None
     if output.exists():
@@ -157,6 +157,9 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
             if problems:
                 raise subtitles.SubtitleError(problems)
             fixed_plan = rp.render_plan(render_plan)
+            if creative_rules is not None and creative_rules != fixed_plan.get("creative_rules", {}):
+                raise subtitles.SubtitleError(["不能用烧录参数覆盖固定计划的creative_rules"])
+            creative_rules = fixed_plan.get("creative_rules")
             composition = fixed_plan["composition"]
             fps = rp.frame_rate(composition["fps"])
             if (composition["width"], composition["height"]) != (width, height) or abs(composition["duration_in_frames"] / fps - duration) > .05:
@@ -199,7 +202,7 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
                 if len(segments) != len(projected) or any(any(a.get(key) != b[key] for key in identity) for a, b in zip(segments, projected)):
                     raise subtitles.SubtitleError(["固定字幕计划与字幕包行引用/投影时码不一致"])
         subtitles.resolve_style(overrides=style)
-        compiled = subtitles.compile_cues(entries, duration=duration, script_texts=script_texts)
+        compiled = subtitles.compile_cues(entries, duration=duration, script_texts=script_texts, rules=creative_rules)
         if bound:
             compiled["checks"].update(bound["checks"])
     except ValueError as exc:
@@ -216,7 +219,8 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
         raise BurnError("需要 uv：https://docs.astral.sh/uv/")
     with tempfile.TemporaryDirectory() as temp:
         job_path = Path(temp) / "job.json"
-        job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)}, "subtitle_checks": compiled["checks"]}
+        job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)},
+               "creative_rules": creative_rules, "subtitle_checks": compiled["checks"]}
         job_path.write_text(json.dumps(job, ensure_ascii=False), "utf-8")
         result = run([uv, "run", "--no-project", "--python", "3.12", "--with", PILLOW, "python", str(script_path("post/subtitle_burn.py")), "render", str(job_path)],
                      capture_output=True, text=True, timeout=600)
@@ -228,7 +232,8 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
         result = run(overlay_command(video, rendered, output), capture_output=True, text=True, timeout=3600)
         if result.returncode:
             raise BurnError(f"ffmpeg 叠加失败：{result.stderr.strip()[-500:]}")
-    return {"output": str(output), "cues": len(rendered), "font": str(font), "size": [width, height], "subtitle_checks": rendered_job["subtitle_checks"]}
+    return {"output": str(output), "cues": len(rendered), "font": str(font), "size": [width, height],
+            "warnings": compiled["warnings"], "subtitle_checks": rendered_job["subtitle_checks"]}
 
 
 def main():

@@ -11,6 +11,8 @@ description: "Use when a VSC user wants to learn reusable action, VFX, layout, e
 
 将素材观察沉淀为可验证的方法。试用、版本绑定、失败重测与跨项目导入的完整命令见 [记忆与学习规范](../../docs/design/memory-and-learning.md)。
 
+拆商业短内容的钩子、信息释放与人物引入时，用[商业节奏作业](references/commercial-rhythm.md)逐段记录可见事实、推断和新题应用。示例为原创合成文本，不是已验证爆款；没有用户实际提供且可处理的素材时，保留待输入，不虚构播放、付费或受众结论。
+
 代表性试片按[制作前检查与返工控制](../vsc/references/creative-production.md)先定假设、判据、预算和停止条件。可用 `scripts/production/quality.py check` 汇总同一逻辑用途在不同任务上的观察缺陷；根因未经对照证据不能定论，探索、需求变更、故障恢复和返工分开记量。pilot 不提供付费授权，真实试片仍走现有适用阶段 run。方法与模型版本、输入条件、失败条件一起复验，不能以合成测试或一次成功证明实片效果改善。
 
 1. 登记素材为 `source add`，并如实选择 `--rights owned|licensed|analysis_only|unknown`。未知、仅分析或无权素材可做研究观察，不能进入试用或生产能力。

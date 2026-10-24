@@ -104,6 +104,14 @@ def draft_payload(plan, media_root, subtitle_style=None, *, script_texts=None, f
     payload = {"width": composition["width"], "height": composition["height"], "fps": int(fps),
                "duration_us": us(composition["duration_in_frames"]), "duration_in_frames": composition["duration_in_frames"],
                "black_intervals_frames": black, "subtitle_style": style, "subtitle_checks": compiled["checks"], "video": video, "audio": audio}
+    from vsc.project.creative_rules import subtitle_policy
+    policy = subtitle_policy(plan.get("creative_rules"))
+    if policy["safe_area_declared"]:
+        area = policy["safe_area"]
+        payload["subtitle_transforms"] = [{"x": area["left"] - area["right"],
+            "y": 1 - 2 * (item["top_px"] + item["height_px"] / 2) / composition["height"]}
+            for item in compiled["measurements"]]
+    payload["subtitle_warnings"] = compiled.get("warnings", [])
     return payload, captions, dropped
 
 
@@ -180,7 +188,8 @@ def build_draft(payload):
             font_path = jd._register_asset(style["font"], draft_path, "assets/fonts", Path(style["font"]).name, used, copied)
             style = {**style, "font": jd._to_draft_material_path(font_path)}
         params = jd.SubtitleStyle(font_size=style["font_size"], text_fore_color=style["color"], stroke_color=style["stroke_color"],
-                                  stroke_width=style["stroke_width"], subtitle_position=style["position"], custom_position=style["custom_position"], font=style.get("font"))
+                                  stroke_width=style["stroke_width"], subtitle_position=style["position"], custom_position=style["custom_position"], font=style.get("font"),
+                                  cue_transforms=payload.get("subtitle_transforms"))
         jd._add_subtitle_track_from_srt(draft, payload["srt"], params, strict=True, duration=end_us / 1_000_000)
     draft["canvas_config"]["width"], draft["canvas_config"]["height"] = payload["width"], payload["height"]
     draft["duration"] = end_us

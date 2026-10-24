@@ -30,10 +30,10 @@ test('task entry selects its own collection in one request and keeps the chosen 
   before=app.requests.length;await app.panel.switchView('delivery');
   requests=app.requests.slice(before).filter(url=>url.includes('/workbench?'));
   assert.equal(requests.length,1);
-  assert.equal(new URL(requests[0],'http://fixture').searchParams.get('section'),'timeline_media');
+  assert.equal(new URL(requests[0],'http://fixture').searchParams.get('section'),'renders');
   assert.equal(app.document.getElementById('tab-delivery').getAttribute('aria-selected'),'true');
   navigation=app.document.getElementById('creative-workbench').querySelector('.workbench-navigation');
-  assert.equal(navigation.querySelectorAll('button').find(b=>b.textContent==='实际用料区间').getAttribute('aria-current'),'page');
+  assert.equal(navigation.querySelectorAll('button').find(b=>b.textContent==='成片固定版本').getAttribute('aria-current'),'page');
   assert.equal(app.writes.length,0);
 });
 

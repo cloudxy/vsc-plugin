@@ -17,6 +17,10 @@ description: "Plan and review provider-neutral image, image-to-video and audio t
 
 同一个人物或物件独立从文字重建容易发生身份漂移。先固定必要参考资产，再按镜头功能、连续性计划和已验证的供应商能力，选择首帧、首尾帧或多参考生成；需要的关键帧属于这个输入方案，不默认每镜制作两帧。
 
+涉及多人多招、表情、结构站位或组装过程时，读取[多人动作与过程输入](references/ensemble-process.md)：实例身份与职责分开，空间依据不足写未判；过程只在显式开启时约束未列changes的状态。原context入口的`request_constraints`必须在批准run前编入正常请求，示例函数`compile_state_request`不执行生成或批准。N格讨论图先还原为有源网格和独立SHA的单格，再按真实支持的首尾帧／参考用途输入；人数观察保持advisory。
+
+组织动态、机位、光影和声音要求时，按[请求组织与参考配对](references/request-composition.md)去重并核矛盾，保留原完整锁定条件。五部分与词序是组织建议；画宽1/4等经验未经本任务验证不作硬门。当前本地两条适配路线未接独立negative_prompt控制，不把负面清单拼入正向词冒充该能力，也不据此推断供应商所有API。
+
 先用 `scripts/assets/library.py search` 查已有素材，确认变体与权属后 `use` 绑定本项目；确需新建才生成。操作见[素材复用与检索](../../docs/guide/reuse-and-search.md)。
 
 1. **资产图**：每个人物、地点和关键道具先建立满足具体用途的必要规范图（生成记录 `purpose: asset`，不属于任何镜头），复用已确认身份；新增角度或状态按用途补充，不重复独立创造身份。人工确认后登记为资产库中对应实体的参考素材，此后有关画面以它为参考。

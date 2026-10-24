@@ -44,6 +44,57 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual((draft["phase"], draft["draft_revision"]), ("editing", 2))
         self.assertEqual(draft["content"]["scenes"][0]["dialogue"][0]["text"], "明天再来")
 
+    def test_scoped_pages_and_latest_decisions_do_not_expand_other_episode_history(self):
+        from sqlalchemy import event, insert
+        from vsc.adapters.persistence.postgres import schema as S
+        self.service.save_script_draft(self.p, {"scope_key": self.episode, "content": self.draft_document()}, actor="editor")
+        notes = []
+        for n in range(5):
+            notes.append(self.write('add_script_note', {'scope_key': self.episode, 'scene_id': 'SC1', 'line_id': 'L1',
+                'body': '当前集意见' + str(n), 'base_draft_revision': 1})['id'])
+        for n in range(3):
+            self.write('decide_script_note', {'note_id': notes[-1], 'outcome': 'dismiss' if n == 1 else 'resolve', 'reason': '合成决定' + str(n)})
+        def measure():
+            rows=[]
+            def observed(conn,cursor,statement,parameters,context,executemany):
+                if statement.lstrip().upper().startswith(('SELECT','WITH')):rows.append(cursor.rowcount)
+            event.listen(self.engine,'after_cursor_execute',observed)
+            try:value=self.service.get_script_draft(self.p,self.episode,limit=2)
+            finally:event.remove(self.engine,'after_cursor_execute',observed)
+            return value,rows
+        other_scope=self.write('create_object', {'kind':'episode','display_code':'SCALE-EP2',
+            'parent_id':self.objects['work'],'ordinal':2})['id']
+        def seed_other(count):
+            with self.engine.begin() as conn:
+                conn.execute(insert(S.script_notes), [{'project_id':self.p,'id':str(uuid.uuid4()),'scope_key':other_scope,
+                    'scene_id':'foreign-scene','line_id':'foreign-line','body':'其他集历史' + str(n),'author':'fixture'} for n in range(count)])
+        seed_other(100)
+        first, before = measure()
+        self.assertEqual(len(first['notes']),2);self.assertEqual(first['notes_page']['next_offset'],2)
+        self.assertEqual(first['notes'][0]['status'],'resolved')
+        seed_other(900)
+        second, after = measure()
+        self.assertEqual(before,after)
+        self.assertEqual([row['id'] for row in first['notes']],[row['id'] for row in second['notes']])
+        next_page=self.service.get_script_draft(self.p,self.episode,note_offset=2,limit=2)
+        self.assertEqual(len(next_page['notes']),2)
+        self.assertFalse(set(row['id'] for row in first['notes']) & set(row['id'] for row in next_page['notes']))
+        choice_ids=[str(uuid.uuid4()) for _ in range(150)]
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.creative_objects), [{'project_id':self.p,'id':identifier,'kind':'asset',
+                'display_code':'CHOICE-'+str(n),'title':'人物'+str(n).zfill(3)} for n,identifier in enumerate(choice_ids)])
+            conn.execute(insert(S.asset_identities), [{'project_id':self.p,'id':identifier,'asset_kind':'character'} for identifier in choice_ids])
+        choices=self.store.script_editor_choice_page(self.p,self.episode,'character','',100)
+        self.assertEqual(len(choices['items']),50)
+        self.assertEqual(choices['items'][-1]['id'],choice_ids[-1])
+        self.assertEqual(self.store.script_editor_choice_page(self.p,self.episode,'character','人物149')['items'][0]['id'],choice_ids[-1])
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        client=TestClient(create_app({'allowed_hosts':['testserver']},service=self.service))
+        response=client.get('/api/v1/projects/'+self.p+'/script-draft/choices',params={'scope_key':self.episode,'kind':'character','query':'人物149'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['items'][0]['id'],choice_ids[-1])
+
     def test_suggestion_requires_original_revision_and_verified_before(self):
         self.service.save_script_draft(self.p, {"scope_key": self.episode, "content": self.draft_document()}, actor="editor")
         payload = {"scope_key": self.episode, "base_draft_revision": 1, "scene_id": "SC1", "line_id": "L1",

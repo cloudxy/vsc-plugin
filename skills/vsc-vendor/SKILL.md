@@ -7,6 +7,8 @@ description: "Use when the user wants to assess, install, manually check updates
 
 第三方 Skill 和工具只装在本机 `vendor/`，不进 Git。操作命令与锁定字段见 [vendor/README.md](../../vendor/README.md)，`usage.mode` 与许可证原则见 [Vendor 治理](../../docs/governance/vendor-governance.md)，各来源的用途与须知见 [THIRD_PARTY.md](../../vendor/THIRD_PARTY.md)。
 
+评估字幕、声音、表演与提示词候选时，先查[固定来源及拒绝范围](../../docs/governance/vendor-governance.md#candidate-assessments)和[分发边界](../../docs/governance/vendor-governance.md#distribution-boundary)；供应商接入与独立负向字段按[适配器评估](../../docs/architecture/generation-adapters.md#provider-assessment)。只读评估、已安装、已路由、离线编译和线上可用分别报告，不将同名来源或未映射参数当可用。
+
 ## 智能体须遵守
 
 - 许可证不明时默认拒绝安装；涉及商业化、素材/人物/声音权利或复杂 copyleft 时，要求责任人或专业意见。不能因为 GitHub 上看得到、标着 open source 或只在本地使用，就推定允许商用、SaaS、训练、声音克隆、再分发或修改。

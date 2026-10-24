@@ -22,7 +22,7 @@ class TestWorkflowKernel(unittest.TestCase):
         result = run("doctor")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stages=13", result.stdout)
-        self.assertIn("roles=14", result.stdout)
+        self.assertIn("roles=17", result.stdout)
         self.assertIn("hosts=5", result.stdout)
 
     def test_route_is_the_single_machine_readable_dispatch(self):
@@ -45,7 +45,8 @@ class TestWorkflowKernel(unittest.TestCase):
 
     def test_product_roles_are_discovered_in_maintenance_without_creative_stage(self):
         route = json.loads(run("route", "architecture", "--json").stdout)
-        self.assertEqual(route["roles"], ["orchestrator", "product-manager", "product-designer"])
+        self.assertEqual(route["roles"], ["orchestrator", "product-manager", "product-designer",
+            "software-architect", "fullstack-engineer", "database-engineer"])
         self.assertEqual(route["profile_stages"], [])
         roles = {card["id"]: card for card in json.loads(run("roles", "--json").stdout)}
         from vsc.project.role_runtime import bind_packet, validate_packet
@@ -58,6 +59,67 @@ class TestWorkflowKernel(unittest.TestCase):
                 self.assertEqual(packet["dispatch"]["artifact_access"], "read_only")
                 with self.assertRaisesRegex(ValueError, "read-only"):
                     bind_packet(packet, review_mode="fresh", ownership=["reader.js"])
+
+    def test_engineering_roles_use_existing_dispatch_and_readonly_review_policy(self):
+        route = json.loads(run("route", "architecture", "--json").stdout)
+        self.assertEqual(route["maintenance_skills"], ["vsc-schema-review", "vsc-engineer", "vsc-database"])
+        self.assertEqual(route["profile_stages"], [])
+        roles = {card["id"]: card for card in json.loads(run("roles", "--json").stdout)}
+        from vsc.project.role_runtime import bind_packet, validate_packet
+        for role in ("software-architect", "fullstack-engineer", "database-engineer"):
+            with self.subTest(role=role):
+                card = roles[role]
+                self.assertIs(card["execution_policy"]["human_approval"], False)
+                self.assertEqual(card["memory_policy"]["write_targets"], ["own_role_draft", "dispatch_summary"])
+                packet = dict(context_id="CT-engineering", project={"project_id": "synthetic"}, role=card,
+                    task="核固定范围保存与恢复", inputs=[], approved_memories=[], rules=[])
+                working = bind_packet(dict(packet), review_mode="work", ownership=["consumer.py"])
+                self.assertEqual(validate_packet(working, role), [])
+                self.assertEqual(working["dispatch"]["edit_ownership"], ["consumer.py"])
+                self.assertIn("wrong role", validate_packet(working, "orchestrator"))
+                for mode in ("fresh", "followup"):
+                    review = bind_packet(dict(packet), review_mode=mode)
+                    self.assertEqual(validate_packet(review, role), [])
+                    self.assertEqual(review["dispatch"]["artifact_access"], "read_only")
+                    with self.assertRaisesRegex(ValueError, "read-only"):
+                        bind_packet(dict(packet), review_mode=mode, ownership=["consumer.py"])
+                with self.assertRaisesRegex(ValueError, "parent_brief"):
+                    bind_packet(dict(packet, parent_brief="旧通过结论"), review_mode="fresh")
+
+    def test_engineering_role_cli_consume_return_preserves_binding_and_releases_ownership(self):
+        def state(*args):
+            result = subprocess.run([sys.executable, "-B", str(STATE), *map(str, args)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result
+
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "engineering"
+            state("init", project, "--title", "工程夹具")
+            for index, role in enumerate(("software-architect", "fullstack-engineer", "database-engineer"), 1):
+                with self.subTest(role=role):
+                    instance, actor = "engineering-" + role, "agent:" + role
+                    state("context", "build", project, "--role", role, "--task", "检查同一消费者保存边界",
+                        "--review-mode", "work", "--owns", "consumer.py", "--instance-id", instance, "--actor", actor)
+                    path = project / "10-记忆/上下文" / ("CT-%04d.json" % index)
+                    packet = json.loads(path.read_text("utf-8"))
+                    self.assertEqual(packet["role"]["id"], role)
+                    self.assertEqual(packet["role"]["agent"], "agents/" + role + ".md")
+                    wrong = subprocess.run([sys.executable, "-B", str(STATE), "context", "consume", str(project),
+                        "--file", str(path), "--role", "orchestrator", "--instance-id", instance, "--actor", actor],
+                        capture_output=True, text=True)
+                    self.assertNotEqual(wrong.returncode, 0)
+                    common = [project, "--file", path, "--role", role, "--instance-id", instance, "--actor", actor]
+                    state("context", "consume", *common)
+                    result = {key: packet["dispatch"][key] for key in ("role_id", "role_sha256", "instance_id")}
+                    result.update(context_id=packet["context_id"], context_sha256=packet["context_sha256"],
+                        dispatch_id=packet["dispatch"]["id"], result_refs=[], memory_proposals=[],
+                        session_summary="仅验证工程派单生命周期，无产品效果或人工批准")
+                    returned = Path(temp) / (role + ".json")
+                    returned.write_text(json.dumps(result, ensure_ascii=False), "utf-8")
+                    state("context", "return", *common, "--result", returned, "--return-key", instance)
+                    stored = json.loads((project / "vsc.json").read_text("utf-8"))
+                    self.assertEqual(stored["decisions"], [])
+                    # The next role reuses this path only after the prior return closes it.
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "实际生产计划需要FFmpeg")
     def test_batch_contract_requires_and_validates_real_project(self):

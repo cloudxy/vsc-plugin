@@ -39,6 +39,27 @@ test('first result opens real reader, with separate list, work and feedback pane
     {page:'desk',project:'p',scope:'s',object:'artifact:a',version:'a',bucket:'results'});
 });
 
+test('explicit earlier fixed version opens outside the new review queue and a missing target never falls back',async()=>{
+  const f=await fixture(async(url,options)=>{
+    if(url.includes('/artifacts/missing'))throw new Error('固定版本不存在或不属于此项目');
+    return basic(url,options);
+  });
+  await f.desk.load({projectId:'p',ref:'artifact:old-fixed',version:'old-fixed'});
+  assert.ok(f.container.querySelector('.desk-content').textContent.includes('可读作品 old-fixed'));
+  assert.equal(f.calls.some(row=>row.url.endsWith('/artifacts/a')),false);
+  await f.desk.load({projectId:'p',ref:'artifact:missing',version:'missing'});
+  assert.ok(f.container.querySelector('.desk-content').textContent.includes('固定版本不存在或不属于此项目'));
+  assert.equal(f.container.querySelector('.desk-content').textContent.includes('可读作品 a'),false);
+});
+
+test('embedded design uses a readable target label while retaining its original fixed review anchor',async()=>{
+  const f=await fixture(url=>url.endsWith('/artifact-review-notes')?{revision:6}:url.includes('edit-preview-capability')?{available:false}:url.endsWith('/artifacts/a')?{...artifact('a'),review_targets:[{label:'machine-design-key',target:{...target,design_unit_id:'fixed-unit'}}]}:basic(url));
+  await f.desk.load({projectId:'p',ref:'artifact:a',embedded:true,designArtifactId:'a',targetAnchor:{design_unit_id:'fixed-unit'},targetLabel:'当前分镜构图'});
+  const form=f.container.querySelector('.artifact-review-form');assert.equal(form.querySelector('option').textContent,'当前分镜构图');form.querySelector('textarea').value='保持原锚点';await form.querySelector('textarea').dispatch('input');
+  assert.ok(!form.textContent.includes('machine-design-key'));
+  await form.dispatch('submit');assert.equal(JSON.parse(f.calls.find(call=>call.url.endsWith('/artifact-review-notes')).options.body).payload.design_unit_id,'fixed-unit');
+});
+
 test('one toolbar keeps identity with scope and the tools and refresh share an action group',async()=>{
   const f=await fixture(url=>url.includes('assisted-desk?')?{...page(),scope:{title:'第二集'}}:basic(url),
     {actor:'human',writable:false});
@@ -94,6 +115,23 @@ test('a missing media result renders its actual gap and never mounts a player',a
   assert.ok(content.textContent.includes('固定媒体副本缺失'));
   assert.ok(button(content,'重新读取素材'));
   assert.ok(button(content,'用途、来源与候选决定'));
+});
+
+test('current job shows fixed estimate, reported native use and unknown bill without scanning project budgets',async()=>{
+  for(const quoted of [false,true]){
+    const f=await fixture(url=>url.includes('/generation-jobs/')?{quote:{status:quoted?'estimate':'unknown',amount:quoted?'2.50':null,currency:quoted?'CNY':null,native_units:{video_seconds:6},reason:'固定报价依据'},reconciliation:{actual_units_reported:true,actual_units:{video_seconds:7},native_delta:{video_seconds:1},threshold_exceeded:true,actual_amount:null}}:url.includes('job_attempts')?{sections:{job_attempts:{items:[{id:'fixed-job',status:'succeeded',outputs:[]}]}}}:basic(url));
+    await f.desk.load({projectId:'p',ref:'job:fixed-job',embedded:true});const quote=f.container.querySelector('.job-quote');
+    assert.ok(quote.textContent.includes(quoted?'估算金额：2.50 CNY':'金额尚未核实'));
+    assert.ok(quote.textContent.includes('已上报实际用量：视频秒数 7'));assert.ok(quote.textContent.includes('实际费用尚未核实'));assert.ok(quote.textContent.includes('偏差超过'));
+    assert.equal(f.calls.filter(call=>call.url.endsWith('/generation-jobs/fixed-job/quote')).length,1);assert.equal(f.calls.some(call=>call.url.includes('/budget')),false);
+  }
+});
+
+test('a late quote cannot replace another fixed object and a quote failure preserves the original job receipt',async()=>{
+  const quote=deferred();const f=await fixture(url=>url.includes('/generation-jobs/')?quote.promise:url.includes('job_attempts')?{sections:{job_attempts:{items:[{status:'succeeded',outputs:[]}]}}}:basic(url));
+  const old=f.desk.load({projectId:'p',ref:'job:old-job',embedded:true});await new Promise(setImmediate);await f.desk.load({projectId:'p',ref:'artifact:new',embedded:true});quote.resolve({quote:{status:'estimate',amount:'999',currency:'CNY'}});await old;
+  assert.ok(f.container.querySelector('.desk-content').textContent.includes('可读作品 new'));assert.equal(f.container.querySelector('.job-quote'),null);
+  const failed=await fixture(url=>{if(url.includes('/generation-jobs/'))throw new Error('合成网络中断');return {sections:{job_attempts:{items:[{status:'succeeded',outputs:[]}]}}};});await failed.desk.load({projectId:'p',ref:'job:unread',embedded:true});assert.ok(failed.container.querySelector('.desk-content').textContent.includes('执行已结束，但尚无已登记结果'));assert.ok(failed.container.querySelector('.job-quote').textContent.includes('读取受阻'));
 });
 
 test('polling a completed preview without bytes stops at the gap and does not promise a returned result',async()=>{

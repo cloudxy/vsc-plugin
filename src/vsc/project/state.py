@@ -1445,7 +1445,24 @@ def validate_timed_item(item, label, duration_ms, errors):
 
 def cmd_sound(args):
     data = manifest(args.file, "vsc.sound-cue-sheet/v1", "SOUND")
+    if getattr(args, "action", "validate") == "apply-recipe":
+        from vsc.knowledge.recipes import load
+        from vsc.post.sound_rules import apply_music_recipe
+        recipe = next((row for row in load()["recipes"] if row["id"] == args.recipe), None)
+        if recipe is None:
+            die("找不到所选原生music规格ID")
+        try:
+            projected = apply_music_recipe(data, recipe, cue_id=args.cue, dialogue_cue_ids=args.dialogue_cue)
+            with Path(args.output).open("x", encoding="utf-8") as stream:
+                json.dump(projected, stream, ensure_ascii=False, indent=2)
+        except (ValueError, OSError) as exc:
+            die(str(exc))
+        print(json.dumps({"output": args.output, "recipe_ref": next(row["recipe_ref"] for row in projected["music_cues"] if row["id"] == args.cue),
+            "status": "draft_requires_original_validation_and_review"}, ensure_ascii=False))
+        return
     errors, warnings = [], []
+    from vsc.post.sound_rules import extra_cue_errors
+    errors.extend(extra_cue_errors(data))
     required_text(data, "project_id", "root", errors)
     required_text(data, "sequence_id", "root", errors)
     duration_ms = data.get("duration_ms")
@@ -1693,6 +1710,9 @@ def main():
     p = commands.add_parser("sound"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("validate"); q.add_argument("file")
     q.add_argument("--project"); q.add_argument("--scope", default="project")
+    q = subs.add_parser("apply-recipe"); q.add_argument("file")
+    q.add_argument("--recipe", required=True); q.add_argument("--cue", required=True)
+    q.add_argument("--dialogue-cue", action="append", default=[]); q.add_argument("--output", required=True)
     p.set_defaults(fn=cmd_sound)
     p = commands.add_parser("handoff"); subs = p.add_subparsers(dest="action", required=True)
     q = subs.add_parser("validate"); q.add_argument("manifest")

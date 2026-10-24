@@ -1,8 +1,24 @@
 # 素材复用、创作方法与章节衔接
 
-制作前先查已有内容。跨作品素材存在本机 `library/`，原创制作规格存在 [`knowledge/asset-recipes.json`](../../knowledge/asset-recipes.json)，公开创作方法存在 [`knowledge/craft.json`](../../knowledge/craft.json)。作品身份与状态仍由项目资产库、状态时间线和 `vsc.json` 管理。统一检索直接读取四类来源：`library`、`recipes`、`craft`、`projects`，不维护第二份内容索引。
+制作前先查已有内容。数据库工作台的“素材库”提供工作区共享库，传统素材仍可保存在本机 `library/`。原创制作规格存在 [`knowledge/asset-recipes.json`](../../knowledge/asset-recipes.json)，公开创作方法存在 [`knowledge/craft.json`](../../knowledge/craft.json)。作品身份与状态由各项目权威管理。传统统一检索直接读取四类来源：`library`、`recipes`、`craft`、`projects`；数据库共享库使用下述固定版本入口，不把旧 JSON 当作运行镜像。
 
 ## 素材库
+
+数据库共享库可在未选择项目时浏览或导入，选中固定版本后再选择目标项目、对象和用途。加入候选、明确采用和正式生成分别沿原流程；新版本不替换旧项目已固定的媒体。共享使用不复制原字节，也不调用生成供应商。许可不足、缺规格或模态不符时显示具体缺项；纯规格没有图片、声音或视频预览。
+
+维护与自动化继续使用原资源 CLI：
+
+```bash
+.venv/bin/python -B scripts/assets/resources.py library search "雨夜" --limit 24
+.venv/bin/python -B scripts/assets/resources.py library show VERSION_UUID
+.venv/bin/python -B scripts/assets/resources.py library import --payload import.json --by 实际负责人 --confirmed
+.venv/bin/python -B scripts/assets/resources.py library preview-use PROJECT_UUID --payload use.json
+.venv/bin/python -B scripts/assets/resources.py apply PROJECT_UUID use_library --payload use.json --expected-revision 1 --key 本次用途意图 --by 实际负责人
+```
+
+导入清单包含脱敏描述、明确共享许可、用途范围与原 `stage` 返回的受控暂存成员；项目发布使用原 `apply … publish_library`。停用与撤权用 `library retire ENTRY_UUID --payload decision.json --by 实际负责人 --confirmed`，其中决定包含 reason、outcome 和 idempotency_key。现有引用和审计字节保留。
+
+旧库迁移是独立的显式维护操作：`scripts/assets/library.py migrate preview` 只读核清单；有完整许可后再固定摘要导入、比较和切换。未知用途保留原库待核，不自动变成共享媒体。下面的 `add/promote/use` 是传统库路径，完成切换后原写入口会拒绝继续写入。
 
 分类及权属状态唯一声明在 [`workflow/library.json`](../../workflow/library.json)，涵盖人物、服装、动物、道具、交通工具、场景、风格、特效、动作、打斗、表演、运镜、转场、人声、环境声、拟音、音乐、字体、字幕样式和图形。
 
@@ -29,7 +45,7 @@ python3 -B scripts/assets/library.py check
 
 ## 20 类原创制作规格
 
-原生包有 20 条规格，覆盖上文全部 20 类，逐条给出固定项、可变项、输入、制作步骤、验收要求与待制作输出。动作和打斗明确安全拍点、起止姿态、镜头与时长；人声使用固定 speaker 占位，供应商与音色 ID 留空；环境声、拟音、配乐说明循环、对白避让、进出点与权利确认。完整清单、安装及版本规则见[原生制作规格包](asset-recipes.md)。
+原生包有 23 条规格，覆盖上文全部 20 类，逐条给出固定项、可变项、输入、制作步骤、验收要求与待制作输出。动作和打斗明确安全拍点、起止姿态、镜头与时长；人声使用固定 speaker 占位，供应商与音色 ID 留空；环境声、拟音、配乐说明循环、对白避让、进出点与权利确认。完整清单、安装及版本规则见[原生制作规格包](asset-recipes.md)。
 
 ```bash
 python3 -B scripts/knowledge/recipes.py list
@@ -75,7 +91,7 @@ python3 -B scripts/knowledge/search.py "SH-001" --in projects --project projects
 python3 -B scripts/knowledge/search.py "递物" --in library --json
 ```
 
-方法库现有 **34 条方法卡、14 个来源**，涉及镜头、场面调度、表演、剪接、声音、对白与短片写作。方法条目的 `source_basis` 是简要概念依据；`principle`、`steps` 和 `pitfalls` 是 VSC 的应用建议。来源标题、机构、链接和核查日期只保存在方法库的 `sources`，条目通过 ID 引用。资料包括耶鲁电影分析教材、哥伦比亚电影语言词汇表、BFI、BBC 及情绪感知研究；库中只保存自行概括与应用，不收录影片素材或文章全文。公开方法是可查阅的建议；项目内受控能力卡的试用、评测和批准仍按 [记忆与学习](../design/memory-and-learning.md) 执行，不自动装入已批准角色上下文。
+方法库现有 **36 条方法卡、16 个来源**，涉及镜头、场面调度、表演、剪接、声音、对白与短片写作。方法条目的 `source_basis` 是简要概念依据；`principle`、`steps` 和 `pitfalls` 是 VSC 的应用建议。来源标题、机构、链接和核查日期只保存在方法库的 `sources`，条目通过 ID 引用。资料包括耶鲁电影分析教材、哥伦比亚电影语言词汇表、BFI、BBC 及情绪感知研究；库中只保存自行概括与应用，不收录影片素材或文章全文。公开方法是可查阅的建议；项目内受控能力卡的试用、评测和批准仍按 [记忆与学习](../design/memory-and-learning.md) 执行，不自动装入已批准角色上下文。
 
 其中15卡可按需读取六组原创教学，涵盖行动与信息、潜台词与表演、注意力与光线、调度与覆盖、声画节奏、选声与空间。`--with-teaching`返回完整自足章节、适用/不适用例和`teaching_sha256`；无教学卡明确返回null。摘要覆盖卡、所引来源与该章节，改变其中任何内容后旧摘要拒绝，不静默换最新版。每次只选择当前问题需要的方法；超过1600字符软目标仍完整返回，不截断反例。
 

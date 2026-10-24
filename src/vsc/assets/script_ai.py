@@ -24,6 +24,33 @@ SUGGESTION_SCHEMA = {
             "after_value": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}}}}}
 
 
+def note_input_document(document, note):
+    """Fixed single-line task with local context; the run retains the full SHA.
+
+    Context rows are read-only. Registration still merges only the anchored
+    field into the complete draft and rejects every out-of-range result.
+    """
+    scene = next((row for row in document.get('scenes', []) if row.get('id') == note['scene_id']), None)
+    if scene is None:
+        raise ResourceError('批注场次已不存在', 'review_target_stale', 409)
+    target = None
+    selected = {"id": scene['id']}
+    for key in ('actions', 'dialogue', 'silence'):
+        rows = scene.get(key, [])
+        index = next((i for i, row in enumerate(rows) if row.get('id') == note['line_id']), None)
+        if index is not None:
+            target = rows[index]
+            selected[key] = rows[max(0, index - 2):index + 3]
+        elif rows:
+            # Cross-group facts supply bounded nearby action/dialogue context.
+            selected[key] = [{**row, 'text': str(row.get('text', ''))[:2000]} for row in rows[:2]]
+    if target is None:
+        raise ResourceError('批注行已不存在', 'review_target_stale', 409)
+    return {"format": document.get('format', 'vsc.screenplay/v1'), "scenes": [selected],
+            "target_anchor": {"scene_id": note['scene_id'], "line_id": note['line_id'], "allowed_fields": ['text']},
+            "preserve": "保持其余动作、人物、来源、先后与事实。上下文行只读；只返回目标行的必要修改。"}
+
+
 def host_environment(environ=None):
     """Keep CLI subscription login at ~/.grok/auth.json; never pass app secrets."""
     environ = os.environ if environ is None else environ

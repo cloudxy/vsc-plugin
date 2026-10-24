@@ -330,8 +330,14 @@ def adapter_for_job(project, job_id, transport=None):
         raise SeriesError("Grok 订阅路线未接音频适配器")
     if job["provider"] != "volc_ark":
         raise SeriesError("此 Provider 尚无系列任务适配器")
-    from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider
+    from vsc.adapters.providers.volc_ark.provider import (VolcArkAudioProvider, VolcArkImageProvider, VolcArkVideoProvider,
+        VolcAdapterError, reject_unmapped_visual_params)
     defaults = frozen["default_params"]
+    if job['modality'] in {'image','video'}:
+        try:
+            reject_unmapped_visual_params(frozen.get('logical_request', frozen).get('params', {}))
+        except VolcAdapterError as exc:
+            raise SeriesError(str(exc)) from None
     if job["modality"] == "image":
         sizes = defaults.get("size_map", {})
         if not isinstance(sizes, dict):

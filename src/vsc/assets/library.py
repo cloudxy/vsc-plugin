@@ -11,6 +11,7 @@
   use ID --project P [--bible FILE --entity E]  把素材复制进作品 06-素材/素材库/<ID>/；给出资产库时登记为该实体的参考素材，
                                                 人声音色写入音色绑定，字幕样式写入全片字幕样式
   check                                         校验全部条目：字段、文件存在且 SHA-256 一致
+  migrate preview|import|compare|cutover         显式迁移到工作区共享库，原库冻结后只读
 
 素材库默认在工作区根目录 library/（本机内容，不进 Git），可用 --library 或环境变量 VSC_LIBRARY 指向别处。
 每个条目是 library/<种类>/<ID>/item.json（vsc.library-item/v1）及同目录下的文件。授权状态为 unknown 的素材
@@ -134,6 +135,7 @@ def find(root, item_id):
 
 
 def save(folder, item, kinds, rights):
+    assert_writable(Path(folder).parent.parent)
     errors = item_errors(item, kinds, rights)
     if errors:
         raise LibraryError("条目无效：" + "；".join(errors))
@@ -152,12 +154,24 @@ def write_json(path, value):
         tmp.unlink(missing_ok=True)
 
 
+def assert_writable(root):
+    marker = Path(root) / ".vsc-pg-library-migration.json"
+    if marker.is_symlink():
+        raise LibraryError("迁移状态不能是符号链接")
+    if marker.is_file():
+        status = json.loads(marker.read_text("utf-8")).get("status")
+        if status in {"frozen", "cutover"}:
+            raise LibraryError("旧素材库已冻结或切换为只读；请使用共享库的固定版本")
+
+
 @contextlib.contextmanager
-def mutation_lock(root, project=None):
+def mutation_lock(root, project=None, *, allow_migration=False):
     root.mkdir(parents=True, exist_ok=True)
     with (root / ".library.lock").open("a") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
+            if not allow_migration:
+                assert_writable(root)
             if project:
                 # 与项目 CLI 共用锁，但不修改其 vsc.json 或批准记录。
                 with (Path(project) / ".vsc.lock").open("a") as project_handle:
@@ -442,6 +456,7 @@ def check(args):
 
 
 def main(argv=None):
+    from vsc.assets.resource_service import ResourceError
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--library", help="素材库目录，默认 VSC_LIBRARY 或工作区 library/")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -482,9 +497,47 @@ def main(argv=None):
     command.add_argument("--allow-unverified", action="store_true")
     sub.add_parser("check")
     sub.add_parser("validate").add_argument("file")
+    command = sub.add_parser("migrate", help="维护用：显式迁移旧库，不在运行时双写")
+    command.add_argument("action", choices=("preview", "import", "compare", "cutover"))
+    command.add_argument("--permissions", help="逐项固定许可与用途JSON；不推断未知许可")
+    command.add_argument("--inventory-sha", help="导入必须固定预览的inventory_sha256")
+    command.add_argument("--by", help="执行主体；不是创作批准")
+    command.add_argument("--confirmed", action="store_true", help="明确执行所选迁移或切换")
+    command.add_argument("--allow-pending", action="store_true", help="显式保留未迁条目为旧库只读待处理队列")
     args = parser.parse_args(argv)
     try:
-        if args.command == "kinds":
+        if args.command == "migrate":
+            from vsc.assets.library_migration import LegacyLibraryMigration
+            permissions = json.loads(Path(args.permissions).read_text("utf-8")) if args.permissions else None
+            service = None
+            if args.action != "preview":
+                from vsc.bootstrap import service_from_environment
+                service = service_from_environment()
+                if service is None:
+                    raise LibraryError("共享库数据库未配置")
+                service.check_schema()
+            migration = LegacyLibraryMigration(service, library_root(args.library))
+            try:
+                if args.action == "preview":
+                    value = migration.preview(permissions)
+                elif args.action == "compare":
+                    value = migration.compare()
+                else:
+                    if not args.confirmed or not args.by:
+                        raise LibraryError("迁移或切换需要 --confirmed 与 --by")
+                    if args.action == "import":
+                        if not args.inventory_sha:
+                            raise LibraryError("导入需要预览的 --inventory-sha")
+                        value = migration.import_items(args.inventory_sha, actor=args.by, permissions=permissions)
+                    else:
+                        value = migration.cutover(actor=args.by, allow_pending=args.allow_pending)
+                print(json.dumps(value, ensure_ascii=False, indent=2))
+            except ResourceError as exc:
+                raise LibraryError(exc.message) from exc
+            finally:
+                if service is not None:
+                    service.store.close()
+        elif args.command == "kinds":
             kinds, rights = taxonomy()
             for kind in kinds.values():
                 print(f"{kind['group']}  {kind['id']:<15}{kind['label']}：{kind['summary']}")
@@ -514,7 +567,7 @@ def main(argv=None):
             if problems:
                 return 1
             print(f"VALID: 素材库 {count} 个条目")
-    except (LibraryError, ValueError, OSError, KeyError) as exc:
+    except (LibraryError, ResourceError, ValueError, OSError, KeyError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 0

@@ -37,7 +37,9 @@ async function fixture(options = {}) {
   };
   const requests = [], pending = [], notices = [], revisions = [], timers = new Map();
   const pageListeners = new Map();
+  const storage=options.storage || new Map();
   const browserWindow = {
+    sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},
     addEventListener(type, callback) {
       if (!pageListeners.has(type)) pageListeners.set(type, new Set());
       pageListeners.get(type).add(callback);
@@ -93,8 +95,13 @@ async function fixture(options = {}) {
     for (const callback of pageListeners.get('beforeunload') || []) callback(event);
     return event;
   }
+  function note(body='批注内容') {
+    container.querySelector('.line-note').click();
+    const form=container.querySelector('.script-note-composer'),input=form.querySelector('textarea');
+    input.value=body;input.dispatch('input');return form.dispatch('submit');
+  }
   return {ws, container, requests, pending, notices, revisions, timers, boot, respond, takeTimer, input, button, save,
-    payload, autosaves, switchProject, pageListeners, unload, setProject: id => { project = '/api/v1/projects/' + id; }};
+    payload, autosaves, switchProject, pageListeners, unload, note, storage, setProject: id => { project = '/api/v1/projects/' + id; }};
 }
 
 test('switching immediately invalidates old timers while the next project is still loading', async () => {
@@ -166,7 +173,7 @@ for (const operation of ['添加批注', '解决', '忽略', '拒绝']) {
     initial.notes = [{id: 'note-1', scene_id: 'SC1', line_id: 'A1', body: '批注', scope_key: '', status: 'open'}];
     initial.suggestions = [{id: 'suggestion-1', scene_id: 'SC1', line_id: 'A1', status: 'pending', kind: 'action', field: 'text'}];
     await t.boot(initial); const line = await t.input('.line-text', '未保存一');
-    const action = (operation === '添加批注' ? t.container.querySelector('.line-note') : t.button(operation)).click();
+    const action = operation === '添加批注' ? t.note() : t.button(operation).click();
     if (operation === '添加批注') {
       assert.equal(t.requests.some(row => row.url.endsWith('/script-notes')), false);
       assert.equal(t.payload(t.autosaves().at(-1)).content.scenes[0].actions[0].text, '未保存一');
@@ -187,7 +194,7 @@ for (const operation of ['添加批注', '解决', '忽略', '拒绝']) {
 }
 
 test('late note metadata from an old project neither changes the new editor nor its notes', async () => {
-  const t = await fixture(); await t.boot(); const note = t.container.querySelector('.line-note').click();
+  const t = await fixture(); await t.boot(); const note = t.note();
   await tick(); t.respond({revision: 8}); await tick(); t.setProject('B'); const b = t.ws.load();
   t.respond({sections: {children: {items: []}}}, '/B/workbench'); await tick(); t.respond(draft(5), '/B/script-draft'); await b;
   const stale = draft(99); stale.notes = [{id: 'old', body: 'A 批注', status: 'open'}];
@@ -249,17 +256,15 @@ test('new and deleted scene IDs never reuse a previous note anchor', async () =>
   assert.equal(saved.scenes[0].id, 'SC1');
 });
 
-test('episode navigation loads page 101 and clears the selected episode on project change', async () => {
-  const t = await fixture(); const loading = t.ws.load();
-  t.respond({sections: {children: {items: [{id: 'W', kind: 'work', title: '第一部'}]}}}); await tick();
-  t.respond({sections: {children: {items: Array.from({length: 100}, (_, index) => ({id: `EP${index}`, kind: 'episode'})), next_offset: 100}}}); await tick();
-  assert.ok(t.pending[0].url.includes('offset=100'));
-  t.respond({sections: {children: {items: [{id: 'EP100', kind: 'episode'}], next_offset: null}}}); await tick();
-  t.respond(draft()); await loading;
-  const select = t.container.querySelector('.script-scope'); assert.equal(select.children.length, 102);
-  select.value = 'EP100'; const episode = select.dispatch('change'); await tick(); t.respond(draft(), 'scope_key=EP100'); await episode;
+test('explicit episode ancestor wins and the script reader does not download the episode catalogue', async () => {
+  const t = await fixture(); const loading = t.ws.load({objectId:'shot62'});
+  assert.ok(t.pending[0].url.includes('object_id=shot62'));
+  t.respond({ancestors:[{id:'W',kind:'work'},{id:'EP62',kind:'episode',title:'第62集'},{id:'SC62',kind:'scene'}],scope:{id:'shot62',kind:'shot'}});await tick();
+  assert.equal(t.pending.length,1);assert.ok(t.pending[0].url.includes('scope_key=EP62'));
+  t.respond(draft());await loading;
+  const select=t.container.querySelector('.script-scope');assert.equal(select.children.length,2);assert.equal(select.value,'EP62');
   t.setProject('B'); const b = t.ws.load(); t.respond({sections: {children: {items: []}}}, '/B/workbench'); await tick();
-  assert.ok(t.pending[0].url.endsWith('scope_key=')); t.respond(draft(), '/B/script-draft'); await b;
+  assert.equal(new URL(t.pending[0].url,'http://local').searchParams.get('scope_key'),''); t.respond(draft(), '/B/script-draft'); await b;
   assert.equal(t.container.querySelector('.script-scope').value, '');
 });
 
@@ -311,7 +316,7 @@ test('typing while submit freezes A preserves B and its autosave instead of relo
 
 test('notes wait for an in-flight save and their later metadata cannot rewind the saved revision', async () => {
   const t = await fixture(); await t.boot(); await t.input('.line-text', '保存一');
-  const saving = t.takeTimer()(); const noting = t.container.querySelector('.line-note').click();
+  const saving = t.takeTimer()(); const noting = t.note();
   assert.equal(t.requests.some(row => row.url.endsWith('/script-notes')), false);
   t.respond({draft_revision: 2}, '/autosave'); await saving;
   await t.takeTimer()(); await tick();
@@ -339,17 +344,47 @@ test('accepting a suggestion cannot replace edits typed while its request is pen
 
 test('failed autosave prevents a new note from binding the old server draft and retains local text', async () => {
   const t = await fixture(); await t.boot(); const line = await t.input('.line-text', '只在本地的新正文');
-  const noting = t.container.querySelector('.line-note').click();
+  const noting = t.note();
   assert.equal(t.payload(t.autosaves().at(-1)).content.scenes[0].actions[0].text, '只在本地的新正文');
   t.respond({message: 'HTTP 500'}, '/autosave', true); await noting;
   assert.equal(t.requests.some(row => row.url.endsWith('/script-notes')), false);
   assert.equal(t.container.querySelector('.line-text'), line); assert.equal(line.value, '只在本地的新正文');
-  assert.ok(t.notices.some(message => message.includes('不能绑定批注')));
+  assert.ok(t.container.querySelector('.script-note-composer').textContent.includes('意见仍保留'));
+  assert.equal(t.container.querySelector('.script-note-body').value,'批注内容');
+  assert.equal(t.requests.some(row=>row.url.endsWith('/review-process')),false);
+});
+
+test('late explicit object ancestry cannot reopen an old episode or issue its draft read',async()=>{
+  const t=await fixture();const old=t.ws.load({objectId:'old-shot'}),newer=t.ws.load({objectId:'new-shot'});
+  t.respond({ancestors:[{id:'EP-new',kind:'episode',title:'新集'}],scope:{id:'new-shot',kind:'shot'}},'object_id=new-shot');await tick();
+  t.respond(draft(), 'scope_key=EP-new');await newer;
+  t.respond({ancestors:[{id:'EP-old',kind:'episode',title:'旧集'}],scope:{id:'old-shot',kind:'shot'}},'object_id=old-shot');await old;
+  assert.equal(t.container.querySelector('.script-scope').value,'EP-new');assert.equal(t.requests.some(row=>row.url.includes('scope_key=EP-old')),false);
+});
+
+test('failed draft and opinion survive a page instance reload; explicit discard also clears browser recovery',async()=>{
+  const t=await fixture({browserWindow:true});await t.boot();await t.input('.line-text','刷新前未保存正文');
+  const noting=t.note('刷新前尚未提交的原意见');t.respond({message:'offline'},'/autosave',true);await noting;
+  const next=await fixture({browserWindow:true,storage:t.storage});await next.boot();
+  assert.equal(next.container.querySelector('.line-text').value,'刷新前未保存正文');
+  assert.equal(next.container.querySelector('.script-note-body').value,'刷新前尚未提交的原意见');
+  const discard=next.ws.load({discardLocal:true});await tick();next.respond(draft(),'/script-draft?');await discard;
+  assert.equal(next.container.querySelector('.line-text').value,'他停下');
+  assert.equal(Array.from(next.storage.keys()).some(key=>key.startsWith('vsc-script:')),false);
+});
+
+test('notes pagination reads the next bounded page without replacing dirty draft content',async()=>{
+  const t=await fixture(),initial=draft();initial.notes_page={offset:0,next_offset:50};initial.suggestions_page={offset:0,next_offset:null};await t.boot(initial);
+  const line=await t.input('.line-text','分页时未保存的正文');
+  const next=t.container.querySelector('.script-notes').querySelector('.script-pagination').querySelectorAll('button').find(row=>row.textContent==='下一页');const loading=next.click();
+  const request=t.pending.find(row=>row.url.includes('note_offset=50'));assert.ok(request);assert.ok(request.url.includes('limit=50'));
+  const fresh=draft(99);fresh.notes_page={offset:50,next_offset:null};fresh.notes=[{id:'later',scope_key:'',body:'第二页意见',status:'resolved'}];t.respond(fresh,'note_offset=50');await loading;
+  assert.equal(t.container.querySelector('.line-text'),line);assert.equal(line.value,'分页时未保存的正文');assert.ok(t.container.querySelector('.script-notes').textContent.includes('第二页意见'));
 });
 
 test('switching project while saving a note baseline cannot post that note to either project', async () => {
   const t = await fixture(); await t.boot(); await t.input('.line-text', 'A 所见正文');
-  const noting = t.container.querySelector('.line-note').click();
+  const noting = t.note();
   t.setProject('B'); const loading = t.ws.load();
   t.respond({sections: {children: {items: []}}}, '/B/workbench'); await tick();
   t.respond(draft(5), '/B/script-draft'); await loading;

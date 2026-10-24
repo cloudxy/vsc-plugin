@@ -15,6 +15,35 @@ def _text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def validation_errors(plan):
+    """Canonical structure only; evidence/authority remain check and approval."""
+    if not isinstance(plan, dict) or plan.get("format") != "vsc.quality-plan/v1":
+        return ["format 必须为vsc.quality-plan/v1对象"]
+    errors = []
+    if not _text(plan.get("project_id")):
+        errors.append("quality-plan需要project_id")
+    for key in ("requirements", "inputs", "risks", "attempts", "review_reuse"):
+        if key in plan and (not isinstance(plan[key], list) or any(not isinstance(row, dict) for row in plan[key])):
+            errors.append(key + "必须为对象数组")
+    risks = plan.get("risks", [])
+    seen = set()
+    for risk in risks if isinstance(risks, list) else []:
+        if not isinstance(risk, dict):
+            continue
+        if not all(_text(risk.get(field)) for field in ("id", "hypothesis", "stop_condition")):
+            errors.append("风险需要唯一id、hypothesis和stop_condition")
+        elif risk["id"] in seen:
+            errors.append("风险id不能重复")
+        else:
+            seen.add(risk["id"])
+        if "scope" in risk and not _text(risk["scope"]):
+            errors.append("风险scope必须为真实范围标识")
+        if "shot_ids" in risk and (not isinstance(risk["shot_ids"], list) or not risk["shot_ids"]
+                or any(not _text(identifier) for identifier in risk["shot_ids"])):
+            errors.append("风险shot_ids必须为非空镜头标识数组")
+    return errors
+
+
 def _number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
 
@@ -347,7 +376,7 @@ def check(plan, root, *, read_ref=None):
 def main(argv=None):
     from vsc.assets.resource_service import ResourceError
     parser = argparse.ArgumentParser(description="只读检查规格输入覆盖、同类返工及审查复用；不授权生成")
-    parser.add_argument("command", choices=["check", "repair"])
+    parser.add_argument("command", choices=["validate", "check", "repair"])
     parser.add_argument("plan", type=Path)
     parser.add_argument("--root", type=Path, help="证据根目录，默认检查包所在目录")
     parser.add_argument('--project-id')
@@ -355,6 +384,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         plan = json.loads(args.plan.read_text(encoding='utf-8'))
+        if args.command == "validate":
+            problems = validation_errors(plan)
+            print(json.dumps({"format": "vsc.quality-plan-validation/v1", "errors": problems,
+                "structure_valid": not problems, "execution_authorized": False}, ensure_ascii=False))
+            return 2 if problems else 0
         if args.command == 'repair':
             if not args.project_id:
                 raise ValueError('repair 需要 --project-id；影响范围从关系库读取')

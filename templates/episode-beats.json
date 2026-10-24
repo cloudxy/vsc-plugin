@@ -10,7 +10,8 @@
           "change": "请填写行动、信息或感官情绪的变化与关联，不强制反转",
           "screen_unit_ids": [
             "CU-01"
-          ]
+          ],
+          "tension": 3
         }
       ],
       "ending_function": "closure",

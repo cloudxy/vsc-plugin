@@ -52,6 +52,78 @@ class BibleTest(unittest.TestCase):
 
 
 class StateTest(unittest.TestCase):
+    def test_expression_position_and_process_are_validated_and_reach_request_and_observation(self):
+        value, places=state(),bible()
+        character=places['entities'][0]
+        character['expression_baseline']={'description':'relaxed brow', 'reference_sha256':character['references'][0]['sha256']}
+        scene=value['scenes'][0]
+        scene['spatial']={'frame':'floor','unit':'m'}
+        scene['baseline']['entities']['主角'].update(position={'frame':'floor','x':0,'y':0},expression='brow relaxed')
+        scene['baseline']['entities']['信封']['position']={'frame':'floor','x':1,'y':0}
+        shot=scene['shots'][0]
+        shot['in_frame']=['主角','信封']
+        shot['changes']={'entities':{'主角':{'position':{'frame':'floor','x':0.5,'y':0},'expression':'eyes widen'}}}
+        shot['process']={'enabled':True,'fixed_entities':['信封'],'direction':{'frame':'floor','axis':'x','sign':1},
+                         'beats':[{'seconds':0,'action':'prepare'},{'seconds':1,'action':'move and hold'}]}
+        self.assertEqual(C.state_errors(value,places),[])
+        pack=C.anchor_pack(places,value,shot['id'])
+        text=C.anchor_text(pack)
+        self.assertIn('eyes widen',text);self.assertIn('未列入本镜 changes',text)
+        from vsc.adapters.providers.volc_ark.api import checklist
+        observations=checklist(pack,None)
+        self.assertTrue(any('预期人数=1' in x for x in observations))
+        self.assertTrue(any('仅允许变化' in x for x in observations))
+        self.assertTrue(any('eyes widen' in x for x in observations))
+        plan={'shots':[{'id':shot['id'],'entry_state':{'location_id':scene['location_id'],
+              'characters':{'主角':{'expression':'wrong','position':{'frame':'floor','x':4,'y':0}}}}}]}
+        problems,_=C.continuity_problems(plan,C.derive(value),places)
+        self.assertTrue(any('expression' in x for x in problems));self.assertTrue(any('position' in x for x in problems))
+        for kind in ('fixed','direction','order','frame','nan'):
+            bad=copy.deepcopy(value);s=bad['scenes'][0]['shots'][0]
+            if kind=='fixed':s['process']['fixed_entities']=['主角']
+            if kind=='direction':s['process']['direction']['sign']=-1
+            if kind=='order':s['process']['beats'].reverse()
+            if kind=='frame':s['changes']['entities']['主角']['position']['frame']='camera'
+            if kind=='nan':s['changes']['entities']['主角']['position']['x']=float('nan')
+            with self.subTest(kind=kind):self.assertTrue(C.state_errors(bad,places))
+        # Explicitly off never introduces process restrictions into old tasks.
+        shot['process']={'enabled':False}
+        self.assertNotIn('process',C.anchor_pack(places,value,shot['id']))
+        character['expression_baseline']['reference_sha256']='f'*64
+        self.assertTrue(C.bible_errors(places))
+
+    def test_spatial_axis_uses_world_coordinates_and_explicit_mirror_or_crossing(self):
+        value=state();scene=value['scenes'][0]
+        scene['spatial']={'frame':'floor','unit':'m'}
+        scene['baseline']['entities']['主角']['position']={'frame':'floor','x':0,'y':0}
+        scene['baseline']['entities']['信封']['position']={'frame':'floor','x':2,'y':0}
+        cam={'spatial':{'frame':'floor','x':1,'y':-2,'axis':['主角','信封'],'mirrored':False}}
+        scene['shots']=[{'id':'A','camera':copy.deepcopy(cam),'changes':{}},{'id':'B','camera':copy.deepcopy(cam),'changes':{}}]
+        self.assertEqual(C.spatial_problems(C.derive(value)),([],[]))
+        # A reverse angle on the same world side is valid.
+        scene['shots'][1]['camera']['spatial']['x']=3
+        self.assertEqual(C.spatial_problems(C.derive(value)),([],[]))
+        scene['shots'][1]['camera']['spatial']['mirrored']=True
+        errors,warnings=C.spatial_problems(C.derive(value));self.assertEqual(errors,[]);self.assertTrue(warnings)
+        scene['shots'][1]['camera']['spatial']['y']=2
+        self.assertTrue(C.spatial_problems(C.derive(value))[0])
+        scene['shots'][1]['camera']['spatial']['crossing_reason']='visible orbit establishes new side'
+        self.assertEqual(C.spatial_problems(C.derive(value))[0],[])
+        scene['baseline']['entities']['信封']['position']='unknown world coordinates'
+        errors,warnings=C.spatial_problems(C.derive(value));self.assertEqual(errors,[]);self.assertTrue(any('未判定' in w for w in warnings))
+
+    def test_optional_tension_validates_without_claiming_viewer_emotion(self):
+        from vsc.story.script import validation_errors
+        doc={'format':'vsc.episode-beats/v1','episodes':[{'id':'E','ending_function':'closure','ending':'door closes',
+             'beats':[{'id':'B','action':'return key','change':'access lost','screen_unit_ids':['U']}]}]}
+        self.assertEqual(validation_errors(doc),[])
+        beat=doc['episodes'][0]['beats'][0]
+        for v in (0,5.5,10):
+            beat['tension']=v;self.assertEqual(validation_errors(doc),[])
+        for v in (-1,999,True,float('nan'),'5'):
+            beat['tension']=v
+            with self.subTest(value=v):self.assertTrue(validation_errors(doc))
+
     def test_template_is_valid_and_derives_entry_and_exit(self):
         self.assertEqual(C.state_errors(STATE, BIBLE), [])
         derived = C.derive(STATE)

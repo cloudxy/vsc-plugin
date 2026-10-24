@@ -16,6 +16,8 @@ ROOT = repository_root()
 CATALOG = ROOT / "knowledge/asset-recipes.json"
 FORMAT = "vsc.asset-recipes/v1"
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
+# Optional browsing vocabulary; ordinary tags retain their original free text.
+GENRE_TAGS = {'xianxia': '仙侠', 'fantasy': '奇幻', 'modern': '现代', 'historical': '历史'}
 
 
 def strings(value):
@@ -57,6 +59,11 @@ def errors(data):
             problems.append(f"{label}: version 必须是三段数字版本")
         if not strings(recipe.get("tags")):
             problems.append(f"{label}: tags 必须是非空字符串数组")
+        if "genre_tags" in recipe:
+            genres = recipe["genre_tags"]
+            if (not isinstance(genres, list) or any(not isinstance(x, str) or x not in GENRE_TAGS for x in genres)
+                    or len(set(genres)) != len(genres)):
+                problems.append(f"{label}: genre_tags 须为受控且不重复的题材代码，见 recipes.GENRE_TAGS")
         if "craft_refs" in recipe and (not isinstance(recipe["craft_refs"], list) or
                                        not all(isinstance(x, str) and library.SAFE_ID.fullmatch(x) for x in recipe["craft_refs"])):
             problems.append(f"{label}: craft_refs 必须是安全 ID 数组")
@@ -70,6 +77,33 @@ def errors(data):
         for key in ("fixed", "variable", "inputs", "procedure", "acceptance", "deliverables"):
             if not strings(spec.get(key)):
                 problems.append(f"{label}: spec.{key} 必须是非空字符串数组")
+        for key in ('execution', 'vfx_execution'):
+            if key in spec:
+                from vsc.production.performance import execution_problems
+                execution = spec[key]
+                if not isinstance(execution, dict):
+                    problems.append(f"{label}: spec.{key} 必须为专业执行对象")
+                else:
+                    problems.extend(label + ': ' + error for error in execution_problems(execution.get('domain'), execution.get('parameters')))
+        if 'sound_intent' in spec or 'ducking' in spec:
+            from vsc.post.sound_rules import extra_cue_errors, ducking_errors
+            if kind != 'music':
+                problems.append(label + ': sound_intent/ducking 当前仅由music Cue消费')
+            if 'sound_intent' in spec:
+                intent = spec['sound_intent']
+                if (not isinstance(intent, dict) or not intent
+                        or set(intent) - {'bpm', 'dynamics', 'instrumentation'}):
+                    problems.append(label + ': sound_intent 须为可选BPM/力度/乐器的设计意图对象')
+                else:
+                    problems.extend(label + ': ' + error for error in extra_cue_errors(
+                        {'duration_ms': 1, 'music_cues': [dict(intent, id='recipe')], 'dialogue_cues': []}))
+            if 'ducking' in spec:
+                # No Cue graph exists in a reusable specification. The same
+                # helper checks shape here; the real sound plan checks IDs.
+                problems.extend(label + ': ' + error for error in ducking_errors(spec['ducking']))
+        if 'creative_rules_example' in spec:
+            from vsc.project.creative_rules import rule_errors
+            problems.extend(label + ': ' + error for error in rule_errors(spec['creative_rules_example']))
         required = []
         if kind in ("motion", "fight", "performance", "camera_move", "transition"):
             required += ["entry_state", "exit_state", "camera", "duration", "beats"]
@@ -107,15 +141,19 @@ def load(path=CATALOG):
 def fields(recipe):
     kinds, _ = library.taxonomy()
     return [(4, recipe["id"]), (4, recipe["name"]), (3, " ".join(recipe["tags"])),
+            (3, " ".join(code + ' ' + GENRE_TAGS[code] for code in recipe.get('genre_tags', []))),
             (2, recipe["summary"]), (2, kinds[recipe["kind"]]["label"]), (1, vsc_search.flatten(recipe["spec"]))]
 
 
 def attributes(recipe):
     digest = hashlib.sha256(json.dumps(recipe, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-    return {"asset_type": "specification", "is_media": False, "requires_human_selection": True,
+    result = {"asset_type": "specification", "is_media": False, "requires_human_selection": True,
             "recipe": {"id": recipe["id"], "version": recipe["version"], "sha256": digest},
             "spec": recipe["spec"], "craft_refs": recipe.get("craft_refs", []),
             "rights_scope": "specification_only"}
+    if 'genre_tags' in recipe:
+        result['genre_tags'] = list(recipe['genre_tags'])
+    return result
 
 
 def install(recipes, root):
@@ -171,6 +209,7 @@ def main(argv=None):
         if name == "search":
             command.add_argument("query", nargs="*")
         command.add_argument("--kind")
+        command.add_argument("--genre", choices=tuple(GENRE_TAGS), help="可选受控题材；不限制普通 tags")
         command.add_argument("--limit", type=int, default=100)
         command.add_argument("--json", action="store_true")
     sub.add_parser("show").add_argument("id")
@@ -200,7 +239,8 @@ def main(argv=None):
                 raise ValueError("--limit 必须大于 0")
             if args.kind and args.kind not in library.taxonomy()[0]:
                 raise ValueError(f"未知种类 {args.kind}")
-            selected = [x for x in recipes if not args.kind or x["kind"] == args.kind]
+            selected = [x for x in recipes if (not args.kind or x["kind"] == args.kind)
+                        and (not args.genre or args.genre in x.get('genre_tags', []))]
             found = vsc_search.rank(selected, " ".join(getattr(args, "query", [])), fields, args.limit)
             if args.json:
                 print(json.dumps([{"score": score, **recipe} for score, recipe in found], ensure_ascii=False, indent=2))

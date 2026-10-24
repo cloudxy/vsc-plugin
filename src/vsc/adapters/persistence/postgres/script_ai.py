@@ -84,6 +84,7 @@ class ScriptSuggestionRepository:
                 raise ResourceError("建议目标须为不超过2000字符的文字", "invalid_payload")
             identifier = new_id()
             response_id = None
+            input_document = row['content']
             if payload.get("script_note_id"):
                 from .review_store import ReviewRepository
                 reviews = ReviewRepository(self)
@@ -105,9 +106,11 @@ class ScriptSuggestionRepository:
                 goal = note["body"] + "\n仅返回这行的一条局部建议，不列多个替代方案；保持其余行动、对白和事实。目标：" + str(note["scene_id"]) + "/" + str(note["line_id"])
                 response_id = reviews.response(conn, project["id"], payload, "script_suggestions", kw["actor"],
                     limitations="生成建议不解决批注；请比较原文和差异后接受或拒绝。")
+                from vsc.assets.script_ai import note_input_document
+                input_document = note_input_document(row['content'], note)
             conn.execute(insert(S.script_suggestion_runs).values(project_id=project["id"], id=identifier,
                 draft_id=row["id"], scope_key=scope, base_draft_revision=row["draft_revision"],
-                base_content_sha256=sha, input_document=row["content"], goal=goal,
+                base_content_sha256=sha, input_document=input_document, goal=goal,
                 backend=backend, status="running"))
             if response_id:
                 conn.execute(insert(S.review_script_runs).values(project_id=project["id"], response_id=response_id, run_id=identifier))

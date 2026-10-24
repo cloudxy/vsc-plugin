@@ -42,6 +42,12 @@ def validation_errors(data):
         errors.append('phase 必须为asset、production或trial')
     from vsc.production.run_trial import validation_errors as trial_validation
     errors.extend(trial_validation(data))
+    if 'generation_quote' in data:
+        from vsc.production.quotes import quote_errors
+        errors.extend(quote_errors(data['generation_quote']))
+    if 'quote_policy' in data:
+        from vsc.production.quotes import quote_policy_errors
+        errors.extend(quote_policy_errors(data['quote_policy']))
     if 'quality_plan' in data and (not isinstance(data['quality_plan'], dict)
             or not all(data['quality_plan'].get(key) for key in ('path', 'sha256'))):
         errors.append('quality_plan 必须固定 path / sha256')

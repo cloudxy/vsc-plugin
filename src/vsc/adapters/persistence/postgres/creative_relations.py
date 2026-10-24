@@ -131,7 +131,7 @@ def project_relations(store, conn, project_id, artifact_id, document, dependency
         key = required(item,'key')
         domain = required(item,'domain')
         if domain in {'combat','dance','vfx','voice'}:
-            from vsc.production.performance import execution_problems
+            from vsc.production.performance import execution_problems, participant_problems
             errors = execution_problems(domain,item.get('parameters'))
             method = ref(S.artifact_versions,required(item,'method_artifact_id'))
             fixed_method = store._one(conn,S.artifact_versions,p,method)
@@ -157,8 +157,21 @@ def project_relations(store, conn, project_id, artifact_id, document, dependency
             materials = {x.get('role') for x in item.get('materials',[])}
             if domain=='combat':
                 if len(item.get('participants',[]))<2:errors.append('交互动作须明确至少两个参与实例')
-                for phase in item.get('parameters',{}).get('phases',[]):
-                    if phase.get('actor_role') not in roles or phase.get('counterpart_role') not in roles:errors.append('动作双方须引用已登记参与者role')
+                parameters = item.get('parameters', {})
+                if isinstance(parameters, dict) and 'chain' in parameters and not errors:
+                    # Resolve through the existing project/dependency boundary. Node
+                    # roles alone cannot identify two people with the same duty.
+                    participants = [dict(instance=instance(required(row, 'instance')),
+                                         role=required(row, 'role')) for row in item.get('participants', [])]
+                    for participant in participants:
+                        participant['identity'] = store._one(conn, S.asset_use_instances, p, participant['instance'])['asset_id']
+                    resolved = dict(parameters, chain=[dict(node,
+                        actor_instance=instance(node['actor_instance']),
+                        counterpart_instance=instance(node['counterpart_instance'])) for node in parameters['chain']])
+                    errors.extend(participant_problems(domain, resolved, participants))
+                elif isinstance(parameters, dict):
+                    for phase in parameters.get('phases',[]):
+                        if isinstance(phase, dict) and (phase.get('actor_role') not in roles or phase.get('counterpart_role') not in roles):errors.append('动作双方须引用已登记参与者role')
             if domain=='dance' and 'music' not in materials:errors.append('舞蹈须固定music素材关系')
             if domain=='vfx' and not {'caster','target'}<=roles:errors.append('特效须明确caster/target实例')
             if domain=='vfx':

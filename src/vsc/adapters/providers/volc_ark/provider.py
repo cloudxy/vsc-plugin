@@ -29,6 +29,18 @@ class VolcAdapterError(ValueError):
     pass
 
 
+def reject_unmapped_visual_params(params):
+    """Typed request fields and frozen defaults own current visual controls.
+
+    These adapters map no logical params keys. Refuse a weakened request before
+    transport rather than silently discarding an unimplemented control.
+    """
+    if not isinstance(params, dict):
+        raise VolcAdapterError('方舟图像/视频 params 必须为对象')
+    if params:
+        raise VolcAdapterError('方舟图像/视频未实现这些逻辑参数映射，禁止静默忽略：' + ','.join(sorted(str(key) for key in params)))
+
+
 def audio_request_payload(prompt, speaker, defaults):
     """Compile the effective Agent Plan TTS request without contacting it."""
     payload = {"req_params": {"text": prompt, "speaker": speaker,
@@ -48,7 +60,12 @@ class VolcArkImageProvider:
         self.size_for = size_for
         self.transport = transport or volc_ark.call
 
+    def preflight(self, req: ImageRequest = None):
+        if req is not None:
+            reject_unmapped_visual_params(req.params)
+
     def submit(self, req: ImageRequest) -> JobHandle:
+        self.preflight(req)
         if req.width < 1 or req.height < 1 or not req.prompt.strip():
             raise VolcAdapterError("图像规格缺宽高或提示词")
         size = self.size_for(req.width, req.height)
@@ -103,7 +120,12 @@ class VolcArkVideoProvider:
         self.generate_audio = generate_audio
         self.transport = transport or volc_ark.call
 
+    def preflight(self, req: VideoRequest = None):
+        if req is not None:
+            reject_unmapped_visual_params(req.params)
+
     def submit(self, req: VideoRequest) -> JobHandle:
+        self.preflight(req)
         if req.duration_ms < 1000 or req.duration_ms % 1000 or not req.prompt.strip():
             raise VolcAdapterError("方舟视频时长须为整秒且提示词非空")
         first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None

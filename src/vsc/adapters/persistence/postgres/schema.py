@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0012_assisted_workflow"
+SCHEMA_REVISION = "0013_shared_library"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -232,9 +232,70 @@ media_recycle_actions = project_table("media_recycle_actions",
     UniqueConstraint("project_id", "decision_id"),
     ForeignKeyConstraint(["project_id", "media_id", "decision_id"],
         ["media_lifecycle_decisions.project_id", "media_lifecycle_decisions.media_id", "media_lifecycle_decisions.id"]))
+# A library identity is workspace-visible; immutable versions own global blobs,
+# never a source project's media registration or creative approval.
+library_entries = Table("library_entries", metadata, uid(primary_key=True),
+    Column("library_key", Text, nullable=False, unique=True),
+    Column("category", Text, nullable=False), Column("title", Text, nullable=False),
+    Column("visibility", Text, nullable=False, server_default="workspace"),
+    Column("status", Text, nullable=False, server_default="active"),
+    Column("rights_status", Text, nullable=False, server_default="active"),
+    uid("current_version_id", nullable=True), Column("created_by", Text, nullable=False), stamp(),
+    CheckConstraint("visibility = 'workspace'", name="visibility"),
+    CheckConstraint("status IN ('active','retired')", name="status"),
+    CheckConstraint("rights_status IN ('active','revoked')", name="rights_status"))
+library_entry_versions = Table("library_entry_versions", metadata, uid(primary_key=True),
+    uid("entry_id", nullable=False), Column("version", Integer, nullable=False),
+    Column("title", Text, nullable=False), Column("category", Text, nullable=False),
+    Column("description", Text, nullable=False), Column("specification", JSONB, nullable=False),
+    Column("member_count", Integer, nullable=False),
+    Column("sha256", String(64), nullable=False), Column("import_key", Text, unique=True),
+    Column("request_sha256", String(64), nullable=False),
+    Column("license", JSONB, nullable=False), Column("allowed_purposes", JSONB, nullable=False),
+    Column("expires_at", DateTime(timezone=True)), Column("published_by", Text, nullable=False), stamp(),
+    ForeignKeyConstraint(["entry_id"], ["library_entries.id"], ondelete="RESTRICT"),
+    UniqueConstraint("entry_id", "version"), UniqueConstraint("entry_id", "id"),
+    CheckConstraint("version > 0", name="version"),
+    CheckConstraint("member_count >= 0 AND member_count <= 32", name="member_count"),
+    CheckConstraint("jsonb_typeof(allowed_purposes) = 'array'", name="allowed_purposes"))
+library_entries.append_constraint(ForeignKeyConstraint(["id", "current_version_id"],
+    ["library_entry_versions.entry_id", "library_entry_versions.id"],
+    name="fk_library_entries_current_version", use_alter=True, ondelete="RESTRICT"))
+library_version_media = Table("library_version_media", metadata,
+    uid("library_version_id", nullable=False), Column("member_key", Text, nullable=False),
+    uid("blob_id", nullable=False), Column("modality", Text, nullable=False),
+    Column("role", Text, nullable=False), Column("ordinal", Integer, nullable=False),
+    PrimaryKeyConstraint("library_version_id", "member_key"),
+    ForeignKeyConstraint(["library_version_id"], ["library_entry_versions.id"], ondelete="RESTRICT"),
+    ForeignKeyConstraint(["blob_id"], ["media_blobs.id"], ondelete="RESTRICT"),
+    UniqueConstraint("library_version_id", "member_key", "blob_id"),
+    UniqueConstraint("library_version_id", "ordinal"),
+    CheckConstraint("ordinal >= 0", name="ordinal"),
+    CheckConstraint("modality IN ('image','video','audio','text','document','other')", name="modality"))
+library_entry_decisions = Table("library_entry_decisions", metadata, uid(primary_key=True),
+    uid("entry_id", nullable=False), Column("outcome", Text, nullable=False),
+    Column("reason", Text, nullable=False), Column("actor", Text, nullable=False),
+    Column("idempotency_key", Text, nullable=False), Column("request_sha256", String(64), nullable=False), stamp(),
+    ForeignKeyConstraint(["entry_id"], ["library_entries.id"], ondelete="RESTRICT"),
+    UniqueConstraint("entry_id", "idempotency_key"),
+    CheckConstraint("outcome IN ('retire','revoke_rights')", name="outcome"))
 library_reuses = project_table("library_reuses", *ref("media_items", "media_id"),
     *ref("source_versions", "source_id"), Column("library_key", Text, nullable=False),
-    Column("library_version", Text, nullable=False), Column("reuse_mode", Text, nullable=False), stamp())
+    Column("library_version", Text, nullable=False), Column("reuse_mode", Text, nullable=False),
+    uid("library_version_id", nullable=True), Column("member_key", Text), uid("blob_id", nullable=True),
+    *ref("rights_decisions", "rights_decision_id", nullable=True), stamp(),
+    ForeignKeyConstraint(["library_version_id", "member_key", "blob_id"],
+        ["library_version_media.library_version_id", "library_version_media.member_key", "library_version_media.blob_id"]),
+    ForeignKeyConstraint(["project_id", "media_id", "blob_id"],
+        ["media_items.project_id", "media_items.id", "media_items.blob_id"]),
+    CheckConstraint("(library_version_id IS NULL AND member_key IS NULL AND blob_id IS NULL AND rights_decision_id IS NULL) OR "
+        "(library_version_id IS NOT NULL AND member_key IS NOT NULL AND blob_id IS NOT NULL AND rights_decision_id IS NOT NULL "
+        "AND reuse_mode IN ('publish','reference','derive'))", name="fixed_library_reference"))
+Index("ix_library_entries_browse", library_entries.c.visibility, library_entries.c.status, library_entries.c.category)
+Index("ix_library_versions_entry", library_entry_versions.c.entry_id, library_entry_versions.c.version)
+Index("ix_library_version_media_blob", library_version_media.c.blob_id)
+Index("ix_library_reuses_fixed_member", library_reuses.c.library_version_id,
+      library_reuses.c.member_key, library_reuses.c.reuse_mode)
 media_checks = project_table("media_checks", *ref("media_items", "media_id"),
     Column("blob_id", UUID(as_uuid=False), nullable=False), Column("blob_sha256", String(64), nullable=False),
     Column("checker", Text, nullable=False), Column("criteria_version", Text, nullable=False),
@@ -1025,6 +1086,7 @@ for _name in (*EDIT_PREVIEW_TABLES, "media_recycle_actions"):
             Index("ix_%s_project_%s" % (_name, _col.name), metadata.tables[_name].c.project_id, _col)
 
 APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
+    "library_entry_versions", "library_version_media", "library_entry_decisions",
     "render_caption_inputs", "edit_preview_inputs", "edit_preview_outputs", "media_recycle_actions",
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
     "provider_configurations",

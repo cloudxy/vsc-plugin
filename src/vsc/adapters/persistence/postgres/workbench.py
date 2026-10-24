@@ -1,7 +1,7 @@
 """Bounded creative workspace queries using one read-only database snapshot."""
 from sqlalchemy import text
 from .values import checked_id, clean
-from vsc.assets.resource_service import Conflict, NotFound
+from vsc.assets.resource_service import Conflict, NotFound, ResourceError
 
 HIERARCHY = ' UNION ALL '.join('SELECT id,parent_id,ordinal FROM '+t+' WHERE project_id=:p' for t in ('episodes','scenes','sequences','shots'))
 CTE = '''WITH RECURSIVE hierarchy AS ('''+HIERARCHY+'''),
@@ -29,11 +29,12 @@ QUERIES = {
 'children': '''SELECT o.id,o.kind,o.display_code,o.title,coalesce(h.ordinal,w.ordinal,0) ordinal,h.parent_id
  FROM creative_objects o LEFT JOIN hierarchy h ON h.id=o.id LEFT JOIN works w ON w.project_id=o.project_id AND w.id=o.id
  WHERE o.project_id=:p AND ((CAST(:scope AS uuid) IS NULL AND (o.kind='work' OR o.kind='asset')) OR h.parent_id=CAST(:scope AS uuid))''',
-'shots': '''SELECT o.id,o.id shot_id,o.title,o.display_code,'shot' kind,s.ordinal,s.parent_id sequence_id,q.parent_id scene_id,
+'shots': '''SELECT o.id,o.id shot_id,o.title,o.display_code,'shot' kind,s.ordinal,s.parent_id sequence_id,q.parent_id scene_id,sc.title scene_title,sc.display_code scene_code,
  s.duration_ms,(SELECT count(*) FROM shot_line_coverage c WHERE c.project_id=:p AND c.shot_id=s.id) coverage_count,
  (SELECT count(*) FROM binding_slots b WHERE b.project_id=:p AND b.target_object_id=s.id) slot_count,
  (SELECT count(*) FROM current_bindings c JOIN binding_slots b ON b.project_id=c.project_id AND b.id=c.slot_id WHERE c.project_id=:p AND b.target_object_id=s.id) selected_count
  FROM shots s JOIN creative_objects o ON o.project_id=s.project_id AND o.id=s.id JOIN sequences q ON q.project_id=s.project_id AND q.id=s.parent_id
+ JOIN creative_objects sc ON sc.project_id=s.project_id AND sc.id=q.parent_id
  WHERE s.project_id=:p AND s.id IN (SELECT id FROM scope_ids)''',
 'lines': '''SELECT l.id,l.id line_id,l.script_version_id artifact_id,l.scene_id,l.speaker_id asset_id,l.line_key title,
  l.line_kind kind,left(l.text,2000) text,l.text search_text,length(l.text) text_length,length(l.text)>2000 text_truncated,l.ordinal,l.source_sha256,
@@ -81,7 +82,7 @@ QUERIES = {
  LEFT JOIN LATERAL(SELECT outcome FROM artifact_decisions d WHERE d.project_id=a.project_id AND d.artifact_id=a.id ORDER BY decision_sequence DESC LIMIT 1) d ON true
  WHERE a.project_id=:p AND a.id IN (SELECT id FROM scoped_versions)''',
 # Relationship rows are separately pageable so large M:N lists never hide in an unbounded card.
-'candidates': '''SELECT c.id,c.slot_id,c.media_id,c.spec_version_id artifact_id,s.target_object_id object_id,s.role purpose,m.name title,m.modality kind,CASE WHEN cb.candidate_id=c.id THEN 'selected' WHEN d.outcome='reject' THEN 'rejected' ELSE 'candidate' END status FROM binding_candidates c JOIN binding_slots s ON s.project_id=c.project_id AND s.id=c.slot_id JOIN media_items m ON m.project_id=c.project_id AND m.id=c.media_id LEFT JOIN current_bindings cb ON cb.project_id=c.project_id AND cb.slot_id=c.slot_id LEFT JOIN LATERAL(SELECT outcome FROM binding_decisions x WHERE x.project_id=c.project_id AND x.candidate_id=c.id ORDER BY decision_sequence DESC LIMIT 1) d ON true WHERE c.project_id=:p AND c.slot_id IN (SELECT id FROM scoped_slots)''',
+'candidates': '''SELECT c.id,c.slot_id,c.media_id,c.spec_version_id artifact_id,s.target_object_id object_id,o.title target_title,s.role purpose,m.name title,m.modality kind,CASE WHEN cb.candidate_id=c.id THEN 'selected' WHEN d.outcome='reject' THEN 'rejected' ELSE 'candidate' END status FROM binding_candidates c JOIN binding_slots s ON s.project_id=c.project_id AND s.id=c.slot_id JOIN creative_objects o ON o.project_id=s.project_id AND o.id=s.target_object_id JOIN media_items m ON m.project_id=c.project_id AND m.id=c.media_id LEFT JOIN current_bindings cb ON cb.project_id=c.project_id AND cb.slot_id=c.slot_id LEFT JOIN LATERAL(SELECT outcome FROM binding_decisions x WHERE x.project_id=c.project_id AND x.candidate_id=c.id ORDER BY decision_sequence DESC LIMIT 1) d ON true WHERE c.project_id=:p AND c.slot_id IN (SELECT id FROM scoped_slots)''',
 'coverage': '''SELECT c.id,c.coverage_version_id artifact_id,c.shot_id,c.line_id,c.start_char,c.end_char,'coverage' kind,'剧本覆盖' title FROM shot_line_coverage c WHERE c.project_id=:p AND (CAST(:scope AS uuid) IS NULL OR c.shot_id IN (SELECT id FROM scope_ids))''',
 'states': '''SELECT s.id,s.artifact_id,s.scene_id,s.shot_id,s.location_id asset_id,s.source_sha256,'state' kind,'场镜状态' title FROM state_versions s WHERE s.project_id=:p AND (CAST(:scope AS uuid) IS NULL OR s.shot_id IN (SELECT id FROM scope_ids) OR (s.shot_id IS NULL AND (s.scene_id IN (SELECT id FROM scope_ids) OR s.scene_id IN (SELECT parent_id FROM ancestors))))''',
 'voices': '''SELECT b.id,b.character_id asset_id,b.voice_spec_id,b.scope_version_id artifact_id,v.voice_id,v.reference_media_id media_id,'voice' kind,o.title
@@ -156,7 +157,55 @@ QUERIES['timeline_media'] = """SELECT m.id,m.media_id,m.item_id,m.binding_decisi
  JOIN timeline_versions v ON v.project_id=t.project_id AND v.id=t.timeline_id JOIN media_items i ON i.project_id=m.project_id AND i.id=m.media_id
  WHERE m.project_id=:p AND (CAST(:scope AS uuid) IS NULL OR t.shot_id IN (SELECT id FROM scope_ids) OR EXISTS(SELECT 1 FROM cue_timeline_items c WHERE c.project_id=:p AND c.item_id=t.id AND c.cue_id IN (SELECT id FROM scoped_cues)))"""
 
+QUERIES['renders'] = """SELECT o.id,o.media_id,r.id render_id,r.timeline_id,r.artifact_id,t.episode_id,
+ m.name title,m.modality kind,o.role purpose,b.sha256,t.fps_num,t.fps_den,r.created_at,
+ CASE WHEN ca.artifact_id IS NOT NULL THEN 'current' ELSE 'historical' END status
+ FROM render_outputs o JOIN render_versions r ON r.project_id=o.project_id AND r.id=o.render_id
+ JOIN timeline_versions t ON t.project_id=r.project_id AND t.id=r.timeline_id
+ JOIN media_items m ON m.project_id=o.project_id AND m.id=o.media_id JOIN media_blobs b ON b.id=m.blob_id
+ LEFT JOIN current_artifact_versions ca ON ca.project_id=r.project_id AND ca.artifact_id=r.artifact_id
+ WHERE o.project_id=:p AND o.role='delivery' AND (CAST(:scope AS uuid) IS NULL
+ OR t.episode_id IN (SELECT id FROM scope_ids) OR t.episode_id IN (SELECT parent_id FROM ancestors)
+ OR EXISTS(SELECT 1 FROM timeline_items i WHERE i.project_id=:p AND i.timeline_id=t.id AND i.shot_id IN (SELECT id FROM scope_ids)))"""
 OVERVIEW = ('script_status','children','shots','lines','assets','instances','cues','performances','bindings','materials','versions','jobs')
+
+
+def render_position(store, project_id, render_id, time_ms):
+    """Locate against the frozen timeline and embedded subtitle snapshots only."""
+    import json
+    from sqlalchemy import select, func
+    from . import schema as S
+    if type(time_ms) is not int or time_ms < 0:
+        raise ResourceError('时码须为非负整数毫秒', 'invalid_render_time')
+    p=checked_id(project_id)
+    with store.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn, conn.begin():
+        conn.execute(text('SET TRANSACTION READ ONLY'))
+        project=store._project(conn,p)
+        render=store._one(conn,S.render_versions,p,render_id)
+        timeline=store._one(conn,S.timeline_versions,p,render['timeline_id'])
+        duration=conn.execute(select(func.max(S.timeline_items.c.offset_frame+S.timeline_items.c.duration_frames)).where(
+            S.timeline_items.c.project_id==p,S.timeline_items.c.timeline_id==timeline['id'])).scalar_one() or 0
+        frame=time_ms*timeline['fps_num']//(timeline['fps_den']*1000)
+        if not duration or frame>duration:
+            raise ResourceError('时码超出固定成片的时间线范围', 'invalid_render_time')
+        frame=min(frame,duration-1)
+        rows=list(conn.execute(select(S.timeline_items.c.id,S.timeline_items.c.shot_id,S.timeline_items.c.track_key,
+            S.timeline_items.c.offset_frame,S.timeline_items.c.duration_frames,S.creative_objects.c.title,S.creative_objects.c.display_code)
+            .outerjoin(S.creative_objects,(S.creative_objects.c.project_id==p)&(S.creative_objects.c.id==S.timeline_items.c.shot_id)).where(
+                S.timeline_items.c.project_id==p,S.timeline_items.c.timeline_id==timeline['id'],
+                S.timeline_items.c.offset_frame<=frame,S.timeline_items.c.offset_frame+S.timeline_items.c.duration_frames>frame)
+            .order_by(S.timeline_items.c.track_key,S.timeline_items.c.ordinal,S.timeline_items.c.id).limit(51)).mappings())
+        artifact=store._one(conn,S.artifact_versions,p,render['artifact_id'])
+        document=json.loads(artifact['document'])
+        from vsc.post import remotion_plan as RP
+        plan=RP.render_plan(document)
+        package=(plan.get('subtitle_package') or {}) if isinstance(plan,dict) else {}
+        line_ids={cue.get('line_id') for cue in package.get('cues',[]) if cue.get('start_ms',0)<=time_ms<cue.get('end_ms',0)}
+        lines=[row for row in package.get('lines',[]) if row.get('id') in line_ids]
+        return clean({'project_id':p,'revision':project['revision'],'render_id':render['id'],'timeline_id':timeline['id'],
+            'artifact_id':artifact['id'],'artifact_sha256':artifact['sha256'],'time_ms':time_ms,'frame':frame,
+            'items':rows[:50],'truncated':len(rows)>50,'lines':lines[:50],
+            'line_message':None if lines else '此时码没有已固定的台词快照；可定位镜头，未从当前稿猜测旧成片台词。'})
 
 
 def query_workbench(store,project_id,*,object_id=None,section='overview',query='',limit=24,offset=0,revision=None,

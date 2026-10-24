@@ -23,7 +23,39 @@
       "entry": "环境底保留，低频 pad 在画外淡入。",
       "exit": "在下一场动作前保留可延续的低音尾部。",
       "usage_rights": "licensed",
-      "stems": ["低频 pad", "脉冲节奏"]
+      "stems": [
+        "低频 pad",
+        "脉冲节奏"
+      ],
+      "bpm": 72,
+      "dynamics": "p",
+      "instrumentation": [
+        "低频合成器"
+      ]
+    }
+  ],
+  "sfx_cues": [
+    {
+      "id": "SFX-001",
+      "start_ms": 5200,
+      "end_ms": 5500,
+      "purpose": "信封落在桌上的一次近景拟音",
+      "usage_rights": "owned",
+      "spec_ref": {
+        "id": "replace-fixed-sfx-spec-version",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "source_ref": {
+        "id": "replace-fixed-source-evidence-version",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "id": "QUIET-001",
+      "start_ms": 5500,
+      "end_ms": 5800,
+      "purpose": "留白承接人物抬头，此段不另叠加音效",
+      "silence": true
     }
   ],
   "boundaries": [

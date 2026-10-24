@@ -5,6 +5,7 @@
 | 表 | 一行的键／粒度 | 关系外键 |
 | --- | --- | --- |
 | asset_categories | code | parent_code → asset_categories |
+| library_entries | id | id,current_version_id → library_entry_versions |
 | media_blobs | id |  |
 | projects | id |  |
 | providers | id |  |
@@ -13,6 +14,8 @@
 | budget_limit_versions | project_id, revision, unit | project_id → projects |
 | command_receipts | project_id, idempotency_key | project_id → projects |
 | creative_objects | project_id, id | project_id → projects |
+| library_entry_decisions | id | entry_id → library_entries |
+| library_entry_versions | id | entry_id → library_entries |
 | media_items | project_id, id | blob_id → media_blobs; project_id → projects |
 | media_operations | project_id, id | project_id → projects |
 | parse_jobs | project_id, id | project_id → projects |
@@ -25,7 +28,7 @@
 | artifact_dependencies | project_id, artifact_id, dependency_id | project_id,artifact_id → artifact_versions; project_id,dependency_id → artifact_versions |
 | artifact_object_scopes | project_id, artifact_id, object_id | project_id,artifact_id → artifact_versions; project_id,object_id → creative_objects |
 | asset_identities | project_id, id | project_id → projects; project_id,id,object_kind → creative_objects |
-| library_reuses | project_id, id | project_id → projects; project_id,media_id → media_items; project_id,source_id → source_versions |
+| library_version_media | library_version_id, member_key | blob_id → media_blobs; library_version_id → library_entry_versions |
 | media_category_links | project_id, media_id, category_code | category_code → asset_categories; project_id,media_id → media_items |
 | media_checks | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,media_id → media_items; project_id,media_id,blob_id → media_items; project_id,project_revision → project_revisions |
 | media_lifecycle_decisions | project_id, id | project_id → projects; project_id,media_id → media_items |
@@ -54,6 +57,8 @@
 | dispatch_sources | project_id, dispatch_id, source_id | project_id,dispatch_id → role_dispatches; project_id,source_id → source_versions |
 | episodes | project_id, id | project_id → projects; project_id,id,object_kind → creative_objects; project_id,parent_id → works |
 | identity_category_links | project_id, asset_id, category_code | category_code → asset_categories; project_id,asset_id → asset_identities |
+| library_reuses | project_id, id | library_version_id,member_key,blob_id → library_version_media; project_id → projects; project_id,media_id → media_items; project_id,media_id,blob_id → media_items; project_id,rights_decision_id → rights_decisions; project_id,source_id → source_versions |
+| media_recycle_actions | project_id, id | project_id → projects; project_id,decision_id → media_lifecycle_decisions; project_id,media_id → media_items; project_id,media_id,decision_id → media_lifecycle_decisions |
 | role_memories | project_id, id | project_id → projects; project_id,producer_dispatch_id → role_dispatches; project_id,scope_object_id → creative_objects |
 | script_note_anchors | project_id, note_id | project_id,note_id → script_notes |
 | script_note_decisions | project_id, id | project_id → projects; project_id,note_id → script_notes |
@@ -79,6 +84,7 @@
 | shot_design_units | project_id, id | project_id → projects; project_id,artifact_id → artifact_versions; project_id,artifact_id,source_sha256 → artifact_versions; project_id,scene_id → scenes |
 | dispatch_memory_refs | project_id, dispatch_id, memory_version_id | project_id,decision_id,memory_version_id → role_memory_decisions; project_id,dispatch_id → role_dispatches; project_id,memory_version_id → role_memory_versions |
 | execution_instances | project_id, id | project_id → projects; project_id,artifact_id → artifact_versions; project_id,line_id → script_lines; project_id,method_artifact_id → artifact_versions; project_id,voice_spec_id → voice_spec_versions |
+| render_caption_inputs | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,media_id → media_items; project_id,media_id,blob_id → media_items; project_id,render_id → render_versions |
 | render_outputs | project_id, id | project_id → projects; project_id,media_id → media_items; project_id,render_id → render_versions |
 | script_line_dispositions | project_id, id | project_id → projects; project_id,artifact_id → artifact_versions; project_id,line_id → script_lines |
 | script_line_sources | project_id, id | project_id → projects; project_id,anchor_id → source_anchors; project_id,line_id → script_lines |
@@ -113,6 +119,7 @@
 | execution_slots | project_id, id | project_id → projects; project_id,execution_id → execution_instances; project_id,slot_id → binding_slots |
 | instance_interactions | project_id, id | project_id → projects; project_id,artifact_id → artifact_versions; project_id,object_id → asset_use_instances; project_id,subject_id → asset_use_instances |
 | binding_decisions | project_id, id | project_id → projects; project_id,slot_id → binding_slots; project_id,slot_id,candidate_id → binding_candidates |
+| edit_preview_jobs | project_id, id | project_id → projects; project_id,dispatch_id → role_dispatches; project_id,draft_artifact_id → artifact_versions; project_id,note_id → artifact_review_notes; project_id,render_id → render_versions; project_id,source_artifact_id → artifact_versions |
 | media_reviews | project_id, id | project_id → projects; project_id,candidate_id → binding_candidates; project_id,check_id → media_checks; project_id,project_revision → project_revisions |
 | requirement_line_refs | project_id, requirement_id, line_id | project_id,line_id → script_lines; project_id,requirement_id → asset_requirements |
 | requirement_slots | project_id, requirement_id, slot_id, role | project_id,requirement_id → asset_requirements; project_id,slot_id → binding_slots |
@@ -120,10 +127,13 @@
 | binding_trial_adoptions | project_id, decision_id, run_version_id | project_id,animatic_version_id,animatic_approval_id → artifact_decisions; project_id,decision_id → binding_decisions; project_id,run_version_id → artifact_versions |
 | current_bindings | project_id, slot_id | project_id,slot_id,candidate_id → binding_candidates; project_id,slot_id,candidate_id,decision_id → binding_decisions |
 | dispatch_media_refs | project_id, dispatch_id, media_id, role | project_id,binding_decision_id → binding_decisions; project_id,dispatch_id → role_dispatches; project_id,media_id → media_items |
+| edit_preview_attempts | project_id, id | project_id → projects; project_id,job_id → edit_preview_jobs |
+| edit_preview_inputs | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,binding_decision_id → binding_decisions; project_id,job_id → edit_preview_jobs; project_id,media_id → media_items; project_id,media_id,blob_id → media_items; project_id,timeline_item_id → timeline_items |
 | job_input_media | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,binding_decision_id → binding_decisions; project_id,job_id → generation_jobs; project_id,media_id → media_items; project_id,media_id,blob_id → media_items |
 | render_inputs | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,binding_decision_id → binding_decisions; project_id,media_id → media_items; project_id,media_id,blob_id → media_items; project_id,render_id → render_versions |
 | review_responses | project_id, id | project_id → projects; project_id,artifact_note_id → artifact_review_notes; project_id,media_review_id → media_reviews; project_id,script_note_id → script_notes |
 | timeline_item_media | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,binding_decision_id → binding_decisions; project_id,item_id → timeline_items; project_id,media_id → media_items; project_id,media_id,blob_id → media_items |
+| edit_preview_outputs | project_id, id | blob_id,blob_sha256 → media_blobs; project_id → projects; project_id,attempt_id → edit_preview_attempts; project_id,job_id → edit_preview_jobs |
 | review_dispatches | project_id, response_id, dispatch_id | project_id,dispatch_id → role_dispatches; project_id,response_id → review_responses |
 | review_proposals | project_id, response_id, artifact_id | project_id,artifact_id → artifact_versions; project_id,response_id → review_responses |
 | review_script_runs | project_id, response_id, run_id | project_id,response_id → review_responses; project_id,run_id → script_suggestion_runs |
@@ -133,6 +143,7 @@ erDiagram
     artifact_decisions ||--o{ binding_selection_delegations : "references"
     artifact_decisions ||--o{ binding_trial_adoptions : "references"
     artifact_decisions ||--o{ current_artifact_versions : "references"
+    artifact_review_notes ||--o{ edit_preview_jobs : "references"
     artifact_review_notes ||--o{ review_responses : "references"
     artifact_versions ||--o{ artifact_asset_spec_refs : "references"
     artifact_versions ||--o{ artifact_category_links : "references"
@@ -151,6 +162,7 @@ erDiagram
     artifact_versions ||--o{ current_artifact_versions : "references"
     artifact_versions ||--o{ dispatch_inputs : "references"
     artifact_versions ||--o{ dispatch_result_artifacts : "references"
+    artifact_versions ||--o{ edit_preview_jobs : "references"
     artifact_versions ||--o{ execution_instances : "references"
     artifact_versions ||--o{ generation_jobs : "references"
     artifact_versions ||--o{ instance_interactions : "references"
@@ -209,6 +221,7 @@ erDiagram
     binding_decisions ||--o{ binding_trial_adoptions : "references"
     binding_decisions ||--o{ current_bindings : "references"
     binding_decisions ||--o{ dispatch_media_refs : "references"
+    binding_decisions ||--o{ edit_preview_inputs : "references"
     binding_decisions ||--o{ job_input_media : "references"
     binding_decisions ||--o{ render_inputs : "references"
     binding_decisions ||--o{ timeline_item_media : "references"
@@ -231,6 +244,10 @@ erDiagram
     creative_objects ||--o{ sound_cues : "references"
     creative_objects ||--o{ works : "references"
     dispatch_returns ||--o{ dispatch_result_artifacts : "references"
+    edit_preview_attempts ||--o{ edit_preview_outputs : "references"
+    edit_preview_jobs ||--o{ edit_preview_attempts : "references"
+    edit_preview_jobs ||--o{ edit_preview_inputs : "references"
+    edit_preview_jobs ||--o{ edit_preview_outputs : "references"
     episodes ||--o{ scenes : "references"
     episodes ||--o{ timeline_versions : "references"
     execution_instances ||--o{ execution_materials : "references"
@@ -244,16 +261,26 @@ erDiagram
     generation_jobs ||--o{ job_input_versions : "references"
     generation_jobs ||--o{ job_outputs : "references"
     generation_jobs ||--o{ quality_observations : "references"
+    library_entries ||--o{ library_entry_decisions : "references"
+    library_entries ||--o{ library_entry_versions : "references"
+    library_entry_versions ||--o{ library_entries : "references"
+    library_entry_versions ||--o{ library_version_media : "references"
+    library_version_media ||--o{ library_reuses : "references"
     media_blobs ||--o{ blob_locations : "references"
+    media_blobs ||--o{ edit_preview_inputs : "references"
+    media_blobs ||--o{ edit_preview_outputs : "references"
     media_blobs ||--o{ job_input_media : "references"
+    media_blobs ||--o{ library_version_media : "references"
     media_blobs ||--o{ media_checks : "references"
     media_blobs ||--o{ media_items : "references"
     media_blobs ||--o{ media_renditions : "references"
+    media_blobs ||--o{ render_caption_inputs : "references"
     media_blobs ||--o{ render_inputs : "references"
     media_blobs ||--o{ timeline_item_media : "references"
     media_checks ||--o{ media_reviews : "references"
     media_items ||--o{ binding_candidates : "references"
     media_items ||--o{ dispatch_media_refs : "references"
+    media_items ||--o{ edit_preview_inputs : "references"
     media_items ||--o{ execution_materials : "references"
     media_items ||--o{ job_input_media : "references"
     media_items ||--o{ job_outputs : "references"
@@ -261,6 +288,7 @@ erDiagram
     media_items ||--o{ media_category_links : "references"
     media_items ||--o{ media_checks : "references"
     media_items ||--o{ media_lifecycle_decisions : "references"
+    media_items ||--o{ media_recycle_actions : "references"
     media_items ||--o{ media_renditions : "references"
     media_items ||--o{ media_sources : "references"
     media_items ||--o{ method_evaluations : "references"
@@ -268,12 +296,14 @@ erDiagram
     media_items ||--o{ operation_outputs : "references"
     media_items ||--o{ preview_jobs : "references"
     media_items ||--o{ quality_observations : "references"
+    media_items ||--o{ render_caption_inputs : "references"
     media_items ||--o{ render_inputs : "references"
     media_items ||--o{ render_outputs : "references"
     media_items ||--o{ rights_decisions : "references"
     media_items ||--o{ shot_design_panels : "references"
     media_items ||--o{ timeline_item_media : "references"
     media_items ||--o{ voice_spec_versions : "references"
+    media_lifecycle_decisions ||--o{ media_recycle_actions : "references"
     media_operations ||--o{ operation_inputs : "references"
     media_operations ||--o{ operation_outputs : "references"
     media_reviews ||--o{ binding_selection_delegations : "references"
@@ -305,6 +335,10 @@ erDiagram
     projects ||--o{ dispatch_consumptions : "references"
     projects ||--o{ dispatch_returns : "references"
     projects ||--o{ draft_source_refs : "references"
+    projects ||--o{ edit_preview_attempts : "references"
+    projects ||--o{ edit_preview_inputs : "references"
+    projects ||--o{ edit_preview_jobs : "references"
+    projects ||--o{ edit_preview_outputs : "references"
     projects ||--o{ episodes : "references"
     projects ||--o{ execution_instances : "references"
     projects ||--o{ execution_materials : "references"
@@ -323,6 +357,7 @@ erDiagram
     projects ||--o{ media_items : "references"
     projects ||--o{ media_lifecycle_decisions : "references"
     projects ||--o{ media_operations : "references"
+    projects ||--o{ media_recycle_actions : "references"
     projects ||--o{ media_renditions : "references"
     projects ||--o{ media_reviews : "references"
     projects ||--o{ media_sources : "references"
@@ -335,6 +370,7 @@ erDiagram
     projects ||--o{ preview_jobs : "references"
     projects ||--o{ project_revisions : "references"
     projects ||--o{ quality_observations : "references"
+    projects ||--o{ render_caption_inputs : "references"
     projects ||--o{ render_inputs : "references"
     projects ||--o{ render_outputs : "references"
     projects ||--o{ render_versions : "references"
@@ -381,17 +417,21 @@ erDiagram
     providers ||--o{ provider_routes : "references"
     render_outputs ||--o{ artifact_review_notes : "references"
     render_versions ||--o{ artifact_review_notes : "references"
+    render_versions ||--o{ edit_preview_jobs : "references"
+    render_versions ||--o{ render_caption_inputs : "references"
     render_versions ||--o{ render_inputs : "references"
     render_versions ||--o{ render_outputs : "references"
     review_responses ||--o{ review_dispatches : "references"
     review_responses ||--o{ review_proposals : "references"
     review_responses ||--o{ review_script_runs : "references"
+    rights_decisions ||--o{ library_reuses : "references"
     role_dispatches ||--o{ dispatch_consumptions : "references"
     role_dispatches ||--o{ dispatch_inputs : "references"
     role_dispatches ||--o{ dispatch_media_refs : "references"
     role_dispatches ||--o{ dispatch_memory_refs : "references"
     role_dispatches ||--o{ dispatch_returns : "references"
     role_dispatches ||--o{ dispatch_sources : "references"
+    role_dispatches ||--o{ edit_preview_jobs : "references"
     role_dispatches ||--o{ review_dispatches : "references"
     role_dispatches ||--o{ role_memories : "references"
     role_dispatches ||--o{ role_memory_versions : "references"
@@ -462,6 +502,7 @@ erDiagram
     state_versions ||--o{ continuity_edges : "references"
     state_versions ||--o{ state_entity_refs : "references"
     timeline_items ||--o{ cue_timeline_items : "references"
+    timeline_items ||--o{ edit_preview_inputs : "references"
     timeline_items ||--o{ timeline_item_media : "references"
     timeline_versions ||--o{ render_versions : "references"
     timeline_versions ||--o{ timeline_items : "references"

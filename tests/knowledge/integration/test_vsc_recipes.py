@@ -74,7 +74,8 @@ class RecipeTest(unittest.TestCase):
         duplicate["recipes"].append(duplicate["recipes"][0])
         self.assertTrue(any("唯一" in x for x in R.errors(duplicate)))
         missing = copy.deepcopy(self.data)
-        missing["recipes"] = missing["recipes"][:-1]
+        absent_kind=missing['recipes'][0]['kind']
+        missing["recipes"] = [r for r in missing['recipes'] if r['kind'] != absent_kind]
         self.assertTrue(any("缺少分类" in x for x in R.errors(missing)))
 
     def test_required_specialized_contracts_and_voice_placeholder(self):
@@ -94,17 +95,59 @@ class RecipeTest(unittest.TestCase):
     def test_search_list_show_and_invalid_filter(self):
         code, out, err = self.cli("search", "打斗", "--kind", "fight", "--json")
         self.assertEqual(code, 0, err)
-        self.assertEqual([x["kind"] for x in json.loads(out)], ["fight"])
+        self.assertTrue(json.loads(out))
+        self.assertTrue(all(x['kind']=='fight' for x in json.loads(out)))
         code, out, _ = self.cli("search", "纸张", "--kind", "sfx")
         self.assertEqual(code, 0)
         self.assertIn("AR-sfx-soft-paper", out)
-        self.assertIn("没有匹配", self.cli("search", "不存在的无关关键词")[1])
+        self.assertIn("没有匹配", self.cli("search", "qzx")[1])
         self.assertEqual(len(json.loads(self.cli("list", "--json")[1])), len(self.data["recipes"]))
         rid = self.data["recipes"][0]["id"]
         self.assertEqual(json.loads(self.cli("show", rid)[1])["id"], rid)
         self.assertEqual(self.cli("show", "../../escape")[0], 1)
         self.assertEqual(self.cli("list", "--kind", "unknown")[0], 1)
         self.assertEqual(self.cli("search", "--limit", "0")[0], 1)
+
+    def test_optional_genre_filter_preserves_free_tags_and_installed_specification(self):
+        data=copy.deepcopy(self.data)
+        recipe=data['recipes'][0]
+        recipe['genre_tags']=['fantasy'];recipe['tags'].append('uncontrolled-original-word')
+        self.assertEqual(R.errors(data),[])
+        path=self.catalog(data)
+        code,out,err=self.cli('--catalog',path,'search','奇幻','--genre','fantasy','--json')
+        self.assertEqual(code,0,err)
+        self.assertIn(recipe['id'],[row['id'] for row in json.loads(out)])
+        self.assertEqual(R.attributes(recipe)['genre_tags'],['fantasy'])
+        R.install([recipe],self.library)
+        item=json.loads((self.library/recipe['kind']/recipe['id']/'item.json').read_text())
+        self.assertEqual(item['attributes']['genre_tags'],['fantasy'])
+        self.assertFalse(item['attributes']['is_media'])
+        for invalid in (['unknown'],['fantasy','fantasy'],[{}],True):
+            bad=copy.deepcopy(data);bad['recipes'][0]['genre_tags']=invalid
+            with self.subTest(invalid=invalid):self.assertTrue(R.errors(bad))
+
+    def test_sound_and_subtitle_examples_share_real_optional_rule_validators(self):
+        data=copy.deepcopy(self.data)
+        music=next(r for r in data['recipes'] if r['kind']=='music')
+        music['spec']['sound_intent']={'bpm':72,'dynamics':'p','instrumentation':['original keyboard']}
+        music['spec']['ducking']={'gain':0.5,'attack_ms':150,'release_ms':600,'dialogue_cue_ids':['<REAL_DIALOGUE_CUE_ID>']}
+        subtitle=next(r for r in data['recipes'] if r['kind']=='subtitle_style')
+        subtitle['spec']['creative_rules_example']={'subtitle':{'safe_area':{'bottom':0.12},'mixed_spacing':True}}
+        self.assertEqual(R.errors(data),[])
+        for kind in ('bpm','dynamics','instrumentation','gain','attack','blank-cue','safe-area'):
+            bad=copy.deepcopy(data)
+            m=next(r for r in bad['recipes'] if r['kind']=='music')['spec']
+            if kind=='bpm':m['sound_intent']['bpm']=-20
+            if kind=='dynamics':m['sound_intent']['dynamics']={}
+            if kind=='instrumentation':m['sound_intent']['instrumentation']=42
+            if kind=='gain':m['ducking']['gain']=2
+            if kind=='attack':m['ducking']['attack_ms']=-1
+            if kind=='blank-cue':m['ducking']['dialogue_cue_ids']=['']
+            if kind=='safe-area':next(r for r in bad['recipes'] if r['kind']=='subtitle_style')['spec']['creative_rules_example']['subtitle']['safe_area']={'left':0.8,'right':0.8}
+            with self.subTest(kind=kind):self.assertTrue(R.errors(bad))
+        from vsc.post.sound_rules import ducking_errors
+        self.assertEqual(ducking_errors(music['spec']['ducking']),[])
+        self.assertTrue(ducking_errors(music['spec']['ducking'],dialogue_cue_ids=set()))
 
     def test_install_calls_library_api_and_is_idempotent(self):
         rid = self.data["recipes"][0]["id"]

@@ -43,6 +43,15 @@ export function renderEditPreviewResult(preview,ctx={}){
 }
 export function renderReviewHistory(history,ctx={}) {
   const root=el('section');root.className='review-history detail-panel';
+  let pageRequest=0;
+  const replace=value=>{const next=renderReviewHistory(value,ctx);root.parentNode?.insertBefore(next,root);root.remove();};
+  const paging=(page,filters,response=false,item=null)=>{
+    const nav=el('nav');nav.className='review-history-pagination';nav.setAttribute('aria-label',response?'本条处理历史分页':'原意见分页');
+    if(!page||(page.previous_offset==null&&page.next_offset==null))return nav;
+    nav.append(el('small',`${response?'处理记录':'原意见'}：共 ${page.total} 条，每页 ${page.limit} 条`));
+    for(const [label,offset]of [['较新一页',page.previous_offset],['较早一页',page.next_offset]]){const b=el('button',label);b.type='button';b.disabled=offset==null||!ctx.historyPage;b.addEventListener('click',async()=>{const request=++pageRequest;b.disabled=true;try{const value=await ctx.historyPage(filters,response?{response_offset:offset,response_limit:page.limit}:{offset,limit:page.limit});if(!value||request!==pageRequest)return;if(response){const items=(history.items||[]).map(row=>row===item?value.items[0]:row);replace({...history,items});}else replace(value);}catch(error){if(request===pageRequest)ctx.onError?.(error);}finally{if(request===pageRequest)b.disabled=false;}});nav.append(b);}
+    return nav;
+  };
   if(ctx.heading!==false)root.append(el('h3','意见与本轮结果'));
   for(const item of history?.items || []){
     const block=el('article');block.append(el('blockquote',item.body));
@@ -82,8 +91,10 @@ export function renderReviewHistory(history,ctx={}) {
     }
     if(!item.responses?.length&&!item.edit_previews?.length)block.append(el('p',item.note?.outcome==='pass'?'用途审查已记录。':'原意见已保存，尚无处理结果。'));
     if(item.source.media_review_id && item.note?.outcome==='pass' && !item.responses?.length){const earlier=el('details');earlier.append(el('summary','已通过的用途审查'),block);root.append(earlier);}else root.append(block);
+    block.append(paging(item.response_page,item.source,true,item));
   }
   if(!history?.items?.length)root.append(el('p','尚无原意见。'));
+  root.append(paging(history?.page,history?.page?.filter));
   return root;
 }
 

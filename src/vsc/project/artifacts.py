@@ -86,6 +86,8 @@ def brief_errors(data):
         errors.append("nonnegotiables 必须是文本数组；没有硬约束时显式用 []")
     if not isinstance(data.get("conflict_policy"), str) or not data["conflict_policy"].strip():
         errors.append("conflict_policy 必须说明目标冲突如何裁决")
+    from vsc.project.creative_rules import rule_errors
+    errors.extend(rule_errors(data.get("creative_rules", {})))
     return errors
 
 
@@ -259,6 +261,8 @@ def reference_errors(project, state, item, visited=None, cache=None):
                               if not (compatible and problem == replaced))
 
     fmt = data.get("format")
+    from vsc.project.creative_rules import file_context_diagnostics
+    errors.extend(file_context_diagnostics(data, project, state, item)["errors"])
     if fmt in ('vsc.source-map/v1', 'vsc.episode-beats/v1', 'vsc.visual-bible/v1'):
         from vsc.story.script import project_errors
         errors.extend(project_errors(data, project, state, item))
@@ -308,6 +312,21 @@ def reference_errors(project, state, item, visited=None, cache=None):
                     errors.append(f"{key}.scene_id 与 sequence 所属场景不一致；跨场应使用不同 sequence")
     elif fmt == "vsc.sound-cue-sheet/v1":
         need(data.get("sequence_id"), "sequence", "sequence_id")
+        from vsc.post.sound_rules import extra_cue_errors
+        from vsc.production.handoffs import _Project
+        errors.extend(extra_cue_errors(data))
+        sound = _Project(project, state, item)
+        for cue in data.get("sfx_cues", []):
+            if not isinstance(cue, dict) or cue.get("silence") is True:
+                continue
+            for field in ("media", "spec_ref", "source_ref"):
+                ref = cue.get(field)
+                if isinstance(ref, dict):
+                    if "id" in ref:
+                        sound.ref(ref, "sfx." + field)
+                    else:
+                        sound.media(ref, "sfx." + field)
+        errors.extend(sound.errors)
         for boundary in data.get("boundaries", []):
             for key in ("from_shot", "to_shot"):
                 need(boundary.get(key), "shot", key)

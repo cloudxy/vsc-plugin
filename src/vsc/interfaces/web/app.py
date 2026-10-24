@@ -374,6 +374,8 @@ def create_app(config=None, catalog=None, service=None):
             project_id, body.get("payload"), human_decision=verified_generation_recovery(identity),
             actor=identity, expected_revision=body.get("expected_revision"),
             idempotency_key=body.get("idempotency_key"))
+    from .shared_library import install_shared_library_routes
+    install_shared_library_routes(app, router, catalog, etag, actor, config)
     app.include_router(router)
     register_resource_settings(app, catalog, actor, config)
     app.mount("/static", StaticFiles(directory=str(root / "static")), name="static")

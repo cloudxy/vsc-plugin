@@ -837,7 +837,7 @@
     {
       "id": "AR-music-open-quiet",
       "kind": "music",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "name": "留白式轻缓配乐包",
       "summary": "72BPM、8小节原创稀疏伴奏结构，预留对白空间与可剪辑尾音。",
       "tags": [
@@ -882,11 +882,31 @@
         "rights_gate": "作曲与录音两项均需owned或可核验同步/商用许可；本条仅授权原创制作规格",
         "entry": "对白停顿或转折处从小节首起，0.8秒淡入",
         "exit": "以小节末收束，独立尾响自然衰减2秒；临时剪切做至少0.5秒淡出",
-        "delivery": "48kHz/24bit立体声WAV，全混与等长分轨；峰值低于-3dBFS"
+        "delivery": "48kHz/24bit立体声WAV，全混与等长分轨；峰值低于-3dBFS",
+        "sound_intent": {
+          "bpm": 72,
+          "dynamics": "p",
+          "instrumentation": [
+            "低音长音",
+            "柔和键盘",
+            "稀疏软打击"
+          ]
+        },
+        "ducking": {
+          "gain": 0.501187234,
+          "attack_ms": 150,
+          "release_ms": 600,
+          "dialogue_cue_ids": [
+            "<REAL_DIALOGUE_CUE_ID>"
+          ]
+        },
+        "consumer_binding": "明确选择后由原sound apply-recipe派生新声音表草稿，固定recipe ID/version/SHA和真实对白Cue ID；sound-envelope派生原timeline volume_keyframes草稿，经原登记/审阅后供Remotion或mix-audio消费。gain约-6dB可测；BPM/力度/乐器是设计意图，当前本地混音不生成或保证其实现。"
       },
       "craft_refs": [
         "dialogue-space",
-        "sound-bridge"
+        "sound-bridge",
+        "emotion-music-intent",
+        "five-stage-sound-arc"
       ]
     },
     {
@@ -936,7 +956,7 @@
     {
       "id": "AR-subtitle-bottom-safe",
       "kind": "subtitle_style",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "name": "双行底部字幕样式包",
       "summary": "1080×1920竖屏的安全区双行字幕参数，需绑定已授权字体。",
       "tags": [
@@ -983,7 +1003,27 @@
         "font_size_px": 52,
         "max_lines": 2,
         "outline_px": 3,
-        "bottom_px": 220
+        "bottom_px": 220,
+        "creative_rules_example": {
+          "subtitle": {
+            "safe_area": {
+              "top": 0.05,
+              "bottom": 0.12,
+              "left": 0.09,
+              "right": 0.09
+            },
+            "mixed_spacing": true,
+            "min_cue_ms": {
+              "value": 800,
+              "level": "warning"
+            },
+            "max_cps": {
+              "value": 15,
+              "level": "warning"
+            }
+          }
+        },
+        "consumer_binding": "此示例不自动写进所有旧项目。由Profile默认或本范围已批准creative_brief声明，项目覆盖Profile；timeline保存解析后的creative_rules，三个原字幕消费者同源读取。safe_area为归一化遮挡矩形，数值需按平台及真实字体小屏样张确认；CPS为最终显示可见单位/真实秒数，不代替逐句阅读。"
       }
     },
     {
@@ -1028,6 +1068,500 @@
           "分层SVG或工程模板待制作",
           "有字预览与无字背景待制作"
         ]
+      }
+    },
+    {
+      "id": "AR-fight-paper-current-relay",
+      "kind": "fight",
+      "version": "1.0.0",
+      "name": "纸流让路接力",
+      "summary": "三人以纸片路径可见的让路与封路两招，靠结果持续衔接。",
+      "tags": [
+        "打斗",
+        "非接触",
+        "三人",
+        "法术"
+      ],
+      "genre_tags": [
+        "xianxia"
+      ],
+      "rights": {
+        "status": "owned",
+        "scope": "specification_only",
+        "license": "本条VSC原创制作规格可跨作品复用及商用；只覆盖规格文字，人物、参考、声线、字体及生成媒体权利须另行确认。"
+      },
+      "craft_refs": [
+        "action-geometry",
+        "axis-map",
+        "effects-layers"
+      ],
+      "spec": {
+        "fixed": [
+          "本项目三个不同的参与实例，不以role合并身份",
+          "保持原轴线、手别与地面参照；每招无真实接触",
+          "纸片已在入点场景中，不凭空添加；项目须登记该道具和参考"
+        ],
+        "variable": [
+          "题材造型由项目选择并固定",
+          "是否采用可执行VFX路线由项目选择"
+        ],
+        "inputs": [
+          "已批准方法、三个实例ID、场镜与参考系",
+          "已批准首帧与每人身份参考；实际模型输入能力"
+        ],
+        "procedure": [
+          "按五相位登记第一招，第三人仅在前驱结果可见后参与",
+          "复用原participants；chain节点用actor_instance和counterpart_instance",
+          "先编译完整combat与vfx片段到实际请求，保留不支持控制的说明"
+        ],
+        "acceptance": [
+          "三人身份不复制、不交换动作，前驱结果持续；遮挡无法核实记未判",
+          "效果触发在可见动作之后；正常速度连续媒体与真实审阅另验"
+        ],
+        "deliverables": [
+          "固定专业实例与请求待项目登记",
+          "关键帧、候选媒体及人审均待实际制作"
+        ],
+        "entry_state": "A/B/C各占固定地标，手空、退路可见",
+        "exit_state": "接收方自主停稳，第三人按前驱结果进入下一拍",
+        "camera": "主轴同侧固定全景，先保证三个身份和通路可读",
+        "duration": "4秒意图；实际模型按支持时长选择并在剪辑留柄",
+        "beats": [
+          "0秒三人站稳",
+          "1秒A示意，B开始自主反应",
+          "2秒第一招结果明确后C进入",
+          "4秒三人稳定"
+        ],
+        "safety": [
+          "只作生成/动画规格，不指导真实接触；实拍须另有专业现场设计",
+          "任何不支持的输入改设计或合成，不伪造控制"
+        ],
+        "world_rule": "纸流只推动本已存在的纸片，不推动人体、不新增纸片；手停止后纸片在原地落下。",
+        "execution": {
+          "domain": "combat",
+          "parameters": {
+            "purpose": "纸流让路接力",
+            "distance": "身份位置按floor参考系；相互不接触",
+            "direction": "主轴同侧，行动方向按实例位置",
+            "attack_defense": "主动示意后对方自主停步",
+            "support_foot": "各自站稳，退路可见",
+            "force": "不传递真实冲击",
+            "after_state": "双方回到可持续站位",
+            "acceptance": "同一实例先行动、另一实例后反应且结果持续",
+            "fallback": "分成行动与反应两镜",
+            "route": "generation",
+            "phases": [
+              {
+                "phase": "preparation",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "A持平空手；B/C看清通路"
+              },
+              {
+                "phase": "initiation",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "A沿地面方向轻推手掌"
+              },
+              {
+                "phase": "contact",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "纸片路径停在B前，不接触身体"
+              },
+              {
+                "phase": "reaction",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "B自主侧移让路，C等停稳"
+              },
+              {
+                "phase": "recovery",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "A收手，B保持新位置"
+              }
+            ],
+            "world_rule": "纸流只推动本已存在的纸片，不推动人体、不新增纸片；手停止后纸片在原地落下。",
+            "chain": [
+              {
+                "id": "signal",
+                "after": [],
+                "actor_instance": "<A_INSTANCE>",
+                "counterpart_instance": "<B_INSTANCE>",
+                "phases": [
+                  {
+                    "phase": "preparation",
+                    "action": "A持平空手；B/C看清通路"
+                  },
+                  {
+                    "phase": "initiation",
+                    "action": "A沿地面方向轻推手掌"
+                  },
+                  {
+                    "phase": "contact",
+                    "action": "纸片路径停在B前，不接触身体"
+                  },
+                  {
+                    "phase": "reaction",
+                    "action": "B自主侧移让路，C等停稳"
+                  },
+                  {
+                    "phase": "recovery",
+                    "action": "A收手，B保持新位置"
+                  }
+                ]
+              },
+              {
+                "id": "relay",
+                "after": [
+                  "signal"
+                ],
+                "actor_instance": "<C_INSTANCE>",
+                "counterpart_instance": "<A_INSTANCE>",
+                "phases": [
+                  {
+                    "phase": "preparation",
+                    "action": "C等前驱停稳"
+                  },
+                  {
+                    "phase": "initiation",
+                    "action": "C抬空手示意"
+                  },
+                  {
+                    "phase": "contact",
+                    "action": "C保持间隔占据通路"
+                  },
+                  {
+                    "phase": "reaction",
+                    "action": "A看向C停步"
+                  },
+                  {
+                    "phase": "recovery",
+                    "action": "三人回稳定站位"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "vfx_execution": {
+          "domain": "vfx",
+          "parameters": {
+            "trigger": "A沿地面方向轻推手掌",
+            "world_rule": "纸流只推动本已存在的纸片，不推动人体、不新增纸片；手停止后纸片在原地落下。",
+            "trajectory": "从行动方手前沿已声明路径到目标外侧",
+            "contact": "在目标前停止，角色无接触",
+            "occlusion": "效果在手前、人物躯干前；不覆盖脸",
+            "light_response": "只照亮邻近手与地面，不改主光",
+            "environment_response": "仅已登记的纸片沿地面移动；不新增落叶或其他物件",
+            "aftereffects": "结果保留到恢复阶段",
+            "sound": "后期加入短提示，避让对白",
+            "purpose": "只显示本招的空间结果",
+            "acceptance": "特效不遮挡动作双方身份和触发先后",
+            "fallback": "删去发光，保留道具或声音反应",
+            "route": "generation",
+            "layers": [
+              {
+                "name": "trace",
+                "purpose": "显示路径与停止位置",
+                "occlusion": "人物手前，面部外"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "AR-fight-ring-gate-feint",
+      "kind": "fight",
+      "version": "1.0.0",
+      "name": "环线门径佯动",
+      "summary": "三人围绕固定地面环线做佯动、停步、封路；几何结果不被闪光替代。",
+      "tags": [
+        "打斗",
+        "非接触",
+        "三人",
+        "法术"
+      ],
+      "genre_tags": [
+        "fantasy"
+      ],
+      "rights": {
+        "status": "owned",
+        "scope": "specification_only",
+        "license": "本条VSC原创制作规格可跨作品复用及商用；只覆盖规格文字，人物、参考、声线、字体及生成媒体权利须另行确认。"
+      },
+      "craft_refs": [
+        "action-geometry",
+        "axis-map",
+        "effects-layers"
+      ],
+      "spec": {
+        "fixed": [
+          "本项目三个不同的参与实例，不以role合并身份",
+          "保持原轴线、手别与地面参照；每招无真实接触",
+          "地面环线已在入点场景中，路径与亮度状态按world_rule持续"
+        ],
+        "variable": [
+          "题材造型由项目选择并固定",
+          "是否采用可执行VFX路线由项目选择"
+        ],
+        "inputs": [
+          "已批准方法、三个实例ID、场镜与参考系",
+          "已批准首帧与每人身份参考；实际模型输入能力"
+        ],
+        "procedure": [
+          "按五相位登记第一招，第三人仅在前驱结果可见后参与",
+          "复用原participants；chain节点用actor_instance和counterpart_instance",
+          "先编译完整combat与vfx片段到实际请求，保留不支持控制的说明"
+        ],
+        "acceptance": [
+          "三人身份不复制、不交换动作，前驱结果持续；遮挡无法核实记未判",
+          "效果触发在可见动作之后；正常速度连续媒体与真实审阅另验"
+        ],
+        "deliverables": [
+          "固定专业实例与请求待项目登记",
+          "关键帧、候选媒体及人审均待实际制作"
+        ],
+        "entry_state": "A/B/C各占固定地标，手空、退路可见",
+        "exit_state": "接收方自主停稳，第三人按前驱结果进入下一拍",
+        "camera": "主轴同侧固定全景，先保证三个身份和通路可读",
+        "duration": "4秒意图；实际模型按支持时长选择并在剪辑留柄",
+        "beats": [
+          "0秒三人站稳",
+          "1秒A示意，B开始自主反应",
+          "2秒第一招结果明确后C进入",
+          "4秒三人稳定"
+        ],
+        "safety": [
+          "只作生成/动画规格，不指导真实接触；实拍须另有专业现场设计",
+          "任何不支持的输入改设计或合成，不伪造控制"
+        ],
+        "world_rule": "环线只标记地面允许路径，不瞬移人物；跨过线才会失去亮度，未跨线保持原形。",
+        "execution": {
+          "domain": "combat",
+          "parameters": {
+            "purpose": "环线门径佯动",
+            "distance": "身份位置按floor参考系；相互不接触",
+            "direction": "主轴同侧，行动方向按实例位置",
+            "attack_defense": "主动示意后对方自主停步",
+            "support_foot": "各自站稳，退路可见",
+            "force": "不传递真实冲击",
+            "after_state": "双方回到可持续站位",
+            "acceptance": "同一实例先行动、另一实例后反应且结果持续",
+            "fallback": "分成行动与反应两镜",
+            "route": "generation",
+            "phases": [
+              {
+                "phase": "preparation",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "A/B/C站在环线外侧"
+              },
+              {
+                "phase": "initiation",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "A朝环线空处指向，B自主前移"
+              },
+              {
+                "phase": "contact",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "脚不踩线，手与对方无接触"
+              },
+              {
+                "phase": "reaction",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "B在线前停步；C等A收手才封路"
+              },
+              {
+                "phase": "recovery",
+                "actor_role": "fighter",
+                "counterpart_role": "fighter",
+                "action": "环线仍在原位，三人看向新通路"
+              }
+            ],
+            "world_rule": "环线只标记地面允许路径，不瞬移人物；跨过线才会失去亮度，未跨线保持原形。",
+            "chain": [
+              {
+                "id": "signal",
+                "after": [],
+                "actor_instance": "<A_INSTANCE>",
+                "counterpart_instance": "<B_INSTANCE>",
+                "phases": [
+                  {
+                    "phase": "preparation",
+                    "action": "A/B/C站在环线外侧"
+                  },
+                  {
+                    "phase": "initiation",
+                    "action": "A朝环线空处指向，B自主前移"
+                  },
+                  {
+                    "phase": "contact",
+                    "action": "脚不踩线，手与对方无接触"
+                  },
+                  {
+                    "phase": "reaction",
+                    "action": "B在线前停步；C等A收手才封路"
+                  },
+                  {
+                    "phase": "recovery",
+                    "action": "环线仍在原位，三人看向新通路"
+                  }
+                ]
+              },
+              {
+                "id": "relay",
+                "after": [
+                  "signal"
+                ],
+                "actor_instance": "<C_INSTANCE>",
+                "counterpart_instance": "<A_INSTANCE>",
+                "phases": [
+                  {
+                    "phase": "preparation",
+                    "action": "C等前驱停稳"
+                  },
+                  {
+                    "phase": "initiation",
+                    "action": "C抬空手示意"
+                  },
+                  {
+                    "phase": "contact",
+                    "action": "C保持间隔占据通路"
+                  },
+                  {
+                    "phase": "reaction",
+                    "action": "A看向C停步"
+                  },
+                  {
+                    "phase": "recovery",
+                    "action": "三人回稳定站位"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "vfx_execution": {
+          "domain": "vfx",
+          "parameters": {
+            "trigger": "A朝环线空处指向，B自主前移",
+            "world_rule": "环线只标记地面允许路径，不瞬移人物；跨过线才会失去亮度，未跨线保持原形。",
+            "trajectory": "从行动方手前沿已声明路径到目标外侧",
+            "contact": "在目标前停止，角色无接触",
+            "occlusion": "效果在手前、人物躯干前；不覆盖脸",
+            "light_response": "只照亮邻近手与地面，不改主光",
+            "environment_response": "只改变已有地面环线的亮度状态，不新增物件",
+            "aftereffects": "结果保留到恢复阶段",
+            "sound": "后期加入短提示，避让对白",
+            "purpose": "只显示本招的空间结果",
+            "acceptance": "特效不遮挡动作双方身份和触发先后",
+            "fallback": "删去发光，保留道具或声音反应",
+            "route": "generation",
+            "layers": [
+              {
+                "name": "trace",
+                "purpose": "显示路径与停止位置",
+                "occlusion": "人物手前，面部外"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "AR-motion-peg-assembly",
+      "kind": "motion",
+      "version": "1.0.0",
+      "name": "固定夹具插销组装",
+      "summary": "固定桌面与夹具，木销沿同一世界轴推进并落座；阶段顺序可观察。",
+      "tags": [
+        "过程",
+        "组装",
+        "插销",
+        "固定物",
+        "方向"
+      ],
+      "genre_tags": [
+        "modern"
+      ],
+      "rights": {
+        "status": "owned",
+        "scope": "specification_only",
+        "license": "本条VSC原创制作规格可跨作品复用及商用；只覆盖规格文字，人物、参考、声线、字体及生成媒体权利须另行确认。"
+      },
+      "craft_refs": [
+        "match-action",
+        "axis-map"
+      ],
+      "spec": {
+        "fixed": [
+          "桌面、夹具与相机不移动，未列changes状态固定"
+        ],
+        "variable": [
+          "木销沿floor.x正向移动0.5单位并由对准变落座"
+        ],
+        "inputs": [
+          "原资产身份、首尾状态、参考系与明确启用的process",
+          "已批准的夹具及木销参考，真实支持的首尾帧模式"
+        ],
+        "procedure": [
+          "先登记桌面/夹具/木销原状态和changes",
+          "process.enabled=true，fixed_entities只列桌面和夹具，direction为floor/x/+1",
+          "按对准→推进→落座递增阶段编译request_constraints；批准run后再建任务"
+        ],
+        "acceptance": [
+          "木销不倒退、不凭空增加；固定物不漂移",
+          "工程编译和advisory观察可达，连续媒体正常速度效果须另审"
+        ],
+        "deliverables": [
+          "原状态约束与固定请求待项目登记",
+          "过程候选与具体区间观察待制作"
+        ],
+        "entry_state": "木销在floor(0,0)，夹具在(0.5,0)，桌面固定",
+        "exit_state": "木销在floor(0.5,0)且已落座，夹具与桌面状态不变",
+        "camera": "同参考系固定侧上视，能见安装口和木销路径",
+        "duration": "3秒设计阶段，实际请求按支持时长选择",
+        "beats": [
+          "0秒对准",
+          "1秒沿x正向推进",
+          "2秒落座",
+          "3秒静止核结果"
+        ],
+        "safety": [
+          "生成/动画规格；实拍不把手伸入夹具受力区，另做现场安全安排"
+        ],
+        "process": {
+          "enabled": true,
+          "fixed_entities": [
+            "<TABLE_ENTITY>",
+            "<JIG_ENTITY>"
+          ],
+          "direction": {
+            "frame": "floor",
+            "axis": "x",
+            "sign": 1
+          },
+          "beats": [
+            {
+              "seconds": 0,
+              "action": "木销对准安装口"
+            },
+            {
+              "seconds": 1,
+              "action": "推进"
+            },
+            {
+              "seconds": 2,
+              "action": "落座并保持"
+            }
+          ]
+        }
       }
     }
   ]

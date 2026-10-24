@@ -19,6 +19,8 @@ FORMAT = "vsc.remotion-render-plan/v1"
 COMPOSITION_ID = re.compile(r"[A-Za-z0-9-]+\Z")
 SEGMENT_ID = re.compile(r"[A-Za-z0-9_.-]+\Z")
 KINDS = {"video", "image", "audio", "caption", "text"}
+OVERLAY_EASINGS = {"linear", "ease_in", "ease_out", "ease_in_out"}
+OVERLAY_BLENDS = {"normal", "screen", "multiply"}
 REMOTION_VERSION = "4.0.532"
 TIMELINE_FORMAT = "vsc.timeline/v1"
 
@@ -61,6 +63,56 @@ def frame_rate(value):
 
 def unit_interval(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
+
+
+def overlay_at_frame(segment, frame):
+    """Deterministic composition-pixel geometry at a segment-local frame."""
+    overlay = segment["overlay"]
+    result = {key: overlay[key] for key in ("x", "y", "width", "height", "alpha", "layer", "blend_mode")}
+    if "motion" in overlay:
+        motion = overlay["motion"]
+        ratio = max(0, min(1, frame / max(1, segment["duration_in_frames"] - 1)))
+        progress = {"linear": ratio, "ease_in": ratio * ratio, "ease_out": 1 - (1 - ratio) ** 2,
+                    "ease_in_out": ratio * ratio * (3 - 2 * ratio)}[motion["easing"]]
+        for key in ("x", "y"):
+            result[key] += (motion["to"][key] - result[key]) * progress
+    return result
+
+
+def _overlay_errors(segment, composition):
+    value = segment.get("overlay")
+    if "overlay" not in segment:
+        return []
+    required = {"x", "y", "width", "height", "alpha", "layer", "blend_mode"}
+    if segment.get("kind") != "image" or not isinstance(value, dict) or not required <= set(value) or set(value) - required - {"motion"}:
+        return ["overlay目前仅支持image透明plate，须声明x/y/width/height/alpha/layer/blend_mode，可选motion"]
+    errors = []
+    def finite(v):
+        return type(v) in (int, float) and math.isfinite(v)
+    if any(not finite(value[k]) for k in ("x", "y", "width", "height")) or value["width"] <= 0 or value["height"] <= 0:
+        errors.append("overlay矩形必须为有限像素坐标与正尺寸")
+    if not unit_interval(value["alpha"]):
+        errors.append("overlay.alpha必须为0..1有限数值")
+    if not nonnegative_int(value["layer"]) or not 1 <= value["layer"] <= 999:
+        errors.append("overlay.layer必须为1..999视觉叠放层；字幕独立保留在上方")
+    if not isinstance(value["blend_mode"], str) or value["blend_mode"] not in OVERLAY_BLENDS:
+        errors.append("overlay.blend_mode仅支持normal/screen/multiply")
+    motion = value.get("motion")
+    if motion is not None and (not isinstance(motion, dict) or set(motion) != {"to", "easing"}
+            or not isinstance(motion["easing"], str) or motion["easing"] not in OVERLAY_EASINGS
+            or not isinstance(motion["to"], dict) or set(motion["to"]) != {"x", "y"}
+            or any(not finite(v) for v in motion["to"].values())):
+        errors.append("overlay.motion需要to{x,y}及linear/ease_in/ease_out/ease_in_out；时间取整个segment")
+    if "still_motion" in segment:
+        errors.append("overlay不能同时使用全幅still_motion")
+    sha = segment.get("source_sha256")
+    if not isinstance(sha, str) or not re.fullmatch("[0-9a-f]{64}", sha):
+        errors.append("overlay必须固定source_sha256；素材沿原selected_takes/binding血缘")
+    if not errors and all(nonnegative_int(composition.get(k)) and composition[k] > 0 for k in ("width", "height")):
+        points = [(value["x"], value["y"])] + ([(motion["to"]["x"], motion["to"]["y"])] if motion else [])
+        if any(x < 0 or y < 0 or x + value["width"] > composition["width"] or y + value["height"] > composition["height"] for x, y in points):
+            errors.append("overlay起止矩形须完整位于画幅内；不支持隐式裁切")
+    return errors
 
 
 def document_sha256(document):
@@ -128,6 +180,8 @@ def validate(plan):
         errors.append(f"format 必须为 {FORMAT}")
     if not text(plan.get("project_id")):
         errors.append("project_id 必须是非空字符串")
+    from vsc.project.creative_rules import rule_errors
+    errors.extend(rule_errors(plan.get("creative_rules", {})))
     if "subtitle_style" in plan:
         try:
             if not isinstance(plan["subtitle_style"], dict):
@@ -171,6 +225,7 @@ def validate(plan):
         if kind not in KINDS:
             errors.append(f"{label}.kind 必须是 {'/'.join(sorted(KINDS))}")
             continue
+        errors.extend(label + ": " + message for message in _overlay_errors(segment, composition))
         for key in ("from_frame", "duration_in_frames"):
             if not nonnegative_int(segment.get(key)) or (key == "duration_in_frames" and segment.get(key, 0) == 0):
                 errors.append(f"{label}.{key} 必须是 {'非负整数' if key == 'from_frame' else '正整数'}")
@@ -252,7 +307,7 @@ def validate(plan):
             fps = frame_rate(composition["fps"])
             subtitles.compile_cues([(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"])
                                     for s in sorted(segments, key=lambda s: s["from_frame"]) if s["kind"] in {"caption", "text"}],
-                                   duration=duration / fps)
+                                   duration=duration / fps, rules=plan.get("creative_rules"))
         except ValueError as exc:
             errors.append(str(exc))
     return errors
@@ -284,13 +339,13 @@ def compile_subtitles(plan, style, *, script_texts=None, require_font=False, med
     font, max_width = None, None
     if segments:
         if style.get("font"):
-            font, max_width = subtitles.layout_font(style, plan["composition"]["width"])
+            font, max_width = subtitles.layout_font(style, plan["composition"]["width"], plan.get("creative_rules"))
         elif require_font:
             raise subtitles.SubtitleError(["严格字幕交付需要实际字体排版检查"])
     items = bound["cues"] if bound else [(s["from_frame"] / fps, (s["from_frame"] + s["duration_in_frames"]) / fps, s["text"]) for s in segments]
     compiled = subtitles.compile_cues(items,
         duration=plan["composition"]["duration_in_frames"] / fps, script_texts=script_texts, font=font, max_width=max_width,
-        style=style, height=plan["composition"]["height"])
+        style=style, height=plan["composition"]["height"], rules=plan.get("creative_rules"))
     if bound:
         compiled["checks"].update({key: value for key, value in bound["checks"].items() if key != "font_layout"})
         compiled["checks"]["render_time_resolution"] = "composition_frames; original measured milliseconds preserved"
@@ -337,6 +392,10 @@ export type Segment = {
   audio_fade_in_frames?: number; audio_fade_out_frames?: number;
   volume_keyframes?: {frame: number; volume: number}[];
   still_motion?: {from: {x: number; y: number; scale: number}; to: {x: number; y: number; scale: number}; easing: 'linear' | 'ease_in_out'};
+  source_sha256?: string;
+  overlay?: {x: number; y: number; width: number; height: number; alpha: number; layer: number;
+    blend_mode: 'normal' | 'screen' | 'multiply';
+    motion?: {to: {x: number; y: number}; easing: 'linear' | 'ease_in' | 'ease_out' | 'ease_in_out'}};
 };
 export type RenderPlan = {
   format: string; project_id: string;
@@ -344,19 +403,32 @@ export type RenderPlan = {
   composition: {id: string; width: number; height: number; fps: Fps; duration_in_frames: number};
   segments: Segment[];
   subtitle_style?: SubtitleStyle;
+  creative_rules?: {subtitle?: {safe_area?: Partial<SafeArea>}};
 };
+export type SafeArea = {top: number; bottom: number; left: number; right: number};
 export type SubtitleStyle = {
   font: string | null; font_size: number; color: string; stroke_color: string; stroke_width: number;
   position: 'bottom' | 'top' | 'center' | 'custom'; custom_position: number; background: string | null; rounded: boolean;
 };
-export const captionPlacement = (style: SubtitleStyle, margin: number) => {
-  if (style.position === 'bottom') return {bottom: `${margin * 100}%`};
-  if (style.position === 'top') return {top: `${margin * 100}%`};
+export const captionPlacement = (style: SubtitleStyle, margin: number | SafeArea) => {
+  const area = typeof margin === 'number' ? {top: margin, bottom: margin, left: .09, right: .09} : margin;
+  if (style.position === 'bottom') return {bottom: `${area.bottom * 100}%`};
+  if (style.position === 'top') return {top: `${area.top * 100}%`};
+  if (style.position === 'center' && typeof margin !== 'number') return {top: `${(1 + area.top - area.bottom) * 50}%`, transform: 'translateY(-50%)'};
   const percent = style.position === 'custom' ? style.custom_position : 50;
   return {top: `${percent}%`, transform: `translateY(-${percent}%)`};
 };
 export const toFps = (fps: Fps): number => typeof fps === 'number' ? fps : fps.numerator / fps.denominator;
 const clamp = (x: number): number => Math.max(0, Math.min(1, x));
+export const overlayAtFrame = (segment: Segment, frame: number) => {
+  const overlay = segment.overlay!;
+  const ratio = clamp(frame / Math.max(1, segment.duration_in_frames - 1));
+  const easing = overlay.motion?.easing;
+  const progress = easing === 'ease_in' ? ratio * ratio : easing === 'ease_out' ? 1 - (1 - ratio) ** 2
+    : easing === 'ease_in_out' ? ratio * ratio * (3 - 2 * ratio) : ratio;
+  return {...overlay, x: overlay.x + ((overlay.motion?.to.x ?? overlay.x) - overlay.x) * progress,
+    y: overlay.y + ((overlay.motion?.to.y ?? overlay.y) - overlay.y) * progress};
+};
 export const stillMotionAtFrame = (segment: Segment, frame: number): {translateX: number; translateY: number; scale: number} => {
   const motion = segment.still_motion;
   if (!motion) return {translateX: 0, translateY: 0, scale: 1};
@@ -398,23 +470,29 @@ VIDEO_TSX = """import {useEffect, useLayoutEffect, useRef, useState} from 'react
 import {AbsoluteFill, Img, Sequence, staticFile, useCurrentFrame, delayRender, continueRender, cancelRender} from 'remotion';
 import {Audio, Video} from '@remotion/media';
 import {plan as defaultPlan} from './plan';
-import {captionPlacement, fadeGain, stillMotionAtFrame, toFps, volumeAtFrame} from './timing';
-import type {RenderPlan, Segment, SubtitleStyle} from './timing';
+import {captionPlacement, fadeGain, overlayAtFrame, stillMotionAtFrame, toFps, volumeAtFrame} from './timing';
+import type {RenderPlan, Segment, SubtitleStyle, SafeArea} from './timing';
 
 const mediaStyle: React.CSSProperties = {width: '100%', height: '100%', objectFit: 'cover'};
 
 const safeMargin = __SAFE_MARGIN__;
-const TextLayer: React.FC<{text: string; style: SubtitleStyle; height: number}> = ({text, style, height}) => {
+const TextLayer: React.FC<{text: string; style: SubtitleStyle; height: number; safeArea: SafeArea; strictArea: boolean}> = ({text, style, height, safeArea, strictArea}) => {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (ref.current && (ref.current.scrollHeight > ref.current.clientHeight || ref.current.scrollWidth > ref.current.clientWidth
-        || ref.current.getBoundingClientRect().height > height * (1 - 2 * safeMargin))) {
+        || ref.current.getBoundingClientRect().height > height * (1 - safeArea.top - safeArea.bottom))) {
       cancelRender(new Error('Subtitle exceeds two lines or safe area; supply real speech timecodes or change approved style'));
     }
-  }, [text, height, style]);
+    if (strictArea && ref.current?.parentElement) {
+      const box = ref.current.getBoundingClientRect(), parent = ref.current.parentElement.getBoundingClientRect();
+      if (box.top < parent.top + height * safeArea.top - 1 || box.bottom > parent.top + height * (1 - safeArea.bottom) + 1) {
+        cancelRender(new Error('Subtitle position exceeds declared safe area'));
+      }
+    }
+  }, [text, height, style, safeArea, strictArea]);
   return <AbsoluteFill>
-    <div ref={ref} style={{position: 'absolute', left: '9%', width: '82%', maxHeight: style.font_size * 2.5 + (style.background ? style.font_size * .7 : 0),
-      ...captionPlacement(style, safeMargin), color: style.color, fontSize: style.font_size,
+    <div ref={ref} style={{position: 'absolute', left: `${safeArea.left * 100}%`, width: `${(1 - safeArea.left - safeArea.right) * 100}%`, maxHeight: style.font_size * 2.5 + (style.background ? style.font_size * .7 : 0),
+      ...captionPlacement(style, safeArea), color: style.color, fontSize: style.font_size,
       fontFamily: style.font ? 'VSCSubtitle' : 'sans-serif', fontWeight: 700, textAlign: 'center',
       whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', boxSizing: 'border-box', lineHeight: 1.25,
       WebkitTextStroke: `${style.stroke_width}px ${style.stroke_color}`, paintOrder: 'stroke fill',
@@ -445,6 +523,13 @@ const Visual: React.FC<{segment: Segment}> = ({segment}) => {
   const opacity = fadeGain(frame, segment.duration_in_frames, segment.fade_in_frames ?? 0, segment.fade_out_frames ?? 0);
   if (segment.kind === 'video') return <Video src={staticFile(segment.source!)} trimBefore={segment.source_in_frame ?? 0} durationInFrames={segment.duration_in_frames} volume={volumeAtFrame(segment, frame)} muted={segment.muted ?? false} objectFit="cover" style={{width: '100%', height: '100%', opacity}} />;
   if (segment.kind === 'image') {
+    if (segment.overlay) {
+      const overlay = overlayAtFrame(segment, frame);
+      return <div style={{position: 'absolute', left: overlay.x, top: overlay.y, width: overlay.width, height: overlay.height,
+        opacity: opacity * overlay.alpha}}>
+        <Img src={staticFile(segment.source!)} style={{width: '100%', height: '100%', objectFit: 'fill'}} />
+      </div>;
+    }
     const motion = stillMotionAtFrame(segment, frame);
     return <AbsoluteFill style={{overflow: 'hidden', opacity}}><Img src={staticFile(segment.source!)} style={{...mediaStyle,
       transform: `translate(${motion.translateX}%, ${motion.translateY}%) scale(${motion.scale})`}} /></AbsoluteFill>;
@@ -459,13 +544,17 @@ const Sound: React.FC<{segment: Segment}> = ({segment}) => {
 
 export const ShortDrama: React.FC<{plan?: RenderPlan}> = ({plan = defaultPlan}) => {
   const subtitleStyle = plan.subtitle_style ?? defaultPlan.subtitle_style!;
+  const safeArea = {top: safeMargin, bottom: safeMargin, left: .09, right: .09, ...plan.creative_rules?.subtitle?.safe_area};
   const fontReady = useSubtitleFont(subtitleStyle.font);
-  return <AbsoluteFill style={{backgroundColor: 'black'}}>
+  const overlays = plan.segments.some((segment) => segment.overlay);
+  return <AbsoluteFill style={{backgroundColor: 'black', isolation: overlays ? 'isolate' : undefined}}>
     {plan.segments.map((segment) => (
-      <Sequence key={segment.id} name={segment.id} from={segment.from_frame} durationInFrames={segment.duration_in_frames} premountFor={Math.ceil(toFps(plan.composition.fps))}>
+      <Sequence key={segment.id} name={segment.id} from={segment.from_frame} durationInFrames={segment.duration_in_frames} premountFor={Math.ceil(toFps(plan.composition.fps))}
+        style={overlays ? {zIndex: segment.overlay?.layer ?? (segment.kind === 'caption' || segment.kind === 'text' ? 1000 : 0),
+          mixBlendMode: segment.overlay?.blend_mode} : undefined}>
         {segment.kind === 'video' || segment.kind === 'image' ? <Visual segment={segment} /> : null}
         {segment.kind === 'audio' ? <Sound segment={segment} /> : null}
-        {fontReady && (segment.kind === 'caption' || segment.kind === 'text') ? <TextLayer text={segment.text!} style={{...subtitleStyle, ...segment.subtitle_style}} height={plan.composition.height} /> : null}
+        {fontReady && (segment.kind === 'caption' || segment.kind === 'text') ? <TextLayer text={segment.text!} style={{...subtitleStyle, ...segment.subtitle_style}} height={plan.composition.height} safeArea={safeArea} strictArea={Boolean(plan.creative_rules?.subtitle?.safe_area)} /> : null}
       </Sequence>
     ))}
   </AbsoluteFill>;
@@ -495,6 +584,15 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
         if json.loads(source_bytes) != document:
             raise ValueError("源时间线在脚手架准备过程中变更，请重试")
     source_sha = hashlib.sha256(source_bytes).hexdigest()
+    overlay_sources = []
+    from vsc.production.handoffs import local_file
+    for segment in plan["segments"]:
+        if not segment.get("overlay"):
+            continue
+        source = local_file(Path(plan_path).resolve().parent if plan_path else Path.cwd(), segment["source"])
+        if hashlib.sha256(source.read_bytes()).hexdigest() != segment["source_sha256"]:
+            raise ValueError("overlay固定plate字节SHA已改变: " + segment["id"])
+        overlay_sources.append((segment, source))
     font_path, font_record, warnings = None, None, ["浏览器、Pillow 与剪映的字体排版并非逐像素等同；横竖版字幕和主体安全区仍须真实回看"]
     if style.get("font"):
         font_path = Path(style["font"])
@@ -530,6 +628,12 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "src").mkdir(exist_ok=True)
     (destination / "public").mkdir(exist_ok=True)
+    for segment, source in overlay_sources:
+        target = destination / "public" / segment["source"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        if hashlib.sha256(target.read_bytes()).hexdigest() != segment["source_sha256"]:
+            raise ValueError("overlay素材复制期间发生变化: " + segment["id"])
     if font_record:
         target = destination / font_record["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -542,6 +646,10 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
                                    "font": font_record, "safe_margin_ratio": subtitles.SAFE_MARGIN}, "warnings": warnings,
                 "subtitle_checks": compiled["checks"],
                 "verification": {"scaffold": "generated", "typecheck": "not_run", "render": "not_run", "human_review": "not_run"}}
+    manifest["warnings"].extend(compiled.get("warnings", []))
+    if overlay_sources:
+        manifest["overlay_sources"] = [{"segment_id": segment["id"], "source": segment["source"], "sha256": segment["source_sha256"]}
+            for segment, _ in overlay_sources]
     (destination / "vsc-scaffold.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", "utf-8")
     safe_project = re.sub(r"[^a-z0-9-]+", "-", plan["project_id"].lower()).strip("-") or "project"
     package = {
@@ -558,7 +666,7 @@ def scaffold(document, destination, plan_path=None, bible=None, strict_subtitles
     (destination / "src" / "ShortDrama.tsx").write_text(VIDEO_TSX.replace("__SAFE_MARGIN__", str(subtitles.SAFE_MARGIN)), "utf-8")
     (destination / "src" / "plan.ts").write_text(plan_module(plan), "utf-8")
     (destination / "src" / "timing.ts").write_text(TIMING_TS, "utf-8")
-    (destination / "tsconfig.json").write_text(json.dumps({"compilerOptions": {"target": "ES2022", "lib": ["DOM", "ES2022"], "jsx": "react-jsx", "module": "ESNext", "moduleResolution": "Bundler", "strict": True, "skipLibCheck": True, "noEmit": True}, "include": ["src"]}, indent=2) + "\n", "utf-8")
+    (destination / "tsconfig.json").write_text(json.dumps({"compilerOptions": {"target": "ES2022", "lib": ["DOM", "DOM.Iterable", "ES2022"], "jsx": "react-jsx", "module": "ESNext", "moduleResolution": "Bundler", "strict": True, "skipLibCheck": True, "noEmit": True}, "include": ["src"]}, indent=2) + "\n", "utf-8")
     (destination / "public" / "README.md").write_text("将计划中 source 指向的媒体按相同相对路径放入此目录。例如 takes/SH-001.mp4 对应 public/takes/SH-001.mp4。\n", "utf-8")
     (destination / "README.md").write_text("# VSC Remotion 项目\n\n1. 将选定 take、音频和其他素材放到 `public/`。\n2. `npm install`\n3. `npm run typecheck`，再 `npm run studio` 预览并由负责人确认。\n4. `npm run render -- <composition-id> out/final.mp4` 导出。\n\n`vsc-source-plan.json` 保留原始时间线，`vsc-scaffold.json` 绑定外层 SHA、共享字幕样式、已打包字体与安全区。字体加载失败或字幕高于安全区会阻断渲染；横竖版排版仍须分别回看。\n\n计划字段的语义见 VSC 仓库 docs/design/remotion.md 的「帧级字段」。\n\n脚手架生成不代表已安装、通过类型检查、成功渲染或人工审片。此项目由 VSC 计划生成；上游 Remotion Skill 在 vendor/remotion 中单独保留。\n" + "".join("\n警告：" + warning + "\n" for warning in warnings), "utf-8")
     return manifest
@@ -576,9 +684,35 @@ def main():
     scaffold_parser.add_argument("--strict-subtitles", action="store_true", help="字幕字体必须能够打包并绑定 SHA")
     scaffold_parser.add_argument("--script-texts", help="固定原稿 JSON 字符串数组；核对缺字，不代表音频对齐")
     scaffold_parser.add_argument("--formal-subtitles", action="store_true", help="要求批准台词行/采用音频/实测时码固定包")
+    mixer = command.add_parser("mix-audio", help="按固定timeline/Sound Cue包络离线混音，不批准成果")
+    mixer.add_argument("plan")
+    mixer.add_argument("--media-root", required=True)
+    mixer.add_argument("--output", required=True)
+    mixer.add_argument("--sound-plan", action="append", default=[], help="timeline固定声音引用ID=FILE，可重复")
+    envelope = command.add_parser("sound-envelope", help="将固定声音意图派生为新timeline草稿包络，不修改或批准原稿")
+    envelope.add_argument("plan")
+    envelope.add_argument("--output", required=True)
+    envelope.add_argument("--sound-plan", action="append", default=[], help="固定声音引用ID=FILE，可重复")
     args = parser.parse_args()
     try:
         plan = load_plan(args.plan)
+        if args.command == "sound-envelope":
+            from vsc.post.audio_mix import bind_sound_files
+            from vsc.post.sound_rules import project_ducking
+            projected, report = project_ducking(plan, bind_sound_files(plan, args.sound_plan))
+            problems = validate(projected)
+            if problems:
+                raise ValueError("；".join(problems))
+            destination = Path(args.output)
+            with destination.open("x", encoding="utf-8") as stream:
+                json.dump(projected, stream, ensure_ascii=False, indent=2)
+            print(json.dumps({"output": str(destination), "applied": report, "status": "draft_requires_original_review"}, ensure_ascii=False))
+            return
+        if args.command == "mix-audio":
+            from vsc.post.audio_mix import bind_sound_files, render_audio
+            result = render_audio(plan, args.media_root, args.output, sound_plans=bind_sound_files(plan, args.sound_plan))
+            print(json.dumps(result, ensure_ascii=False))
+            return
         errors = validate(plan)
         if errors:
             for error in errors:

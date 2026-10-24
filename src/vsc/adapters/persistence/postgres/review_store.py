@@ -4,7 +4,7 @@ This repository never owns a second production state. Displayed progress comes
 from the linked suggestion run, artifact decisions, jobs and role returns.
 """
 import json
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, literal, union_all
 
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
@@ -121,32 +121,46 @@ class ReviewRepository:
         return self.store._mutate(project_id, "add_artifact_review_note", payload, callback=work, **kw)
 
     def read(self, project_id, *, script_note_id=None, media_review_id=None, artifact_note_id=None,
-             artifact_id=None, media_id=None):
+             artifact_id=None, media_id=None, offset=0, limit=24, response_offset=0, response_limit=10):
         if sum(value is not None for value in (script_note_id, media_review_id, artifact_note_id, artifact_id, media_id)) != 1:
             raise ResourceError("请选择一个原意见或固定对象回看", "review_source_required")
+        if (any(type(n) is not int or n < 0 for n in (offset, response_offset))
+                or type(limit) is not int or not 1 <= limit <= 100
+                or type(response_limit) is not int or not 1 <= response_limit <= 50):
+            raise ResourceError('意见历史分页不合法', 'invalid_payload')
         with self.store.engine.connect() as conn:
             p = checked_id(project_id)
             project = self.store._project(conn, p)
             if artifact_id:
                 self.store._one(conn, S.artifact_versions, p, artifact_id)
-                notes = [("artifact_note_id", dict(row)) for row in conn.execute(select(S.artifact_review_notes).where(
-                    S.artifact_review_notes.c.project_id == p, S.artifact_review_notes.c.artifact_id == checked_id(artifact_id))
-                    .order_by(S.artifact_review_notes.c.created_at)).mappings()]
+                query = select(literal('artifact_note_id').label('field'), S.artifact_review_notes.c.id,
+                    S.artifact_review_notes.c.created_at).where(S.artifact_review_notes.c.project_id == p,
+                    S.artifact_review_notes.c.artifact_id == checked_id(artifact_id))
             elif media_id:
                 self.store._media(conn, p, media_id)
-                query = select(S.media_reviews).join(S.binding_candidates,
+                media_notes = select(literal('media_review_id').label('field'), S.media_reviews.c.id,
+                    S.media_reviews.c.created_at).join(S.binding_candidates,
                     (S.binding_candidates.c.project_id == S.media_reviews.c.project_id) &
                     (S.binding_candidates.c.id == S.media_reviews.c.candidate_id)).where(
                         S.media_reviews.c.project_id == p, S.binding_candidates.c.media_id == checked_id(media_id))
-                notes = [("media_review_id", dict(row)) for row in conn.execute(query.order_by(S.media_reviews.c.created_at)).mappings()]
-                notes.extend(("artifact_note_id", dict(row)) for row in conn.execute(select(S.artifact_review_notes).join(
+                artifact_notes = select(literal('artifact_note_id').label('field'), S.artifact_review_notes.c.id,
+                    S.artifact_review_notes.c.created_at).join(
                     S.render_outputs, (S.render_outputs.c.project_id == S.artifact_review_notes.c.project_id) &
                     (S.render_outputs.c.id == S.artifact_review_notes.c.render_output_id)).where(
-                        S.artifact_review_notes.c.project_id == p, S.render_outputs.c.media_id == checked_id(media_id))).mappings())
+                        S.artifact_review_notes.c.project_id == p, S.render_outputs.c.media_id == checked_id(media_id))
+                union = union_all(media_notes, artifact_notes).subquery()
+                query = select(union.c.field, union.c.id, union.c.created_at)
             else:
                 field, note = self.source(conn, p, {"script_note_id": script_note_id, "media_review_id": media_review_id,
                                                     "artifact_note_id": artifact_note_id})
                 notes = [(field, note)]
+            if artifact_id or media_id:
+                total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+                selected = query.subquery()
+                notes = [(r['field'], {'id': r['id']}) for r in conn.execute(select(selected).order_by(
+                    selected.c.created_at.desc(), selected.c.id.desc()).offset(offset).limit(limit)).mappings()]
+            else:
+                total = 1
             items = []
             for field, note in notes:
                 _, note = self.source(conn, p, {field: note["id"]})
@@ -161,8 +175,15 @@ class ReviewRepository:
                             (S.job_outputs.c.project_id == S.generation_jobs.c.project_id) &
                             (S.job_outputs.c.job_id == S.generation_jobs.c.id)).where(S.generation_jobs.c.project_id == p,
                                 S.job_outputs.c.media_id == note["media"]["id"])).mappings()]
-                for response in conn.execute(select(S.review_responses).where(S.review_responses.c.project_id == p,
-                        S.review_responses.c[field] == note["id"]).order_by(S.review_responses.c.created_at)).mappings():
+                responses_query = select(S.review_responses).where(S.review_responses.c.project_id == p,
+                        S.review_responses.c[field] == note["id"])
+                response_total = conn.execute(select(func.count()).select_from(responses_query.subquery())).scalar_one()
+                entry['response_page'] = {'offset': response_offset, 'limit': response_limit, 'total': response_total,
+                    'next_offset': response_offset + response_limit if response_offset + response_limit < response_total else None,
+                    'previous_offset': max(0, response_offset - response_limit) if response_offset else None}
+                responses = list(conn.execute(responses_query.order_by(S.review_responses.c.created_at.desc(),
+                    S.review_responses.c.id.desc()).offset(response_offset).limit(response_limit)).mappings())
+                for response in reversed(responses):
                     value = dict(response, runs=[], proposals=[], dispatches=[])
                     run_ids = conn.execute(select(S.review_script_runs.c.run_id).where(S.review_script_runs.c.project_id == p,
                         S.review_script_runs.c.response_id == response["id"])).scalars()
@@ -176,7 +197,7 @@ class ReviewRepository:
                             suggestion["decisions"] = [dict(row) for row in conn.execute(select(S.script_suggestion_decisions).where(
                                 S.script_suggestion_decisions.c.project_id == p,
                                 S.script_suggestion_decisions.c.suggestion_id == suggestion_id).order_by(
-                                    S.script_suggestion_decisions.c.created_at, S.script_suggestion_decisions.c.id)).mappings()]
+                                    S.script_suggestion_decisions.c.created_at.desc(), S.script_suggestion_decisions.c.id.desc()).limit(1)).mappings()]
                             suggestions.append(suggestion)
                         value["runs"].append(dict(run, suggestions=suggestions))
                     for artifact_id in conn.execute(select(S.review_proposals.c.artifact_id).where(
@@ -225,7 +246,12 @@ class ReviewRepository:
                                        else "已派给专业角色，尚无实际结果；意见保持待处理"})
                     entry["responses"].append(value)
                 items.append(entry)
-            return clean({"project_id": p, "revision": project["revision"], "items": items})
+            filters = {key: value for key, value in {'artifact_id':artifact_id,'media_id':media_id,
+                'script_note_id':script_note_id,'media_review_id':media_review_id,'artifact_note_id':artifact_note_id}.items() if value is not None}
+            return clean({"project_id": p, "revision": project["revision"], "items": items,
+                'page': {'offset':offset,'limit':limit,'total':total,'filter':filters,
+                    'next_offset':offset + limit if offset + limit < total else None,
+                    'previous_offset':max(0,offset-limit) if offset else None}})
 
     def validate_local(self, conn, p, payload, value):
         """The reviewed audio must be an output of exactly the source being redone."""

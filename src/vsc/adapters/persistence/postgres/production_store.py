@@ -303,6 +303,24 @@ class ProductionRepository:
         if not enabled["enabled"] or not enabled["provider_enabled"]:
             raise ResourceError("任务固定供应商或模型已停用", "provider_disabled")
 
+    def _generation_model(self, conn, payload, *, lock=True):
+        model_id = payload.get("model_id")
+        if not model_id:
+            route = conn.execute(select(S.provider_routes).where(S.provider_routes.c.enabled,
+                S.provider_routes.c.modality == payload.get("modality"), S.provider_routes.c.purpose == payload.get("purpose"),
+                S.provider_routes.c.preferred_model_id.is_not(None)).order_by(S.provider_routes.c.priority, S.provider_routes.c.id).limit(1)).mappings().first()
+            if not route:
+                raise ResourceError("需要显式 model_id 或适用的默认配置", "model_default_missing")
+            model_id = route["preferred_model_id"]
+        model_id = checked_id(model_id)
+        model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == model_id).with_for_update(read=True) if lock else select(S.provider_models).where(S.provider_models.c.id == model_id)).mappings().first()
+        if not model or not model["enabled"]:
+            raise ResourceError("模型未注册或未启用", "model_unavailable")
+        provider = conn.execute(select(S.providers).where(S.providers.c.id == model["provider_id"]).with_for_update(read=True) if lock else select(S.providers).where(S.providers.c.id == model["provider_id"])).mappings().one()
+        if not provider["enabled"] or model["modality"] != payload.get("modality"):
+            raise ResourceError("Provider 或模型模态不可用", "model_unavailable")
+        return model, provider
+
     def create_generation_job(self, project_id, payload, **kw):
         return self._mutate(project_id, "create_generation_job", payload,
             callback=lambda conn, project: self._create_generation_job(conn, project, payload), **kw)
@@ -326,21 +344,8 @@ class ProductionRepository:
         run = self._one(conn, S.artifact_versions, p, required(payload, "run_version_id"))
         if not self._artifact_approved(conn, p, run["id"]):
             raise ResourceError("运行版本未批准", "run_unapproved")
-        model_id = payload.get("model_id")
-        if not model_id:
-            route = conn.execute(select(S.provider_routes).where(S.provider_routes.c.enabled,
-                S.provider_routes.c.modality == payload.get("modality"), S.provider_routes.c.purpose == payload.get("purpose"),
-                S.provider_routes.c.preferred_model_id.is_not(None)).order_by(S.provider_routes.c.priority, S.provider_routes.c.id).limit(1)).mappings().first()
-            if not route:
-                raise ResourceError("需要显式 model_id 或适用的默认配置", "model_default_missing")
-            model_id = route["preferred_model_id"]
-        model_id = checked_id(model_id)
-        model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == model_id).with_for_update(read=True)).mappings().first()
-        if not model or not model["enabled"]:
-            raise ResourceError("模型未注册或未启用", "model_unavailable")
-        provider = conn.execute(select(S.providers).where(S.providers.c.id == model["provider_id"]).with_for_update(read=True)).mappings().one()
-        if not provider["enabled"] or model["modality"] != payload.get("modality"):
-            raise ResourceError("Provider 或模型模态不可用", "model_unavailable")
+        model, provider = self._generation_model(conn, payload)
+        model_id = model['id']
         request = dict(required(payload, "request_payload"))
         if any(key in request for key in ("input_media", "input_versions", "voice_binding")):
             raise ResourceError("请求固定输入由服务端编译，客户端不能覆写", "untrusted_job_inputs")
@@ -385,6 +390,8 @@ class ProductionRepository:
         request["input_media"] = [{k: item[k] for k in ("media_id", "blob_id", "sha256", "role", "binding_decision_id")}
                                   for item in input_media]
         request["input_versions"] = [{k: artifact[k] for k in ("id", "sha256", "artifact_type")} for artifact in context["artifacts"]]
+        from .quotes import check_pinned
+        quote = check_pinned(run_document, model, request, candidate_no)
         request_sha = digest(request)
         key = digest({"run": run["id"], "shot": shot_id, "asset": asset_id, "purpose": required(payload, "purpose"),
                       "candidate": candidate_no, "provider": provider["id"], "model": model_id, "request": request_sha})
@@ -400,7 +407,8 @@ class ProductionRepository:
         for artifact in context["artifacts"]:
             conn.execute(insert(S.job_input_versions).values(project_id=p, id=new_id(), job_id=row_id,
                 artifact_id=artifact["id"], sha256=artifact["sha256"], role=artifact["artifact_type"]))
-        conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=row_id, event_type="intent_recorded", evidence={}))
+        conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=row_id, event_type="intent_recorded",
+            evidence={"generation_quote": quote, "quote_policy": run_document.get('quote_policy', {})}))
         return {"id": row_id, "status": "created", "idempotency_key": key, "request_sha256": request_sha}
 
     def recover_generation_job(self, project_id, payload, *, confirmation_id, **kw):
@@ -417,6 +425,8 @@ class ProductionRepository:
         return self._update_generation_job(project_id, payload, **kw)
 
     def _update_generation_job(self, project_id, payload, *, confirmation_id=None, **kw):
+        if 'actual_cost' in payload:
+            raise ResourceError('账单须通过record_generation_bill显式登记，不能混入任务状态', 'separate_bill_required')
         allowed = {"created": {"submitted", "submission_unknown", "failed", "cancelled"},
                    "submitted": {"running", "succeeded", "failed"}, "running": {"running", "succeeded", "failed"},
                    "submission_unknown": {"submitted", "submission_unknown", "succeeded", "failed"},

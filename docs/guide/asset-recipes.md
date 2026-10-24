@@ -1,12 +1,12 @@
 # 原生制作规格包
 
-`knowledge/asset-recipes.json` 是可跨作品复用的原创制作规格目录，格式为 `vsc.asset-recipes/v1`。目前覆盖 `workflow/library.json` 的全部 20 种分类，每类至少一条；不包含作品人物、情节、现成媒体、供应商账号或音色 ID。它让制作从可执行的参数与验收要求起步。
+`knowledge/asset-recipes.json` 是可跨作品复用的原创制作规格目录，格式为 `vsc.asset-recipes/v1`。目前23条规格覆盖 `workflow/library.json` 的全部20种分类，每类至少一条；不包含作品人物、情节、现成媒体、供应商账号或音色 ID。它让制作从可执行的参数与验收要求起步。
 
 | 范围 | 已提供规格 |
 | --- | --- |
 | 人物、服装、动物 | 成年人物定妆、素色外套、小型短毛犬行为 |
 | 道具、交通、场景、风格、特效 | 折叠纸条、城市自行车、单窗小房间、柔和中性色、窗外细雨 |
-| 动作、打斗、表演、运镜、转场 | 桌面递物、错位闪避、聆听后松弛、动机慢推、前景遮挡 |
+| 动作、打斗、表演、运镜、转场 | 桌面递物、错位闪避、三人纸流接力、环线佯动、插销组装、聆听后松弛、动机慢推、前景遮挡 |
 | 人声、环境声、拟音、音乐 | 沉稳清晰人声绑定、室内空气底、纸张轻折、留白式配乐 |
 | 字体、字幕、图形 | 中文字体选择、双行底部字幕、留白标题卡 |
 
@@ -17,6 +17,7 @@
 ```sh
 python3 -B scripts/knowledge/recipes.py list
 python3 -B scripts/knowledge/recipes.py search 打斗 --kind fight
+python3 -B scripts/knowledge/recipes.py list --genre xianxia
 python3 -B scripts/knowledge/recipes.py search 沉稳 --kind voice
 python3 -B scripts/knowledge/search.py 递物 --in recipes
 python3 -B scripts/knowledge/search.py 声音桥 --in all
@@ -47,13 +48,15 @@ python3 -B scripts/knowledge/recipes.py install --all
 
 `scripts/assets/library.py use` 不带 `--bible` 时可将规格清单复制进项目供设计参考；加 `--bible` 会拒绝把规格直接登记为实体参考、真实音色或全片字幕样式。字体选择规格不附字体文件，标题卡规格也不附已生成贴片；必须另选合法字体、制作图形并验证交付许可。
 
+工作区共享目录可保存同一规格的新固定版本；传统 `library/` 安装继续保留已固定的旧条目，不自动覆盖。新版音乐/字幕的类型参数直接从当前原生目录选择，或在独立目录安装，原项目旧引用保持不变。
+
 ## 制作时如何使用
 
 先检索并人工选规格，再将其中固定项、变量与验收点纳入项目资产设计。填入作品实体 ID、尺寸、画幅、时间码及实际授权来源；完成参考或媒体制作后，按原 VSC 流程登记候选、选择、依赖与批准。`deliverables` 表示待制作输出，不能据此报告已生成媒体或有可用供应商。
 
 动作与打斗规格含安全拍点、起止状态、镜头、时长与逐拍顺序。真实拍摄由现场动作指导确认错位与间距；打斗示例只采用无接触空挥和自主后撤，后期添加打击声。人声规格使用 `<PROJECT_SPEAKER_ID>`，`provider` 与 `voice_id` 为 `null`；选定合法声源后固定角色映射，不能将描述伪装成供应商音色 ID。声音规格明确循环、对白避让、进出点、格式和权利确认要求。
 
-`craft_refs` 仅引用 `knowledge/craft.json` 的方法卡 ID，提供创作方法线索，不复制方法卡全文，也不获得任何素材的权利或项目批准。当前方法库有 34 条卡、14 个来源，可用 `scripts/knowledge/craft.py show <ID>` 查看概括与来源依据。
+`craft_refs` 仅引用 `knowledge/craft.json` 的方法卡 ID，提供创作方法线索，不复制方法卡全文，也不获得任何素材的权利或项目批准。当前方法库有 36 条卡、15 个来源，可用 `scripts/knowledge/craft.py show <ID>` 查看概括与来源依据。
 
 实际声音制作后，按用途把已选文件收入 `voice/ambience/sfx/music`，保留 provider、model、prompt、原记录与文件 SHA；人声固定实际声源及 speaker 映射，环境底复核循环接缝，拟音复核接触点，音乐复核对白避让与进出点。规格里的分轨、loop 或时长目标必须经真实输出验证，不能沿用为已完成结论。操作与来源继承范围见[声音来源与跨项目复用](reuse-and-search.md#声音来源与跨项目复用)。
 

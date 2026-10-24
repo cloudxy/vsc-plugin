@@ -60,6 +60,22 @@ python3 scripts/post/remotion_plan.py scaffold templates/remotion-render-plan.js
 
 脚手架包含同版 `@remotion/cli`、`@remotion/media`、`remotion` 及 `typecheck` 命令。它不安装依赖。`npm run typecheck`、Studio 回看和真正导出仍需在用户的生成目录中执行。
 
+## 固定 plate 叠加 <a id="fixed-overlay"></a>
+
+透明 plate 沿原 `selected_takes`、binding、媒体登记及 `timeline_item_media` 使用。`source_shot_id`只说明镜头归属；plate必须有独立 `vfx_overlay`用途的选用决定与真实素材SHA，不能把主镜视频或`post_mask`当成plate。当前只支持`kind=image`的静态RGBA plate，用帧驱动位置运动；蒙版、深度、跟踪与三维遮挡未因此获得能力。
+
+image segment可选`overlay`，存在时还必须有完整`source_sha256`：
+
+```json
+{"x":20,"y":20,"width":64,"height":48,"alpha":0.5,"layer":1,"blend_mode":"normal","motion":{"to":{"x":220,"y":80},"easing":"ease_in"}}
+```
+
+坐标与尺寸使用Composition像素。完整图像缩放到指定矩形，RGBA透明区保持透明；起止矩形必须完整位于画幅内，不隐式裁切。`alpha`为0..1，`layer`为1..999（数值大者在上），仅作用于视觉叠加，字幕保留在上方。支持`normal/screen/multiply`，其他混合、蒙版或深度字段明确拒绝。当前仅normal合成在仓库工程夹具中有实际导出像素对照；其他模式仍需按具体材料核实际结果。
+
+片段从`from_frame`出现，到`from_frame+duration_in_frames`之前结束。motion从本地第0帧的`x/y`移至最后一帧的`to.x/to.y`，帧率沿原Composition解释。`linear`匀速；`ease_in`从慢到快；`ease_out`逐渐停稳；`ease_in_out`首尾较缓。时长、位移与曲线应对应信息何时揭示、注意力如何转移，不能把产品视频配方固定时值套成叙事硬门。能量等级只作创作注记，没有伪装为生成模型控制。需要停留时，另排同一固定plate的静态片段，保留其原选择与来源。
+
+脚手架在写文件前检查真实plate存在且SHA匹配，复制固定字节到`public/`并记录`overlay_sources`。原资源导出保留overlay与独立选用血缘，媒体QA复核SHA并且不会把透明plate算作补齐底片空隙。生成工程、类型检查、实际导出与画面对照分别留证；这些技术结果不代替视效、字幕遮挡或叙事效果的人审。
+
 ## 单 Cue 局部位置修改
 
 后期角色先核对原意见引用的固定产物字节 SHA，再读取所见 render-plan 或含 `render_plan` 的 timeline。调用 `vsc.post.remotion_plan.edit_caption_position` 时另用 `document_sha256(document)` 固定完整 JSON 文档；这是规范 JSON 摘要，与数据库产物的原始字节 SHA 分别核验，不能互换。

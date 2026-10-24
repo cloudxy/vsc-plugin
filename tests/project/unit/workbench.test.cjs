@@ -2,16 +2,33 @@ const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const {Document}=require('../../support/fixtures/frontend/panel_dom.cjs');
-function fixture(){
+function fixture(callbacks={}){
   const document=new Document(''),container=document.createElement('section');document.body.append(container);
   const memory=new Map(),requests=[],pending=[],opened=[],errors=[];
   const context=vm.createContext({document,URLSearchParams,AbortController,console,localStorage:{getItem:k=>memory.get(k),setItem:(k,v)=>memory.set(k,v)},fetch:(url,options)=>{requests.push({url,options});return new Promise(resolve=>pending.push(resolve));}});
   vm.runInContext(fs.readFileSync(path.join(process.env.VSC_TEST_ROOT,'src/vsc/interfaces/web/static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench'),context);
-  const bench=context.createCreativeWorkbench(container,{onObject:id=>opened.push(['object',id]),onMedia:id=>opened.push(['media',id]),onArtifact:id=>opened.push(['artifact',id]),onGraph:id=>opened.push(['graph',id]),onError:error=>errors.push(error.message)});
+  const bench=context.createCreativeWorkbench(container,{onObject:id=>opened.push(['object',id]),onMedia:id=>opened.push(['media',id]),onArtifact:id=>opened.push(['artifact',id]),onGraph:id=>opened.push(['graph',id]),onError:error=>errors.push(error.message),...callbacks});
   const respond=(data,ok=true)=>{assert.ok(pending.length);pending.shift()({ok,json:async()=>data});};
   return {bench,container,memory,requests,pending,opened,errors,respond,find:text=>container.querySelectorAll('button').find(b=>b.textContent===text)};
 }
 function doc(project,section='lines',items=[],extra={}){return {project_id:project,revision:4,scope:{id:'shot-1',kind:'shot',title:'镜头一'},ancestors:[],summary:{[section]:items.length},sections:{[section]:{items,total:items.length,scope_total:items.length,next_offset:null}},gaps:[],warnings:[],read_only:true,...extra};}
+test('professional stage keeps scope, catalogue browsing does not force a different take, and late old selection cannot route',async()=>{
+  const calls=[],routed=[];const a=fixture({createReviewer:async(root,binding)=>{calls.push(binding);return {suspend(){}};},onStageRef:ref=>routed.push(ref)});
+  let loading=a.bench.load({projectId:'p',objectId:'shot-1',task:'candidates'});a.respond(doc('p','bindings',[{id:'slot',object_id:'shot-1',kind:'video_take',purpose:'video_take',media_id:'original',status:'selected'}]));await loading;
+  assert.equal(calls[0].ref,'media:original');assert.equal(calls[0].objectId,'shot-1');assert.equal(calls[0].targetObjectId,'shot-1');
+  await a.find('返回资料与镜头').click();assert.equal(a.container.querySelector('.workbench-catalog').open,true);
+  loading=a.find('相关素材').click();a.respond(doc('p','materials',[{id:'alternate',media_id:'alternate',title:'备选',kind:'video',status:'selected'}]));await loading;
+  assert.equal(calls.length,1,'reading the catalogue must not silently switch the work stage');
+  await a.find('预览素材').click();assert.equal(calls[1].ref,'media:alternate');
+  const previous=calls[1];loading=a.bench.load({projectId:'other',objectId:'shot-2',task:'candidates'});a.respond(doc('other','bindings',[],{scope:{id:'shot-2',kind:'shot'}}));await loading;
+  previous.onRef({kind:'media',id:'late'});assert.equal(routed.length,0);
+});
+
+test('binding library selection consumes the real read model aliases for target and purpose',async()=>{
+  const uses=[],a=fixture({onLibrary:target=>uses.push(target)});let loading=a.bench.load({projectId:'p',objectId:'shot-1',task:'candidates'});
+  a.respond(doc('p','bindings',[{id:'slot',object_id:'shot-1',kind:'first_frame',purpose:'first_frame',status:'unselected'}]));await loading;
+  await a.find('从公共库选择用于此处').click();assert.equal(uses[0].target_object_id,'shot-1');assert.equal(uses[0].role,'first_frame');
+});
 test('scope is identified once in the breadcrumb while section buttons show the selection',async()=>{
   const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
   const heading=a.container.querySelector('.workbench-heading');
@@ -19,6 +36,7 @@ test('scope is identified once in the breadcrumb while section buttons show the 
   assert.equal(heading.querySelectorAll('p').length,0);
   const current=heading.querySelector('strong');assert.equal(current.textContent,'镜头一');
   assert.equal(current.getAttribute('aria-current'),'location');
+  const ancestors=heading.querySelector('.workbench-ancestry');ancestors.open=true;await ancestors.dispatch('keydown',{key:'Escape'});assert.equal(ancestors.open,false);assert.equal(a.container.ownerDocument.activeElement,ancestors.querySelector('summary'));
   assert.equal(heading.textContent.split('镜头一').length-1,1);
   p=a.find('剧本与镜头').click();assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'shots');
   a.respond(doc('p','shots',[{id:'shot-1',title:'镜头一'}]));await p;
@@ -57,9 +75,9 @@ test('candidate and delivery task entry points have bounded groups and separate 
   p=a.find('任务与尝试').click();a.respond(doc('p','jobs'));await p;
   p=a.find('任务尝试对照').click();a.respond(doc('p','job_attempts'));await p;
   p=a.bench.load({projectId:'p',userId:'alice',task:'delivery'});
-  assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'timeline_media');
-  a.respond(doc('p','timeline_media'));await p;
-  assert.equal(a.find('实际用料区间').getAttribute('aria-current'),'page');
+  assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'renders');
+  a.respond(doc('p','renders'));await p;
+  assert.equal(a.find('成片固定版本').getAttribute('aria-current'),'page');assert.ok(a.find('实际用料区间'));
   assert.equal(a.find('任务与尝试'),undefined);
   p=a.bench.load({projectId:'p',userId:'alice',task:'candidates'});
   assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'job_attempts');

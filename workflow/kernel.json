@@ -302,13 +302,18 @@
       "roles": [
         "orchestrator",
         "product-manager",
-        "product-designer"
+        "product-designer",
+        "software-architect",
+        "fullstack-engineer",
+        "database-engineer"
       ],
       "profile_stages": [],
       "contracts": [],
       "vendor_skill_stage": "architecture",
       "maintenance_skills": [
-        "vsc-schema-review"
+        "vsc-schema-review",
+        "vsc-engineer",
+        "vsc-database"
       ]
     }
   ]

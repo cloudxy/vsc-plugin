@@ -5,7 +5,7 @@
   "purpose": "candidate",
   "shot_id": "SH-002",
   "inputs": {
-    "anchors_sha256": "be777d85cc624ebd94990258c8d50c924d6ba1ac26c54b0870907872e21c08f1",
+    "anchors_sha256": "ba55228d8d0a9a0aa72fbe8bda495c57c85069d7eb8572b046da7aec4e7837b1",
     "references": [
       {
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000",

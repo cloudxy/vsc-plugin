@@ -4,7 +4,7 @@ import math
 from sqlalchemy import func, insert, select, update
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
-from .values import clean, new_id
+from .values import clean, new_id, checked_id
 
 UNITS = frozenset({"remote_jobs", "images", "video_seconds", "audio_jobs", "speech_chars", "vision_jobs"})
 
@@ -38,6 +38,49 @@ def operation_key(request, candidate_no):
 
 
 class BudgetRepository:
+    @staticmethod
+    def _recorded_bills(conn, project_id, job_id=None):
+        query = select(S.job_events.c.job_id, S.job_events.c.evidence).where(
+            S.job_events.c.project_id == project_id, S.job_events.c.event_type == 'bill_recorded')
+        if job_id is not None:
+            query = query.where(S.job_events.c.job_id == job_id)
+        return {row['job_id']: row['evidence']['actual_cost'] for row in conn.execute(query).mappings()}
+
+    def record_generation_bill(self, project_id, payload, **kw):
+        def work(conn, project):
+            job = self._one(conn, S.generation_jobs, project['id'], checked_id(required(payload, 'job_id')))
+            if job['status'] not in {'succeeded', 'failed', 'cancelled'}:
+                raise Conflict('账单只能登记在已结束任务上', 'bill_job_not_terminal')
+            from vsc.production.quotes import checked_bill
+            try:
+                bill = checked_bill(required(payload, 'actual_cost'))
+            except ValueError as error:
+                raise ResourceError(str(error), 'invalid_generation_bill') from error
+            old = self._recorded_bills(conn, project['id'], job['id']).get(job['id'])
+            if old is not None:
+                if old != bill:
+                    raise Conflict('已有固定账单，不能覆盖；请另行核对原记录', 'generation_bill_conflict')
+                return {'job_id': job['id'], 'actual_cost': old}
+            conn.execute(insert(S.job_events).values(project_id=project['id'], id=new_id(), job_id=job['id'],
+                event_type='bill_recorded', evidence={'actual_cost': bill, 'actor': kw.get('actor')}))
+            return {'job_id': job['id'], 'actual_cost': bill}
+        return self._mutate(project_id, 'record_generation_bill', payload, callback=work, **kw)
+
+    def job_quote_status(self, project_id, job_id):
+        from vsc.production.quotes import reconcile_quote
+        with self.engine.connect() as conn:
+            project = self._project(conn, checked_id(project_id))
+            job = self._one(conn, S.generation_jobs, project['id'], checked_id(job_id))
+            event = conn.execute(select(S.job_events.c.evidence).where(S.job_events.c.project_id == project['id'],
+                S.job_events.c.job_id == job['id'], S.job_events.c.event_type == 'intent_recorded').limit(1)).scalar_one_or_none()
+            quote = (event or {}).get('generation_quote')
+            actual = {row['unit']: row['actual'] for row in conn.execute(select(S.job_budget_reservations).where(
+                S.job_budget_reservations.c.project_id == project['id'], S.job_budget_reservations.c.job_id == job['id'],
+                S.job_budget_reservations.c.actual.is_not(None))).mappings()}
+            return clean({'job_id': job['id'], 'status': job['status'], 'quote': quote,
+                'reconciliation': dict(reconcile_quote(quote, actual, actual_cost=self._recorded_bills(conn, project['id'], job['id']).get(job['id']), policy=(event or {}).get('quote_policy')),
+                    actual_units_reported=bool(actual)) if quote else None})
+
     @staticmethod
     def _limits(conn, p):
         values = {}
@@ -76,9 +119,24 @@ class BudgetRepository:
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
             limits, used = self._limits(conn, project["id"]), self._used(conn, project["id"])
+            from vsc.production.quotes import reconcile_quote
+            actuals = {}
+            for row in conn.execute(select(S.job_budget_reservations).where(S.job_budget_reservations.c.project_id == project['id'],
+                    S.job_budget_reservations.c.actual.is_not(None))).mappings():
+                actuals.setdefault(row['job_id'], {})[row['unit']] = row['actual']
+            comparisons = []
+            bills = self._recorded_bills(conn, project['id'])
+            for row in conn.execute(select(S.job_events.c.job_id, S.job_events.c.evidence).where(
+                    S.job_events.c.project_id == project['id'], S.job_events.c.event_type == 'intent_recorded')).mappings():
+                quote = row['evidence'].get('generation_quote')
+                if quote:
+                    actual = actuals.get(row['job_id'])
+                    comparisons.append(dict(reconcile_quote(quote, actual or {}, actual_cost=bills.get(row['job_id']), policy=row['evidence'].get('quote_policy')),
+                        job_id=row['job_id'], actual_units_reported=actual is not None))
             return clean({"project_id": project["id"], "revision": project["revision"],
                 "limits": {unit: value["amount"] for unit, value in limits.items()}, "used": used,
                 "remaining": {unit: value["amount"] - used.get(unit, 0) for unit, value in limits.items()},
+                "quote_reconciliation": comparisons,
                 "bounded_reservations": [dict(r) for r in conn.execute(select(S.job_budget_reservations).where(
                     S.job_budget_reservations.c.project_id == project["id"], S.job_budget_reservations.c.actual.is_(None),
                     S.job_budget_reservations.c.status != "released")).mappings()]})
@@ -86,6 +144,9 @@ class BudgetRepository:
     def _reserve_budget(self, conn, project, job):
         run = self._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
         document = json.loads(run["document"])
+        model = conn.execute(select(S.provider_models).where(S.provider_models.c.id == job['model_id'])).mappings().one()
+        from .quotes import check_pinned
+        check_pinned(document, model, job['request_payload'], job['candidate_no'])
         if project.get("profile_snapshot", {}).get("contract_policy") != "production-v2" and document.get("phase") != "trial":
             return
         limits = self._limits(conn, project["id"])

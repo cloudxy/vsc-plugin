@@ -136,11 +136,29 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             raise NotFound("项目不存在")
         return dict(row)
 
-    def _mutate(self, project_id, action, payload, expected_revision, idempotency_key, actor, callback):
+    def _mutate(self, project_id, action, payload, expected_revision, idempotency_key, actor, callback,
+                _transaction=None, _library_versions=()):
+        # Library composition reuses the original commands inside its one locked
+        # project transaction. Public ResourceService write validation cannot
+        # accept this private argument; the outer command owns its receipt.
+        if _transaction is not None:
+            conn, project = _transaction
+            if checked_id(project_id) != project["id"]:
+                raise ResourceError("事务不属于目标项目", "transaction_project_mismatch")
+            return callback(conn, project)
         project_id = checked_id(project_id)
         request_sha = digest({"action": action, "payload": payload, "actor": actor})
         try:
             with self.engine.begin() as conn:
+                from .shared_library import library_project_lock_ids
+                locks = library_project_lock_ids(conn, project_id, _library_versions)
+                conn.execute(select(S.projects.c.id).where(S.projects.c.id.in_(locks))
+                    .order_by(S.projects.c.id).with_for_update()).all()
+                # A concurrent target adoption may have added an edge while
+                # locks were acquired. Restart from a fresh graph, never take
+                # an extra source lock after the ordered target lock.
+                if set(library_project_lock_ids(conn, project_id, _library_versions)) - set(locks):
+                    raise Conflict("共享来源关系已改变，请重试当前操作", "library_graph_changed")
                 project = self._project(conn, project_id, lock=True)
                 migration_actions = set(conn.execute(select(S.project_revisions.c.action).where(
                     S.project_revisions.c.project_id == project_id,
@@ -527,6 +545,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 if errors(policy) or actor != policy["grantor_actor"] or actor == policy["delegate_actor"]:
                     raise ResourceError("委托政策只能由固定的真实委托人批准或撤销", "delegation_grantor_required")
             if outcome == "approve":
+                from .creative_rules import artifact_rule_report
+                rule_report = artifact_rule_report(self, conn, project, artifact)
+                if rule_report["errors"]:
+                    raise ResourceError("声明的创作规则未满足: " + "；".join(rule_report["errors"]), "creative_rules_failed")
                 self._check_profile_dependencies(conn, project, artifact)
                 if artifact["supersedes_id"]:
                     current = conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
@@ -553,7 +575,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             else:
                 conn.execute(delete(S.current_artifact_versions).where(S.current_artifact_versions.c.project_id == p,
                     S.current_artifact_versions.c.artifact_id == artifact["id"]))
-            return {"id": row_id, "artifact_id": artifact["id"], "outcome": outcome}
+            response = {"id": row_id, "artifact_id": artifact["id"], "outcome": outcome}
+            if outcome == "approve" and rule_report["warnings"]:
+                response["creative_rule_warnings"] = rule_report["warnings"]
+            return response
         return self._mutate(project_id, "decide_artifact", payload, actor=actor, callback=work, **kw)
 
     @staticmethod
@@ -832,45 +857,50 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 row["deprecated"] = row["id"] in deprecated
             return clean({"items": rows, "total": total, "offset": offset, "limit": limit, "revision": project["revision"]})
 
+    def _binding_intent(self, conn, p, payload, modality):
+        target = self._one(conn, S.creative_objects, p, required(payload, "target_object_id"))
+        role = required(payload, "role")
+        if role not in ROLE_MATRIX or target["kind"] not in ROLE_MATRIX[role][0] or modality not in ROLE_MATRIX[role][1]:
+            raise ResourceError("用途与对象类型或素材模态不匹配", "invalid_role")
+        if role in {"identity_face", "costume", "location_master", "location_view", "voice_sample", "style_reference"}:
+            identity_id = target["id"] if target["kind"] == "asset" else required(payload, "identity_asset_id")
+            identity = self._one(conn, S.asset_identities, p, identity_id)
+            allowed = {"identity_face": {"character"}, "costume": {"character", "costume"},
+                       "location_master": {"location"}, "location_view": {"location"},
+                       "voice_sample": {"character", "voice"}, "style_reference": {"style"}}
+            if identity["asset_kind"] not in allowed[role]:
+                raise ResourceError("用途与资产身份种类不匹配", "invalid_identity_role")
+        if payload.get("variant_spec_id"):
+            variant = self._one(conn, S.asset_spec_versions, p, payload["variant_spec_id"])
+            expected_asset = target["id"] if target["kind"] == "asset" else payload.get("identity_asset_id")
+            if variant["asset_id"] != expected_asset:
+                raise ResourceError("变体规格与用途身份不一致", "variant_identity_mismatch")
+        coverage_id = payload.get("line_coverage_id")
+        if role == "dialogue_dry":
+            coverage = self._one(conn, S.shot_line_coverage, p, required(payload, "line_coverage_id"))
+            if coverage["shot_id"] != target["id"]:
+                raise ResourceError("干声必须绑定本镜头的台词覆盖", "coverage_mismatch")
+        slot_key = payload.get("slot_key", "line:" + coverage_id if coverage_id else "main")
+        if not isinstance(slot_key, str) or not slot_key:
+            raise ResourceError("slot_key 不能为空")
+        if role in {"ambience", "music", "sfx"} and not payload.get("track_key"):
+            raise ResourceError("混音用途需要独立 track_key", "track_required")
+        existing = conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
+            S.binding_slots.c.target_object_id == target["id"], S.binding_slots.c.role == role,
+            S.binding_slots.c.slot_key == slot_key)).mappings().first()
+        if existing:
+            for field in ("variant_spec_id", "line_coverage_id", "track_key", "identity_asset_id"):
+                if existing[field] != payload.get(field):
+                    raise Conflict("槽位的结构引用不一致", "slot_mismatch")
+        return target, role, slot_key, coverage_id, existing
+
     def propose_binding(self, project_id, payload, actor, **kw):
         def work(conn, project):
             p = project["id"]
-            target = self._one(conn, S.creative_objects, p, required(payload, "target_object_id"))
             media = self._media(conn, p, required(payload, "media_id"))
-            role = required(payload, "role")
-            if role not in ROLE_MATRIX or target["kind"] not in ROLE_MATRIX[role][0] or media["modality"] not in ROLE_MATRIX[role][1]:
-                raise ResourceError("用途与对象类型或素材模态不匹配", "invalid_role")
-            if role in {"identity_face", "costume", "location_master", "location_view", "voice_sample", "style_reference"}:
-                identity_id = target["id"] if target["kind"] == "asset" else required(payload, "identity_asset_id")
-                identity = self._one(conn, S.asset_identities, p, identity_id)
-                allowed = {"identity_face": {"character"}, "costume": {"character", "costume"},
-                           "location_master": {"location"}, "location_view": {"location"},
-                           "voice_sample": {"character", "voice"}, "style_reference": {"style"}}
-                if identity["asset_kind"] not in allowed[role]:
-                    raise ResourceError("用途与资产身份种类不匹配", "invalid_identity_role")
-            if payload.get("variant_spec_id"):
-                variant = self._one(conn, S.asset_spec_versions, p, payload["variant_spec_id"])
-                expected_asset = target["id"] if target["kind"] == "asset" else payload.get("identity_asset_id")
-                if variant["asset_id"] != expected_asset:
-                    raise ResourceError("变体规格与用途身份不一致", "variant_identity_mismatch")
-            coverage_id = payload.get("line_coverage_id")
-            if role == "dialogue_dry":
-                coverage = self._one(conn, S.shot_line_coverage, p, required(payload, "line_coverage_id"))
-                if coverage["shot_id"] != target["id"]:
-                    raise ResourceError("干声必须绑定本镜头的台词覆盖", "coverage_mismatch")
-            slot_key = payload.get("slot_key", "line:" + coverage_id if coverage_id else "main")
-            if not isinstance(slot_key, str) or not slot_key:
-                raise ResourceError("slot_key 不能为空")
-            if role in {"ambience", "music", "sfx"} and not payload.get("track_key"):
-                raise ResourceError("混音用途需要独立 track_key", "track_required")
-            existing = conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
-                S.binding_slots.c.target_object_id == target["id"], S.binding_slots.c.role == role,
-                S.binding_slots.c.slot_key == slot_key)).mappings().first()
+            target, role, slot_key, coverage_id, existing = self._binding_intent(conn, p, payload, media["modality"])
             if existing:
                 slot_id = existing["id"]
-                for field in ("variant_spec_id", "line_coverage_id", "track_key", "identity_asset_id"):
-                    if existing[field] != payload.get(field):
-                        raise Conflict("槽位的结构引用不一致", "slot_mismatch")
             else:
                 slot_id = new_id()
                 conn.execute(insert(S.binding_slots).values(project_id=p, id=slot_id,
@@ -898,7 +928,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
 
     def _usable(self, conn, p, media_id, purpose):
         media = self._media(conn, p, media_id)
-        gaps = []
+        from .shared_library import library_media_gaps
+        gaps = library_media_gaps(self, conn, p, media_id, purpose)
         if not any(x["available"] for x in media["locations"]):
             gaps.append("missing_bytes")
         rights = self._latest(conn, S.rights_decisions, p, "media_id", media_id)
@@ -1575,6 +1606,21 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         context["semantic_inputs"] = self._semantic_inputs(conn, p, shot_id, scene["id"], purpose,
             selected_artifacts, asset_ids, spec_by_identity, lines, voices,
             {key: value["artifact_id"] for key, value in fixed_asset_refs.items()})
+        from .creative_rules import artifact_rule_report
+        rule_cache, rule_reports = {}, []
+        for artifact in selected_artifacts:
+            report = artifact_rule_report(self, conn, project, artifact, context_scope=episode["id"], cache=rule_cache)
+            if report.get("rules"):
+                rule_reports.append({"artifact_id": artifact["id"], "rules": report["rules"], "brief_source": report.get("brief_source")})
+            for message in report["errors"]:
+                gaps.append({"code": "creative_rules_failed", "artifact_id": artifact["id"], "message": message})
+        if rule_reports:
+            context["semantic_inputs"].append({"artifact_type": "vsc.creative_rules", "content": rule_reports})
+        from vsc.story.consistency import state_request_constraints
+        constraints = state_request_constraints(context)
+        if constraints:
+            context["request_constraints"] = constraints
+        context["ready"] = not gaps
         self._extend_resource_context(conn, project, context, artifacts=selected_artifacts, scene_id=scene["id"])
         context["sha256"] = context_digest(clean(context))
         return context
@@ -1677,6 +1723,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             artifact = self._one(conn, S.artifact_versions, p, required(payload, "artifact_id"))
             if not self._artifact_approved(conn, p, artifact["id"]):
                 raise ResourceError("时间线产物未批准", "timeline_unapproved")
+            from .creative_rules import artifact_rule_report
+            rule_report = artifact_rule_report(self, conn, project, artifact, context_scope=payload.get("episode_id"))
+            if rule_report["errors"]:
+                raise ResourceError("时间线不满足声明创作规则: " + "；".join(rule_report["errors"]), "creative_rules_failed")
             try:
                 document = json.loads(artifact["document"].decode("utf-8"))
             except (ValueError, UnicodeDecodeError):
@@ -1707,6 +1757,14 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
 
     def _timeline_projection(self, conn, project, artifact, document, payload):
         p = project["id"]
+        # Legacy artifact aliases can contain the canonical timeline format.
+        # New overlays still consume the same validator at the write boundary.
+        plan = required(document, "render_plan")
+        if any(isinstance(segment, dict) and "overlay" in segment for segment in plan.get("segments", [])):
+            from vsc.post.remotion_plan import validate
+            errors = validate(document)
+            if errors:
+                raise ResourceError("overlay合成计划无效: " + "；".join(errors), "invalid_render_plan")
         ref = required(document, "selected_takes")
         selected = self._one(conn, S.artifact_versions, p, required(ref, "id"))
         dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
@@ -1744,13 +1802,20 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 raise ResourceError("时间线segment与获选镜头归属不一致", "selected_take_mismatch")
             self._validate_fixed_decision(conn, p, decision, media["id"], shot_id)
             slot = self._one(conn, S.binding_slots, p, decision["slot_id"])
+            if segment.get("overlay"):
+                if (choice.get("purpose") != "vfx_overlay" or slot["role"] != "vfx_overlay" or not shot_id
+                        or slot["target_object_id"] != shot_id or segment.get("source_sha256") != media["sha256"]):
+                    raise ResourceError("overlay须固定独立plate选用决定及vfx_overlay用途/SHA", "overlay_selection_mismatch")
+            elif choice.get("purpose") == "vfx_overlay":
+                raise ResourceError("获选plate不能隐式作为全幅主镜", "overlay_selection_mismatch")
             if choice.get("purpose") == "visual" and slot["role"] not in {"video_take", "composition", "first_frame", "last_frame"}:
                 raise ResourceError("视觉选片没有批准的镜头用途", "selected_take_mismatch")
             duration = required(segment, "duration_in_frames")
             source_in = segment.get("source_in_frame", 0)
             items.append({"shot_id": shot_id, "ordinal": segment_ordinal, "track_key": segment.get("track_key", segment["kind"]),
                 "offset_frame": required(segment, "from_frame"), "duration_frames": duration,
-                "envelope": {k: segment[k] for k in ("volume", "muted", "fade_in_frames", "fade_out_frames", "audio_envelope") if k in segment},
+                "envelope": {k: segment[k] for k in ("volume", "muted", "fade_in_frames", "fade_out_frames", "audio_envelope",
+                    "volume_keyframes", "audio_fade_in_frames", "audio_fade_out_frames", "still_motion", "overlay", "source_sha256") if k in segment},
                 "media": [{"media_id": media["id"], "binding_decision_id": decision["id"], "role": slot["role"],
                            "source_in_frame": source_in, "source_out_frame": source_in + duration}]})
         if not items:
@@ -1772,7 +1837,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         _, gaps = self._usable(conn, p, media_id, slot["role"])
         if gaps:
             raise ResourceError("时间线用料不可用: " + ", ".join(gaps), "timeline_media_unusable")
-        if shot_id and slot["role"] in {"video_take", "dialogue_dry"} and slot["target_object_id"] != shot_id:
+        if shot_id and slot["role"] in {"video_take", "dialogue_dry", "vfx_overlay"} and slot["target_object_id"] != shot_id:
             raise ResourceError("选片与镜头归属不一致", "selected_take_mismatch")
 
     def freeze_render(self, project_id, payload, **kw):
@@ -1800,6 +1865,11 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             items = select(S.timeline_items.c.id).where(S.timeline_items.c.project_id == p, S.timeline_items.c.timeline_id == timeline["id"])
             for source in conn.execute(select(S.timeline_item_media).where(S.timeline_item_media.c.project_id == p,
                     S.timeline_item_media.c.item_id.in_(items))).mappings():
+                # Frozen history remains readable; a new render must recheck
+                # its actual use, including current shared-library licensing.
+                _, gaps = self._usable(conn, p, source["media_id"], source["role"])
+                if gaps:
+                    raise ResourceError("渲染用料不可用: " + ", ".join(gaps), "render_media_unusable")
                 conn.execute(insert(S.render_inputs).values(project_id=p, id=new_id(), render_id=row_id,
                     media_id=source["media_id"], binding_decision_id=source["binding_decision_id"], blob_id=source["blob_id"],
                     blob_sha256=source["blob_sha256"], role=source["role"]))
