@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -65,7 +66,11 @@ def check_tests(selection=("--all",)):
     if result.returncode == 0:
         timings = [line for line in result.stdout.splitlines() if line.startswith(("TEST RESULT:", "DURATION "))]
         summary += "".join("\n             " + line for line in timings)
-    return summary, tail(result) if result.returncode else []
+    if result.returncode:
+        with tempfile.NamedTemporaryFile(mode="w", prefix="vsc-ci-tests-", suffix=".log", delete=False, encoding="utf-8") as log:
+            log.write(result.stdout + result.stderr)
+        return summary, ["完整失败日志：" + log.name, *tail(result)]
+    return summary, []
 
 
 def installed_problems(sources, vendor_root=VENDOR):

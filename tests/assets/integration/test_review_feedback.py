@@ -212,6 +212,8 @@ class ReviewFeedbackTests(ResourceStoreFixture, unittest.TestCase):
         timeline = self.artifact("review-timeline", "timeline", projections={"items": items})
         timeline_id = self.write("freeze_timeline", {"artifact_id": timeline, "episode_id": objects["episode"], "items": items, "fps_num": 30})["id"]
         plan = json.loads((support.paths.ROOT / "templates/remotion-render-plan.json").read_text())
+        # This fixture tests base-film feedback; overlay selection has its own integration fixture.
+        plan["segments"] = [segment for segment in plan["segments"] if "overlay" not in segment]
         plan["project_id"] = self.p
         if video_data is not None:
             plan["composition"].update(width=240, height=320)

@@ -80,7 +80,7 @@ class ShotContextAssetSpecsTest(unittest.TestCase):
         doc = json.loads((ROOT / "templates" / template).read_text("utf-8"))
         doc.update(project_id=self.p, scene_id=scene, sequence_id=sequence)
         if sound:
-            doc.update(ambience_beds=[], music_cues=[], boundaries=[])
+            doc.update(ambience_beds=[], music_cues=[], sfx_cues=[], boundaries=[])
         else:
             doc["shots"] = [doc["shots"][0]]
             doc["shots"][0].update(id=shot, reference_asset_ids=["CHAR"])
