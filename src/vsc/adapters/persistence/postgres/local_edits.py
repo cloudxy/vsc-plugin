@@ -172,7 +172,7 @@ def _preview(store, conn, project, payload):
                 "before_prompt": source_job["request_payload"]["prompt"], "after_prompt": request["prompt"]})
             old_document = _document(run)
             policy = {key: value for key, value in old_document.items() if key not in {
-                "approved_inputs", "approved_media_inputs", "jobs", "series_batch", "operations", "local_action"}}
+                "approved_inputs", "approved_media_inputs", "jobs", "series_batch", "operations", "local_action", "generation_quote"}}
             if old_document.get("series_batch"):
                 policy["series_batch"] = {key: value for key, value in old_document["series_batch"].items() if key != "jobs"}
             if policies and policy != policies[0]:
@@ -204,6 +204,9 @@ def _preview(store, conn, project, payload):
             "stage": run_stage, "document": document, "dependency_ids": sorted(dependencies), "object_ids": target_ids}
     else:
         raise ResourceError("不支持的局部制作动作", "invalid_local_action")
+    if jobs:
+        from .quotes import run_quote
+        artifact['document']['generation_quote'] = run_quote(store, conn, project, jobs)
     _validate_contract(project, artifact)
     result = {"project_id": p, "revision": project["revision"], "action": action, "sources": sources,
               "targets": targets, "artifact": artifact, "needs_approval": True, "read_only": True}
@@ -214,13 +217,13 @@ def _preview(store, conn, project, payload):
 
 
 def preview(store, project_id, payload):
-    with store.engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn, conn.begin():
+    with store.engine.connect().execution_options(isolation_level="REPEATABLE READ", vsc_readonly_preview=True) as conn, conn.begin():
         conn.execute(text("SET TRANSACTION READ ONLY"))
         return clean(_preview(store, conn, store._project(conn, checked_id(project_id)), payload))
 
 
 def options(store, project_id, action, entity_id):
-    with store.engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn, conn.begin():
+    with store.engine.connect().execution_options(isolation_level="REPEATABLE READ", vsc_readonly_preview=True) as conn, conn.begin():
         conn.execute(text("SET TRANSACTION READ ONLY"))
         project = store._project(conn, checked_id(project_id))
         p, entity_id = project["id"], checked_id(entity_id)

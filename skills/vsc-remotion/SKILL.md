@@ -45,6 +45,10 @@ python3 scripts/post/remotion_plan.py scaffold ./07-后期/remotion-render-plan.
 - Studio 中的人工改动视为新候选版本，回写或登记到 VSC 时间线后才可成为交付基线。
 - 单条字幕位置意见沿[单 Cue 局部位置修改](../../docs/design/remotion.md#单-cue-局部位置修改)固定整条 Cue 和计划摘要，生成新候选与差异；保留其他字幕、时码和音轨，实际预览后返回原意见，不以函数成功代替审看。
 
+## 固定 plate 与缓动
+
+使用叠加层时先读[固定 plate 协议](../../docs/design/remotion.md#fixed-overlay)。明确揭示目的、起止位置、运动时长与停留，再选择帧驱动缓动；能量倾向只是可调整的创作注记，不当模型控制或固定秒数门。先核独立plate的获选用途、来源、实际字节SHA与目标镜头，再交原合成器。没有底片/plate、只有脚手架或单一静帧时，不声称已完成实际叠加短片。缺料、错SHA、越界、错用途或不支持曲线应回到原固定选择/计划修正，不能静默改成主镜或弃掉叠层。
+
 ## 真媒体证据与人工审片
 
 运行 `python3 scripts/media/qa.py check <plan> <public-dir> --render <final.mp4> --output <new-report.json>`，检查真实源范围和成片元数据；未安装 ffprobe 应说明依赖并停在未验证状态。使用 `templates/sample-review.json` 绑定报告 hash，填写五类具名审片与时间码证据，再运行 `python3 scripts/media/qa.py review <review.json>`。媒体、计划变更后必须重新检查。故障适配器仅测试失败路径，不能作为真实制作证据。

@@ -1,7 +1,9 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
-const {Document}=require('../../support/fixtures/frontend/panel_dom.cjs');
+const {Document,Element}=require('../../support/fixtures/frontend/panel_dom.cjs');
+if(!Object.getOwnPropertyDescriptor(Element.prototype,'parentNode'))Object.defineProperty(Element.prototype,'parentNode',{get(){return this.parentElement;}});
+if(!Element.prototype.insertBefore)Element.prototype.insertBefore=function(node,before){node.remove();const index=this.children.indexOf(before);node.parentElement=this;this.children.splice(index<0?this.children.length:index,0,node);return node;};
 const root=process.env.VSC_TEST_ROOT || path.resolve(__dirname,'../../..');
 const source=fs.readFileSync(path.join(root,'src/vsc/interfaces/web/static/review.js'),'utf8');
 let serial=0;
@@ -12,6 +14,16 @@ test('literal original opinion stays text and a professional dispatch without ar
   const node=f.renderReviewHistory(history);
   assert.ok(node.textContent.includes(html));assert.equal(node.querySelectorAll('img').length,0);
   assert.ok(node.textContent.includes('尚无实际结果'));assert.equal(node.querySelectorAll('button').length,0);
+});
+
+test('processing history pages keep fixed original opinion and can return from older page offset zero',async()=>{
+  const f=await fixture(),calls=[];
+  const item={source:{script_note_id:'fixed-note'},body:'固定原意见',responses:[{explanation:'最新处理',limitations:'无媒体'}],response_page:{offset:0,limit:10,total:11,previous_offset:null,next_offset:10}};
+  const node=f.renderReviewHistory({items:[item]},{historyPage:async(filters,page)=>{calls.push({filters,page});return {items:[{...item,responses:[{explanation:'较早处理',limitations:'原文未丢'}],response_page:{offset:10,limit:10,total:11,previous_offset:0,next_offset:null}}]};}});f.document.body.append(node);
+  await node.querySelectorAll('button').find(row=>row.textContent==='较早一页').click();
+  assert.deepEqual(calls[0],{filters:{script_note_id:'fixed-note'},page:{response_offset:10,response_limit:10}});
+  const fresh=f.document.body.children.at(-1);assert.ok(fresh.textContent.includes('固定原意见'));assert.ok(fresh.textContent.includes('较早处理'));
+  assert.equal(fresh.querySelectorAll('button').find(row=>row.textContent==='较新一页').disabled,false);
 });
 
 test('new component reads persisted result references and opens exact artifact and media',async()=>{

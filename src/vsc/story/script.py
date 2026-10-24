@@ -2,6 +2,7 @@
 """Small structured story contracts; narrative quality is reviewed by people."""
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -31,6 +32,10 @@ def validation_errors(data):
             for beat in episode.get('beats', []):
                 for key in ('id','action','change'): text(beat.get(key), 'beat.'+key)
                 if not isinstance(beat.get('screen_unit_ids'), list) or not beat['screen_unit_ids']: errors.append('节拍需对应screen_unit_ids')
+                if 'tension' in beat:
+                    value=beat['tension']
+                    if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0 <= value <= 10:
+                        errors.append('beat.tension 须为0–10有限数值；是设计张力，不是观众感受或music.intensity换算')
     elif fmt == 'vsc.visual-bible/v1':
         for key in ('intent','lighting','composition'): text(data.get(key), key)
         if not isinstance(data.get('palette'), list) or not data['palette']: errors.append('palette 不能为空')

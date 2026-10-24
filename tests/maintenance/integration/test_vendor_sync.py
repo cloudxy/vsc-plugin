@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from support.paths import SCRIPTS
@@ -30,6 +31,31 @@ def declared_source(**changes):
 
 
 class TestExplicitInstall(unittest.TestCase):
+    def test_pinned_existing_local_repository_installs_normally(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'source repo'
+            source.mkdir()
+            def git(*args):
+                return subprocess.run(['git', '-C', str(source), *args], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git('init', '-b', 'main')
+            (source / 'SKILL.md').write_text('synthetic local installation fixture\n', encoding='utf-8')
+            git('add', 'SKILL.md')
+            git('-c', 'user.name=VSC fixture', '-c', 'user.email=fixture@example.invalid',
+                'commit', '-m', 'synthetic fixture')
+            revision = git('rev-parse', 'HEAD')
+            vendor = root / 'vendor'
+            vendor.mkdir()
+            entry = declared_source(url=str(source), revision=revision)
+            with mock.patch.object(SYNC, 'VENDOR', vendor), contextlib.redirect_stdout(io.StringIO()):
+                SYNC.sync(entry)
+            installed = vendor / entry['id']
+            self.assertEqual((installed / 'SKILL.md').read_text('utf-8'),
+                             'synthetic local installation fixture\n')
+            self.assertEqual(subprocess.run(['git', '-C', str(installed), 'rev-parse', 'HEAD'],
+                             check=True, capture_output=True, text=True).stdout.strip(), revision)
+
     def test_explicit_source_requires_notice_and_is_skipped_by_default(self):
         explicit = declared_source(id="assets", install="explicit")
         self.assertIn("notice", SYNC.validate(explicit))
@@ -53,6 +79,52 @@ class TestExplicitInstall(unittest.TestCase):
 
 
 class TestValidation(unittest.TestCase):
+    def test_git_url_transport_validation_preserves_known_forms_without_git_or_writes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);repo=root/'local repo';repo.mkdir();(repo/'.git').mkdir()
+            bare=root/'bare.git';bare.mkdir();(bare/'HEAD').write_text('ref: refs/heads/main\n');(bare/'objects').mkdir()
+            values=['https://example.invalid/repo.git','ssh://git@example.invalid/team/repo.git',
+                    'git@example.invalid:team/repo.git','git@host:./repo.git','alias:repo.git',str(repo),str(bare),repo.as_uri()]
+            before=sorted(str(p.relative_to(root)) for p in root.rglob('*'))
+            with mock.patch.object(SYNC.subprocess,'run',side_effect=AssertionError('no git')):
+                for value in values:
+                    with self.subTest(url=value):self.assertEqual(SYNC.validate(declared_source(url=value)),'')
+            self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob('*')),before)
+
+    def test_install_rejects_disguised_transports_before_git_or_filesystem_writes(self):
+        values=['clawhub://owner/skill','unknown://host/skill','ext::sh -c malicious','other::https://example.invalid/repo',
+                '--config=protocol.ext.allow=always','-uhelper','https://example.invalid/repo\n--upload-pack=bad',
+                'ssh://git@-oProxyCommand/repo','git@host:-oProxyCommand=bad','https://example.invalid/repo\x00tail',
+                'https://example.invalid/repo\x85tail']
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);vendor=root/'vendor';vendor.mkdir();lock=vendor/'sources.lock.json'
+            for value in values:
+                source=declared_source(url=value)
+                lock.write_text(json.dumps(dict(schema_version=4,policy={'upstream_refresh':refresh_policy()},
+                    sources=[source])),encoding='utf-8')
+                before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+                dirs=sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_dir())
+                for entry in ('cli','sync'):
+                    with self.subTest(url=value,entry=entry),mock.patch.object(SYNC,'LOCK',lock),mock.patch.object(SYNC,'VENDOR',vendor), \
+                         mock.patch.object(SYNC,'call',side_effect=AssertionError('no git')), \
+                         mock.patch.object(SYNC.subprocess,'run',side_effect=AssertionError('no git')), \
+                         mock.patch.object(sys,'argv',['vendor_sync.py','--install']),contextlib.redirect_stderr(io.StringIO()):
+                        with self.assertRaises(SystemExit) as invalid:
+                            if entry=='cli':SYNC.main()
+                            else:SYNC.sync(source)
+                        self.assertEqual(invalid.exception.code,1)
+                    self.assertEqual({str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()},before)
+                    self.assertEqual(sorted(str(p.relative_to(root)) for p in root.rglob('*') if p.is_dir()),dirs)
+
+    def test_unregistered_distribution_formats_are_not_disguised_as_git(self):
+        self.assertEqual(SYNC.validate(declared_source()),'')
+        for kind in ('clawhub','https','unknown'):
+            with self.subTest(kind=kind):
+                self.assertIn('仅支持 type=git',SYNC.validate(declared_source(type=kind)))
+        for revision in ('main','v1.0.0','latest'):
+            with self.subTest(revision=revision):
+                self.assertIn('40 位',SYNC.validate(declared_source(revision=revision)))
+
     def test_declared_pinned_source_is_valid_without_approval_field(self):
         self.assertEqual(SYNC.validate(declared_source()), "")
 

@@ -60,6 +60,32 @@ class ScriptAIFlow(ResourceStoreFixture, unittest.TestCase):
         self.write("decide_script_suggestion", {"suggestion_id": chosen["id"], "outcome": "undo_accept", "reason": "test undo"})
         self.assertEqual(self.service.get_script_draft(self.p)["content"], self.document)
 
+    def test_single_line_review_persists_bounded_input_and_full_draft_digest(self):
+        import json
+        from vsc.assets.script_ai import note_input_document
+        document = {"scenes": [{"id": "target", "actions": [{"id": "A", "text": "保留动作"}],
+            "dialogue": [{"id": "L" + str(n), "text": "原台词" + str(n), "speaker": "C"} for n in range(20)]}]}
+        note = {"scene_id": "target", "line_id": "L10"}
+        baseline = note_input_document(document, note)
+        expanded = dict(document, scenes=document["scenes"] + [{"id": "other" + str(n), "dialogue": [{"id": "foreign", "text": "其他集" * 2000}]} for n in range(100)])
+        self.assertEqual(note_input_document(expanded, note), baseline)
+        self.assertEqual(len(baseline["scenes"][0]["dialogue"]), 5)
+        self.assertLess(len(json.dumps(baseline)), len(json.dumps(document)))
+        self.assertEqual(baseline["target_anchor"]["line_id"], "L10")
+        self.service.save_script_draft(self.p, {"base_draft_revision": 1,
+            "content": dict(self.document, body="不相关的完整正文" * 2000)}, actor="test-editor")
+        saved = self.service.get_script_draft(self.p)
+        note = self.write("add_script_note", {"scene_id": "SC1", "line_id": "L1", "body": "这句改短，保留事实", "base_draft_revision": 2})
+        seen = []
+        self.service.script_suggester = Backend(lambda document, goal: seen.append(document) or [self.proposals()[1]])
+        result = self.write("process_review", {"script_note_id": note["id"]})
+        self.assertEqual(result['status'], 'completed')
+        run = self.store.get_script_suggestion_run(self.p, result['id'])
+        self.assertEqual(run['base_content_sha256'], saved['content_sha256'])
+        self.assertEqual(run['input_document'], seen[0])
+        self.assertNotIn('body', seen[0])
+        self.assertEqual(seen[0]['target_anchor']['line_id'], 'L1')
+
     def test_concurrent_edit_isolates_result_and_invalid_target_batch_is_atomic(self):
         def concurrent(document, goal):
             self.service.save_script_draft(self.p, {"base_draft_revision": 1,

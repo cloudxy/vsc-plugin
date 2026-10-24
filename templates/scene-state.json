@@ -19,7 +19,8 @@
             "holding_hand": "right",
             "holding": [
               "信封"
-            ]
+            ],
+            "expression": "眉间放松、嘴角自然"
           },
           "信封": {
             "position": "主角右手"
@@ -29,14 +30,27 @@
       "shots": [
         {
           "id": "SH-001",
-          "camera": {"screen_direction": "面向画面右侧"},
-          "changes": {"entities": {"主角": {"pose": "抬头看向门口"}}}
+          "camera": {
+            "screen_direction": "面向画面右侧"
+          },
+          "changes": {
+            "entities": {
+              "主角": {
+                "pose": "抬头看向门口"
+              }
+            }
+          },
+          "process": {
+            "enabled": false
+          }
         },
         {
           "id": "SH-002",
           "changes": {
             "entities": {
-              "主角": {"pose": "站起"},
+              "主角": {
+                "pose": "站起"
+              },
               "信封": {
                 "variant": "信封-已拆"
               }

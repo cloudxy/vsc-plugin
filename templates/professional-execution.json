@@ -51,6 +51,66 @@
             "counterpart_role": "defender",
             "action": "填写本阶段可见动作"
           }
+        ],
+        "chain": [
+          {
+            "id": "move-1",
+            "after": [],
+            "actor_instance": "填写攻击方使用实例UUID",
+            "counterpart_instance": "填写防守方使用实例UUID",
+            "phases": [
+              {
+                "phase": "preparation",
+                "action": "填写本招本阶段可观察动作"
+              },
+              {
+                "phase": "initiation",
+                "action": "填写本招本阶段可观察动作"
+              },
+              {
+                "phase": "contact",
+                "action": "填写本招本阶段可观察动作"
+              },
+              {
+                "phase": "reaction",
+                "action": "填写本招本阶段可观察动作"
+              },
+              {
+                "phase": "recovery",
+                "action": "填写本招本阶段可观察动作"
+              }
+            ]
+          },
+          {
+            "id": "move-2",
+            "after": [
+              "move-1"
+            ],
+            "actor_instance": "填写第三方参与实例UUID",
+            "counterpart_instance": "填写攻击方使用实例UUID",
+            "phases": [
+              {
+                "phase": "preparation",
+                "action": "填写后继招式本阶段可观察动作"
+              },
+              {
+                "phase": "initiation",
+                "action": "填写后继招式本阶段可观察动作"
+              },
+              {
+                "phase": "contact",
+                "action": "填写后继招式本阶段可观察动作"
+              },
+              {
+                "phase": "reaction",
+                "action": "填写后继招式本阶段可观察动作"
+              },
+              {
+                "phase": "recovery",
+                "action": "填写后继招式本阶段可观察动作"
+              }
+            ]
+          }
         ]
       },
       "participants": [
@@ -61,6 +121,10 @@
         {
           "instance": "填写防守方使用实例UUID",
           "role": "defender"
+        },
+        {
+          "instance": "填写第三方参与实例UUID",
+          "role": "fighter"
         }
       ]
     },

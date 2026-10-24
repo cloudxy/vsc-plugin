@@ -5,6 +5,48 @@ from support.fixtures.resource_store import ResourceStoreFixture,HAS_DB_DEPS,TES
 
 @unittest.skipUnless(HAS_DB_DEPS and TEST_URL,'isolated PostgreSQL required')
 class WorkbenchTest(ResourceStoreFixture,unittest.TestCase):
+    def test_inline_candidate_pages_pin_media_and_target_without_borrowing_another_shot(self):
+        h=self.hierarchy()
+        media=self.media('同一参考素材')
+        own=[self.candidate(h['shot'],media,slot_key='own-'+str(i))['candidate_id'] for i in range(26)]
+        other=self.write('create_object',dict(kind='shot',parent_id=h['sequence'],display_code='OTHER',title='另一镜',ordinal=1))['id']
+        foreign=self.candidate(other,media)['candidate_id']
+        one=self.query(object_id=h['shot'],section='candidates',entity_id=media,limit=24)['sections']['candidates']
+        two=self.query(object_id=h['shot'],section='candidates',entity_id=media,limit=24,offset=one['next_offset'])['sections']['candidates']
+        rows=one['items']+two['items']
+        self.assertEqual((one['total'],len(one['items']),len(two['items'])),(26,24,2))
+        self.assertEqual({row['id'] for row in rows},set(own))
+        self.assertNotIn(foreign,{row['id'] for row in rows})
+        self.assertTrue(all(row['object_id']==h['shot'] and row['target_title']=='SHOT' for row in rows))
+
+    def test_render_collection_and_time_locator_use_fixed_outputs_and_timeline_not_source_clips(self):
+        from vsc.adapters.persistence.postgres.workbench import render_position
+        from vsc.assets.resource_service import ResourceError
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        self.seed_generation_timeline_render()
+        renders=self.query(section='renders',limit=1)['sections']['renders']
+        self.assertEqual(renders['total'],1)
+        output=renders['items'][0]
+        self.assertEqual(output['purpose'],'delivery')
+        sources=self.query(section='timeline_media')['sections']['timeline_media']['items']
+        self.assertNotIn(output['media_id'],[row['media_id'] for row in sources])
+        shot=sources[0]['shot_id']
+        self.assertEqual(self.query(object_id=shot,section='renders')['sections']['renders']['total'],1)
+        position=render_position(self.store,self.p,output['render_id'],2000)
+        self.assertEqual(position['timeline_id'],output['timeline_id'])
+        self.assertEqual(position['frame'],48)
+        self.assertEqual(position['items'][0]['shot_id'],shot)
+        self.assertEqual(position['lines'],[])
+        self.assertTrue(position['line_message'])
+        with self.assertRaises(ResourceError):render_position(self.store,self.p,output['render_id'],100000)
+        other=self.service.create_project({'name':'另一项目','profile_snapshot':{'profile_id':'vsc.synthetic','version':'1','stages':[]}},actor='test-human')['id']
+        with self.assertRaises(ResourceError):render_position(self.store,other,output['render_id'],0)
+        client=TestClient(create_app({'allowed_hosts':['testserver']},service=self.service))
+        response=client.get(f'/api/v1/projects/{self.p}/renders/{output["render_id"]}/position',params={'time_ms':2000})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['items'][0]['shot_id'],shot)
+
     def test_self_protection_uses_one_instance_and_a_real_fixed_method(self):
         """Exercise the documented handoff through PG, not prompt text assertions."""
         import copy

@@ -15,3 +15,11 @@ def install_local_routes(router, catalog, etag):
     @router.post("/{project_id}/local-production/preview")
     def preview(project_id: str, request: Request, body: dict):
         return etag(request, service(project_id).preview_local_production(project_id, body.get("payload")))
+
+    @router.post("/{project_id}/generation-quote")
+    def quote(project_id: str, request: Request, body: dict):
+        return etag(request, service(project_id).preview_generation_quote(project_id, body.get("payload")))
+
+    @router.get("/{project_id}/generation-jobs/{job_id}/quote")
+    def quote_status(project_id: str, job_id: str, request: Request):
+        return etag(request, service(project_id).get_generation_quote_status(project_id, job_id))

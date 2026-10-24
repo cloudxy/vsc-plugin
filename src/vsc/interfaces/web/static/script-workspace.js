@@ -14,7 +14,13 @@ export function createScriptWorkspace(container, ctx) {
   let conflictMessage = null;
   const recoveries = new Map(); // 仅当前工作区实例内存；不写本地存储或项目事实。
   const suggestionAttempts = new Map();
+  const noteDrafts = new Map();
+  let noteTarget = null, noteOffset = 0, suggestionOffset = 0;
   const recoveryKey = target => JSON.stringify([target.project, target.scopeKey]);
+  const storage = typeof window !== 'undefined' ? window.sessionStorage : null;
+  const stash = (key, value) => {try {if(value == null)storage?.removeItem(key);else storage?.setItem(key,JSON.stringify(value));}catch {}};
+  const unstash = key => {try {return JSON.parse(storage?.getItem(key)||'null');}catch {return null;}};
+  const draftUrl = target => `${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}&note_offset=${noteOffset}&suggestion_offset=${suggestionOffset}&limit=50`;
 
   const sameSession = target => session && target && target.generation === session.generation
     && target.project === session.project && target.project === ctx.baseUrl()
@@ -25,13 +31,14 @@ export function createScriptWorkspace(container, ctx) {
   function rememberLocal() {
     if (!session || !draft) return;
     const key = recoveryKey(session);
-    if (editSeq <= savedSeq && !saving && !conflict) { recoveries.delete(key); return; }
-    recoveries.set(key, {generation: session.generation, content: readEditor(), draft_revision: draft.draft_revision,
-      editSeq, savedSeq, inFlight: saving, conflict, conflictMessage, lastError});
+    if (editSeq <= savedSeq && !saving && !conflict) { recoveries.delete(key); stash('vsc-script:'+key,null); return; }
+    const value = {generation: session.generation, content: readEditor(), draft_revision: draft.draft_revision,
+      editSeq, savedSeq, inFlight: saving, conflict, conflictMessage, lastError};
+    recoveries.set(key, value); stash('vsc-script:'+key,value);
   }
 
   function restoreLocal(target, fresh) {
-    const cached = recoveries.get(recoveryKey(target));
+    const cached = recoveries.get(recoveryKey(target)) || unstash('vsc-script:'+recoveryKey(target));
     if (!cached) return;
     draft = {...fresh, exists: true, content: cached.content, draft_revision: cached.draft_revision, phase: 'editing'};
     editSeq = cached.editSeq; savedSeq = cached.savedSeq;
@@ -53,11 +60,13 @@ export function createScriptWorkspace(container, ctx) {
     if (error) {
       cached.lastError = error.message;
       if (/已被他人/.test(error.message)) { cached.conflict = true; cached.conflictMessage = error.message; }
+      stash('vsc-script:'+key,cached);
       return;
     }
     cached.draft_revision = result.draft_revision;
     cached.savedSeq = Math.max(cached.savedSeq, seq); cached.lastError = null;
-    if (cached.editSeq <= cached.savedSeq && !cached.conflict) recoveries.delete(key);
+    if (cached.editSeq <= cached.savedSeq && !cached.conflict) {recoveries.delete(key);stash('vsc-script:'+key,null);}
+    else stash('vsc-script:'+key,cached);
   }
 
   const pageWindow = typeof window !== 'undefined' ? window : null;
@@ -86,58 +95,56 @@ export function createScriptWorkspace(container, ctx) {
     return result;
   }
 
-  async function loadEpisodes(target) {
-    const episodes = [];
-    async function children(objectId) {
-      const rows = [], seen = new Set();
-      let offset = 0;
-      do {
-        if (!sameSession(target)) return [];
-        const result = await ctx.api(`${target.project}/workbench?section=children&limit=100&offset=${offset}${objectId ? '&object_id=' + encodeURIComponent(objectId) : ''}`);
-        if (!sameSession(target)) return [];
-        const page = result.sections?.children || {};
-        rows.push(...(page.items || []));
-        seen.add(offset);
-        offset = page.next_offset;
-      } while (offset != null && !seen.has(offset));
-      return rows;
-    }
-    try {
-      for (const work of (await children()).filter(node => node.kind === 'work')) {
-        for (const node of (await children(work.id)).filter(row => row.kind === 'episode')) {
-          episodes.push({id: node.id, label: `${work.title || work.display_code || ''} · ${node.title || node.display_code || node.id}`});
-        }
-      }
-    } catch { /* 旧项目或无分集：仅全项目剧本 */ }
-    return episodes;
-  }
-
   async function ensureScopeSelect(target) {
-    if (scopeSelect && scopeSelect.dataset.projectId === target.project) return;
+    if (scopeSelect && scopeSelect.dataset.projectId === target.project) {
+      if(!Array.from(scopeSelect.options || scopeSelect.children).some(row=>row.value===target.scopeKey)){
+        const option=el('option','',target.scopeLabel||'当前分集');option.value=target.scopeKey;scopeSelect.append(option);
+      }
+      scopeSelect.value=target.scopeKey;return;
+    }
     const select = el('select', 'script-scope');
     select.dataset.projectId = target.project;
     select.setAttribute('aria-label', '剧本范围');
     const all = el('option', '', '全项目剧本'); all.value = ''; select.append(all);
-    for (const episode of await loadEpisodes(target)) {
-      const option = el('option', '', `分集剧本：${episode.label}`);
-      option.value = episode.id; select.append(option);
+    // Authority probe is bounded; the complete directory lives in the project
+    // navigator instead of downloading every episode into this select.
+    if(!target.scopeKey)await ctx.api(`${target.project}/workbench?section=children&limit=1`);
+    if (target.scopeKey) {
+      const option = el('option', '', `当前集：${target.scopeLabel || '所选分集'}`);
+      option.value = target.scopeKey; select.append(option);
     }
     if (!sameSession(target)) return;
     select.value = target.scopeKey;
     select.addEventListener('change', async () => {
       if (select !== scopeSelect || target.project !== ctx.baseUrl()) return;
-      scopeKey = select.value; await load();
+      scopeKey = select.value; ctx.onScope?.(scopeKey); await load();
     });
     scopeSelect = select;
   }
 
   async function load(options = {}) {
+    const loadRequest = ++generation;
     if (options.discardLocal === true) {
-      if (session) recoveries.delete(recoveryKey(session));
+      if (session) {recoveries.delete(recoveryKey(session));stash('vsc-script:'+recoveryKey(session),null);}
     } else rememberLocal();
     const project = ctx.baseUrl();
     if (session && session.project !== project) { scopeKey = ''; scopeSelect = null; }
-    const target = {project, scopeKey, generation: ++generation};
+    if (Object.prototype.hasOwnProperty.call(options,'objectId')) {
+      const object = options.objectId;
+      scopeKey = '';
+      if (object) {
+        const relation = await ctx.api(`${project}/workbench?section=children&object_id=${encodeURIComponent(object)}&limit=1`);
+        if (project !== ctx.baseUrl() || loadRequest !== generation) return;
+        const objects = [...(relation.ancestors || []), relation.scope].filter(Boolean);
+        const episode = objects.find(row=>row.kind==='episode');
+        if (!episode) throw new Error('所选对象没有已登记的分集关系，请从项目目录选择有效的一集。');
+        scopeKey = episode.id; options.scopeLabel = episode.title || episode.display_code;
+        options.sceneId ||= objects.find(row=>row.kind==='scene')?.id;
+      }
+    }
+    if (session?.scopeKey !== scopeKey) {noteOffset=0;suggestionOffset=0;noteTarget=null;}
+    const target = {project, scopeKey, generation: loadRequest};
+    target.scopeLabel=options.scopeLabel;
     session = target;
     clearTimeout(saveTimer); saveTimer = null; saving = false; lastError = null; conflict = false; conflictMessage = null; editSeq = 0; savedSeq = 0;
     draft = null;
@@ -145,11 +152,14 @@ export function createScriptWorkspace(container, ctx) {
     try {
       await ensureScopeSelect(target);
       if (!sameSession(target)) return;
-      const fresh = await ctx.api(`${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}`);
+      const fresh = await ctx.api(draftUrl(target));
       if (!sameSession(target)) return;
       draft = fresh;
       restoreLocal(target, fresh);
       render();
+      const anchor = options.lineId ? Array.from(container.querySelectorAll('.script-line')).find(row=>row.dataset.lineId===options.lineId) :
+        options.sceneId ? Array.from(container.querySelectorAll('.script-scene')).find(row=>row.dataset.sceneId===options.sceneId) : null;
+      anchor?.scrollIntoView?.({block:'center'});
       if (!conflict && editSeq > savedSeq) saveTimer = setTimeout(() => sameSession(target) && flushSave(), 900);
     } catch (error) { if (sameSession(target)) notice(error.message); }
   }
@@ -158,6 +168,7 @@ export function createScriptWorkspace(container, ctx) {
   function scheduleSave() {
     if (!sameSession(session) || !draft) return;
     editSeq++;                                     // F02：编辑序号与保存进度分离
+    rememberLocal();
     setStatus(conflict ? '本地修改已保留，冲突待核对' : '待保存');
     updatePhase();
     if (conflict) return;
@@ -179,7 +190,7 @@ export function createScriptWorkspace(container, ctx) {
       draft.draft_revision = result.draft_revision; draft.exists = true; draft.content = content;
       draft.phase = result.phase || 'editing';
       savedSeq = Math.max(savedSeq, seqAtSend);
-      if (editSeq <= savedSeq) recoveries.delete(recoveryKey(target));
+      if (editSeq <= savedSeq) {recoveries.delete(recoveryKey(target));stash('vsc-script:'+recoveryKey(target),null);}
       updatePhase();
       const saved = container.querySelector('.script-saved-version');
       if (saved) saved.textContent = `工作副本 r${draft.draft_revision}`;
@@ -274,18 +285,27 @@ export function createScriptWorkspace(container, ctx) {
   function render() {
     container.replaceChildren();
     const header = el('header', 'script-header');
+    if(ctx.onBack){const back=el('button','','返回目录');back.type='button';back.addEventListener('click',()=>ctx.onBack());header.append(back);}
     header.append(el('h2', '', '剧本'));
     statusChip = el('span', 'badge', '—');
     const phase = el('span', `badge script-phase ${draft.phase === 'pending' ? 'danger' : ''}`, phaseText[draft.phase] || draft.phase);
-    const saved = el('span', 'hint script-saved-version', draft.exists ? `r${draft.draft_revision} · 更新 ${String(draft.updated_at || '').slice(0, 19)} · ${draft.updated_by || ''}` : '尚无工作副本');
+    const saved = el('span', 'hint script-saved-version', draft.exists ? `r${draft.draft_revision}` : '尚无工作副本');
+    saved.title=`更新 ${String(draft.updated_at||'').slice(0,19)} · ${draft.updated_by||''}`;
     header.append(statusChip, phase, saved, scopeSelect || el('span'));
     container.append(header);
     const conflictBox = el('div', 'script-conflict'); conflictBox.hidden = true; container.append(conflictBox);
     if (draft.submitted) container.append(renderPending());
-    container.append(draft.exists ? renderEditor() : renderBootstrap());
-    container.append(renderSuggestions());
+    const panels=el('div','script-panels'),stage=el('main','script-main'),inspector=el('aside','script-inspector');
+    stage.setAttribute('aria-label','剧本正文');inspector.setAttribute('aria-label','修改与意见');
+    const mobile=el('nav','script-panel-nav');mobile.setAttribute('aria-label','剧本面板');
+    for(const [key,label]of [['work','作品'],['modify','修改与意见']]){const b=el('button','',label);b.type='button';b.addEventListener('click',()=>{container.dataset.panel=key;for(const control of mobile.children)control.setAttribute('aria-pressed',String(control===b));(key==='work'?stage:inspector).focus?.();});b.setAttribute('aria-pressed',String((container.dataset.panel||'work')===key));mobile.append(b);}
+    stage.tabIndex=-1;inspector.tabIndex=-1;container.append(mobile);
+    stage.append(draft.exists ? renderEditor() : renderBootstrap());
+    inspector.append(renderNoteComposer());
+    for(const selector of ['.script-edit-tools','.script-source-evidence']){const tools=stage.querySelector(selector);if(tools)inspector.append(tools);}
+    inspector.append(renderSuggestions(),renderNotes());
+    panels.append(stage,inspector);container.append(panels);
     if (draft.submitted?.state === 'pending') renderImpact();
-    container.append(renderNotes());
     updatePhase();
     if (conflict) renderConflict(conflictMessage || '本地内容待核对，自动保存暂停');
     setStatus(conflict ? '本地修改已保留，冲突待核对' : editSeq > savedSeq ? '待保存' : '—');
@@ -295,11 +315,12 @@ export function createScriptWorkspace(container, ctx) {
     const target = session;
     const request = ++metadataGeneration;
     try {
-      const fresh = await ctx.api(`${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}`);
+      const fresh = await ctx.api(draftUrl(target));
       if (!sameSession(target) || request !== metadataGeneration) return;
       draft.notes = fresh.notes; draft.phase = fresh.phase; draft.submitted = fresh.submitted; draft.base = fresh.base;
       draft.suggestions = fresh.suggestions;
       draft.suggestion_runs = fresh.suggestion_runs;
+      draft.notes_page=fresh.notes_page;draft.suggestions_page=fresh.suggestions_page;
       // 批注决策不拥有正文或 draft_revision；保留本地编辑与保存队列的原始基准。
       for (const [selector, panel] of [['.script-notes', renderNotes()], ['.script-suggestions', renderSuggestions()]]) {
         const previous = container.querySelector(selector);
@@ -309,7 +330,7 @@ export function createScriptWorkspace(container, ctx) {
       const stamp = draft.submitted ? `${draft.submitted.id}:${draft.submitted.state}` : '';
       if (draft.submitted && previous?.dataset.submissionStamp !== stamp) {
         previous?.remove();
-        container.insertBefore(renderPending(), container.querySelector('.script-editor') || container.querySelector('.script-bootstrap'));
+        container.insertBefore(renderPending(), container.querySelector('.script-panel-nav'));
       } else if (!draft.submitted) previous?.remove();
       if (draft.submitted?.state === 'pending') renderImpact();
       else container.querySelector('.script-impact')?.remove();
@@ -406,24 +427,17 @@ export function createScriptWorkspace(container, ctx) {
       speaker.value = row.speaker || '';
       speaker.addEventListener(structured ? 'change' : 'input', scheduleSave);
       item.append(speaker);
+      if(structured)item.append(choicePicker('character',choice=>{if(!draft.character_choices.some(row=>row.id===choice.id))draft.character_choices.push({id:choice.id,label:choice.title||choice.display_code});const option=el('option','',choice.title||choice.display_code);option.value=choice.id;speaker.append(option);speaker.value=choice.id;scheduleSave();}));
     }
-    const text = el('input', 'line-text'); text.value = row.text || '';
+    const text = el('textarea', 'line-text'); text.rows=2;text.value = row.text || '';
+    text.setAttribute('aria-label',kind==='dialogue'?'台词':kind==='silence'?'静默说明':'行动描述');
     text.placeholder = kind === 'dialogue' ? '台词' : kind === 'action' ? '行动描述' : '静默说明';
     text.addEventListener('input', scheduleSave);
     const note = el('button', 'line-note', '批注');
     note.addEventListener('click', async () => {
-      const target = session;
-      const body = prompt(`对 ${sceneId} / ${item.dataset.lineId} 的批注：`);
-      if (!body) return;
-      const saved = await waitForSave();
-      if (!sameSession(target)) return;
-      if (!saved) return notice('当前正文尚未成功保存，不能绑定批注；本地编辑已保留，请先解决保存问题。');
-      const revision = draft.draft_revision;
-      try {
-        await write('script-notes', {scope_key: target.scopeKey, scene_id: sceneId, line_id: item.dataset.lineId,
-          body, base_draft_revision: revision}, false, target);
-        notice(`批注已添加，绑定工作副本 r${revision}。`); await refreshMeta();
-      } catch (error) { notice(error.message); }
+      noteTarget={scene_id:sceneId,line_id:item.dataset.lineId,kind,excerpt:text.value};
+      const previous=container.querySelector('.script-note-composer');previous.parentNode.insertBefore(renderNoteComposer(),previous);previous.remove();
+      container.dataset.panel='modify';container.querySelector('.script-note-composer textarea')?.focus();
     });
     const remove = el('button', 'line-remove', '删除');
     remove.addEventListener('click', () => { item.remove(); scheduleSave(); });
@@ -447,7 +461,7 @@ export function createScriptWorkspace(container, ctx) {
       }
       const evidence = el('details'); evidence.append(el('summary', '', '来源编号'), refs);
       item.append(mapped, evidence);
-    } else item.append(refs);
+    } else {const evidence=el('details','line-evidence');evidence.append(el('summary','','来源核对'),refs);item.append(evidence);}
     if (kind === 'silence') {
       const duration = el('input', 'line-duration'); duration.type = 'number'; duration.min = '1';
       duration.value = row.duration_ms ?? ''; duration.placeholder = '静默时长(ms)'; duration.setAttribute('aria-label', '静默时长（毫秒）');
@@ -456,6 +470,13 @@ export function createScriptWorkspace(container, ctx) {
       item.append(duration, purpose);
     }
     return item;
+  }
+
+  function choicePicker(kind,onChoose){
+    const details=el('details','script-choice-picker');details.append(el('summary','',kind==='character'?'查找其他人物':'查找其他场次'));
+    const form=el('form'),input=el('input'),submit=el('button','','查找'),results=el('div');input.type='search';input.setAttribute('aria-label',kind==='character'?'人物名称':'场次名称');input.placeholder='输入名称…';submit.type='submit';form.append(input,submit);details.append(form,results);let request=0;
+    const read=async(offset=0)=>{const target=session,ticket=++request;results.textContent='正在读取…';try{const data=await ctx.api(`${target.project}/script-draft/choices?`+new URLSearchParams({scope_key:target.scopeKey,kind,query:input.value,offset:String(offset)}));if(!sameSession(target)||ticket!==request)return;results.replaceChildren();for(const row of data.items||[]){const b=el('button','',row.title||row.display_code);b.type='button';b.addEventListener('click',()=>{if(!sameSession(target))return;onChoose(row);details.open=false;});results.append(b);}if(!data.items?.length)results.append(el('p','hint','没有符合条件的已登记内容。'));if(offset>0){const prev=el('button','','上一页');prev.type='button';prev.addEventListener('click',()=>read(Math.max(0,offset-50)));results.append(prev);}if(data.next_offset!=null){const next=el('button','','下一页');next.type='button';next.addEventListener('click',()=>read(data.next_offset));results.append(next);}}catch(error){if(sameSession(target)&&ticket===request)results.textContent=error.message;}};
+    form.addEventListener('submit',event=>{event.preventDefault();return read();});details.addEventListener('toggle',()=>{if(details.open&&!results.children.length&&!results.textContent)read();});return details;
   }
 
   function sceneCard(scene) {
@@ -476,7 +497,8 @@ export function createScriptWorkspace(container, ctx) {
       id.type = 'hidden';
       header.append(el('strong', '', draft.scene_choices?.find(choice=>choice.id===scene.id)?.label || scene.source_label || '导入场次'));
     }
-    header.append(id, el('span', 'hint', '时长(ms)'), duration, up, down, drop);
+    if(!draft.content?.structured_source)header.append(el('strong','',draft.scene_choices?.find(choice=>choice.id===scene.id)?.label||scene.source_label||'场次'));
+    const tools=el('details','scene-tools');tools.append(el('summary','','场次操作'),id,el('span','hint','时长(ms)'),duration,up,down,drop);header.append(tools);
     card.append(header);
     for (const [className, label, field, kind] of [['scene-actions', '行动', 'actions', 'action'],
                                                    ['scene-dialogue', '对白', 'dialogue', 'dialogue'],
@@ -537,8 +559,9 @@ export function createScriptWorkspace(container, ctx) {
       } catch (error) { notice(error.message); }
     });
     if (draft.scene_choices?.length) toolbar.append(sceneChoice);
+    toolbar.append(choicePicker('scene',choice=>{if(!draft.scene_choices)draft.scene_choices=[];if(!draft.scene_choices.some(row=>row.id===choice.id))draft.scene_choices.push({id:choice.id,label:choice.title||choice.display_code});const option=el('option','',choice.title||choice.display_code);option.value=choice.id;sceneChoice.append(option);sceneChoice.value=choice.id;}));
     toolbar.append(addScene, compare, submit, el('span', 'hint', '编辑自动保存到工作副本（只更新被改字段，引用与静默语义保留）；提交才形成正式待确认版本。'));
-    wrap.append(toolbar);
+    const tools=el('details','script-edit-tools');tools.append(el('summary','','场次与版本操作'),toolbar);wrap.append(tools);
     const board = el('div', 'script-board');
     const content = draft.content || blank();
     const fields = el('section', 'script-document-fields');
@@ -573,7 +596,7 @@ export function createScriptWorkspace(container, ctx) {
     fields.append(refs, addRefButton, el('p', 'script-dependencies hint', dependencies
       ? `提交固定前置：${(dependencies.dependencies || []).map(row => `${row.artifact_key || row.artifact_type || row.id} v${row.version} · ${row.sha256}`).join('；') || '当前 Profile 无前置要求'}${dependencies.missing_dependency_types?.length ? '；缺少已批准版本：' + dependencies.missing_dependency_types.join('、') : ''}`
       : '正在等待当前范围的提交前置事实。'));
-    wrap.append(fields);
+    const evidence=el('details','script-source-evidence');evidence.append(el('summary','','来源、结构与提交核对'),fields);wrap.append(evidence);
     for (const scene of content.scenes || []) board.append(sceneCard(scene));
     if (!(content.scenes || []).length) board.append(el('p', 'empty', '还没有场次；点击“添加场次”开始写剧本。'));
     wrap.append(board);
@@ -582,7 +605,7 @@ export function createScriptWorkspace(container, ctx) {
 
   function renderCompare(result) {
     let panel = container.querySelector('.script-compare');
-    if (!panel) { panel = el('section', 'script-compare'); container.insertBefore(panel, container.querySelector('.script-notes')); }
+    if (!panel) { panel = el('section', 'script-compare'); container.querySelector('.script-main').prepend(panel); }
     panel.replaceChildren(el('h3', '', '与已批准基线的差异'));
     const changes = result.changes || {};
     if (!changes.changed) { panel.append(el('p', 'hint', result.base ? '与基线一致，没有结构差异。' : '尚无该范围的已批准基线；提交并获得批准后才会形成比较基线。')); return; }
@@ -661,12 +684,17 @@ export function createScriptWorkspace(container, ctx) {
       const label = `${row.scene_id}${row.line_id ? ' / ' + row.line_id : ''} · ${row.kind}.${row.field}`;
       item.append(el('span', 'note-anchor', label), el('s', '', String(row.before_value ?? '')),
         el('b', '', String(row.after_value)), el('small', '', `${row.origin} · r${row.base_draft_revision} · ${row.reason}`));
+      const compare=el('button','','在作品区比较这一处');compare.addEventListener('click',()=>{
+        let panel=container.querySelector('.script-line-comparison');if(!panel){panel=el('section','script-line-comparison');container.querySelector('.script-main').prepend(panel);}
+        panel.replaceChildren(el('h3','','本轮修改比较'),el('p','','原文'),el('del','',String(row.before_value??'')),el('p','','建议'),el('ins','',String(row.after_value)),el('p','hint',row.reason));
+        const back=el('button','','返回原位置');back.addEventListener('click',()=>{panel.remove();Array.from(container.querySelectorAll('.script-line')).find(node=>node.dataset.lineId===row.line_id)?.querySelector('.line-text')?.focus();});panel.append(back);container.dataset.panel='work';panel.scrollIntoView?.({block:'start'});
+      });item.append(compare);
       if (row.status === 'pending') {
         const accept = el('button', '', '接受这一处');
         accept.addEventListener('click', async () => {
           const target = session, seq = editSeq;
           if (editSeq > savedSeq || saving) return notice('有未保存编辑；先成功保存再接受建议。');
-          const reason = prompt('接受说明：'); if (!reason) return;
+          const reason = '在原处比较后接受这一处建议';
           try {
             await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
               outcome: 'accept', reason}, false, target);
@@ -676,7 +704,7 @@ export function createScriptWorkspace(container, ctx) {
         });
         const reject = el('button', '', '拒绝');
         reject.addEventListener('click', async () => {
-          const reason = prompt('拒绝说明：'); if (!reason) return;
+          const reason = '保留原文，拒绝这一处建议';
           try { await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
             outcome: 'reject', reason}); await refreshMeta(); } catch (error) { notice(error.message); }
         });
@@ -686,7 +714,7 @@ export function createScriptWorkspace(container, ctx) {
         undo.addEventListener('click', async () => {
           const target = session, seq = editSeq;
           if (editSeq > savedSeq || saving) return notice('有未保存编辑；先成功保存再撤销。');
-          const reason = prompt('撤销说明：'); if (!reason) return;
+          const reason = '撤销本处接受，恢复原文';
           try {
             await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
               outcome: 'undo_accept', reason}, false, target);
@@ -700,13 +728,14 @@ export function createScriptWorkspace(container, ctx) {
     }
     if (!suggestions.length) list.append(el('li', 'hint', '还没有修改建议；填写目标后生成，再逐处接受。'));
     panel.append(list);
+    panel.append(pagination('suggestions',draft.suggestions_page));
     return panel;
   }
 
   async function renderImpact() {
     const target = session;
     let panel = container.querySelector('.script-impact');
-    if (!panel) { panel = el('section', 'script-impact'); container.insertBefore(panel, container.querySelector('.script-suggestions')); }
+    if (!panel) { panel = el('section', 'script-impact'); const before=container.querySelector('.script-suggestions');before.parentNode.insertBefore(panel,before); }
     panel.replaceChildren(el('h3', '', '修订影响（相对已批准基线）'), el('p', 'hint', '读取中…'));
     try {
       const impact = await ctx.api(`${target.project}/script-draft/impact?scope_key=${encodeURIComponent(target.scopeKey)}`);
@@ -734,7 +763,7 @@ export function createScriptWorkspace(container, ctx) {
   }
 
   async function refreshChangedDraft(target, seq) {
-    const fresh = await ctx.api(`${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}`);
+    const fresh = await ctx.api(draftUrl(target));
     if (!sameSession(target)) return;
     if (editSeq !== seq || saving) {
       conflict = true; clearTimeout(saveTimer); saveTimer = null;
@@ -742,6 +771,46 @@ export function createScriptWorkspace(container, ctx) {
       return;
     }
     draft = fresh; editSeq = 0; savedSeq = 0; render();
+  }
+
+  function pagination(kind,page) {
+    const bar=el('nav','script-pagination');bar.setAttribute('aria-label',kind==='notes'?'批注分页':'建议分页');
+    if(!page)return bar;
+    for(const [label,offset]of [['上一页',page.offset>0?Math.max(0,page.offset-50):null],['下一页',page.next_offset]]){
+      const b=el('button','',label);b.disabled=offset==null;b.addEventListener('click',async()=>{if(kind==='notes')noteOffset=offset;else suggestionOffset=offset;await refreshMeta();});bar.append(b);
+    }
+    bar.append(el('span','hint',`从第 ${page.offset+1} 条起，每页最多50条`));return bar;
+  }
+
+  function renderNoteComposer() {
+    const form=el('form','script-note-composer');form.append(el('h3','','修改这一处'));
+    const key=recoveryKey(session),stored=noteDrafts.get(key)||unstash('vsc-script-note:'+key);
+    if(!noteTarget&&stored?.target)noteTarget=stored.target;
+    if(!noteTarget){form.append(el('p','hint','点击正文旁的“批注”，对这一行说清改什么、保留什么。整集与整场意见保留原专业处理入口。'));return form;}
+    const anchor={...noteTarget},target=session;
+    form.append(el('p','script-note-anchor',`所选${anchor.kind==='dialogue'?'对白':anchor.kind==='silence'?'静默':'行动'}：${anchor.excerpt}`));
+    const input=el('textarea','script-note-body');input.rows=4;input.maxLength=4000;input.required=true;input.setAttribute('aria-label','对这一行的修改意见');
+    input.placeholder='例如：这句改短，保留动作和事实…';input.value=stored?.target?.line_id===anchor.line_id?stored.body:'';
+    const remember=()=>{const value={target:anchor,body:input.value};noteDrafts.set(key,value);stash('vsc-script-note:'+key,value);};input.addEventListener('input',remember);
+    const save=el('button','','保存原意见'),process=el('button','','保存并提出局部修改'),status=el('p','hint');status.setAttribute('role','status');
+    save.type='submit';process.type='button';let commandKey=null,recorded=null;
+    input.addEventListener('input',()=>{commandKey=null;recorded=null;});
+    const submit=async(execute)=>{
+      if(save.disabled||!sameSession(target))return;
+      if(!input.value.trim())return input.focus();remember();save.disabled=process.disabled=true;
+      try{
+        if(!await waitForSave()||!sameSession(target)){status.textContent='正文保存未完成，意见仍保留在这里。请先重试保存。';return;}
+        commandKey ||= crypto.randomUUID();
+        recorded ||= await write('script-notes',{scope_key:target.scopeKey,scene_id:anchor.scene_id,line_id:anchor.line_id,
+          body:input.value,base_draft_revision:draft.draft_revision},false,target,commandKey);
+        if(execute){const noteId=recorded.id || recorded.note?.id;if(!noteId)throw new Error('原意见已保存，但回执没有批注身份；请从下方已保存意见继续。');await write('review-process',{script_note_id:noteId},false,target,'review:'+commandKey);}
+        if(sameSession(target)){status.textContent=execute?'原意见已固定；处理状态和建议在下方回看。':'原意见已固定到所见稿次。';noteDrafts.delete(key);stash('vsc-script-note:'+key,null);input.value='';await refreshMeta();}
+      }catch(error){if(sameSession(target))status.textContent=`${error.message}。意见文字已保留，可从本处继续。`;}
+      finally{if(sameSession(target))save.disabled=process.disabled=false;}
+    };
+    form.addEventListener('submit',event=>{event.preventDefault();return submit(false);});process.addEventListener('click',()=>submit(true));
+    const retry=el('button','','重试保存正文');retry.type='button';retry.addEventListener('click',async()=>{lastError=null;await flushSave();status.textContent=lastError?'正文仍未保存，意见已保留。':'正文已保存，可以继续提交意见。';});
+    form.append(input,save,process,retry,status);return form;
   }
 
   function renderNotes() {
@@ -760,7 +829,7 @@ export function createScriptWorkspace(container, ctx) {
         el('small', '', `${note.author} · ${String(note.created_at || '').slice(0, 19)} · ${{open: '待处理', resolved: '已解决', dismissed: '已忽略'}[note.status]}`));
       if (note.status === 'open') {
         if(note.line_id && note.base_draft_revision!=null){
-          const action=(label,newAttempt=false)=>{const propose=el('button','',label),target=session,key=crypto.randomUUID();propose.addEventListener('click',async()=>{if(!sameSession(target))return;propose.disabled=true;try{await waitForSave();if(!sameSession(target))return;await write('review-process',{script_note_id:note.id,...(newAttempt?{new_attempt:true}:{})},false,target,key);if(sameSession(target))await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}finally{if(sameSession(target))propose.disabled=false;}});return propose;};
+          const action=(label,newAttempt=false)=>{const propose=el('button','',label),target=session,key=crypto.randomUUID();propose.addEventListener('click',async()=>{if(!sameSession(target))return;propose.disabled=true;try{if(!await waitForSave())return notice('正文尚未保存，原意见保留；保存成功后再处理。');if(!sameSession(target))return;await write('review-process',{script_note_id:note.id,...(newAttempt?{new_attempt:true}:{})},false,target,key);if(sameSession(target))await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}finally{if(sameSession(target))propose.disabled=false;}});return propose;};
           item.append(action('按此意见提出局部修改'));if(note.review_history?.responses?.length)item.append(action('明确新一轮局部修改',true));
         }
         const resolve = el('button', '', '解决');
@@ -776,10 +845,12 @@ export function createScriptWorkspace(container, ctx) {
         item.append(resolve, dismiss);
       }
       if(note.review_history){const history=el('div','note-results');for(const response of note.review_history.responses || []){history.append(el('p','',response.explanation),el('p','hint',response.limitations));for(const run of response.runs || []){history.append(el('p','',({completed:'已有局部建议，请在差异区决定',submission_unknown:'提交结果待核实，不会自动重发',failed:'此次处理失败，原意见保留',stale:'稿次已变化，请重新定位'})[run.status] || '仍在处理，刷新回看'));for(const suggestion of run.suggestions || [])history.append(el('s','',suggestion.before_value),el('b','',suggestion.after_value));}}item.append(history);}
+      const history=el('details','note-history'),body=el('div');history.append(el('summary','','查看本条处理记录'),body);let loaded=false;
+      history.addEventListener('toggle',async()=>{if(!history.open||loaded)return;const target=session;try{const data=await ctx.api(`${target.project}/review-history?script_note_id=${encodeURIComponent(note.id)}&limit=10`);if(!sameSession(target))return;const {renderReviewHistory}=await import('./review.js');if(!sameSession(target))return;body.replaceChildren(renderReviewHistory(data,{historyPage:async(filters,page)=>{const data=await ctx.api(`${target.project}/review-history?`+new URLSearchParams({...filters,...page}));if(sameSession(target))return data;},onError:error=>notice(error.message)}));loaded=true;}catch(error){if(sameSession(target))body.textContent=error.message;}});item.append(history);
       list.append(item);
     }
     if (!notes.length) list.append(el('li', 'hint', '还没有批注；在台词或行动行点“批注”。'));
-    panel.append(list, el('p', 'hint', '新批注绑定已保存的所见稿次、内容摘要与场次／行身份，不进入剧本正文；解决批注不等于批准剧本。'));
+    panel.append(list,pagination('notes',draft.notes_page), el('p', 'hint', '新批注绑定已保存的所见稿次、内容摘要与场次／行身份，不进入剧本正文；解决批注不等于批准剧本。'));
     return panel;
   }
 

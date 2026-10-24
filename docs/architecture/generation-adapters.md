@@ -1,6 +1,6 @@
 # 生成适配器边界
 
-VSC 核心不依赖模型供应商 SDK。需要上游项目的能力时，把它移植成 VSC 自己的代码（见下文），运行时不调用上游项目。已有可选豆包适配器；团队按账号、成本、地区、授权与数据政策选择或补充实现。更换适配器不应改变项目的剧本、资产或镜头语义。适配器位于 `workflow/` 声明的稳定 VSC 语义与外部实现之间；它不拥有阶段、角色或项目批准规则。
+VSC 核心保留稳定生成协议，已登记适配器可按明确路线使用 HTTP 或可选官方 SDK；上游 Skill、外部工具和官方 SDK 的作用分别核验。团队按账号、成本、地区、授权与数据政策选择或补充实现，未接供应商不会因安装 Skill 变为可用。更换适配器不应改变项目的剧本、资产或镜头语义。适配器位于 `workflow/` 声明的稳定 VSC 语义与外部实现之间；它不拥有阶段、角色或项目批准规则。
 
 每次生成任务保存一份 `vsc.generation-record/v1` 生成记录（字段见 `scripts/story/consistency.py` 与 `templates/generation-record.json`）。生成输出只登记为候选 take，必须经项目责任人选择后才能进入时间线。
 
@@ -123,6 +123,35 @@ python3 -B scripts/media/procedural_audio.py --project projects/示例作品 \
 ```
 
 声音均写 `kind=audio`、`purpose=asset` 的 `vsc.generation-record/v1`。TTS 保存请求、分块摘要、用量与原音频 SHA；Seed-Audio 保存任务 ID、提交／查询响应及用量，可续查原任务，已缓存完成响应可本地重验。未知提交不自动重新生成，坏媒体不报成功。详细用法与限制见[豆包语音](doubao-speech.md)、[Seed-Audio](doubao-audio.md)。人工确认后用 `scripts/assets/library.py promote/use` 复用；voice 条目保留供应商、音色、资源与模型，声音权属须独立核验。
+
+<a id="provider-assessment"></a>
+## 新供应商接入评估（2026-10-24）
+
+以下是只读官方接口评估，三者均未接本VSC worker；未启动实例、配置新账号或调用生成。接入须沿现适配器、固定run、模型登记、原生计量及受控输出，不另装外部Skill当执行器。官方能力、账号权限、离线编译、线上生成和人工效果分别记录。
+
+| 候选及官方读取范围 | 输入与权限 | 计量／恢复事实 | 本VSC实际缺口与结论 |
+| --- | --- | --- | --- |
+| 通义万相：Model Studio [首帧图生视频API](https://help.aliyun.com/en/model-studio/legacy-image-to-video-api-reference/)，2.1–2.6系列该操作；[计价单位](https://help.aliyun.com/zh/model-studio/model-pricing) | 该接口接图像URL、prompt及型号支持的参数，需对应地域／workspace的Model Studio API key与模型访问权；不能复用方舟套餐或Grok登录态 | 异步task_id供查询，文档载明该接口任务／产物URL有效期；该视频计价按选定操作与输入／输出秒数区分，不能把任务数当现金费用 | 缺Wan专属请求编译、凭证路由、任务恢复／usage映射及字节转存验证。仅评估，未登记可用；未来按具体型号和地域重新固定价表 |
+| ComfyUI自托管：[服务器总览](https://docs.comfy.org/development/comfyui-server/comms_overview)、[routes](https://docs.comfy.org/development/comfyui-server/comms_routes)、[消息](https://docs.comfy.org/development/comfyui-server/comms_messages) | `/prompt`提交节点工作流，`/upload/image`等提供素材输入；节点／权重／workflow版本须分别固定。自托管服务的访问边界与Partner Nodes账户另核 | 返回prompt_id，history／queue及WebSocket可恢复观察；`executed`仅表示UI更新，不等于全部成功。自托管无统一现金账单；付费Partner Nodes可能另有计量 | 缺可复现workflow／节点白名单和版本、原任务ID恢复、输出字节与计量适配。未启动本机服务，不宣称已连接或所有节点免费 |
+| Scenario：[鉴权](https://docs.scenario.com/get-started/documentation/quick-start-guide/step-2-authenticate-your-requests)、[生成／dryRun](https://docs.scenario.com/get-started/documentation/key-capabilities-at-a-glance)、[计量字段](https://docs.scenario.com/api/typescript/resources/generate) | API key＋secret的Basic鉴权；`/generate/custom/{modelId}`按具体模型输入，参考素材先转其asset ID；不能把聚合平台名称当统一参数集 | jobId查询终态并取资产；文档提供dryRun预估、Compute Units和costDetails，退款／附加项另有口径，不把余额当原始收据 | 缺每模型能力编译、素材asset ID映射、CU报价／实际对账与未知提交恢复。这里只读文档，未发dryRun或生成请求，也未配置该供应商 |
+
+未来落地先选一个具体操作，用离线请求、原run批准和原生单位验证正常／失败／未知提交，再在已有授权内试线上与转存。API请求可用不授予素材、人物、商标、权重或训练权利；这些仍沿原来源与权属。价格与权限必须按实际账号、地区及日期确认，未知值不显示为零。
+
+<a id="negative-control"></a>
+## 独立负向提示词的准确边界（2026-10-24）
+
+当前Ark图像／视频低层和原SQLite adapter解析均明确拒绝未映射的非空logical.params；PG factory已有同类检查。已支持的typed尺寸、参考帧、时长与注册模型defaults保留。Grok图像允许resolution／aspect_ratio，视频另有generate_audio／reference_voice_ids；`negative_prompt`不在当前映射中，离线preflight会在transport前拒绝。生成记录中出现该名称，也不证明它进入了供应商payload。
+
+官方[Seedream图片API](https://docs.volcengine.com/docs/ark/image-generation-api?lang=en)、[Seedance创建任务](https://docs.volcengine.com/docs/ark/create-video-generation-task-api?lang=en)以及xAI的[Images](https://docs.x.ai/developers/rest-api-reference/inference/images)、[Videos](https://docs.x.ai/developers/rest-api-reference/inference/videos)已读页面未给出本轮所需独立负向字段的正面依据；部分网页的可选字段由动态界面展示，本轮不把搜索无命中当作完整schema证明。因此本VSC路线该控制仍不可用，不外推为供应商所有产品／模型均不支持。反例是上述万相特定图生视频接口明确有negative_prompt，字段支持必须逐型号／操作核对。
+
+需要该控制时先取得精确官方schema依据，再沿请求编译→最终payload→原run授权验证；不向正向prompt拼负面清单冒充独立控制，也不静默换凭证或供应商。本轮测试只有离线transport和合成SQLite任务，没有负向效果的线上媒体证据。
+
+<a id="subtitle-authority"></a>
+## 字幕计划的事实归属
+
+2026-10-24对照Caption Task Pack后，当前分段字幕不新建`vsc.subtitle-plan/v1`：未发现必须另存、且原对象不能承担的独立事实。字幕文字／时码沿固定SRT或原声音／时间线输入，正式交付复用原subtitle_package绑定批准台词行、采用音频与实测时码；样式沿asset-bible.subtitle_style及固定render-plan；安全区／阅读策略沿Profile默认或已批准brief的creative_rules，由时间线固定解析结果。字体、时码、显示派生及输出SHA仍供原烧录／Remotion／剪映和技术QA消费；单Cue布局须按各消费者明确支持范围使用，未接通者会拒绝，不能据此声称所有编辑器同等支持。
+
+样式理由、语种与原词锁定可记录在原brief／声音方案正文；QA保存实际输出与观察范围，不能把渲染成功当可读性人审。word级高亮、karaoke或新动画并未因此变为已实现；出现具体新增消费者时先证明现对象的事实缺口，再评估最小扩展，不为一个任务包标题复制第二份可写字幕状态。此结论不改变旧Profile、Gate或批准。
 
 ## 只读就绪诊断与批次入口
 

@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit, unquote
 
 ROOT = repository_root()
 LOCK = ROOT / "vendor" / "sources.lock.json"
@@ -26,6 +27,41 @@ INTERFACES = ("none", "file", "cli", "http")
 UPDATE_MODES = ("candidate_review",)
 # explicit：不随无参数的 --install 下载，必须写明来源 id；用于用户需自行判断权利的资产。
 INSTALL_MODES = ("default", "explicit")
+
+
+def git_url_problem(value):
+    """Validate a Git transport, not just a caller-provided distribution label.
+
+    Validation is read-only: no Git subprocess, fetch, install or directory write.
+    SCP-style remotes are SSH host:path syntax, not a new provider scheme.
+    """
+    if not isinstance(value, str) or not value:
+        return 'Git url 必须为非空字符串'
+    if value.startswith('-') or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value):
+        return 'Git url 不能含控制字符或命令行选项'
+    if '://' in value:
+        try:
+            parsed = urlsplit(value)
+            host = parsed.hostname
+        except ValueError:
+            return 'Git url 格式无效'
+        if parsed.scheme in {'https', 'ssh'}:
+            if not host or host.startswith('-') or not parsed.path or any(char.isspace() for char in parsed.netloc):
+                return 'Git HTTPS/SSH url 须有主机和仓库路径'
+            return ''
+        if parsed.scheme != 'file' or parsed.netloc not in {'', 'localhost'}:
+            return 'Git url 只支持HTTPS/SSH/scp-style或本地Git仓库；不支持该分发协议'
+        value = unquote(parsed.path)
+    elif re.match(r'^[^/]+::', value):
+        return 'Git url 不接受ext/未知remote helper协议'
+    elif re.fullmatch(r'(?:[^\s/@:]+@)?(?:[A-Za-z0-9][A-Za-z0-9_.-]*|\[[0-9A-Fa-f:]+\]):(?!-)[^\s:].*', value):
+        return ''
+    if any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value):
+        return 'Git本地仓库路径不能含控制字符'
+    local = Path(value)
+    if local.is_dir() and ((local / '.git').exists() or ((local / 'HEAD').is_file() and (local / 'objects').is_dir())):
+        return ''
+    return 'Git url 须为HTTPS/SSH/scp-style远端或已存在的本地Git仓库'
 
 
 def validate_refresh_policy(data):
@@ -84,6 +120,9 @@ def validate(source):
         return "缺字段：" + "、".join(missing)
     if source["type"] != "git":
         return "当前仅支持 type=git"
+    url_problem = git_url_problem(source['url'])
+    if url_problem:
+        return url_problem
     if not SAFE_NAME.fullmatch(source["id"]):
         return "id 只能包含字母、数字、点、下划线和连字符，且不得以符号开头"
     if not COMMIT.fullmatch(source["revision"]):
@@ -147,6 +186,9 @@ def call(*args):
 
 
 def sync(source):
+    problem = validate(source)
+    if problem:
+        die(problem)
     destination = target(source)
     sparse_paths = source.get("sparse_paths")
     if destination.exists() and not (destination / ".git").is_dir():

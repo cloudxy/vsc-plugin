@@ -56,6 +56,9 @@ class SubtitleStyle:
     subtitle_position: str = "bottom"
     custom_position: float = 70.0
     font: Optional[str] = None
+    cue_transforms: Optional[List[Dict[str, float]]] = None
+    transform_x: Optional[float] = None
+    transform_y: Optional[float] = None
 
 
 def _parse_srt_like_time(time_text: str) -> float:
@@ -651,6 +654,8 @@ def _resolve_subtitle_text_size(params: SubtitleStyle) -> float:
 
 
 def _resolve_subtitle_transform_y(params: SubtitleStyle) -> float:
+    if getattr(params, "transform_y", None) is not None:
+        return params.transform_y
     subtitle_position = str(getattr(params, "subtitle_position", "bottom") or "bottom").lower()
     if subtitle_position == "top":
         return 0.82
@@ -753,7 +758,7 @@ def _create_text_segment(
             "flip": {"horizontal": False, "vertical": False},
             "rotation": 0.0,
             "scale": {"x": 1.0, "y": 1.0},
-            "transform": {"x": 0.0, "y": _resolve_subtitle_transform_y(params)},
+            "transform": {"x": getattr(params, "transform_x", None) or 0.0, "y": _resolve_subtitle_transform_y(params)},
         },
         "uniform_scale": {"on": True, "value": 1.0},
         "render_index": 15000,
@@ -786,19 +791,26 @@ def _add_subtitle_track_from_srt(
     text_track = _create_track("text", "字幕轨道")
     text_track["is_default_name"] = False
     max_end_us = 0
-    for start, end, text in entries:
+    for index, (start, end, text) in enumerate(entries):
         start_us = _seconds_to_microseconds(start)
         duration_us = _seconds_to_microseconds(end - start)
         if duration_us <= 0:
             continue
 
-        text_material = _create_text_material(text, params)
+        cue_params = params
+        cue_transforms = getattr(params, "cue_transforms", None)
+        if cue_transforms is not None:
+            from dataclasses import replace
+            if len(cue_transforms) != len(entries):
+                raise subtitles.SubtitleError(["字幕安全区投影与Cue数量不一致"])
+            cue_params = replace(params, transform_x=cue_transforms[index]["x"], transform_y=cue_transforms[index]["y"])
+        text_material = _create_text_material(text, cue_params)
         draft["materials"]["texts"].append(text_material)
         text_track["segments"].append(_create_text_segment(
             text_material["id"],
             start_us,
             duration_us,
-            params,
+            cue_params,
         ))
         max_end_us = max(max_end_us, start_us + duration_us)
 

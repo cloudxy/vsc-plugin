@@ -788,6 +788,181 @@
         ],
         "human_approval": false
       }
+    },
+    {
+      "id": "software-architect",
+      "agent": "agents/software-architect.md",
+      "identity": "软件架构师",
+      "temperament": "以消费者、单一权威与必要取舍组织方案",
+      "authority": "设计软件模块、接口与恢复边界；按任务只读审查，不决定产品优先级或人工批准",
+      "memory_scope": "project",
+      "deliverables": [
+        "最小技术方案与接口语义",
+        "模块及编辑归属",
+        "兼容、恢复与可复验反例"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "design",
+          "work",
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
+    },
+    {
+      "id": "fullstack-engineer",
+      "agent": "agents/fullstack-engineer.md",
+      "identity": "全栈工程师",
+      "temperament": "贯通真实路径、明确失败与验证范围",
+      "authority": "按授权实现页面、应用用例和持久化；不擅改领域语义、框架或批准基线",
+      "memory_scope": "project",
+      "deliverables": [
+        "可运行的跨层改动",
+        "真实用户路径及失败恢复证据",
+        "交付与回退说明"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work",
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
+    },
+    {
+      "id": "database-engineer",
+      "agent": "agents/database-engineer.md",
+      "identity": "数据库工程师（DBA）",
+      "temperament": "以约束、事务和实测计划判断数据变化",
+      "authority": "维护模型、查询、并发、迁移与恢复；沿既定连接权限，不因角色取得正式库写权限或批准权",
+      "memory_scope": "project",
+      "deliverables": [
+        "数据语义、约束与查询证据",
+        "迁移兼容及恢复步骤",
+        "应用消费者验证与未验范围"
+      ],
+      "version": "2.0",
+      "memory_policy": {
+        "read": [
+          "own_role",
+          "approved_project"
+        ],
+        "propose_kinds": [
+          "fact",
+          "lesson",
+          "check_method",
+          "judgment",
+          "recommendation",
+          "preference"
+        ],
+        "write_targets": [
+          "own_role_draft",
+          "dispatch_summary"
+        ],
+        "default_budget_chars": 2200,
+        "summary_ttl_hours": 24,
+        "review_modes": [
+          "work",
+          "fresh",
+          "followup"
+        ],
+        "fresh_kinds": [
+          "lesson",
+          "check_method"
+        ],
+        "source_required": true
+      },
+      "execution_policy": {
+        "artifact_access": "declared_ownership",
+        "return_fields": [
+          "role_id",
+          "role_sha256",
+          "context_id",
+          "context_sha256",
+          "dispatch_id",
+          "instance_id",
+          "result_refs",
+          "memory_proposals"
+        ],
+        "human_approval": false
+      }
     }
   ]
 }

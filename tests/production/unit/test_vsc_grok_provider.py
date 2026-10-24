@@ -24,6 +24,16 @@ class FakeTransport:
 
 
 class GrokContract(unittest.TestCase):
+    def test_independent_negative_prompt_has_no_local_mapping(self):
+        transport=FakeTransport([])
+        adapters=[(GrokImageProvider('grok-imagine-image-2.0',lambda m:m,lambda w,h:'9:16',transport=transport),
+                   ImageRequest('S','shot_keyframe','sha','fixed prompt',params={'negative_prompt':'avoid duplication'})),
+                  (GrokVideoProvider('grok-imagine-video-1.5',lambda m:m,'720p',transport=transport),
+                   VideoRequest('S','video_clip','sha','fixed prompt',params={'negative_prompt':'avoid duplication'}))]
+        for adapter,request in adapters:
+            with self.subTest(kind=type(request).__name__),self.assertRaises(GrokAdapterError):adapter.preflight(request)
+        self.assertEqual(transport.calls,[])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

@@ -217,7 +217,7 @@ def stream_duration(metadata, kind):
 
 def gaps(segments, duration):
     cursor, missing = 0, []
-    for start, end in sorted((s["from_frame"], s["from_frame"] + s["duration_in_frames"]) for s in segments if s["kind"] in {"video", "image"}):
+    for start, end in sorted((s["from_frame"], s["from_frame"] + s["duration_in_frames"]) for s in segments if s["kind"] in {"video", "image"} and not s.get("overlay")):
         if start > cursor:
             missing.append([cursor, start])
         cursor = max(cursor, end)
@@ -319,6 +319,8 @@ def check_plan(plan_path, media_root, adapter, render=None, loudness_target=None
                 cached[source] = adapter.probe(source)
             metadata = cached[source]
             item["metadata"] = metadata
+            if segment.get("overlay") and metadata["sha256"] != segment["source_sha256"]:
+                raise ProbeFailure("overlay_sha_mismatch", "透明plate字节与固定source_sha256不符")
             expected_kind = "audio" if segment["kind"] == "audio" else "video"
             if not any(stream.get("codec_type") == expected_kind for stream in metadata["streams"]):
                 raise ProbeFailure("missing_stream", f"需要 {expected_kind} stream")

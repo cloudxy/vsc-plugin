@@ -56,6 +56,14 @@ export function createLocalProduction(dialog, ctx) {
           details.append(node('p',target.label || `${label} · 候选 ${target.candidate_no ?? ''}`));
           if(action==='redo_sound'&&target.after_prompt)details.append(node('p',`本次固定内容：${target.after_prompt}`));
         }
+        const quote=result.artifact?.document?.generation_quote;
+        if(quote){
+          const pricing=node('section');pricing.className='generation-quote';pricing.append(node('h3','授权前用量与费用估算'));
+          for(const [currency,amount] of Object.entries(quote.known_subtotals||{}))pricing.append(node('p',`已知部分估算：${amount} ${currency}；实际账单另核。`));
+          if(quote.unknown_jobs)pricing.append(node('p',`${quote.unknown_jobs} 项金额尚不确定，不表示免费；原生用量上限仍沿原预算。`));
+          for(const item of quote.jobs||[]){const source=item.source;if(source?.source_date)pricing.append(node('p',`价格依据日期：${source.source_date}；${item.reason}`));}
+          details.append(pricing);
+        }
         const evidence=node('details');evidence.append(node('summary','固定输入、版本及参数差异'),node('pre',JSON.stringify({sources:result.sources,targets:result.targets},null,2)));details.append(evidence);
         if(result.review)details.prepend(node('blockquote',result.review.body));
         if(action==='redo_sound'){

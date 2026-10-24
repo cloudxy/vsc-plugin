@@ -133,6 +133,8 @@ def validation_errors(data):
     if not isinstance(data, dict):
         return ["交接契约必须为 object"]
     fmt = data.get("format")
+    from vsc.project.creative_rules import rule_errors, document_diagnostics
+    c.errors.extend(rule_errors(data.get("creative_rules", {})))
     c.need(isinstance(fmt, str) and fmt in FORMATS, "未知交接 format")
     for key in ("project_id", "scope"):
         c.need(text(data.get(key)), key + " 必须是非空文本")
@@ -266,6 +268,8 @@ def validation_errors(data):
             c.media(row, "engineering_files")
         c.need(isinstance(data.get("tool_versions"), dict), "tool_versions 必须为object")
         c.need(isinstance(data.get("render_parameters"), dict), "render_parameters 必须为object")
+    if not c.errors and data.get("creative_rules"):
+        c.errors.extend(document_diagnostics(data, data["creative_rules"])["errors"])
     return c.errors
 
 
@@ -559,6 +563,11 @@ def _timeline_errors(data, p):
             continue
         if segment.get("source") != choice["media"]["path"] or binding["sha256"] != choice["media"]["sha256"]:
             p.errors.append("时间线使用未选媒体或SHA漂移：" + identifier)
+        if segment.get("overlay"):
+            if choice["purpose"] != "vfx_overlay" or binding["purpose"] != "vfx_overlay" or segment["source_sha256"] != binding["sha256"]:
+                p.errors.append("overlay必须固定独立获选plate及vfx_overlay用途/SHA：" + identifier)
+        elif choice["purpose"] == "vfx_overlay":
+            p.errors.append("获选plate不能隐式变成全幅主镜：" + identifier)
         p.media({"path": segment["source"], "sha256": binding["sha256"]}, "timeline " + identifier)
         if segment["kind"] in {"video", "image"}:
             p.object(segment.get("source_shot_id"), "shot")
@@ -568,6 +577,9 @@ def _timeline_errors(data, p):
             p.errors.append("时间线用途/rights与选择清单不一致：" + identifier)
         if choice.get("cue_id") and choice["cue_id"] != binding.get("cue_id"):
             p.errors.append("时间线Cue与选中声音take不一致：" + identifier)
+        cue = cues.get(binding.get("cue_id"), {})
+        if cue.get("media") and (cue["media"].get("path") != segment.get("source") or cue["media"].get("sha256") != binding["sha256"]):
+            p.errors.append("SFX实际用料与固定Cue媒体不一致：" + identifier)
         audible = segment["kind"] in {"audio", "video"} and not segment.get("muted", False) and segment.get("volume", 1) > 0
         if audible and (binding["audio_role"] == "none" or binding.get("cue_id") not in cues):
             p.errors.append("实际可听媒体必须绑定音频用途与真实Cue：" + identifier)
@@ -598,6 +610,8 @@ def _mix_errors(data, p):
         if (not cue or binding.get("cue_id") != layer["cue_id"]
                 or binding.get("audio_role") != layer["audio_role"]):
             p.errors.append("声音层Cue/音频用途与时间线不一致：" + identifier)
+        if cue and cue.get("silence") is True:
+            p.errors.append("声明静默的Cue不能绑定实际可听音轨：" + identifier)
         if segment.get("kind") not in {"audio", "video"} or segment.get("muted", False) or segment.get("volume", 1) <= 0:
             p.errors.append("声音层没有实际可听片段：" + identifier)
     for identifier, binding in bindings.items():
@@ -611,10 +625,12 @@ def _mix_errors(data, p):
         return
     for plan_id, plan in plans.items():
         seq_id = plan.get("sequence_id")
-        visuals = [s for s in segments.values() if s.get("kind") in {"video", "image"}
+        visuals = [s for s in segments.values() if s.get("kind") in {"video", "image"} and not s.get("overlay")
                    and _within(p.objects, s.get("source_shot_id"), seq_id)]
         offset = min((s["from_frame"] for s in visuals), default=0)
         for cue_id, cue in _cues(plan).items():
+            if cue.get("silence") is True:
+                continue
             matches = [segments[x] for x, layer in layers.items() if layer["cue_id"] == cue_id and layer["sound_plan"]["id"] == plan_id and x in segments]
             if not matches:
                 p.errors.append("混音缺失计划Cue：" + cue_id)
@@ -658,6 +674,16 @@ def _mix_errors(data, p):
     for review in data["boundaries"]:
         if (review["sound_plan"]["id"], review["boundary_id"]) not in valid_boundaries:
             p.errors.append("复核引用不存在的声音边界：" + review["boundary_id"])
+    try:
+        from vsc.post.sound_rules import project_ducking
+        projected, applied = project_ducking(timeline, list(plans.values()))
+        expected = {segment["id"]: segment for segment in projected.get("render_plan", {}).get("segments", [])}
+        for item in applied:
+            identifier = item["segment_id"]
+            if segments[identifier].get("volume_keyframes") != expected[identifier]["volume_keyframes"]:
+                p.errors.append("声明ducking未进入实际timeline音量包络：" + identifier)
+    except ValueError as exc:
+        p.errors.append(str(exc))
 
 
 def _delivery_errors(data, p):

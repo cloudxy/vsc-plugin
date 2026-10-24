@@ -71,6 +71,46 @@ class SeriesDatabase(unittest.TestCase):
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_real_sqlite_ark_jobs_reject_unmapped_params_before_budget_and_keep_mapped_defaults(self):
+        inputs=self._shot_fixture()
+        self._reference('face-day','char','identity_face','day')
+        self._reference('room','loc','location_master')
+        with patch.object(context_module,'validate_artifact',return_value=[]):
+            context=context_module.build_shot_context(self.project,'SH1')
+            common=dict(format='vsc.generation-request/v1',modality='image',shot_id='SH1',purpose='shot_keyframe',
+                context_sha256=context['sha256'],prompt='fixed original framing',reference_media_ids=[],width=1080,height=1920)
+            invalid=dict(common,params={'negative_prompt':'avoid duplication'})
+            valid=dict(common,params={})
+            state=project_state(self.project)
+            animatic=self._artifact(state,'vsc.animatic',{'format':'vsc.animatic/v1','synthetic':True})
+            batch={'jobs':[{'request':invalid,'candidate_no':1},{'request':valid,'candidate_no':2}]}
+            run=self._artifact(state,'vsc.production_run',dict(format='vsc.production-run/v1',project_id=state['project_id'],scope='EP1',
+                series_batch=batch,plan_sha256=db.digest(batch),approved_inputs=[dict(id=a['id'],sha256=a['sha256']) for a in (*inputs,animatic)],
+                review_after=[],operations={f'series:SH1:shot_keyframe:{n}':{'remote_jobs':1,'images':1} for n in (1,2)}),depends=(*inputs,animatic))
+            save(self.project,state)
+            jobs.register_provider(self.project,'volc_ark',['image'],'env:ARK_AGENT_PLAN_API_KEY')
+            jobs.register_model(self.project,'volc_ark','ark-image','symbolic-image','image','fixed-version',
+                {'purposes':['shot_keyframe']},{'size_map':{'1080x1920':'2K'}})
+            jobs.set_route(self.project,'image','shot_keyframe','ark-image')
+            bad=jobs.plan_job(self.project,run['id'],invalid,candidate_no=1)
+            good=jobs.plan_job(self.project,run['id'],valid,candidate_no=2)
+            with patch.object(dispatch,'gate_problems',return_value=[]),patch.object(budget,'reserve') as reserve:
+                with self.assertRaisesRegex(context_module.SeriesError,'未实现'):
+                    dispatch.submit_job(self.project,bad['job_id'])
+                reserve.assert_not_called()
+            with db.connect(self.project) as connection:
+                row=connection.execute('SELECT status FROM generation_jobs WHERE id=?',(bad['job_id'],)).fetchone()
+                self.assertEqual(row['status'],'created')
+                self.assertEqual(connection.execute('SELECT count(*) FROM job_events WHERE job_id=? AND status=\'submission_unknown\'',(bad['job_id'],)).fetchone()[0],0)
+                frozen=json.loads(connection.execute('SELECT request FROM generation_jobs WHERE id=?',(good['job_id'],)).fetchone()[0])
+            captured=[]
+            def offline(path,payload):captured.append((path,payload));return {'data':[{'url':'https://example.invalid/output.png'}]}
+            adapter=jobs.adapter_for_job(self.project,good['job_id'],transport=offline)
+            adapter.submit(dispatch._request(frozen,'image'))
+            self.assertEqual(captured[0][1]['size'],'2K')
+            self.assertEqual(captured[0][1]['prompt'],valid['prompt'])
+            self.assertNotIn('negative_prompt',captured[0][1])
+
     def test_audio_provider_rejects_unsupported_request_before_budget(self):
         from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider, VolcAdapterError
         binding = {"line_id": "L1", "entity_id": "char", "voice": {

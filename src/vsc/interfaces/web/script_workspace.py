@@ -16,12 +16,18 @@ def install_script_routes(router, catalog, etag, actor):
         return value
 
     @router.get("/{project_id}/script-draft")
-    def script_draft(project_id: str, request: Request, scope_key: str = ""):
-        return etag(request, service().get_script_draft(project_id, scope_key))
+    def script_draft(project_id: str, request: Request, scope_key: str = "", note_offset: int = 0,
+                     suggestion_offset: int = 0, limit: int = 50):
+        return etag(request, service().get_script_draft(project_id, scope_key, note_offset=note_offset,
+            suggestion_offset=suggestion_offset, limit=limit))
 
     @router.get("/{project_id}/script-draft/compare")
     def script_compare(project_id: str, request: Request, scope_key: str = "", base: str = None):
         return etag(request, service().compare_script_draft(project_id, scope_key, base))
+
+    @router.get("/{project_id}/script-draft/choices")
+    def script_choices(project_id: str, request: Request, scope_key: str = "", kind: str = "character", query: str = "", offset: int = 0):
+        return etag(request, service().store.script_editor_choice_page(project_id, scope_key, kind, query, offset))
 
     @router.get("/{project_id}/script-draft/impact")
     def script_impact(project_id: str, request: Request, scope_key: str = ""):

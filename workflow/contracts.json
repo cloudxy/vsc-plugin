@@ -468,6 +468,20 @@
           "validate"
         ]
       }
+    },
+    {
+      "format": "vsc.quality-plan/v1",
+      "owner": "固定质量要求与风险",
+      "artifact_types": [
+        "vsc.quality_plan"
+      ],
+      "template": "templates/quality-plan.json",
+      "validator": {
+        "script": "scripts/production/quality.py",
+        "arguments": [
+          "validate"
+        ]
+      }
     }
   ]
 }

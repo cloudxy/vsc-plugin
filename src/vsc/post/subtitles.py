@@ -289,7 +289,7 @@ def wrap_text(text, font, max_width):
 _KEEP_TOKEN = re.compile(r"[+\-−]?\d+(?:[.,:：/]\d+)*(?:[%‰])?|[A-Za-z]+(?:/\d+(?:[.,]\d+)?)?")
 _DISPLAY_DROP = "，。！？；：、“”‘’（）()【】[]《》〈〉…—·,.!?;:\"'"
 
-def display_text(line):
+def display_text(line, mixed_spacing=False):
     """显示文本：中文对白/旁白去掉句读标点，数字、单位、拉丁词整体保义（B4-01）。
 
     不改原稿：这只是派生视图，烧录、预览与导出使用同一结果。
@@ -303,7 +303,13 @@ def display_text(line):
         output.append(token.group())
         cursor = token.end()
     output.append(line[cursor:].translate(str.maketrans("", "", _DISPLAY_DROP)))
-    return "".join(output).strip()
+    shown = "".join(output).strip()
+    if mixed_spacing:
+        # Latin identifiers keep internal digits/units; CJK-number boundaries
+        # are untouched (3.14万元、20集、5% retain their meaning).
+        shown = re.sub(r"([\u3400-\u9fff])([A-Za-z][A-Za-z0-9_-]*)", r"\1 \2", shown)
+        shown = re.sub(r"([A-Za-z][A-Za-z0-9_-]*)([\u3400-\u9fff])", r"\1 \2", shown)
+    return shown
 
 
 def check_overlaps(items):
@@ -350,25 +356,43 @@ MAX_WIDTH_RATIO = 0.82
 MAX_LINES = 2
 
 
-def layout_font(style, width):
+def layout_font(style, width, rules=None):
     """Load the actual delivery font; a missing renderer is never a font pass."""
     try:
         from PIL import ImageFont
         font = ImageFont.truetype(str(style["font"]), style["font_size"])
     except (ImportError, OSError, KeyError, TypeError, ValueError) as exc:
         raise SubtitleError(["字幕实际字体排版未验证：" + str(exc)]) from exc
+    from vsc.project.creative_rules import subtitle_policy
+    area = subtitle_policy(rules)["safe_area"]
     padding = int(style["font_size"] * (0.4 if style.get("rounded") else 0.6)) if style.get("background") else 0
-    return font, max(1, int(width * MAX_WIDTH_RATIO) - 2 * padding - 2 * int(style["stroke_width"]))
+    return font, max(1, int(width * (1 - area["left"] - area["right"])) - 2 * padding - 2 * int(style["stroke_width"]))
 
 
-def compile_cues(items, *, duration=None, script_texts=None, font=None, max_width=None, style=None, height=None):
+def caption_top(style, height, image_height, rules=None):
+    from vsc.project.creative_rules import subtitle_policy
+    policy = subtitle_policy(rules)
+    area = policy["safe_area"]
+    if style["position"] == "bottom":
+        return height * (1 - area["bottom"]) - image_height
+    if style["position"] == "top":
+        return height * area["top"]
+    if style["position"] == "custom":
+        return (height - image_height) * style["custom_position"] / 100
+    return (height * (1 + area["top"] - area["bottom"]) - image_height) / 2
+
+
+def compile_cues(items, *, duration=None, script_texts=None, font=None, max_width=None, style=None, height=None, rules=None):
     """Compile display cues without inventing or redistributing supplied timecodes.
 
     Text coverage is optional evidence, distinct from audio alignment. None of
     these interfaces receives adopted audio/line alignment, so it stays unverified.
     """
+    from vsc.project.creative_rules import subtitle_policy, visible_characters
+    policy = subtitle_policy(rules)
     items = list(items)
     errors = []
+    warnings, measurements = [], []
     for index, (begin, end, original) in enumerate(items, 1):
         if any(type(value) not in (int, float) or not math.isfinite(value) for value in (begin, end)) or begin < 0 or end <= begin:
             errors.append(f"第 {index} 条字幕时码无效")
@@ -387,7 +411,17 @@ def compile_cues(items, *, duration=None, script_texts=None, font=None, max_widt
                           for row in check_coverage([item[2] for item in items], script_texts))
     compiled = []
     for index, (begin, end, original) in enumerate(items, 1):
-        shown = display_text(original)
+        shown = display_text(original, policy["mixed_spacing"])
+        duration_ms = (end - begin) * 1000
+        count = visible_characters(shown)
+        cps = count * 1000 / duration_ms
+        measurements.append({"cue": index, "visible_characters": count, "duration_ms": duration_ms, "cps": cps})
+        for key, actual, invalid in (("max_cps", cps, lambda x, limit: x > limit),
+                ("min_cue_ms", duration_ms, lambda x, limit: x < limit), ("max_cue_ms", duration_ms, lambda x, limit: x > limit)):
+            criterion = policy.get(key)
+            if criterion and invalid(actual, criterion["value"]):
+                (errors if criterion["level"] == "error" else warnings).append(
+                    "第%d条字幕 %s=%.3f 不满足声明阈值 %.3f" % (index, key, actual, criterion["value"]))
         if not shown:
             errors.append(f"第 {index} 条字幕显示文本为空")
         if font is not None and max_width is not None:
@@ -398,13 +432,22 @@ def compile_cues(items, *, duration=None, script_texts=None, font=None, max_widt
             if style is not None and height is not None:
                 ascent, descent = font.getmetrics()
                 image_height = len(lines) * (ascent + descent) + max(0, len(lines) - 1) * int(style["font_size"] * .25) + 2 * int(style["font_size"] * .35) + 2 * int(style["stroke_width"])
-                if image_height > height * (1 - 2 * SAFE_MARGIN):
+                measurements[-1].update(height_px=image_height, top_px=caption_top(style, height, image_height, rules))
+                area = policy["safe_area"]
+                if image_height > height * (1 - area["top"] - area["bottom"]):
                     errors.append(f"第 {index} 条字幕超出画幅安全高度；须调整已批准字体或分段时码")
+                if policy["safe_area_declared"]:
+                    y = caption_top(style, height, image_height, rules)
+                    if y < height * area["top"] - 1 or y + image_height > height * (1 - area["bottom"]) + 1:
+                        errors.append(f"第 {index} 条字幕位置超出声明安全区")
             shown = "\n".join(lines)
         compiled.append((begin, end, shown))
     if errors:
         raise SubtitleError(errors)
-    return {"cues": compiled, "checks": {"timecodes": "supplied_preserved", "overlaps": "passed",
+    return {"cues": compiled, "warnings": warnings, "measurements": measurements,
+            "checks": {"timecodes": "supplied_preserved", "overlaps": "passed",
+            "reading_rules": ("warnings" if warnings else "passed") if any(policy.get(k) for k in ("max_cps", "min_cue_ms", "max_cue_ms")) else "not_declared",
+            "safe_area": policy["safe_area"], "mixed_spacing": policy["mixed_spacing"],
             "text_coverage": "passed" if script_texts is not None else "not_checked",
             "font_layout": "passed" if font is not None and max_width is not None else "not_checked",
             "line_binding": "not_verified", "audio_alignment": "not_verified"}}

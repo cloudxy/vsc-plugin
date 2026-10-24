@@ -3,7 +3,7 @@ const SECTIONS = {
   overview: '创作概览', shots: '镜头', lines: '剧本与台词', assets: '资产',
   instances: '使用与状态', cues: '声音', performances: '动作与特效',
   bindings: '采用与候选', materials: '相关素材', states:'场镜状态',voices:'人物声线',jobs:'制作任务',versions: '文案版本',
-  script_status: '剧本确认', job_attempts: '任务尝试对照',
+  script_status: '剧本确认', job_attempts: '任务尝试对照',renders:'成片固定版本',
 };
 const RELATION_SECTIONS = {job_attempts:'任务尝试对照',quality_observations:'质量记录',method_evaluations:'方法评测',timeline_media:'实际用料区间',candidates:'用途候选',coverage:'镜头覆盖',states:'场镜状态',voices:'人物与声线',interactions:'参与和接触',dispositions:'省略与处理依据',cue_shots:'声音覆盖镜头',cue_slots:'声音用途',cue_timeline_items:'声音时间区间',execution_shots:'动作覆盖镜头',execution_participants:'动作参与者',execution_materials:'动作参考与素材',execution_slots:'动作制作用途'};
 const NAV_GROUPS = {
@@ -14,13 +14,13 @@ const NAV_GROUPS = {
   quality: {label:'质量与方法', sections:['quality_observations','method_evaluations']},
   candidates: {label:'候选与素材', sections:['bindings','materials'], related:['candidates']},
   jobs: {label:'任务与尝试', sections:['jobs','job_attempts']},
-  delivery: {label:'剪辑用料', sections:['timeline_media','materials'], related:['cue_timeline_items','cue_slots','cue_shots']},
+  delivery: {label:'成片与剪辑用料', sections:['renders','timeline_media','materials'], related:['cue_timeline_items','cue_slots','cue_shots']},
   documents: {label:'交付文案', sections:['versions']},
 };
 const TASK_NAVIGATION = {
   workbench: {groups:['overview','story','assets','production','quality'], initial:'overview'},
   candidates: {groups:['candidates','jobs','quality'], initial:'bindings'},
-  delivery: {groups:['delivery','documents','quality'], initial:'timeline_media'},
+  delivery: {groups:['delivery','documents','quality'], initial:'renders'},
 };
 const LABELS = {
   work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜头', asset: '资产',
@@ -103,9 +103,10 @@ function sectionValue(data, key) {
   return Array.isArray(value) ? {items: value, total: value.length} : {...value, items: value.items || []};
 }
 
-export function createCreativeWorkbench(container, {onObject, onMedia, onArtifact, onGraph, onCompare, onLocalAction, onError = () => {}} = {}) {
+export function createCreativeWorkbench(container, {onObject, onMedia, onArtifact, onGraph, onCompare, onLocalAction, onLibrary, createReviewer, onStageRef, onError = () => {}} = {}) {
   let context = null, data = null, section = 'overview', offset = 0, ticket = 0, controller = null;
   let query = '', globalSearch = false, disposed = false, revision = null, entity = null;
+  let reviewer=null,reviewRequest=0,activeRef=null,allowAuto=true;
   const host = el('div', null, 'creative-workbench');
   const heading = el('header', null, 'workbench-heading');
   const trail = el('nav', null, 'workbench-trail'); trail.setAttribute('aria-label', '当前创作范围');
@@ -135,7 +136,17 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   const pagination = el('div', null, 'pagination');
   const prev = el('button', '上一页'), pageInfo = el('span'), next = el('button', '下一页');
   prev.type = next.type = 'button'; pagination.append(prev, pageInfo, next);
-  host.append(heading, form, navigation, status, gaps, body, pagination); container.replaceChildren(host);
+  const stage=el('section',null,'object-stage'),catalog=el('details',null,'workbench-catalog'),catalogTitle=el('summary','资料、镜头与专业工具');catalog.append(catalogTitle,form,navigation,status,gaps,body,pagination);stage.hidden=true;catalog.open=true;
+  if(createReviewer){host.classList.add('workbench-has-stage');host.append(heading,stage,catalog);}else host.append(heading,form,navigation,status,gaps,body,pagination);container.replaceChildren(host);
+  async function openReview(ref,row={}){
+    if(!createReviewer)return (ref.startsWith('media:')?onMedia:onArtifact)?.(ref.split(':').slice(1).join(':'));
+    const request=++reviewRequest,scope={...context};reviewer?.suspend();activeRef=ref;allowAuto=false;stage.hidden=false;catalog.open=false;host.classList.add('viewing-object');
+    const value=await createReviewer(stage,{projectId:scope.projectId,objectId:scope.objectId,targetObjectId:row.object_id||row.shot_id||(data?.scope?.kind==='shot'?scope.objectId:null),ref,renderId:row.render_id||scope.fixedRenderId,scopeLabel:data?.scope?.title||data?.scope?.display_code,
+      onRef:fixed=>{if(request===reviewRequest){activeRef=`${fixed.kind}:${fixed.id}`;onStageRef?.(fixed);}}});
+    if(request!==reviewRequest||context?.projectId!==scope.projectId||context?.objectId!==scope.objectId)return;reviewer=value;
+  }
+  if(createReviewer)heading.append(button('返回资料与镜头',()=>{allowAuto=false;stage.querySelectorAll('video,audio').forEach(node=>node.pause?.());catalog.open=true;}));
+  catalog.addEventListener('toggle',()=>{if(catalog.open)stage.querySelectorAll('video,audio').forEach(node=>node.pause?.());});
 
   function taskNavigation() { return TASK_NAVIGATION[context?.task] || TASK_NAVIGATION.workbench; }
   function groupFor(key) { return taskNavigation().groups.find(id => NAV_GROUPS[id].sections.includes(key) || NAV_GROUPS[id].related?.includes(key)); }
@@ -148,10 +159,11 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     catch { section = taskNavigation().initial; }
   }
   async function act(callback, ...args) {
-    try { await callback?.(...args); } catch (error) { status.textContent = error.message; onError(error); }
+    const binding={...context};
+    try { await callback?.(...args); } catch (error) { if(binding.projectId!==context?.projectId||binding.objectId!==context?.objectId||binding.task!==context?.task)return;status.textContent = error.message; onError(error); }
   }
   function button(text, callback, cls) {
-    const b = el('button', text, cls); b.type = 'button'; b.addEventListener('click', () => act(callback)); return b;
+    const binding=context?{...context}:null,b = el('button', text, cls); b.type = 'button'; b.addEventListener('click', () => {if(binding&&(binding.projectId!==context?.projectId||binding.objectId!==context?.objectId||binding.task!==context?.task))return;return act(callback);}); return b;
   }
   function objectButton(row, prefix = '') {
     return button(prefix + (row.title || row.label || row.display_code || row.id), () => onObject?.(row.id), 'workbench-object-link');
@@ -188,11 +200,14 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     return request();
   }
   function drawHeading() {
-    trail.replaceChildren(button('全部项目', () => onObject?.(null)));
-    for (const row of data.ancestors || []) trail.append(el('span', '›'), objectButton(row));
+    const path=el('details',null,'workbench-ancestry'),parents=el('div'),summary=el('summary','目录与上级');path.append(summary);
+    path.addEventListener('keydown',event=>{if(event.key==='Escape'&&path.open){event.preventDefault();path.open=false;summary.focus();}});
+    parents.append(button('全部项目', () => onObject?.(null)));
+    for (const row of data.ancestors || []) parents.append(objectButton(row));path.append(parents);trail.replaceChildren(path);
     const scope = data.scope;
     const current = el('strong', scope?.id ? title(scope) : '项目创作概览', 'workbench-current-scope');
     current.setAttribute('aria-current', 'location');
+    current.title=current.textContent;
     trail.append(el('span', '›'), current);
   }
   function drawGaps() {
@@ -230,7 +245,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     const link = (kind, id, name) => {
       if (!id || seen.has(kind + ':' + id)) return;
       seen.add(kind + ':' + id);
-      const fn = kind === 'media' ? onMedia : kind === 'artifact' ? onArtifact : onObject;
+      const fn = kind === 'media' ? id=>openReview('media:'+id,row) : kind === 'artifact' ? id=>openReview('artifact:'+id,row) : onObject;
       links.append(button(name, () => fn?.(id)));
     };
     if (key === 'shots' || row.kind === 'shot' || key === 'assets') link('object', row.object_id || row.id, key === 'assets' ? '查看资产用途' : '进入镜头');
@@ -244,6 +259,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if(key==='lines'){drill('查看覆盖镜头','coverage',row.id);drill('查看声音','cues',row.id);drill('省略与处理','dispositions',row.id);}
     if(key==='assets')drill('查看使用实例','instances',row.id);
     if(key==='bindings')drill('查看此用途全部候选','candidates',row.id);
+    if(key==='bindings'&&onLibrary&&(row.target_object_id||row.object_id)&&(row.role||row.purpose||row.kind))links.append(button('从公共库选择用于此处',()=>onLibrary({target_object_id:row.target_object_id||row.object_id,role:row.role||row.purpose||row.kind,onUsed:()=>request()})));
     if(key==='instances')drill('查看持物与接触','interactions',row.id);
     if(key==='cues'){drill('覆盖镜头','cue_shots',row.id);drill('配音与声音用途','cue_slots',row.id);drill('时间线区间','cue_timeline_items',row.id);}
     if(key==='performances'){drill('动作镜头','execution_shots',row.id);drill('参与者','execution_participants',row.id);drill('参考与素材','execution_materials',row.id);drill('制作用途','execution_slots',row.id);}
@@ -270,7 +286,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if (!id || !preview) return null;
     const purpose = typeof preview === 'string' ? preview : preview.purpose;
     if (!['thumbnail', 'poster', 'waveform'].includes(purpose)) return null;
-    const open = button('预览', () => onMedia?.(id), 'workbench-thumbnail');
+    const open = button('预览', () => openReview('media:'+id,row), 'workbench-thumbnail');
     const img = el('img'); img.loading = 'lazy'; img.alt = row.name || title(row);
     img.src = `/api/v1/projects/${encodeURIComponent(context.projectId)}/media/${encodeURIComponent(id)}/preview?purpose=${encodeURIComponent(purpose)}`;
     img.addEventListener('error', () => { img.remove(); open.textContent = '查看素材详情'; }, {once: true});
@@ -326,7 +342,10 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     panel.append(h);
     if (!value.items.length) panel.append(el('p',value.unsupported_filters?'此权威尚未提供所选筛选，匹配数量未知。可从素材入口使用已支持的检索。':value.load_on_demand?`已登记 ${total} 项，进入此类型按需查阅。`:(query?'此范围没有匹配资料。':'此范围尚未登记此类资料；可从固定文案和已有素材继续整理。'),'workbench-empty'));
     const grid = el('div', null, key === 'lines' || key === 'cues' ? 'workbench-grid workbench-grid-wide' : 'workbench-grid');
-    value.items.forEach(row => grid.append(rowCard(row, key))); panel.append(grid);
+    if(key==='shots'){
+      const groups=new Map();for(const row of value.items){const id=row.scene_id||'current';if(!groups.has(id))groups.set(id,[]);groups.get(id).push(row);}
+      for(const [id,items]of groups){const group=el('section',null,'workbench-shot-scene');group.append(el('h3',items[0].scene_title||data.scope?.title||'场内镜头'));const cards=el('div',null,'workbench-shot-grid');for(const row of items)cards.append(rowCard(row,key));group.append(cards);grid.append(group);}
+    }else value.items.forEach(row => grid.append(rowCard(row, key))); panel.append(grid);
     if (value.truncated || value.next_offset != null) panel.append(el('p', '当前为有界查询，更多资料可进入该类型继续分页。', 'hint'));
     return panel;
   }
@@ -370,6 +389,16 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       if (!response.ok) throw new Error(value.message || value.detail || '创作资料读取失败');
       if (value.project_id !== snapshot.projectId) throw new Error('资料响应与当前项目不一致');
       data = value; revision = data.revision; render();
+      if(createReviewer&&!activeRef&&allowAuto){
+        allowAuto=false;
+        const available=Object.values(data.sections||{}).flatMap(value=>value.items||[]);
+        const media=available.find(row=>row.media_id&&(row.status==='selected'||section==='renders')&&(row.kind==='video'||row.purpose==='video_take'))||available.find(row=>row.media_id&&(row.status==='selected'||section==='renders'));
+        if(context.fixedRef)await openReview(context.fixedRef);
+        else if(media&&(data.scope?.kind==='shot'||context.task==='candidates'||context.task==='delivery'))await openReview('media:'+media.media_id,media);
+        else if(data.scope?.kind==='shot'||context.task==='delivery'){
+          stage.hidden=false;stage.replaceChildren(el('p',context.task==='delivery'?'当前范围尚无已登记的成片输出。时间线用料可从下方资料查阅，原用料不等同于成片。':'本镜尚无可播放的候选。可以先阅读设计、从用途选择参考，或从原制作入口恢复已有任务。','empty'));catalog.open=true;
+        }
+      }
     } catch (error) {
       if (seq !== ticket || disposed || error.name === 'AbortError') return;
       body.replaceChildren(el('p', error.message, 'workbench-empty'), button('重新读取当前范围', async () => { offset = 0; revision = null; await request(); }));
@@ -383,7 +412,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   next.addEventListener('click', () => { const value = sectionValue(data || {}, section); if (value.next_offset != null) { offset = value.next_offset; return request(); } });
   return {
     async load(nextContext) {
-      controller?.abort(); ticket++; const changed = context?.projectId !== nextContext.projectId || context?.task !== nextContext.task || context?.userId !== nextContext.userId;
+      controller?.abort(); ticket++;reviewRequest++;reviewer?.suspend();activeRef=null;allowAuto=true;stage.hidden=true;catalog.open=true;host.classList.remove('viewing-object');const changed = context?.projectId !== nextContext.projectId || context?.task !== nextContext.task || context?.userId !== nextContext.userId;
       context = {...nextContext}; offset = 0; revision = null; data = null; entity=null;
       if (changed) { restorePreference(); query = ''; search.value = ''; globalSearch = false; whole.checked = false;statusFilter.value='';kindFilter.value='';purposeFilter.value='';associationFilter.value=''; }
       body.replaceChildren(); gaps.replaceChildren(); trail.replaceChildren(); drawNavigation();
@@ -392,6 +421,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     },
     async focus(nextSection) { if (nextSection in SECTIONS || nextSection in RELATION_SECTIONS) return chooseSection(nextSection); },
     refresh: () => { offset = 0; revision = null; return request(); },
-    destroy() { disposed = true; controller?.abort(); ticket++; container.replaceChildren(); },
+    suspend(){ticket++;reviewRequest++;controller?.abort();reviewer?.suspend();},
+    destroy() { disposed = true; controller?.abort(); ticket++;reviewRequest++;reviewer?.suspend();container.replaceChildren(); },
   };
 }

@@ -7,7 +7,8 @@ confirmation freezes an immutable artifact version through the regular
 ``_create_artifact`` path inside one transaction.
 """
 import json
-from sqlalchemy import func, insert, select, update
+from uuid import UUID
+from sqlalchemy import func, insert, select, update, text, or_
 from sqlalchemy.exc import IntegrityError
 
 from vsc.assets.resource_service import (Conflict, NotFound, ResourceError, required,
@@ -41,6 +42,67 @@ class ScriptWorkspaceRepository:
                                                    .where(table.c.project_id == project_id)):
                 parents[row_id] = parent_id
         return parents
+
+    def _scope_parents(self, conn, project_id, scope_key):
+        """Read the selected object's ancestors, never the whole serial tree."""
+        if not scope_key:
+            return {}
+        from .workbench import CTE
+        return {row.id: row.parent_id for row in conn.execute(text(CTE.replace('hierarchy AS (', 'hierarchy AS NOT MATERIALIZED (') +
+            "SELECT id,parent_id FROM ancestors"), {"p": project_id, "scope": checked_id(scope_key)})}
+
+    def script_editor_choices(self, project_id, scope_key="", speaker_ids=()):
+        from .workbench import CTE
+        with self.engine.connect() as conn:
+            p = checked_id(project_id)
+            self._project(conn, p)
+            params = {"p": p, "scope": checked_id(scope_key) if scope_key else None}
+            scenes = list(conn.execute(text(CTE.replace('hierarchy AS (', 'hierarchy AS NOT MATERIALIZED (') + """SELECT o.id,o.title,o.display_code
+                FROM creative_objects o WHERE o.project_id=:p AND o.kind='scene'
+                AND o.id IN (SELECT id FROM scope_ids) ORDER BY o.display_code,o.id LIMIT 101"""), params).mappings())
+            # Keep all characters actually used by this draft; optional additions
+            # are a bounded project catalogue, not every episode's object tree.
+            characters = list(conn.execute(select(S.creative_objects.c.id, S.creative_objects.c.title,
+                S.creative_objects.c.display_code).join(S.asset_identities, (S.asset_identities.c.project_id == S.creative_objects.c.project_id) &
+                (S.asset_identities.c.id == S.creative_objects.c.id)).where(S.creative_objects.c.project_id == p,
+                S.asset_identities.c.asset_kind == 'character').order_by(S.creative_objects.c.title,
+                S.creative_objects.c.id).limit(100)).mappings())
+            identifiers = set()
+            for value in speaker_ids:
+                try:
+                    identifiers.add(str(UUID(str(value))))
+                except (ValueError, TypeError, AttributeError):
+                    pass  # Legacy free-text speaker labels are not object IDs.
+            missing = identifiers - {str(row['id']) for row in characters}
+            if missing:
+                characters += list(conn.execute(select(S.creative_objects.c.id, S.creative_objects.c.title,
+                    S.creative_objects.c.display_code).where(S.creative_objects.c.project_id == p,
+                    S.creative_objects.c.id.in_([checked_id(value) for value in missing]))).mappings())
+            return clean({"scenes": scenes[:100], "characters": characters,
+                          "scenes_truncated": len(scenes) > 100})
+
+    def script_editor_choice_page(self, project_id, scope_key="", kind="character", query="", offset=0):
+        if kind not in ('character', 'scene') or not isinstance(query, str) or len(query) > 200 or type(offset) is not int or offset < 0:
+            raise ResourceError('选择目录的筛选或分页不合法', 'invalid_payload')
+        from .workbench import CTE
+        p = checked_id(project_id)
+        pattern = '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        with self.engine.connect() as conn:
+            self._project(conn, p)
+            if kind == 'character':
+                statement = select(S.creative_objects.c.id, S.creative_objects.c.title, S.creative_objects.c.display_code).join(
+                    S.asset_identities, (S.asset_identities.c.project_id == p) & (S.asset_identities.c.id == S.creative_objects.c.id)).where(
+                        S.creative_objects.c.project_id == p, S.asset_identities.c.asset_kind == 'character',
+                        or_(S.creative_objects.c.title.ilike(pattern, escape='\\'), S.creative_objects.c.display_code.ilike(pattern, escape='\\'))).order_by(
+                            S.creative_objects.c.title, S.creative_objects.c.id).offset(offset).limit(51)
+                rows = list(conn.execute(statement).mappings())
+            else:
+                rows = list(conn.execute(text(CTE.replace('hierarchy AS (', 'hierarchy AS NOT MATERIALIZED (') + """SELECT o.id,o.title,o.display_code
+                    FROM creative_objects o WHERE o.project_id=:p AND o.kind='scene' AND o.id IN (SELECT id FROM scope_ids)
+                    AND (o.title ILIKE :pattern ESCAPE '\\' OR o.display_code ILIKE :pattern ESCAPE '\\')
+                    ORDER BY o.title,o.id OFFSET :offset LIMIT 51"""), {'p': p, 'scope': checked_id(scope_key) if scope_key else None,
+                        'pattern': pattern, 'offset': offset}).mappings())
+            return clean({'items': rows[:50], 'offset': offset, 'next_offset': offset + 50 if len(rows) > 50 else None})
 
     @staticmethod
     def _ancestor_chain(scope_id, parents):
@@ -88,18 +150,23 @@ class ScriptWorkspaceRepository:
         artifact_type = "vsc.screenplay" if "vsc.screenplay" in script_types else next(iter(sorted(script_types)), "vsc.screenplay")
         kinds, expected_stage = dependency_requirements(profile, artifact_type)
         p = project["id"]
-        parents = self._object_parents(conn, p)
-        current = set(conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
-            S.current_artifact_versions.c.project_id == p)).scalars())
+        parents = self._scope_parents(conn, p, scope_key)
         dependencies, missing, conflicts = [], [], []
         for kind in kinds:
-            rows = conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id == p,
-                S.artifact_versions.c.artifact_type == kind).order_by(
-                    S.artifact_versions.c.created_at.desc(), S.artifact_versions.c.id)).mappings()
+            scopes = self._ancestor_chain(checked_id(scope_key), parents) if scope_key else set()
+            applicable = or_(S.artifact_versions.c.project_wide,
+                S.artifact_versions.c.id.in_(select(S.artifact_object_scopes.c.artifact_id).where(
+                    S.artifact_object_scopes.c.project_id == p,
+                    S.artifact_object_scopes.c.object_id.in_(scopes)))) if scopes else S.artifact_versions.c.project_wide
+            rows = conn.execute(select(S.artifact_versions).join(S.current_artifact_versions,
+                (S.current_artifact_versions.c.project_id == p) &
+                (S.current_artifact_versions.c.artifact_id == S.artifact_versions.c.id)).where(
+                    S.artifact_versions.c.project_id == p, S.artifact_versions.c.artifact_type == kind,
+                    applicable).order_by(S.artifact_versions.c.created_at.desc(), S.artifact_versions.c.id)).mappings()
             eligible = []
             for item in rows:
                 dep = dict(item, scopes=self._artifact_scopes(conn, p, item["id"]))
-                if (item["id"] in current and self._artifact_approved(conn, p, item["id"]) and
+                if (self._artifact_approved(conn, p, item["id"]) and
                         (expected_stage is None or artifact_stage(profile, kind, item["stage"]) == expected_stage) and
                         self._covers_scopes(dep, {scope_key} if scope_key else set(), not scope_key, parents)):
                     eligible.append({key: item[key] for key in ("id", "artifact_type", "artifact_key", "version", "sha256")})
@@ -113,14 +180,24 @@ class ScriptWorkspaceRepository:
                 "dependencies": dependencies, "missing_dependency_types": missing,
                 "conflicting_dependency_types": conflicts}
 
-    def _current_scripts(self, conn, project_id, script_types):
+    def _current_scripts(self, conn, project_id, script_types, scope_key=None):
         """当前已批准的剧本候选及其对象范围（F05/F06 统一事实来源）。"""
-        rows = conn.execute(select(S.artifact_versions.c.id, S.artifact_versions.c.artifact_key,
+        statement = select(S.artifact_versions.c.id, S.artifact_versions.c.artifact_key,
             S.artifact_versions.c.project_wide).where(S.artifact_versions.c.project_id == project_id,
-            S.artifact_versions.c.artifact_type.in_(script_types))).mappings().all()
-        current = set(conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
+            S.artifact_versions.c.artifact_type.in_(script_types))
+        if scope_key is not None:
+            parents = self._scope_parents(conn, project_id, scope_key)
+            chain = self._ancestor_chain(checked_id(scope_key), parents) if scope_key else set()
+            statement = statement.join(S.current_artifact_versions,
+                (S.current_artifact_versions.c.project_id == project_id) &
+                (S.current_artifact_versions.c.artifact_id == S.artifact_versions.c.id)).where(or_(S.artifact_versions.c.project_wide,
+                S.artifact_versions.c.id.in_(select(S.artifact_object_scopes.c.artifact_id).where(
+                    S.artifact_object_scopes.c.project_id == project_id, S.artifact_object_scopes.c.object_id.in_(chain)))))
+        rows = conn.execute(statement).mappings().all()
+        current = {row['id'] for row in rows} if scope_key is not None else set(conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
             S.current_artifact_versions.c.project_id == project_id)).scalars())
-        approved = self._approval_map(conn, project_id)
+        approved = ({row['id']: self._artifact_approved(conn, project_id, row['id']) for row in rows}
+                    if scope_key is not None else self._approval_map(conn, project_id))
         found = []
         for row in rows:
             if row["id"] not in current or not approved.get(row["id"], False):
@@ -241,17 +318,29 @@ class ScriptWorkspaceRepository:
         return clean(dict(row, state={"approve": "approved", "reject": "rejected",
                                       "revoke": "revoked"}.get(outcome, "pending")))
 
-    def get_script_draft(self, project_id, scope_key=""):
+    def get_script_draft(self, project_id, scope_key="", *, note_offset=0, suggestion_offset=0, limit=50):
         project_id = checked_id(project_id)
         scope_key = self._scope_key(scope_key)
+        if any(type(value) is not int or value < 0 for value in (note_offset, suggestion_offset)) or type(limit) is not int or not 1 <= limit <= 100:
+            raise ResourceError("批注和建议分页不合法", "invalid_payload")
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
             row = self._draft(conn, project_id, scope_key)
+            note_scope = S.script_notes.c.scope_key == scope_key
+            if not scope_key:
+                # Unassigned historical notes stay reachable from the explicit
+                # project-wide view; they do not leak into every episode.
+                note_scope = or_(note_scope, S.script_notes.c.scope_key.is_(None))
             notes = list(conn.execute(select(S.script_notes).where(
-                S.script_notes.c.project_id == project_id).order_by(S.script_notes.c.created_at, S.script_notes.c.id)).mappings())
-            decisions = list(conn.execute(select(S.script_note_decisions).where(
-                S.script_note_decisions.c.project_id == project_id)
-                .order_by(S.script_note_decisions.c.created_at, S.script_note_decisions.c.id)).mappings())
+                S.script_notes.c.project_id == project_id, note_scope)
+                .order_by(S.script_notes.c.created_at.desc(), S.script_notes.c.id).offset(note_offset).limit(limit + 1)).mappings())
+            notes_more = len(notes) > limit
+            notes = notes[:limit]
+            latest_decisions = select(S.script_note_decisions).where(
+                S.script_note_decisions.c.project_id == project_id,
+                S.script_note_decisions.c.note_id.in_([note['id'] for note in notes])).distinct(S.script_note_decisions.c.note_id).order_by(
+                    S.script_note_decisions.c.note_id, S.script_note_decisions.c.created_at.desc(), S.script_note_decisions.c.id.desc())
+            decisions = list(conn.execute(latest_decisions).mappings()) if notes else []
             latest = {decision["note_id"]: dict(decision) for decision in decisions}
             note_rows = [{"id": note["id"], "scene_id": note["scene_id"], "line_id": note["line_id"],
                           "scope_key": note["scope_key"], "scoped": note["scope_key"] == scope_key,
@@ -262,19 +351,23 @@ class ScriptWorkspaceRepository:
                               latest.get(note["id"], {}).get("outcome"), "open"),
                           "decision": latest.get(note["id"])} for note in notes
                          if note["scope_key"] == scope_key or note["scope_key"] is None]
-            suggestions, suggestion_decisions = self._suggestion_rows(conn, project_id, scope_key)
+            suggestions, suggestion_decisions = self._suggestion_rows(conn, project_id, scope_key, offset=suggestion_offset, limit=limit + 1)
+            suggestions_more = len(suggestions) > limit
+            suggestions = suggestions[:limit]
+            paging = {"notes_page": {"offset": note_offset, "next_offset": note_offset + limit if notes_more else None},
+                      "suggestions_page": {"offset": suggestion_offset, "next_offset": suggestion_offset + limit if suggestions_more else None}}
             submission_context = self._submission_context(conn, project, scope_key)
             if row is None:
                 return {"exists": False, "scope_key": scope_key, "draft_revision": 0, "content": None,
                         "phase": "empty", "base": None, "submitted": None, "notes": note_rows,
-                        "suggestions": suggestions, "submission_context": submission_context}
+                        "suggestions": suggestions, "submission_context": submission_context, **paging}
             base = self._artifact_state(conn, project_id, row["base_artifact_id"]) if row["base_artifact_id"] else None
             if base is None:
                 # 未提交修订时也显示当前覆盖范围的已批准基线（只读派生，不写事实）。
                 _, script_types = self._script_types(project["profile_snapshot"].get("stages", []))
                 if script_types:
-                    for candidate in self._current_scripts(conn, project_id, script_types):
-                        if candidate["project_wide"] or (scope_key and scope_key in candidate["scopes"]):
+                    for candidate in self._current_scripts(conn, project_id, script_types, scope_key):
+                        if candidate["project_wide"] or (scope_key and candidate["scopes"] & self._ancestor_chain(checked_id(scope_key), self._scope_parents(conn, project_id, scope_key))):
                             base = self._artifact_state(conn, project_id, candidate["id"])
                             break
             submitted = self._artifact_state(conn, project_id, row["submitted_artifact_id"]) if row["submitted_artifact_id"] else None
@@ -292,7 +385,7 @@ class ScriptWorkspaceRepository:
                     "phase": phase, "base": base, "submitted": submitted, "notes": note_rows,
                     "suggestions": suggestions, "draft_id": row["id"],
                     "source_refs": self._source_draft_refs(conn, project_id, row),
-                    "submission_context": submission_context}
+                    "submission_context": submission_context, **paging}
 
     def save_script_draft(self, project_id, payload, actor=None, **_):
         project_id = checked_id(project_id)
@@ -440,21 +533,25 @@ class ScriptWorkspaceRepository:
         return self._mutate(project_id, "add_script_note", payload, callback=work, **kw)
 
     @staticmethod
-    def _suggestion_rows(conn, project_id, scope_key):
+    def _suggestion_rows(conn, project_id, scope_key, *, offset=0, limit=None):
         from datetime import datetime, timezone
 
         def created(row):
             value = row.get("created_at")
             return value.timestamp() if hasattr(value, "timestamp") else float(value or 0)
-        suggestions = [dict(row) for row in conn.execute(select(S.script_suggestions).where(
+        statement = select(S.script_suggestions).where(
             S.script_suggestions.c.project_id == project_id,
-            S.script_suggestions.c.scope_key == scope_key)).mappings()]
+            S.script_suggestions.c.scope_key == scope_key).order_by(S.script_suggestions.c.created_at.desc(), S.script_suggestions.c.id)
+        if limit is not None:
+            statement = statement.offset(offset).limit(limit)
+        suggestions = [dict(row) for row in conn.execute(statement).mappings()]
         identifiers = [row["id"] for row in suggestions]
         decisions = {}
         if identifiers:
             for row in conn.execute(select(S.script_suggestion_decisions).where(
                     S.script_suggestion_decisions.c.project_id == project_id,
-                    S.script_suggestion_decisions.c.suggestion_id.in_(identifiers))).mappings():
+                    S.script_suggestion_decisions.c.suggestion_id.in_(identifiers)).distinct(S.script_suggestion_decisions.c.suggestion_id).order_by(
+                        S.script_suggestion_decisions.c.suggestion_id, S.script_suggestion_decisions.c.created_at.desc(), S.script_suggestion_decisions.c.id.desc())).mappings():
                 current = decisions.get(row["suggestion_id"])
                 if current is None or created(row) > created(current):
                     decisions[row["suggestion_id"]] = dict(row)

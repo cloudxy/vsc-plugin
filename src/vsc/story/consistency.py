@@ -33,6 +33,7 @@
 import argparse
 import copy
 import hashlib
+from html import escape
 import math
 import json
 import re
@@ -73,7 +74,7 @@ STATUSES = ("succeeded", "partial", "failed")
 FRAME_SOURCES = ("reference", "previous_exit", "generated")
 HOLDABLE = ("prop", "object")
 ENVIRONMENT_KEYS = ("time", "weather", "lighting")
-PERFORMANCE_KEYS = ("pose", "gaze", "orientation", "holding_hand")
+PERFORMANCE_KEYS = ("pose", "gaze", "orientation", "holding_hand", "expression", "position")
 BRIDGE_STRATEGIES = ("match_frame", "match_action", "cutaway", "reaction_hold", "occlusion", "whip_pan", "hard_cut", "scene_cut")
 # 实体、变体、场景与镜头 ID：Unicode 字母数字开头，可含点、下划线、连字符，便于与中文连续性计划对齐。
 
@@ -112,6 +113,15 @@ def load(path, expected):
 
 # ---------- 状态时间线 ----------
 
+def _finite(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _position(value):
+    return (isinstance(value, dict) and set(value) == {"frame", "x", "y"}
+            and text(value.get("frame")) and all(_finite(value.get(k)) for k in ("x", "y")))
+
+
 def _entity_state_errors(entity_id, value, label, errors, partial):
     if not isinstance(entity_id, str) or not SAFE_ID.fullmatch(entity_id):
         errors.append(f"{label} 的实体 ID 无效：{entity_id}")
@@ -122,9 +132,11 @@ def _entity_state_errors(entity_id, value, label, errors, partial):
         if set(value) != {"exit"}:
             errors.append(f"{label}.{entity_id} 离场时只能写 exit")
         return
-    for key in ("variant", "position", "pose", "gaze", "orientation", "note"):
+    for key in ("variant", "pose", "gaze", "orientation", "expression", "note"):
         if key in value and not text(value[key]):
             errors.append(f"{label}.{entity_id}.{key} 必须是非空字符串")
+    if "position" in value and not (text(value["position"]) or _position(value["position"])):
+        errors.append(f"{label}.{entity_id}.position 必须是旧位置文本或有限坐标 {{frame,x,y}}")
     if "holding" in value and not (isinstance(value["holding"], list) and all(isinstance(x, str) for x in value["holding"])):
         errors.append(f"{label}.{entity_id}.holding 必须是实体 ID 数组")
     if "holding_hand" in value and value["holding_hand"] not in ("left", "right", "both", "none"):
@@ -197,6 +209,10 @@ def state_errors(data, bible=None):
             errors.append(f"{label}.id 必须唯一，且为安全 ID")
         scene_ids.add(scene_id)
         label = scene_id or label
+        spatial = scene.get("spatial")
+        if spatial is not None and (not isinstance(spatial, dict) or set(spatial) != {"frame", "unit"}
+                                    or not text(spatial.get("frame")) or not text(spatial.get("unit"))):
+            errors.append(f"{label}.spatial 须明确 frame/unit；不同参考系不可直接比较")
         location = scene.get("location_id")
         if not text(location):
             errors.append(f"{label}.location_id 必须是非空字符串")
@@ -222,8 +238,17 @@ def state_errors(data, bible=None):
                 errors.append(f"{shot_label}.id 必须在全片唯一，且为安全 ID")
             shot_ids.add(shot_id)
             camera = shot.get("camera")
-            if camera is not None and (not isinstance(camera, dict) or any(not text(v) for v in camera.values())):
+            if camera is not None and (not isinstance(camera, dict) or any(not text(v) for k, v in camera.items() if k != "spatial")):
                 errors.append(f"{shot_id}.camera 必须是摄影描述对象；屏幕方向不能写作人物世界朝向")
+            if isinstance(camera, dict) and "spatial" in camera:
+                cam = camera["spatial"]
+                if (not isinstance(cam, dict) or not _position({k: cam.get(k) for k in ("frame", "x", "y")})
+                        or set(cam) - {"frame", "x", "y", "axis", "mirrored", "crossing_reason"}
+                        or not isinstance(cam.get("axis"), list) or len(cam["axis"]) != 2
+                        or any(not text(x) for x in cam["axis"]) or len(set(cam["axis"])) != 2
+                        or type(cam.get("mirrored")) is not bool
+                        or ("crossing_reason" in cam and not text(cam["crossing_reason"]))):
+                    errors.append(f"{shot_id}.camera.spatial 须有 frame/x/y/axis两实体/mirrored；越轴须说明 crossing_reason")
             if "location_id" in shot:
                 # 场内个别镜头在别处（如屋内一镜、闪回），只覆盖该镜地点，状态照常沿场推导。
                 if not text(shot["location_id"]):
@@ -234,21 +259,67 @@ def state_errors(data, bible=None):
             if "in_frame" in shot and (not isinstance(frame, list) or len(set(map(str, frame))) != len(frame)
                                        or any(not isinstance(x, str) or not SAFE_ID.fullmatch(x) for x in frame)):
                 errors.append(f"{shot_id or shot_label}.in_frame 必须是不重复的实体 ID 数组")
+            if "people_check" in shot and (type(shot["people_check"]) is not bool or (shot["people_check"] and "in_frame" not in shot)):
+                errors.append(f"{shot_id}.people_check 须为布尔值，启用时必须明确 in_frame")
             changes = shot.get("changes", {})
             if not isinstance(changes, dict) or set(changes) - {"environment", "entities"}:
                 errors.append(f"{shot_id or shot_label}.changes 只能含 environment 与 entities")
                 continue
             for entity_id, value in changes.get("entities", {}).items():
                 _entity_state_errors(entity_id, value, f"{shot_id}.changes.entities", errors, partial=True)
+            process = shot.get("process")
+            if process is not None:
+                if not isinstance(process, dict) or type(process.get("enabled")) is not bool:
+                    errors.append(f"{shot_id}.process 须显式声明 enabled 布尔值")
+                elif set(process) - {'enabled','fixed_entities','direction','beats'}:
+                    errors.append(f"{shot_id}.process 含未知字段")
+                elif process["enabled"]:
+                    fixed, direction, beats = process.get("fixed_entities"), process.get("direction"), process.get("beats")
+                    if not isinstance(fixed, list) or not fixed or any(not text(x) for x in fixed) or len(set(fixed)) != len(fixed):
+                        errors.append(f"{shot_id}.process.fixed_entities 须有不重复实体ID")
+                    elif set(fixed) & set(changes.get("entities", {})):
+                        errors.append(f"{shot_id} 固定物不能同时列入 changes")
+                    if (not isinstance(direction, dict) or not text(direction.get("frame"))
+                            or direction.get("axis") not in ("x", "y") or type(direction.get("sign")) is not int
+                            or direction["sign"] not in (-1, 1)):
+                        errors.append(f"{shot_id}.process.direction 须有 frame/axis(x或y)/sign(-1或1)")
+                    if not isinstance(beats, list) or len(beats) < 2:
+                        errors.append(f"{shot_id}.process.beats 须至少有两个顺序阶段")
+                    else:
+                        last = -1
+                        for beat in beats:
+                            sec = beat.get("seconds") if isinstance(beat, dict) else None
+                            if not _finite(sec) or sec < 0 or sec <= last or not text(beat.get("action")):
+                                errors.append(f"{shot_id}.process.beats 须有递增非负 seconds 与 action")
+                            else:
+                                last = sec
     if errors:
         return errors  # 结构不完整时无法推导状态
     for shot_id, item in derive(data).items():
+        frame = item.get("spatial", {}).get("frame")
         for moment in ("entry", "exit"):
             _consistency_errors(item[moment], f"{shot_id} {'入点' if moment == 'entry' else '出点'}", bible, reference)
+            for entity_id, value in item[moment]["entities"].items():
+                position = value.get("position")
+                if isinstance(position, dict) and position.get("frame") != frame:
+                    reference.append(f"{shot_id} {entity_id} 坐标须引用本场已声明 spatial.frame")
+        process = item.get("process", {})
+        if process.get("enabled"):
+            if set(process["fixed_entities"]) - set(item["entry"]["entities"]):
+                reference.append(f"{shot_id} process 固定物须在入点在场")
+            direction = process["direction"]
+            if direction["frame"] != frame:
+                reference.append(f"{shot_id} process.direction 须引用本场 spatial.frame")
+            for entity_id in item["changes"].get("entities", {}):
+                before = item["entry"]["entities"].get(entity_id, {}).get("position")
+                after = item["exit"]["entities"].get(entity_id, {}).get("position")
+                if _position(before) and _position(after) and (after[direction["axis"]] - before[direction["axis"]]) * direction["sign"] < 0:
+                    reference.append(f"{shot_id} {entity_id} 过程位移与 direction 相反")
         for entity_id in item.get("in_frame", []):
             if entity_id not in item["entry"]["entities"] and entity_id not in item["exit"]["entities"]:
                 reference.append(f"{shot_id}.in_frame 的 {entity_id} 在此镜不在场")
-    return reference
+    spatial_errors, _ = spatial_problems(derive(data))
+    return reference + spatial_errors
 
 
 def derive(data):
@@ -266,8 +337,15 @@ def derive(data):
                                   "entry": entry, "exit": copy.deepcopy(state)}
             if shot.get("camera"):
                 result[shot["id"]]["camera"] = copy.deepcopy(shot["camera"])
+            if scene.get("spatial"):
+                result[shot["id"]]["spatial"] = copy.deepcopy(scene["spatial"])
+            if shot.get("process", {}).get("enabled"):
+                result[shot["id"]]["process"] = copy.deepcopy(shot["process"])
+                result[shot["id"]]["changes"] = copy.deepcopy(shot.get("changes", {}))
             if "in_frame" in shot:
                 result[shot["id"]]["in_frame"] = list(shot["in_frame"])
+            if shot.get("people_check") is True:
+                result[shot["id"]]["people_check"] = True
     return result
 
 
@@ -286,7 +364,7 @@ def anchor_pack(bible, state, shot_id):
 
     def entity(entity_id, variants=("default",)):
         source = index.get(entity_id, {})
-        result = {key: source[key] for key in ("kind", "name", "identity", "generation") if key in source}
+        result = {key: source[key] for key in ("kind", "name", "identity", "generation", "expression_baseline") if key in source}
         result["references"] = [ref for ref in applicable_references(source, variants)
                                 if reference_info(ref)["media_type"] != "audio"]
         return result
@@ -323,6 +401,10 @@ def anchor_pack(bible, state, shot_id):
     }
     if item.get("camera"):
         pack["camera"] = item["camera"]
+    if item.get("spatial"):
+        pack["spatial"] = item["spatial"]
+    if item.get("process", {}).get("enabled"):
+        pack["process"] = item["process"]
     if framed is not None:
         pack["off_frame"] = off_frame
     return pack
@@ -391,7 +473,9 @@ def anchor_text(pack, moment=None):
             parts.append(f"位于{entry['position']}")
         if entry.get("holding"):
             parts.append("手持" + named(entry["holding"]))
-        for key, title in (("pose", "姿势"), ("gaze", "视线"), ("orientation", "世界朝向"), ("holding_hand", "持物手"), ("note", "状态备注")):
+        if info.get("expression_baseline"):
+            parts.append("表情基准：" + info["expression_baseline"]["description"])
+        for key, title in (("pose", "姿势"), ("gaze", "视线"), ("orientation", "世界朝向"), ("expression", "可观察表情"), ("holding_hand", "持物手"), ("note", "状态备注")):
             if entry.get(key):
                 parts.append(f"{title}：{entry[key]}")
         lines.append("；".join(parts) + "。")
@@ -412,12 +496,184 @@ def anchor_text(pack, moment=None):
         if "variant" in change:
             exit_state = pack["entities"].get(entity_id, {}).get("exit", {})
             steps.append(f"变为{exit_state.get('variant_description') or change['variant']}")
-        for key, title in (("pose", "姿势"), ("gaze", "视线"), ("orientation", "世界朝向"), ("holding_hand", "持物手"), ("note", "状态备注")):
+        for key, title in (("pose", "姿势"), ("gaze", "视线"), ("orientation", "世界朝向"), ("expression", "可观察表情"), ("holding_hand", "持物手"), ("note", "状态备注")):
             if key in change:
                 steps.append(f"{title}变为{change[key]}")
         moves.append(name + "，".join(steps))
     lines.append("本镜变化：" + ("；".join(moves) if moves else "无") + "。")
+    if pack.get("process", {}).get("enabled"):
+        process = pack["process"]
+        lines.append("显式过程模式：未列入本镜 changes 的状态均固定；固定物=" + named(process["fixed_entities"])
+                     + "；展开方向=" + json.dumps(process["direction"], ensure_ascii=False, sort_keys=True)
+                     + "；阶段=" + json.dumps(process["beats"], ensure_ascii=False, sort_keys=True) + "。")
     return "\n".join(lines)
+
+
+def observation_checklist(pack, moment=None):
+    """Derived requirements for the existing advisory visual-check consumer."""
+    items = []
+    if pack.get('camera', {}).get('spatial'):
+        items.append('机位/轴线/镜面依据=' + json.dumps(pack['camera']['spatial'], ensure_ascii=False, sort_keys=True)
+                     + '；核可见人物关系与反射，无法确认世界坐标写 unsure')
+    if "off_frame" in pack:  # Existing in_frame intent; do not change old anchor SHA.
+        ids = sorted(key for key, value in pack.get("entities", {}).items() if value.get("kind") == "character")
+        items.append("人数与复制人物观察：仅出现入画人物 " + ",".join(ids)
+                     + "；预期人数=" + str(len(ids)) + "；遮挡无法辨认写 unsure，不据此自动批准")
+    for entity_id, entity in pack.get("entities", {}).items():
+        baseline = entity.get("expression_baseline")
+        if baseline:
+            items.append(entity_id + " 表情基准：" + baseline["description"])
+        for when in ([moment] if moment else MOMENTS):
+            state = entity.get(when, {})
+            for field in ("expression", "position"):
+                if field in state:
+                    items.append(entity_id + " " + when + " " + field + "=" + json.dumps(state[field], ensure_ascii=False, sort_keys=True))
+    if pack.get("process", {}).get("enabled"):
+        process = pack["process"]
+        items.append("过程固定物=" + ",".join(process["fixed_entities"]) + "；所有未列 changes 的状态保持固定，观察异常变化")
+        items.append("仅允许变化=" + json.dumps(pack.get("changes", {}), ensure_ascii=False, sort_keys=True))
+        items.append("过程展开方向=" + json.dumps(process["direction"], ensure_ascii=False, sort_keys=True))
+        items.append("过程阶段按时序=" + json.dumps(process["beats"], ensure_ascii=False, sort_keys=True) + "；倒序或跳变写明观察区间")
+    return items
+
+
+def state_constraint_fragment(snapshot):
+    """Literal request coverage for opted-in structured state, never a new draft.
+
+    Accepts the existing per-shot derive/semantic_inputs fragment. Old free text
+    snapshots return an empty string; fixed content remains in the approved state.
+    """
+    constraints = {}
+    for key in ("spatial", "camera"):
+        if key in snapshot and (key == "spatial" or snapshot[key].get("spatial")):
+            constraints[key] = snapshot[key]
+    for moment in MOMENTS:
+        entities = {}
+        for entity_id, state in snapshot.get(moment, {}).get("entities", {}).items():
+            values = {key: state[key] for key in ("expression", "position")
+                      if key in state and (key == "expression" or isinstance(state[key], dict))}
+            if values:
+                entities[entity_id] = values
+        if entities:
+            constraints[moment] = {"entities": entities}
+    if snapshot.get("process", {}).get("enabled"):
+        constraints.update(process=snapshot["process"], changes=snapshot.get("changes", {}),
+                           fixed_state={moment: snapshot.get(moment, {}) for moment in MOMENTS},
+                           unlisted_changes="fixed")
+    if snapshot.get("people_check") is True:
+        constraints["people_check"] = True
+    if not constraints:
+        return ''
+    if "in_frame" in snapshot:
+        constraints["in_frame"] = snapshot["in_frame"]
+    return 'VSC state constraints: ' + json.dumps(constraints, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+
+
+def state_request_constraints(context):
+    """Discover request obligations through the existing ShotContext output."""
+    rows = []
+    for item in context.get("semantic_inputs", []):
+        kind = item.get("artifact_type", "").replace("vsc.", "").replace("-", "_")
+        content = item.get("content")
+        fragment = ''
+        if kind == "scene_state" and isinstance(content, dict):
+            fragment = state_constraint_fragment(content)
+        elif kind == "asset_bible" and isinstance(content, dict):
+            baselines = {entity["id"]: entity["expression_baseline"] for entity in content.get("entities", [])
+                         if isinstance(entity, dict) and "expression_baseline" in entity}
+            if baselines:
+                fragment = 'VSC expression baselines: ' + json.dumps(baselines, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        if fragment and fragment not in [row["fragment"] for row in rows]:
+            row = {"artifact_type": item["artifact_type"], "fragment": fragment}
+            if kind == 'scene_state':
+                _, warnings = spatial_problems({'current': content})
+                if warnings:
+                    row['warnings'] = warnings
+            rows.append(row)
+    return rows
+
+
+def compile_state_request(request, context):
+    """Prepare, before run approval, the normal request from its fixed context.
+
+    Does not edit either input, authorize a job, or alter an approved request.
+    Calling it twice is idempotent. The suffix is still ordinary prompt intent,
+    not a claim that the provider offers coordinate/performance hard controls.
+    """
+    result = copy.deepcopy(request)
+    if not text(result.get("prompt")):
+        raise ValueError("生成请求须有 prompt")
+    for row in state_request_constraints(context):
+        if row["fragment"] not in result["prompt"]:
+            result["prompt"] += "\n" + row["fragment"]
+    return result
+
+
+def spatial_problems(derived):
+    """Compare world camera sides, preserving explicit mirror transformations."""
+    problems, warnings, previous = [], [], {}
+    for shot_id, item in derived.items():
+        cam = item.get("camera", {}).get("spatial")
+        if not item.get("spatial") and cam is None:
+            continue  # Old snapshots never opt in implicitly.
+        scene_key = item.get('scene', 'unspecified')
+        prior = previous.get(scene_key)
+        previous[scene_key] = (shot_id, item)
+        def side(snapshot, moment="entry"):
+            camera = snapshot.get("camera", {}).get("spatial", {})
+            axis = camera.get("axis", [])
+            if len(axis) != 2 or camera.get("frame") != snapshot.get("spatial", {}).get("frame"):
+                return None
+            a, b = (snapshot.get(moment, {}).get("entities", {}).get(k, {}).get("position") for k in sorted(axis))
+            if not _position(a) or not _position(b) or any(p["frame"] != camera.get("frame") for p in (a, b)):
+                return None
+            cross = (b["x"] - a["x"]) * (camera["y"] - a["y"]) - (b["y"] - a["y"]) * (camera["x"] - a["x"])
+            return (1 if cross > 0 else -1 if cross < 0 else 0, tuple(sorted(axis)), camera["frame"])
+        current = side(item)
+        if not current or not current[0]:
+            warnings.append(shot_id + " 空间/轴线依据不足或机位在轴上：未判定屏幕方向连续")
+        if not prior:
+            continue
+        old_id, old_item = prior
+        before = side(old_item, "exit")
+        if not before or not current or not before[0] or not current[0] or before[1:] != current[1:]:
+            warnings.append(old_id + "→" + shot_id + " 无同参考系同轴线依据：未判定越轴")
+        elif before[0] != current[0] and not cam.get("crossing_reason"):
+            problems.append(old_id + "→" + shot_id + " 摄影机越轴，须明确 crossing_reason 与重新建立空间的设计")
+        if cam and cam.get("mirrored") != old_item.get("camera", {}).get("spatial", {}).get("mirrored"):
+            warnings.append(old_id + "→" + shot_id + " 已声明镜面转换：屏幕左右按反射解释，不等同人物世界位置互换")
+    return problems, warnings
+
+
+def spatial_map(snapshot, moment='entry'):
+    """A world-frame schematic from the original state, not camera projection."""
+    frame = snapshot.get('spatial', {}).get('frame')
+    points = {key: state['position'] for key, state in snapshot.get(moment, {}).get('entities', {}).items()
+              if _position(state.get('position')) and state['position']['frame'] == frame}
+    if not frame or not points:
+        raise ValueError('结构坐标依据不足，不能绘制站位示意图；旧位置文本仍可读取')
+    camera = snapshot.get('camera', {}).get('spatial', {})
+    plotted = [(key, point, False) for key, point in points.items()]
+    if _position({k: camera.get(k) for k in ('frame','x','y')}) and camera['frame'] == frame:
+        plotted.append(('机位', camera, True))
+    xs, ys = [p['x'] for _,p,_ in plotted], [p['y'] for _,p,_ in plotted]
+    min_x, min_y, span = min(xs), min(ys), max(max(xs)-min(xs), max(ys)-min(ys), 1)
+    def xy(point):
+        return (60 + (point['x']-min_x)/span*460, 460 - (point['y']-min_y)/span*360)
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="640" height="520" viewBox="0 0 640 520">',
+             '<rect width="640" height="520" fill="white"/>',
+             '<text x="20" y="28" font-size="16">' + escape(str(frame)+' / '+moment+' / world schematic; no camera projection') + '</text>']
+    axis = camera.get('axis', [])
+    if len(axis) == 2 and all(key in points for key in axis):
+        a,b=(xy(points[key]) for key in axis)
+        parts.append('<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" stroke="#777" stroke-dasharray="5 4"/>' % (*a,*b))
+    for key, point, is_camera in plotted:
+        x,y=xy(point)
+        parts.append('<circle cx="%.2f" cy="%.2f" r="7" fill="%s"/>' % (x,y,'#b45309' if is_camera else '#1d4ed8'))
+        parts.append('<text x="%.2f" y="%.2f" font-size="13">%s (%s,%s)</text>' % (x+10,y-10,escape(key),escape(str(point['x'])),escape(str(point['y']))))
+    if camera.get('mirrored'):
+        parts.append('<text x="20" y="500">mirrored=true; world coordinates stay unchanged</text>')
+    return '\n'.join(parts+['</svg>'])
 
 
 # ---------- 生成记录 ----------
@@ -862,7 +1118,8 @@ def continuity_problems(plan, derived, bible):
                 for field in PERFORMANCE_KEYS:
                     if field in character and field in state and character[field] != state[field]:
                         problems.append(f"{where}：{name} 的 {field}={character[field]}，时间线为 {state[field]}")
-    return problems, warnings
+    spatial_errors, spatial_warnings = spatial_problems(derived)
+    return problems + spatial_errors, warnings + spatial_warnings
 
 
 def main():
@@ -876,6 +1133,11 @@ def main():
     command = state.add_parser("validate")
     command.add_argument("file")
     command.add_argument("--bible")
+    command = state.add_parser("map", help="从原世界坐标输出SVG站位示意图，不推断摄影投影")
+    command.add_argument("file")
+    command.add_argument("shot")
+    command.add_argument("--bible")
+    command.add_argument("--moment", choices=MOMENTS, default="entry")
     command = state.add_parser("at")
     command.add_argument("file")
     command.add_argument("shot")
@@ -930,11 +1192,15 @@ def main():
             data = load(args.file, STATE_FORMAT)
             bible_data = load(args.bible, BIBLE_FORMAT) if args.bible else None
             problems = state_errors(data, bible_data)
-            if args.action == "at" and not problems:
+            if not problems:
+                for warning in spatial_problems(derive(data))[1]:
+                    print('WARN ' + warning, file=sys.stderr)
+            if args.action in ("at", "map") and not problems:
                 derived = derive(data)
                 if args.shot not in derived:
                     raise ValueError(f"没有镜头 {args.shot}")
-                print(json.dumps(derived[args.shot], ensure_ascii=False, indent=2))
+                print(spatial_map(derived[args.shot], args.moment) if args.action == 'map'
+                      else json.dumps(derived[args.shot], ensure_ascii=False, indent=2))
                 return
             label = f"{len(data.get('scenes', []))} 场"
         else:

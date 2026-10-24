@@ -11,9 +11,11 @@ def install_review_routes(router, catalog, etag, actor):
 
     @router.get("/{project_id}/review-history")
     def history(project_id: str, request: Request, script_note_id: str = None, media_review_id: str = None,
-                artifact_note_id: str = None, artifact_id: str = None, media_id: str = None):
+                artifact_note_id: str = None, artifact_id: str = None, media_id: str = None, offset: int = 0,
+                limit: int = 24, response_offset: int = 0, response_limit: int = 10):
         return etag(request, service(project_id).get_review_history(project_id, script_note_id=script_note_id,
-            media_review_id=media_review_id, artifact_note_id=artifact_note_id, artifact_id=artifact_id, media_id=media_id))
+            media_review_id=media_review_id, artifact_note_id=artifact_note_id, artifact_id=artifact_id, media_id=media_id,
+            offset=offset, limit=limit, response_offset=response_offset, response_limit=response_limit))
 
     @router.post("/{project_id}/artifact-review-notes")
     async def note(project_id: str, request: Request, body: dict):

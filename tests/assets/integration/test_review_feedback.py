@@ -99,11 +99,40 @@ class ReviewFeedbackTests(ResourceStoreFixture, unittest.TestCase):
         second, _ = self.client(rebuilt)
         fresh = second.get(f"/api/v1/projects/{self.p}/script-draft").json()
         self.assertEqual(fresh["content"], self.document)
-        linked = fresh["notes"][0]["review_history"]["responses"][0]["runs"][0]["suggestions"][0]
+        self.assertNotIn('review_history',fresh['notes'][0])
+        expanded=second.get(f'/api/v1/projects/{self.p}/review-history',params={'script_note_id':note}).json()
+        linked = expanded['items'][0]['responses'][0]['runs'][0]['suggestions'][0]
         self.assertEqual(linked["decisions"][0]["outcome"], "reject")
         self.assertEqual(fresh["notes"][0]["status"], "open")
         self.service.save_script_draft(self.p, {"base_draft_revision": 1, "content": dict(self.document, body="changed")}, actor="test-human")
         self.http_write(client, headers, "review-process", {"script_note_id": note}, status=409)
+
+    def test_history_pages_keep_older_responses_reachable_and_do_not_eagerly_expand_notes(self):
+        from sqlalchemy import insert
+        from datetime import datetime, timezone, timedelta
+        from vsc.adapters.persistence.postgres import schema as S
+        note=self.note()
+        start=datetime(2026,1,1,tzinfo=timezone.utc)
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.review_responses), [{'project_id':self.p,'id':str(uuid.uuid4()),'script_note_id':note,
+                'action':'script_suggestions','explanation':'处理'+str(n),'preserve':'固定原事实','limitations':'无媒体生成',
+                'author':'fixture','created_at':start+timedelta(seconds=n)} for n in range(25)])
+        client,_=self.client()
+        path=f'/api/v1/projects/{self.p}/review-history'
+        first=client.get(path,params={'script_note_id':note}).json()['items'][0]
+        self.assertEqual(len(first['responses']),10)
+        self.assertEqual(first['response_page']['total'],25)
+        self.assertEqual(first['response_page']['next_offset'],10)
+        self.assertEqual(first['responses'][-1]['explanation'],'处理24')
+        second=client.get(path,params={'script_note_id':note,'response_offset':10}).json()['items'][0]
+        self.assertEqual(second['response_page']['previous_offset'],0)
+        self.assertEqual(second['responses'][-1]['explanation'],'处理14')
+        last=client.get(path,params={'script_note_id':note,'response_offset':20}).json()['items'][0]
+        self.assertEqual(len(last['responses']),5)
+        self.assertIsNone(last['response_page']['next_offset'])
+        self.assertEqual(last['responses'][0]['explanation'],'处理0')
+        self.assertEqual(client.get(path,params={'script_note_id':note,'response_limit':0}).status_code,422)
+        self.assertNotIn('review_history',self.service.get_script_draft(self.p)['notes'][0])
 
     def test_script_unknown_outside_scope_missing_host_and_http_identity_have_no_extra_effect(self):
         note = self.note()

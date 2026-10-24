@@ -860,7 +860,7 @@ def checklist(pack, moment):
             items.append(label + "，".join(facts))
         if info.get("identity"):
             items.append(f"{names[entity_id]}的不可变特征：{'、'.join(info['identity'])}")
-    return items
+    return items + consistency.observation_checklist(pack, moment)
 
 
 def entity_checklist(bible, entity_ids):

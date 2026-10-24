@@ -34,6 +34,7 @@ ROLE_MATRIX = {
     "font": ({"work", "episode", "scene", "shot", "asset"}, {"document", "other"}),
     "lut": ({"work", "episode", "scene", "shot", "asset"}, {"document", "other"}),
     "post_mask": ({"work", "episode", "scene", "shot", "asset"}, {"image"}),
+    "vfx_overlay": ({"shot"}, {"image"}),
     "first_frame": ({"shot"}, {"image"}),
     "last_frame": ({"shot"}, {"image"}),
     "reference_audio": ({"shot"}, {"audio"}),
@@ -51,7 +52,7 @@ INHERITED_REFERENCE_ROLES = frozenset({
     "voice_sample", "style_reference",
 })
 POST_ROLES = frozenset({"video_take", "dialogue_dry", "ambience", "music", "sfx",
-                        "subtitle_style", "font", "lut", "post_mask"})
+                        "subtitle_style", "font", "lut", "post_mask", "vfx_overlay"})
 
 
 def context_digest(context):
@@ -106,10 +107,11 @@ from vsc.assets.resource_model import ResourceModelService
 from vsc.assets.feedback import ReviewService
 from vsc.assets.media_recycle import MediaRecycleService
 from vsc.assets.edit_preview import EditPreviewService
+from vsc.assets.shared_library import SharedLibraryService
 
 
 class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
-                      MediaRecycleService, EditPreviewService):
+                      MediaRecycleService, EditPreviewService, SharedLibraryService):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
@@ -270,12 +272,11 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     # ---------- 剧本工作区（Q1：工作副本、批注、提交确认） ----------
 
-    def get_script_draft(self, project_id, scope_key=""):
+    def get_script_draft(self, project_id, scope_key="", *, note_offset=0, suggestion_offset=0, limit=50):
         from vsc.assets.script_inputs import editor_inputs
-        value = editor_inputs(self, project_id, self.store.get_script_draft(project_id, scope_key))
+        value = editor_inputs(self, project_id, self.store.get_script_draft(project_id, scope_key,
+            note_offset=note_offset, suggestion_offset=suggestion_offset, limit=limit))
         value["suggestion_runs"] = self.store.list_script_suggestion_runs(project_id, scope_key)
-        for note in value.get("notes", []):
-            note["review_history"] = self.get_review_history(project_id, script_note_id=note["id"])["items"][0]
         return value
 
     def resume_script_suggestions(self, project_id, payload, **kw):
@@ -545,6 +546,16 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def budget_status(self, project_id):
         return self.store.budget_status(project_id)
+
+    def preview_generation_quote(self, project_id, payload):
+        from vsc.adapters.persistence.postgres.quotes import preview
+        return preview(self.store, project_id, payload)
+
+    def get_generation_quote_status(self, project_id, job_id):
+        return self.store.job_quote_status(project_id, job_id)
+
+    def record_generation_bill(self, project_id, payload, **kw):
+        return self._write('record_generation_bill', project_id, payload, **kw)
 
     def list_models(self, modality=None):
         return self.store.list_models(modality=modality)

@@ -92,6 +92,22 @@ def validate_guard(store, conn, project, run, context=None, job=None, model=None
         (S.execution_shots.c.project_id == S.execution_instances.c.project_id) & (S.execution_shots.c.execution_id == S.execution_instances.c.id)).where(
             S.execution_instances.c.project_id == p, S.execution_shots.c.shot_id == shot,
             S.execution_instances.c.artifact_id.in_(pin_ids), S.execution_instances.c.domain.in_(['voice'] if purpose in {'tts','dialogue_dry','dialogue'} else ['combat','dance','vfx']))).mappings()) if shot else []
+    # Only new explicitly structured state opts in. The normal context exposes
+    # the same fragments for preparation before a human freezes the run.
+    from vsc.story.consistency import state_request_constraints
+    constraint_context = context
+    if constraint_context is None and job and job['status'] == 'created' and shot:
+        constraint_context = store._compile_context(conn, project, shot, purpose)
+    obligations = state_request_constraints(constraint_context or {}) if purpose not in {'tts', 'dialogue_dry', 'dialogue'} else []
+    if obligations:
+        if job and constraint_context['sha256'] != job['context_sha256']:
+            raise ResourceError('结构状态上下文已改变，须重新准备请求及run', 'context_conflict')
+        logical_requests = requests_for(data)
+        relevant = [request for request in logical_requests.values() if request.get('shot_id') == shot and request.get('purpose') == purpose]
+        if job:
+            relevant.append(job['request_payload'])
+        if not relevant or any(row['fragment'] not in request['prompt'] for row in obligations for request in relevant):
+            raise ResourceError('结构状态/表情/显式过程约束未进入固定请求；先用compile_state_request准备并重新固定run', 'state_constraint_missing')
     if phase != "trial" and not data.get("quality_plan") and not professional and not stopped:
         return
     if not store._artifact_approved(conn, p, run["id"]):

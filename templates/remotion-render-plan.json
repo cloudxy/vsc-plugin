@@ -47,6 +47,31 @@
       "muted": true
     },
     {
+      "id": "VFX-PLATE-001",
+      "kind": "image",
+      "source": "plates/SH-002-vfx.png",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source_shot_id": "SH-002",
+      "from_frame": 180,
+      "duration_in_frames": 90,
+      "overlay": {
+        "x": 600,
+        "y": 300,
+        "width": 180,
+        "height": 180,
+        "alpha": 0.6,
+        "layer": 1,
+        "blend_mode": "screen",
+        "motion": {
+          "to": {
+            "x": 700,
+            "y": 340
+          },
+          "easing": "ease_in_out"
+        }
+      }
+    },
+    {
       "id": "BGM-001",
       "kind": "audio",
       "source": "audio/rain-pad.mp3",
@@ -56,11 +81,26 @@
       "audio_fade_in_frames": 15,
       "audio_fade_out_frames": 30,
       "volume_keyframes": [
-        {"frame": 0, "volume": 1},
-        {"frame": 210, "volume": 1},
-        {"frame": 225, "volume": 0.3},
-        {"frame": 285, "volume": 0.3},
-        {"frame": 300, "volume": 1}
+        {
+          "frame": 0,
+          "volume": 1
+        },
+        {
+          "frame": 210,
+          "volume": 1
+        },
+        {
+          "frame": 225,
+          "volume": 0.3
+        },
+        {
+          "frame": 285,
+          "volume": 0.3
+        },
+        {
+          "frame": 300,
+          "volume": 1
+        }
       ]
     },
     {

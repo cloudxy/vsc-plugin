@@ -26,7 +26,10 @@
         "src/vsc/interfaces/web/static/review.js",
         "src/vsc/interfaces/web/static/local-production.js",
         "src/vsc/interfaces/web/templates/index.html",
-        "tests/project/unit/assisted_desk.test.cjs"
+        "tests/project/unit/assisted_desk.test.cjs",
+        "tests/project/unit/shared_library.test.cjs",
+        "src/vsc/interfaces/web/static/shared-library.js",
+        "src/vsc/interfaces/web/static/shared-library.css"
       ]
     },
     "assets.integration.test_edit_preview": {
@@ -144,14 +147,28 @@
       "owner": "kernel",
       "layer": "integration",
       "sources": [
-        "scripts/kernel/hosts.py"
+        "scripts/kernel/hosts.py",
+        "skills/vsc-engineer/SKILL.md",
+        "skills/vsc-database/SKILL.md",
+        "skills/vsc-engineer/templates/change-handoff.md",
+        "skills/vsc-database/templates/database-change.md",
+        "agents/software-architect.md",
+        "agents/fullstack-engineer.md",
+        "agents/database-engineer.md"
       ]
     },
     "kernel.integration.test_vsc_kernel": {
       "owner": "kernel",
       "layer": "integration",
       "sources": [
-        "scripts/kernel/catalog.py"
+        "scripts/kernel/catalog.py",
+        "skills/vsc-engineer/SKILL.md",
+        "skills/vsc-database/SKILL.md",
+        "skills/vsc-engineer/templates/change-handoff.md",
+        "skills/vsc-database/templates/database-change.md",
+        "agents/software-architect.md",
+        "agents/fullstack-engineer.md",
+        "agents/database-engineer.md"
       ]
     },
     "kernel.integration.test_vsc_views": {
@@ -1055,6 +1072,130 @@
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/static/local-production.js",
         "src/vsc/interfaces/web/static/script-workspace.js"
+      ]
+    },
+    "assets.integration.test_shared_library": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/shared_library.py",
+        "src/vsc/adapters/persistence/postgres/shared_library.py",
+        "src/vsc/interfaces/web/shared_library.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/assets/library_migration.py",
+        "migrations/postgres/versions/0013_shared_library.py"
+      ]
+    },
+    "assets.integration.test_library_cli": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/cli/resources.py",
+        "src/vsc/assets/shared_library.py",
+        "src/vsc/assets/library_migration.py",
+        "src/vsc/adapters/persistence/postgres/shared_library.py"
+      ]
+    },
+    "post.unit.test_creative_rules": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/project/creative_rules.py",
+        "src/vsc/post/sound_rules.py",
+        "src/vsc/post/subtitles.py",
+        "templates/quality-plan.json"
+      ]
+    },
+    "post.integration.test_sound_rules": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/post/audio_mix.py",
+        "src/vsc/post/sound_rules.py",
+        "src/vsc/post/remotion_plan.py",
+        "templates/sound-cue-sheet.json"
+      ]
+    },
+    "story.integration.test_performance_space_process": {
+      "owner": "story",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/story/consistency.py",
+        "src/vsc/production/performance.py",
+        "src/vsc/adapters/persistence/postgres/creative_relations.py",
+        "src/vsc/adapters/persistence/postgres/production_guard.py",
+        "templates/professional-execution.json",
+        "templates/scene-state.json",
+        "templates/asset-bible.json",
+        "templates/episode-beats.json"
+      ]
+    },
+    "post.integration.test_creative_rules_pg": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/project/creative_rules.py",
+        "src/vsc/adapters/persistence/postgres/creative_rules.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/project/pg_workflow.py",
+        "templates/quality-plan.json",
+        "templates/creative-brief.json"
+      ]
+    },
+    "production.unit.test_quotes": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/quotes.py",
+        "src/vsc/adapters/persistence/postgres/quotes.py",
+        "src/vsc/adapters/persistence/postgres/production_store.py",
+        "src/vsc/adapters/persistence/postgres/budget_store.py",
+        "src/vsc/adapters/persistence/postgres/local_edits.py",
+        "src/vsc/interfaces/web/local_production.py",
+        "src/vsc/interfaces/cli/resources.py",
+        "src/vsc/interfaces/web/static/local-production.js",
+        "src/vsc/production/run.py"
+      ]
+    },
+    "production.integration.test_pg_quotes": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/quotes.py",
+        "src/vsc/adapters/persistence/postgres/quotes.py",
+        "src/vsc/adapters/persistence/postgres/production_store.py",
+        "src/vsc/adapters/persistence/postgres/budget_store.py",
+        "src/vsc/adapters/persistence/postgres/local_edits.py",
+        "src/vsc/interfaces/web/local_production.py",
+        "src/vsc/interfaces/cli/resources.py",
+        "src/vsc/interfaces/web/static/local-production.js",
+        "src/vsc/production/run.py"
+      ]
+    },
+    "post.unit.test_overlay": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/post/remotion_plan.py",
+        "src/vsc/production/handoffs.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/adapters/media/qa.py",
+        "src/vsc/post/resource_export.py",
+        "templates/remotion-render-plan.json"
+      ]
+    },
+    "post.integration.test_overlay": {
+      "owner": "post",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/post/remotion_plan.py",
+        "src/vsc/production/handoffs.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/adapters/media/qa.py",
+        "src/vsc/post/resource_export.py",
+        "templates/remotion-render-plan.json"
       ]
     }
   },

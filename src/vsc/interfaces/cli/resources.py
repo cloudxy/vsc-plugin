@@ -10,10 +10,10 @@ WRITE_ACTIONS = {
     "create_object", "create_artifact", "decide_artifact", "register_media", "propose_binding", "record_review",
     "select_candidate", "reject_candidate", "retire_binding", "decide_media_lifecycle", "decide_rights",
     "record_media_check", "create_media_operation", "create_preview_job", "create_generation_job",
-    "update_generation_job", "freeze_timeline", "freeze_render", "configure_budget",
+    "update_generation_job", "record_generation_bill", "freeze_timeline", "freeze_render", "configure_budget",
     "propose_local_production", "enqueue_local_production", "generate_script_suggestions",
     "resume_script_suggestions", "create_source_intake", "create_parse_job", "run_parse_job",
-    "prepare_parse_import", "import_parse_job", "classify_resource",
+    "prepare_parse_import", "import_parse_job", "classify_resource", "publish_library", "use_library",
 }
 
 
@@ -29,9 +29,35 @@ def main(argv=None):
     from vsc.project.migration import migration_parser, run_migration_args
     migration_parser(sub)
     sub.add_parser("projects")
+    library = sub.add_parser("library", help="工作区共享库；项目采用仍走原 apply/revision/用途决定")
+    library_sub = library.add_subparsers(dest="library_action", required=True)
+    library_search = library_sub.add_parser("search")
+    library_search.add_argument("query", nargs="?", default="")
+    library_search.add_argument("--category")
+    library_search.add_argument("--offset", type=int, default=0)
+    library_search.add_argument("--limit", type=int, default=24)
+    library_detail = library_sub.add_parser("show")
+    library_detail.add_argument("version_id")
+    library_preview = library_sub.add_parser("preview-use")
+    library_preview.add_argument("project_id")
+    library_preview.add_argument("--payload", required=True)
+    for action in ("import", "retire"):
+        library_write = library_sub.add_parser(action)
+        if action == "retire":
+            library_write.add_argument("entry_id")
+        library_write.add_argument("--payload", required=True)
+        library_write.add_argument("--by", required=True)
+        library_write.add_argument("--confirmed", action="store_true", required=True,
+                                   help="明确执行本次导入/停用；不批准项目候选")
     preview = sub.add_parser("local-preview")
     preview.add_argument("project_id")
     preview.add_argument("--payload", required=True)
+    quote = sub.add_parser("generation-quote", help="对待授权运行包只读报价，不调用供应商")
+    quote.add_argument("project_id")
+    quote.add_argument("--payload", required=True)
+    quoted_job = sub.add_parser("job-quote", help="查看一个固定任务的估算、实际原生用量与账单未知状态")
+    quoted_job.add_argument("project_id")
+    quoted_job.add_argument("job_id")
     create = sub.add_parser("create")
     create.add_argument("--name", required=True)
     create.add_argument("--by", required=True)
@@ -118,8 +144,25 @@ def main(argv=None):
             service = service_from_environment(args.database_env, args.media_root)
             if args.command == "projects":
                 result = service.list_projects()
+            elif args.command == "library":
+                if args.library_action == "search":
+                    result = service.search_library(args.query, category=args.category, offset=args.offset, limit=args.limit)
+                elif args.library_action == "show":
+                    result = service.get_library_version(args.version_id)
+                else:
+                    payload = json.loads(Path(args.payload).read_text("utf-8"))
+                    if args.library_action == "preview-use":
+                        result = service.preview_library_use(args.project_id, payload)
+                    elif args.library_action == "import":
+                        result = service.import_library(payload, actor=args.by)
+                    else:
+                        result = service.retire_library(args.entry_id, payload, actor=args.by)
             elif args.command == "local-preview":
                 result = service.preview_local_production(args.project_id, json.loads(Path(args.payload).read_text("utf-8")))
+            elif args.command == "generation-quote":
+                result = service.preview_generation_quote(args.project_id, json.loads(Path(args.payload).read_text("utf-8")))
+            elif args.command == "job-quote":
+                result = service.get_generation_quote_status(args.project_id, args.job_id)
             elif args.command == "create":
                 from vsc.project.pg_workflow import create_project
                 result = create_project(service, args.name, args.by, args.directory, args.database_env)
