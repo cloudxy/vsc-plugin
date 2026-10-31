@@ -69,7 +69,31 @@ class ResourceSettingsTest(unittest.TestCase):
                 row = public_configuration(validate_configuration(configuration(**grok_image)))
                 self.assertEqual("loaded_unverified", row["connection_status"])
                 self.assertNotIn("grok-login-secret-value", json.dumps(row))
-        self.assertTrue({"xai-grok-imagine-image", "xai-grok-imagine-video"} <= {preset["id"] for preset in PRESETS})
+        self.assertTrue({"xai-grok-imagine-image", "xai-grok-imagine-video",
+                         "xai-grok-imagine-video-lite"} <= {preset["id"] for preset in PRESETS})
+
+    def test_grok_lite_preset_validates_and_declares_proven_features_only(self):
+        from unittest.mock import patch
+        from pathlib import Path
+        import tempfile
+        from vsc.adapters.providers.xai_grok import credentials as grok_credentials
+        from support.fixtures.resource_settings import configuration
+        lite = next(preset for preset in PRESETS if preset["id"] == "xai-grok-imagine-video-lite")
+        self.assertEqual(lite["model_key"], "grok-imagine-video-1.5-lite")
+        self.assertFalse(lite["enabled"])
+        # 官方仅对全量 1.5 标注尾帧/关键帧；lite 未实证，能力表如实为 False
+        self.assertFalse(lite["capabilities"]["last_frame"] or lite["capabilities"]["keyframes"])
+        self.assertTrue(lite["capabilities"]["first_frame"] and lite["capabilities"]["reference_media"])
+        payload = configuration(supplier=lite["supplier"], product=lite["product"], plan=lite["plan"],
+            region=lite["region"], execution=lite["execution"], base_url=lite["base_url"],
+            auth_ref=lite["auth_ref"], model_key=lite["model_key"], modality=lite["modality"],
+            capabilities=lite["capabilities"], default_params=lite["default_params"], enabled=True)
+        with tempfile.TemporaryDirectory() as temp:
+            login = Path(temp) / "login.json"
+            login.write_text('{"https://auth.x.ai::u": {"key": "grok-login-secret-value", "expires_at": "2999-01-01T00:00:00Z"}}', "utf-8")
+            with patch.object(grok_credentials, "LOGIN_FILE", login):
+                row = validate_configuration(payload)
+                self.assertEqual(row["default_params"]["resolution"], "720p")
 
     def test_sdk_snapshot_is_server_owned_and_missing_sdk_only_allows_draft(self):
         from unittest.mock import Mock
