@@ -21,11 +21,19 @@ EDIT_SOURCE_LIMIT = 5
 REFERENCE_RESOLUTIONS = ("480p", "720p")
 FRAME_RESOLUTIONS = ("480p", "720p", "1080p")
 ASPECT_RATIOS = ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "21:9", "5:2", "auto")
-IMAGE_RESOLUTIONS = ("1k", "2k")
+# 官方视频端点的画幅是图像端点的子集（/v1/videos/generations 文档枚举 9 值）；
+# 过宽放行会在预算预留之后才被平台 4xx 拒绝。
+VIDEO_ASPECT_RATIOS = ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "5:2")
+IMAGE_RESOLUTIONS = ("1k", "1.5k", "2k")
 
 
 def advanced_model(model: str) -> bool:
+    """1.5 系列（含 -lite）共享 15s 时长、14 张参考图与 1080p 输出档。"""
     return "1.5" in (model or "")
+
+
+def lite_model(model: str) -> bool:
+    return "lite" in (model or "")
 
 
 def compile_image(model, prompt, references, ratio, resolution, count):
@@ -38,7 +46,7 @@ def compile_image(model, prompt, references, ratio, resolution, count):
     if references and count != 1:
         raise GrokSpecError("图像编辑每个逻辑候选固定一张输出；多张仅支持纯文生图，待单独核实后开放")
     if resolution not in IMAGE_RESOLUTIONS:
-        raise GrokSpecError("图像分辨率须为 1k 或 2k")
+        raise GrokSpecError("图像分辨率须为 1k、1.5k 或 2k")
     if type(count) is not int or not 1 <= count <= 10:
         raise GrokSpecError("同提示词张数须为 1–10")
     if ratio not in ASPECT_RATIOS:
@@ -81,8 +89,8 @@ def compile_video(model, prompt, duration_ms, first, last, references, keyframes
         raise GrokSpecError(f"Grok 预置声音参考最多 {VOICE_LIMIT} 个")
     if len(keyframes) > KEYFRAME_LIMIT:
         raise GrokSpecError(f"Grok 中段关键帧最多 {KEYFRAME_LIMIT} 个")
-    if ratio and ratio not in ASPECT_RATIOS:
-        raise GrokSpecError(f"画幅 {ratio} 不在平台支持列表")
+    if ratio and ratio not in VIDEO_ASPECT_RATIOS:
+        raise GrokSpecError(f"视频画幅 {ratio} 不在平台支持列表（视频仅支持 {', '.join(VIDEO_ASPECT_RATIOS)}）")
     if not advanced:  # 经典 grok-imagine-video 的官方限制
         blocked = []
         if last:
@@ -95,6 +103,9 @@ def compile_video(model, prompt, duration_ms, first, last, references, keyframes
             blocked.append("首帧与参考图同用")
         if blocked:
             raise GrokSpecError("经典 grok-imagine-video 不支持" + "、".join(blocked) + "；请使用 1.5 系列模型")
+    elif lite_model(model):  # 官方仅对全量 1.5 标注尾帧/关键帧；lite 未实证，提交前拒绝
+        if last or keyframes:
+            raise GrokSpecError("grok-imagine-video-1.5-lite 未实证支持尾帧钉定/中段关键帧；请使用 grok-imagine-video-1.5")
     if references and resolution not in REFERENCE_RESOLUTIONS:
         raise GrokSpecError("Grok 参考模式分辨率最高 720p；更高分辨率请走首帧图生视频")
     if not references and resolution not in FRAME_RESOLUTIONS:

@@ -170,13 +170,14 @@ def validate_configuration(payload):
         from vsc.adapters.providers.volc_ark.official_sdk import verify_runtime
         verify_runtime(value["default_params"].get("sdk_runtime"))
     if value["enabled"] and value["supplier"] == "xai":
+        from vsc.adapters.providers.xai_grok import spec as grok_spec
         defaults = value["default_params"]
         if value["modality"] == "image":
             ratios = defaults.get("ratio_map")
             if (not isinstance(ratios, dict) or not ratios
                     or any(not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", key) or not isinstance(ratio, str) or not ratio.strip()
-                           for key, ratio in ratios.items()) or defaults.get("resolution") not in ("1k", "2k")):
-                raise ResourceError("Grok 图像需要尺寸到画幅的 ratio_map 与 1k/2k resolution 映射", "invalid_model_defaults")
+                           for key, ratio in ratios.items()) or defaults.get("resolution") not in grok_spec.IMAGE_RESOLUTIONS):
+                raise ResourceError("Grok 图像需要尺寸到画幅的 ratio_map 与 1k/1.5k/2k resolution 映射", "invalid_model_defaults")
         if value["modality"] == "video" and any(purpose not in {"video_edit", "video_extend"} for purpose in purposes):
             if defaults.get("resolution") not in ("480p", "720p", "1080p"):
                 raise ResourceError("Grok 视频需要 480p/720p/1080p resolution 映射", "invalid_model_defaults")

@@ -58,7 +58,8 @@ VIDEO_MODEL = "grok-imagine-video-1.5"
 EDIT_MODEL = "grok-imagine-video"  # 官方：视频编辑/续接由经典模型承担（1.5 返回不支持）
 PROVIDER = "xai_grok"
 ASPECT_RATIOS = spec.ASPECT_RATIOS
-IMAGE_RESOLUTIONS = ("1k", "2k")
+VIDEO_ASPECT_RATIOS = spec.VIDEO_ASPECT_RATIOS
+IMAGE_RESOLUTIONS = spec.IMAGE_RESOLUTIONS
 VIDEO_RESOLUTIONS = ("480p", "720p", "1080p")
 MIN_DURATION, MAX_DURATION = 1, 15
 # 官方未公布结果 URL 的时效；这里只作记录元数据，下载总是在完成后立即执行。
@@ -637,7 +638,7 @@ def generate_image(args):
     if args.purpose == "candidate" and not (args.shot and args.moment and args.bible and args.state):
         raise GrokError("候选关键帧需要 --shot、--moment、--bible、--state；资产图请用 --purpose asset")
     if args.aspect_ratio not in ASPECT_RATIOS or args.resolution not in IMAGE_RESOLUTIONS:
-        raise GrokError("画幅须为平台支持的取值；分辨率须为 1k 或 2k")
+        raise GrokError("画幅须为平台支持的取值；分辨率须为 1k、1.5k 或 2k")
     if not isinstance(args.count, int) or not 1 <= args.count <= 10:
         raise GrokError("同提示词张数须为 1–10")
     out, prompt = output_dir(args), prompt_of(args)
@@ -818,8 +819,8 @@ def generate_video(args):
         raise GrokError("视频分辨率须为 480p、720p 或 1080p")
     if not isinstance(args.duration, int) or not MIN_DURATION <= args.duration <= MAX_DURATION:
         raise GrokError(f"视频时长须为 {MIN_DURATION}–{MAX_DURATION} 整秒")
-    if getattr(args, "ratio", "") and args.ratio not in ASPECT_RATIOS:
-        raise GrokError("--ratio 须为平台支持的画幅取值")
+    if getattr(args, "ratio", "") and args.ratio not in VIDEO_ASPECT_RATIOS:
+        raise GrokError("--ratio 须为平台支持的视频画幅取值")
     out, prompt = output_dir(args), prompt_of(args)
     first = resolve(args.first_frame, args.project) if args.first_frame else None
     last = resolve(args.last_frame, args.project) if args.last_frame else None

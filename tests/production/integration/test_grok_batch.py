@@ -220,6 +220,34 @@ class GrokBatchTest(unittest.TestCase):
         with self.assertRaises(grok.GrokError):
             grok.video_source_info(source, "extend")
 
+    def test_official_enum_alignment_resolution_ratio_and_lite(self):
+        """官方枚举对齐：图像 1.5k、视频画幅子集、lite 型号边界（纯离线）。"""
+        from vsc.adapters.providers.xai_grok import spec
+        # 官方 /v1/images/generations 的 resolution 枚举为 1k/1.5k/2k
+        _, payload = spec.compile_image("grok-imagine-image-2.0", "p", [], "9:16", "1.5k", 1)
+        self.assertEqual(payload["resolution"], "1.5k")
+        with self.assertRaisesRegex(spec.GrokSpecError, "1.5k"):
+            spec.compile_image("grok-imagine-image-2.0", "p", [], "9:16", "3k", 1)
+        # 视频画幅是图像端点的子集（9 值）；19.5:9 等仅图像合法（compile_video 返回单 payload）
+        payload = spec.compile_video("grok-imagine-video-1.5", "p", 6000, None, None, [], [], [],
+                                     "21:9", "480p")
+        self.assertEqual(payload["aspect_ratio"], "21:9")
+        for ratio in ("19.5:9", "2:1", "auto"):
+            with self.assertRaisesRegex(spec.GrokSpecError, "视频画幅"):
+                spec.compile_video("grok-imagine-video-1.5", "p", 6000, None, None, [], [], [], ratio, "480p")
+        # lite 属 1.5 系列：15s/1080p/首帧可用；尾帧与关键帧按官方仅标注全量 1.5，未实证前拒绝
+        payload = spec.compile_video("grok-imagine-video-1.5-lite", "p", 15000, "u", None, [], [], [],
+                                     "9:16", "1080p")
+        self.assertEqual((payload["duration"], payload["resolution"]), (15, "1080p"))
+        for compile_kwargs in ({"last": "u"}, {"keyframes": [("u", 3.0)]}):
+            with self.assertRaisesRegex(spec.GrokSpecError, "lite"):
+                spec.compile_video("grok-imagine-video-1.5-lite", "p", 6000, None,
+                                   compile_kwargs.get("last"), [], compile_kwargs.get("keyframes", []),
+                                   [], "9:16", "480p")
+        # 编辑/续接仍由经典模型承担；lite（含 1.5）一并拒绝
+        with self.assertRaisesRegex(spec.GrokSpecError, "经典"):
+            spec.compile_video_operation("grok-imagine-video-1.5-lite", "source", "p", "edit")
+
 
 if __name__ == "__main__":
     unittest.main()
