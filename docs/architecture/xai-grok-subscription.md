@@ -13,20 +13,21 @@
 
 ## 官方能力面与 VSC 实现（[Imagine 总览](https://docs.x.ai/developers/model-capabilities/imagine)、[参考生视频](https://docs.x.ai/developers/model-capabilities/video/reference-to-video)、[图生视频](https://docs.x.ai/developers/model-capabilities/video/image-to-video)）
 
-模型：`grok-imagine-image-2.0`（生成＋编辑）、`grok-imagine-video-1.5`（全功能视频）、`grok-imagine-video`（旧版，功能子集）。
+模型：`grok-imagine-image-2.0`（生成＋编辑）、`grok-imagine-video-1.5`（全功能视频）、`grok-imagine-video-1.5-lite`（低成本档：1080p 由 720p 上采样、支持唇形同步；尾帧/关键帧官方仅标注全量 1.5）、`grok-imagine-video`（旧版，功能子集，编辑/续接专用）。
 
 | 能力 | 官方规格 | VSC 实现 |
 |---|---|---|
-| 文生图 | `POST /v1/images/generations`；`model/prompt/n(1–10)/aspect_ratio/resolution(1k,2k)/response_format` | ✅ 脚本 `image`（无 `--ref`）与任务库图像适配器的默认模式 |
+| 文生图 | `POST /v1/images/generations`；`model/prompt/n(1–10)/aspect_ratio/resolution(1k,1.5k,2k)/response_format` | ✅ 脚本 `image`（无 `--ref`）与任务库图像适配器的默认模式；分辨率枚举与官方 REST 参考对齐 |
 | 图像编辑／多图合成 | `POST /v1/images/edits`；单源图 `image:{url,type:image_url}`，多源图 `images`（**最多 5 张**：换装、风格迁移、多主体合成）；提示词只写要改的内容 | ✅ 脚本 `image --ref`（1–5 张）与图像适配器 `reference_media_ids`（用途 `image_edit`）；本地文件走 data URI，`aspect_ratio/resolution`显式进入共享请求编译器；batch每个逻辑候选一张 |
-| 首帧图生视频 | `image:{url}` 单独出现即首帧锚定；时长 ≤15s（1.5）；1.5 支持原生 1080p | ✅ 脚本 `video --first-frame` 与视频适配器 `first_frame_media_id`；分辨率 480p/720p/1080p |
-| 尾帧钉定 | `last_frame:{url}`；可单独使用（平台生成开场并落在该画面），也可与 `image` 组成首尾帧插值，或再叠加参考 | ✅ 脚本 `video --last-frame` 与适配器 `last_frame_media_id` |
+| 首帧图生视频 | `image:{url}` 单独出现即首帧锚定；时长 ≤15s（1.5）；1.5 支持原生 1080p（lite 为 720p 上采样） | ✅ 脚本 `video --first-frame` 与视频适配器 `first_frame_media_id`；分辨率 480p/720p/1080p |
+| 尾帧钉定 | `last_frame:{url}`；可单独使用（平台生成开场并落在该画面），也可与 `image` 组成首尾帧插值，或再叠加参考（官方仅标注全量 1.5） | ✅ 脚本 `video --last-frame` 与适配器 `last_frame_media_id`；lite 未实证前在提交前拒绝（报错指引改用全量 1.5） |
 | 参考生视频 | `reference_images:[{url},…]` **最多 14 张**（1.5）；可与 `image` 组合——`image` 成为钉定首帧，提示词占位符 `<IMAGE_0>` 归首帧、参考图从 `<IMAGE_1>` 起编号；无首帧时参考图从 `<IMAGE_0>` 起。提示词按位置指位（人物来自 `<IMAGE_1>`、商品来自 `<IMAGE_2>`）。参考模式分辨率上限 **720p** | ✅ 脚本 `video --ref-image`（1–14）与适配器 `reference_media_ids`；超过 14 张、或参考模式请求 1080p 在提交前拒绝 |
 | 预置声音参考 | `reference_audios:[{voice_id},…]` 最多 3 个（1.5），只接平台预置 voice_id（如 `eve`）；自定义音频参考仅限受信伙伴 | ✅ 平台资源 id 存放在供应商注册表的模型默认参数 `reference_voice_ids`（`provider_models.default_params`，即数据库中的平台资源 id 字段），随模型配置进入任务库适配器；脚本用 `--voice-id`（≤3），提示词以 `<AUDIO_n>` 指位。VSC 的音频素材文件语义不同，仍不塞进该字段（负例在提交前拒绝） |
-| 中段关键帧 | `keyframes:[{image:{url},timestamp_s},…]` 最多 4 个（1.5），时间戳须严格在片内并对齐 1/3 秒网格 | ✅ 供应商中立请求契约扩展 `VideoRequest.keyframes`（(媒体ID, 秒) 对），能力开关 `keyframes`；脚本 `--keyframe 文件@秒`（≤4）。片外时间戳、间隔不足 1/3 秒、经典模型使用均在提交前拒绝 |
+| 中段关键帧 | `keyframes:[{image:{url},timestamp_s},…]` 最多 4 个（1.5），时间戳须严格在片内并对齐 1/3 秒网格（官方仅标注全量 1.5） | ✅ 供应商中立请求契约扩展 `VideoRequest.keyframes`（(媒体ID, 秒) 对），能力开关 `keyframes`；脚本 `--keyframe 文件@秒`（≤4）。片外时间戳、间隔不足 1/3 秒、经典模型与 lite 使用均在提交前拒绝 |
 | 视频编辑／续接 | `POST /v1/videos/edits`、`POST /v1/videos/extensions`，输入 `video`；编辑最长约8.7s；续接源片2–15s，`duration`为新增2–10s（默认6s）；输出跟随源片画幅/分辨率、最高720p | ✅ 脚本子命令 `edit`／`extend`（`--video`为可验证本地文件，`--prompt`均必填；续接支持`--duration`，编辑拒绝另设时长）。**线上探针已证**：编辑/续接由经典 `grok-imagine-video` 承担（1.5 返回 "Video editing is not supported"）；`extensions` 的 `prompt` 为平台必填（422 实证）。正式batch/run已接`grok_edit/grok_extend`；PG任务通过`operation=edit/extend`及固定`source_media_id/source_sha256/source_duration_ms`接通，成功任务登记media_operations输入输出血缘；实际源字节、时长、run批准与预算在提交前复核 |
 | 无声视频 | `generate_audio:false` 请求无声输出 | ✅ 模型默认参数 `generate_audio`（布尔）与脚本 `--no-audio` |
-| 画幅 | 视频可传 `aspect_ratio`；图生视频场景下强行另设会把源图拉伸 | 图生视频默认不传（跟随首帧）；参考／文生模式可用脚本 `--ratio`／模型默认参数 `ratio` 显式指定 |
+| 画幅 | 视频可传 `aspect_ratio`，**枚举为图像端点的子集**（`1:1/16:9/9:16/4:3/3:4/3:2/2:3/21:9/5:2` 共 9 值）；图生视频场景下强行另设会把源图拉伸 | 图生视频默认不传（跟随首帧）；参考／文生模式可用脚本 `--ratio`／模型默认参数 `ratio` 显式指定；图像端点专属画幅（`19.5:9`、`auto` 等）传入视频在提交前拒绝 |
+| 输入文件 | 官方提供 Files API（`/v1/files` 上传后以 `file_id` 引用）；源图同样接受公开 URL、base64 data URI 与 file_id 三种 | VSC 本地文件统一走 data URI（官方支持、线上探针已用），无需 Files API 中转；https 链接原样传入 |
 | 结果时效 | 视频 URL 临时，须立即转存；官方未公布时效 | 成功后立即下载并登记 SHA，记录按保守 1 小时标注 `source_url_expires_at` |
 | 计费口径 | 图像按张；编辑计输入＋输出张；视频按秒×分辨率 | 订阅额度内通常无边际费用；账本只记 `images`／`video_seconds` 原生用量，不做金额换算 |
 
