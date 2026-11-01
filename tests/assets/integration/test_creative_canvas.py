@@ -120,8 +120,19 @@ class CreativeCanvasTests(ResourceStoreFixture, unittest.TestCase):
             "model_id": model, "duration_ms": 5000, "execution_policy": {"version": "bounded-v1",
                 "first_draft_due_at": "2099-01-01T00:00:00Z", "stop_submitting_at": "2099-01-01T01:00:00Z",
                 "max_attempts_per_purpose": 3, "max_repair_rounds": 1}}
-        preview = self.service.preview_creative_canvas_run(self.p, run_request)
-        proposed = self.write("propose_creative_canvas_run", {"request": run_request, "preview_sha256": preview["preview_sha256"]})
+        unavailable = self.service.preview_creative_canvas_run(self.p, run_request)
+        self.assertFalse(unavailable["ready"])
+        self.assertEqual(unavailable["gaps"][0]["code"], "model_adapter_unavailable")
+        self.assertNotIn("preview_sha256", unavailable)
+        # This provider is deliberately synthetic. Only the offline compiler
+        # fixture supplies availability; no real adapter or transport is invoked.
+        configuration = {"id": model, "enabled": True, "adapter_available": True,
+            "modality": "video", "capabilities": {"purposes": ["video_clip"], "first_frame": True}}
+        with patch("vsc.production.resource_settings.ResourceSettings.list", return_value={"configurations": [configuration]}), patch("httpx.Client.post") as provider_submit:
+            preview = self.service.preview_creative_canvas_run(self.p, run_request)
+            self.assertTrue(preview["ready"], preview["gaps"])
+            proposed = self.write("propose_creative_canvas_run", {"request": run_request, "preview_sha256": preview["preview_sha256"]})
+            provider_submit.assert_not_called()
         self.assertTrue(proposed["needs_approval"])
         self.assertFalse(proposed["provider_submitted"])
         import json

@@ -177,15 +177,20 @@ class EditPreviewTests(EditPreviewFixture, unittest.TestCase):
             "allowed_hosts": ["testserver"], "allowed_origins": ["http://testserver"],
             "access_token": "test-token", "human_identity": "test-human"}, service=self.service)
         with TestClient(app) as client:
-            progress = client.get(f"/api/v1/projects/{self.p}/assisted-desk?bucket=progress").json()
+            self.assertEqual(client.get(f"/api/v1/projects/{self.p}/assisted-desk?bucket=progress").status_code,403)
+            login = client.post("/api/v1/session", headers={"Origin": "http://testserver"}, json={"token": "test-token"})
+            self.assertEqual(login.status_code,200,login.text)
+            session=login.json()
+            headers = {"Origin": "http://testserver", "X-CSRF-Token": session["csrf_token"]}
+            progress_response = client.get(f"/api/v1/projects/{self.p}/assisted-desk?bucket=progress")
+            self.assertEqual(progress_response.status_code,200,progress_response.text)
+            progress = progress_response.json()
             row = next(item for item in progress["items"] if item["kind"] == "preview")
             self.assertEqual(row["id"], "edit-preview:"+requested["job_id"])
             with patch.object(worker.converter, "convert", side_effect=ResourceError("合成暂时失败", "edit_preview_tool_failed")):
                 self.assertEqual(worker.run_once(self.p)["status"], "failed")
             worker.start()
             self.service.edit_preview_worker = worker
-            session = client.post("/api/v1/session", headers={"Origin": "http://testserver"}, json={"token": "test-token"}).json()
-            headers = {"Origin": "http://testserver", "X-CSRF-Token": session["csrf_token"]}
             body = {"expected_revision": self.store.get_project(self.p)["revision"],
                     "idempotency_key": "retry-same-caption", "payload": {}}
             url = f"/api/v1/projects/{self.p}/edit-previews/{requested['job_id']}/retry"

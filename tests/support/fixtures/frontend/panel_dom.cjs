@@ -96,7 +96,7 @@ class Element {
 class Document {
   constructor(html) {
     this.body = new Element(this, 'body');
-    for (const match of html.matchAll(/<([a-z][\w-]*)\b([^>]*\bid="[^"]+"[^>]*)>/gi)) {
+    for (const match of html.matchAll(/<([a-z][\w-]*)\b([^>]*\b(?:id|class)="[^"]+"[^>]*)>/gi)) {
       const node = this.createElement(match[1]);
       for (const attribute of match[2].matchAll(/([\w-]+)="([^"]*)"/g)) node.setAttribute(attribute[1], attribute[2]);
       this.body.append(node);
@@ -106,6 +106,7 @@ class Document {
   createTextNode(text) { const node = new Element(this, '#text'); node.textContent = text; return node; }
   getElementById(id) { return this.body.querySelectorAll('#' + id)[0] || null; }
   querySelectorAll(selector) { return this.body.querySelectorAll(selector); }
+  querySelector(selector) { return this.body.querySelector(selector); }
 }
 
 function createPanel(root, projects, treeOverride = null, options = {}) {

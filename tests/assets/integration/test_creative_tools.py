@@ -35,13 +35,14 @@ class CreativeToolsTests(ResourceStoreFixture, unittest.TestCase):
         from sqlalchemy import select
         from vsc.adapters.persistence.postgres import schema as S
         with self.assertRaises(ResourceError):self.service.open_creative_tool_workspace(actor='test-human')
-        owner=self.service.ensure_local_access('test-human');token=set_principal(Principal(**owner));self.addCleanup(reset_principal,token)
-        studio=self.service.access_command('workspace',{'name':'工具不应进入此团队','parent_id':None},actor='test-human',
+        actor='tool-identity-'+uuid.uuid4().hex
+        owner=self.service.ensure_local_access(actor);token=set_principal(Principal(**owner));self.addCleanup(reset_principal,token)
+        studio=self.service.access_command('workspace',{'name':'工具不应进入此团队','parent_id':None},actor=actor,
             expected_revision=self.service.access_snapshot()['access_revision'],idempotency_key=uuid.uuid4().hex)['workspace_id']
         studio_token=set_principal(replace(Principal(**owner),workspace_id=studio))
-        try:first=self.service.open_creative_tool_workspace(actor='test-human')
+        try:first=self.service.open_creative_tool_workspace(actor=actor)
         finally:reset_principal(studio_token)
-        again=self.service.open_creative_tool_workspace(actor='test-human');self.assertEqual(first['id'],again['id']);self.assertEqual(first['episode_id'],again['episode_id'])
+        again=self.service.open_creative_tool_workspace(actor=actor);self.assertEqual(first['id'],again['id']);self.assertEqual(first['episode_id'],again['episode_id'])
         options=self.service.creative_tools_options(first['id']);self.assertTrue(options['standalone']);self.assertEqual(options['episode']['id'],first['episode_id'])
         self.assertEqual(len(options['episodes']),1)
         with self.engine.connect() as conn:
@@ -89,6 +90,9 @@ class CreativeToolsTests(ResourceStoreFixture, unittest.TestCase):
         finally:reset_principal(other)
         self.rev=self.store.get_project(self.p)['revision'];self.write('management_command',dict(operation='trash',target_type='project',target_id=self.p,reason='synthetic recycled source'))
         with self.assertRaises(ResourceError):self.service.preview_creative_output_import(target,request)
+        with self.assertRaises(ResourceError) as recycled:
+            self.service.open_creative_tool_workspace(actor='test-human')
+        self.assertEqual(recycled.exception.code,'project_recycled')
 
     def music_local_fixture(self):
         import math,struct,wave
