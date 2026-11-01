@@ -169,3 +169,18 @@ test('trial adoption accompanies one normal selection without extra approval req
   assert.deepEqual(app.writes[0].body.payload.trial_adoption,{reason:'trial meets the final shot',animatic_version_id:'animatic'});
   assert.equal(app.writes[0].body.confirmed,true);
 });
+
+
+test('production navigation retains mode and episode when the selected shot changes, without retaining stale media focus', () => {
+  const location={search:'?page=classic-production&project=A&scope=episode&episode=episode&kind=image&mode=image&object=old-media',hash:'',pathname:'/'};
+  const history={pushState(_a,_b,url){location.search=url;},replaceState(_a,_b,url){location.search=url;}};
+  const app=createPanel(root,new Map([['A',project('A')]]),null,{window:{location,history,addEventListener(){}}});
+  app.panel.state.project='A';app.panel.state.object='shot';app.panel.syncRoute();
+  let route=new URLSearchParams(location.search);
+  assert.equal(route.get('kind'),'image');assert.equal(route.get('mode'),'image');assert.equal(route.get('episode'),'episode');assert.equal(route.get('scope'),'shot');assert.equal(route.has('object'),false);
+  app.panel.state.view='creative-canvas';location.search='?page=creative-canvas&project=A&episode=episode';app.panel.openedCreativeTarget('canvas-one','A','episode');
+  route=new URLSearchParams(location.search);assert.equal(route.get('task_target'),'canvas-one');assert.equal(route.get('episode'),'episode');
+  app.panel.openedCreativeTarget('foreign-canvas','B','other');assert.equal(new URLSearchParams(location.search).get('task_target'),'canvas-one');
+  app.panel.openedCreativeTarget(null,'A','episode');assert.equal(new URLSearchParams(location.search).has('task_target'),false);
+  assert.equal(app.writes.length,0);
+});

@@ -35,7 +35,7 @@ export function createSpatialScenePanel(ctx){
       finally{s.saving=null;}})();return s.saving;
   }
   async function load(root,projectId,mode='previs',targetId=null){
-    suspend();const s={root,project:projectId||ctx.projectId?.(),mode,epoch,revision:ctx.session().revision||0};active=s;root.classList.add('spatial-scene');root.replaceChildren(el('h1',mode==='blocking'?'三维导演台 · BU 站位单元':'独立三维预演'));s.status=el('p','读取场景…','ss-status');s.status.setAttribute('role','status');root.append(s.status);if(!s.project){notice(s,'请先选择项目。');return;}
+    suspend();const s={root,project:projectId||ctx.projectId?.(),mode,epoch,revision:ctx.session().revision||0};active=s;root.classList.add('spatial-scene');root.classList.remove('ss-editor');root.replaceChildren(el('h1',mode==='blocking'?'三维导演台 · BU 站位单元':'独立三维预演'));s.status=el('p','读取场景…','ss-status');s.status.setAttribute('role','status');root.append(s.status);if(!s.project){notice(s,'请先选择项目。');return;}
     try{const [listing,options]=await Promise.all([ctx.api(`${sceneUrl(s)}?mode=${mode}`),ctx.api(`${base(s)}/spatial-scene-options`)]);if(!live(s))return;revision(s,listing.revision);s.options=options;
       if(targetId){await open(s,targetId);return;}
       const form=el('form',null,'ss-bar'),title=field('新场景名称',mode==='blocking'?'站位单元':'独立预演'),scope=el('select');scope.setAttribute('aria-label',mode==='blocking'?'所属场次':'所属分集');scope.append(new Option(mode==='blocking'?'选择真实场次':'不绑定分集',''));
@@ -65,7 +65,15 @@ export function createSpatialScenePanel(ctx){
     const output=el('section',null,'ss-output');output.append(el('h2','固定版本导出'));const duration=field('视频导出时长',Math.min(3,s.document.duration),'number');duration.step='.1';duration.min='.1';duration.max='15';const fps=el('select');fps.setAttribute('aria-label','视频帧率');fps.append(new Option('12 fps','12'),new Option('24 fps','24'));output.append(el('label','视频秒数'),duration,fps);
     for(const format of ['png','glb','mp4'])output.append(button(s,'导出 '+format.toUpperCase(),async()=>{if(!await save(s))return;const result=await durable(s,'export:'+format,sceneUrl(s)+'/exports',{scene_revision:s.version,camera_id:s.primary,time:s.time,format,duration:Number(duration.value),fps:Number(fps.value)});if(!live(s))return;notice(s,'导出任务已登记，可从原记录恢复。');await refreshExports(s);execute(s,result.id);}));s.exports=el('div');output.append(s.exports);s.root.append(output);
     const structured=el('details');structured.append(el('summary','结构化场景输入'));const json=field('场景 JSON',JSON.stringify(s.document,null,2),'textarea');structured.append(json,button(s,'读入结构化场景',async()=>{const checked=await ctx.api(`${base(s)}/spatial-scene-validate`,{method:'POST',headers:header(),body:JSON.stringify({document:JSON.parse(json.value)})});const doc=checked.document;await fetchPreview(s,doc,doc.cameras[0].id,0);if(live(s))change(s,()=>{s.document=doc;s.modelCatalog=checked.model_catalog||{};s.primary=doc.cameras[0].id;s.secondary=doc.cameras[1]?.id||s.primary;s.time=0;});}));s.root.append(structured);sceneChat(s);
-    s.root.append(el('p','有界三维预演支持内嵌 PNG/JPEG 纹理与核心材质、骨骼蒙皮、TRS/形变动画、双机位与位置关键帧。GLB 最多 20 MiB，场景累计 12000 顶点、24000 三角面、4 Mi 纹理像素；不读取外链，压缩及其他未支持扩展会明确拒绝。参考图仅用于对照。PNG/视频固定保存版本、机位、时刻；GLB 导出将该时刻烘焙为静态模型并保留材质纹理，动画不会作为可编辑片段导出。','ss-limit'));drawEditor(s);
+    s.root.append(el('p','有界三维预演支持内嵌 PNG/JPEG 纹理与核心材质、骨骼蒙皮、TRS/形变动画、双机位与位置关键帧。GLB 最多 20 MiB，场景累计 12000 顶点、24000 三角面、4 Mi 纹理像素；不读取外链，压缩及其他未支持扩展会明确拒绝。参考图仅用于对照。PNG/视频固定保存版本、机位、时刻；GLB 导出将该时刻烘焙为静态模型并保留材质纹理，动画不会作为可编辑片段导出。','ss-limit'));arrangeEditor(s,bar,controls,recovery,desc,output,structured);drawEditor(s);
+  }
+  function arrangeEditor(s,bar,controls,recovery,desc,output,structured){
+    s.root.classList.add('ss-editor');bar.classList.add('ss-document-bar');controls.classList.add('ss-object-toolbar');
+    const more=el('details',null,'ss-more'),content=el('div');more.append(el('summary','版本与设置'),content);
+    for(const b of [...bar.querySelectorAll('button')])if(!['场景列表','保存场景'].includes(b.textContent))content.append(b);
+    content.append(recovery,el('label','场景描述'),desc,structured,s.root.querySelector('.ss-limit'));bar.append(more);
+    const exports=el('details',null,'ss-export-panel');exports.append(el('summary','导出'),output);bar.append(exports);
+    const chat=s.root.querySelector('.ss-chat'),drawer=el('details',null,'ss-agent-panel');drawer.append(el('summary','Agent'),chat);bar.append(drawer);
   }
   const stableScene=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
   function sceneChat(s){const section=el('section',null,'ss-chat');section.append(el('h2','对话修改场景'),el('p','文字规划返回可编辑结构，核对预览后再采纳。参考图感知需要实际适配器。'));const message=field('场景修改要求','','textarea');section.append(message,button(s,'规划当前固定场景',async()=>{if(!await save(s))return;const task=await durable(s,'plan:'+message.value,sceneUrl(s)+'/plans',{scene_revision:s.version,message:message.value});if(!live(s))return;await ctx.api(`${base(s)}/spatial-plans/${task.id}/execute`,{method:'POST',headers:header()});if(live(s))await open(s,s.id);}));

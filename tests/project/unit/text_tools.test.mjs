@@ -2,10 +2,17 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 class Element {
- constructor(tag,text=''){this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];this.attrs={};this.listeners={};this.value='';this.style={};this.dataset={};}
- append(...nodes){this.children.push(...nodes);}
- replaceChildren(...nodes){this.children=nodes;}
- setAttribute(k,v){this.attrs[k]=v;}
+ constructor(tag,text=''){this.tagName=tag.toUpperCase();this._text=text;this.children=[];this.attrs={};this.listeners={};this.value='';this.style={};this.dataset={};this.parentElement=null;this.className='';this.classList={add:(...v)=>{this.className=[...new Set([...this.className.split(' '),...v])].filter(Boolean).join(' ');},contains:v=>this.className.split(' ').includes(v)};}
+ set textContent(v){this._text=v;this.children=[];} get textContent(){return this._text+this.children.map(c=>c.textContent).join('');}
+ append(...nodes){for(const node of nodes){node.remove();node.parentElement=this;this.children.push(node);}}
+ prepend(...nodes){for(const node of nodes.reverse()){node.remove();node.parentElement=this;this.children.unshift(node);}}
+ remove(){if(this.parentElement){this.parentElement.children=this.parentElement.children.filter(x=>x!==this);this.parentElement=null;}}
+ replaceChildren(...nodes){for(const c of [...this.children])c.remove();this._text='';this.append(...nodes);}
+ insertBefore(node,before){node.remove();node.parentElement=this;const i=this.children.indexOf(before);this.children.splice(i<0?this.children.length:i,0,node);}
+ setAttribute(k,v){this.attrs[k]=v;} getAttribute(k){return this.attrs[k]??null;}
+ matches(selector){if(selector[0]==='.')return this.classList.contains(selector.slice(1));if(selector[0]==='['){const match=selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);return match&&(match[2]==null?this.attrs[match[1]]!=null:this.attrs[match[1]]===match[2]);}return this.tagName===selector.toUpperCase();}
+ querySelectorAll(selector){const values=this.children.flatMap(c=>[c,...c.querySelectorAll('*')]);if(selector==='*')return values;return values.filter(c=>selector.split(',').some(x=>c.matches(x.trim())));}
+ querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
  addEventListener(k,v){(this.listeners[k]??=[]).push(v);}
  get options(){return this.children.filter(x=>x.tagName==='OPTION');}
  async fire(type){for(const f of this.listeners[type]||[])await f({preventDefault(){}});}
