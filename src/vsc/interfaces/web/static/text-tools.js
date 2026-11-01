@@ -9,7 +9,7 @@ Object.assign(labels,{understanding_version_id:'改写所依据的已批准理�
 Object.assign(columns,{kind:'实体类型',source_text:'源片人工观察（事实与不确定项）',entity_keys:'角色 UID（英文逗号分隔）',scene_key:'场景 UID',target_duration_ms:'目标生成时长毫秒（0沿用源时长）',target_start_ms:'目标组内起点毫秒',target_end_ms:'目标组内终点毫秒',shot_id:'原项目镜头 ID',prompt:'分组改写提示词',first_frame_media_id:'原首帧图片 ID'});
 export function createTextTools(root,ctx){
   let epoch=0,scope=null,tool='novel',caps=null,list=[],current=null,dirty=false,options={episodes:[],assets:[],media:[]};
-  const retained=new Map(),pending=new Map(),selected=new Set(),attemptKeys=new Map();let scoreFilter='all',scoreOrder='ordinal',runControls=[];
+  const retained=new Map(),pending=new Map(),selected=new Set(),attemptKeys=new Map();let scoreFilter='all',scoreOrder='ordinal',runControls=[];const workspaceTabs=new Map();
   const session=()=>ctx.session(),base=p=>'/api/v1/projects/'+encodeURIComponent(p);
   const alive=(n,s)=>n===epoch&&s===scope;
   const formKey=()=>String(session().actor||'')+':'+scope.project+':'+tool+':'+(current?.id||'new');
@@ -38,8 +38,8 @@ export function createTextTools(root,ctx){
   }
   function render(){
     for(const controls of runControls)controls.dispose();runControls=[];
-    const s=scope,n=++epoch,editTool=tool;root.replaceChildren();selected.clear();
-    const heading=el('header');heading.append(el('p','VSC · 剧本与分析工具','hint'),el('h1',caps.tools[tool].label),el('p','原文、人工稿、单次建议和导出分别固定版本；重合并不调用模型。','hint'));root.append(heading);
+    const s=scope,n=++epoch,editTool=tool;root.replaceChildren();root.classList.add('text-tools');root.dataset.tool=tool;selected.clear();
+    const heading=el('header');heading.className='tt-heading';heading.append(el('h1',caps.tools[tool].label));root.append(heading);
     const tabs=el('nav',null,'tt-tabs');
     for(const [id,item]of Object.entries(caps.tools)){const b=button(item.label,async()=>{epoch++;tool=id;current=null;root.replaceChildren(el('p','正在切换工具…'));if(await listing())await open(null);});b.setAttribute('aria-pressed',String(tool===id));tabs.append(b);}root.append(tabs);
     root.append(el('p',caps.host.available?'文本宿主已安装，尚未在线验证。每次运行均需明确点击。':'当前没有可用文本宿主；可保存人工稿、执行本地检查和导出。','hint'));
@@ -131,7 +131,7 @@ export function createTextTools(root,ctx){
     const save=el('button','保存人工稿');save.type='submit';save.disabled=Boolean(current?.locked)||!session().writable;form.append(save);
     form.addEventListener('submit',async event=>{event.preventDefault();capture();save.disabled=true;const submitted=JSON.stringify(retained.get(thisKey));const payload={...meta,document:clone(document),unit_id:current?.id||null,base_version_id:current?.current_version_id||null};try{const result=await write('text-tools/units',payload,thisKey);const newer=retained.get(thisKey);retained.delete(thisKey);captureKey=thisKey.slice(0,thisKey.lastIndexOf(':')+1)+result.unit_id;if(newer&&JSON.stringify(newer)!==submitted)retained.set(thisKey.slice(0,thisKey.lastIndexOf(':')+1)+result.unit_id,newer);if(alive(n,s)){await listing();await open(result.unit_id);ctx.notice(newer&&JSON.stringify(newer)!==submitted?'提交时的稿已保存，后续输入仍待保存。':'人工稿已保存。');}}catch(error){if(alive(n,s)){notice(error);save.disabled=false;}}});
     main.append(button('恢复上次提交回执',async()=>{const recovered=[...pending.entries()].find(([key])=>key===thisKey||key.startsWith(thisKey+':'));const op=recovered?.[1];if(!op){ctx.notice('当前单元没有待恢复请求。');return;}const result=await write(op.path,op.payload,recovered[0]);if(alive(n,s)){if(result.unit_id&&op.path==='text-tools/units'){const newer=retained.get(thisKey);retained.delete(thisKey);captureKey=thisKey.slice(0,thisKey.lastIndexOf(':')+1)+result.unit_id;if(newer&&(!['tool','group_key','unit_key','title','ordinal','episode_id'].every(k=>newer.meta[k]===op.payload[k])||JSON.stringify(newer.document)!==JSON.stringify(op.payload.document)))retained.set(thisKey.slice(0,thisKey.lastIndexOf(':')+1)+result.unit_id,newer);await listing();await open(result.unit_id);}else await open(current?.id);}}));
-    if(!current)return;
+    if(!current){arrangeWorkspace(form,main,nav,controls,status,save);return;}
     if(['novel','translation','scoring'].includes(tool))renderProjectCopy(main,s,n);
     if(tool==='overseas')renderOverseas(main,s,n);
     main.append(button(current.locked?'解锁此单元':'停止新调用并锁定人工稿',async()=>{const id=current.id,locked=!current.locked;const latest=await ctx.api(base(s.project)+'/text-tools/units/'+encodeURIComponent(id));if(!alive(n,s))return;ctx.setRevision(latest.revision,s.project);const value=await write('text-tools/lock',{unit_id:id,locked});if(alive(n,s)){await listing();await open(current.id);ctx.notice(value.message);}}));
@@ -172,6 +172,39 @@ export function createTextTools(root,ctx){
       if(dirty)throw new Error('请先保存人工稿');const request={unit_id:current.id,version_id:current.current_version_id,...(tool==='overseas'?{episode_id:importEpisode.value}:{})};
       const value=await ctx.api(base(s.project)+'/text-tools/import-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:request})});
       if(!alive(n,s))return;ctx.setRevision(value.revision,s.project);target.replaceChildren(el('p',value.plan.change==='update'?'将建立更新版本；原版本保留。':'将新建对应原工作区记录。'),el('pre',JSON.stringify(value.plan,null,2)),button('确认按此差异导入',async()=>{if(dirty)throw new Error('输入已改变，请先保存并重新预览');const result=await write('text-tools/import',{request,preview_sha256:value.preview_sha256});if(alive(n,s)){ctx.notice('已导入固定版本。');await ctx.navigate(tool==='overseas'?'editing':'source',tool==='overseas'?importEpisode.value:current.episode_id,s.project);}}));}),target);main.append(importBox);
+    arrangeWorkspace(form,main,nav,controls,status,save);
+  }
+  function arrangeWorkspace(form,main,nav,controls,status,save){
+    const identify=node=>['DETAILS','FIELDSET'].includes(node.tagName)?node.querySelector('summary,legend')?.textContent||'':node.querySelector('[aria-label]')?.getAttribute('aria-label')||'';
+    const top=el('div',null,'tt-document-head'),meta=el('details',null,'tt-document-meta');meta.append(el('summary','工作单元设置与来源'));
+    controls['meta:title'].placeholder='未命名工作单元';top.append(controls['meta:title'].parentElement,status,save);
+    const children=[...form.children].filter(node=>node!==top),metaLabels=['工作组','顺序','关联集','固定来源版本','工作备注'];
+    const panes=el('div',null,'tt-document-panes'),source=el('section',null,'tt-source-pane'),result=el('section',null,'tt-result-pane');
+    const titles={novel:['原文章节','改编工作稿'],translation:['原文','译文'],scoring:['评分设置','剧本与分析'],breakdown:['视频解析','解析结果'],qc:['视频质检','质检结果'],overseas:['源片理解','本地化改写']};
+    const [sourceTitle,resultTitle]=titles[tool]||['输入','工作稿'];source.append(el('h2',sourceTitle));result.append(el('h2',resultTitle));panes.append(source,result);
+    const resultLabels=new Set(['人工正文','分析意见','评分结果','人工复核结论','人工复核理由','逐项检查结果','带时码观察','故事梗概','人物小传','分集大纲','场景计划','正文检查意见','内容理解','实体与本地化映射','视频分组与候选','组内镜头映射']);
+    for(const node of children){if(node===status||node===save||node===controls['meta:title'].parentElement)continue;const label=identify(node);if(metaLabels.includes(label)||(tool==='qc'&&['固定原文或转录','局部复检基线版本'].includes(label))||node.tagName==='DATALIST'){meta.append(node);continue;}(resultLabels.has(label)?result:source).append(node);}
+    source.append(meta);form.replaceChildren(top,panes);
+    const tabs=el('nav',null,'tt-document-tabs');tabs.setAttribute('aria-label','工作稿视图');
+    const sections=[...result.children].filter(node=>node.tagName!=='H2');
+    const tabModes=['novel','translation','scoring','overseas'];
+    if(tabModes.includes(tool)&&sections.length>1){
+      const friendly={'人工正文':tool==='translation'?'译文':'剧本','故事梗概':'梗概','人物小传':'人物','分集大纲':'分集','场景计划':'场景','正文检查意见':'检查','评分结果':'评分','分析意见':'分析','人工复核结论':'复核','人工复核理由':'复核理由','实体与本地化映射':'角色与场景','视频分组与候选':'视频组','组内镜头映射':'镜头','内容理解':'理解'};
+      const initial=workspaceTabs.get(tool)||(['novel','translation','scoring'].includes(tool)?'人工正文':identify(sections[0]));
+      const activate=label=>{workspaceTabs.set(tool,label);for(const node of sections){node.hidden=identify(node)!==label;if(!node.hidden&&node.tagName==='DETAILS')node.open=true;}for(const b of tabs.children)b.setAttribute('aria-selected',String(b.dataset.label===label));};
+      for(const node of sections){const label=identify(node);if(!label)continue;const tab=button(friendly[label]||label,()=>activate(label));tab.dataset.label=label;tab.setAttribute('role','tab');tabs.append(tab);}tabs.setAttribute('role','tablist');result.insertBefore(tabs,result.children[1]||null);activate(sections.some(x=>identify(x)===initial)?initial:identify(sections[0]));
+    }
+    for(const node of [controls.source_text,controls.body])if(node){node.placeholder=node===controls.source_text?'粘贴原文，或从左侧导入文件':'工作稿将在这里编辑；保存后可比较建议和导出';node.parentElement.classList.add('tt-writing');}
+    if(tool==='qc'||tool==='breakdown'){
+      const primary=tool==='qc'?'逐项检查结果':'带时码观察';for(const block of result.querySelectorAll('details'))if(block.querySelector('summary')?.textContent===primary)block.open=true;
+      result.classList.add('tt-tabular-result');
+    }
+    const transfers=el('details',null,'tt-delivery');transfers.append(el('summary','导出、导入与版本操作'));
+    for(const node of [...main.children])if(node!==form){if(node.classList.contains('tt-run')){source.append(node);continue;}if(node.classList.contains('tt-attempts')){result.append(node);continue;}if(node.tagName==='VIDEO'){source.insertBefore(node,source.children[1]||null);continue;}transfers.append(node);}
+    main.append(transfers);
+    const bulk=el('details',null,'tt-list-bulk');bulk.append(el('summary','合并与导入'));
+    let afterUnits=false;for(const node of [...nav.children]){if(node.tagName==='LABEL'&&node.querySelector('[aria-label="合并导出标题"]'))afterUnits=true;if(afterUnits)bulk.append(node);}nav.append(bulk);
+    if(!nav.querySelector('.tt-unit')){const empty=el('p','暂无工作单元','tt-list-empty');nav.insertBefore(empty,bulk);}
   }
   function renderOverseas(main,s,n){
     const unit=current,info=unit.overseas,box=el('section',null,'tt-overseas');main.append(box);
@@ -208,7 +241,7 @@ export function createTextTools(root,ctx){
     }
   }
   function renderAttempts(main,s,n){
-    const box=el('section');box.append(el('h2','逐次结果与人工稿比较'));
+    const box=el('section',null,'tt-attempts');box.hidden=!current.attempts.length;box.append(el('h2','逐次结果与人工稿比较'));
     for(const attempt of current.attempts){const item=el('details');item.append(el('summary',(caps.tools[tool].actions[attempt.action]||attempt.action)+' · '+(statuses[attempt.status]||attempt.status)));
       if(['running','submission_unknown'].includes(attempt.status))item.append(button('读取已返回结果或恢复原尝试',async()=>{const id=current.id;await write('text-tools/recover',{attempt_id:attempt.id});if(alive(n,s))await open(id);}));
       if(attempt.error_code)item.append(el('p','失败原因：'+attempt.error_code));
@@ -268,7 +301,7 @@ export function createTextTools(root,ctx){
       const result=await ctx.api('/api/v1/text-tools/workspace',{method:'POST',headers:{'X-CSRF-Token':session().csrf}});
       if(alive(n,s))await ctx.activateWorkspace(result.id);
     },!session().actor));return;}
-    try{const values=await Promise.all([ctx.api(base(s.project)+'/text-tools/capabilities'),ctx.api(base(s.project)+'/text-tools/options')]);if(!alive(n,s))return;[caps,options]=values;await listing();if(alive(n,s))await open(value.targetId||null);}
+    try{const values=await Promise.all([ctx.api(base(s.project)+'/text-tools/capabilities'),ctx.api(base(s.project)+'/text-tools/options')]);if(!alive(n,s))return;[caps,options]=values;if(value.tool&&caps.tools[value.tool])tool=value.tool;await listing();if(alive(n,s))await open(value.targetId||null);}
     catch(error){if(alive(n,s))root.replaceChildren(el('p',error.message),button('重新读取',()=>load(value)));}
   }
   return {load,suspend(){epoch++;for(const controls of runControls)controls.dispose();runControls=[];}};

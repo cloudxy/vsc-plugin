@@ -2,12 +2,12 @@ import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
 const entry = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
 const currentEntry=()=>new URLSearchParams(typeof window==='undefined'?'':window.location.search);
-const platformViews=['projects','project','production','tasks','assets','settings','maintenance'];
+const platformViews=['home','projects','project','production','tasks','assets','settings','maintenance'];
 const mainViews = ['desk','collection','trash'];
 const customViews=['project-management','creative-canvas','editing','classic-production','blocking','previs','creative-tools','text-tools','media-imports','access','access-share','team-review','commerce','asset-center','service-operations','intelligent-creation','intelligent-storyboard'];
-const navViews = ['intelligent-creation','intelligent-storyboard','projects','tasks','assets','settings','desk','collection','trash'];
+const navViews = ['home','asset-center','project-management','intelligent-creation','intelligent-storyboard','projects','tasks','assets','settings','desk','collection','trash'];
 const specialistViews=['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'];
-const initialView = [...mainViews,...platformViews,...customViews,...specialistViews].includes(entry.get('page')) ? entry.get('page') : 'projects';
+const initialView = [...mainViews,...platformViews,...customViews,...specialistViews].includes(entry.get('page')) ? entry.get('page') : 'home';
 const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writeAvailable: false, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:mainViews.includes(initialView)?initialView:'project', view: typeof window === 'undefined' ? 'workbench' : initialView};
 const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', shot: '镜', asset: '资产身份', take: '候选',
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
@@ -58,10 +58,31 @@ let productionPlatform=null,creativeCanvasPanel=null,editWorkspace=null,classicP
 let pendingInvite=null;
 let episodeScope=entry.get('episode')||null;
 let customViewRequest=0;
+function setEntryOptions(page,project,scope,options={}){
+  if(typeof window==='undefined')return;
+  const query=new URLSearchParams({page,...(project?{project}:{}),...(scope?{scope}:{}),...options});
+  window.history.pushState(null,'','?'+query);
+}
+function openedCreativeTarget(id,project,episode){
+  if(project!==state.project||typeof window==='undefined')return;
+  episodeScope=episode||null;const route=currentEntry();if(id)route.set('task_target',id);else route.delete('task_target');if(episode)route.set('episode',episode);else route.delete('episode');window.history.replaceState(null,'','?'+route);updateShell(state.view);
+}
+function updateShell(view){
+  const full=['creative-canvas','classic-production','intelligent-creation','intelligent-storyboard','editing','blocking','previs','library'].includes(view);
+  document.body?.classList.toggle('production-shell',full);
+  document.querySelectorAll('.workspace').forEach(n=>n.classList.toggle('full-workspace',full));
+  const nav=$('production-navigation');if(!nav)return;nav.hidden=!full;
+  for(const a of nav.querySelectorAll('a')){const page=a.dataset.productionPage,kind=a.dataset.kind;const q=new URLSearchParams({page,...(state.project?{project:state.project}:{}),...(episodeScope?{episode:episodeScope}:{}),...(state.object?{scope:state.object}:{}),...(kind?{kind}:{})});a.href='?'+q;if(page===view&&(!kind||kind===(currentEntry().get('kind')||'video')))a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');}
+}
+function renderRecentProjects(rows){
+  const recent=$('recent-projects');if(!recent)return;recent.replaceChildren();
+  for(const row of rows.filter(r=>!['vsc.text-tools','vsc.creative-tools'].includes(r.profile_id||r.profile)).slice(0,8)){const a=el('a','recent-project',row.name);a.href='?'+new URLSearchParams({page:'project',project:row.id});a.title=row.name;recent.append(a);}
+  if(!recent.children.length)recent.append(el('p','hint','还没有项目'));
+}
 async function loadProductionPlatform(){
   if(state.view==='production'&&!episodeScope)episodeScope=state.object;
-  if(!productionPlatform){const {createProductionPlatform}=await import('./production-platform.js');productionPlatform=createProductionPlatform($('production-platform'),{api,notice,projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable,writeAvailable:state.writeAvailable}),setRevision:(value,project)=>{if(project===state.project&&value!=null)state.revision=value;},navigate:async(page,scope=state.object,project=state.project)=>{if(['text-tools','creative-tools'].includes(page)&&!project){state.project=null;state.object=null;episodeScope=null;state.view=page;await loadProjects();return;}if(page==='production')episodeScope=scope;if(page==='project')episodeScope=null;state.view=page;await selectProject(project,{scope});},created:async id=>{state.project=id;state.object=null;state.view='project';await loadProjects();},media:openMedia,artifact:async id=>{await switchView('artifacts');await openArtifact(id);},settings:openResourceSettings,memory:openRoleMemory,account:()=>$('session-dialog').showModal()});}
-  await productionPlatform.load({page:state.view,project:state.project,object:state.object});
+  if(!productionPlatform){const {createProductionPlatform}=await import('./production-platform.js');productionPlatform=createProductionPlatform($('production-platform'),{api,notice,projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable,writeAvailable:state.writeAvailable}),setRevision:(value,project)=>{if(project===state.project&&value!=null)state.revision=value;},navigate:async(page,scope=state.object,project=state.project,options={})=>{setEntryOptions(page,project,scope,options);if(options.episode)episodeScope=options.episode;if(['text-tools','creative-tools'].includes(page)&&!project){state.project=null;state.object=null;episodeScope=null;state.view=page;await loadProjects();return;}if(page==='production')episodeScope=scope;if(page==='project')episodeScope=null;state.view=page;await selectProject(project,{scope});},created:async(id,page='project')=>{state.project=id;state.object=null;state.view=page;await loadProjects();},media:openMedia,artifact:async id=>{await switchView('artifacts');await openArtifact(id);},settings:openResourceSettings,memory:openRoleMemory,account:()=>$('session-dialog').showModal()});}
+  await productionPlatform.load({page:state.view,project:state.project,object:state.object,tab:currentEntry().get('tab'),create:currentEntry().get('create')});
 }
 async function loadCustomView(view){
   const project=state.project,object=state.object,ticket=++customViewRequest;
@@ -69,17 +90,17 @@ async function loadCustomView(view){
     if(!projectManagement){const {createProjectManagement}=await import('./project-management.js');projectManagement=createProjectManagement($('project-management-view'),{api,notice,onScope:(p,row)=>{state.project=p;state.object=null;episodeScope=null;$('tree').replaceChildren();state.treeNodes=[];if(p&&!state.projectRows.has(p))$('projects').append(new Option((row?.name||'项目')+' · 已回收',p));if(p)$('projects').value=p;else{$('projects').prepend(new Option('请选择项目',''));$('projects').value='';}syncRoute();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},onProjectsChanged:async()=>{const listing=await api('/api/v1/projects');state.projectRows=new Map(listing.items.map(r=>[r.id,r]));$('projects').replaceChildren();for(const row of listing.items){const option=new Option(row.name,row.id);$('projects').append(option);}if(state.projectRows.has(state.project))$('projects').value=state.project;else if(state.project){$('projects').append(new Option('当前项目已回收',state.project));$('projects').value=state.project;}},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});},media:openMedia});}
     if(ticket===customViewRequest&&view===state.view)await projectManagement.load({project});
   }else if(view==='creative-canvas'){
-    if(!creativeCanvasPanel){const {createCreativeCanvasPanel}=await import('./creative-canvas.js');creativeCanvasPanel=createCreativeCanvasPanel({api,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
+    if(!creativeCanvasPanel){const {createCreativeCanvasPanel}=await import('./creative-canvas.js');creativeCanvasPanel=createCreativeCanvasPanel({opened:openedCreativeTarget,api,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await creativeCanvasPanel.load($('creative-canvas-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),currentEntry().get('task_target'));
   }else if(view==='blocking'||view==='previs'){
     if(!spatialScenePanel){const {createSpatialScenePanel}=await import('./spatial-scene.js');spatialScenePanel=createSpatialScenePanel({api,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await spatialScenePanel.load($('spatial-scene-view'),project,view==='blocking'?'blocking':'previs',currentEntry().get('task_target'));
   }else if(view==='creative-tools'){
-    if(!creativeTools){const {createCreativeTools}=await import('./creative-tools.js');creativeTools=createCreativeTools($('creative-tools-view'),{api,projects:()=>[...state.projectRows.values()],activateWorkspace:async(p,episode)=>{state.project=p;state.object=null;episodeScope=episode;state.view='creative-tools';await loadProjects();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
-    if(ticket===customViewRequest&&view===state.view)await creativeTools.load({project,object:object||episodeScope});
+    if(!creativeTools){const {createCreativeTools}=await import('./creative-tools.js');creativeTools=createCreativeTools($('creative-tools-view'),{api,projects:()=>[...state.projectRows.values()],activateWorkspace:async(p,episode)=>{state.project=p;state.object=null;episodeScope=episode;state.view='creative-tools';setEntryOptions('creative-tools',p,null,{...(currentEntry().get('tool')?{tool:currentEntry().get('tool')}:{}),...(episode?{episode}:{})});await loadProjects();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
+    if(ticket===customViewRequest&&view===state.view)await creativeTools.load({project,object:object||episodeScope,tool:currentEntry().get('tool')});
   }else if(view==='text-tools'){
     if(!textTools){const {createTextTools}=await import('./text-tools.js');textTools=createTextTools($('text-tools-view'),{api,activateWorkspace:async(p,unitId=null)=>{state.project=p;state.object=null;episodeScope=null;state.view='text-tools';const url=new URL(location.href);if(unitId)url.searchParams.set('task_target',unitId);else url.searchParams.delete('task_target');url.searchParams.set('project',p);url.searchParams.set('page','text-tools');history.replaceState(null,'',url);await loadProjects();},openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
-    if(ticket===customViewRequest&&view===state.view)await textTools.load({project,object:episodeScope||object,targetId:currentEntry().get('task_target')});
+    if(ticket===customViewRequest&&view===state.view)await textTools.load({project,object:episodeScope||object,targetId:currentEntry().get('task_target'),tool:currentEntry().get('tool')});
   }else if(view==='media-imports'){
     const {createMediaImports}=await import('./media-imports.js');if(ticket!==customViewRequest||view!==state.view)return;
     mediaImports?.suspend();mediaImports=createMediaImports({root:$('media-imports-view'),api,project,initialBatchId:currentEntry().get('task_target'),episodeId:episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable}),onChange:value=>{if(project===state.project&&value.revision!=null)state.revision=value.revision;}});await mediaImports.load();
@@ -99,11 +120,11 @@ async function loadCustomView(view){
     if(!assetCenter){const {createAssetCenter}=await import('./asset-center.js');assetCenter=createAssetCenter($('asset-center-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),projects:()=>[...state.projectRows.values()],projectId:()=>state.project,setRevision:(value,p)=>{if(!p||p===state.project)state.revision=value;},workspaces:async()=>(await api('/api/v1/access')).workspaces});}
     if(ticket===customViewRequest&&view===state.view)await assetCenter.load();
   }else if(['intelligent-creation','intelligent-storyboard'].includes(view)){
-    if(!intelligentProduction){const {createIntelligentProductionPanel}=await import('./intelligent-production.js');intelligentProduction=createIntelligentProductionPanel({api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
+    if(!intelligentProduction){const {createIntelligentProductionPanel}=await import('./intelligent-production.js');intelligentProduction=createIntelligentProductionPanel({opened:openedCreativeTarget,api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await intelligentProduction.load($('intelligent-production-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),view==='intelligent-storyboard'?'storyboard':'creation',currentEntry().get('task_target'));
   }else if(view==='classic-production'){
-    if(!classicProduction){const {createClassicProduction}=await import('./classic-production.js');classicProduction=createClassicProduction($('classic-production-view'),{api,notice,nodes:()=>state.treeNodes,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},navigate:async(page,id)=>{state.object=id;await switchView(page);},onShot:id=>{state.object=id;syncRoute();},media:openMedia,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
-    if(ticket===customViewRequest&&view===state.view)await classicProduction.load({projectId:project,objectId:object,episodeId:episodeScope});
+    if(!classicProduction){const {createClassicProduction}=await import('./classic-production.js');classicProduction=createClassicProduction($('classic-production-view'),{api,notice,nodes:()=>state.treeNodes,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},navigate:async(page,id)=>{state.object=id;await switchView(page);},onShot:(id,episode)=>{state.object=id;if(episode)episodeScope=episode;syncRoute();updateShell(state.view);},media:openMedia,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
+    if(ticket===customViewRequest&&view===state.view)await classicProduction.load({projectId:project,objectId:object,episodeId:episodeScope,productionKind:currentEntry().get('kind')||'video',mode:currentEntry().get('mode')||undefined});
   }else if(view==='editing'){
     const {createEditWorkspace}=await import('./edit-workspace.js');if(ticket!==customViewRequest||view!==state.view)return;
     editWorkspace=createEditWorkspace({root:$('edit-workspace-view'),api,project,episodeId:episodeScope||object,session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),onArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},onChange:()=>notice('剪辑工作稿已更新。')});await editWorkspace.load?.();
@@ -291,15 +312,16 @@ async function switchView(view, focus = null) {
   document.querySelectorAll('.layout').forEach(n=>n.classList.toggle('platform-mode',platform));
   if(!['workbench','candidates','delivery'].includes(view))creativeWorkbench?.suspend?.();
   state.view = view;
+  updateShell(view);
   if(view!=='collection')sharedLibrary?.suspend();
   const assisted=mainViews.includes(view);
-  if(assisted||platform||['intelligent-creation','intelligent-storyboard'].includes(view))state.primary=view;else assistedDesk?.suspend();
+  if(assisted||platform||['intelligent-creation','intelligent-storyboard','asset-center','project-management'].includes(view))state.primary=view;else assistedDesk?.suspend();
   $('assisted-desk').hidden=!assisted;
   $('specialist-tabs').hidden=assisted||platform;$('specialist-heading').hidden=assisted||platform;
-  document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('assisted-mode',assisted||platform));
+  document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('assisted-mode',assisted||platform||custom));
   document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('object-production',['workbench','candidates','delivery','designs','library'].includes(view)));
   if($('specialist-tools'))$('specialist-tools').open=false;
-  for(const key of navViews){const link=$(`nav-${key}`);link.href='?'+new URLSearchParams({page:key,...(state.project?{project:state.project}:{}),...(state.object?{scope:state.object}:{})});if(key===state.primary || key==='projects'&&['project','production'].includes(state.primary))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+  for(const key of navViews){const link=$(`nav-${key}`);if(!link)continue;link.href='?'+new URLSearchParams({page:key,...(!['home','projects','asset-center','project-management'].includes(key)&&state.project?{project:state.project}:{}),...(!['home','projects','asset-center','project-management'].includes(key)&&state.object?{scope:state.object}:{})});if(key===state.primary || key==='projects'&&['project','production'].includes(state.primary))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
   if(!assisted)syncRoute();
   if(view!=='source')sourceIntake?.suspend();if(view!=='designs')designWorkspace?.suspend();if(view!=='library')resourceLibrary?.suspend();
   document.querySelectorAll('.workspace').forEach(node=>{node.classList.toggle('reading-artifacts',view==='artifacts');node.classList.toggle('reading-production',['source','designs','library'].includes(view));});
@@ -321,7 +343,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&previous.get('project')===state.project&&(previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line','task_target'])if(previous.get(key))route.set(key,previous.get(key));
+  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
@@ -346,22 +368,23 @@ async function loadScope() {
 async function loadProjects() {
   const data = await api('/api/v1/projects');
   state.projectRows=new Map(data.items.map(row=>[row.id,row]));
+  renderRecentProjects(data.items);
   $('projects').replaceChildren();
   for (const project of data.items) {
     const option = el('option', '', project.name + (project.unavailable ? ' · 权威不可用' : ''));
     option.value = project.id; $('projects').append(option);
   }
-  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', '没有已登记项目')); await switchView(['collection','access','access-share','asset-center','project-management','text-tools','creative-tools'].includes(state.view)?state.view:'projects');return; }
+  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', '没有已登记项目')); await switchView(['home','projects','collection','access','access-share','asset-center','project-management','text-tools','creative-tools'].includes(state.view)?state.view:'projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
   if(['text-tools','creative-tools'].includes(state.view)&&!state.project){$('projects').prepend(new Option('独立工具 · 未选择影视项目',''));$('projects').value='';await switchView(state.view);syncRoute();return;}
-  if(['collection','project-management'].includes(state.view)){await switchView(state.view);syncRoute();return;}
+  if(['home','projects','collection','project-management','asset-center'].includes(state.view)){await switchView(state.view);syncRoute();return;}
   await selectProject($('projects').value);
 }
 async function selectProject(id,{scope}={}) {
   editWorkspace?.suspend?.();
   if(!id){state.project=null;state.object=null;await switchView(state.view);return;}
   if (state.project !== id) {
-    productionPlatform?.suspend();creativeCanvasPanel?.suspend();classicProduction?.suspend();spatialScenePanel?.suspend();creativeTools?.suspend();textTools?.suspend();mediaImports?.suspend();accessControl?.suspend();teamReview?.suspend();commerce?.suspend();assetCenter?.suspend();serviceOperations?.suspend();intelligentProduction?.suspend();projectManagement?.suspend();episodeScope=null;
+    productionPlatform?.suspend();creativeCanvasPanel?.suspend();classicProduction?.suspend();spatialScenePanel?.suspend();creativeTools?.suspend();textTools?.suspend();mediaImports?.suspend();accessControl?.suspend();teamReview?.suspend();commerce?.suspend();assetCenter?.suspend();serviceOperations?.suspend();intelligentProduction?.suspend();projectManagement?.suspend();episodeScope=currentEntry().get('project')===id?currentEntry().get('episode'):null;
     assistedDesk?.suspend();
     sourceIntake?.suspend();designWorkspace?.suspend();resourceLibrary?.suspend();
     state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});
@@ -724,7 +747,7 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const key of navViews)$(`nav-${key}`).addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await switchView(key);}));
+for(const key of navViews)$(`nav-${key}`)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(['home','projects','asset-center','project-management'].includes(key)){state.project=null;state.object=null;episodeScope=null;}await switchView(key);}));
 $('back-to-desk').addEventListener('click',guard(()=>switchView(episodeScope?'production':state.primary)));
 if($('specialist-tools'))$('specialist-tools').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();$('specialist-tools').open=false;$('specialist-tools').querySelector('summary').focus();}});
 for(const tab of ['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
@@ -739,12 +762,13 @@ $('commerce-open').addEventListener('click',guard(()=>switchView('commerce')));
 $('project-management-open').addEventListener('click',guard(()=>switchView('project-management')));
 $('service-operations-open').addEventListener('click',guard(()=>switchView('service-operations')));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));
+$('new-canvas-project')?.addEventListener('click',guard(async()=>{setEntryOptions('home',null,null,{create:'canvas'});state.project=null;state.object=null;await switchView('home');}));
 $('session-form').addEventListener('submit',guard(async event=>{event.preventDefault();const session=await api('/api/v1/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:$('session-token').value})});$('session-token').value='';applySession(session);$('session-dialog').close();const selectedArtifact=state.selectedArtifact;await loadProjects();if(state.view==='artifacts'&&selectedArtifact)await openArtifact(selectedArtifact);}));
 $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());
 $('upload-form').addEventListener('submit',guard(async event=>{event.preventDefault();const file=$('upload-file').files[0];if(!file)throw new Error('请选择文件');const rights=$('upload-rights').value;const scope=$('upload-scope').value.split(',').map(value=>value.trim()).filter(Boolean);if(rights!=='unknown' && !scope.length)throw new Error('请明确填写权利适用的用途');const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const receipt=await api(`${base()}/uploads`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name),'X-CSRF-Token':state.csrf},body:file});const result=await api(`${base()}/media`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{staged_upload:receipt.staged_upload,name:file.name,rights,rights_scope:{purposes:scope},source:{kind:'user_upload',content:$('upload-source').value}},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('upload-dialog').close();event.target.reset();await loadResources();notice('素材已转存并登记，尚未绑定或批准用途。');}finally{button.disabled=false;}}));
 if(typeof window!=='undefined'){
   window.addEventListener('beforeunload',event=>{if(assistedDesk?.hasDrafts()){event.preventDefault();event.returnValue='';}});
-  window.addEventListener('popstate',guard(async()=>{const route=currentEntry();state.view=[...mainViews,...platformViews,...customViews,...specialistViews].includes(route.get('page'))?route.get('page'):'projects';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');episodeScope=route.get('episode');restoringDeskRoute=true;try{await selectProject(route.get('project')||state.project,{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
+  window.addEventListener('popstate',guard(async()=>{const route=currentEntry();state.view=[...mainViews,...platformViews,...customViews,...specialistViews].includes(route.get('page'))?route.get('page'):'home';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');episodeScope=route.get('episode');restoringDeskRoute=true;try{await selectProject(route.get('project')||state.project,{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
 }
 guard(async()=>{
   let session;

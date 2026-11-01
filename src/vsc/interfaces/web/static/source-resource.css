@@ -45,7 +45,7 @@
 .resource-model-filter select{flex:1 1 130px;width:auto}
 .resource-model-filter button{flex:0 0 auto}
 .resource-model-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.8rem;align-items:start}
-.resource-model-card{min-width:0;border:1px solid var(--line);border-radius:9px;background:white;padding:1rem;overflow-wrap:anywhere}
+.resource-model-card{min-width:0;border:1px solid var(--line);border-radius:9px;background:var(--surface-2,#131313);padding:1rem;overflow-wrap:anywhere}
 .resource-model-card h3{margin:0 0 .6rem;font-size:1rem}
 .resource-model-card details{margin-top:.8rem}
 .resource-model-card .production-actions{margin-top:.8rem}

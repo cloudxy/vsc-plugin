@@ -1,0 +1,84 @@
+{
+  "purpose": "Decorative reference-interface art; these files are not VSC generated outputs or project media.",
+  "assets": [
+    {
+      "file": "agent.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "a65f49e85baf5e218b0df9e5476229d9e10c40b7d864d08eced74c54104c71c5",
+      "bytes": 3132
+    },
+    {
+      "file": "aimv.jpg",
+      "source": "https://static.skyproduction.cn/index_video/v6/aimv1.jpg",
+      "sha256": "aea1873ee699bcae94b0ac24fe10f1eafe46e81f67bf9222048080c0f3afcc2a",
+      "bytes": 82369
+    },
+    {
+      "file": "breakdown.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "4ba00d63eb245b47db513e505b9ec31ab6f6b652ee804a9bfeb1bc3eaebc8e93",
+      "bytes": 3419
+    },
+    {
+      "file": "canvas.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "f4b84b668ed5c0569377f30f9ba4b01951aa5f10dc2d3713fd4fb84f5255f8bb",
+      "bytes": 477,
+      "adaptation": "fixed foreground color for external SVG rendering"
+    },
+    {
+      "file": "image.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "bb8fc01924521623d42f550bf10145ad695e23c120f83d5375c71adc4b27fe6e",
+      "bytes": 2470
+    },
+    {
+      "file": "long-video.jpg",
+      "source": "https://static.skyproduction.cn/index_video/v6/2-1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_600,m_fast",
+      "sha256": "436421f47960de9bea1ac91295d8ce37b1005ceabdc95fe2f1667a2daeca658f",
+      "bytes": 62560
+    },
+    {
+      "file": "motion.jpg",
+      "source": "https://static.skyproduction.cn/motioncomic/canvas/video-depth/20260910/5fd60cda3c8b4d3f/output.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_600,m_fast",
+      "sha256": "654f8d760e85de7facb60f9f5220ca1883152b00b8ba86c739414be7b5db2eed",
+      "bytes": 19596
+    },
+    {
+      "file": "novel.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "0850379b56e8a5d4f9534966af45f9b1bcf9fb764a73ccd8f4acd5fc6ecb9e2c",
+      "bytes": 2753
+    },
+    {
+      "file": "qc.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "351d9a328623d0ae4e8b8f2d83b625a046909b4caf49e6b8cfc7fc734799fcd8",
+      "bytes": 2626
+    },
+    {
+      "file": "remake.jpg",
+      "source": "https://static.skyproduction.cn/index_video/v6/1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_600,m_fast",
+      "sha256": "f3ca392a779e2f8abc3a831c53ac9a539dd815b985b4bbc19316fdecfb1510d2",
+      "bytes": 58282
+    },
+    {
+      "file": "scoring.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "bf125aaf5ef771a9d52e6d577f4b5f5b193568183def95693bc9e6dcc6e4dbcf",
+      "bytes": 4598
+    },
+    {
+      "file": "translation.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "742a225a16128b0fe52511a5c14bf60c64f543bc8f366fb61e02542fffe635a2",
+      "bytes": 7774
+    },
+    {
+      "file": "video.svg",
+      "source": "Supplied Tian Gong homepage icon registry",
+      "sha256": "e5557eaf3a9af2a094296624c748d6e243f5b55d95d9012291654497c2b9c5e5",
+      "bytes": 3549
+    }
+  ]
+}

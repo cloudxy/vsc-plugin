@@ -39,13 +39,13 @@ export function createProjectManagement(root,ctx){
     dialog.append(f);root.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();
   }
   function render(){
-    if(!data)return;root.replaceChildren();const head=el('header');head.append(el('h1','项目目录与回收'),el('p','归类不改变原层级或固定身份；跨项目复制仍从原导入入口进行。','hint'));root.append(head);
+    if(!data)return;root.replaceChildren();const head=el('header');head.append(el('h1',project?'项目管理':'回收站'),el('p',project?'管理项目名称、文件夹与留存设置':'查看已回收的项目，恢复后可继续创作','hint'));root.append(head);
     const choices=el('select');choices.setAttribute('aria-label','管理项目');choices.append(new Option('请选择项目',''));for(const r of data.projects)choices.append(new Option(r.name+(r.state==='trashed'?' · 已回收':''),r.id));choices.value=project||'';choices.onchange=()=>{const next=choices.value||null;ctx.onScope?.(next,data.projects.find(r=>r.id===next));filters={folder:'',kind:'',q:'',offset:0};load({project:next});};root.append(choices,button('刷新管理状态',()=>load({project,keepFilters:true})));
-    if(!project||!data.project){root.append(el('p','选择可见项目；回收项目也可从这里恢复。'));return;}
+    if(!project||!data.project){const grid=el('div',null,'management-recycled');for(const row of data.projects.filter(r=>r.state==='trashed')){const card=el('article',null,'management-recycled-card'),cover=el('div','▤','management-cover');card.append(cover,el('h3',row.name),button('查看与恢复',async()=>{ctx.onScope?.(row.id,row);await load({project:row.id});}));grid.append(card);}if(!grid.children.length)grid.append(el('div','回收站为空','management-empty'));root.append(grid);return;}
     const pendingRequest=pending.get(scopeKey());if(pendingRequest){const recovery=el('aside',null,'management-recovery');recovery.append(el('p',busy?'正在提交固定操作…':'上次操作回执未知，保留原输入与请求标识。'),button('恢复原操作回执',()=>write(null,true),busy));root.append(recovery);}
     const summary=el('section',null,'management-card');summary.append(el('h2',data.project.name),el('p',data.state==='active'?'项目可用':data.state==='trashed'?'项目已回收；固定历史仍可读，恢复后继续工作。':'项目永久停用，保留审计。'));
     const target={type:'project',id:project,title:data.project.name};if(data.state==='active')summary.append(button('回收此项目',()=>lifecycle(target,'trash'),busy));else if(data.state==='trashed')summary.append(button('恢复此项目',()=>lifecycle(target,'restore'),busy),button('永久停用此项目',()=>lifecycle(target,'purge'),busy));root.append(summary);
-    const layout=el('div',null,'management-grid');root.append(layout);
+    const layout=el('div',null,'management-grid'),settings=el('details',null,'management-settings');settings.append(el('summary','项目名称、文件夹与留存设置'),layout);root.append(settings);
     if(data.state==='active'){
       const rename=form('项目名称'),title=field(rename,'项目名称',el('input'),'project-name',data.project.name);title.required=true;title.maxLength=200;if(title.value!==data.project.name)rename.append(el('p','名称有未保存修改。','hint'));submit(rename,'保存项目名称',()=>({operation:'rename',title:title.value}));layout.append(rename);
       const create=form('新建文件夹'),folderTitle=field(create,'文件夹名称',el('input'),'new-folder');folderTitle.required=true;folderTitle.maxLength=200;const parent=field(create,'上级文件夹',selector(),'new-parent');submit(create,'创建文件夹',()=>({operation:'folder_create',title:folderTitle.value,parent_id:parent.value||null}));layout.append(create);

@@ -1,1 +1,1 @@
-.team-review nav{display:flex;flex-wrap:wrap;gap:8px}.team-review article>p{font-family:ui-monospace,monospace;overflow-wrap:anywhere}.team-review section{border-top:1px solid #ddd;padding-top:12px;margin-top:12px}.team-review textarea{min-height:90px;resize:vertical}
+.team-review nav{display:flex;flex-wrap:wrap;gap:8px}.team-review article>p{font-family:ui-monospace,monospace;overflow-wrap:anywhere}.team-review section{border-top:1px solid var(--line-1,#343435);padding-top:12px;margin-top:12px}.team-review textarea{min-height:90px;resize:vertical}

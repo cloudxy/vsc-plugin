@@ -224,6 +224,49 @@ class ClassicProductionTests(ResourceStoreFixture, unittest.TestCase):
 
 
 class ClassicProductionFrontendTests(unittest.TestCase):
+    def test_first_shot_creation_resumes_group_after_reload(self):
+        import shutil
+        import subprocess
+        from support.paths import ROOT
+        if not shutil.which('node'):
+            self.skipTest('requires Node')
+        source = r"""
+import assert from 'node:assert/strict';
+import {pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
+globalThis.document=new Document('');
+globalThis.Option=function(label,value){const n=document.createElement('option');n.textContent=label;n.value=value;return n;};
+const storage=new Map();globalThis.sessionStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
+Object.defineProperty(Element.prototype,'isConnected',{get(){return !!this.parentElement;}});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;this.dispatch('close');};
+const root=document.createElement('section');document.body.append(root);
+const {createClassicProduction}=await import(pathToFileURL(process.cwd()+'/src/vsc/interfaces/web/static/classic-production.js'));
+const objects=[],attempts=[],receipts=new Map(),notices=[],opened=[];let revision=1,loseSequence=true;
+const api=async(url,opts)=>{
+ if(url.endsWith('/tree'))return {revision,nodes:[{id:'episode',kind:'episode'},...objects]};
+ if(url.endsWith('/objects')){const request=JSON.parse(opts.body);attempts.push(request);if(receipts.has(request.idempotency_key))return receipts.get(request.idempotency_key);
+   const row={...request.payload,revision:++revision};objects.push(row);receipts.set(request.idempotency_key,row);if(row.kind==='sequence'&&loseSequence){loseSequence=false;throw new Error('lost sequence receipt');}return row;}
+ if(url.includes('section=shots'))return {scope:{kind:'episode',id:'episode'},ancestors:[],sections:{shots:{items:objects.filter(row=>row.kind==='shot')}}};
+ if(url.includes('classic-production?'))return {shot:objects.find(row=>row.kind==='shot'),sibling_shots:objects.filter(row=>row.kind==='shot'),revision,drafts:[],models:[],media:[],modes:{image:{label:'分镜图像',modality:'image',slots:{reference_image:'image'}}}};
+ if(url.includes('/execution-authorizations'))return {items:[]};return {sections:{candidates:{items:[]}}};
+};
+const ctx={api,session:()=>({actor:'operator',csrf:'csrf',writable:true,revision}),setRevision:value=>revision=value,notice:value=>notices.push(value),onShot:(...args)=>opened.push(args),navigate(){},media(){}};
+const button=title=>root.querySelectorAll('button').find(row=>row.textContent===title),control=label=>root.querySelectorAll('input').find(row=>row.getAttribute('aria-label')===label);
+let app=createClassicProduction(root,ctx);await app.load({projectId:'project',episodeId:'episode',productionKind:'image'});
+assert.ok(root.querySelector('.classic-layout'));await button('＋新增分镜').click();
+control('镜组名称').value='保留的镜组名称';await control('镜组名称').dispatch('input');await root.querySelector('form').dispatch('submit');
+assert.equal(objects.length,2);assert.ok(root.textContent.includes('lost sequence receipt'));assert.equal(storage.size,1);app.suspend();
+// Recreating the controller models a refreshed page: the original Map is gone.
+app=createClassicProduction(root,ctx);await app.load({projectId:'project',episodeId:'episode',productionKind:'image'});await button('＋新增分镜').click();
+assert.equal(control('镜组名称').value,'保留的镜组名称');await root.querySelector('form').dispatch('submit');
+assert.deepEqual(objects.map(row=>row.kind),['scene','sequence','shot']);assert.equal(attempts[1].idempotency_key,attempts[2].idempotency_key);assert.deepEqual(attempts[1],attempts[2]);
+assert.equal(storage.size,0);assert.deepEqual(opened.at(-1),[objects[2].id,'episode']);assert.ok(root.textContent.includes('生成分镜方式'));app.suspend();
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_mode_buffers_stable_retries_and_old_scope_responses(self):
         import shutil
         import subprocess
@@ -244,6 +287,7 @@ const module=await import(pathToFileURL(process.cwd()+'/src/vsc/interfaces/web/s
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};};
 const late=deferred();let count=0,revision=5;
 const fixture=shot=>({shot:{id:shot,title:shot},revision:5,drafts:[],models:[],media:[],media_total:0,modes:{
+ image:{label:'分镜图像',modality:'image',slots:{reference_image:'image'}},
  single:{label:'单图生视频',modality:'video',slots:{first_frame:'image'}},
  text:{label:'文生视频',modality:'video',slots:{}}
 }});
@@ -266,6 +310,22 @@ prompt=form.querySelector('textarea');prompt.value='待保存旧镜头';await fo
 const save=form.dispatch('submit');await Promise.resolve();await app.load({projectId:'p',objectId:'other'});
 const noteCount=notes.length;late.reject(new Error('old failure'));await save;
 assert.equal(notes.length,noteCount);assert.ok(!root.textContent.includes('old failure'));assert.equal(root.querySelector('textarea').value,'');app.suspend();
+// Image and video entries share persistence but show only their own controls.
+await app.load({projectId:'p',objectId:'shot',productionKind:'image'});
+assert.ok(root.textContent.includes('生成分镜方式'));assert.equal(button('文生视频'),undefined);
+await app.load({projectId:'p',objectId:'shot',productionKind:'video'});
+assert.ok(root.textContent.includes('生成视频方式'));assert.equal(button('分镜图像'),undefined);app.suspend();
+// The compact preview action must save successfully before quoting fixed input.
+let failDraft=true,previewCalls=0;const attempts=[];
+const compact=module.createClassicProduction(root,{api:async(url,opts)=>{
+ if(url.endsWith('/drafts')){attempts.push(JSON.parse(opts.body));if(failDraft){failDraft=false;throw new Error('save unavailable');}}
+ if(url.endsWith('/preview')){previewCalls++;return {revision:6,ready:false,gaps:[]};}
+ return api(url,opts);
+},session:()=>({actor:'human',csrf:'x',revision,writable:true}),setRevision:v=>revision=v,notice:v=>notes.push(v),navigate(){},media(){},openArtifact(){}});
+await compact.load({projectId:'p',objectId:'shot'});
+form=root.querySelector('form');prompt=form.querySelector('textarea');prompt.value='预览前必须保存';await form.dispatch('input',{target:prompt});
+await button('预览生成').click();assert.equal(previewCalls,0);assert.equal(prompt.value,'预览前必须保存');
+await button('预览生成').click();assert.equal(previewCalls,1);assert.equal(attempts[0].idempotency_key,attempts[1].idempotency_key);compact.suspend();
 console.log('PASS mode buffers, idempotent retry and old write isolation');
 """
         result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
