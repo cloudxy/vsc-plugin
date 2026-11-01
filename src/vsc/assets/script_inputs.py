@@ -5,6 +5,13 @@ import json
 def editor_inputs(service, project_id, draft):
     dependencies = draft.get("submission_context", {}).get("dependencies", [])
     plans = [row for row in dependencies if row["artifact_type"] == "vsc.adaptation_plan"]
+    template = {"format": "vsc.screenplay/v1", "body": "", "scenes": [],
+        "adaptation_refs": [{"id": pin["id"], "sha256": pin["sha256"]} for pin in plans]}
+    if not plans and not draft['exists']:
+        profile = service.get_project(project_id).get("profile_snapshot", {})
+        briefs = [row for row in dependencies if row["artifact_type"] == "vsc.creative_brief"]
+        if profile.get("production_policy") == "light-short-v1" and len(briefs) == 1:
+            template.update(source_mode="original", original_brief={key: briefs[0][key] for key in ("id", "sha256")})
     choices, narrative = [], {}
     for pin in plans:
         value = service.get_artifact_version(project_id, pin["id"])["document"]
@@ -28,8 +35,7 @@ def editor_inputs(service, project_id, draft):
         draft['choices_truncated'] = choices_data['scenes_truncated']
         draft['narrative_choices'] = narrative
         if not draft['exists']:
-            draft['template_content'] = {"format": "vsc.screenplay/v1", "body": "", "scenes": [],
-                "adaptation_refs": [{"id": pin['id'], "sha256": pin['sha256']} for pin in plans]}
+            draft['template_content'] = template
         return draft
     nodes = service.get_project_tree(project_id)["nodes"]
     selected = {draft["scope_key"]} if draft["scope_key"] else {row["id"] for row in nodes}
@@ -42,6 +48,5 @@ def editor_inputs(service, project_id, draft):
     draft["character_choices"] = [{"id": row["id"], "label": row.get("title") or row.get("display_code")}
         for row in nodes if row["kind"] == "asset" and row.get("asset_kind") == "character"]
     if not draft["exists"]:
-        draft["template_content"] = {"format": "vsc.screenplay/v1", "body": "", "scenes": [],
-            "adaptation_refs": [{"id": pin["id"], "sha256": pin["sha256"]} for pin in plans]}
+        draft["template_content"] = template
     return draft

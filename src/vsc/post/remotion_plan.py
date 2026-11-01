@@ -238,6 +238,8 @@ def validate(plan):
                 errors.append(f"{label}.source 必须是 public/ 下的安全相对路径")
         if kind in {"video", "image"}:
             visual_seen = True
+            if not isinstance(segment.get('fit','cover'),str) or segment.get('fit','cover') not in {'cover','contain'}:
+                errors.append(f"{label}.fit 必须为 cover 或 contain")
             if not text(segment.get("source_shot_id")):
                 errors.append(f"{label}.source_shot_id 必须回指 VSC 镜头")
         motion = segment.get("still_motion")
@@ -388,6 +390,7 @@ export type Segment = {
   subtitle_style?: {position: 'bottom' | 'top' | 'center' | 'custom'; custom_position?: number};
   source_shot_id?: string; source_in_frame?: number; source_duration_in_frames?: number;
   handle_in_frames?: number; handle_out_frames?: number;
+  fit?: 'cover' | 'contain';
   fade_in_frames?: number; fade_out_frames?: number; volume?: number; muted?: boolean;
   audio_fade_in_frames?: number; audio_fade_out_frames?: number;
   volume_keyframes?: {frame: number; volume: number}[];
@@ -521,7 +524,7 @@ const useSubtitleFont = (font: string | null) => {
 const Visual: React.FC<{segment: Segment}> = ({segment}) => {
   const frame = useCurrentFrame();
   const opacity = fadeGain(frame, segment.duration_in_frames, segment.fade_in_frames ?? 0, segment.fade_out_frames ?? 0);
-  if (segment.kind === 'video') return <Video src={staticFile(segment.source!)} trimBefore={segment.source_in_frame ?? 0} durationInFrames={segment.duration_in_frames} volume={volumeAtFrame(segment, frame)} muted={segment.muted ?? false} objectFit="cover" style={{width: '100%', height: '100%', opacity}} />;
+  if (segment.kind === 'video') return <Video src={staticFile(segment.source!)} trimBefore={segment.source_in_frame ?? 0} durationInFrames={segment.duration_in_frames} volume={volumeAtFrame(segment, frame)} muted={segment.muted ?? false} objectFit={segment.fit ?? 'cover'} style={{width: '100%', height: '100%', opacity}} />;
   if (segment.kind === 'image') {
     if (segment.overlay) {
       const overlay = overlayAtFrame(segment, frame);
@@ -531,7 +534,7 @@ const Visual: React.FC<{segment: Segment}> = ({segment}) => {
       </div>;
     }
     const motion = stillMotionAtFrame(segment, frame);
-    return <AbsoluteFill style={{overflow: 'hidden', opacity}}><Img src={staticFile(segment.source!)} style={{...mediaStyle,
+    return <AbsoluteFill style={{overflow: 'hidden', opacity}}><Img src={staticFile(segment.source!)} style={{...mediaStyle, objectFit: segment.fit ?? 'cover',
       transform: `translate(${motion.translateX}%, ${motion.translateY}%) scale(${motion.scale})`}} /></AbsoluteFill>;
   }
   return null;

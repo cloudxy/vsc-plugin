@@ -23,7 +23,8 @@ REQUEST_TYPES = {"image": ImageRequest, "video": VideoRequest, "audio": AudioReq
 class ResourceWorker:
     def __init__(self, service, adapter_factory, worker_id=None, download=None, *,
                  lease_seconds=300, poll_seconds=0, retry_seconds=0, max_retry_seconds=300,
-                 serialize=False, submit_allowed=None, managed_only=False):
+                 serialize=False, submit_allowed=None, managed_only=False,
+                 project_concurrency=1, provider_concurrency=1):
         if service.storage is None:
             raise ResourceError("生成消费者需要受控存储", "storage_required")
         self.service, self.storage = service, service.storage
@@ -34,6 +35,7 @@ class ResourceWorker:
         self.retry_seconds, self.serialize = retry_seconds, serialize
         self.max_retry_seconds, self.submit_allowed = max_retry_seconds, submit_allowed
         self.managed_only = managed_only
+        self.project_concurrency, self.provider_concurrency = project_concurrency, provider_concurrency
         self._active = None
         self._lease_error = None
         self.last_job = None
@@ -147,18 +149,28 @@ class ResourceWorker:
         self.last_job = None
         job = self.service.claim_generation_job(self.worker_id, project_id=project_id, statuses=statuses,
             lease_seconds=self.lease_seconds, serialize=self.serialize, managed_only=self.managed_only,
-            resume_storage=poll)
+            resume_storage=poll, project_concurrency=self.project_concurrency,
+            provider_concurrency=self.provider_concurrency)
         if not job:
             return None
         with self._leased(job):
-            return self._execute(job, poll)
+            try:
+                return self._execute(job, poll)
+            except ResourceError as exc:
+                if not poll and exc.code in {"production_deadline_reached", "production_attempts_exhausted"}:
+                    return self._write("update_generation_job", job["project_id"], {"job_id": job["id"],
+                        "status": "cancelled", "recovery_evidence": {"source": "bounded_execution_policy",
+                        "error_code": exc.code, "remote_cancelled": False}}, "bounded-stop:" + job["id"])
+                raise
 
     def _execute(self, job, poll):
         self._verify_inputs(job)
         adapter = self.adapter_factory(job, self.storage)
         started = time.monotonic()
         if not poll:
-            context = (self.service.compile_asset_context(job["project_id"], job["asset_id"], job["purpose"])
+            logical = job["request_payload"].get("logical_request", job["request_payload"])
+            context = (self.service.compile_asset_context(job["project_id"], job["asset_id"], job["purpose"],
+                           spec_version_id=logical.get("spec_version_id"))
                        if job.get("asset_id") else self.service.compile_shot_context(job["project_id"], job["shot_id"], job["purpose"]))
             if not context["ready"] or context["sha256"] != job["context_sha256"]:
                 raise ResourceError("任务固定输入已失效，须重编译后创建新候选", "stale_job")
@@ -205,7 +217,8 @@ class ResourceWorker:
             return job
         claimed = self.service.claim_generation_job(self.worker_id, project_id=project_id, job_id=job_id,
             statuses=("submitted", "running", "submission_unknown"), recovery=True,
-            lease_seconds=self.lease_seconds, serialize=self.serialize)
+            lease_seconds=self.lease_seconds, serialize=self.serialize,
+            project_concurrency=self.project_concurrency, provider_concurrency=self.provider_concurrency)
         if not claimed:
             raise Conflict("任务没有可恢复响应或仍被其他worker持有", "worker_lease_conflict")
         with self._leased(claimed):

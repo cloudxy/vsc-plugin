@@ -23,6 +23,10 @@ class ResourceModelService:
     def get_asset_usage(self, project_id, asset_id):
         return self.store.get_asset_usage(project_id, asset_id)
 
+    def preview_production_requirements(self, project_id, payload):
+        from vsc.assets.production_requirements import preview_requirements
+        return preview_requirements(self, project_id, payload)
+
     def classify_resource(self, project_id, payload, actor=None, **kw):
         from vsc.assets.resource_service import ResourceError, required
         if required(payload, "target_type") not in {"identity", "media", "artifact"}:

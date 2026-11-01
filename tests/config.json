@@ -1197,6 +1197,282 @@
         "src/vsc/post/resource_export.py",
         "templates/remotion-render-plan.json"
       ]
+    },
+    "production.unit.test_bounded_run": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/run_policy.py",
+        "src/vsc/production/bounded.py",
+        "src/vsc/project/plan_scope.py"
+      ]
+    },
+    "production.integration.test_bounded_runtime": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/runtime.py",
+        "src/vsc/production/bounded.py",
+        "src/vsc/adapters/persistence/postgres/production_store.py"
+      ]
+    },
+    "project.integration.test_production_platform": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/production_platform.py",
+        "src/vsc/adapters/persistence/postgres/production_platform.py",
+        "src/vsc/interfaces/web/production_platform.py",
+        "src/vsc/production/commerce_quote.py",
+        "src/vsc/interfaces/web/static/run-scope-controls.js"
+      ]
+    },
+    "assets.integration.test_creative_canvas": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/schema_canvas.py",
+        "src/vsc/adapters/persistence/postgres/schema_canvas_execution.py",
+        "src/vsc/production/canvas_execution.py"
+      ]
+    },
+    "project.integration.test_creative_canvas_web": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/interfaces/web/static/creative-canvas.js"
+      ]
+    },
+    "assets.integration.test_editor_workspace": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/post/edit_workspace.py",
+        "src/vsc/post/first_cut_worker.py",
+        "src/vsc/assets/editor_workspace.py",
+        "src/vsc/adapters/persistence/postgres/editor_workspace.py",
+        "src/vsc/adapters/persistence/postgres/schema_editor.py",
+        "src/vsc/interfaces/web/editor_workspace.py",
+        "src/vsc/interfaces/web/static/edit-workspace.js",
+        "src/vsc/post/edit_workspace_export.py",
+        "src/vsc/post/edit_workspace_handoff.py",
+        "src/vsc/adapters/persistence/postgres/editor_handoff.py",
+        "src/vsc/adapters/persistence/postgres/schema_editor_handoff.py",
+        "src/vsc/interfaces/web/static/edit-handoff.js"
+      ]
+    },
+    "assets.integration.test_production_requirements": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/production_requirements.py",
+        "src/vsc/assets/resource_model.py",
+        "src/vsc/adapters/persistence/postgres/resource_model.py"
+      ]
+    },
+    "project.integration.test_classic_production": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/interfaces/web/classic_production.py",
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/production/commerce_quote.py",
+        "src/vsc/interfaces/web/static/run-scope-controls.js",
+        "src/vsc/interfaces/web/static/reference-editor.js",
+        "src/vsc/production/image_tools.py"
+      ]
+    },
+    "assets.integration.test_creative_tools": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/creative_tools.py",
+        "src/vsc/adapters/persistence/postgres/creative_tools.py",
+        "src/vsc/interfaces/web/creative_tools.py",
+        "src/vsc/production/commerce_quote.py",
+        "src/vsc/interfaces/web/static/run-scope-controls.js",
+        "src/vsc/post/local_media_tools.py",
+        "src/vsc/interfaces/web/static/creative-tools.js",
+        "src/vsc/production/music_tools.py",
+        "src/vsc/adapters/persistence/postgres/schema_creative_tool_imports.py",
+        "migrations/postgres/versions/0033_creative_tool_imports.py"
+      ]
+    },
+    "production.unit.test_creative_tools": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/creative_tools.py"
+      ]
+    },
+    "assets.integration.test_spatial_scene": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/spatial_scene.py",
+        "src/vsc/adapters/persistence/postgres/spatial_scene.py",
+        "src/vsc/adapters/persistence/postgres/schema_spatial.py",
+        "src/vsc/post/spatial_export.py",
+        "src/vsc/production/spatial_planner.py",
+        "src/vsc/post/spatial_gltf.py",
+        "src/vsc/post/spatial_raster.py",
+        "tests/support/fixtures/spatial_glb.py"
+      ]
+    },
+    "project.integration.test_spatial_scene_web": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/interfaces/web/spatial_scene.py",
+        "src/vsc/interfaces/web/static/spatial-scene.js",
+        "src/vsc/post/spatial_gltf.py",
+        "src/vsc/post/spatial_raster.py",
+        "tests/support/fixtures/spatial_glb.py"
+      ]
+    },
+    "assets.integration.test_media_imports": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/media_imports.py",
+        "src/vsc/adapters/persistence/postgres/media_imports.py",
+        "src/vsc/adapters/persistence/postgres/schema_imports.py",
+        "src/vsc/adapters/storage/local/import_upload.py",
+        "src/vsc/interfaces/web/media_imports.py",
+        "src/vsc/interfaces/web/static/media-imports.js"
+      ]
+    },
+    "project.integration.test_canvas_agent": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/canvas_agent.py",
+        "src/vsc/adapters/persistence/postgres/schema_canvas_agent.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/production/role_planner.py"
+      ]
+    },
+    "project.integration.test_access_control": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/access_control.py",
+        "src/vsc/assets/team_review.py",
+        "src/vsc/adapters/persistence/postgres/access_control.py",
+        "src/vsc/adapters/persistence/postgres/schema_access.py",
+        "src/vsc/interfaces/web/access_control.py",
+        "src/vsc/interfaces/web/team_review.py",
+        "src/vsc/interfaces/web/static/access-control.js",
+        "src/vsc/interfaces/web/static/team-review.js",
+        "migrations/postgres/versions/0032_fixed_member_seals.py"
+      ]
+    },
+    "project.integration.test_commerce": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/commerce.py",
+        "src/vsc/adapters/persistence/postgres/commerce.py",
+        "src/vsc/adapters/persistence/postgres/schema_commerce.py",
+        "src/vsc/adapters/providers/commerce.py",
+        "src/vsc/interfaces/web/commerce.py",
+        "src/vsc/interfaces/web/static/commerce.js",
+        "migrations/postgres/versions/0032_fixed_member_seals.py"
+      ]
+    },
+    "assets.integration.test_asset_center": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/asset_center.py",
+        "src/vsc/adapters/persistence/postgres/asset_center.py",
+        "src/vsc/adapters/persistence/postgres/schema_asset_center.py",
+        "src/vsc/interfaces/web/asset_center.py",
+        "src/vsc/interfaces/web/static/asset-center.js",
+        "src/vsc/assets/task_center.py",
+        "src/vsc/adapters/persistence/postgres/task_center.py"
+      ]
+    },
+    "production.integration.test_audio_resource_provider": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/providers/speech/resource_factory.py",
+        "src/vsc/adapters/providers/worker_factory.py",
+        "src/vsc/production/resource_settings.py",
+        "src/vsc/production/run_authorization.py"
+      ]
+    },
+    "project.integration.test_text_tools": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/text_tools.py",
+        "src/vsc/adapters/persistence/postgres/text_tools.py",
+        "src/vsc/adapters/persistence/postgres/schema_text_tools.py",
+        "src/vsc/interfaces/web/text_tools.py",
+        "src/vsc/interfaces/web/static/text-tools.js",
+        "src/vsc/production/text_tool_host.py",
+        "src/vsc/post/text_tool_exports.py",
+        "src/vsc/production/overseas_production.py",
+        "src/vsc/adapters/persistence/postgres/schema_text_tool_copies.py",
+        "migrations/postgres/versions/0029_text_tool_receipts.py",
+        "migrations/postgres/versions/0031_text_tool_copies.py"
+      ]
+    },
+    "project.integration.test_service_operations": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/service_operations.py",
+        "src/vsc/adapters/persistence/postgres/service_operations.py",
+        "src/vsc/adapters/persistence/postgres/schema_service_operations.py",
+        "src/vsc/interfaces/web/service_operations.py",
+        "src/vsc/interfaces/web/static/service-operations.js",
+        "src/vsc/interfaces/web/static/service-operations.css",
+        "migrations/postgres/versions/0023_service_operations.py",
+        "src/vsc/adapters/persistence/postgres/account_lifecycle.py"
+      ]
+    },
+    "project.integration.test_intelligent_production": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/intelligent_production.py",
+        "src/vsc/adapters/persistence/postgres/intelligent_production.py",
+        "src/vsc/adapters/persistence/postgres/schema_intelligent_production.py",
+        "src/vsc/interfaces/web/intelligent_production.py",
+        "src/vsc/interfaces/web/static/intelligent-production.js",
+        "src/vsc/production/intelligent_production.py",
+        "src/vsc/production/role_planner.py",
+        "src/vsc/production/canvas_execution.py"
+      ]
+    },
+    "project.integration.test_project_management": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/project_management.py",
+        "src/vsc/adapters/persistence/postgres/project_management.py",
+        "src/vsc/adapters/persistence/postgres/schema_management.py",
+        "src/vsc/interfaces/web/project_management.py",
+        "src/vsc/interfaces/web/static/project-management.js"
+      ]
+    },
+    "project.unit.test_text_tools_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/text-tools.js",
+        "tests/project/unit/text_tools.test.mjs"
+      ]
     }
   },
   "dependencies": {

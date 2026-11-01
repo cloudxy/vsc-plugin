@@ -28,6 +28,14 @@ from .script_ai import ScriptSuggestionRepository
 from .memory_store import RoleMemoryRepository
 from .source_intake import SourceIntakeRepository
 from .resource_model import ResourceModelRepository
+from .production_platform import ProductionPlatformRepository
+from .project_management import ProjectManagementRepository
+from .creative_canvas import CreativeCanvasRepository
+from .spatial_scene import SpatialSceneRepository
+from .text_tools import TextToolsRepository
+from .classic_production import ClassicProductionRepository
+from .intelligent_production import IntelligentProductionRepository
+from .access_control import AccessControlRepository
 from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CURRENT_REVISION
 
 
@@ -45,7 +53,9 @@ from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CU
 
 class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository,
                             ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository,
-                            SourceIntakeRepository, ResourceModelRepository):
+                            SourceIntakeRepository, ResourceModelRepository, ProductionPlatformRepository, ProjectManagementRepository,
+                            CreativeCanvasRepository, ClassicProductionRepository, IntelligentProductionRepository, SpatialSceneRepository, TextToolsRepository,
+                            AccessControlRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:
             raise ResourceError("PostgreSQL 连接未配置", "database_not_configured", 503)
@@ -59,12 +69,14 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         self.engine.dispose()
 
     def check_schema(self, *, read_only=False):
+        self._historical_read_schema = None
         try:
             with self.engine.connect() as conn:
                 version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
                 if read_only and version in {"0007_script_suggestions", "0008_script_note_baselines"} and version != S.SCHEMA_REVISION:
                     # 0008 only adds nullable note-baseline fields. Historical
                     # workflow status reads do not select those fields.
+                    self._historical_read_schema = version
                     return {"ready": False, "read_only": True, "migration": version,
                             "required_migration": S.SCHEMA_REVISION, "storage_policy": "postgres-series-v1"}
                 if version != S.SCHEMA_REVISION:
@@ -137,27 +149,33 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         return dict(row)
 
     def _mutate(self, project_id, action, payload, expected_revision, idempotency_key, actor, callback,
-                _transaction=None, _library_versions=()):
+                _transaction=None, _library_versions=(), _related_projects=()):
         # Library composition reuses the original commands inside its one locked
         # project transaction. Public ResourceService write validation cannot
         # accept this private argument; the outer command owns its receipt.
         if _transaction is not None:
+            if _related_projects:
+                raise ResourceError("关联项目锁必须由外层事务取得", "transaction_project_mismatch")
             conn, project = _transaction
             if checked_id(project_id) != project["id"]:
                 raise ResourceError("事务不属于目标项目", "transaction_project_mismatch")
+            from .project_management import management_transaction_guard
+            management_transaction_guard(conn,project['id'],action,payload)
             return callback(conn, project)
         project_id = checked_id(project_id)
+        related_projects = {checked_id(identifier) for identifier in _related_projects}
         request_sha = digest({"action": action, "payload": payload, "actor": actor})
         try:
             with self.engine.begin() as conn:
+                if hasattr(self,'access_transaction_guard'):self.access_transaction_guard(conn,project_id,action,payload,actor)
                 from .shared_library import library_project_lock_ids
-                locks = library_project_lock_ids(conn, project_id, _library_versions)
+                locks = set(library_project_lock_ids(conn, project_id, _library_versions)) | related_projects
                 conn.execute(select(S.projects.c.id).where(S.projects.c.id.in_(locks))
                     .order_by(S.projects.c.id).with_for_update()).all()
                 # A concurrent target adoption may have added an edge while
                 # locks were acquired. Restart from a fresh graph, never take
                 # an extra source lock after the ordered target lock.
-                if set(library_project_lock_ids(conn, project_id, _library_versions)) - set(locks):
+                if (set(library_project_lock_ids(conn, project_id, _library_versions)) | related_projects) - set(locks):
                     raise Conflict("共享来源关系已改变，请重试当前操作", "library_graph_changed")
                 project = self._project(conn, project_id, lock=True)
                 migration_actions = set(conn.execute(select(S.project_revisions.c.action).where(
@@ -174,6 +192,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     return receipt["response"]
                 if expected_revision is not CURRENT_REVISION and project["revision"] != expected_revision:
                     raise Conflict()
+                from .project_management import management_transaction_guard
+                management_transaction_guard(conn,project_id,action,payload)
                 response = callback(conn, project)
                 revision = project["revision"] + 1
                 conn.execute(update(S.projects).where(S.projects.c.id == project_id).values(revision=revision))
@@ -200,8 +220,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 "based_on_revision": project["revision"]}
 
     def list_projects(self):
+        from .project_management import inactive_project_ids
         with self.engine.connect() as conn:
-            return clean([dict(r) for r in conn.execute(select(S.projects).order_by(S.projects.c.created_at, S.projects.c.id)).mappings()])
+            return clean([dict(r) for r in conn.execute(select(S.projects).where(S.projects.c.id.not_in(inactive_project_ids())).order_by(S.projects.c.created_at, S.projects.c.id)).mappings()])
 
     def get_project(self, project_id):
         with self.engine.connect() as conn:
@@ -235,6 +256,10 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             raise ResourceError("创建 PostgreSQL 项目必须显式采用 postgres-series-v1")
         try:
             with self.engine.begin() as conn:
+                from vsc.assets.access_control import current_principal
+                if current_principal() is not None:
+                    from .access_control import authority_lock
+                    authority_lock(conn)
                 if key:
                     conn.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                                  {"key": "vsc-create:" + project_id})
@@ -244,9 +269,11 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     if receipt:
                         if receipt["request_sha256"] != request_sha:
                             raise Conflict("创建请求已用于不同内容", "idempotency_conflict")
+                        if hasattr(self,"_access_require"):self._access_require(conn,project_id,"read")
                         return receipt["response"]
                 conn.execute(insert(S.projects).values(id=project_id, name=required(payload, "name"),
                     profile=profile, profile_snapshot=snapshot, storage_policy="postgres-series-v1"))
+                if hasattr(self,'access_bind_new_project'):self.access_bind_new_project(conn,project_id,actor)
                 result = clean(self._project(conn, project_id))
                 if key:
                     conn.execute(insert(S.command_receipts).values(project_id=project_id,
@@ -265,6 +292,13 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                   "sequence": S.sequences, "shot": S.shots, "asset": S.asset_identities}
         if kind not in tables:
             raise ResourceError("未知创作对象类型")
+        if kind == "episode":
+            maximum = project["profile_snapshot"].get("max_episodes")
+            if type(maximum) is int and maximum > 0:
+                count = conn.execute(select(func.count()).select_from(S.episodes).where(
+                    S.episodes.c.project_id == project["id"])).scalar_one()
+                if count >= maximum:
+                    raise ResourceError("当前工作流最多支持 %s 集，请为连续短剧选择多集入口" % maximum, "episode_limit")
         row_id = checked_id(payload.get("id", new_id()))
         conn.execute(insert(S.creative_objects).values(project_id=project["id"], id=row_id,
             kind=kind, display_code=required(payload, "display_code"), title=payload.get("title", payload["display_code"])))
@@ -281,8 +315,13 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         return dict(payload, id=row_id)
 
     def get_project_tree(self, project_id):
+        from .project_management import management_project_guard, hidden_object_ids
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
+            hidden=set()
+            if getattr(self,'_historical_read_schema',None) is None:
+                management_project_guard(conn,project['id'])
+                hidden=hidden_object_ids(conn,project['id'])
             nodes = []
             for table in (S.works, S.episodes, S.scenes, S.sequences, S.shots, S.asset_identities):
                 columns = [S.creative_objects.c.id, S.creative_objects.c.kind,
@@ -293,7 +332,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                     columns += [table.c.asset_kind]
                 query = select(*columns).select_from(S.creative_objects.join(table,
                     and_(table.c.project_id == S.creative_objects.c.project_id, table.c.id == S.creative_objects.c.id)))
-                query = query.where(S.creative_objects.c.project_id == project["id"])
+                query = query.where(S.creative_objects.c.project_id == project["id"],S.creative_objects.c.id.not_in(hidden))
                 for row in conn.execute(query).mappings():
                     nodes.append(dict({"parent_id": None, "ordinal": 0}, **row))
             rank = {"work": 0, "episode": 1, "scene": 2, "sequence": 3, "shot": 4, "asset": 5}
@@ -1279,21 +1318,30 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             project = self._project(conn, project_id)
             return clean(self._compile_context(conn, project, checked_id(shot_id), purpose))
 
-    def compile_asset_context(self, project_id, asset_id, purpose="asset_ref"):
+    def compile_asset_context(self, project_id, asset_id, purpose="asset_ref", *, spec_version_id=None):
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
-            return clean(self._compile_asset_context(conn, project, checked_id(asset_id), purpose))
+            return clean(self._compile_asset_context(conn, project, checked_id(asset_id), purpose,
+                                                     spec_version_id=spec_version_id))
 
-    def _compile_asset_context(self, conn, project, asset_id, purpose):
+    def _compile_asset_context(self, conn, project, asset_id, purpose, *, spec_version_id=None):
         p = project["id"]
+        from .project_management import management_object_guard
+        management_object_guard(conn,p,asset_id)
         identity = self._one(conn, S.asset_identities, p, asset_id)
         if identity["asset_kind"] == "voice":
             raise ResourceError("声音复刻尚无Provider能力，不允许资产图像任务代替", "asset_generation_unsupported")
-        specs = [dict(r) for r in conn.execute(select(S.asset_spec_versions).where(
-            S.asset_spec_versions.c.project_id == p, S.asset_spec_versions.c.asset_id == asset_id,
-            S.asset_spec_versions.c.variant_key == "master", S.asset_spec_versions.c.artifact_id.in_(
-                select(S.current_artifact_versions.c.artifact_id).where(S.current_artifact_versions.c.project_id == p)))).mappings()
-            if self._artifact_approved(conn, p, r["artifact_id"])]
+        if spec_version_id is not None:
+            spec = self._one(conn, S.asset_spec_versions, p, checked_id(spec_version_id))
+            if spec["asset_id"] != asset_id:
+                raise ResourceError("固定变体不属于该资产身份", "variant_identity_mismatch")
+            specs = [dict(spec)] if self._artifact_approved(conn, p, spec["artifact_id"]) else []
+        else:
+            specs = [dict(r) for r in conn.execute(select(S.asset_spec_versions).where(
+                S.asset_spec_versions.c.project_id == p, S.asset_spec_versions.c.asset_id == asset_id,
+                S.asset_spec_versions.c.variant_key == "master", S.asset_spec_versions.c.artifact_id.in_(
+                    select(S.current_artifact_versions.c.artifact_id).where(S.current_artifact_versions.c.project_id == p)))).mappings()
+                if self._artifact_approved(conn, p, r["artifact_id"])]
         gaps = []
         if len(specs) != 1:
             gaps.append({"code": "identity_spec_missing" if not specs else "identity_spec_conflict", "asset_id": asset_id})
@@ -1302,6 +1350,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         slots = conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
             S.binding_slots.c.target_object_id == asset_id, S.binding_slots.c.role.in_(INHERITED_REFERENCE_ROLES))).mappings()
         for slot in slots:
+            if slot["variant_spec_id"] and slot["variant_spec_id"] not in {spec["id"] for spec in specs}:
+                continue
             current = conn.execute(select(S.current_bindings).where(S.current_bindings.c.project_id == p,
                 S.current_bindings.c.slot_id == slot["id"])).mappings().first()
             # A first reference does not require a previously selected reference.
@@ -1329,28 +1379,19 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             "media": sorted(media_inputs, key=lambda m: (m["role"], m["slot_id"])), "gaps": gaps, "ready": not gaps}
         context["semantic_inputs"] = self._semantic_inputs(conn, p, None, None, purpose,
             ordered, {asset_id}, {s["asset_id"]: s["id"] for s in specs}, [], [])
+        if spec_version_id is not None:
+            # Exact explicit variant intent survives run/job persistence; even
+            # equal prose on two variants cannot silently change that intent.
+            context["spec_version_id"] = spec_version_id
+            context["semantic_inputs"].append({"artifact_type": "vsc.fixed_asset_variant",
+                "content": {"asset_id": asset_id, "spec_version_id": spec_version_id}})
         context["sha256"] = context_digest(clean(context))
         return context
 
     @staticmethod
     def _context_plan_applies(artifact, object_keys):
-        """Honor explicit plan ownership in migrated project-wide artifacts."""
-        try:
-            document = json.loads(artifact["document"])
-        except (ValueError, UnicodeDecodeError):
-            return True
-        if not isinstance(document, dict) or document.get("format") not in {
-                "vsc.continuity-plan/v1", "vsc.sound-cue-sheet/v1"}:
-            return True
-        for kind in ("scene", "sequence"):
-            owner = document.get(kind + "_id")
-            if owner and owner not in object_keys[kind]:
-                return False
-        if document.get("format") == "vsc.continuity-plan/v1" and isinstance(document.get("shots"), list):
-            return (any(row.get("id") in object_keys["shot"] for row in document["shots"] if isinstance(row, dict))
-                    or any(link.get("shot_id") in object_keys["shot"] for unit in document.get("design_units", [])
-                           for link in unit.get("shots", []) if isinstance(link, dict)))
-        return True
+        from vsc.project.plan_scope import plan_applies
+        return plan_applies(artifact, object_keys)
 
     def _compatible_context_specs(self, conn, p, first, second):
         """Compare approved bible revisions without replacing either fixed pin."""
@@ -1381,6 +1422,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
 
     def _compile_context(self, conn, project, shot_id, purpose=None):
         p = project["id"]
+        from .project_management import management_object_guard
+        management_object_guard(conn,p,shot_id)
         shot = self._one(conn, S.shots, p, shot_id)
         sequence = self._one(conn, S.sequences, p, shot["parent_id"])
         scene = self._one(conn, S.scenes, p, sequence["parent_id"])
@@ -1488,6 +1531,11 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             if state["location_id"] not in explicit_entities:
                 asset_ids.discard(state["location_id"])
         asset_ids.update(row["asset_id"] for row in resource_refs)
+        from .project_management import hidden_object_ids
+        consumed=asset_ids|({row['speaker_id'] for row in lines if row['speaker_id']} if dialogue_only else set())
+        retired=consumed & hidden_object_ids(conn,p)
+        if retired:
+            gaps.append({'code':'asset_recycled','asset_ids':sorted(retired),'message':'本镜实际使用的资产已回收，请先恢复该资产；其他未使用资产不受影响'})
         slots = conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
             S.binding_slots.c.target_object_id.in_([shot_id] + sorted(asset_ids)),
             S.binding_slots.c.role.in_(tuple(ROLE_MATRIX)))).mappings().all()

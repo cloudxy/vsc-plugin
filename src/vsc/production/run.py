@@ -42,6 +42,11 @@ def validation_errors(data):
         errors.append('phase 必须为asset、production或trial')
     from vsc.production.run_trial import validation_errors as trial_validation
     errors.extend(trial_validation(data))
+    from vsc.production.run_policy import policy_errors
+    errors.extend(policy_errors(data.get('execution_policy')))
+    if data.get('series_batch') and any('task_key' in job for job in data['series_batch'].get('jobs', [])):
+        from vsc.production.bounded import graph_errors
+        errors.extend(graph_errors(data))
     if 'generation_quote' in data:
         from vsc.production.quotes import quote_errors
         errors.extend(quote_errors(data['generation_quote']))
@@ -98,7 +103,8 @@ def project_errors(data, project, state, item):
             if not artifact or artifact.get('sha256') != ref.get('sha256') or ref['id'] not in item.get('depends_on', []):
                 errors.append('approved_inputs 必须是 run 明确依赖的固定产物')
             else: approved.append(artifact)
-        prerequisite = 'vsc.asset_bible' if data.get('phase') in ('asset', 'trial') else 'vsc.animatic'
+        from vsc.production.run_policy import production_input
+        prerequisite = production_input(state.get('profile_snapshot', {}), data.get('phase'))
         if not any(a['type'] == prerequisite for a in approved):
             errors.append('正式制作缺已批准输入：' + prerequisite)
         if data.get('phase') == 'asset' and any(j['kind'] not in ('image', 'grok_image') or j['args']['purpose'] != 'asset' for j in plan['jobs']):
@@ -170,7 +176,8 @@ def execute(project, identifier, runner=None):
         from vsc.production.audio_run import execute as execute_audio
         return execute_audio(project, identifier)
     from vsc.project.state import gate_problems, project_state
-    gate = 'script' if data.get('phase') in ('asset', 'trial') else 'animatic'
+    from vsc.production.run_policy import production_gate
+    gate = production_gate(state.get('profile_snapshot', {}), data.get('phase'))
     gaps = gate_problems(Path(project), state, gate, None if data['scope'] == 'project' else data['scope'])
     if gaps: raise ValueError('正式制作质量门未满足：' + '；'.join(gaps))
     # Keep the new opt-in guards explicit even if load_run is adapted by a host.

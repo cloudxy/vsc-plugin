@@ -58,6 +58,10 @@ class ResourceCatalog:
                                "storage_policy": value.get("profile_snapshot", {}).get("storage_policy", "unavailable"),
                                "read_only": True, "unavailable": True,
                                "error": value.get("error", "authority_unavailable")})
+        if self.service and hasattr(self.service,'management_filter_active_projects'):
+            result=self.service.management_filter_active_projects(result)
+        if self.service and hasattr(self.service.store,'access_filter_projects'):
+            result=self.service.store.access_filter_projects(result)
         # IDs cannot silently select a different project's authority.
         if len({row["id"] for row in result}) != len(result):
             raise CatalogError("项目 ID 在多个权威中重复，请明确迁移状态", 409, "authority_conflict")

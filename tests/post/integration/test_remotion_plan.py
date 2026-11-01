@@ -152,9 +152,17 @@ class TestRemotionPlan(unittest.TestCase):
     def test_scaffold_writes_editable_project_without_dependencies(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / "remotion-project"
-            REMOTION.scaffold(plan(), output)
+            value = plan()
+            visual = next(s for s in value['segments'] if s['kind'] in {'video', 'image'})
+            visual['fit'] = 'contain'
+            REMOTION.scaffold(value, output)
             self.assertTrue((output / "package.json").is_file())
             self.assertTrue((output / "src" / "ShortDrama.tsx").is_file())
+            generated = json.loads((output / 'src/plan.ts').read_text().split(' = ', 1)[1].strip().removesuffix(';'))
+            self.assertEqual(next(s for s in generated['segments'] if s['id'] == visual['id'])['fit'], 'contain')
+            self.assertIn("objectFit={segment.fit ?? 'cover'}", (output / 'src/ShortDrama.tsx').read_text())
+            visual['fit'] = 'stretch'
+            self.assertTrue(any('.fit' in e for e in REMOTION.validate(value)))
             package = json.loads((output / "package.json").read_text("utf-8"))
             self.assertEqual(package["dependencies"]["@remotion/cli"], package["dependencies"]["remotion"])
             self.assertEqual(package["scripts"]["typecheck"], "tsc --noEmit")

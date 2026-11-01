@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from support.paths import ROOT
 from vsc.assets.resource_service import ResourceError
-from vsc.project.pg_workflow import authority_pointer, check_gate, legacy_write_guard
+from vsc.project.pg_workflow import authority_pointer, check_gate, create_project, legacy_write_guard
 from vsc.project.migration import _digest
 
 
@@ -33,6 +33,62 @@ def migrated_gate_service():
 
 
 class AuthorityAndGateTests(unittest.TestCase):
+    def test_pg_creation_selects_light_profile_without_changing_legacy_snapshot(self):
+        from vsc.project.state import profile_for
+        service = Mock()
+        service.create_project.return_value = {"id": "project", "revision": 0}
+        service.create_object.return_value = {"id": "work", "revision": 1}
+        create_project(service, "Synthetic short", "fixture-human", profile_id="vsc.light-short")
+        payload = service.create_project.call_args.args[0]
+        snapshot = payload["profile_snapshot"]
+        self.assertEqual(snapshot["profile_id"], "vsc.light-short")
+        self.assertEqual(snapshot["production_policy"], "light-short-v1")
+        self.assertEqual(snapshot["storage_policy"], "postgres-series-v1")
+        self.assertEqual([stage["id"] for stage in snapshot["stages"]], ["brief", "script", "design", "production", "post", "delivery"])
+        self.assertNotIn("vsc.animatic", snapshot["dependency_requirements"]["vsc.selected_takes"])
+        self.assertNotIn("storage_policy", profile_for("vsc.light-short"))
+        with self.assertRaises(ResourceError):
+            create_project(service, "Synthetic short", "fixture-human", profile_id="vsc.series-db")
+
+    def test_multi_scene_plans_partition_gate_and_keep_overlaps_actionable(self):
+        service = Mock()
+        service.store.engine.connect.return_value = MagicMock()
+        service.get_project.return_value = {"revision": 4, "profile_snapshot": {"scope_required_from": "design",
+            "stages": [{"id": "design", "required": ["vsc.shot_plan"]}]}}
+        nodes = [{"id": "ep", "kind": "episode", "parent_id": None, "display_code": "EP"}]
+        rows, versions = [], {}
+        for number in range(3):
+            scene, shot, identifier = "scene" + str(number), "shot" + str(number), "plan" + str(number)
+            nodes.extend([{"id": scene, "kind": "scene", "parent_id": "ep", "display_code": scene},
+                          {"id": shot, "kind": "shot", "parent_id": scene, "display_code": shot}])
+            rows.append({"id": identifier, "artifact_type": "vsc.shot_plan", "stage": "design", "current": True,
+                         "approved": True, "project_wide": False, "object_ids": ["ep"]})
+            versions[identifier] = {"id": identifier, "sha256": identifier, "document": json.dumps({
+                "format": "vsc.continuity-plan/v1", "scene_id": scene, "shots": [{"id": shot}]})}
+        service.get_project_tree.return_value = {"nodes": nodes}
+        service.list_artifacts.return_value = {"items": rows}
+        service.get_artifact_version.side_effect = lambda project, identifier: versions[identifier]
+        with patch("vsc.project.pg_workflow.validate_contract", return_value=[]), patch(
+                "vsc.adapters.persistence.postgres.creative_rules.artifact_rule_report", return_value={"errors": [], "warnings": []}):
+            result = check_gate(service, "p", "design", "ep")
+        self.assertTrue(result["passed"], result["gaps"])
+        self.assertEqual(len(result["artifacts"]), 3)
+        versions["plan1"]["document"] = json.dumps({"format": "vsc.continuity-plan/v1", "scene_ids": ["scene0", "scene1"],
+                                                     "shots": [{"id": "shot0"}, {"id": "shot1"}]})
+        result = check_gate(service, "p", "design", "ep")
+        conflict = next(gap for gap in result["gaps"] if gap["code"] == "plan_scope_conflict")
+        self.assertEqual(conflict["shot_id"], "shot0")
+        self.assertEqual(set(conflict["artifact_ids"]), {"plan0", "plan1"})
+
+    def test_explicit_multiscene_scope_does_not_leak_to_another_scene(self):
+        from vsc.project.plan_scope import plan_applies
+        document = {"format": "vsc.continuity-plan/v1", "scene_id": "SC1", "scene_ids": ["SC1", "SC2"],
+                    "shots": [{"id": "SH1"}, {"id": "SH2"}]}
+        self.assertTrue(plan_applies({"document": document}, {"scene": {"SC2"}, "shot": {"SH2"}}))
+        self.assertFalse(plan_applies({"document": document}, {"scene": {"SC3"}, "shot": {"SH2"}}))
+        del document["scene_ids"]
+        self.assertFalse(plan_applies({"document": document}, {"scene": {"SC2"}, "shot": {"SH2"}}))
+
     def test_cutover_or_freeze_blocks_legacy_write_without_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

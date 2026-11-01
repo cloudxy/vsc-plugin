@@ -18,7 +18,8 @@ def run_quote(store, conn, project, jobs):
         asset, shot, purpose, modality = (original.get(key) for key in ('asset_id', 'shot_id', 'purpose', 'modality'))
         if bool(asset) == bool(shot):
             raise ResourceError('报价任务须且仅须指定镜头或资产', 'job_target_required')
-        context = (store._compile_asset_context(conn, project, checked_id(asset), purpose) if asset else
+        context = (store._compile_asset_context(conn, project, checked_id(asset), purpose,
+                       spec_version_id=original.get('spec_version_id')) if asset else
                    store._compile_context(conn, project, checked_id(shot), purpose))
         if not context['ready']:
             raise ResourceError('当前固定输入有缺口，不能报价', 'context_gaps')

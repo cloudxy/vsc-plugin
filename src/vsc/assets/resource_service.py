@@ -108,10 +108,30 @@ from vsc.assets.feedback import ReviewService
 from vsc.assets.media_recycle import MediaRecycleService
 from vsc.assets.edit_preview import EditPreviewService
 from vsc.assets.shared_library import SharedLibraryService
+from vsc.assets.editor_workspace import EditorWorkspaceService
+from vsc.assets.production_platform import ProductionPlatformServiceMixin
+from vsc.assets.project_management import ProjectManagementServiceMixin
+from vsc.assets.creative_canvas import CreativeCanvasService
+from vsc.assets.classic_production import ClassicProductionServiceMixin
+from vsc.assets.intelligent_production import IntelligentProductionServiceMixin
+from vsc.assets.spatial_scene import SpatialSceneService
+from vsc.assets.creative_tools import CreativeToolsService
+from vsc.assets.media_imports import MediaImportService
+from vsc.assets.text_tools import TextToolsServiceMixin
+from vsc.assets.asset_center import AssetCenterService
+from vsc.assets.task_center import TaskCenterService
+from vsc.assets.service_operations import ServiceOperationsService
+from vsc.assets.access_control import AccessControlServiceMixin
+from vsc.assets.team_review import TeamReviewServiceMixin
+from vsc.assets.commerce import CommerceService
 
 
 class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
-                      MediaRecycleService, EditPreviewService, SharedLibraryService):
+                      MediaRecycleService, EditPreviewService, SharedLibraryService, EditorWorkspaceService,
+                      ProductionPlatformServiceMixin, ProjectManagementServiceMixin, CreativeCanvasService, ClassicProductionServiceMixin, IntelligentProductionServiceMixin,
+                      SpatialSceneService, CreativeToolsService, MediaImportService, TextToolsServiceMixin,
+                      AssetCenterService, TaskCenterService, AccessControlServiceMixin, TeamReviewServiceMixin, CommerceService,
+                      ServiceOperationsService):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
@@ -185,8 +205,9 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
     def get_projection_id_map(self, project_id):
         return self.store.get_projection_id_map(project_id)
 
-    def compile_asset_context(self, project_id, asset_id, purpose="asset_ref"):
-        context = self.store.compile_asset_context(project_id, asset_id, purpose=purpose)
+    def compile_asset_context(self, project_id, asset_id, purpose="asset_ref", *, spec_version_id=None):
+        context = self.store.compile_asset_context(project_id, asset_id, purpose=purpose,
+            **({"spec_version_id": spec_version_id} if spec_version_id is not None else {}))
         if self.storage is not None:
             for item in context.get("media", []):
                 try:
@@ -265,7 +286,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         if isinstance(artifact_type, str) and artifact_type.startswith("vsc."):
             from vsc.project.pg_workflow import validate_contract
             errors = validate_contract(required(payload, "document"), artifact_type,
-                project["profile_snapshot"].get("contract_policy", "production-v2"))
+                project["profile_snapshot"].get("contract_policy", "production-v2"), project["profile_snapshot"])
             if errors:
                 raise ResourceError("产物违反固定契约: " + "; ".join(errors), "invalid_contract")
         return self._write("create_artifact", project_id, payload, **kw)
@@ -387,7 +408,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                 from vsc.project.pg_workflow import validate_contract
                 project = self.store.get_project(project_id)
                 errors = validate_contract(artifact["document"], artifact["artifact_type"],
-                    project["profile_snapshot"].get("contract_policy", "production-v2"))
+                    project["profile_snapshot"].get("contract_policy", "production-v2"), project["profile_snapshot"])
                 if errors:
                     raise ResourceError("不能批准违反固定契约的产物: " + "; ".join(errors), "invalid_contract")
                 self._check_dependencies(project, artifact)
@@ -395,10 +416,17 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def _check_dependencies(self, project, artifact):
         profile = project["profile_snapshot"]
+        dependencies = [self.store.get_artifact_version(project["id"], row_id) for row_id in artifact.get("dependency_ids", [])]
+        if artifact["artifact_type"] == "vsc.screenplay":
+            import json
+            from vsc.production.handoffs import screenplay_policy_errors
+            document = artifact["document"]
+            errors = screenplay_policy_errors(json.loads(document) if isinstance(document, str) else document, profile, dependencies)
+            if errors:
+                raise ResourceError("原创剧本缺少固定创作依据: " + "; ".join(errors), "artifact_dependency_required")
         explicit, expected_stage = dependency_requirements(profile, artifact["artifact_type"])
         if not explicit:
             return
-        dependencies = [self.store.get_artifact_version(project["id"], row_id) for row_id in artifact.get("dependency_ids", [])]
         parents = {node["id"]: node["parent_id"] for node in self.get_project_tree(project["id"])["nodes"] if node.get("parent_id")}
         def covers(dep):
             if dep["project_wide"]:
@@ -511,7 +539,9 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         from vsc.production.video_operations import verify_operation_source
         verify_operation_source(self, project_id, payload.get("request_payload", {}))
         project = self.store.get_project(project_id)
-        gated = any(stage.get("id") == "animatic" for stage in project.get("profile_snapshot", {}).get("stages", []))
+        profile = project.get("profile_snapshot", {})
+        from vsc.production.run_policy import production_gate
+        gated = profile.get("production_policy") == "light-short-v1" or any(stage.get("id") == "animatic" for stage in profile.get("stages", []))
         if self.storage is not None or gated:
             asset = payload.get("asset_id")
             context = (self.compile_asset_context(project_id, asset, purpose=payload.get("purpose")) if asset else
@@ -525,7 +555,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                     trial = json.loads(run["document"]).get("phase") == "trial"
                 except (ValueError, TypeError, AttributeError) as exc:
                     raise ResourceError("运行包必须是固定结构文档", "invalid_production_run") from exc
-                gate = check_gate(self, project_id, "script" if asset or trial else "animatic",
+                gate = check_gate(self, project_id, production_gate(profile, "asset" if asset else "trial" if trial else "production"),
                     scope=payload.get("episode_id") if asset else context["ancestors"][1])
                 if not gate["passed"]:
                     raise ResourceError("正式制作前序Gate尚未通过", "production_gate_failed")
@@ -573,12 +603,12 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",),
                              job_id=None, recovery=False, serialize=False, managed_only=False,
-                             resume_storage=False):
+                             resume_storage=False, project_concurrency=1, provider_concurrency=1):
         self._actor(worker_id)
         return self.store.claim_generation_job(worker_id=worker_id, project_id=project_id,
             lease_seconds=lease_seconds, statuses=statuses, job_id=job_id,
             recovery=recovery, serialize=serialize, managed_only=managed_only,
-            resume_storage=resume_storage)
+            resume_storage=resume_storage, project_concurrency=project_concurrency, provider_concurrency=provider_concurrency)
 
     def renew_generation_job_lease(self, project_id, job_id, worker_id, claim_epoch, lease_seconds=300):
         return self.store.renew_generation_job_lease(project_id, job_id, worker_id, claim_epoch,

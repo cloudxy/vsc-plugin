@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0013_shared_library"
+SCHEMA_REVISION = "0033_creative_tool_imports"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -1085,7 +1085,40 @@ for _name in (*EDIT_PREVIEW_TABLES, "media_recycle_actions"):
         if _col.name.endswith("_id") and _col.name != "project_id":
             Index("ix_%s_project_%s" % (_name, _col.name), metadata.tables[_name].c.project_id, _col)
 
-APPEND_ONLY_TABLES = CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
+from .schema_canvas import install_canvas_schema, CANVAS_APPEND_ONLY
+from .schema_editor import declare_editor, EDITOR_IMMUTABLE
+from .schema_spatial import install_spatial_schema, SPATIAL_IMMUTABLE
+from .schema_imports import declare_imports
+from .schema_text_tools import declare_text_tools
+from .schema_access import declare_access, ACCESS_IMMUTABLE
+from .schema_canvas_agent import install_canvas_agent_schema, CANVAS_AGENT_IMMUTABLE
+from .schema_commerce import declare_commerce, COMMERCE_IMMUTABLE
+from .schema_asset_center import declare_asset_center, CENTER_IMMUTABLE
+from .schema_service_operations import declare_service_operations, SERVICE_OPERATIONS_IMMUTABLE
+from .schema_intelligent_production import install_intelligent_schema, INTELLIGENT_IMMUTABLE
+from .schema_editor_handoff import declare_editor_handoff, EDITOR_HANDOFF_IMMUTABLE
+from .schema_management import declare_management
+from .schema_canvas_execution import install_canvas_execution_schema, CANVAS_EXECUTION_IMMUTABLE
+from .schema_text_tool_copies import declare_text_tool_copies
+from .schema_creative_tool_imports import declare_creative_tool_imports
+globals().update(install_canvas_schema(metadata))
+globals().update(declare_editor(project_table, ref, uid, stamp))
+globals().update(install_spatial_schema(metadata))
+globals().update(declare_imports(project_table, ref, uid, stamp))
+globals().update(declare_text_tools(project_table, ref, uid, stamp))
+globals().update(declare_access(metadata))
+globals().update(install_canvas_agent_schema(metadata))
+globals().update(declare_commerce(project_table, ref, uid, stamp))
+globals().update(declare_asset_center(metadata, project_table, ref, uid, stamp))
+globals().update(declare_service_operations(project_table, ref, uid, stamp))
+globals().update(install_intelligent_schema(metadata))
+globals().update(declare_editor_handoff(project_table,ref,stamp))
+globals().update(declare_management(project_table,ref,uid,stamp))
+globals().update(install_canvas_execution_schema(metadata))
+globals().update(declare_text_tool_copies(project_table,ref,stamp))
+globals().update(declare_creative_tool_imports(project_table,ref,stamp))
+
+APPEND_ONLY_TABLES = ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
     "library_entry_versions", "library_version_media", "library_entry_decisions",
     "render_caption_inputs", "edit_preview_inputs", "edit_preview_outputs", "media_recycle_actions",
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",

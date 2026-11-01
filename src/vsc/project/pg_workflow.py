@@ -33,13 +33,16 @@ def legacy_write_guard(project):
             raise ResourceError("项目为数据库迁移冻结，旧入口不能写入", "migration_frozen", 409)
 
 
-def create_project(service, name, actor, directory=None, database_env="VSC_DATABASE_URL"):
+def create_project(service, name, actor, directory=None, database_env="VSC_DATABASE_URL", profile_id="vsc.series-pg"):
     from vsc.project.state import profile_for, write_json
     if directory:
         target = Path(directory)
         if any((target / file).exists() for file in ("vsc.json", ".vsc-series.sqlite3", POINTER)):
             raise ResourceError("目标已有项目，必须显式迁移而非覆盖", "project_exists", 409)
-    profile = profile_for("vsc.series-pg")
+    profile = dict(profile_for(profile_id))
+    if profile.get("storage_policy") not in (None, "postgres-series-v1"):
+        raise ResourceError("所选 Profile 绑定另一存储权威", "profile_storage_mismatch")
+    profile["storage_policy"] = "postgres-series-v1"
     result = service.create_project({"name": name, "profile": profile["profile_id"], "profile_snapshot": profile,
                                      "storage_policy": "postgres-series-v1"}, actor=actor)
     work = service.create_object(result["id"], {"kind": "work", "display_code": "W001", "title": name, "ordinal": 0},
@@ -51,7 +54,7 @@ def create_project(service, name, actor, directory=None, database_env="VSC_DATAB
     return result
 
 
-def validate_contract(document, artifact_type, policy="production-v2"):
+def validate_contract(document, artifact_type, policy="production-v2", profile=None):
     """Validate exact immutable bytes via existing canonical VSC validators."""
     if not artifact_type.startswith("vsc."):
         return []
@@ -61,7 +64,14 @@ def validate_contract(document, artifact_type, policy="production-v2"):
     with tempfile.TemporaryDirectory(prefix="vsc-contract-") as directory:
         path = Path(directory) / ("document" + suffix)
         path.write_bytes(raw)
-        return content_errors(path, artifact_type, policy)
+        errors = content_errors(path, artifact_type, policy)
+        if profile is not None and artifact_type == "vsc.screenplay":
+            from vsc.production.handoffs import screenplay_policy_errors
+            try:
+                errors.extend(screenplay_policy_errors(json.loads(raw), profile))
+            except (ValueError, TypeError):
+                pass  # The canonical contract check reports malformed JSON.
+        return errors
 
 
 def _migrated_legacy_profile(service, project_id, profile, artifacts):
@@ -122,7 +132,15 @@ def check_gate(service, project_id, stage_id, scope=None):
     for owner_index, owner_stage, artifact_type in requirements:
         candidates = [a for a in artifacts if a["artifact_type"] == artifact_type and a.get("stage") == owner_stage
                       and a.get("current") and a.get("approved") and (owner_index >= scoped_index or a.get("project_wide", True))]
-        if not candidates or not legacy_gate and len(candidates) != 1:
+        partitioned = False
+        if len(candidates) > 1 and not legacy_gate and artifact_type in {"vsc.shot_plan", "vsc.sound_plan", "vsc.animatic"}:
+            from vsc.project.plan_scope import partition_plans
+            candidates, scope_gaps = partition_plans(service, project_id, scope, candidates)
+            if scope_gaps:
+                gaps.extend(dict(gap, artifact_type=artifact_type) for gap in scope_gaps)
+                continue
+            partitioned = True
+        if not candidates or not legacy_gate and not partitioned and len(candidates) != 1:
             gaps.append({"code": "missing_or_conflicting_artifact", "artifact_type": artifact_type, "count": len(candidates)})
             continue
         valid, invalid = [], []
@@ -130,7 +148,7 @@ def check_gate(service, project_id, stage_id, scope=None):
         # valid pins while preserving the legacy Profile's any-valid Gate.
         for candidate in sorted(candidates, key=lambda row: (str(row.get("created_at") or ""), row.get("artifact_key", ""), row["id"])):
             artifact = service.get_artifact_version(project_id, candidate["id"])
-            errors = validate_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"))
+            errors = validate_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"), profile)
             from vsc.adapters.persistence.postgres.creative_rules import artifact_rule_report
             with service.store.engine.connect() as conn:
                 report = artifact_rule_report(service.store, conn, project, artifact, context_scope=scope)

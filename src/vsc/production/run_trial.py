@@ -131,6 +131,8 @@ def adoption_errors(data, project, state, item):
     if declared != trial_refs:
         errors.append('试片不能直接正式采用；selected-takes 须显式列出准确 trial_adoptions')
     from vsc.project.state import gate_problems
-    errors.extend('试片正式采用需满足 animatic Gate：' + error for error in
-                  gate_problems(Path(project), state, 'animatic', None if item.get('scope', 'project') == 'project' else item['scope']))
+    from vsc.production.run_policy import production_gate
+    gate = production_gate(state.get('profile_snapshot', {}))
+    errors.extend('试片正式采用需满足 ' + gate + ' Gate：' + error for error in
+                  gate_problems(Path(project), state, gate, None if item.get('scope', 'project') == 'project' else item['scope']))
     return errors
