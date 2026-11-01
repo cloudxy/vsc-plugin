@@ -542,7 +542,8 @@ class RealProfileScriptWorkspace(ResourceStoreFixture, unittest.TestCase):
                 self.objects = self.hierarchy()
                 episode = self.objects["episode"]
                 context = self.service.get_script_draft(self.p, episode)["submission_context"]
-                expected = ["vsc.adaptation_plan"] + (["vsc.episode_beats"] if profile_id == "vsc.series-pg" else [])
+                expected = (["vsc.creative_brief"] if profile_id == "vsc.light-short"
+                            else ["vsc.adaptation_plan", "vsc.episode_beats"])
                 self.assertEqual(context["missing_dependency_types"], expected)
                 document = {"format": "vsc.screenplay/v1", "body": "Synthetic working copy", "adaptation_refs": [],
                     "scenes": [{"id": self.objects["scene"], "estimated_duration_ms": 1000,
@@ -555,7 +556,9 @@ class RealProfileScriptWorkspace(ResourceStoreFixture, unittest.TestCase):
                     self.write("submit_script_draft", {"scope_key": episode, "base_draft_revision": 1,
                         "artifact_type": "vsc.screenplay", "dependency_ids": []})
                 pins = {}
-                for stage in profile["stages"][:3]:
+                for stage in profile["stages"]:
+                    if stage["id"] == "script":
+                        break
                     for kind in stage.get("required", []):
                         if kind == "vsc.creative_brief":
                             body = {"format": "vsc.creative-brief/v1", "audience": "Fixture audience",
@@ -588,7 +591,12 @@ class RealProfileScriptWorkspace(ResourceStoreFixture, unittest.TestCase):
                 self.assertEqual(context["missing_dependency_types"], [])
                 self.assertEqual({row["artifact_type"] for row in context["dependencies"]}, set(expected))
                 self.assertEqual(set(context["dependency_ids"]), {pins[kind]["id"] for kind in expected})
-                document["adaptation_refs"] = [{"id": pins["vsc.adaptation_plan"]["id"], "sha256": pins["vsc.adaptation_plan"]["sha256"]}]
+                document["adaptation_refs"] = ([{"id": pins["vsc.adaptation_plan"]["id"], "sha256": pins["vsc.adaptation_plan"]["sha256"]}]
+                                               if "vsc.adaptation_plan" in pins else [])
+                if profile_id == "vsc.light-short":
+                    brief = pins["vsc.creative_brief"]
+                    document.update(source_mode="original", original_brief={"id": brief["id"], "sha256": brief["sha256"]})
+                    document["scenes"][0]["actions"][0]["narrative_refs"] = []
                 self.service.save_script_draft(self.p, {"scope_key": episode, "base_draft_revision": 1, "content": document}, actor="fixture-human")
                 # CLI stage spoof cannot bypass requirements on approval.
                 forged = self.write("create_artifact", {"artifact_key": "cli-no-deps", "artifact_type": "vsc.screenplay", "stage": "brief",

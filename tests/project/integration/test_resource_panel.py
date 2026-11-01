@@ -220,6 +220,10 @@ class ResourcePanelTests(unittest.TestCase):
         from vsc.adapters.storage.local.store import LocalStorage
         from vsc.assets.resource_service import ResourceService
         class Store:
+            def ensure_local_access(self, actor):
+                # This storage-verification fixture has no identity repository;
+                # the real ACL/session contract is exercised by AccessControlTests.
+                return {"actor": actor, "local": True}
             def get_project_tree(self, project_id):
                 return {"project": {"id": project_id, "storage_policy": "postgres-series-v1"}, "revision": 0, "nodes": []}
             def register_media(self, project_id, payload, **kw):

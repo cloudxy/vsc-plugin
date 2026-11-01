@@ -181,12 +181,14 @@ class SharedLibraryTest(ResourceStoreFixture, unittest.TestCase):
             "human_identity": "test-human", "allowed_hosts": ["testserver"],
             "allowed_origins": ["http://testserver"]}, service=self.service)
         with TestClient(app) as client:
-            self.assertEqual(client.get("/api/v1/library").status_code, 200)
+            self.assertEqual(client.get("/api/v1/library").status_code, 403)
             denied = client.post("/api/v1/library/uploads", content=png_bytes())
             self.assertEqual(denied.status_code, 403)
             headers = {"Origin": "http://testserver"}
             session = client.post("/api/v1/session", json={"token": "synthetic-token"}, headers=headers)
+            self.assertEqual(session.status_code, 200, session.text)
             headers["X-CSRF-Token"] = session.json()["csrf_token"]
+            self.assertEqual(client.get("/api/v1/library").status_code, 200)
             upload = client.post("/api/v1/library/uploads", content=png_bytes(), headers=dict(headers, **{"X-Filename": "fixture.png"}))
             self.assertEqual(upload.status_code, 200, upload.text)
             payload = dict(self.description(), import_key="http-" + uuid.uuid4().hex,

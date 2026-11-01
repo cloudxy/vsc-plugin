@@ -34,7 +34,8 @@ class TestPackageLayout(unittest.TestCase):
             "post": ("vsc.post.", "vsc.adapters.editors."), "knowledge": ("vsc.knowledge.",),
             "maintenance": ("tools.maintenance.",),
         }
-        self.assertEqual({path.name for path in (ROOT / "scripts").iterdir() if path.is_file()}, {"README.md"})
+        self.assertEqual({path.name for path in (ROOT / "scripts").iterdir()
+                          if path.is_file() and path.name != ".DS_Store"}, {"README.md"})
         scripts = list((ROOT / "scripts").rglob("*.py"))
         self.assertTrue(scripts)
         for path in scripts:

@@ -108,7 +108,12 @@ class PostgresQuoteTest(TrialQualityFixture,unittest.TestCase):
         from vsc.interfaces.web.app import create_app
         from fastapi.testclient import TestClient
         self.model_price(None);document,_=self.document()
-        client=TestClient(create_app({'projects_root':'/nonexistent','access_token':'synthetic-quote'},service=self.service),base_url='http://127.0.0.1',headers={'Origin':'http://127.0.0.1'})
+        client=TestClient(create_app({'projects_root':'/nonexistent','access_token':'synthetic-quote',
+            'human_identity':'test-human','allowed_origins':['http://127.0.0.1']},service=self.service),base_url='http://127.0.0.1',headers={'Origin':'http://127.0.0.1'})
+        self.addCleanup(client.close)
+        self.assertEqual(client.post(f'/api/v1/projects/{self.p}/generation-quote',json={'payload':{'document':document}}).status_code,403)
+        session=client.post('/api/v1/session',json={'token':'synthetic-quote'})
+        self.assertEqual(session.status_code,200,session.text)
         response=client.post(f'/api/v1/projects/{self.p}/generation-quote',json={'payload':{'document':document}})
         self.assertEqual(response.status_code,200,response.text)
         quote=response.json()['generation_quote'];self.assertFalse(quote['all_prices_known']);self.assertEqual(quote['unknown_jobs'],1)

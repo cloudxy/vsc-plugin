@@ -134,11 +134,11 @@ class SharedRolePlannerTests(unittest.TestCase):
         from vsc.production.intelligent_production import GrokBuildIntelligentPlanner
         commands=[]
         def runner(command,**kw):
-            commands.append(command);schema=json.loads(command[-1]);result={'message':'合成文本','questions':[],'action':{'kind':'append_text','title':'草稿','text':'文字','source_node_id':''}} if 'action' in schema['required'] else proposal('assets')
+            commands.append(command);schema=json.loads(command[-1]);result={'message':'合成文本','questions':[],'actions':[{'kind':'append_text','title':'草稿','text':'文字','source_node_id':''}]} if 'actions' in schema['required'] else proposal('assets')
             return SimpleNamespace(returncode=0,stdout=json.dumps({'structuredOutput':result}))
         with patch('vsc.production.role_planner._run_bounded',runner):
             first=GrokBuildCanvasAgent(runner=runner).generate({}, {}, '固定技能');second=GrokBuildIntelligentPlanner().generate({}, {}, '固定技能')
-        self.assertEqual(first['action']['kind'],'append_text');self.assertTrue(second['assets']);self.assertEqual(len(commands),2)
+        self.assertEqual(first['actions'][0]['kind'],'append_text');self.assertTrue(second['assets']);self.assertEqual(len(commands),2)
         for command in commands:self.assertEqual(command[command.index('--tools')+1],'');self.assertIn('--no-subagents',command);self.assertIn('--disable-web-search',command)
         def timed_out(*args,**kw):raise subprocess.TimeoutExpired('grok',120)
         with self.assertRaises(ResourceError) as caught:GrokBuildCanvasAgent(runner=timed_out).generate({}, {}, '')

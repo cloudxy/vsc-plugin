@@ -30,7 +30,16 @@ class CreativeToolsRepository:
             return {'id':p,'episode_id':episode_id,'standalone':True}
         result=self.store._mutate(p,'initialize_creative_tools',{'identity_id':identity},expected_revision=CURRENT_REVISION,
             idempotency_key='creative-tools-scope:'+identity,actor=actor,callback=work)
-        return dict(result,revision=self.store.get_project(p)['revision'])
+        # A receipt confirms the original initialization, not that its current
+        # workspace is still usable. Reopening must preserve explicit recycle.
+        from .access_control import authority_lock
+        from .project_management import management_object_guard
+        with self.store.engine.begin() as conn:
+            authority_lock(conn)
+            project=self.store._project(conn,p,lock=True)
+            self.store._access_require(conn,p,'read')
+            management_object_guard(conn,p,episode_id)
+            return dict(result,revision=project['revision'])
 
     def _import_plan(self,conn,project,payload,storage):
         from .project_management import management_object_guard,management_project_guard

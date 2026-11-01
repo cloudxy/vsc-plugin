@@ -185,9 +185,9 @@ def render_position(store, project_id, render_id, time_ms):
         project=store._project(conn,p)
         from .project_management import management_project_guard, management_object_guard
         management_project_guard(conn,p)
-        if object_id:management_object_guard(conn,p,object_id)
         render=store._one(conn,S.render_versions,p,render_id)
         timeline=store._one(conn,S.timeline_versions,p,render['timeline_id'])
+        management_object_guard(conn,p,timeline['episode_id'])
         duration=conn.execute(select(func.max(S.timeline_items.c.offset_frame+S.timeline_items.c.duration_frames)).where(
             S.timeline_items.c.project_id==p,S.timeline_items.c.timeline_id==timeline['id'])).scalar_one() or 0
         frame=time_ms*timeline['fps_num']//(timeline['fps_den']*1000)

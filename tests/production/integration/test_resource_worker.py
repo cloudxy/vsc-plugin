@@ -146,19 +146,28 @@ class ResourceWorkerTests(unittest.TestCase):
 
     def test_decode_failure_keeps_response_and_recovers_without_post(self):
         from vsc.adapters.media.qa import LocalProbeAdapter, ProbeFailure
+        from vsc.assets.resource_service import ResourceError
         from vsc.production.resource_worker import ResourceWorker
         job = self.fixture.job("image", "keyframe", self.model("image", ["keyframe"]))
         adapter = FakeProvider()
         worker = ResourceWorker(self.service, lambda job, storage: adapter)
-        with mock.patch.object(LocalProbeAdapter, "decode", side_effect=ProbeFailure("decode_error", "synthetic failure")):
-            with self.assertRaises(ProbeFailure):
-                worker.run_once(self.fixture.p)
+        with mock.patch.object(adapter, "poll", wraps=adapter.poll) as poll:
+            with mock.patch.object(LocalProbeAdapter, "decode", side_effect=ProbeFailure("decode_error", "synthetic failure")):
+                with self.assertRaises(ResourceError) as caught:
+                    worker.run_once(self.fixture.p)
+            self.assertEqual(caught.exception.code, "media_decode_error")
+            self.assertIsInstance(caught.exception.__cause__, ProbeFailure)
+            self.assertEqual(poll.call_count, 1)
         saved = self.service.get_generation_job(self.fixture.p, job["id"])
         self.assertTrue(saved["raw_response"])
         self.assertNotEqual(saved["status"], "succeeded")
         self.assertEqual(saved["outputs"], [])
+        self.assertEqual(saved["raw_response"], {"fixture": "response"})
+        self.assertTrue(any((event.get("evidence") or {}).get("source") == "provider_success_awaiting_storage" for event in saved["events"]))
+        self.assertIsNone(worker.run_once(self.fixture.p), "Saved terminal responses must not be claimed as new submissions.")
         media_id = str(uuid.uuid5(uuid.UUID(job["id"]), "output:0"))
-        worker.finalize(self.fixture.p, job["id"])
+        with mock.patch.object(adapter, "poll", side_effect=AssertionError("storage recovery must not poll provider")):
+            worker.finalize(self.fixture.p, job["id"])
         saved = self.service.get_generation_job(self.fixture.p, job["id"])
         self.assertEqual(saved["status"], "succeeded")
         self.assertEqual(saved["outputs"][0]["media_id"], media_id)

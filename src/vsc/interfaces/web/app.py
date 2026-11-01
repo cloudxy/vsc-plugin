@@ -149,9 +149,10 @@ def create_app(config=None, catalog=None, service=None):
         session = sessions.get(request.cookies.get("vsc_session", ""))
         if not session or not secrets.compare_digest(request.headers.get("x-csrf-token", ""), session["csrf"]):
             raise HTTPException(403, "请先建立本机人工操作会话")
-        if catalog.service is not None and hasattr(catalog.service.store,'_access_principal'):
-            with catalog.service.store.engine.connect() as conn:
-                catalog.service.store._access_principal(conn,request_principal(request,sessions))
+        store = getattr(catalog.service, 'store', None)
+        if store is not None and hasattr(store, '_access_principal'):
+            with store.engine.connect() as conn:
+                store._access_principal(conn,request_principal(request,sessions))
         return session["actor"]
 
     @app.get("/", response_class=HTMLResponse)
@@ -199,9 +200,10 @@ def create_app(config=None, catalog=None, service=None):
     @app.get("/api/v1/session")
     def current_session(request: Request):
         session = sessions.get(request.cookies.get("vsc_session", ""))
-        if session and catalog.service is not None and hasattr(catalog.service.store,'_access_principal'):
+        store = getattr(catalog.service, 'store', None)
+        if session and store is not None and hasattr(store, '_access_principal'):
             try:
-                with catalog.service.store.engine.connect() as conn:catalog.service.store._access_principal(conn,request_principal(request,sessions))
+                with store.engine.connect() as conn:store._access_principal(conn,request_principal(request,sessions))
             except ResourceError:
                 sessions.pop(request.cookies.get('vsc_session',''),None);session=None
         if not session and config.get("local_auto_session") and config.get("access_token") and config.get("human_identity"):

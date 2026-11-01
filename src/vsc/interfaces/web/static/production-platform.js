@@ -35,7 +35,7 @@ export function createProductionPlatform(root,ctx){
   function professional(){const nav=el('nav',null,'platform-professional');nav.setAttribute('aria-label','完整专业入口');for(const [p,title]of [['project-management','项目目录与回收'],['source','来源解析'],['script','剧本'],['designs','场镜设计'],['library','项目资产库'],['classic-production','经典制作'],['candidates','生成与候选'],['editing','剪辑工作区'],['delivery','剪辑交付'],['workbench','场镜关系'],['media','素材'],['artifacts','文案与版本'],['canvas','关系画布'],['creative-canvas','创作画布'],['blocking','站位设计'],['previs','空间预演'],['creative-tools','音乐与视频工具'],['text-tools','剧本与分析工具'],['media-imports','批量导入']])nav.append(link(title,p));return nav;}
   async function projects(t){
     header('我的项目','从项目进入各集；制作过程、候选和成片保留在原项目中。');
-    root.append(link('项目目录与回收','project-management',null),link('独立剧本与分析工具','text-tools',null,null),link('独立音乐与视频工具','creative-tools',null,null));
+    root.append(actions(link('项目目录与回收','project-management',null),link('独立剧本与分析工具','text-tools',null,null),link('独立音乐与视频工具','creative-tools',null,null)));
     const directions=el('section',null,'platform-directions');directions.setAttribute('aria-label','创作方向');
     for(const [type,title,description]of [['series','连续短剧','共享人物、场景与主线，按集制作。'],['short','单条短视频','围绕一次交付，推进完整动态首版。'],['maintenance','工作区维护','查看执行器和配置，定位服务问题。']]){
       const box=card(title);box.append(el('p',description));box.append(type==='maintenance'?link('查看维护','maintenance',null):button('新建'+title,()=>createProject(type)));directions.append(box);

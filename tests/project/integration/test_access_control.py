@@ -292,6 +292,9 @@ class AccessControlTests(ResourceStoreFixture,unittest.TestCase):
                 self.assertIsNone(conn.execute(text("SELECT to_regprocedure('vsc_access_share_members_match(uuid,uuid)')")).scalar_one())
                 self.assertEqual(len(conn.execute(select(S.access_share_media).where(S.access_share_media.c.share_id==share['share_id'])).all()),2)
             finally:transaction.rollback()
-            with conn.begin():
+            transaction=conn.begin()
+            try:
                 command.downgrade(cfg,'0031_text_tool_copies');command.upgrade(cfg,'0032_fixed_member_seals')
                 self.assertEqual(conn.execute(select(S.access_share_media).where(S.access_share_media.c.share_id==share['share_id'])).all(),before)
+            finally:transaction.rollback()
+        self.assertTrue(self.store.check_schema()['ready'])
