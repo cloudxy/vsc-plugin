@@ -152,7 +152,7 @@ class ProductionRepository:
         job["input_versions"] = [dict(r) for r in conn.execute(select(S.job_input_versions).where(
             S.job_input_versions.c.project_id == p, S.job_input_versions.c.job_id == job_id)).mappings()]
         job["outputs"] = [dict(r) for r in conn.execute(select(S.job_outputs).where(
-            S.job_outputs.c.project_id == p, S.job_outputs.c.job_id == job_id)).mappings()]
+            S.job_outputs.c.project_id == p, S.job_outputs.c.job_id == job_id).order_by(S.job_outputs.c.id)).mappings()]
         job["events"] = [dict(r) for r in conn.execute(select(S.job_events).where(
             S.job_events.c.project_id == p, S.job_events.c.job_id == job_id).order_by(S.job_events.c.created_at, S.job_events.c.id)).mappings()]
         job["provider"] = dict(conn.execute(select(S.providers).where(S.providers.c.id == job["provider_id"])).mappings().one())
@@ -174,9 +174,12 @@ class ProductionRepository:
             return clean({"items": rows, "total": total, "offset": offset, "limit": limit, "revision": project["revision"]})
 
     def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",),
-                             job_id=None, recovery=False, serialize=False, managed_only=False, resume_storage=False):
+                             job_id=None, recovery=False, serialize=False, managed_only=False, resume_storage=False,
+                             project_concurrency=1, provider_concurrency=1):
         if not isinstance(lease_seconds, int) or not 1 <= lease_seconds <= 3600:
             raise ResourceError("worker租约需要1..3600秒")
+        if any(type(value) is not int or not 1 <= value <= 8 for value in (project_concurrency, provider_concurrency)):
+            raise ResourceError("任务并发须在 1–8 之间", "invalid_concurrency")
         statuses = tuple(statuses)
         allowed = {"created", "submitted", "running"}
         if recovery and job_id and project_id:
@@ -239,11 +242,15 @@ class ProductionRepository:
                             {"provider": candidate["provider_id"]}).scalar_one()
                         if not locked:
                             continue
-                        active = conn.execute(select(S.generation_jobs.c.id).where(
-                            S.generation_jobs.c.claim_until > now,
-                            or_(S.generation_jobs.c.project_id == project["id"],
-                                S.generation_jobs.c.provider_id == candidate["provider_id"])).limit(1)).first()
-                        if active:
+                        rate = conn.execute(select(S.providers.c.rate_limit).where(S.providers.c.id == candidate["provider_id"])).scalar_one()
+                        supported = (rate or {}).get("max_concurrency", 1)
+                        supported = supported if type(supported) is int and supported > 0 else 1
+                        provider_limit = min(provider_concurrency, supported)
+                        active_project = conn.execute(select(func.count()).select_from(S.generation_jobs).where(
+                            S.generation_jobs.c.claim_until > now, S.generation_jobs.c.project_id == project["id"])).scalar_one()
+                        active_provider = conn.execute(select(func.count()).select_from(S.generation_jobs).where(
+                            S.generation_jobs.c.claim_until > now, S.generation_jobs.c.provider_id == candidate["provider_id"])).scalar_one()
+                        if active_project >= project_concurrency or active_provider >= provider_limit:
                             continue
                     if candidate["status"] == "created":
                         try:
@@ -283,6 +290,8 @@ class ProductionRepository:
             self._validate_generation_submit(conn, project, job)
             validate_submission(self, conn, project, job)
             self._reserve_budget(conn, project, job)
+            from .commerce import CommerceRepository
+            CommerceRepository(self).reserve_for_job(conn, project, job)
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"], S.generation_jobs.c.id == job["id"])
                 .values(status="submission_unknown", attempt=job["attempt"] + 1, updated_at=datetime.now(timezone.utc)))
             conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job["id"],
@@ -293,7 +302,23 @@ class ProductionRepository:
     def _validate_generation_submit(self, conn, project, job):
         if not self._artifact_approved(conn, project["id"], job["run_version_id"]):
             raise ResourceError("运行包批准已失效，不能提交", "run_unapproved")
-        context = (self._compile_asset_context(conn, project, job["asset_id"], job["purpose"])
+        from vsc.production.run_policy import enforce_execution_policy
+        run = self._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
+        document = json.loads(run["document"])
+        inherited = self._generation_authorization_policy(conn, project, run["id"], document, job)
+        history = conn.execute(select(S.generation_jobs, S.artifact_versions.c.document.label("run_document"))
+            .join(S.artifact_versions, (S.artifact_versions.c.project_id == S.generation_jobs.c.project_id) &
+                  (S.artifact_versions.c.id == S.generation_jobs.c.run_version_id))
+            .where(S.generation_jobs.c.project_id == project["id"],
+                   S.generation_jobs.c.shot_id == job.get("shot_id"),
+                   S.generation_jobs.c.asset_id == job.get("asset_id"),
+                   S.generation_jobs.c.purpose == job["purpose"])).mappings().all()
+        enforce_execution_policy(document, job,
+            [dict(row, execution_policy=json.loads(row["run_document"]).get("execution_policy")) for row in history],
+            inherited_policy=inherited)
+        logical = job["request_payload"].get("logical_request", job["request_payload"])
+        context = (self._compile_asset_context(conn, project, job["asset_id"], job["purpose"],
+                       spec_version_id=logical.get("spec_version_id"))
                    if job.get("asset_id") else self._compile_context(conn, project, job["shot_id"], job["purpose"]))
         if not context["ready"] or context["sha256"] != job["context_sha256"]:
             raise ResourceError("任务固定输入已失效，须重编译后创建新候选", "stale_job")
@@ -302,6 +327,14 @@ class ProductionRepository:
             .where(S.provider_models.c.id == job["model_id"])).mappings().one()
         if not enabled["enabled"] or not enabled["provider_enabled"]:
             raise ResourceError("任务固定供应商或模型已停用", "provider_disabled")
+
+    def _generation_authorization_policy(self, conn, project, run_id, document, job):
+        from vsc.production.run_policy import authorization_policy
+        def resolve(identifier):
+            original = dict(self._one(conn, S.artifact_versions, project["id"], identifier))
+            original["approved"] = self._artifact_approved(conn, project["id"], identifier)
+            return original
+        return authorization_policy(document, run_id, job, resolve)
 
     def _generation_model(self, conn, payload, *, lock=True):
         model_id = payload.get("model_id")
@@ -335,7 +368,9 @@ class ProductionRepository:
         self.check_job_script_confirmation(conn, project, shot_id=shot_id, asset_id=asset_id, run_version_id=required(payload, "run_version_id"))
         if asset_id and (payload.get("modality") != "image" or payload.get("purpose") not in {"identity_ref", "location_master", "ref", "asset_ref", "prop_ref", "costume_ref", "style_ref"}):
             raise ResourceError("资产首参考只支持声明的图像用途", "asset_generation_unsupported")
-        context = (self._compile_asset_context(conn, project, asset_id, payload.get("purpose")) if asset_id else
+        request = dict(required(payload, "request_payload"))
+        context = (self._compile_asset_context(conn, project, asset_id, payload.get("purpose"),
+            spec_version_id=request.get("spec_version_id")) if asset_id else
             self._compile_context(conn, project, shot_id, payload.get("purpose")))
         if not context["ready"]:
             raise ResourceError("镜头上下文存在缺口，不能提交生成", "context_gaps")
@@ -346,7 +381,6 @@ class ProductionRepository:
             raise ResourceError("运行版本未批准", "run_unapproved")
         model, provider = self._generation_model(conn, payload)
         model_id = model['id']
-        request = dict(required(payload, "request_payload"))
         if any(key in request for key in ("input_media", "input_versions", "voice_binding")):
             raise ResourceError("请求固定输入由服务端编译，客户端不能覆写", "untrusted_job_inputs")
         if request.get("context_sha256", context["sha256"]) != context["sha256"]:
@@ -373,7 +407,28 @@ class ProductionRepository:
             run_document = json.loads(run["document"])
         except (ValueError, UnicodeDecodeError):
             raise ResourceError("production-run必须是固定结构文档", "invalid_production_run")
-        pinned = authorize_run(run_document, run["artifact_type"], context, request, candidate_no)
+        self._generation_authorization_policy(conn, project, run["id"], run_document,
+            dict(shot_id=shot_id, asset_id=asset_id, purpose=payload["purpose"]))
+        task_outputs = {}
+        if run_document.get("execution_policy"):
+            from vsc.production.bounded import tasks, matches_job
+            jobs = conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id == p,
+                S.generation_jobs.c.run_version_id == run["id"])).mappings().all()
+            for task in tasks(run_document):
+                matches = [job for job in jobs if matches_job(task, job)]
+                if len(matches) > 1:
+                    raise ResourceError("固定任务对应多个生成任务，须明确消除冲突", "task_job_conflict")
+                if matches:
+                    job = matches[0]
+                    outputs = conn.execute(select(S.job_outputs.c.media_id, S.media_blobs.c.sha256)
+                        .join(S.media_items, (S.media_items.c.project_id == S.job_outputs.c.project_id) &
+                              (S.media_items.c.id == S.job_outputs.c.media_id))
+                        .join(S.media_blobs, S.media_blobs.c.id == S.media_items.c.blob_id)
+                        .where(S.job_outputs.c.project_id == p, S.job_outputs.c.job_id == job["id"])
+                        .order_by(S.job_outputs.c.id)).mappings().all()
+                    task_outputs[task["task_key"]] = {"job_id": job["id"], "status": job["status"], "outputs": [dict(o) for o in outputs]}
+        pinned = authorize_run(run_document, run["artifact_type"], context, request, candidate_no,
+                               task_outputs=task_outputs, model_id=model_id)
         dependencies = set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(
             S.artifact_dependencies.c.project_id == p, S.artifact_dependencies.c.artifact_id == run["id"])).scalars())
         if {item[0] for item in pinned} != dependencies:
@@ -454,6 +509,8 @@ class ProductionRepository:
                 self._validate_generation_submit(conn, project, job)
                 validate_submission(self, conn, project, job)
                 self._reserve_budget(conn, project, job)
+                from .commerce import CommerceRepository
+                CommerceRepository(self).reserve_for_job(conn, project, job)
             if job["status"] == "submission_unknown" and not payload.get("recovery_evidence"):
                 raise ResourceError("未知提交结果必须提供恢复证据，禁止直接重提", "recovery_evidence_required")
             external = payload.get("external_task_id", job["external_task_id"])
@@ -490,11 +547,13 @@ class ProductionRepository:
             for field in ("cost", "latency_ms", "raw_response"):
                 if field in payload:
                     values[field] = payload[field]
-            if job["status"] == "created":
+            if job["status"] == "created" and status in {"submitted", "submission_unknown"}:
                 values["attempt"] = job["attempt"] + 1
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == p, S.generation_jobs.c.id == job["id"]).values(**values))
             if status in {"succeeded", "failed", "cancelled"}:
                 self._settle_budget(conn, p, job, payload.get("actual_units"))
+                from .commerce import CommerceRepository
+                CommerceRepository(self).settle_for_job(conn, p, job)
             evidence = dict(payload.get("recovery_evidence", {}))
             if confirmation_id:
                 evidence.update(human_confirmation_id=confirmation_id, reason=payload["reason"])

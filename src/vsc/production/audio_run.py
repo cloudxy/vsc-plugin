@@ -45,7 +45,8 @@ def project_errors(data, project, state, item):
             if not artifact or artifact.get('sha256') != ref.get('sha256') or ref['id'] not in item.get('depends_on', []):
                 errors.append('音频 approved_inputs 必须绑定明确依赖')
             else: approved.append(artifact)
-        required = 'vsc.asset_bible' if data.get('phase') == 'asset' else 'vsc.animatic'
+        from vsc.production.run_policy import production_input
+        required = production_input(state.get('profile_snapshot', {}), data.get('phase'))
         if not any(a['type']==required for a in approved): errors.append('单次正式请求缺批准输入：'+required)
         for key in ('bible', 'screenplay', 'state'):
             if binding['inputs'].get(key) and binding['inputs'][key]['sha256'] not in {a['sha256'] for a in approved}:
@@ -60,7 +61,8 @@ def execute(project, identifier):
     from vsc.production.run import load_run, import_candidate
     from vsc.project.state import gate_problems
     state, item, data = load_run(project, identifier)
-    gate = 'script' if data.get('phase') == 'asset' else 'animatic'
+    from vsc.production.run_policy import production_gate
+    gate = production_gate(state.get('profile_snapshot', {}), data.get('phase'))
     gaps = gate_problems(Path(project), state, gate, None if data['scope']=='project' else data['scope'])
     if gaps: raise ValueError('音频制作质量门未满足：'+'；'.join(gaps))
     module, args, binding, operation, bound = prepare(project, data['audio_request'])

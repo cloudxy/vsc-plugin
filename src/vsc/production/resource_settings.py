@@ -21,6 +21,8 @@ PURPOSES = [
     {"id": "dialogue_dry", "label": "配音", "modality": "audio"},
     {"id": "sfx", "label": "音效", "modality": "audio"},
     {"id": "bgm", "label": "音乐", "modality": "audio"},
+    {"id": "music", "label": "音乐候选", "modality": "audio"},
+    {"id": "ambience", "label": "环境声", "modality": "audio"},
 ]
 SUPPLIERS = {"volcengine", "alibaba", "xai", "openai"}
 EXECUTIONS = {"api", "official_sdk", "official_cli", "official_skill", "host_tool"}
@@ -58,7 +60,11 @@ PRESETS = [dict(id="volcengine-agent-plan", label="火山 Agent Plan", name="火
     supplier="xai", product="grok-imagine", plan="subscription", region="global", execution="api",
     modality="video", model_key="grok-imagine-video", model_version="", base_url=grok_credentials.API_BASE, auth_ref="",
     capabilities={"purposes": ["video_edit", "video_extend"], "video_operations": ["edit", "extend"]},
-    default_params={}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
+    default_params={}, enabled=False),
+    dict(id="volcengine-seed-audio", label="Seed-Audio 音乐/环境/音效（MediaKit 权限待验证）", name="Seed-Audio 音频候选",
+    supplier="volcengine", product="mediakit", plan="agent-plan", region="cn-beijing", execution="api",
+    modality="audio", model_key="seed-audio-1.0", model_version="mediakit-v1", base_url="https://mediakit.cn-beijing.volces.com", auth_ref=KEY_ENV,
+    capabilities={"purposes": ["music", "bgm", "ambience", "sfx"]}, default_params={"max_prompt_chars": 2000}, enabled=False)] + [dict(id=supplier, label=label, name=label, supplier=supplier,
     product="", plan="", region="", execution="api", modality="image", model_key="", model_version="",
     base_url="", auth_ref=auth, capabilities={"purposes": []}, default_params={}, enabled=False)
     for supplier, label, auth in [("alibaba", "阿里（待接入）", "DASHSCOPE_API_KEY"),
@@ -80,6 +86,11 @@ def safe_parameters(value):
 
 
 def adapter_available(row):
+    if row.get("supplier") == "volcengine" and row.get("product") == "mediakit":
+        return (row.get("plan") == "agent-plan" and row.get("execution") == "api" and row.get("modality") == "audio"
+            and row.get("model_key") == "seed-audio-1.0" and row.get("base_url", "").rstrip("/") == "https://mediakit.cn-beijing.volces.com"
+            and row.get("auth_ref") == KEY_ENV
+            and set(row.get("capabilities", {}).get("purposes", [])) <= {"music", "bgm", "ambience", "sfx"})
     if row.get("supplier") == "xai":
         model = row.get("model_key", "")
         family_matches = ((row.get("modality") == "image" and model.startswith("grok-imagine-image-"))
@@ -138,10 +149,17 @@ def validate_configuration(payload):
         raise ResourceError("能力用途必须是用途 ID 数组")
     if value.get("tool_id") is not None and (not isinstance(value["tool_id"], str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", value["tool_id"])):
         raise ResourceError("工具 ID 格式无效")
-    if value["supplier"] == "volcengine" and (value["plan"] != "agent-plan" or value["product"] != "ark"
+    mediakit = value["supplier"] == "volcengine" and value["product"] == "mediakit"
+    if mediakit and not adapter_available(value):
+        raise ResourceError("MediaKit 音频限定 Seed-Audio、固定端点与原 Agent Plan 凭证引用，服务权限仍需验证", "invalid_provider_config")
+    if mediakit:
+        maximum = value["default_params"].get("max_prompt_chars", 2000)
+        if type(maximum) is not int or not 1 <= maximum <= 20000 or set(value["default_params"]) - {"max_prompt_chars"}:
+            raise ResourceError("Seed-Audio 默认参数仅支持 1–20000 的 max_prompt_chars", "invalid_model_defaults")
+    if value["supplier"] == "volcengine" and not mediakit and (value["plan"] != "agent-plan" or value["product"] != "ark"
             or value["auth_ref"] != KEY_ENV or value["base_url"] != PLAN_BASE):
         raise ResourceError("火山资源必须使用 Ark Agent Plan、ARK_AGENT_PLAN_API_KEY 与套餐端点", "invalid_provider_config")
-    if value["supplier"] == "volcengine":
+    if value["supplier"] == "volcengine" and not mediakit:
         family = {"image": "doubao-seedream-", "video": "doubao-seedance-", "audio": "seed-tts-"}[value["modality"]]
         if not value["model_key"].startswith(family):
             raise ResourceError("模型与多模态用途不匹配；不能用套餐凭证测试文本或向量模型", "invalid_model_family")

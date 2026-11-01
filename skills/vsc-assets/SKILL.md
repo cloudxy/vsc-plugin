@@ -5,6 +5,8 @@ description: "Design VSC character, location, prop, action and voice assets befo
 
 # VSC 资产
 
+连续短剧先按全剧分集脚本汇总稳定人物、地点、道具和声音身份，再按具体规格版本、变体与用途统计当前批次的镜头需求。网页“项目资产与需求”读取同一资源模型；同名不自动合并，不同实例不重复创建身份。先复用已有参考，只为本批真实消费者补缺，未来尚未使用的角度与状态保留需求即可。明确变体使用其固定规格编译资产上下文，不能静默回退到 master 参考。
+
 主体识别、色彩或光源有问题时，按[固定读取](../vsc/references/method-practice.md)选[注意力与光线练习](references/visual-attention-light.md)，只准备当前机位所需参考；教学示例身份/服装/声线不进入新作品默认值。
 
 动作、施法或特效看不清作用时，固定读取原 effects-layers 的[动作与效果同步](references/visual-attention-light.md#effect-action-sync)：分开概念、当前设计、执行规格和提示词，先核身体/道具动作、效果源、路径、接触与结果，再增细节。跑跳、跌倒、潜行、攻防、剑术和施法按当前风格与世界规则选择检查；静态姿态不证明重量、惯性或动态接触成立。

@@ -140,7 +140,13 @@ def validation_errors(data):
         c.need(text(data.get(key)), key + " 必须是非空文本")
     if fmt == "vsc.screenplay/v1":
         c.need(text(data.get("body")), "body 必须保留剧本正文或正文说明")
-        for ref in c.rows(data.get("adaptation_refs"), "adaptation_refs", True):
+        original = data.get("source_mode") == "original"
+        c.need(isinstance(data.get("source_mode", "adapted"), str) and
+               data.get("source_mode", "adapted") in {"original", "adapted"}, "source_mode 必须为 original 或 adapted")
+        if original:
+            c.ref(data.get("original_brief"), "original_brief")
+            c.need(data.get("adaptation_refs") == [], "原创剧本须明确 adaptation_refs=[]；有改编来源时使用 adapted")
+        for ref in c.rows(data.get("adaptation_refs"), "adaptation_refs", not original):
             c.ref(ref, "adaptation_refs")
         unit_ids = set()
         for scene in c.rows(data.get("scenes"), "scenes", True):
@@ -155,7 +161,7 @@ def validation_errors(data):
                     c.need(text(identifier) and identifier not in unit_ids, "剧本单元/对白行 id 必须在全文唯一")
                     if isinstance(identifier, str):
                         unit_ids.add(identifier)
-                    c.texts(row.get("narrative_refs"), "narrative_refs", True)
+                    c.texts(row.get("narrative_refs"), "narrative_refs", not original)
                     if key == "silence":
                         c.need(positive(row.get("duration_ms")) and text(row.get("purpose")), "静默必须有正 duration_ms 与 purpose")
                     else:
@@ -386,8 +392,29 @@ class _Project:
             return {}
 
 
+def screenplay_policy_errors(data, profile, dependencies=None):
+    """Original short-form variant is opt-in through the pinned Profile.
+
+PG callers pass authoritative dependency versions before approval; legacy
+project validation resolves the same reference through its existing reader.
+    """
+    if not isinstance(data, dict) or data.get("format") != "vsc.screenplay/v1" or data.get("source_mode") != "original":
+        return []
+    errors = []
+    if profile.get("production_policy") != "light-short-v1":
+        errors.append("原创直达剧本仅适用于固定 light-short-v1 制作策略；旧版保留原改编前置")
+    if dependencies is not None:
+        ref = data.get("original_brief", {})
+        if not any(row.get("id") == ref.get("id") and row.get("sha256") == ref.get("sha256")
+                   and row.get("artifact_type") == "vsc.creative_brief" and row.get("approved")
+                   for row in dependencies):
+            errors.append("original_brief 必须是明确依赖的已批准创作委托固定 ID/SHA")
+    return errors
+
+
 def project_errors(data, project, state, item, validate_callback=None):
     errors = validation_errors(data)
+    errors.extend(screenplay_policy_errors(data, state.get("profile_snapshot", {})))
     if errors:
         return errors
     p = _Project(project, state, item, validate_callback)
@@ -399,6 +426,8 @@ def project_errors(data, project, state, item, validate_callback=None):
     fmt = data["format"]
     if fmt == "vsc.screenplay/v1":
         narrative = {}
+        if data.get("source_mode") == "original":
+            p.ref(data["original_brief"], "original_brief", {"vsc.creative_brief"})
         for ref in data["adaptation_refs"]:
             plan = p.ref(ref, "adaptation_refs", {"vsc.adaptation_plan"})
             narrative.update({row["id"]: row for row in plan.get("screen_units", [])})

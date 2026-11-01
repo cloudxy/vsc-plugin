@@ -9,6 +9,9 @@ from vsc.assets.resource_service import ResourceError
 def worker_adapter_factory(job, storage):
     provider = job.get("provider") or {}
     identity = provider.get("configuration", {}) if isinstance(provider, dict) else {}
+    if identity.get("supplier") == "volcengine" and identity.get("product") == "mediakit":
+        from vsc.adapters.providers.speech.resource_factory import mediakit_audio_factory
+        return mediakit_audio_factory(job, storage)
     if job.get("provider_id") == "volc_ark" or identity.get("supplier") == "volcengine":
         from vsc.adapters.providers.volc_ark.resource_factory import volc_ark_factory
         return volc_ark_factory(job, storage)

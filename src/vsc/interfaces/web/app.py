@@ -30,6 +30,23 @@ from vsc.interfaces.web.review import install_review_routes
 from vsc.interfaces.web.media_recycle import install_recycle_routes
 from vsc.interfaces.web.assisted_desk import install_assisted_desk_routes
 from vsc.interfaces.web.edit_preview import install_edit_preview_routes
+from vsc.interfaces.web.editor_workspace import install_editor_workspace_routes
+from vsc.interfaces.web.production_platform import install_production_platform_routes
+from vsc.interfaces.web.creative_canvas import install_creative_canvas_routes
+from vsc.interfaces.web.production_batch import install_production_batch_routes
+from vsc.interfaces.web.project_management import install_project_management_routes, management_http_guard
+from vsc.interfaces.web.classic_production import install_classic_production_routes
+from vsc.interfaces.web.intelligent_production import install_intelligent_routes
+from vsc.interfaces.web.spatial_scene import install_spatial_scene_routes
+from vsc.interfaces.web.creative_tools import install_creative_tools_routes,install_standalone_creative_tool_routes
+from vsc.interfaces.web.media_imports import install_media_import_routes
+from vsc.interfaces.web.text_tools import install_text_tools_routes, install_standalone_text_tool_routes
+from vsc.interfaces.web.access_control import install_access_routes,request_principal,authorize_http
+from vsc.interfaces.web.team_review import install_team_review_routes
+from vsc.interfaces.web.commerce import install_commerce_routes, install_commerce_notification_routes, is_commerce_notification
+from vsc.interfaces.web.service_operations import install_service_operations_routes
+from vsc.interfaces.web.asset_center import install_asset_center_routes
+from vsc.assets.access_control import set_principal,reset_principal,Principal
 
 
 def create_app(config=None, catalog=None, service=None):
@@ -68,7 +85,27 @@ def create_app(config=None, catalog=None, service=None):
         host = request.headers.get("host", "").rsplit(":", 1)[0] if ":" in request.headers.get("host", "") else request.headers.get("host", "")
         if host not in allowed_hosts:
             return JSONResponse({"error": "invalid_host", "message": "仅接受配置的本机地址"}, status_code=403)
-        response = await call_next(request)
+        token=None
+        try:
+            principal=request_principal(request,sessions,local_read=not config.get("human_identity") and not config.get("access_token"))
+            notification=is_commerce_notification(request)
+            authorization=request.headers.get('authorization','')
+            if request.url.path.startswith('/api/v1/service-api/'):
+                if not authorization.startswith('Bearer ') or not catalog.service or not hasattr(catalog.service,'authenticate_service_api_key'):
+                    raise ResourceError('开放接口需要专用API凭据','access_denied',403)
+                principal=await run_in_threadpool(catalog.service.authenticate_service_api_key,authorization[7:])
+                if not principal.api_key_id or principal.local or principal.local_read or principal.share_id:
+                    raise ResourceError('API身份不符','access_denied',403)
+            elif not notification and authorization.lower().startswith('bearer '):
+                raise ResourceError('API凭据只接受专用开放接口，不用于界面登录','access_denied',403)
+            token=set_principal(principal)
+            if not notification:await run_in_threadpool(authorize_http,catalog.service,request)
+            await run_in_threadpool(management_http_guard,catalog.service,request)
+            response = await call_next(request)
+        except ResourceError as error:
+            response=JSONResponse({"error":error.code,"message":str(error)},status_code=error.status_code)
+        finally:
+            if token is not None:reset_principal(token)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
@@ -112,19 +149,25 @@ def create_app(config=None, catalog=None, service=None):
         session = sessions.get(request.cookies.get("vsc_session", ""))
         if not session or not secrets.compare_digest(request.headers.get("x-csrf-token", ""), session["csrf"]):
             raise HTTPException(403, "请先建立本机人工操作会话")
+        if catalog.service is not None and hasattr(catalog.service.store,'_access_principal'):
+            with catalog.service.store.engine.connect() as conn:
+                catalog.service.store._access_principal(conn,request_principal(request,sessions))
         return session["actor"]
 
     @app.get("/", response_class=HTMLResponse)
     def index():
         return HTMLResponse((root / "templates" / "index.html").read_text("utf-8"))
 
-    def new_session():
-        identity = config.get("human_identity")
-        if not config.get("access_token") or not identity:
+    def new_session(binding=None):
+        identity = binding.get('actor') if binding else config.get("human_identity")
+        if binding is None and (not config.get("access_token") or not identity):
             raise HTTPException(403, "本次面板以只读方式启动")
+        if binding is None:
+            binding=catalog.service.ensure_local_access(identity) if catalog.service is not None and hasattr(catalog.service,'ensure_local_access') else {'actor':identity,'local':True}
+
         key, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        sessions[key] = {"actor": identity, "csrf": csrf}
-        response = JSONResponse({"actor": identity, "csrf_token": csrf, "write_available": True})
+        sessions[key] = dict(binding,actor=identity,csrf=csrf)
+        response = JSONResponse({"actor": identity, "csrf_token": csrf, "write_available": True,"identity_id":binding.get('identity_id'),"share_id":binding.get('share_id'),"workspace_id":binding.get('workspace_id')})
         response.set_cookie("vsc_session", key, httponly=True, samesite="strict", path="/")
         return response
 
@@ -156,6 +199,11 @@ def create_app(config=None, catalog=None, service=None):
     @app.get("/api/v1/session")
     def current_session(request: Request):
         session = sessions.get(request.cookies.get("vsc_session", ""))
+        if session and catalog.service is not None and hasattr(catalog.service.store,'_access_principal'):
+            try:
+                with catalog.service.store.engine.connect() as conn:catalog.service.store._access_principal(conn,request_principal(request,sessions))
+            except ResourceError:
+                sessions.pop(request.cookies.get('vsc_session',''),None);session=None
         if not session and config.get("local_auto_session") and config.get("access_token") and config.get("human_identity"):
             if (not request.client or request.client.host not in {"127.0.0.1", "::1"}
                     or request.headers.get("sec-fetch-site") == "cross-site"):
@@ -164,7 +212,8 @@ def create_app(config=None, catalog=None, service=None):
                 origin(request)
             return new_session()
         return {"actor": session["actor"] if session else None, "csrf_token": session["csrf"] if session else None,
-                "write_available": bool(config.get("access_token") and config.get("human_identity"))}
+                "write_available": bool(session or config.get("access_token") and config.get("human_identity")),
+                "identity_id":session.get('identity_id') if session else None,"share_id":session.get('share_id') if session else None,"workspace_id":session.get('workspace_id') if session else None}
 
     @app.post("/api/v1/session/logout")
     def logout(request: Request):
@@ -306,7 +355,10 @@ def create_app(config=None, catalog=None, service=None):
             stream.seek(0)
             return await run_in_threadpool(storage.stage_upload, stream, filename)
 
-    actions = {"source-workspace/sources": "create_source_intake",
+    actions = {"episode-batches": "create_episode_batch", "episode-order": "reorder_episodes",
+               "first-production/proposals": "propose_first_production",
+               "production-budgets": "configure_budget",
+               "source-workspace/sources": "create_source_intake",
                "source-workspace/parse-jobs": "create_parse_job",
                "source-workspace/parse-jobs/run": "run_parse_job",
                "source-workspace/prepare-import": "prepare_parse_import",
@@ -361,6 +413,25 @@ def create_app(config=None, catalog=None, service=None):
     install_recycle_routes(router, catalog, etag, actor)
     install_assisted_desk_routes(router, catalog, etag)
     install_edit_preview_routes(router, catalog, etag, actor)
+    install_editor_workspace_routes(router, catalog, etag, actor)
+    install_production_platform_routes(router, catalog, etag)
+    install_creative_canvas_routes(router, catalog, etag, actor)
+    install_production_batch_routes(router, catalog, etag, actor)
+    install_classic_production_routes(router, catalog, etag, actor)
+    install_project_management_routes(app, router, catalog, etag, actor, read_actor)
+    install_intelligent_routes(router,catalog,etag,actor)
+    install_spatial_scene_routes(router, catalog, etag, actor)
+    install_creative_tools_routes(router, catalog, etag, actor)
+    install_standalone_creative_tool_routes(app,catalog,actor)
+    install_media_import_routes(router, catalog, etag, actor)
+    install_text_tools_routes(router, catalog, etag, actor)
+    install_standalone_text_tool_routes(app, catalog, actor)
+    install_access_routes(app, router, catalog, etag, actor, origin, new_session, sessions)
+    install_team_review_routes(router,catalog,etag,actor)
+    install_commerce_routes(router,catalog,etag,actor,read_actor)
+    install_commerce_notification_routes(app,catalog)
+    install_service_operations_routes(app,router,catalog,etag,actor,read_actor)
+    install_asset_center_routes(app,router,catalog,etag,actor,read_actor)
 
     @router.post("/{project_id}/generation-recoveries")
     def recover_generation(project_id: str, request: Request, body: dict):

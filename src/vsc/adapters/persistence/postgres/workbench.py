@@ -5,8 +5,10 @@ from vsc.assets.resource_service import Conflict, NotFound, ResourceError
 
 HIERARCHY = ' UNION ALL '.join('SELECT id,parent_id,ordinal FROM '+t+' WHERE project_id=:p' for t in ('episodes','scenes','sequences','shots'))
 CTE = '''WITH RECURSIVE hierarchy AS ('''+HIERARCHY+'''),
-scope_ids(id) AS (SELECT id FROM creative_objects WHERE project_id=:p AND (CAST(:scope AS uuid) IS NULL OR id=CAST(:scope AS uuid))
- UNION SELECT h.id FROM hierarchy h JOIN scope_ids s ON h.parent_id=s.id),
+hidden_objects(id) AS (SELECT object_id FROM management_object_states WHERE project_id=:p AND state<>'active'
+ UNION SELECT h.id FROM hierarchy h JOIN hidden_objects p ON h.parent_id=p.id),
+scope_ids(id) AS (SELECT id FROM creative_objects WHERE project_id=:p AND id NOT IN (SELECT id FROM hidden_objects) AND (CAST(:scope AS uuid) IS NULL OR id=CAST(:scope AS uuid))
+ UNION SELECT h.id FROM hierarchy h JOIN scope_ids s ON h.parent_id=s.id WHERE h.id NOT IN (SELECT id FROM hidden_objects)),
 ancestors(id,parent_id) AS (SELECT id,parent_id FROM hierarchy WHERE id=CAST(:scope AS uuid)
  UNION SELECT h.id,h.parent_id FROM hierarchy h JOIN ancestors a ON a.parent_id=h.id),
 scoped_slots AS (SELECT id FROM binding_slots WHERE project_id=:p AND target_object_id IN (SELECT id FROM scope_ids)),
@@ -28,7 +30,7 @@ scoped_cues AS (SELECT c.id FROM sound_cues c WHERE c.project_id=:p AND (CAST(:s
 QUERIES = {
 'children': '''SELECT o.id,o.kind,o.display_code,o.title,coalesce(h.ordinal,w.ordinal,0) ordinal,h.parent_id
  FROM creative_objects o LEFT JOIN hierarchy h ON h.id=o.id LEFT JOIN works w ON w.project_id=o.project_id AND w.id=o.id
- WHERE o.project_id=:p AND ((CAST(:scope AS uuid) IS NULL AND (o.kind='work' OR o.kind='asset')) OR h.parent_id=CAST(:scope AS uuid))''',
+ WHERE o.project_id=:p AND o.id NOT IN (SELECT id FROM hidden_objects) AND ((CAST(:scope AS uuid) IS NULL AND (o.kind='work' OR o.kind='asset')) OR h.parent_id=CAST(:scope AS uuid))''',
 'shots': '''SELECT o.id,o.id shot_id,o.title,o.display_code,'shot' kind,s.ordinal,s.parent_id sequence_id,q.parent_id scene_id,sc.title scene_title,sc.display_code scene_code,
  s.duration_ms,(SELECT count(*) FROM shot_line_coverage c WHERE c.project_id=:p AND c.shot_id=s.id) coverage_count,
  (SELECT count(*) FROM binding_slots b WHERE b.project_id=:p AND b.target_object_id=s.id) slot_count,
@@ -45,7 +47,7 @@ QUERIES = {
 'assets': '''SELECT o.id,o.id asset_id,o.title,o.display_code,a.asset_kind kind,
  (SELECT count(*) FROM asset_spec_versions v WHERE v.project_id=:p AND v.asset_id=a.id) version_count,
  (SELECT count(*) FROM asset_use_instances u WHERE u.project_id=:p AND u.asset_id=a.id) use_count
- FROM asset_identities a JOIN creative_objects o ON o.project_id=a.project_id AND o.id=a.id WHERE a.project_id=:p AND
+ FROM asset_identities a JOIN creative_objects o ON o.project_id=a.project_id AND o.id=a.id WHERE a.project_id=:p AND a.id NOT IN (SELECT id FROM hidden_objects) AND
  (CAST(:scope AS uuid) IS NULL OR a.id=CAST(:scope AS uuid)
  OR EXISTS(SELECT 1 FROM asset_use_instances u WHERE u.project_id=:p AND u.asset_id=a.id AND u.id IN (SELECT id FROM scoped_instances))
  OR EXISTS(SELECT 1 FROM state_entity_refs r JOIN state_versions v ON v.project_id=r.project_id AND v.id=r.state_id WHERE r.project_id=:p AND r.asset_id=a.id AND (v.scene_id IN (SELECT id FROM scope_ids) OR v.shot_id IN (SELECT id FROM scope_ids)))
@@ -181,6 +183,9 @@ def render_position(store, project_id, render_id, time_ms):
     with store.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn, conn.begin():
         conn.execute(text('SET TRANSACTION READ ONLY'))
         project=store._project(conn,p)
+        from .project_management import management_project_guard, management_object_guard
+        management_project_guard(conn,p)
+        if object_id:management_object_guard(conn,p,object_id)
         render=store._one(conn,S.render_versions,p,render_id)
         timeline=store._one(conn,S.timeline_versions,p,render['timeline_id'])
         duration=conn.execute(select(func.max(S.timeline_items.c.offset_frame+S.timeline_items.c.duration_frames)).where(
@@ -229,7 +234,7 @@ def query_workbench(store,project_id,*,object_id=None,section='overview',query='
             tables={'shots':'shots','lines':'script_lines','assets':'asset_identities','instances':'asset_use_instances',
                 'cues':'sound_cues','performances':'execution_instances','bindings':'binding_slots','materials':'media_items',
                 'versions':'artifact_versions','jobs':'generation_jobs'}
-            counts=conn.execute(text(' UNION ALL '.join("SELECT '%s' section,count(*) total FROM %s WHERE project_id=:p"%(key,table) for key,table in tables.items())),params).mappings()
+            counts=conn.execute(text(CTE+' UNION ALL '.join("SELECT '%s' section,count(*) total FROM %s WHERE project_id=:p"%(key,table)+(' AND id NOT IN (SELECT id FROM hidden_objects)' if key in {'shots','assets'} else '') for key,table in tables.items())),params).mappings()
             for row in counts:
                 total=row['total'];name=row['section'];summary[name]=total
                 sections[name]=dict(items=[],scope_total=total,filtered_total=total,total=total,loaded_count=0,

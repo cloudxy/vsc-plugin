@@ -7,7 +7,7 @@ the existing selection and rights authorities.
 import json
 import uuid
 
-from sqlalchemy import and_, exists, literal, or_, select, union_all
+from sqlalchemy import and_, exists, func, literal, or_, select, union_all
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from vsc.assets.resource_model import projection_content, projection_rows, projection_text
@@ -149,7 +149,7 @@ class ResourceModelRepository:
                 scene_id=scene, shot_id=shot, location_id=location, spec_version_id=fixed_spec(item, location),
                 role=item.get("role", "primary"), ordinal=item.get("ordinal", n))
 
-        requirement_keys = set()
+        requirement_keys, instance_slots = set(), {}
         for item in projection_rows(document, "resource_requirements"):
             key = projection_text(item, "requirement_key")
             if key in requirement_keys:
@@ -179,6 +179,10 @@ class ResourceModelRepository:
                     raise ResourceError("需求槽位不属于该资源或场镜", "resource_slot_mismatch")
                 if asset and slot["identity_asset_id"] and slot["identity_asset_id"] != asset:
                     raise ResourceError("需求与槽位身份不一致", "resource_slot_mismatch")
+                if instance and shot and slot["target_object_id"] == shot and slot_ref.get("role", "fulfills") == "fulfills":
+                    prior = instance_slots.setdefault(slot_id, instance)
+                    if prior != instance:
+                        raise ResourceError("不同使用实例须保留独立镜头槽位", "resource_instance_slot_conflict")
                 conn.execute(pg_insert(S.requirement_slots).values(project_id=p, requirement_id=req,
                     slot_id=slot_id, role=slot_ref.get("role", "fulfills")).on_conflict_do_nothing())
 
@@ -398,8 +402,16 @@ class ResourceModelRepository:
                     if candidate["spec_version_id"] and not self._artifact_approved(conn, p, candidate["spec_version_id"]):
                         reasons.append("spec_unapproved")
                     selected = {"candidate_id": candidate["id"], "media_id": candidate["media_id"],
-                        "binding_decision_id": current["decision_id"]}
+                        "binding_decision_id": current["decision_id"],
+                        "sha256": self._media(conn, p, candidate["media_id"])["sha256"]}
+                if row["spec_version_id"]:
+                    spec = self._one(conn, S.asset_spec_versions, p, row["spec_version_id"])
+                    if (slot["variant_spec_id"] and slot["variant_spec_id"] != spec["id"] or
+                            spec["variant_key"] not in {"master", "default"} and slot["variant_spec_id"] != spec["id"]):
+                        reasons.append("requirement_variant_mismatch")
                 row["slots"].append({"slot_id": slot["id"], "role": link["role"], "purpose": slot["role"],
+                    "target_object_id": slot["target_object_id"], "identity_asset_id": slot["identity_asset_id"],
+                    "variant_spec_id": slot["variant_spec_id"],
                     "selected": selected, "usable": not reasons, "reasons": reasons})
             fulfilling = [slot for slot in row["slots"] if slot["role"] in {"fulfills", "post"}]
             row["status"] = "satisfied" if fulfilling and all(slot["usable"] for slot in fulfilling) else "unmet"
@@ -423,6 +435,71 @@ class ResourceModelRepository:
                 scene_id=scene_id, shot_id=shot_id, object_ids=self._resource_object_scope(conn, p, object_id))
             return clean({"project_id": p, "revision": project["revision"], "requirements": rows,
                 "has_requirements": bool(rows), "unmet_count": sum(row["status"] == "unmet" for row in rows)})
+
+    def production_requirement_facts(self, project_id, episode_ids, purpose):
+        """Read a bounded batch from existing approved immutable projections.
+
+        Other episodes contribute only a count, never generated task candidates.
+        The caller checks the revision again after compiling live ShotContexts.
+        """
+        p = checked_id(project_id)
+        with self.engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn:
+            project = self._project(conn, p)
+            episodes = [self._one(conn, S.episodes, p, checked_id(identifier))["id"] for identifier in episode_ids]
+            selected = set(episodes)
+            for episode in episodes:
+                selected.update(self._descendant_ids(conn, p, episode))
+            parents = union_all(*(select(table.c.id, table.c.parent_id).where(table.c.project_id == p,
+                table.c.id.in_(selected)) for table in (S.episodes, S.scenes, S.sequences, S.shots))).subquery()
+            objects = [dict(row) for row in conn.execute(select(S.creative_objects, parents.c.parent_id)
+                .outerjoin(parents, parents.c.id == S.creative_objects.c.id).where(
+                S.creative_objects.c.project_id == p, S.creative_objects.c.id.in_(selected))).mappings()]
+            shot_ids = [row["id"] for row in objects if row["kind"] == "shot"]
+            by_id = {row["id"]: row for row in objects}
+            scene_ids = {by_id[by_id[shot]["parent_id"]]["parent_id"] for shot in shot_ids}
+            # Only current approved requirement/spec documents participate.
+            relevant = select(S.asset_requirements.c.artifact_id).where(S.asset_requirements.c.project_id == p)
+            current = list(conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
+                S.current_artifact_versions.c.project_id == p,
+                S.current_artifact_versions.c.artifact_id.in_(relevant))).scalars())
+            approved = [identifier for identifier in current if self._artifact_approved(conn, p, identifier)]
+            rows = self._requirement_rows(conn, p, artifact_ids=approved, object_ids=selected)
+            rows = [row for row in rows if row["purpose"] in {"*", purpose}]
+            in_scope = or_(S.asset_requirements.c.scene_id.in_(scene_ids), S.asset_requirements.c.shot_id.in_(shot_ids))
+            future = conn.execute(select(func.count()).select_from(S.asset_requirements).where(
+                S.asset_requirements.c.project_id == p, S.asset_requirements.c.artifact_id.in_(approved),
+                S.asset_requirements.c.purpose.in_(["*", purpose]), ~func.coalesce(in_scope, False))).scalar_one()
+            asset_ids = {row["asset_id"] for row in rows if row["asset_id"]}
+            identities = [dict(row) for row in conn.execute(select(S.asset_identities, S.creative_objects.c.title,
+                S.creative_objects.c.display_code).join(S.creative_objects, and_(
+                    S.creative_objects.c.project_id == S.asset_identities.c.project_id,
+                    S.creative_objects.c.id == S.asset_identities.c.id)).where(
+                S.asset_identities.c.project_id == p, S.asset_identities.c.id.in_(asset_ids))).mappings()]
+            specs = [dict(row) for row in conn.execute(select(S.asset_spec_versions).where(
+                S.asset_spec_versions.c.project_id == p, S.asset_spec_versions.c.asset_id.in_(asset_ids))).mappings()]
+            current_ids = set(conn.execute(select(S.current_artifact_versions.c.artifact_id).where(
+                S.current_artifact_versions.c.project_id == p)).scalars())
+            artifact_ids = set(approved)
+            for spec in specs:
+                spec["approved"] = self._artifact_approved(conn, p, spec["artifact_id"])
+                spec["current"] = spec["artifact_id"] in current_ids
+                artifact_ids.add(spec["artifact_id"])
+            pins = [dict(row) for row in conn.execute(select(S.artifact_versions.c.id, S.artifact_versions.c.sha256,
+                S.artifact_versions.c.artifact_type).where(S.artifact_versions.c.project_id == p,
+                    S.artifact_versions.c.id.in_(artifact_ids))).mappings()]
+            instances = [dict(row) for row in conn.execute(select(S.asset_use_instances).where(
+                S.asset_use_instances.c.project_id == p, S.asset_use_instances.c.id.in_(
+                    [row["instance_id"] for row in rows if row["instance_id"]]))).mappings()]
+            pins_by_asset = [dict(row) for row in conn.execute(select(S.artifact_asset_spec_refs).where(
+                S.artifact_asset_spec_refs.c.project_id == p, S.artifact_asset_spec_refs.c.artifact_id.in_(approved),
+                S.artifact_asset_spec_refs.c.asset_id.in_(asset_ids))).mappings()]
+            bindings = [dict(row) for row in conn.execute(select(S.binding_slots).where(
+                S.binding_slots.c.project_id == p, or_(S.binding_slots.c.target_object_id.in_(asset_ids),
+                    S.binding_slots.c.identity_asset_id.in_(asset_ids)))).mappings()]
+            return clean({"project_id": p, "revision": project["revision"], "episode_ids": episodes,
+                "objects": objects, "requirements": rows, "identities": identities, "specifications": specs,
+                "instances": instances, "artifacts": pins, "asset_pins": pins_by_asset,
+                "bindings": bindings, "future_count": future})
 
     def _location_rows(self, conn, p, *, scene_id=None, shot_id=None, artifact_ids=None, object_ids=None):
         statement = select(S.scene_location_refs).where(S.scene_location_refs.c.project_id == p)
@@ -471,6 +548,29 @@ class ResourceModelRepository:
                     table.c[field] == asset)).mappings()]
             data["slots"] = [dict(row) for row in conn.execute(select(S.binding_slots).where(S.binding_slots.c.project_id == p,
                 or_(S.binding_slots.c.identity_asset_id == asset, S.binding_slots.c.target_object_id == asset))).mappings()]
+            # Impact follows actual identity references plus fixed job inputs;
+            # another asset sharing the same bible alone is not an affected use.
+            scopes = {row.get("shot_id") or row["scene_id"] for key in ("instances", "locations", "requirements")
+                      for row in data[key] if row.get("shot_id") or row.get("scene_id")}
+            state_ids = [row["state_id"] for row in data["state_references"]]
+            for state in conn.execute(select(S.state_versions.c.scene_id, S.state_versions.c.shot_id).where(
+                    S.state_versions.c.project_id == p, S.state_versions.c.id.in_(state_ids))).mappings():
+                scopes.add(state["shot_id"] or state["scene_id"])
+            affected = set(scopes)
+            for scope in scopes:
+                affected.update(self._descendant_ids(conn, p, scope))
+            spec_artifacts = {row["artifact_id"] for row in data["specifications"]}
+            fixed_jobs = select(S.job_input_versions.c.job_id).where(S.job_input_versions.c.project_id == p,
+                S.job_input_versions.c.artifact_id.in_(spec_artifacts))
+            data["jobs"] = [dict(row) for row in conn.execute(select(S.generation_jobs.c.id,
+                S.generation_jobs.c.shot_id, S.generation_jobs.c.asset_id, S.generation_jobs.c.status,
+                S.generation_jobs.c.run_version_id, S.generation_jobs.c.context_sha256).where(
+                    S.generation_jobs.c.project_id == p, or_(S.generation_jobs.c.asset_id == asset,
+                        and_(S.generation_jobs.c.shot_id.in_(affected), S.generation_jobs.c.id.in_(fixed_jobs))))
+                .order_by(S.generation_jobs.c.created_at, S.generation_jobs.c.id)).mappings()]
+            data["job_outputs"] = [dict(row) for row in conn.execute(select(S.job_outputs).where(
+                S.job_outputs.c.project_id == p, S.job_outputs.c.job_id.in_([row["id"] for row in data["jobs"]])))
+                .mappings()]
             return clean(data)
 
     def _resource_context_asset_refs(self, conn, project, *, shot_id, scene_id, purpose, artifact_ids):

@@ -75,8 +75,11 @@ def _artifact_command(service, project_id, args, tree):
         supersedes = None
         if args.supersedes:
             previous = artifact(service, project_id, args.supersedes)
-            if (previous["artifact_key"], previous["artifact_type"], previous["stage"], sorted(previous.get("object_ids", []))) != (key, args.type, args.stage, [scope] if scope else []):
+            if (previous["artifact_type"], previous["stage"], sorted(previous.get("object_ids", []))) != (args.type, args.stage, [scope] if scope else []):
                 raise ResourceError("替代版本必须具有同 type、stage 和 scope", "supersedes_mismatch")
+            # Explicit revision continues the original logical stream,
+            # including keys created by older clients or imported projects.
+            key = previous["artifact_key"]
             current = [row for row in service.list_artifacts(project_id)["items"] if row["artifact_key"] == key and row.get("current")]
             if current and current[0]["id"] != previous["id"]:
                 raise ResourceError("旧版本已被其他版本替代，请基于当前版本返工", "supersedes_stale")

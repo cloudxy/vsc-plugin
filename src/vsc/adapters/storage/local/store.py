@@ -92,7 +92,14 @@ class LocalStorage:
                 probe = LocalProbeAdapter()
             else:
                 probe = self.probe
-            raw = probe.probe(path)
+            from vsc.adapters.media.qa import ProbeFailure
+            try:
+                raw = probe.probe(path)
+            except ProbeFailure as exc:
+                messages = {"missing_tool": "媒体探测工具未安装，收到的文件已保留",
+                            "decode_timeout": "媒体完整解码超时，收到的文件已保留"}
+                raise ResourceError(messages.get(exc.code, "媒体无法完整解码，请核对原文件；收到的字节已保留"),
+                                    "media_" + exc.code) from exc
             raw = {key: value for key, value in raw.items() if key != "path"}
             streams = raw.get("streams", [])
             video = next((s for s in streams if s.get("codec_type") == "video"), None)

@@ -47,9 +47,11 @@ def project_errors(data, project, state, item):
     dependencies = {(ref, item.get('dependency_versions', {}).get(ref)) for ref in item.get('depends_on', [])}
     if pinned != dependencies:
         errors.append('series_batch 的全部批准输入须是 run 明确依赖的固定版本')
-    if not any(next((a for a in state['artifacts'] if a['id'] == ref), {}).get('type') == 'vsc.animatic'
+    from vsc.production.run_policy import production_input
+    prerequisite = production_input(state.get('profile_snapshot', {}), data.get('phase'))
+    if not any(next((a for a in state['artifacts'] if a['id'] == ref), {}).get('type') == prerequisite
                for ref, _ in pinned):
-        errors.append('系列制作须依赖已批准 animatic')
+        errors.append('系列制作须依赖已批准 ' + prerequisite)
     live = not (item.get('status') == 'approved' and item.get('decision'))
     operations = {}
     for index, job in enumerate(batch['jobs']):

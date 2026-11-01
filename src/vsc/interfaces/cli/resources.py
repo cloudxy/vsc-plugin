@@ -60,6 +60,7 @@ def main(argv=None):
     quoted_job.add_argument("job_id")
     create = sub.add_parser("create")
     create.add_argument("--name", required=True)
+    create.add_argument("--profile", default="vsc.light-short", help="固定制作流程；短视频默认 light-short，短剧可选 series-pg")
     create.add_argument("--by", required=True)
     create.add_argument("--directory", help="建立本地 PostgreSQL 权威指针，不写 JSON 状态副本")
     for name in ("tree", "artifacts", "media", "status", "budget"):
@@ -165,7 +166,7 @@ def main(argv=None):
                 result = service.get_generation_quote_status(args.project_id, args.job_id)
             elif args.command == "create":
                 from vsc.project.pg_workflow import create_project
-                result = create_project(service, args.name, args.by, args.directory, args.database_env)
+                result = create_project(service, args.name, args.by, args.directory, args.database_env, profile_id=args.profile)
             elif args.command == "tree":
                 result = service.get_project_tree(args.project_id)
             elif args.command == "artifacts":

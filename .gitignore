@@ -41,3 +41,6 @@ __pycache__/
 .env.*
 !/config/.env.example
 /config/mcp/
+
+# Workspace coordination lock is local runtime state.
+/.vsc.lock

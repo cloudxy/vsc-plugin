@@ -1,5 +1,9 @@
 # 本地供应商批量生产
 
+新项目从[创作工作台](creative-workbench.md)的固定运行方案进入原 PostgreSQL 队列。输入齐备的任务按项目、供应商和配置上限并行，输出依赖等待原结果；到截止时间停止新增提交，继续追踪已在途任务。默认 worker、项目并发和供应商并发上限均为 4，可通过统一配置调整，不能超过运行授权和实际供应商限制。明确新批次与恢复原批次分别处理，项目原生预算始终累计。
+
+以下为已有作品仍可使用的本地串行批次工具，其 journal 与 PostgreSQL 任务不是同一存储路线。不要将同一生产任务同时交给两条路线执行。
+
 `scripts/production/plan.py` 将已有 `scripts/providers/volcengine/ark.py image/video` 串行为有依赖、预算上界和中断恢复的本地队列。支持火山方舟Seedream、Seedance及Grok订阅登录路线；Grok的图像/视频/编辑/续接分别用`grok_image/grok_video/grok_edit/grok_extend`，不运行 JSON 中的 shell，不修改创作批准、素材选择或项目状态。批量生产只产生候选；依赖前一候选的尾帧也不等于批准该候选。
 
 ## 创建与执行

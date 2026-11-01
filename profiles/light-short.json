@@ -1,27 +1,15 @@
 {
   "profile_id": "vsc.light-short",
-  "version": "2.0",
+  "version": "3.0",
   "dependency_policy": "previous_stage",
   "label": "轻量单条短视频",
-  "use_case": "单集原创或资料改编短视频；用固定版本包审阅最小制作链",
+  "use_case": "原创单条短视频；与存储策略分离，固定制作方案后按必要输入直接制作，预演按需启用",
   "stages": [
     {
       "id": "brief",
       "label": "创作委托",
       "required": [
         "vsc.creative_brief"
-      ]
-    },
-    {
-      "id": "source",
-      "label": "素材理解",
-      "required": []
-    },
-    {
-      "id": "adaptation",
-      "label": "改编设计",
-      "required": [
-        "vsc.adaptation_plan"
       ]
     },
     {
@@ -39,13 +27,6 @@
         "vsc.shot_plan",
         "vsc.sound_plan",
         "vsc.coverage_plan"
-      ]
-    },
-    {
-      "id": "animatic",
-      "label": "分镜预演",
-      "required": [
-        "vsc.animatic"
       ]
     },
     {
@@ -101,7 +82,9 @@
       "vsc.asset_bible"
     ],
     "vsc.selected_takes": [
-      "vsc.animatic"
+      "vsc.coverage_plan",
+      "vsc.shot_plan",
+      "vsc.asset_bible"
     ],
     "vsc.timeline": [
       "vsc.selected_takes"
@@ -128,5 +111,17 @@
       "vsc.adaptation_plan"
     ]
   },
-  "max_episodes": 1
+  "max_episodes": 1,
+  "production_policy": "light-short-v1",
+  "optional_artifacts": {
+    "design": [
+      "vsc.animatic"
+    ],
+    "script": [
+      "vsc.source_map",
+      "vsc.story_bible",
+      "vsc.adaptation_plan"
+    ]
+  },
+  "scope_required_from": "script"
 }

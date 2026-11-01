@@ -3,6 +3,16 @@ import argparse
 import json
 from vsc.configuration import get_config
 
+# An imported template intentionally retains its source project's identity.
+# This exact typed relationship is cross-project; all other owned references
+# must include the current project key.
+CROSS_PROJECT_REFERENCES = {
+    ("creative_tool_imports", ("source_project_id", "source_artifact_id"), "artifact_versions", ("project_id", "id")),
+    ("creative_tool_imports", ("source_project_id", "source_media_id", "blob_id"), "media_items", ("project_id", "id", "blob_id")),
+    ("canvas_template_copies", ("source_project_id", "template_id"), "canvas_templates", ("project_id", "id")),
+    ("text_tool_copies", ("source_project_id", "source_version_id"), "artifact_versions", ("project_id", "id")),
+}
+
 
 def check(metadata):
     errors, names = [], set()
@@ -20,7 +30,8 @@ def check(metadata):
             targets = [e.column for e in fk.elements]
             target_table = targets[0].table
             if "project_id" in table.c and "project_id" in target_table.c:
-                if "project_id" not in fk.column_keys or "project_id" not in [c.name for c in targets]:
+                cross_key = (table.name, tuple(fk.column_keys), target_table.name, tuple(c.name for c in targets))
+                if cross_key not in CROSS_PROJECT_REFERENCES and ("project_id" not in fk.column_keys or "project_id" not in [c.name for c in targets]):
                     errors.append(table.name + ": foreign key omits project isolation: " + str(fk.name))
         if table.name == "binding_slots" and table.c.slot_key.nullable:
             errors.append("binding_slots.slot_key must be non-null")

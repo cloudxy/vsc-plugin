@@ -371,14 +371,14 @@ def template_files(project: Path):
 
 def cmd_init(args):
     project = Path(args.project)
-    if args.profile == "vsc.series-pg":
+    if args.profile == "vsc.series-pg" or getattr(args, "storage", None) == "postgres":
         from vsc.bootstrap import service_from_environment
         from vsc.project.pg_workflow import create_project
         if not args.owner:
             die("PostgreSQL 项目创建需要 --owner 实际负责人")
         service = service_from_environment()
         try:
-            result = create_project(service, args.title, args.owner, project)
+            result = create_project(service, args.title, args.owner, project, profile_id=args.profile)
             print(json.dumps(result, ensure_ascii=False, indent=2))
         finally:
             service.store.close()
@@ -1603,7 +1603,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("init"); p.add_argument("project"); p.add_argument("--title", required=True)
-    p.add_argument("--profile", default="vsc.narrative-base"); p.add_argument("--owner"); p.set_defaults(fn=cmd_init)
+    p.add_argument("--profile", default="vsc.narrative-base"); p.add_argument("--owner")
+    p.add_argument("--storage", choices=("profile", "postgres"), default="profile"); p.set_defaults(fn=cmd_init)
     p = commands.add_parser("migrate"); p.add_argument("project"); p.add_argument("--accept-current-profile", action="store_true"); p.set_defaults(fn=cmd_migrate)
     for name, fn in (("status", cmd_status), ("next", cmd_next)):
         p = commands.add_parser(name); p.add_argument("project"); p.add_argument('--scope'); p.set_defaults(fn=fn)

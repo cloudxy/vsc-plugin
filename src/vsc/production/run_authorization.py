@@ -27,6 +27,10 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
     else:
         raise ResourceError("未知请求模态")
     allowed = set(base) | {"prompt", "format", "context_sha256"}
+    if asset_id is not None:
+        allowed.add("spec_version_id")
+        if "spec_version_id" in request and (not isinstance(request["spec_version_id"], str) or not request["spec_version_id"]):
+            raise ResourceError("固定资产变体须为非空规格ID", "invalid_generation_request")
     if any(key not in allowed for key in request):
         raise ResourceError("逻辑请求含未知字段，请把模型参数放入params", "invalid_generation_request")
     base.update({k: v for k, v in request.items() if k not in {"format", "context_sha256"}})
@@ -72,7 +76,7 @@ def normalize_request(request, shot_id, purpose, modality, asset_id=None):
     return base
 
 
-def authorize_run(run, run_type, context, logical, candidate_no):
+def authorize_run(run, run_type, context, logical, candidate_no, task_outputs=None, model_id=None):
     if run_type not in {"production-run", "vsc.production_run"} or not isinstance(run, dict):
         raise ResourceError("任务必须绑定正式production-run类型", "invalid_production_run")
     inputs = run.get("approved_inputs")
@@ -90,6 +94,12 @@ def authorize_run(run, run_type, context, logical, candidate_no):
     jobs = run.get("series_batch", {}).get("jobs", run.get("jobs", []))
     if not isinstance(jobs, list):
         raise ResourceError("run必须明确列出jobs")
+    bounded = any(isinstance(job, dict) and 'task_key' in job for job in jobs)
+    if bounded:
+        from vsc.production.bounded import graph_errors
+        errors = graph_errors(run)
+        if errors:
+            raise ResourceError("；".join(errors), "invalid_task_graph")
     matched = []
     for job in jobs:
         if not isinstance(job, dict) or job.get("candidate_no", 0) != candidate_no:
@@ -103,6 +113,11 @@ def authorize_run(run, run_type, context, logical, candidate_no):
         modality = request.get("modality", job.get("modality"))
         if (target, asset, purpose, modality) != (logical["shot_id"], logical.get("asset_id"), logical["purpose"], logical["modality"]):
             continue
+        if bounded:
+            if job.get('model_id') != model_id:
+                continue
+            from vsc.production.bounded import resolve_request
+            request = resolve_request(job, context, task_outputs or {})
         expected = normalize_request(request, target, purpose, modality, asset_id=asset)
         if expected == logical and request.get("context_sha256", context["sha256"]) == context["sha256"]:
             matched.append(job)
@@ -160,6 +175,15 @@ def validate_capabilities(model, logical, context):
         if logical["purpose"] in {"video_clip", "image_to_video", "i2v"} and not logical["first_frame_media_id"]:
             raise ResourceError("图生视频必须显式使用获选首帧", "first_frame_required")
     if modality != "audio":
+        return None
+    if logical["purpose"] in {"music", "bgm", "ambience", "sfx"}:
+        if logical["script_line_ids"] or logical["voice_media_id"] or logical["reference_media_ids"]:
+            raise ResourceError("描述音频不接受对白覆盖或人物音色引用", "audio_request_unsupported")
+        if logical["params"]:
+            raise ResourceError("描述音频尚无逻辑参数映射，不能静默忽略", "audio_request_unsupported")
+        maximum = model.get("default_params", {}).get("max_prompt_chars", 2000)
+        if type(maximum) is not int or not 1 <= maximum <= 20000 or len(logical["prompt"]) > maximum:
+            raise ResourceError("音频提示词超出模型固定字符预算", "audio_prompt_budget")
         return None
     requested = logical["script_line_ids"]
     if not isinstance(requested, (list, tuple)) or not requested:

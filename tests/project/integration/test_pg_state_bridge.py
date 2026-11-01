@@ -12,8 +12,9 @@ from unittest.mock import patch
 
 from support.paths import ROOT
 from support.fixtures.postgres import isolated_postgres
+from vsc.configuration import get_config
 
-TEST_URL = os.environ.get("VSC_TEST_DATABASE_URL")
+TEST_URL = get_config("VSC_TEST_DATABASE_URL")
 HAS_DEPS = all(importlib.util.find_spec(name) for name in ("sqlalchemy", "psycopg", "alembic"))
 
 
@@ -170,3 +171,48 @@ class PGStateBridgeTests(unittest.TestCase):
         self.cli("artifact", "add", self.project, "--type", "vsc.creative_brief", "--stage", "brief", "--file", self.brief(True), "--supersedes", old, expected=1)
         self.cli("gate", "check", self.project, "delivery", expected=1)
         self.assertIn("next_stage", self.cli("next", self.project))
+
+    def test_explicit_revision_preserves_imported_logical_key(self):
+        from vsc.interfaces.cli.pg_state import mutation
+        old = mutation(self.service, self.p, "create_artifact", {"artifact_key": "imported-original-stream",
+            "artifact_type": "vsc.creative_brief", "stage": "brief", "document": self.brief().read_text(),
+            "project_wide": True}, actor="fixture-human")["id"]
+        self.decide(old)
+        revised = self.add(self.brief(True), "vsc.creative_brief", "brief", "--supersedes", old)
+        self.assertEqual(self.service.get_artifact_version(self.p, revised)["artifact_key"], "imported-original-stream")
+        self.decide(revised)
+        current = [row for row in self.service.list_artifacts(self.p)["items"] if row.get("current")]
+        self.assertEqual([row["id"] for row in current], [revised])
+
+    def test_pg_light_original_screenplay_reaches_script_gate_without_adaptation(self):
+        from vsc.project.pg_workflow import create_project
+        self.project = Path(self.temp.name) / "light"
+        self.p = create_project(self.service, "Synthetic original short", "fixture-human", directory=self.project,
+                                profile_id="vsc.light-short")["id"]
+        self.cli("object", "add", self.project, "--kind", "episode", "--id", "EP", "--parent", "W001")
+        rejected = self.cli("object", "add", self.project, "--kind", "episode", "--id", "EP2", "--parent", "W001", expected=1)
+        self.assertIn("最多支持 1 集", rejected)
+        self.assertEqual(sum(row["kind"] == "episode" for row in self.service.get_project_tree(self.p)["nodes"]), 1)
+        self.cli("object", "add", self.project, "--kind", "scene", "--id", "SC1", "--parent", "EP")
+        source = Path(self.temp.name) / "original.txt"
+        source.write_text("Synthetic original short concept.")
+        self.cli("source", "add", self.project, "--kind", "original", "--file", source, "--rights", "owned", "--by", "fixture-human")
+        brief = self.add(self.brief())
+        self.decide(brief)
+        tree = self.service.get_project_tree(self.p)
+        scene = next(row["id"] for row in tree["nodes"] if row["display_code"] == "SC1")
+        episode = next(row["id"] for row in tree["nodes"] if row["display_code"] == "EP")
+        document = {"format": "vsc.screenplay/v1", "project_id": self.p, "scope": episode,
+            "body": "Synthetic original action.", "source_mode": "original", "adaptation_refs": [],
+            "original_brief": {"id": brief, "sha256": self.service.get_artifact_version(self.p, brief)["sha256"]},
+            "scenes": [{"id": scene, "estimated_duration_ms": 1000,
+                "actions": [{"id": "action", "text": "Synthetic action", "narrative_refs": []}], "dialogue": [], "silence": []}]}
+        path = self.document("original-screenplay.json", document)
+        screenplay = self.add(path, "vsc.screenplay", "script", "--scope", "EP", "--depends", brief)
+        self.decide(screenplay)
+        self.cli("gate", "check", self.project, "script", "--scope", "EP")
+        self.assertTrue(self.service.get_artifact_version(self.p, screenplay)["approved"])
+        self.assertFalse(any(row["artifact_type"] == "vsc.adaptation_plan" for row in self.service.list_artifacts(self.p)["items"]))
+        document["original_brief"]["sha256"] = "0" * 64
+        changed = self.add(self.document("bad-original.json", document), "vsc.screenplay", "script", "--scope", "EP", "--depends", brief)
+        self.cli("artifact", "decide", self.project, changed, "--status", "approved", "--by", "fixture-human", expected=1)
