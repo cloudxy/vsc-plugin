@@ -165,14 +165,7 @@ class ProfessionalInputSchemaTests(ResourceStoreFixture, unittest.TestCase):
             self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
             self.assertIn('ck_text_tool_batches_materials_tool',
                 {c['name'] for c in inspect(conn).get_check_constraints('text_tool_batches')})
-            old=bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==baseline['id'])))
-            migrate(conn,'0046_classic_preferences','downgrade')
-            self.assertNotIn('materials_artifact_id',{c['name'] for c in inspect(conn).get_columns('text_tool_batches')})
-            self.assertEqual(conn.scalar(text('SELECT item_count FROM text_tool_batches WHERE id=:id'),dict(id=legacy)),1)
-            migrate(conn,'0047_professional_inputs')
-            self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
-            self.assertIsNone(conn.scalar(select(S.text_tool_batches.c.materials_artifact_id).where(S.text_tool_batches.c.id==legacy)))
-            self.assertEqual(bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==baseline['id']))),old)
+
 
         # Positive path uses normal producers, including the baseline QA input.
         plan=self.write('create_novel_plan',dict(unit_id=baseline['unit_id'],version_id=baseline['id'],
@@ -252,6 +245,28 @@ class ProfessionalInputSchemaTests(ResourceStoreFixture, unittest.TestCase):
 
 @unittest.skipUnless(HAS_DB_DEPS and TEST_URL,'requires isolated PostgreSQL')
 class ProfessionalInputMigrationTests(unittest.TestCase):
+    def test_legacy_null_material_batch_roundtrip_uses_its_own_empty_schema(self):
+        from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
+        from vsc.assets.resource_service import ResourceService
+        from vsc.assets.text_tools import COMMON, DEFAULTS
+        # A schema-wide downgrade must not share another method's new facts.
+        with isolated_postgres(TEST_URL) as engine:
+            f=ResourceStoreFixture();f.engine=engine;f.store=PostgresResourceStore(engine=engine);f.service=ResourceService(f.store);f.setUp()
+            baseline=f.write('save_text_tool',dict(tool='novel',group_key='legacy',unit_key='one',title='Legacy text',ordinal=0,episode_id=None,base_version_id=None,document={**deepcopy(COMMON),**deepcopy(DEFAULTS['novel']),'body':'Legacy body.'}))
+            batch_id=uid()
+            with engine.begin() as conn:
+                conn.execute(insert(S.text_tool_batches).values(project_id=f.p,id=batch_id,tool='novel',action='body',auto_accept=False,status='ready',item_count=1,created_by='test-human',materials_artifact_id=None))
+                conn.execute(insert(S.text_tool_batch_items).values(project_id=f.p,id=uid(),batch_id=batch_id,unit_id=baseline['unit_id'],input_version_id=baseline['id'],ordinal=0,action='body',status='pending'))
+            with engine.begin() as conn:
+                old=bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==baseline['id'])))
+                migrate(conn,'0046_classic_preferences','downgrade')
+                self.assertNotIn('materials_artifact_id',{c['name'] for c in inspect(conn).get_columns('text_tool_batches')})
+                self.assertEqual(conn.scalar(text('SELECT item_count FROM text_tool_batches WHERE id=:id'),dict(id=batch_id)),1)
+                migrate(conn,'0047_professional_inputs')
+                self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
+                self.assertIsNone(conn.scalar(select(S.text_tool_batches.c.materials_artifact_id).where(S.text_tool_batches.c.id==batch_id)))
+                self.assertEqual(bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==baseline['id']))),old)
+
     def test_single_attempt_material_artifact_refuses_downgrade_without_batch(self):
         from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
         from vsc.assets.resource_service import ResourceService

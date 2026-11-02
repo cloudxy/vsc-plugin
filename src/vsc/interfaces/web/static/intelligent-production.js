@@ -3,6 +3,18 @@ import {createRunScopeControls} from './run-scope-controls.js';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)setText(n,text);if(cls)n.className=cls;return n;},clone=x=>JSON.parse(JSON.stringify(x));
 const cache={get:k=>{try{return JSON.parse(sessionStorage.getItem(k)||'null');}catch{return null;}},put:(k,v)=>{try{if(v===null)sessionStorage.removeItem(k);else sessionStorage.setItem(k,JSON.stringify(v));}catch{}}};
 const field=(parent,name,value='',tag='input')=>{const label=el('label',isMessage(name)?name:name.replace(/ [0-9a-f]{8}-[0-9a-f-]{27,}$/,'').replace(/^(单元名称|单元描述|视频提示词) .+$/,'$1')),n=el(tag);bindAttribute(n,'aria-label',name);n.value=value;label.append(n);parent.append(label);return n;};
+export async function readIntelligentBatchProgress(api,projectBase,workflowId,batchId,previousJobs=[]){
+ const value=await api(projectBase+'/intelligent-work-batches/'+batchId);
+ const active=job=>!['succeeded','failed','cancelled','submission_unknown'].includes(job.status);
+ let jobs=value.jobs?.length?value.jobs:previousJobs;
+ // A manual/edit-preserved batch can still have running original jobs. The
+ // first-cut receipt is immutable; read the original workflow's live job view.
+ if(!['waiting','ready'].includes(value.status)&&previousJobs.some(active)){
+  const workflow=await api(projectBase+'/intelligent-workflows/'+workflowId);
+  jobs=workflow.batches.find(batch=>batch.id===batchId)?.jobs||jobs;
+ }
+ return {value,jobs,keepPolling:['waiting','ready','queued','running'].includes(value.status)||jobs.some(active)};
+}
 export function createIntelligentProductionPanel(ctx){
  let active=null,epoch=0;
  const live=s=>active===s&&s.epoch===epoch,base=s=>`/api/v1/projects/${encodeURIComponent(s.project)}`,headers=()=>({'Content-Type':'application/json','X-CSRF-Token':ctx.session().csrf});
@@ -137,7 +149,7 @@ export function createIntelligentProductionPanel(ctx){
   const list=el('section',null,'ip-batch-history');list.append(el('h3','固定批次与原任务状态'));
   const labels={created:'排队',queued:'排队',claimed:'待执行',submitted:'已提交',running:'执行中',succeeded:'已完成',failed:'失败',cancelled:'已取消',submission_unknown:'待恢复'};
   for(const batch of s.data.batches||[]){
-   const row=el('article'),runRows=new Map();row.dataset.batchId=batch.id;
+   const row=el('article'),runRows=new Map();let currentJobs=batch.jobs;row.dataset.batchId=batch.id;
    row.append(el('p',`${batch.document.runs.length} 镜已登记；${batch.document.blocked_items.length} 镜保留缺口；自动首版 ${batch.document.auto_first_cut?'已选择':'未选择'}`));
    const progress=el('div',null,'ip-first-cut-progress');row.append(progress);
    function paintJobs(jobs){
@@ -148,14 +160,14 @@ export function createIntelligentProductionPanel(ctx){
    }
    async function loadProgress(){
     try{
-     const value=await ctx.api(base(s)+'/intelligent-work-batches/'+batch.id);if(!live(s)||!row.isConnected)return;
-     paintJobs(value.jobs);
+     const progressState=await readIntelligentBatchProgress(ctx.api,base(s),s.id,batch.id,currentJobs);if(!live(s)||!row.isConnected)return;
+     const {value,jobs,keepPolling}=progressState;currentJobs=jobs;paintJobs(jobs);
      const titles={waiting:'等待原任务与素材',ready:'准备合成',manual:'手动剪辑',queued:'粗剪排队',running:'正在合成粗剪',succeeded:'首版已合成，待审片',failed:'合成失败，请查看原剪辑任务',cancelled:'合成已取消',edit_changed:'剪辑稿已更新，保留人工修改'};
      progress.replaceChildren(el('p',(titles[value.status]||value.status)+'；首版目标 '+new Date(value.first_draft_due_at).toLocaleString()+(value.overdue?'（目标时间已到）':'')));
      for(const gap of value.gaps||[])progress.append(el('p',gap.reason||gap.code||JSON.stringify(gap)));
      for(const warning of value.warnings||[])progress.append(el('p','待审：'+(warning.reason||warning.code)));
      if(value.render_job_id)link(s,progress,'打开本集粗剪与合成回执','editing');
-     if(['waiting','ready','queued','running'].includes(value.status))setTimeout(()=>{if(live(s)&&row.isConnected)loadProgress();},3000);
+     if(keepPolling)setTimeout(()=>{if(live(s)&&row.isConnected)loadProgress();},3000);
     }catch(error){if(live(s)&&row.isConnected)progress.replaceChildren(el('p',error.message));}
    }
    for(const run of batch.document.runs){const line=el('p');runRows.set(run.unit_key,line);row.append(line);}
