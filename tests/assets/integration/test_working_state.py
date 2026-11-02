@@ -267,11 +267,21 @@ class WorkingStateTests(ResourceStoreFixture, unittest.TestCase):
             engine=create_engine(url,connect_args={'options':'-csearch_path='+schema})
             config=Config(str(ROOT/'migrations/postgres/alembic.ini'))
             with engine.begin() as conn:
-                config.attributes['connection']=conn;command.upgrade(config,'0033_creative_tool_imports')
+                config.attributes['connection']=conn;command.upgrade(config,'head')
             fixture=ResourceStoreFixture();fixture.store=PostgresResourceStore(engine=engine);fixture.service=ResourceService(fixture.store);fixture.setUp()
             objects=fixture.hierarchy();media=fixture.media('legacy input');sha=fixture.service.get_media(fixture.p,media)['sha256']
-            legacy=fixture.write('create_artifact',dict(artifact_key='legacy-classic',artifact_type='classic-production-draft',
-                document=dict(shot_id=objects['shot'],mode='single',references=[dict(role='first_frame',media_id=media,sha256=sha)]),object_ids=[objects['shot']]))
+            # Seed the historical hierarchy before removing the newer copy
+            # graph tables; legacy draft setup below runs in actual 0033.
+            with engine.begin() as conn:
+                config.attributes['connection']=conn;command.downgrade(config,'0033_creative_tool_imports')
+                self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),'0033_creative_tool_imports')
+                self.assertIsNone(conn.execute(text("SELECT to_regclass('classic_draft_media')")).scalar_one())
+            # 0033 has no copy-source graph tables. Restrict this historical
+            # fixture writer to its sole project; runtime guards stay intact.
+            from unittest.mock import patch
+            with patch('vsc.adapters.persistence.postgres.copy_lineage.source_projects_for_copy',return_value=[fixture.p]):
+                legacy=fixture.write('create_artifact',dict(artifact_key='legacy-classic',artifact_type='classic-production-draft',
+                    document=dict(shot_id=objects['shot'],mode='single',references=[dict(role='first_frame',media_id=media,sha256=sha)]),object_ids=[objects['shot']]))
             with engine.begin() as conn:
                 config.attributes['connection']=conn;command.upgrade(config,'head')
             self.assertTrue(fixture.service.get_classic_draft_inputs(fixture.p,legacy['id'])['legacy'])

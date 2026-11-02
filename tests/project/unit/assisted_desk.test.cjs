@@ -1,5 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
+const {loadModule}=require('../../support/fixtures/frontend/modules.cjs');
 const {Document}=require('../../support/fixtures/frontend/panel_dom.cjs');
 const root=process.env.VSC_TEST_ROOT||path.resolve(__dirname,'../../..');
 const folder=path.join(root,'src/vsc/interfaces/web/static');
@@ -9,12 +10,7 @@ let serial=0;
 async function fixture(handler,session={actor:'human',csrf:'csrf',writable:true}){
   const document=new Document(''),container=document.createElement('section'),calls=[],notices=[];
   const environment={document,crypto:{randomUUID:()=>`operation-${++serial}`}};
-  globalThis.__deskTests ||= new Map();const key=++serial;globalThis.__deskTests.set(key,environment);
-  const prefix=`const {document,crypto}=globalThis.__deskTests.get(${key});\n`;
-  const data=source=>'data:text/javascript;base64,'+Buffer.from(prefix+source).toString('base64');
-  let source=fs.readFileSync(path.join(folder,'assisted-desk.js'),'utf8');
-  for(const name of ['artifact-reader','review'])source=source.replace(`'./${name}.js'`,JSON.stringify(data(fs.readFileSync(path.join(folder,name+'.js'),'utf8'))));
-  const module=await import(data(source));
+  const module=await loadModule('assisted-desk.js',environment);
   const ctx={api:async(url,options)=>{calls.push({url,options});return handler(url,options);},
     session:()=>session,notice:text=>notices.push(text),player:async()=>document.createElement('video'),
     projects:()=>[],projectName:()=> '合成作品',route:()=>{},revision:()=>{},specialist:()=>{},navigate:()=>{},login:()=>{},media:()=>{},artifact:()=>{}};
@@ -286,8 +282,7 @@ test('batch preflight limits decisions to visible selected versions and preserve
 
 test('voice authorization reads durable receipts and resumes only the missing enqueue after reconnection',async()=>{
   const f=await fixture(basic),memory=new Map(),receipts=new Map(),writes=[];
-  const key=++serial;globalThis.__deskTests.set(key,{document:f.document,crypto:{randomUUID:()=>`voice-${++serial}`}});
-  const module=await import('data:text/javascript;base64,'+Buffer.from(`const {document,crypto}=globalThis.__deskTests.get(${key});\n`+fs.readFileSync(path.join(folder,'local-production.js'),'utf8')).toString('base64'));
+  const module=await loadModule('local-production.js',{document:f.document,crypto:{randomUUID:()=>`voice-${++serial}`}});
   let fail=true;const api=async(url,options)=>{
     if(url.includes('options?'))return {purposes:['dialogue_dry']};
     if(url.endsWith('/preview'))return {revision:5,preview_sha256:'f'.repeat(64),targets:[{purpose:'dialogue_dry'}],

@@ -33,22 +33,26 @@ class AudioResourceProviderTests(ResourceStoreFixture, unittest.TestCase):
         self.model = ResourceSettings(self.store).save(self.config, "test-human")
 
     def create_job(self, purpose="music"):
-        from vsc.production.bounded import execute_batch
         now = datetime.now(timezone.utc)
         saved = self.write("save_creative_tool_draft", dict(base_draft_id=None, document=dict(tool={"music":"music_description","sfx":"sfx","ambience":"ambience"}[purpose],
             episode_id=self.objects["episode"], shot_id=self.objects["shot"], model_id=self.model["id"], prompt="合成测试声音候选", style="明确风格")))
         request = dict(draft_version_id=saved["id"], execution_policy=dict(version="bounded-v1",
             first_draft_due_at=(now+timedelta(minutes=45)).isoformat(), stop_submitting_at=(now+timedelta(minutes=60)).isoformat(),
-            max_attempts_per_purpose=2, max_repair_rounds=1))
+            max_attempts_per_purpose=2, max_repair_rounds=1,
+            authorization=dict(mode="new_batch", reason="Explicit offline audio worker verification")))
+        missing = self.service.preview_creative_tool_run(self.p, request)
+        self.assertFalse(missing["ready"])
+        self.assertEqual(missing["gaps"][0]["code"], "tool_work_input_required")
+        fixed = self.write("prepare_creative_tool_work", {"draft_version_id": saved["id"]})
+        self.assertEqual(fixed["tool_draft_id"], saved["id"])
         preview = self.service.preview_creative_tool_run(self.p, request)
         self.assertTrue(preview["ready"], preview.get("gaps"))
         self.assertEqual(preview["generation_quote"]["native_units"]["audio_jobs"], 1)
-        run = self.write("propose_creative_tool_run", dict(request=request, preview_sha256=preview["preview_sha256"]))
-        self.write("decide_artifact", dict(artifact_id=run["id"], reason="隔离测试操作者批准明确声音候选范围"))
-        result = execute_batch(self.service, self.p, {"run_version_id": run["id"]}, "test-human")
-        self.assertEqual(result["created_count"], 1, result)
+        self.assertEqual(preview["work_request"]["draft_version_id"], fixed["draft_version_id"])
+        result = self.write("generate_creative_tool_work", dict(request=request, preview_sha256=preview["preview_sha256"]))
+        self.assertEqual(len(result["jobs"]), 1, result)
         self.rev = self.service.get_project(self.p)["revision"]
-        return self.service.list_generation_jobs(self.p)["items"][0]["id"]
+        return result["jobs"][0]["id"]
 
     def response(self):
         path = Path(self.temp.name) / "fixture.mp3"

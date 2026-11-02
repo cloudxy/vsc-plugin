@@ -208,7 +208,7 @@ class CommunityFrontendTests(unittest.TestCase):
         from support.paths import ROOT
         if not shutil.which('node'):self.skipTest('Node required for deterministic event races')
         source=r'''
-import fs from 'node:fs';
+import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
@@ -217,7 +217,7 @@ const memory=new Map();globalThis.sessionStorage={getItem:k=>memory.get(k),setIt
 if(!globalThis.crypto)Object.defineProperty(globalThis,'crypto',{value:require('node:crypto').webcrypto});globalThis.Option=function(title,value){const n=document.createElement('option');n.textContent=title;n.value=value;return n;};
 Object.defineProperty(Element.prototype,'isConnected',{get(){let n=this;while(n.parentElement)n=n.parentElement;return n===document.body;}});
 Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;return this.dispatch('close');};
-const module=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync('src/vsc/interfaces/web/static/community.js','utf8')).toString('base64'));
+const module=await import(pathToFileURL('src/vsc/interfaces/web/static/community.js').href);
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};};
 const root=document.createElement('section');document.body.append(root);
 const button=(r,title)=>{const b=r.querySelectorAll('button').find(n=>n.textContent===title);assert.ok(b,title);return b;},field=(r,label)=>r.querySelectorAll('input').concat(r.querySelectorAll('select'),r.querySelectorAll('textarea')).find(n=>n.getAttribute('aria-label')===label);

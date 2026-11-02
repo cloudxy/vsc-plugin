@@ -186,7 +186,7 @@ class ProductionPlatformFrontendTests(unittest.TestCase):
         if not shutil.which('node'):
             self.skipTest('requires Node for deterministic frontend races')
         source = r'''
-import fs from 'node:fs';
+import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
@@ -196,7 +196,7 @@ globalThis.Option=function(title,value){const n=document.createElement('option')
 Element.prototype.showModal=function(){this.open=true;};
 Element.prototype.close=function(){this.open=false;return this.dispatch('close');};
 Object.defineProperty(Element.prototype,'options',{get(){return this.children.filter(n=>n.tagName==='OPTION');}});
-const module=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync('src/vsc/interfaces/web/static/production-platform.js','utf8').replace(/^import .*?;$/gm,'')).toString('base64'));
+const module=await import(pathToFileURL('src/vsc/interfaces/web/static/production-platform.js').href);
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};};
 const first=deferred(),writeFail=deferred(),notices=[],calls=[];
 const page=title=>({project_id:title,revision:4,read_only:false,episodes:{items:[],works:[],total:0,next_offset:null}});

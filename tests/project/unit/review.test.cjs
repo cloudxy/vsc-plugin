@@ -1,13 +1,14 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
+const {loadModule}=require('../../support/fixtures/frontend/modules.cjs');
 const {Document,Element}=require('../../support/fixtures/frontend/panel_dom.cjs');
 if(!Object.getOwnPropertyDescriptor(Element.prototype,'parentNode'))Object.defineProperty(Element.prototype,'parentNode',{get(){return this.parentElement;}});
 if(!Element.prototype.insertBefore)Element.prototype.insertBefore=function(node,before){node.remove();const index=this.children.indexOf(before);node.parentElement=this;this.children.splice(index<0?this.children.length:index,0,node);return node;};
 const root=process.env.VSC_TEST_ROOT || path.resolve(__dirname,'../../..');
 const source=fs.readFileSync(path.join(root,'src/vsc/interfaces/web/static/review.js'),'utf8');
 let serial=0;
-async function fixture(){const document=new Document(''),key=++serial;globalThis.__reviewTestEnvironment ||= new Map();globalThis.__reviewTestEnvironment.set(key,{document,crypto:{randomUUID:()=>`key-${++serial}`}});const prefix=`const {document,crypto}=globalThis.__reviewTestEnvironment.get(${key});\n`;const module=await import('data:text/javascript;base64,'+Buffer.from(prefix+source).toString('base64'));globalThis.__reviewTestEnvironment.delete(key);return {document,...module};}
+async function fixture(){const document=new Document('');const module=await loadModule('review.js',{document,crypto:{randomUUID:()=>`key-${++serial}`}});return {document,...module};}
 
 test('literal original opinion stays text and a professional dispatch without artifacts stays unfinished',async()=>{
   const f=await fixture(),html='<img src=x onerror=alert(1)>',history={items:[{source:{artifact_note_id:'note-1'},body:html,responses:[{explanation:'局部处理',limitations:'没有实际媒体',runs:[],proposals:[],dispatches:[{message:'已派给专业角色，尚无实际结果；意见保持待处理',returns:[]}]}]}]};
@@ -108,9 +109,9 @@ test('professional new round is explicit and uses a separate command from the or
 
 test('a sound opinion returns to its original review after proposing; a normal local edit still opens its artifact',async()=>{
   const document=new Document(''),key=++serial,opened=[],returned=[],writes=[];
-  globalThis.__reviewTestEnvironment ||= new Map();globalThis.__reviewTestEnvironment.set(key,{document,crypto:{randomUUID:()=>`local-${++serial}`}});
+  globalThis.__reviewTestEnvironment ||= new Map();(globalThis.__reviewTestEnvironment ||= new Map()).set(key,{document,crypto:{randomUUID:()=>`local-${++serial}`}});
   const code=fs.readFileSync(path.join(root,'src/vsc/interfaces/web/static/local-production.js'),'utf8');
-  const {createLocalProduction}=await import('data:text/javascript;base64,'+Buffer.from(`const {document,crypto}=globalThis.__reviewTestEnvironment.get(${key});\n`+code).toString('base64'));
+  const {createLocalProduction}=await loadModule('local-production.js',globalThis.__reviewTestEnvironment.get(key));
   globalThis.__reviewTestEnvironment.delete(key);
   const dialog=document.createElement('dialog');dialog.showModal=()=>{dialog.open=true;};dialog.close=()=>{dialog.open=false;};
   const local=createLocalProduction(dialog,{project:()=> 'P',session:()=>({actor:'human',csrf:'csrf'}),revision:()=>{},onArtifact:id=>opened.push(id),
@@ -163,10 +164,10 @@ test('the media reader puts playback and opinions before default-collapsed techn
   const media={id:'M',name:'合成音频',modality:'audio',sha256:'a'.repeat(64),revision:3,registered:false,renditions:[],candidates:[],review_history:{items:[]},review_targets:[]};
   const fetch=async url=>{requests.push(url);if(url==='/api/v1/session')return new Promise(()=>{});const value=url.endsWith('/media/M')?media:url.endsWith('/preview-jobs?media_id=M')?{items:[]}:{items:[],lineage:[]};return {ok:true,status:200,json:async()=>value};};
   const environment={document,fetch,crypto:{randomUUID:()=>`key-${++serial}`},review:{renderReviewHistory:f.renderReviewHistory,createArtifactReviewForm:f.createArtifactReviewForm},artifactTitle:()=>'',renderArtifactContent:()=>({})};
-  const key=++serial;globalThis.__reviewTestEnvironment.set(key,environment);
+  const key=++serial;(globalThis.__reviewTestEnvironment ||= new Map()).set(key,environment);
   let panelSource=fs.readFileSync(path.join(root,'src/vsc/interfaces/web/static/panel.js'),'utf8').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'').replaceAll("await import('./review.js')",'await Promise.resolve(review)');
   const prefix=`const {document,fetch,crypto,review,artifactTitle,renderArtifactContent}=globalThis.__reviewTestEnvironment.get(${key});\n`;
-  const panel=await import('data:text/javascript;base64,'+Buffer.from(prefix+panelSource+'\nexport {openMedia,state};').toString('base64'));globalThis.__reviewTestEnvironment.delete(key);
+  const panel=await loadModule('panel.js',environment,{'panel.js':panelSource+'\nexport {openMedia,state};'});globalThis.__reviewTestEnvironment.delete(key);
   panel.state.project='P';panel.state.actor='human';panel.state.writable=true;await panel.openMedia('M');
   const detail=document.getElementById('media-detail'),evidence=detail.querySelector('.media-evidence'),history=detail.querySelector('.review-history');
   assert.ok(detail.children[0].querySelector('audio'));assert.ok(detail.children.indexOf(history)<detail.children.indexOf(evidence));assert.ok(!evidence.open);

@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const {test} = require('node:test');
 const fs = require('node:fs'), path = require('node:path');
+const {loadModule}=require('../../support/fixtures/frontend/modules.cjs');
 const {Document, Element} = require('../../support/fixtures/frontend/panel_dom.cjs');
 
 const source = fs.readFileSync(path.join(process.env.VSC_TEST_ROOT || path.resolve(__dirname, '../../..'),
@@ -50,16 +51,12 @@ async function fixture(options = {}) {
   const ctx = {api: (url, options) => {
     const request = {url: String(url), options}; requests.push(request);
     return new Promise((resolve, reject) => pending.push({...request, resolve, reject}));
-  }, baseUrl: () => project, onNotice: message => notices.push(message),
+  }, baseUrl: () => project, onNotice: message => notices.push(String(message)),
   session: () => ({actor: 'alice', csrf: 'c', writable: true, revision: 7}), setRevision: value => revisions.push(value)};
   const environment = {document, window: options.browserWindow ? browserWindow : undefined,
     crypto: {randomUUID: () => `id-${++uuid}`}, confirm: () => true, prompt: () => '批注内容',
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, {fn, ms}); return id; }, clearTimeout: id => timers.delete(id)};
-  const id = ++environmentId; environments.set(id, environment);
-  // Import the unmodified source as a real ES module: strict semantics catch accidental globals.
-  const prefix = `const {document,window,crypto,confirm,prompt,setTimeout,clearTimeout}=globalThis.__scriptWorkspaceTestEnvironments.get(${id});\n`;
-  const module = await import('data:text/javascript;base64,' + Buffer.from(prefix + source).toString('base64'));
-  environments.delete(id);
+  const module = await loadModule('script-workspace.js',environment);
   const ws = module.createScriptWorkspace(container, ctx);
   function respond(data, match = null, failure = false) {
     const index = match == null ? 0 : pending.findIndex(row => typeof match === 'function' ? match(row) : row.url.includes(match));
