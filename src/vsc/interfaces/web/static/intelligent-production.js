@@ -135,12 +135,34 @@ export function createIntelligentProductionPanel(ctx){
  }
  function batchHistory(s,parent){
   const list=el('section',null,'ip-batch-history');list.append(el('h3','固定批次与原任务状态'));
-  for(const batch of s.data.batches||[]){const row=el('article');row.dataset.batchId=batch.id;row.append(el('p',`${batch.document.runs.length} 镜已登记；${batch.document.blocked_items.length} 镜保留缺口；自动首版 ${batch.document.auto_first_cut?'已选择':'未选择'}`));
+  const labels={created:'排队',queued:'排队',claimed:'待执行',submitted:'已提交',running:'执行中',succeeded:'已完成',failed:'失败',cancelled:'已取消',submission_unknown:'待恢复'};
+  for(const batch of s.data.batches||[]){
+   const row=el('article'),runRows=new Map();row.dataset.batchId=batch.id;
+   row.append(el('p',`${batch.document.runs.length} 镜已登记；${batch.document.blocked_items.length} 镜保留缺口；自动首版 ${batch.document.auto_first_cut?'已选择':'未选择'}`));
    const progress=el('div',null,'ip-first-cut-progress');row.append(progress);
-   async function loadProgress(){try{const value=await ctx.api(base(s)+'/intelligent-work-batches/'+batch.id);if(!live(s)||!row.isConnected)return;const labels={waiting:'等待原任务与素材',ready:'准备合成',manual:'手动剪辑',queued:'粗剪排队',running:'正在合成粗剪',succeeded:'首版已合成，待审片',failed:'合成失败，请查看原剪辑任务',cancelled:'合成已取消',edit_changed:'剪辑稿已更新，保留人工修改'};progress.replaceChildren(el('p',(labels[value.status]||value.status)+'；首版目标 '+new Date(value.first_draft_due_at).toLocaleString()+(value.overdue?'（目标时间已到）':'')));for(const gap of value.gaps||[])progress.append(el('p',gap.reason||gap.code||JSON.stringify(gap)));for(const warning of value.warnings||[])progress.append(el('p','待审：'+(warning.reason||warning.code)));if(value.render_job_id)link(s,progress,'打开本集粗剪与合成回执','editing');if(['waiting','ready','queued','running'].includes(value.status))setTimeout(()=>{if(live(s)&&row.isConnected)loadProgress();},3000);}catch(error){if(live(s)&&row.isConnected)progress.replaceChildren(el('p',error.message));}}
-   queueMicrotask(loadProgress);
-   for(const run of batch.document.runs){const states=batch.jobs.filter(j=>run.job_ids.includes(j.id)).map(j=>({created:'排队',queued:'排队',claimed:'待执行',submitted:'已提交',running:'执行中',succeeded:'已完成',failed:'失败',cancelled:'已取消',submission_unknown:'待恢复'})[j.status]||j.status);row.append(el('p',(s.state.units.find(u=>u.unit_key===run.unit_key)?.title||run.unit_key)+'：'+states.join('、')));}button(s,row,'查看固定批次回执',()=>ctx.openArtifact?.(batch.id));list.append(row);
-  }button(s,list,'刷新原批次状态',()=>refresh(s));link(s,list,'进入本集任务中心','tasks');link(s,list,'打开本集剪辑工程','editing');parent.append(list);
+   function paintJobs(jobs){
+    for(const run of batch.document.runs){
+     const states=(jobs||[]).filter(j=>run.job_ids.includes(j.id)).map(j=>labels[j.status]||j.status);
+     if(states.length)setText(runRows.get(run.unit_key),(s.state.units.find(u=>u.unit_key===run.unit_key)?.title||run.unit_key)+'：'+states.join('、'));
+    }
+   }
+   async function loadProgress(){
+    try{
+     const value=await ctx.api(base(s)+'/intelligent-work-batches/'+batch.id);if(!live(s)||!row.isConnected)return;
+     paintJobs(value.jobs);
+     const titles={waiting:'等待原任务与素材',ready:'准备合成',manual:'手动剪辑',queued:'粗剪排队',running:'正在合成粗剪',succeeded:'首版已合成，待审片',failed:'合成失败，请查看原剪辑任务',cancelled:'合成已取消',edit_changed:'剪辑稿已更新，保留人工修改'};
+     progress.replaceChildren(el('p',(titles[value.status]||value.status)+'；首版目标 '+new Date(value.first_draft_due_at).toLocaleString()+(value.overdue?'（目标时间已到）':'')));
+     for(const gap of value.gaps||[])progress.append(el('p',gap.reason||gap.code||JSON.stringify(gap)));
+     for(const warning of value.warnings||[])progress.append(el('p','待审：'+(warning.reason||warning.code)));
+     if(value.render_job_id)link(s,progress,'打开本集粗剪与合成回执','editing');
+     if(['waiting','ready','queued','running'].includes(value.status))setTimeout(()=>{if(live(s)&&row.isConnected)loadProgress();},3000);
+    }catch(error){if(live(s)&&row.isConnected)progress.replaceChildren(el('p',error.message));}
+   }
+   for(const run of batch.document.runs){const line=el('p');runRows.set(run.unit_key,line);row.append(line);}
+   paintJobs(batch.jobs);queueMicrotask(loadProgress);
+   button(s,row,'查看固定批次回执',()=>ctx.openArtifact?.(batch.id));list.append(row);
+  }
+  button(s,list,'刷新原批次状态',()=>refresh(s));link(s,list,'进入本集任务中心','tasks');link(s,list,'打开本集剪辑工程','editing');parent.append(list);
  }
  function unitProduction(s,parent,unit,purpose){const output=purpose==='video'?'video':'image',models=s.options.models.filter(m=>m.modality===output),settings=el('section',null,'ip-unit-generation');let prepared=null,quote=null,request=null;const chosen=cache.get(draftKey(s)+':model:'+purpose),model=field(settings,msg("video.digital_human_generation_model"),'','select');model.append(localizedOption('',msg("ui.select_a_configured_model")));for(const m of models)model.append(localizedOption(m.id,(m.name||m.model_key)+(m.adapter_available?'':' · 未接通')));model.value=chosen||models.find(m=>m.enabled&&m.adapter_available)?.id||'';model.addEventListener('change',()=>{cache.put(draftKey(s)+':model:'+purpose,model.value);prepared=quote=null;confirm.disabled=true;});const report=el('p',null,'ip-generation-report');report.setAttribute('role','status');
   const confirm=button(s,settings,msg("ui.confirm_quote_and_generate"),async()=>{assertSaved(s);if(!quote?.ready||!request)throw new Error('先核对本次报价');const result=await write(s,'generate:'+unit.unit_key+':'+purpose,base(s)+'/classic-production/generate',{request,preview_sha256:quote.preview_sha256},'POST',true);cache.put(draftKey(s)+':generation:'+unit.unit_key+':'+purpose,result);if(live(s)&&parent.isConnected){quote=null;confirm.disabled=true;setText(report,msg("ui.task_registered_refresh_outputs_to_query_the_original_task"));await loadCandidates();}});confirm.disabled=true;
