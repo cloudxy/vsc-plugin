@@ -331,6 +331,9 @@ def validate_submission(store, conn, project, job):
         context = context_for_run(store, conn, project, run, job["shot_id"], job["purpose"])
         if not context["ready"] or context["sha256"] != job["context_sha256"]:
             raise ResourceError("固定工作输入已不可用", "stale_job")
+        prompt=job['request_payload'].get('prompt','')
+        if any(row['text'] not in prompt for row in context.get('semantic_inputs',[])):
+            raise ResourceError('工作请求未消费已固定的专业条件','professional_input_not_consumed')
         return
     if job["status"] == "created":
         store.check_job_script_confirmation(conn, project, shot_id=job.get("shot_id"), asset_id=job.get("asset_id"), run_version_id=job["run_version_id"])

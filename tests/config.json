@@ -1783,6 +1783,169 @@
         "src/vsc/interfaces/web/classic_production.py",
         "tests/support/fixtures/frontend/panel_dom.cjs"
       ]
+    },
+    "project.unit.test_canvas_action_sources": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/canvas_agent.py"
+      ]
+    },
+    "project.integration.test_canvas_source_handoff": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py",
+        "src/vsc/production/canvas_agent.py",
+        "src/vsc/adapters/persistence/postgres/editor_handoff.py"
+      ]
+    },
+    "project.integration.test_professional_input_consumers": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/professional_inputs.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/assets/classic_production.py",
+        "templates/scene-state.json",
+        "templates/sequence-links.json"
+      ]
+    },
+    "production.unit.test_professional_input_consumption": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/professional_inputs.py"
+      ]
+    },
+    "production.unit.test_role_materials": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/role_materials.py",
+        "src/vsc/production/role_planner.py",
+        "src/vsc/production/text_tool_host.py"
+      ]
+    },
+    "project.integration.test_intelligent_work_batch": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/intelligent_production.py",
+        "src/vsc/adapters/persistence/postgres/intelligent_production.py",
+        "src/vsc/production/intelligent_production.py",
+        "src/vsc/interfaces/web/static/intelligent-production.js",
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "src/vsc/adapters/persistence/postgres/professional_inputs.py"
+      ]
+    },
+    "assets.integration.test_editor_source_handoff": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/editor_professional.py",
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/editor_workspace.py"
+      ]
+    },
+    "post.unit.test_editor_source_projection": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/editor_professional.py",
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py"
+      ]
+    },
+    "post.unit.test_editor_professional": {
+      "owner": "post",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/post/edit_workspace.py",
+        "src/vsc/post/subtitle_burn.py",
+        "src/vsc/production/professional_inputs.py"
+      ]
+    },
+    "assets.integration.test_editor_professional": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/editor_workspace.py",
+        "src/vsc/adapters/persistence/postgres/editor_professional.py",
+        "src/vsc/post/first_cut_worker.py",
+        "src/vsc/interfaces/web/static/edit-workspace.js"
+      ]
+    },
+    "project.integration.test_professional_input_schema": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/schema_professional_inputs.py",
+        "src/vsc/adapters/persistence/postgres/schema_working_state.py",
+        "src/vsc/adapters/persistence/postgres/schema_editor.py",
+        "migrations/postgres/versions/0047_professional_inputs.py"
+      ]
+    },
+    "production.unit.test_prompt_materials": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/prompt_assist.py",
+        "src/vsc/assets/prompt_assist.py",
+        "src/vsc/production/role_materials.py",
+        "src/vsc/production/role_planner.py"
+      ]
+    },
+    "project.integration.test_prompt_materials": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/classic_preferences.py",
+        "src/vsc/assets/prompt_assist.py",
+        "src/vsc/production/prompt_assist.py",
+        "src/vsc/production/role_materials.py"
+      ]
+    },
+    "project.integration.test_text_role_materials": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/text_tools.py",
+        "src/vsc/adapters/persistence/postgres/text_tools.py",
+        "src/vsc/production/text_tools.py",
+        "src/vsc/production/text_tool_host.py"
+      ]
+    },
+    "project.integration.test_episode_first_cut": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/episode_work.py",
+        "src/vsc/adapters/persistence/postgres/episode_work.py",
+        "src/vsc/production/runtime.py",
+        "src/vsc/interfaces/web/intelligent_production.py",
+        "src/vsc/interfaces/web/static/intelligent-production.js"
+      ]
+    },
+    "project.integration.test_intelligent_memory": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/intelligent_production.py",
+        "src/vsc/production/intelligent_production.py",
+        "src/vsc/adapters/persistence/postgres/memory_store.py",
+        "src/vsc/assets/role_memory.py",
+        "src/vsc/production/role_planner.py"
+      ]
+    },
+    "project.integration.test_edit_source_job_schema": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/schema_editor.py",
+        "src/vsc/adapters/persistence/postgres/schema_professional_inputs.py",
+        "migrations/postgres/versions/0047_professional_inputs.py"
+      ]
     }
   },
   "dependencies": {

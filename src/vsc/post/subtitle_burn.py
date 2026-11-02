@@ -88,8 +88,12 @@ def render(job_path):
     background = style.get("background")
     pad_x = int(style["font_size"] * (0.4 if style.get("rounded") else 0.6)) if background else 0
     pad_y = int(style["font_size"] * 0.35)
-    compiled = subtitles.compile_cues([(cue["start"], cue["end"], cue["text"]) for cue in job["cues"]], font=font, max_width=max_width, style=style, height=height, rules=rules)
-    job["subtitle_checks"] = {**job.get("subtitle_checks", {}), "font_layout": compiled["checks"]["font_layout"]}
+    compiled = subtitles.compile_cues([(cue["start"], cue["end"], cue["text"]) for cue in job["cues"]],
+        duration=job.get('duration'),script_texts=job.get('script_texts'),font=font,max_width=max_width,style=style,height=height,rules=rules)
+    job["subtitle_checks"] = {**compiled['checks'], **job.get("subtitle_checks", {}),
+                              'font_layout':compiled['checks']['font_layout']}
+    job['subtitle_warnings'] = list(dict.fromkeys(job.get('subtitle_warnings', []) + compiled['warnings']))
+    job['subtitle_measurements'] = compiled['measurements']
     for index, cue in enumerate(job["cues"]):
         cue_style = subtitles.caption_style(style, subtitles.caption_layout(cue["subtitle_style"]) if "subtitle_style" in cue else None)
         cue["text"] = compiled["cues"][index][2]
@@ -220,7 +224,9 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
     with tempfile.TemporaryDirectory() as temp:
         job_path = Path(temp) / "job.json"
         job = {"directory": temp, "width": width, "height": height, "cues": cues, "style": {**style, "font": str(font)},
-               "creative_rules": creative_rules, "subtitle_checks": compiled["checks"]}
+               "creative_rules": creative_rules, "subtitle_checks": compiled["checks"],
+               "duration":duration,"script_texts":script_texts,"subtitle_warnings":compiled['warnings'],
+               "subtitle_measurements":compiled['measurements']}
         job_path.write_text(json.dumps(job, ensure_ascii=False), "utf-8")
         result = run([uv, "run", "--no-project", "--python", "3.12", "--with", PILLOW, "python", str(script_path("post/subtitle_burn.py")), "render", str(job_path)],
                      capture_output=True, text=True, timeout=600)
@@ -233,7 +239,9 @@ def burn(video, srt, output, style, run=subprocess.run, *, script_texts=None, su
         if result.returncode:
             raise BurnError(f"ffmpeg 叠加失败：{result.stderr.strip()[-500:]}")
     return {"output": str(output), "cues": len(rendered), "font": str(font), "size": [width, height],
-            "warnings": compiled["warnings"], "subtitle_checks": rendered_job["subtitle_checks"]}
+            "warnings": rendered_job.get('subtitle_warnings',compiled["warnings"]),
+            "measurements":rendered_job.get('subtitle_measurements',compiled['measurements']),
+            "subtitle_checks": rendered_job["subtitle_checks"]}
 
 
 def main():

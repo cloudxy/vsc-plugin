@@ -535,6 +535,35 @@ export function createScriptWorkspace(container, ctx) {
       } catch (error) { notice(error.message); }
     });
     const compare = el('button', '', msg("ui.compare_with_approved_baseline"));
+    const continueProduction = el('button', 'script-continue-production', '用此稿继续制作');
+    continueProduction.type = 'button';
+    continueProduction.disabled = !session.scopeKey;
+    continueProduction.addEventListener('click', async () => {
+      const target = session;
+      continueProduction.disabled = true;
+      try {
+        if (!await waitForSave() || !sameSession(target)) return notice('正文尚未保存完成，请解决保存错误后再继续制作。');
+        const pendingKey = `vsc-script-production:${target.project}:${target.scopeKey}`;
+        let pending;
+        try { pending = JSON.parse(sessionStorage.getItem(pendingKey) || 'null'); } catch { pending = null; }
+        if (!pending) {
+          const payload = {episode_id: target.scopeKey, title: '本集制作', route: 'creation',
+            ...(draft.submitted?.matches_draft ? {source_artifact_id: draft.submitted.id} : {script_draft_revision: draft.draft_revision})};
+          pending = {payload, expected_revision: requireSession().revision, idempotency_key: crypto.randomUUID()};
+          sessionStorage.setItem(pendingKey, JSON.stringify(pending));
+        }
+        const result = await ctx.api(`${target.project}/intelligent-workflows`, {method: 'POST', headers: headers(), body: JSON.stringify(pending)});
+        sessionStorage.removeItem(pendingKey);
+        if (!sameSession(target)) return;
+        ctx.setRevision(result.revision);
+        const projectId = target.project.split('/').filter(Boolean).at(-1);
+        location.href = '/?' + new URLSearchParams({page: 'intelligent-creation', project: projectId, episode: target.scopeKey, task_target: result.id});
+      } catch (error) {
+        if (error.status >= 400 && error.status < 500) sessionStorage.removeItem(`vsc-script-production:${target.project}:${target.scopeKey}`);
+        if (sameSession(target)) notice(error.message + '；正文已保留，重试会恢复原请求回执。');
+      } finally { if (sameSession(target)) continueProduction.disabled = !target.scopeKey; }
+    });
+    wrap.append(continueProduction);
     compare.addEventListener('click', async () => {
       const target = session;
       const saved = await waitForSave();

@@ -19,7 +19,7 @@ class FixedHost:
     name='synthetic-text-host/v1'
     def __init__(self):self.calls=[];self.fail=False
     def available(self):return True
-    def generate(self,tool,action,document,references):
+    def generate(self,tool,action,document,references,*,materials=None):
         self.calls.append((tool,action,deepcopy(document),deepcopy(references)))
         if self.fail:raise ResourceError('synthetic failure','text_host_failed')
         if action=='terms':return {'terms':[{'source':'阿叶','target':'Aya','aliases':'小叶'}],'translation_characters':[{'source':'阿叶','target':'Aya','aliases':'小叶','kind':'主角','description':'固定文本人物'}]}
@@ -516,11 +516,11 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
             member=self.service.accept_access_invitation(dict(invitation_secret=secret,
                 credential_secret=secrets.token_urlsafe(32),display_name='synthetic text member'))
             original=self.service.text_tool_host.generate
-            def generate(*args):
+            def generate(*args,**kwargs):
                 owner_token=set_principal(Principal(**owner))
                 try:command('member',dict(scope='project',scope_id=self.p,identity_id=member['identity_id'],role='editor',active=False))
                 finally:reset_principal(owner_token)
-                return original(*args)
+                return original(*args,**kwargs)
             self.service.text_tool_host.generate=generate
             member_token=set_principal(Principal(**member))
             try:

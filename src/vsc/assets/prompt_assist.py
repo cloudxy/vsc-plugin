@@ -1,5 +1,6 @@
 """Explicit prompt suggestions; no generation, approval, or automatic draft replacement."""
 import hashlib
+import json
 from vsc.assets.resource_service import ResourceError
 
 
@@ -31,15 +32,24 @@ class PromptAssistServiceMixin:
             result = error = None
             try:
                 fixed = self.store.get_prompt_assist(project_id, request['id'])
-                source = fixed['request']
+                source = dict(fixed['request'])
                 skill = (repository_root() / 'skills/vsc-direct/SKILL.md').read_text(encoding='utf8')
                 if hashlib.sha256(skill.encode()).hexdigest() != source['skill_sha256']:
                     raise ResourceError('固定助手规范已改变', 'prompt_assist_skill_changed')
+                packet = self.get_role_dispatch(project_id, source['dispatch_id'])['packet']
+                try:
+                    manifest = json.loads((packet.get('parent_brief') or {}).get('content','{}')).get('role_materials_manifest')
+                except (TypeError,ValueError,AttributeError) as failure:
+                    raise ResourceError('原提示词请求缺少固定专业材料清单','role_materials_missing') from failure
+                if not isinstance(manifest,dict):
+                    raise ResourceError('原提示词请求缺少固定专业材料清单','role_materials_missing')
+                from vsc.production.role_materials import compile_role_materials
+                source['_materials'] = compile_role_materials('director','vsc-direct','prompt-'+source['operation'],
+                    method_ids=manifest.get('method_ids',()),expected_manifest=manifest)
                 blocks = reference_blocks(self, project_id, {'reference_media': source['reference_images']})
                 backend = getattr(self, 'prompt_assistant', None) or GrokBuildPromptAssistant()
                 if not backend.available():
                     raise ResourceError('本机提示词助手尚未接通 Grok Build', 'prompt_assist_host_unavailable', 503)
-                packet = self.get_role_dispatch(project_id, source['dispatch_id'])['packet']
                 result = validate_result(backend.generate(packet, source, skill, blocks))
             except ResourceError as failure:
                 error = failure.code

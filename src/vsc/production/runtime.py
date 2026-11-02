@@ -118,6 +118,8 @@ class GenerationRuntime:
                     from vsc.production.bounded import advance_batches
                     try:
                         advance_batches(worker.service, self.project_id, worker.worker_id)
+                        if hasattr(worker.service, 'advance_episode_first_cuts'):
+                            worker.service.advance_episode_first_cuts(self.project_id)
                     except Exception:
                         with self._lock:
                             self._last_error = "batch_advance_failed"

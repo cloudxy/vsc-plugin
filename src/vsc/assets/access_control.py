@@ -41,6 +41,7 @@ APPROVE_ACTIONS={'decide_artifact','select_candidate','reject_candidate','retire
 EXECUTE_ACTIONS={'start_prompt_assist','start_provider_asset_registration','finish_provider_asset_registration','claim_spatial_export','finish_spatial_export','cancel_spatial_export','cancel_edit_export','start_creative_lyrics','analyze_creative_music','claim_spatial_plan_task','service_api_cancel','execute_canvas_agent_turn','execute_intelligent_task','create_generation_job','enqueue_local_production','run_text_tool','start_text_tool_attempt','create_edit_render','request_edit_export','create_preview_job','process_creative_tool_local'}
 PUBLISH_ACTIONS={'community_publication_state','distribution_prepare','distribution_submit','distribution_receipt','publish_canvas_template','create_creative_canvas_template','publish_creative_canvas_template','access_share','library_publish'}
 def action_capability(action):
+    if action in {'generate_intelligent_work_batch','advance_intelligent_work_batch'}:return 'execute'
     if action == "community_report":return "read"
     if action=='commerce_workspace_transfer':return 'manage'
     if action in {'generate_workbench', 'generate_canvas_work'}:return 'execute'

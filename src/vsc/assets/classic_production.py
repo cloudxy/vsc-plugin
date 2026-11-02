@@ -42,10 +42,13 @@ def draft_key(shot_id, mode):
 
 def normalize_draft(value):
     from vsc.production.resource_settings import safe_parameters
-    fields = {"shot_id", "mode", "model_id", "purpose", "prompt", "lyrics", "duration_ms", "width", "height", "count", "params", "references", "tool_settings", "draft", "performance_prompt", "subject_selection"}
+    fields = {"shot_id", "mode", "model_id", "purpose", "prompt", "lyrics", "duration_ms", "width", "height", "count", "params", "references", "tool_settings", "draft", "performance_prompt", "subject_selection", "professional_inputs", "source_workflow"}
     if not isinstance(value, dict) or set(value) - fields or value.get("mode") not in MODES:
         raise ResourceError("经典制作草稿需要明确镜头、模式与已支持字段", "invalid_classic_draft")
     result = deepcopy(value)
+    from vsc.production.professional_inputs import normalize_professional_inputs,normalize_source_workflow
+    if 'professional_inputs' in result:result['professional_inputs']=normalize_professional_inputs(result['professional_inputs'])
+    if 'source_workflow' in result:result['source_workflow']=normalize_source_workflow(result['source_workflow'])
     if 'draft' in result:
         if type(result['draft']) is not bool or (result['draft'] and (MODES[result['mode']]['modality']!='video' or result['mode'] in {'video_depth','video_upgrade','depth_motion','digital_human'})):
             raise ResourceError('样片开关仅用于原生视频生成','sample_options_invalid')
@@ -285,6 +288,9 @@ class ClassicProductionServiceMixin:
         if tool=='watermark':prompt+='\n仅重建已圈选水印区域，保持其他主体内容。用户已确认有权处理此来源。'
         if document['mode'] == 'motion':
             prompt += '\n保持固定角色形象，参考动作视频中的动作顺序、节奏与身体运动，不替换角色身份。'
+        if working and context.get('semantic_inputs'):
+            from vsc.adapters.persistence.postgres.professional_inputs import prompt_with_conditions
+            prompt=prompt_with_conditions(prompt,context)
         logical = {"prompt": prompt, "params": document["params"],
                    "reference_media_ids": by_role.get("reference_image", []) + by_role.get('portrait', []) + by_role.get('character', [])}
         if document['mode']=='audio_song':logical['lyrics']=document['lyrics']
@@ -320,6 +326,10 @@ class ClassicProductionServiceMixin:
                     self.get_media(project_id,by_role['speech'][0]), self.get_media(project_id,by_role['subject_mask'][0]),
                     document['performance_prompt'], document['params']))
         request = normalize_request(logical, document["shot_id"], document["purpose"], mode["modality"])
+        if working and any(row['text'] not in request['prompt'] for row in context.get('semantic_inputs',[])):
+            gap('professional_input_not_consumed','当前模式没有完整消费固定的专业条件，请调整本镜输入或处理路线。')
+            return {'project_id':project_id,'revision':context['revision'],'ready':False,'gaps':gaps,
+                'draft_version_id':artifact['id'],'draft_sha256':artifact['sha256']}
         request["context_sha256"] = context["sha256"]
         candidate = self.store.next_classic_candidate(project_id, document['shot_id'], document['purpose'])
         pins = [{"id": row["id"], "sha256": row["sha256"]} for row in context["artifacts"]]

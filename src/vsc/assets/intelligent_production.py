@@ -18,13 +18,18 @@ class IntelligentProductionServiceMixin:
             row['url']='/api/v1/projects/'+p+'/media/'+row['media_id']+'/content'
         result['warnings']=self._intelligent_warnings(result['state'])
         result['episode_assets']=self.list_episode_assets(p,result['workflow']['episode_id'])['items']
+        result['asset_inputs']=self.store.intelligent_asset_inputs(p,result['version']['id'])
         result['working_selections']=self.list_working_selections(p,episode_id=result['workflow']['episode_id'])['items']
         return result
     @staticmethod
     def _intelligent_warnings(state):
         output=[]
-        for u in state['units']:
+        for raw in state['units']:
+            u=normalize_unit(raw)
             if u['segments'] and max(s['end_ms'] for s in u['segments'])!=u['duration_ms']:output.append(dict(unit_key=u['unit_key'],code='duration_mismatch',message='分段脚本总时长与目标时长不一致'))
+            conditions=u.get('professional',{})
+            if any(not conditions.get(k) for k in ('narrative_purpose','entry_state','exit_state','bridge')) or conditions.get('sound_route','unknown')=='unknown':
+                output.append(dict(unit_key=u['unit_key'],code='professional_review_pending',message='叙事、连续性或声音条件仍待补充审阅；生成成功不代表专业通过'))
         return output
     def create_intelligent_workflow(self,p,payload,**kw):
         self._validate_write(payload,**kw);return self.store.create_intelligent_workflow(p,payload,**kw)
@@ -55,10 +60,11 @@ class IntelligentProductionServiceMixin:
 
     def _compile_intelligent_drafts(self,p,payload):
         from vsc.production.resource_settings import ResourceSettings
+        from vsc.production.professional_inputs import normalize_professional_inputs
         current=self.get_intelligent_workflow(p,payload['workflow_id']);state=current['state'];keys=payload.get('unit_keys');purpose=payload.get('purpose')
         model=next((m for m in ResourceSettings(self.store).list()['configurations'] if m['id']==payload.get('model_id')),None)
         if current['version']['id']!=payload.get('version_id'):raise Conflict('运行准备需要当前固定版本')
-        if not isinstance(keys,list) or not 1<=len(keys)<=200 or len(set(keys))!=len(keys) or purpose not in {'blocking','lineart','video'}:raise ResourceError('请选择唯一单元及真实用途')
+        if not isinstance(keys,list) or not 1<=len(keys)<=200 or any(not isinstance(k,str) for k in keys) or len(set(keys))!=len(keys) or purpose not in {'blocking','lineart','video'}:raise ResourceError('请选择唯一单元及真实用途')
         by_key={u['unit_key']:u for u in state['units']}
         if any(k not in by_key for k in keys):raise ResourceError('所选单元不存在')
         output=[]
@@ -69,7 +75,13 @@ class IntelligentProductionServiceMixin:
             if not unit['shot_id']:gap('original_shot_required','先导入或映射原镜头')
             if purpose=='blocking' and unit['kind']!='blocking' or purpose in {'lineart','video'} and unit['kind']!='shot':gap('unit_purpose_mismatch','单元与运行用途不匹配')
             if purpose=='blocking' and state['blocking_mode']=='3d':gap('spatial_export_required','三维站位请进入原导演台，保存场景并导出实际截图')
-            if purpose=='video' and any(w['unit_key']==key for w in self._intelligent_warnings(state)):gap('duration_mismatch','请核对逐段时间与目标时长后保存')
+            if purpose=='video' and any(w['unit_key']==key and w['code']=='duration_mismatch' for w in self._intelligent_warnings(state)):gap('duration_mismatch','请核对逐段时间与目标时长后保存')
+            for asset_key in unit.get('asset_keys',[]):
+                asset=next((a for a in current.get('asset_inputs',[]) if a['asset_key']==asset_key),None)
+                if not asset:gap('unit_asset_unresolved','镜头引用的资产形态未纳入此固定流程版本：'+asset_key)
+                elif asset['asset_kind']=='voice':gap('unit_asset_modality','音色须沿明确声音路线使用，不能作为图片参考：'+asset_key)
+                elif asset.get('media_id'):references.append(dict(role='reference_image',media_id=asset['media_id'],episode_asset_form_version_id=asset['episode_asset_form_version_id']))
+                else:gap('unit_asset_image_missing','镜头资产形态尚无固定图片：'+asset_key)
             for dep in [d for d in current['dependency_inputs'] if d['unit_key']==key]:
                 if not dep['selected']:gap('anchor_not_selected','依赖首图尚无固定工作图片；选图保存后刷新依赖引用')
                 for media in dep['selected']:references.append(dict(role='reference_image',media_id=media['media_id'],**({'episode_asset_form_version_id':media['episode_asset_form_version_id']} if media.get('episode_asset_form_version_id') else {})))
@@ -92,6 +104,13 @@ class IntelligentProductionServiceMixin:
             if purpose=='lineart':description='绘制分镜网格线稿；保持以下逐段叙事与参考空间关系。\n'+description
             if unit['segments']:description+='\n'+'\n'.join(f"{s['start_ms']/1000:g}–{s['end_ms']/1000:g}秒：{s['text']}" for s in unit['segments'])
             document=dict(shot_id=unit['shot_id'],mode=mode,purpose=run_purpose,model_id=payload.get('model_id',''),prompt=description,duration_ms=unit['duration_ms'],width=payload.get('width',1080),height=payload.get('height',1920),count=payload.get('count',1),params=payload.get('params',{}),references=references)
+            source=self.get_artifact_version(p,current['version']['artifact_id'])
+            document['source_workflow']=dict(version_id=current['version']['id'],artifact_id=source['id'],artifact_sha256=source['sha256'],state_sha256=fingerprint(state),unit_key=key)
+            document['professional_inputs']=normalize_professional_inputs(payload.get('professional_inputs',[]))
+            if state['source_artifact_id']:
+                script=self.get_artifact_version(p,state['source_artifact_id'])
+                pin=dict(id=script['id'],sha256=script['sha256'],kind='screenplay')
+                if pin not in document['professional_inputs']:document['professional_inputs'].append(pin)
             if not gaps:document=self._classic_document(p,document)
             output.append(dict(unit_key=key,document=document,gaps=gaps))
         return output
@@ -118,6 +137,61 @@ class IntelligentProductionServiceMixin:
         result['sha256']=fingerprint(dict(request=payload,result=result));return result
     def propose_intelligent_runs(self,p,payload,**kw):
         self._validate_write(payload,**kw);return self.store.propose_intelligent_runs(p,payload,build_preview=self.preview_intelligent_runs,**kw)
+
+    def preview_intelligent_work_batch(self,p,payload):
+        from decimal import Decimal
+        allowed={'workflow_id','version_id','purpose','unit_keys','items','preparation','execution_policy','commerce_account_actor','auto_first_cut'}
+        if not isinstance(payload,dict) or set(payload)-allowed or not allowed-{'commerce_account_actor'}<=set(payload) or type(payload.get('auto_first_cut')) is not bool:raise ResourceError('工作批次需要明确固定范围、准备参数与自动首版选择','invalid_intelligent_batch')
+        workflow=self.get_intelligent_workflow(p,payload.get('workflow_id'))
+        if payload.get('version_id')!=workflow['version']['id']:raise Conflict('流程版本改变，请重新核对本批','intelligent_batch_changed')
+        preparation=payload.get('preparation',{})
+        if not isinstance(preparation,dict) or set(preparation)-{'model_id','width','height','count','params','professional_inputs'}:raise ResourceError('批次准备参数无效','invalid_intelligent_batch')
+        compiled=self._compile_intelligent_drafts(p,{k:payload[k] for k in ('workflow_id','version_id','purpose','unit_keys')}|preparation)
+        if payload['auto_first_cut'] and payload['purpose']!='video':raise ResourceError('自动首版只接受固定视频镜头批次','invalid_intelligent_batch')
+        targets=[u['shot_id'] for u in workflow['state']['units'] if u['unit_key'] in payload['unit_keys'] and u['shot_id']]
+        if len(targets)!=len(set(targets)):raise ResourceError('同一镜头和用途不能由多个所选单元重复提交','batch_duplicate_target')
+        rows=payload.get('items')
+        if not isinstance(rows,list) or len(rows)>200:raise ResourceError('批次需要固定草稿清单','invalid_intelligent_batch')
+        mapped={}
+        for row in rows:
+            if not isinstance(row,dict) or set(row)!={'unit_key','draft_artifact_id'} or not isinstance(row['unit_key'],str) or row['unit_key'] in mapped or row['unit_key'] not in payload['unit_keys']:raise ResourceError('批次单元重复或越出确认范围','invalid_intelligent_batch')
+            mapped[row['unit_key']]=row
+        ready=[];blocked=[];shots=set();units={};totals={};unknown=0
+        for row in compiled:
+            if row['gaps']:
+                blocked.append(dict(unit_key=row['unit_key'],gaps=row['gaps']));continue
+            item=mapped.get(row['unit_key'])
+            if not item:raise ResourceError('就绪单元缺少固定工作稿，请重新准备整批','intelligent_batch_input_missing')
+            artifact=self.get_artifact_version(p,item['draft_artifact_id'])
+            if artifact['artifact_type']!='classic-production-draft' or artifact['artifact_key']!='intelligent-classic:'+payload['version_id']+':'+row['unit_key']+':'+payload['purpose'] or json.loads(artifact['document'])!=row['document']:raise Conflict('固定草稿与本次准备范围或专业输入不一致','intelligent_batch_changed')
+            shot=row['document']['shot_id']
+            if shot in shots:raise ResourceError('同一镜头和用途不能由多个所选单元重复提交','batch_duplicate_target')
+            shots.add(shot)
+            request=dict(draft_version_id=item['draft_artifact_id'],execution_policy=deepcopy(payload['execution_policy']))
+            if 'commerce_account_actor' in payload:request['commerce_account_actor']=payload['commerce_account_actor']
+            preview=self.preview_workbench_generation(p,request)
+            if not preview['ready']:
+                blocked.append(dict(unit_key=row['unit_key'],gaps=preview['gaps']));continue
+            ready.append(dict(item,shot_id=shot,request=request,preview=preview))
+            quote=preview['generation_quote']
+            for unit,count in quote['native_units'].items():units[unit]=units.get(unit,0)+count
+            for currency,amount in quote['known_subtotals'].items():totals[currency]=totals.get(currency,Decimal(0))+Decimal(amount)
+            unknown+=quote['unknown_jobs']
+        edit=self.get_edit_workspace(p,workflow['workflow']['episode_id'])
+        baseline=dict(workspace_id=(edit.get('workspace') or {}).get('id'),edit_revision=(edit.get('workspace') or {}).get('revision',0),edit_version_id=(edit.get('current') or {}).get('id'))
+        revision=self.get_project(p)['revision']
+        if revision!=workflow['revision'] or any(i['preview']['revision']!=revision for i in ready):raise Conflict('核对期间输入已变化，请重新核对整批','intelligent_batch_changed')
+        target_shots=[u['shot_id'] for u in workflow['state']['units'] if u['unit_key'] in payload['unit_keys'] and u['shot_id']]
+        result=dict(ready=bool(ready),all_ready=not blocked and bool(ready),ready_items=ready,blocked_items=blocked,workflow_id=workflow['workflow']['id'],version_id=workflow['version']['id'],
+            episode_id=workflow['workflow']['episode_id'],state_sha256=fingerprint(workflow['state']),target_shot_ids=list(dict.fromkeys(target_shots)),edit_baseline=baseline,
+            native_units=units,known_subtotals={k:str(v) for k,v in totals.items()},unknown_jobs=unknown,all_prices_known=unknown==0,
+            budget=self.budget_status(p),revision=revision,provider_submitted=False)
+        result['preview_sha256']=fingerprint(dict(request=payload,result=result));return result
+
+    def generate_intelligent_work_batch(self,p,payload,**kw):
+        self._validate_write(payload,**kw);self.authorize_access(p,'execute')
+        if not isinstance(payload,dict) or set(payload)!={'request','preview_sha256'}:raise ResourceError('生成工作批次须固定原报价','invalid_intelligent_batch')
+        return self.store.generate_intelligent_work_batch(p,payload,build_preview=self.preview_intelligent_work_batch,work_preview=self.preview_workbench_generation,**kw)
     def copy_intelligent_unit(self,p,payload,**kw):
         self._validate_write(payload,**kw);return self.store.copy_intelligent_unit(p,payload,**kw)
 
@@ -127,6 +201,8 @@ class IntelligentProductionServiceMixin:
         if current['version']['id']!=payload.get('version_id'):raise Conflict('缺图准备需要当前固定版本')
         rows=self.store.intelligent_asset_inputs(p,current['version']['id']);items=[]
         for row in rows:
+            if row.get('media_id'):
+                items.append(dict(asset_key=row['asset_key'],status='already_selected',media_id=row['media_id'],episode_asset_form_version_id=row['episode_asset_form_version_id'],ready=False,gaps=[]));continue
             if row['asset_kind']=='voice':
                 items.append(dict(asset_key=row['asset_key'],ready=False,gaps=[dict(code='voice_adapter_required',message='音色沿原声音能力；不能用图片任务替代')]));continue
             context=self.compile_asset_context(p,row['asset_id'],'identity_ref',spec_version_id=row['spec_id'])

@@ -41,7 +41,8 @@ class FirstCutWorker(EditPreviewWorker):
                     raise ResourceError("剪辑素材缺少受控本地副本", "edit_input_missing")
                 paths[item["clip_key"]] = {"path": self.storage.verify(location["object_key"], item["blob_sha256"]), "modality": item["modality"]}
             with tempfile.TemporaryDirectory(prefix="vsc-first-cut-") as directory:
-                output, receipt = self.converter.render(fixed["document"], paths, directory, cancelled=cancelled.is_set)
+                render_options = {'professional_context':fixed['professional_context']} if fixed.get('professional_context') else {}
+                output, receipt = self.converter.render(fixed["document"], paths, directory, cancelled=cancelled.is_set, **render_options)
                 if cancelled.is_set():raise ResourceError('合成取消或原租约已失效','edit_cancel_requested',409)
                 receipt["edit_sha256"] = fixed["edit_sha256"]
                 with output.open("rb") as stream:

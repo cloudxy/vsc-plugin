@@ -1,5 +1,6 @@
 """Project-locked editorial drafts and leased, recoverable local exports."""
 from datetime import datetime, timedelta, timezone
+from contextlib import nullcontext
 from sqlalchemy import select, insert, update, and_, or_, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -44,10 +45,12 @@ class EditorWorkspaceRepository:
                 items.append(item)
             return clean(dict(items=items,total=total,next_offset=offset+len(items) if offset+len(items)<total else None,episode_id=episode_id,project_revision=project['revision']))
 
-    def seed(self, project_id, episode_id):
+    def seed(self, project_id, episode_id, *, _transaction=None):
         """Use working choices and trims in shot order, falling back to legacy adoption."""
-        with self.store.engine.connect() as conn:
-            project = self.store._project(conn, project_id)
+        with (nullcontext(_transaction[0]) if _transaction is not None else self.store.engine.connect()) as conn:
+            project = _transaction[1] if _transaction is not None else self.store._project(conn, project_id)
+            if project['id'] != checked_id(project_id):
+                raise ResourceError('事务不属于目标项目', 'transaction_project_mismatch')
             p = project["id"]
             from .project_management import management_object_guard, hidden_object_ids
             management_object_guard(conn,p,episode_id)
@@ -113,6 +116,8 @@ class EditorWorkspaceRepository:
                 document["clips"].append({"id": "shot-"+shot["id"], "shot_id": shot["id"], "media_id": media["id"],
                                           "in_frame": 0, "out_frame": frames, "volume": 1, "muted": False})
                 decisions.append({"shot_id": shot["id"], "decision_id": rows[0]["decision_id"], "sha256": media["sha256"]})
+            from .editor_professional import seed_professional
+            gaps.extend(seed_professional(self.store,conn,p,episode_id,document))
             validate_edit(document)
             return clean({"document": document, "gaps": gaps, "selection_refs": decisions,
                           "project_revision": project["revision"], "shot_count": len(shots),
@@ -138,6 +143,10 @@ class EditorWorkspaceRepository:
                 "workspace": dict(row), "current": dict(current),
                 "history": [{k:v[k] for k in ("id", "version", "sha256", "created_at")} for v in versions],
                 "renders": [dict(j) for j in jobs]})
+            context=self._professional_context(conn,p['id'],current)
+            result['professional_summary']={'source_count':len(context['inputs']),
+                'subtitle_source':'declared_lines' if context['script_texts'] else 'not_checked',
+                'gaps':context['gaps'],'cue_count':len(context['sound_checks'])} if context else None
             for job in result["renders"]:
                 if job["status"] == "succeeded":
                     job["content_url"] = f"/api/v1/projects/{project_id}/edit-exports/{job['id']}/content"
@@ -164,6 +173,8 @@ class EditorWorkspaceRepository:
                 validate_edit(document)
             except ValueError as error:
                 raise ResourceError(str(error), "invalid_edit_document") from error
+            from .editor_professional import professional_context
+            professional_context(self.store,conn,p,episode_id,document)
             members, offset = [], 0
             scope = self.store._descendant_ids(conn, p, episode_id)
             for track in ("clips", "audio"):
@@ -180,7 +191,9 @@ class EditorWorkspaceRepository:
                         "blob_id": media["blob_id"], "blob_sha256": media["sha256"], "clip_key": clip["id"],
                         "shot_id": shot, "track": track, "ordinal": ordinal, "source_in_frame": clip["in_frame"],
                         "source_out_frame": clip["out_frame"], "offset_frame": offset if track == "clips" else clip.get("at_frame", 0),
-                        "modality": media["modality"]})
+                        "modality": media["modality"], 'source_cue_id':clip.get('cue_id'),
+                        'source_binding_decision_id':clip.get('binding_decision_id'),
+                        'source_job_id':clip.get('source_job_id')})
                     if track == "clips":
                         offset += clip["out_frame"] - clip["in_frame"]
             workspace_id, version_id = current["id"] if current else new_id(), new_id()
@@ -191,6 +204,9 @@ class EditorWorkspaceRepository:
                 version=expected+1, document=document, sha256=digest(document), member_count=len(members), created_by=kw["actor"]))
             for member in members:
                 conn.execute(insert(S.edit_revision_media).values(**member, edit_version_id=version_id))
+            for ordinal,ref in enumerate(document.get('professional_inputs',[])):
+                conn.execute(insert(S.edit_revision_professional_inputs).values(project_id=p,edit_version_id=version_id,
+                    ordinal=ordinal,artifact_id=ref['id'],artifact_sha256=ref['sha256'],kind=ref['kind']))
             for clip in document['clips']:
                 if clip.get('working_selection_version_id'):
                     conn.execute(insert(S.edit_revision_working_selections).values(project_id=p, id=new_id(),
@@ -201,8 +217,23 @@ class EditorWorkspaceRepository:
             return {"id": workspace_id, "edit_version_id": version_id, "edit_revision": expected+1, "sha256": digest(document)}
         return self.store._mutate(project_id, "save_edit_workspace", payload, callback=work, **kw)
 
+    def _professional_context(self,conn,p,version):
+        if not version['document'].get('professional_inputs') and not any(c.get('cue_id') for c in version['document'].get('audio',[])):
+            return None
+        from .editor_professional import professional_context
+        workspace=self.store._one(conn,S.edit_workspaces,p,version['workspace_id'])
+        context=professional_context(self.store,conn,p,workspace['episode_id'],version['document'])
+        context.pop('_cues',None)
+        projected=[{'id':row['artifact_id'],'sha256':row['artifact_sha256'],'kind':row['kind']} for row in
+            conn.execute(select(S.edit_revision_professional_inputs).where(S.edit_revision_professional_inputs.c.project_id==p,
+                S.edit_revision_professional_inputs.c.edit_version_id==version['id']).order_by(S.edit_revision_professional_inputs.c.ordinal)).mappings()]
+        if projected != version['document'].get('professional_inputs',[]):
+            raise ResourceError('剪辑专业来源投影与固定稿不符','edit_professional_changed')
+        return context
+
     def _inputs(self, conn, p, version_id, usable=False):
         version = self.store._one(conn, S.edit_revisions, p, version_id)
+        self._professional_context(conn,p,version)
         audio_purposes = {item["id"]: item.get("purpose", "music") for item in version["document"].get("audio", [])}
         rows = [dict(x) for x in conn.execute(select(S.edit_revision_media).where(S.edit_revision_media.c.project_id==p,
             S.edit_revision_media.c.edit_version_id==version_id).order_by(S.edit_revision_media.c.track, S.edit_revision_media.c.ordinal)).mappings()]
@@ -215,6 +246,8 @@ class EditorWorkspaceRepository:
             gaps = [gap for gap in gaps if gap != "technical_check_missing"]
             if gaps:
                 raise ResourceError("剪辑用料不可用：" + ", ".join(gaps), "edit_input_unusable")
+            if media['sha256'] != row['blob_sha256'] or media['blob_id'] != row['blob_id']:
+                raise ResourceError('剪辑素材摘要与固定输入不一致','edit_input_changed')
             row["locations"] = media["locations"]
         return rows
 
@@ -297,7 +330,8 @@ class EditorWorkspaceRepository:
             row=self._fenced(conn, job, owner)
             if row['cancel_requested']:raise ResourceError('此合成已请求取消','edit_cancel_requested',409)
             version = self.store._one(conn, S.edit_revisions, job["project_id"], job["edit_version_id"])
-            return dict(job, document=version["document"], edit_sha256=version["sha256"], inputs=self._inputs(conn, job["project_id"], version["id"], usable=True))
+            return dict(job, document=version["document"], edit_sha256=version["sha256"], inputs=self._inputs(conn, job["project_id"], version["id"], usable=True),
+                        professional_context=self._professional_context(conn,job['project_id'],version))
 
     def finish(self, job, owner, blob, receipt):
         def work(conn, project):
@@ -307,6 +341,8 @@ class EditorWorkspaceRepository:
             version = self.store._one(conn, S.edit_revisions, project["id"], job["edit_version_id"])
             document = version["document"]
             frames = validate_edit(document)
+            if document.get('professional_inputs') and receipt.get('professional_inputs') != document['professional_inputs']:
+                raise ResourceError('合成回执未消费本稿固定专业来源','edit_professional_receipt_mismatch')
             tolerance = max(150, len(document["clips"]) * 1000 / document["fps"])
             if (receipt.get("full_decode") != "passed" or receipt.get("recipe") != RECIPE
                     or receipt.get("edit_sha256") != version["sha256"] or receipt.get("frames") != frames

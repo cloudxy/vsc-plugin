@@ -215,7 +215,10 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
       for(const [index,clip] of draft.clips.entries()){const seconds=(clip.out_frame-clip.in_frame)/draft.fps;const item=button(msg("ui.value0_value1_value2_seconds",{value0:index+1,value1:position.toFixed(1),value2:(position+seconds).toFixed(1)}),()=>{root.querySelector(`[data-clip-id="${CSS.escape(clip.id)}"]`)?.scrollIntoView({block:'center',behavior:'smooth'});});item.style.flexGrow=seconds;item.title=name(clip.media_id);item.classList.add('edit-timeline-item');trimHandle(item,clip,'start');trimHandle(item,clip,'end');strip.append(item);position+=seconds;}
       playerPanel.append(strip,element('p',msg("ui.total_value0_seconds_value1_clips",{value0:position.toFixed(2),value1:draft.clips.length}),'hint'));}
     renderTrack('clips',clipPanel);if(!draft.clips.length)clipPanel.append(element('p',msg("ui.no_video_clips_yet_add_media_to_start_editing"),'edit-empty'));else previewClip(Math.min(previewIndex,draft.clips.length-1));
-    const sound=element('details','','edit-sound-panel');sound.append(element('summary',msg("ui.background_music_dialogue_and_effects")));renderTrack('audio',sound);root.append(sound);
+    const sound=element('details','','edit-sound-panel');sound.append(element('summary',msg("ui.background_music_dialogue_and_effects")));renderTrack('audio',sound);
+    if(draft.professional_inputs?.length)sound.append(element('p',`保留 ${draft.professional_inputs.length} 份固定专业来源；剪辑、声音与字幕仍是未审工作稿。`,'hint'));
+    for(const gap of seed?.gaps||[])if(gap.cue_id||gap.code?.startsWith('edit_cue')||gap.code?.startsWith('edit_caption'))sound.append(element('p',gap.reason,'hint'));
+    root.append(sound);
     const captions=element('details'),label=element('label',msg("ui.manual_subtitles_srt_timecodes")),textarea=element('textarea','','edit-srt');textarea.rows=7;
     if(!captionDirty)captionText=captionDocument();textarea.value=captionText||'';captions.open=captionsOpen||captionDirty;
     captions.addEventListener('toggle',()=>{captionsOpen=captions.open;});
@@ -231,6 +234,12 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
     const exports=element('section');exports.append(element('h3',msg("ui.composition_outputs")));
     for(const job of view?.renders||[]){const card=element('article','', 'edit-export');card.dataset.jobId=job.id;card.append(element('p',joinMessages(["",job.status==='succeeded'?msg("common.completed"):job.status==='failed'?msg("video.combine_failed"):job.status==='cancelled'?msg("common.cancelled"):job.cancel_requested?msg("ui.cancelling"):job.status==='running'?msg("ui.rendering"):msg("ui.waiting_to_render"),"",job.edit_version_id!==view.current?.id?msg("ui.historical_edit_version"):'',""])));
       if(job.error)card.append(element('p',job.error));
+      if(job.receipt){const receipt=job.receipt,checks=element('details','','edit-checks');checks.append(element('summary','声音与字幕检查（未审工作稿）'));
+        for(const warning of [...(receipt.sound_checks?.warnings||[]),...(receipt.subtitle_warnings||[])])checks.append(element('p',warning,'hint'));
+        if(receipt.subtitle_checks){const state=receipt.subtitle_checks;checks.append(element('p',state.text_coverage==='passed'?'固定对白文字覆盖已检查；台词行绑定与音频对齐仍未验证。':state.text_coverage==='missing_captions'?'已有固定对白，尚无字幕时码；台词与音频对齐未验证。':'没有可验证的固定字幕行覆盖；台词与音频对齐未验证。'));
+          for(const measure of receipt.subtitle_measurements||[])checks.append(element('p',`字幕 ${measure.cue}：${(measure.duration_ms/1000).toFixed(2)} 秒，${measure.visible_characters} 字，${measure.cps.toFixed(2)} 字/秒。`));}
+        for(const boundary of receipt.sound_checks?.boundaries||[])checks.append(element('p',`${(boundary.at_ms/1000).toFixed(2)} 秒声音边界：${boundary.status==='continuous'?'同一音轨持续覆盖':'存在覆盖缺口'}；听感未审。`));
+        card.append(checks);}
       if(job.content_url){const video=element('video');video.controls=true;video.preload='metadata';video.src=job.content_url;const links=element('nav','','edit-downloads'),link=element('a',msg("ui.download_working_draft")),cover=element('a',msg("ui.download_current_frame_as_cover"));link.href=job.content_url+'?download=true';cover.href=`${base}/edit-exports/${job.id}/cover`;cover.onclick=()=>{cover.href=`${base}/edit-exports/${job.id}/cover?at_ms=${Math.max(0,Math.min(Math.floor(video.currentTime*1000),Math.ceil(video.duration*1000)-1)||0)}`;};links.append(link,cover);card.append(video,links);}
       if(['queued','running'].includes(job.status))card.append(button(job.cancel_requested?msg("ui.cancellation_request_received"):msg("ui.cancel_this_render"),async()=>{await write(`/edit-exports/${encodeURIComponent(job.id)}/cancel`,{job_id:job.id});await load();},!writable()||job.cancel_requested));
       if(['failed','cancelled'].includes(job.status))card.append(button(msg("ui.resume_composition_for_this_version"),async()=>{await write('/edit-exports',{edit_version_id:job.edit_version_id});await load();},!writable()));exports.append(card);}
@@ -243,7 +252,7 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
     const resources=await api(`${base}/media?limit=200`);if(disposed||!sameIdentity()||current!==generation)return;media=resources.items||[];loadedMediaCount=media.length;mediaTotal=resources.total||media.length;draw();
     await loadCandidates();if(disposed||!sameIdentity()||current!==generation)return;
     const selected=await api(`${base}/edit-seed?episode_id=${encodeURIComponent(episodeId)}`);if(disposed||!sameIdentity()||current!==generation)return;seed=selected;
-    const missing=[...new Set([...draft.clips,...draft.audio,...(seed.document?.clips||[])].map(c=>c.media_id))].filter(id=>!media.some(item=>item.id===id));
+    const missing=[...new Set([...draft.clips,...draft.audio,...(seed.document?.clips||[]),...(seed.document?.audio||[])].map(c=>c.media_id))].filter(id=>!media.some(item=>item.id===id));
     const details=await Promise.all(missing.map(id=>api(`${base}/media/${encodeURIComponent(id)}`)));if(disposed||!sameIdentity()||current!==generation)return;media.push(...details);draw();
     clearTimeout(poll);if(data.renders.some(r=>['queued','running'].includes(r.status)))poll=setTimeout(()=>load().catch(e=>error(e.message)),3000);
   }

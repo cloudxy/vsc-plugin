@@ -458,7 +458,7 @@ class TextToolsServiceMixin:
                         issues.append(dict(rule=rule,media_id=mid,start_ms=a,end_ms=b,code=getattr(error,"code","local_check_failed"),severity="error",message=str(error)[:2000],evidence=video["sha256"]))
         return {"issues":issues}
 
-    def run_text_tool(self,project_id,payload,**kw):
+    def run_text_tool(self,project_id,payload,*,_materials_artifact_id=None,**kw):
         from vsc.production.text_tool_host import GrokBuildTextTools
         self._validate_write(payload,**kw)
         if set(payload)-{"unit_id","input_version_id","action","new_attempt"} or type(payload.get("new_attempt",False)) is not bool:fail("运行需要固定单元、版本和动作")
@@ -467,7 +467,7 @@ class TextToolsServiceMixin:
             from vsc.production.media_understanding import default_media_host
             media_backend=getattr(self,'media_understanding_host',None) or default_media_host()
         caller=str(uuid.uuid4())
-        start=self.store.start_text_tool_attempt(project_id,payload,backend=media_backend.name if payload.get('action') in {'observe','check','understand'} else backend.name,caller=caller,**kw)
+        start=self.store.start_text_tool_attempt(project_id,payload,backend=media_backend.name if payload.get('action') in {'observe','check','understand'} else backend.name,caller=caller,materials_artifact_id=_materials_artifact_id,**kw)
         run=self.store.get_text_tool_attempt(project_id,start["id"])
         if start.get("caller")!=caller or run["status"]!="running":return run
         unit=self.store.get_text_tool(project_id,run["unit_id"])
@@ -488,7 +488,11 @@ class TextToolsServiceMixin:
                     result={"style":proposed["body"],"style_version_id":""}
                 else:
                     from vsc.production.text_tools import host_input
-                    result=backend.generate(unit["tool"],run["action"],host_input(unit['tool'],doc,run['action']),references)
+                    extra={}
+                    if unit['tool']=='novel' and run.get('role_materials_manifest'):
+                        from vsc.production.text_tools import novel_execution_materials
+                        extra['materials']=novel_execution_materials(run['action'],run['role_materials_manifest'])
+                    result=backend.generate(unit["tool"],run["action"],host_input(unit['tool'],doc,run['action']),references,**extra)
             result=validated_result(unit["tool"],run["action"],result,doc)
         except ResourceError as exc:error=exc.code
         except Exception:error="text_submission_unknown"
@@ -569,7 +573,7 @@ class TextToolsServiceMixin:
         if not item:return self.get_text_batch(project_id,payload['batch_id'])
         run=None;output=None;status='blocked';error=None
         try:
-            run=self.run_text_tool(project_id,{'unit_id':item['unit_id'],'input_version_id':item['input_version_id'],'action':item['action'],'new_attempt':False},**authority('batch-run:'+item['id']))
+            run=self.run_text_tool(project_id,{'unit_id':item['unit_id'],'input_version_id':item['input_version_id'],'action':item['action'],'new_attempt':False},_materials_artifact_id=claim.get('materials_artifact_id'),**authority('batch-run:'+item['id']))
             run=self.get_text_tool_attempt(project_id,run['id'])
             if run['status']=='completed':
                 if claim['auto_accept']:

@@ -65,8 +65,8 @@ class ClassicPreferencesRepository:
                 self._access_state(conn), dict(media_id=media_id, **values))
 
     def start_prompt_assist(self, p, payload, *, claim, actor, **kw):
-        from vsc.bootstrap import repository_root
         from vsc.project.role_runtime import bind_packet
+        from vsc.production.role_materials import compile_role_materials
         def work(conn, project):
             draft = self._one(conn, S.artifact_versions, p, checked_id(payload['draft_version_id']))
             if draft['artifact_type'] != DRAFT_TYPE or draft['sha256'] != payload['draft_sha256']:
@@ -86,10 +86,14 @@ class ClassicPreferencesRepository:
             if payload['operation'] != 'recognize' and not prompt.strip():
                 raise ResourceError('先填写提示词', 'prompt_assist_prompt_required')
             identifier = new_id()
-            skill_sha = hashlib.sha256((repository_root()/'skills/vsc-direct/SKILL.md').read_bytes()).hexdigest()
+            materials = compile_role_materials('director','vsc-direct','prompt-'+payload['operation'])
+            skill_sha = next(row['sha256'] for row in materials['materials'] if row['kind']=='skill')
             packet = bind_packet({'context_id': 'prompt-'+identifier, 'project': {'project_id': p},
                 'revision': project['revision'], 'role': self._role('director'), 'task': '提出提示词建议：'+payload['operation'],
-                'inputs': [], 'approved_memories': [], 'scope': doc['shot_id'], 'parent_brief': None,
+                'inputs': [], 'approved_memories': [], 'scope': doc['shot_id'], 'parent_brief': {
+                    'content':json.dumps({'draft_version_id':draft['id'],'draft_sha256':draft['sha256'],
+                        'operation':payload['operation'],'skill_sha256':skill_sha,'role_materials_manifest':materials['manifest']},ensure_ascii=False),
+                    'persistence':'context_file_only_not_long_term_memory'},
                 'rules': ['固定输入仅为工作稿；输出是建议，用户显式应用，不自动批准或生成。']},
                 host='grok-build-prompt-assist', actor=actor, ownership=[])
             internal = dict(actor=actor, expected_revision=project['revision'], idempotency_key='prompt-internal', _transaction=(conn, project))
