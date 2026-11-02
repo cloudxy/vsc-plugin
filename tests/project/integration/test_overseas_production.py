@@ -43,8 +43,8 @@ class OverseasProductTests(ResourceStoreFixture,unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'),'requires Node for browser hash implementation')
     def test_incremental_browser_sha_matches_standard_for_chunk_and_padding_boundaries(self):
         module=ROOT/'src/vsc/interfaces/web/static/media-upload.js'
-        script="""import fs from 'node:fs';import crypto from 'node:crypto';import assert from 'node:assert/strict';
-const {mediaFileSha256}=await import('data:text/javascript;base64,'+fs.readFileSync(process.argv[1]).toString('base64'));
+        script="""import {pathToFileURL} from 'node:url';import crypto from 'node:crypto';import assert from 'node:assert/strict';
+const {mediaFileSha256}=await import(pathToFileURL(process.argv[1]).href);
 for(const size of [0,1,55,56,63,64,65,1048576+65]){const bytes=Buffer.alloc(size);for(let i=0;i<size;i++)bytes[i]=i%251;assert.equal(await mediaFileSha256(new Blob([bytes])),crypto.createHash('sha256').update(bytes).digest('hex'));}
 const controller=new AbortController();controller.abort();await assert.rejects(()=>mediaFileSha256(new Blob(['abc']),{signal:controller.signal}),{name:'AbortError'});
 console.log('eight digest boundaries and cancellation passed');"""

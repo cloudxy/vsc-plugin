@@ -1,19 +1,20 @@
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const {loadModule}=require('../../support/fixtures/frontend/modules.cjs');
 const {Document}=require('../../support/fixtures/frontend/panel_dom.cjs');
-function fixture(callbacks={}){
+async function fixture(callbacks={}){
   const document=new Document(''),container=document.createElement('section');document.body.append(container);
   const memory=new Map(),requests=[],pending=[],opened=[],errors=[];
   const context=vm.createContext({document,URLSearchParams,AbortController,console,localStorage:{getItem:k=>memory.get(k),setItem:(k,v)=>memory.set(k,v)},fetch:(url,options)=>{requests.push({url,options});return new Promise(resolve=>pending.push(resolve));}});
-  vm.runInContext(fs.readFileSync(path.join(process.env.VSC_TEST_ROOT,'src/vsc/interfaces/web/static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench'),context);
-  const bench=context.createCreativeWorkbench(container,{onObject:id=>opened.push(['object',id]),onMedia:id=>opened.push(['media',id]),onArtifact:id=>opened.push(['artifact',id]),onGraph:id=>opened.push(['graph',id]),onError:error=>errors.push(error.message),...callbacks});
+  const module=await loadModule('workbench.js',context);
+  const bench=module.createCreativeWorkbench(container,{onObject:id=>opened.push(['object',id]),onMedia:id=>opened.push(['media',id]),onArtifact:id=>opened.push(['artifact',id]),onGraph:id=>opened.push(['graph',id]),onError:error=>errors.push(error.message),...callbacks});
   const respond=(data,ok=true)=>{assert.ok(pending.length);pending.shift()({ok,json:async()=>data});};
   return {bench,container,memory,requests,pending,opened,errors,respond,find:text=>container.querySelectorAll('button').find(b=>b.textContent===text)};
 }
 function doc(project,section='lines',items=[],extra={}){return {project_id:project,revision:4,scope:{id:'shot-1',kind:'shot',title:'镜头一'},ancestors:[],summary:{[section]:items.length},sections:{[section]:{items,total:items.length,scope_total:items.length,next_offset:null}},gaps:[],warnings:[],read_only:true,...extra};}
 test('professional stage keeps scope, catalogue browsing does not force a different take, and late old selection cannot route',async()=>{
-  const calls=[],routed=[];const a=fixture({createReviewer:async(root,binding)=>{calls.push(binding);return {suspend(){}};},onStageRef:ref=>routed.push(ref)});
+  const calls=[],routed=[];const a=await fixture({createReviewer:async(root,binding)=>{calls.push(binding);return {suspend(){}};},onStageRef:ref=>routed.push(ref)});
   let loading=a.bench.load({projectId:'p',objectId:'shot-1',task:'candidates'});a.respond(doc('p','bindings',[{id:'slot',object_id:'shot-1',kind:'video_take',purpose:'video_take',media_id:'original',status:'selected'}]));await loading;
   assert.equal(calls[0].ref,'media:original');assert.equal(calls[0].objectId,'shot-1');assert.equal(calls[0].targetObjectId,'shot-1');
   await a.find('返回资料与镜头').click();assert.equal(a.container.querySelector('.workbench-catalog').open,true);
@@ -25,12 +26,12 @@ test('professional stage keeps scope, catalogue browsing does not force a differ
 });
 
 test('binding library selection consumes the real read model aliases for target and purpose',async()=>{
-  const uses=[],a=fixture({onLibrary:target=>uses.push(target)});let loading=a.bench.load({projectId:'p',objectId:'shot-1',task:'candidates'});
+  const uses=[],a=await fixture({onLibrary:target=>uses.push(target)});let loading=a.bench.load({projectId:'p',objectId:'shot-1',task:'candidates'});
   a.respond(doc('p','bindings',[{id:'slot',object_id:'shot-1',kind:'first_frame',purpose:'first_frame',status:'unselected'}]));await loading;
   await a.find('从公共库选择用于此处').click();assert.equal(uses[0].target_object_id,'shot-1');assert.equal(uses[0].role,'first_frame');
 });
 test('scope is identified once in the breadcrumb while section buttons show the selection',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
+  const a=await fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
   const heading=a.container.querySelector('.workbench-heading');
   assert.equal(heading.querySelectorAll('h1').length,0);
   assert.equal(heading.querySelectorAll('p').length,0);
@@ -47,7 +48,7 @@ test('scope is identified once in the breadcrumb while section buttons show the 
   assert.equal(heading.querySelector('strong').textContent,'项目创作概览');a.bench.destroy();
 });
 test('navigation removes duplicated counters and only exposes the selected material group',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});
+  const a=await fixture();let p=a.bench.load({projectId:'p',userId:'alice'});
   a.respond(doc('p','assets',[],{summary:{assets:800,versions:515}}));await p;
   assert.equal(a.container.querySelector('.workbench-counters'),null);
   assert.equal(a.container.querySelector('.workbench-nav-groups').querySelectorAll('button').length,5);
@@ -65,7 +66,7 @@ test('navigation removes duplicated counters and only exposes the selected mater
   assert.ok(a.requests.every(r=>!r.options.method));a.bench.destroy();
 });
 test('candidate and delivery task entry points have bounded groups and separate remembered selections',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice',task:'candidates'});
+  const a=await fixture();let p=a.bench.load({projectId:'p',userId:'alice',task:'candidates'});
   assert.equal(a.requests.length,1);
   assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'bindings');
   a.respond(doc('p','bindings'));await p;
@@ -87,7 +88,7 @@ test('candidate and delivery task entry points have bounded groups and separate 
   assert.equal(a.requests.length,count);assert.equal(a.find('任务尝试对照').getAttribute('aria-current'),'page');a.bench.destroy();
 });
 test('quality and relation drill-downs keep their parent and current collection selected',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p'));await p;
+  const a=await fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p'));await p;
   p=a.find('质量与方法').click();a.respond(doc('p','quality_observations'));await p;
   p=a.find('方法评测').click();a.respond(doc('p','method_evaluations'));await p;
   assert.equal(a.find('质量与方法').getAttribute('aria-pressed'),'true');
@@ -97,7 +98,7 @@ test('quality and relation drill-downs keep their parent and current collection 
   assert.equal(a.find('镜头覆盖').getAttribute('aria-current'),'page');a.bench.destroy();
 });
 test('late workbench response cannot restore another project, abort and errors preserve read-only state',async()=>{
-  const a=fixture();const old=a.bench.load({projectId:'old',objectId:'old-shot',userId:'alice'});a.container.querySelectorAll('select').find(e=>e.getAttribute('aria-label')==='资料类型').value='dialogue';const fresh=a.bench.load({projectId:'new',objectId:'shot-1',userId:'alice'});
+  const a=await fixture();const old=a.bench.load({projectId:'old',objectId:'old-shot',userId:'alice'});a.container.querySelectorAll('select').find(e=>e.getAttribute('aria-label')==='资料类型').value='dialogue';const fresh=a.bench.load({projectId:'new',objectId:'shot-1',userId:'alice'});
   const first=a.pending.shift();a.respond(doc('new','lines',[{id:'new-line',title:'new-private',text:'新内容'}]));await fresh;
   first({ok:true,json:async()=>doc('old','lines',[{id:'old-line',title:'stale-old'}])});await old;
   assert.ok(a.container.textContent.includes('new-private'));assert.ok(!a.container.textContent.includes('stale-old'));assert.equal(a.requests[0].options.signal.aborted,true);
@@ -106,13 +107,13 @@ test('late workbench response cannot restore another project, abort and errors p
   assert.ok(a.container.textContent.includes('快照冲突'));assert.ok(a.find('重新读取当前范围'));assert.ok(a.requests.every(r=>!r.options.method));a.bench.destroy();
 });
 test('project aggregates expose on-demand collections without claiming they are empty',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','materials',[],{scope:null,summary:{materials:50000},sections:{materials:{items:[],total:50000,scope_total:50000,load_on_demand:true,next_offset:0,truncated:true}}}));await p;
+  const a=await fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','materials',[],{scope:null,summary:{materials:50000},sections:{materials:{items:[],total:50000,scope_total:50000,load_on_demand:true,next_offset:0,truncated:true}}}));await p;
   assert.ok(!a.container.textContent.includes('当前范围尚未登记创作资料'));assert.ok(a.container.textContent.includes('已登记 50000 项'));
   p=a.find('查看全部').click();assert.equal(new URL(a.requests.at(-1).url,'http://fixture').searchParams.get('section'),'materials');a.respond(doc('p','materials',[{id:'media-1',title:'第一页'}]));await p;
   assert.ok(a.container.textContent.includes('第一页'));a.bench.destroy();
 });
 test('full-scope search and version-pinned pagination cross loaded-page boundary',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
+  const a=await fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});a.respond(doc('p'));await p;
   p=a.bench.focus('lines');a.respond(doc('p','lines',[{id:'line',title:'台词'}],{sections:{lines:{items:[{id:'line',title:'台词'}],total:25,scope_total:40,next_offset:24}}}));await p;
   p=a.find('下一页').click();let params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;assert.equal(params.get('offset'),'24');assert.equal(params.get('revision'),'4');
   a.respond(doc('p','lines',[{id:'line25',title:'最后一条'}]));await p;
@@ -122,7 +123,7 @@ test('full-scope search and version-pinned pagination cross loaded-page boundary
   a.bench.destroy();
 });
 test('line coverage and media references use typed identities while text remains plain',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','lines',[{id:'line-7',title:'旁白',text:'<script>private-text</script>',artifact_id:'fixed-script'}]));await p;
+  const a=await fixture();let p=a.bench.load({projectId:'p',userId:'alice'});a.respond(doc('p','lines',[{id:'line-7',title:'旁白',text:'<script>private-text</script>',artifact_id:'fixed-script'}]));await p;
   assert.equal(a.container.querySelectorAll('script').length,0);assert.ok(a.container.textContent.includes('<script>private-text</script>'));
   await a.find('阅读固定文案').click();assert.deepEqual(a.opened[0],['artifact','fixed-script']);
   p=a.find('查看覆盖镜头').click();const params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;assert.equal(params.get('section'),'coverage');assert.equal(params.get('entity_id'),'line-7');
@@ -133,7 +134,7 @@ test('line coverage and media references use typed identities while text remains
   assert.ok([...a.memory.values()].every(v=>!v.includes('private-text')&&!v.includes('声音候选')&&!v.includes('revision')));a.bench.destroy();
 });
 test('shot and job drill buttons request their actual entity and show parameter evidence',async()=>{
-  const a=fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});
+  const a=await fixture();let p=a.bench.load({projectId:'p',objectId:'shot-1',userId:'alice'});
   a.respond(doc('p','shots',[{id:'shot-1',kind:'shot',title:'镜头一'}]));await p;
   p=a.find('查看覆盖剧本行').click();let params=new URL(a.requests.at(-1).url,'http://fixture').searchParams;
   assert.equal(params.get('section'),'coverage');assert.equal(params.get('entity_id'),'shot-1');a.respond(doc('p','coverage'));await p;

@@ -29,7 +29,8 @@
         "tests/project/unit/assisted_desk.test.cjs",
         "tests/project/unit/shared_library.test.cjs",
         "src/vsc/interfaces/web/static/shared-library.js",
-        "src/vsc/interfaces/web/static/shared-library.css"
+        "src/vsc/interfaces/web/static/shared-library.css",
+        "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
     "assets.integration.test_edit_preview": {
@@ -743,7 +744,8 @@
         "src/vsc/interfaces/web/static/workbench.js",
         "src/vsc/interfaces/web/static/workbench.css",
         "tests/project/unit/workbench.test.cjs",
-        "tests/support/fixtures/frontend/panel_dom.cjs"
+        "tests/support/fixtures/frontend/panel_dom.cjs",
+        "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
     "production.integration.test_pg_quality_loop": {
@@ -828,7 +830,8 @@
       "layer": "unit",
       "sources": [
         "src/vsc/interfaces/web/static/script-workspace.js",
-        "src/vsc/interfaces/web/static/panel.js"
+        "src/vsc/interfaces/web/static/panel.js",
+        "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
     "production.integration.test_grok_batch": {
@@ -1071,7 +1074,8 @@
         "src/vsc/interfaces/web/static/review.js",
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/static/local-production.js",
-        "src/vsc/interfaces/web/static/script-workspace.js"
+        "src/vsc/interfaces/web/static/script-workspace.js",
+        "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
     "assets.integration.test_shared_library": {
@@ -1484,7 +1488,8 @@
       "layer": "unit",
       "sources": [
         "src/vsc/interfaces/web/static/text-tools.js",
-        "tests/project/unit/text_tools.test.mjs"
+        "tests/project/unit/text_tools.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
     "assets.integration.test_working_state": {

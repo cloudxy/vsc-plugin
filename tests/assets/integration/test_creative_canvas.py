@@ -122,7 +122,9 @@ class CreativeCanvasTests(ResourceStoreFixture, unittest.TestCase):
                 "max_attempts_per_purpose": 3, "max_repair_rounds": 1}}
         unavailable = self.service.preview_creative_canvas_run(self.p, run_request)
         self.assertFalse(unavailable["ready"])
-        self.assertEqual(unavailable["gaps"][0]["code"], "model_adapter_unavailable")
+        self.assertEqual(unavailable["gaps"][0]["code"], "canvas_no_applicable_model")
+        self.assertEqual(unavailable["routing"]["original_model_ids"], [model])
+        self.assertEqual(unavailable["routing"]["candidates"][0]["code"], "model_adapter_unavailable")
         self.assertNotIn("preview_sha256", unavailable)
         # This provider is deliberately synthetic. Only the offline compiler
         # fixture supplies availability; no real adapter or transport is invoked.

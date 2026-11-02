@@ -1,11 +1,12 @@
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
 const fs=require('node:fs'),path=require('node:path');
+const {pathToFileURL}=require('node:url');
 const {Document}=require('../../support/fixtures/frontend/panel_dom.cjs');
 const root=process.env.VSC_TEST_ROOT || path.resolve(__dirname,'../../..');
 const folder=path.join(root,'src/vsc/interfaces/web/static');
 const modules=new Map();
-async function moduleFor(name){if(!modules.has(name))modules.set(name,import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(path.join(folder,name),'utf8')).toString('base64')));return modules.get(name);}
+async function moduleFor(name){if(!modules.has(name))modules.set(name,import(pathToFileURL(path.join(folder,name)).href));return modules.get(name);}
 const sha='a'.repeat(64);
 const taxonomy=['character','environment','prop','creature','plant','sound','text','vfx','camera_style','post','document'].map((code,index)=>({code,label:['人物与角色','背景环境','道具','生物','植物','声音','字幕与文字','视觉与动态特效','镜头与风格控制','后期与包装','制作文档与规则'][index],parent_code:null}));
 taxonomy.push({code:'sound.voice',label:'声纹',parent_code:'sound'});

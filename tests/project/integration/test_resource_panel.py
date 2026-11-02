@@ -56,7 +56,11 @@ class ResourcePanelTests(unittest.TestCase):
         html = self.client.get("/")
         self.assertNotIn("<script>alert", html.text)
         script = self.client.get("/static/panel.js").text
-        self.assertIn("textContent", script)
+        self.assertIn("setText(node,text)", script)
+        binding = self.client.get("/static/i18n.js").text
+        self.assertIn("createTextNode", binding)
+        self.assertIn("current.textContent=next", binding)
+        self.assertNotIn("innerHTML", binding)
         self.assertNotIn("innerHTML", script)
         self.assertIn("frame-ancestors 'none'", html.headers["content-security-policy"])
 

@@ -243,7 +243,12 @@ class CreativeToolsTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(len(options["drafts"]), 2)
         draft = next(row for row in options["drafts"] if row["id"] == first["id"])["document"]
         self.assertFalse(draft["generated"])
-        self.assertIn("中间视频", draft["blocked_reason"])
+        # Native depth is connected; incomplete fixed inputs still fail closed.
+        self.assertEqual(draft["blocked_reason"], "")
+        with self.assertRaises(ResourceError) as error:
+            self.write("prepare_creative_tool_work", {"draft_version_id": first["id"]})
+        self.assertEqual(error.exception.code, "depth_motion_inputs")
+        self.assertEqual(self.service.list_generation_jobs(self.p)["total"], 0)
         self.assertEqual(draft["media"][0]["duration_ms"], 4000)
         with self.assertRaises(Conflict):
             self.save("depth_motion", source_media_id=video, prompt="stale")
@@ -477,6 +482,9 @@ class CompletionProvider:
  def submit(self,request):
   from vsc.production.providers import JobHandle
   self.submits+=1;return JobHandle("fixture","fixture",None,{"fixture":"local bytes"})
+ def poll(self,handle):
+  from vsc.production.providers import JobStatus
+  return JobStatus('succeeded',raw=handle.raw)
  def parse_result(self,raw):
   from vsc.production.providers import GeneratedAsset
   return [GeneratedAsset(self.modality,inline_bytes=self.content)]

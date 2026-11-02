@@ -130,8 +130,10 @@ class SpatialSceneTests(ResourceStoreFixture, unittest.TestCase):
             return job,done,self.service.storage.read(item["locations"][0]["object_key"],item["sha256"])
         _,done,png=output("png",.5);self.assertEqual(png,preview)
         _,_,glb=output("glb",.5);baked=decode_glb(glb)
-        self.assertEqual(baked["animations"],[])
-        self.assertAlmostEqual(sample_model(baked,0,None,0)[0]["vertices"][2][0],1-2**.5,places=6)
+        self.assertEqual(len(baked["animations"]),1)
+        self.assertEqual(baked["animations"][0]["name"],"VSC scene timeline")
+        self.assertAlmostEqual(sample_model(baked,0,0,.5)[0]["vertices"][2][0],1-2**.5,places=6)
+        self.assertNotEqual(sample_model(baked,0,0,0),sample_model(baked,0,0,.5))
         job,video,mp4=output("mp4",duration=1)
         path=Path(self.directory.name)/"animated.mp4";path.write_bytes(mp4)
         stream=json.loads(subprocess.run(["ffprobe","-v","error","-show_streams","-of","json",str(path)],capture_output=True,check=True).stdout)["streams"][0]
