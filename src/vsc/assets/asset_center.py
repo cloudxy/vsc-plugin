@@ -16,10 +16,11 @@ class AssetCenterService:
             raise ResourceError("分页范围无效")
 
     def search_asset_center(self, filters, actor=None):
-        allowed={"query","tag","form_name","asset_kind","workspace_id","review_status","offset","limit"}
+        allowed={"query","tag","form_name","asset_kind","workspace_id","review_status","offset","limit","media_only"}
         if not isinstance(filters,dict) or set(filters)-allowed:raise ResourceError("素材检索字段无效")
         self._center_page(filters.get("offset",0),filters.get("limit",24))
-        for key in allowed-{"offset","limit"}:
+        if "media_only" in filters and type(filters["media_only"]) is not bool:raise ResourceError("媒体筛选必须是布尔值")
+        for key in allowed-{"offset","limit","media_only"}:
             if filters.get(key) is not None and (not isinstance(filters[key],str) or len(filters[key])>200):raise ResourceError("素材检索文字过长")
         return self._center().search(dict(filters,offset=filters.get("offset",0),limit=filters.get("limit",24)),actor)
 

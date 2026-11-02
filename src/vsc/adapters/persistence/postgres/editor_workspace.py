@@ -13,8 +13,39 @@ class EditorWorkspaceRepository:
     def __init__(self, store):
         self.store = store
 
+    def candidates(self, project_id, episode_id, *, offset=0, limit=48):
+        """Page original video candidates by episode/shot, including unselected takes."""
+        from sqlalchemy import union
+        from .project_management import management_object_guard, hidden_object_ids
+        if type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=100:
+            raise ResourceError('候选分页需要非负起点及 1–100 条上限','invalid_page')
+        with self.store.engine.connect() as conn:
+            project=self.store._project(conn,project_id);p=project['id'];episode_id=checked_id(episode_id)
+            self.store._one(conn,S.episodes,p,episode_id);management_object_guard(conn,p,episode_id)
+            order=(S.scenes.c.ordinal,S.scenes.c.id,S.sequences.c.ordinal,S.sequences.c.id,S.shots.c.ordinal,S.shots.c.id)
+            shots=select(S.shots.c.id.label('shot_id'),S.creative_objects.c.title.label('shot_title'),S.creative_objects.c.display_code.label('shot_code'),func.row_number().over(order_by=order).label('shot_number')).join(S.creative_objects,and_(S.creative_objects.c.project_id==p,S.creative_objects.c.id==S.shots.c.id)).join(S.sequences,and_(S.sequences.c.project_id==p,S.sequences.c.id==S.shots.c.parent_id)).join(S.scenes,and_(S.scenes.c.project_id==p,S.scenes.c.id==S.sequences.c.parent_id)).where(S.shots.c.project_id==p,S.scenes.c.parent_id==episode_id,S.shots.c.id.not_in(hidden_object_ids(conn,p))).subquery()
+            bindings=select(S.binding_slots.c.target_object_id.label('shot_id'),S.binding_candidates.c.media_id).join(S.binding_candidates,and_(S.binding_candidates.c.project_id==p,S.binding_candidates.c.slot_id==S.binding_slots.c.id)).where(S.binding_slots.c.project_id==p,S.binding_slots.c.role=='video_take')
+            outputs=select(S.generation_jobs.c.shot_id,S.job_outputs.c.media_id).join(S.job_outputs,and_(S.job_outputs.c.project_id==p,S.job_outputs.c.job_id==S.generation_jobs.c.id)).where(S.generation_jobs.c.project_id==p,S.generation_jobs.c.modality=='video',S.generation_jobs.c.status=='succeeded',S.generation_jobs.c.purpose!='depth')
+            depth=select(S.job_outputs.c.media_id).join(S.generation_jobs,and_(S.generation_jobs.c.project_id==p,S.generation_jobs.c.id==S.job_outputs.c.job_id)).where(S.job_outputs.c.project_id==p,S.generation_jobs.c.purpose=='depth')
+            sources=union(bindings,outputs).subquery()
+            query=self.store._media_query(p).add_columns(shots).join(sources,sources.c.media_id==S.media_items.c.id).join(shots,shots.c.shot_id==sources.c.shot_id).where(S.media_items.c.modality=='video',S.media_items.c.id.not_in(depth))
+            total=conn.scalar(select(func.count()).select_from(query.subquery()))
+            rows=[dict(r) for r in conn.execute(query.order_by(shots.c.shot_number,S.media_items.c.created_at.desc(),S.media_items.c.id).offset(offset).limit(limit)).mappings()]
+            items=[]
+            for row in rows:
+                selection=self.store._working_selection(conn,p,row['shot_id'],'video')
+                selected_media=self.store._one(conn,S.binding_candidates,p,selection['candidate_id'])['media_id'] if selection and selection['candidate_id'] else None
+                selected=selected_media==row['id'];duration=row.get('duration_ms')
+                item={key:row.get(key) for key in ('id','name','modality','duration_ms','width','height','created_at','shot_id','shot_title','shot_code','shot_number')}
+                item.update(media_id=row['id'],selected=selected,working_selection_version_id=selection['id'] if selected else None,
+                    trim_in_ms=selection['trim_in_ms'] if selected else 0,trim_out_ms=selection['trim_out_ms'] if selected else duration,
+                    content_url=f'/api/v1/projects/{p}/media/{row["id"]}/content',can_add=bool(duration and duration>0))
+                if not item['can_add']:item['disabled_reason']='源视频尚无已验证时长，请先完成媒体检查'
+                items.append(item)
+            return clean(dict(items=items,total=total,next_offset=offset+len(items) if offset+len(items)<total else None,episode_id=episode_id,project_revision=project['revision']))
+
     def seed(self, project_id, episode_id):
-        """Read adopted video takes in scene/sequence/shot order; never fill gaps with stills."""
+        """Use working choices and trims in shot order, falling back to legacy adoption."""
         with self.store.engine.connect() as conn:
             project = self.store._project(conn, project_id)
             p = project["id"]
@@ -32,6 +63,35 @@ class EditorWorkspaceRepository:
                         "clips": [], "audio": [], "captions": []}
             gaps, decisions = [], []
             for shot in shots:
+                working = conn.execute(select(S.working_selection_versions,
+                    S.binding_candidates.c.media_id).join(S.current_working_selections, and_(
+                        S.current_working_selections.c.project_id == p,
+                        S.current_working_selections.c.selection_version_id == S.working_selection_versions.c.id))
+                    .outerjoin(S.binding_candidates, and_(S.binding_candidates.c.project_id == p,
+                        S.binding_candidates.c.id == S.working_selection_versions.c.candidate_id))
+                    .where(S.working_selection_versions.c.project_id == p,
+                        S.working_selection_versions.c.shot_id == shot['id'],
+                        S.working_selection_versions.c.output_kind == 'video')).mappings().first()
+                if working:
+                    if not working['candidate_id']:
+                        gaps.append({'shot_id': shot['id'], 'reason': '当前镜头已清空视频选择'})
+                        continue
+                    from .workbench_generation import working_media
+                    media, reasons = working_media(self.store, conn, p, working['media_id'], 'video_take')
+                    if reasons:
+                        gaps.append({'shot_id': shot['id'], 'reason': '当前所选视频不可用', 'details': reasons})
+                        continue
+                    start = round(working['trim_in_ms'] * document['fps'] / 1000)
+                    end = round(working['trim_out_ms'] * document['fps'] / 1000)
+                    if end <= start:
+                        gaps.append({'shot_id': shot['id'], 'reason': '裁剪长度不足一帧'})
+                        continue
+                    document['clips'].append({'id': 'shot-' + shot['id'], 'shot_id': shot['id'],
+                        'media_id': media['id'], 'in_frame': start, 'out_frame': end, 'volume': 1,
+                        'muted': False, 'working_selection_version_id': working['id']})
+                    decisions.append({'shot_id': shot['id'], 'working_selection_version_id': working['id'],
+                        'sha256': media['sha256']})
+                    continue
                 rows = conn.execute(select(S.binding_candidates.c.media_id, S.current_bindings.c.decision_id)
                     .select_from(S.binding_slots.join(S.current_bindings, and_(S.current_bindings.c.project_id==p,
                         S.current_bindings.c.slot_id==S.binding_slots.c.id)).join(S.binding_candidates,
@@ -56,7 +116,7 @@ class EditorWorkspaceRepository:
             validate_edit(document)
             return clean({"document": document, "gaps": gaps, "selection_refs": decisions,
                           "project_revision": project["revision"], "shot_count": len(shots),
-                          "dynamic_frames": sum(c["out_frame"] for c in document["clips"])})
+                          "dynamic_frames": sum(c["out_frame"] - c['in_frame'] for c in document["clips"])})
 
     def get(self, project_id, episode_id):
         with self.store.engine.connect() as conn:
@@ -131,6 +191,11 @@ class EditorWorkspaceRepository:
                 version=expected+1, document=document, sha256=digest(document), member_count=len(members), created_by=kw["actor"]))
             for member in members:
                 conn.execute(insert(S.edit_revision_media).values(**member, edit_version_id=version_id))
+            for clip in document['clips']:
+                if clip.get('working_selection_version_id'):
+                    conn.execute(insert(S.edit_revision_working_selections).values(project_id=p, id=new_id(),
+                        edit_version_id=version_id, clip_key=clip['id'],
+                        selection_version_id=checked_id(clip['working_selection_version_id'])))
             conn.execute(update(S.edit_workspaces).where(S.edit_workspaces.c.project_id==p, S.edit_workspaces.c.id==workspace_id)
                 .values(revision=expected+1, current_version_id=version_id))
             return {"id": workspace_id, "edit_version_id": version_id, "edit_revision": expected+1, "sha256": digest(document)}
@@ -143,7 +208,8 @@ class EditorWorkspaceRepository:
             S.edit_revision_media.c.edit_version_id==version_id).order_by(S.edit_revision_media.c.track, S.edit_revision_media.c.ordinal)).mappings()]
         for row in rows:
             purpose = "video_take" if row["modality"] == "video" and row["track"] == "clips" else "composition" if row["track"] == "clips" else audio_purposes[row["clip_key"]]
-            media, gaps = self.store._usable(conn, p, row["media_id"], purpose) if usable else (self.store._media(conn, p, row["media_id"]), [])
+            from .workbench_generation import working_media
+            media, gaps = working_media(self.store, conn, p, row["media_id"], purpose) if usable else (self.store._media(conn, p, row["media_id"]), [])
             # The local renderer performs a real decode; an absent earlier check
             # alone must not require a separate manual inspection round.
             gaps = [gap for gap in gaps if gap != "technical_check_missing"]

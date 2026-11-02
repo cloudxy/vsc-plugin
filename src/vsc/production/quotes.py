@@ -19,7 +19,7 @@ def quote_request(model, request, native_units, *, now=None):
     """
     identity = {key: str(model[key]) for key in ('id', 'model_key', 'model_version', 'provider_id')}
     # Materialized media/voice details are derived from the pinned context.
-    logical = {key: value for key, value in request.items() if key not in ('input_media', 'input_versions', 'voice_binding')}
+    logical = {key: value for key, value in request.items() if key not in ('input_media', 'input_versions', 'voice_binding', 'sample_binding')}
     result = {'model': identity, 'request_sha256': fingerprint(logical), 'native_units': dict(native_units),
               'model_config_sha256': fingerprint({key: model.get(key) for key in ('capabilities', 'default_params')}),
               'pricing_sha256': fingerprint(model.get('cost_rule') or {}), 'status': 'unknown',

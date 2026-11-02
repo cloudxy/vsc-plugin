@@ -153,3 +153,132 @@ class CanvasMultiActionTests(ResourceStoreFixture,unittest.TestCase):
         original=self.service.get_canvas_agent_turn(self.p,turn['id']);self.assertEqual(len(original['action_results']),1)
         second=self.decide(turn);self.assertEqual(second['status'],'applied');self.assertEqual(len(self.service.get_creative_canvas(self.p,self.canvas['id'])['document']['nodes']),3)
         auto=self.turn(mode='auto_drafts');result=self.execute(auto,multi);self.assertEqual(result['status'],'applied');self.assertEqual(len(result['action_results']),2);self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+
+
+@unittest.skipUnless(HAS_DB and os.environ.get('VSC_TEST_DATABASE_URL'),'requires isolated PostgreSQL')
+class CanvasRoutingAutoTests(ResourceStoreFixture,unittest.TestCase):
+    turn=CanvasAgentTests.turn
+    execute=CanvasAgentTests.execute
+    decide=CanvasAgentTests.decide
+
+    def setUp(self):
+        from unittest.mock import patch
+        super().setUp()
+        self.canvas=self.write('create_creative_canvas',{'document':{'nodes':[{'id':'prompt','type':'text','text':'合成固定输入'}],'edges':[]}})
+        self.models=[]
+        for index in range(3):
+            provider='synthetic_route_'+uuid.uuid4().hex
+            self.service.register_provider(dict(id=provider,base_url='https://example.invalid',auth_ref='OFFLINE_TEST_KEY'),actor='test-admin')
+            model=self.service.register_model(dict(provider_id=provider,model_key='route-'+str(index),model_version='offline',modality='image',capabilities={'purposes':['first_frame'],'reference_media':index>0}),actor='test-admin')
+            self.models.append(dict(model,enabled=True,adapter_available=True))
+        fixture=patch('vsc.production.resource_settings.ResourceSettings.list',return_value={'configurations':self.models});fixture.start();self.addCleanup(fixture.stop)
+        self.policy=dict(version='bounded-v1',first_draft_due_at='2099-01-01T00:00:00Z',stop_submitting_at='2099-01-01T01:00:00Z',max_attempts_per_purpose=3,max_repair_rounds=1,authorization={'mode':'new_batch','reason':'合成隔离自动范围'})
+
+    def proposal(self,source='',pairs=1):
+        return dict(message='合成固定媒体计划',questions=[],actions=[action for _ in range(pairs) for action in [plan('create_image_node','合成构图',source=source)['action'],plan('prepare_run','')['action']]])
+
+    def media_turn(self,automatic=False,source='',pairs=1,scope=None,**settings):
+        if source:
+            current=self.service.get_creative_canvas(self.p,self.canvas['id']);doc=current['document'];doc['nodes'].append({'id':source,'type':'image','media_id':self.media('合成固定参考')})
+            self.write('save_creative_canvas',dict(canvas_id=self.canvas['id'],canvas_revision=current['canvas_revision'],document=doc))
+        execution=dict(execution_policy=self.policy,**settings)
+        if automatic:execution['auto_media']=scope or dict(max_jobs=1,max_images=1,max_video_ms=0,max_credits=0,stop_submitting_at=self.policy['stop_submitting_at'])
+        turn=self.turn(skill_id='image-generation',model_ids=[m['id'] for m in self.models],node_ids=['prompt']+([source] if source else []),mode='auto_drafts' if automatic else 'manual',execution_settings=execution)
+        return turn,self.execute(turn,self.proposal(source,pairs))
+
+    def generate_manual(self,source='reference'):
+        turn,_=self.media_turn(source=source);self.decide(turn)
+        preview=self.service.preview_canvas_agent_run(self.p,turn['id']);self.assertTrue(preview['ready'],preview)
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+        result=self.write('decide_canvas_agent_turn',dict(turn_id=turn['id'],outcome='confirm',reason='合成明确报价确认',preview_sha256=preview['preview_sha256']))
+        canvas=self.service.get_creative_canvas(self.p,self.canvas['id']);step=next(s for s in canvas['execution_steps'] if s['run_artifact_id']==result['run_artifact_id'])
+        return turn,preview,step
+
+    def test_capability_order_is_pinned_and_failed_working_fallback_creates_original_job(self):
+        import json
+        from vsc.assets.resource_service import Conflict,ResourceError
+        turn,preview,step=self.generate_manual()
+        original=[m['id'] for m in self.models];self.assertEqual(self.service.get_canvas_agent_turn(self.p,turn['id'])['model_ids'],original)
+        self.assertEqual(preview['routing']['original_model_ids'],original);self.assertEqual(preview['routing']['model_ids'],original[1:])
+        self.assertEqual(preview['routing']['candidates'][0]['code'],'model_capability_mismatch');self.assertIn('参考',preview['routing']['candidates'][0]['message'])
+        self.assertEqual(step['model_ids'],original[1:]);self.assertEqual(self.service.get_generation_job(self.p,step['jobs'][0]['id'])['model_id'],original[1])
+        run=json.loads(self.service.get_artifact_version(self.p,step['run_artifact_id'])['document']);self.assertEqual(run['canvas_model_routing']['sha256'],preview['routing']['sha256'])
+        draft=json.loads(self.service.get_artifact_version(self.p,run['workbench_draft']['id'])['document']);draft['references']=[]
+        forged=self.write('create_artifact',dict(artifact_key='synthetic-forged-canvas-source',artifact_type='classic-production-draft',document=draft,object_ids=[draft['shot_id']],dependency_ids=[preview['routing']['id']]))
+        with self.assertRaises(ResourceError) as unbound:self.service.preview_canvas_work_generation(self.p,dict(draft_version_id=forged['id'],execution_policy=self.policy))
+        self.assertEqual(unbound.exception.code,'canvas_input_missing')
+        self.write('update_generation_job',dict(job_id=step['jobs'][0]['id'],status='failed',raw_response={'synthetic':'definite no-submit failure'}))
+        fallback=self.service.preview_canvas_fallback(self.p,step['id']);self.assertTrue(fallback['ready'],fallback);self.assertEqual(fallback['model_ids'],original[2:])
+        self.assertEqual(fallback['artifact']['document']['workbench_draft'],run['workbench_draft']);self.assertFalse(fallback['needs_approval'])
+        made=self.write('propose_canvas_fallback',dict(step_id=step['id'],preview_sha256=fallback['preview_sha256']),idempotency_key='fixed-fallback')
+        self.assertFalse(made['needs_approval']);self.assertEqual(self.service.list_generation_jobs(self.p)['total'],2)
+        successor=next(s for s in self.service.get_creative_canvas(self.p,self.canvas['id'])['execution_steps'] if s['source_step_id']==step['id'])
+        self.assertEqual(self.service.get_generation_job(self.p,successor['jobs'][0]['id'])['model_id'],original[2]);self.assertTrue(self.service.get_artifact_version(self.p,successor['run_artifact_id'])['approved'])
+        with self.assertRaises(Conflict):self.write('propose_canvas_fallback',dict(step_id=step['id'],preview_sha256=fallback['preview_sha256']))
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],2)
+
+    def test_unknown_keeps_original_model_and_task_without_successor(self):
+        from vsc.assets.resource_service import ResourceError
+        _,_,step=self.generate_manual();job=step['jobs'][0]['id']
+        self.write('update_generation_job',dict(job_id=job,status='submission_unknown',raw_response={'synthetic':'response unavailable'}))
+        with self.assertRaises(ResourceError) as caught:self.service.preview_canvas_fallback(self.p,step['id'])
+        self.assertEqual(caught.exception.code,'canvas_fallback_not_terminal')
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],1);self.assertEqual(self.service.get_generation_job(self.p,job)['model_id'],self.models[1]['id'])
+
+    def test_explicit_auto_scope_counts_unknown_and_stops_before_next_quote(self):
+        from sqlalchemy import select
+        from unittest.mock import patch
+        from vsc.adapters.persistence.postgres import schema as S
+        original_preview=self.service.preview_canvas_agent_run
+        def preview_with_unknown_original(project_id,turn_id):
+            current=self.service.list_generation_jobs(self.p)['items']
+            if current and current[0]['status']=='created':
+                self.rev=self.service.get_project(self.p)['revision']
+                self.write('update_generation_job',dict(job_id=current[0]['id'],status='submission_unknown',raw_response={'synthetic':'unknown before next quote'}))
+            return original_preview(project_id,turn_id)
+        with patch.object(self.service,'preview_canvas_agent_run',side_effect=preview_with_unknown_original):turn,result=self.media_turn(automatic=True,pairs=2)
+        self.assertEqual(result['status'],'planned',result);self.assertEqual(len(result['action_results']),3,result)
+        self.assertIn('任务数上限',result['error']);jobs=self.service.list_generation_jobs(self.p)['items'];self.assertEqual(len(jobs),1)
+        with self.engine.connect() as conn:
+            approval=conn.execute(select(S.artifact_decisions).where(S.artifact_decisions.c.project_id==self.p,S.artifact_decisions.c.artifact_id==jobs[0]['run_version_id'])).mappings().one()
+            self.assertIn(turn['id'],approval['reason']);self.assertIn('有界自动媒体',approval['reason'])
+        self.assertEqual(jobs[0]['status'],'submission_unknown')
+        again=self.service.execute_canvas_agent_turn(self.p,turn['id']);self.rev=self.service.get_project(self.p)['revision']
+        self.assertEqual(again['error'],result['error']);self.assertEqual(self.service.list_generation_jobs(self.p)['total'],1)
+        self.decide(turn,'stop');self.assertEqual(self.service.execute_canvas_agent_turn(self.p,turn['id'])['status'],'stopped');self.assertEqual(self.service.list_generation_jobs(self.p)['total'],1)
+
+    def test_commercial_quote_and_expired_scope_create_no_tasks(self):
+        from vsc.assets.resource_service import ResourceError
+        self.write('configure_commerce_plan',{'base_version_id':None,'metering_enabled':True,'document':dict(plan_key='synthetic',title='隔离工程计价',amount_minor=100,currency='TST',credits=100,bucket_kind='credit',validity_days=2,checkout_minutes=10,purposes=['first_frame'],rates=[dict(model_id=m['id'],unit='images',credits_per_unit=10) for m in self.models],refund_policy='unused_order_only',max_concurrent_jobs=1,invoice_enabled=False,seat_limit=3,watermark_required=False,renewal_policy='manual_from_payment')})
+        _,result=self.media_turn(automatic=True,commerce_account_actor=None)
+        self.assertEqual(len(result['action_results']),1,result);self.assertIn('商业额度上限',result['error']);self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+        scope=dict(max_jobs=1,max_images=1,max_video_ms=0,max_credits=0,stop_submitting_at='2000-01-01T00:00:00Z')
+        with self.assertRaises(ResourceError) as caught:self.media_turn(automatic=True,scope=scope)
+        self.assertEqual(caught.exception.code,'canvas_auto_expired');self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+
+    def test_auto_original_worker_returns_decoded_image_once_without_per_action_confirmation(self):
+        import tempfile
+        from support.fixtures.media import production_media
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.production.resource_worker import ResourceWorker
+        from vsc.production.providers import GeneratedAsset,JobHandle,JobStatus
+        with tempfile.TemporaryDirectory(prefix='vsc-canvas-auto-worker-') as directory:
+            self.service.storage=LocalStorage(directory);self.addCleanup(setattr,self.service,'storage',None)
+            content=production_media()['png'];requests=[]
+            class Adapter:
+                def submit(self,request):
+                    requests.append(request);return JobHandle('isolated','isolated',None,{'synthetic':True})
+                def poll(self,handle):return JobStatus('succeeded',raw=handle.raw)
+                def parse_result(self,raw):return [GeneratedAsset('image',inline_bytes=content)]
+            self.write('configure_budget',{'limits':{'remote_jobs':1,'images':1},'reason':'隔离自动执行验证额度'})
+            turn,result=self.media_turn(automatic=True)
+            self.assertEqual(result['status'],'applied',result);self.assertEqual(len(result['action_results']),2)
+            worker=ResourceWorker(self.service,lambda *_:Adapter());finished=worker.run_once(self.p)
+            self.assertEqual(finished['status'],'succeeded',finished);self.assertEqual(len(requests),1)
+            self.assertIsNone(worker.run_once(self.p));self.assertEqual(len(requests),1)
+            self.service.execute_canvas_agent_turn(self.p,turn['id'])
+            canvas=self.service.get_creative_canvas(self.p,self.canvas['id']);node=next(n for n in canvas['document']['nodes'] if n['id']=='agent-'+turn['id']+'-0')
+            self.assertEqual(node['job_id'],finished['id']);self.assertTrue(node['media_id'])
+            media=self.service.get_media(self.p,node['media_id']);self.assertEqual(media['modality'],'image');self.assertGreater(media['width'],0)
+            self.service.execute_canvas_agent_turn(self.p,turn['id'])
+            again=self.service.get_creative_canvas(self.p,self.canvas['id']);self.assertEqual(again['canvas_revision'],canvas['canvas_revision']);self.assertEqual(self.service.list_generation_jobs(self.p)['total'],1)

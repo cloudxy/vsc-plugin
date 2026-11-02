@@ -31,6 +31,19 @@ class SourceResourceService:
         forbidden = {"content_base64", "path", "object_key", "verified_media", "verified_media_id"}
         if forbidden & payload.keys():
             raise ResourceError("文件来源须使用受控上传凭据", "unsafe_source")
+        if 'import_item_id' in payload:
+            if {'staged_upload','content'} & payload.keys():
+                raise ResourceError('导入清单与粘贴、暂存文件只能选择一种','invalid_payload')
+            if self.storage is None:
+                raise ResourceError('未配置受控文件存储','storage_unavailable')
+            media=self.store.source_import_media(project_id,payload['import_item_id'])
+            from vsc.assets.source_intake import MAX_SOURCE_BYTES
+            if media['modality'] not in {'text','document'} or not 0<media['size_bytes']<=MAX_SOURCE_BYTES:
+                raise ResourceError('来源须为已登记且不超过10MiB的文档','source_size_limit')
+            location=next((r for r in media['locations'] if r['storage']=='local' and r.get('available')),None)
+            if not location:raise ResourceError('原文文件当前不可读','source_storage_required')
+            self.storage.verify(location['object_key'],media['sha256'])
+            return self.store.create_source_intake(project_id,payload,verified_media_id=media['id'],**kw)
         if "staged_upload" in payload:
             if self.storage is None:
                 raise ResourceError("未配置受控文件存储", "storage_unavailable")

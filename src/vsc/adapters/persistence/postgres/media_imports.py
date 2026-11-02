@@ -102,6 +102,11 @@ class MediaImportRepository:
                 role = {"character": "identity_face", "location": "location_master", "prop": "prop", "voice": "voice_sample"}[kind]
                 self.store.propose_binding(p, {"target_object_id": asset_id, "media_id": media_id, "role": role, "slot_key": "main"},
                     expected_revision=CURRENT_REVISION, idempotency_key="import-binding:"+item["id"], actor=kw["actor"], _transaction=(conn, project))
+                from .asset_cards import AssetCardsRepository
+                cards=AssetCardsRepository(self.store)
+                saved=cards._save_asset_card(conn,project,dict(asset_id=asset_id,name=item["filename"],asset_kind=kind,base_revision=0,forms=[dict(form_key="master",name="默认形态",base_version_id=None,media_id=media_id,description="")]),kw["actor"])
+                if batch['episode_id']:
+                    cards.reference_asset_card(p,dict(asset_id=asset_id,asset_revision=saved['asset_revision'],episode_ids=[batch['episode_id']]),actor=kw['actor'],expected_revision=CURRENT_REVISION,idempotency_key='import-episode:'+item['id'],_transaction=(conn,project))
             conn.execute(update(S.media_import_items).where(S.media_import_items.c.project_id==p,
                 S.media_import_items.c.id==item["id"]).values(status="completed", media_id=media_id, asset_id=asset_id, error=None))
             return {"id": item["id"], "status": "completed", "media_id": media_id, "asset_id": asset_id}

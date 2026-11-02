@@ -6,6 +6,17 @@ import uuid
 KINDS={'feedback','support','fcp','studio','production_service','distribution','account_close','personal_export'}
 EXPORT_FIELDS={'profile','memberships','requests','orders'}
 
+def api_capabilities(project_id):
+    base='/api/v1/service-api/projects/'+project_id
+    return {'version':'vsc.service-api/v1','authentication':'Bearer','operations':[
+        {'operation':'jobs','method':'GET','path':base+'/jobs','capability':'read','input':{'offset':0,'limit':24}},
+        {'operation':'job','method':'GET','path':base+'/jobs/{job_id}','capability':'read','input':{}},
+        {'operation':'usage','method':'GET','path':base+'/usage','capability':'read','input':{}},
+        {'operation':'preview','method':'POST','path':base+'/runs/preview','capability':'read','input':{'run_version_id':'固定运行版本','run_sha256':'固定摘要'}},
+        {'operation':'execute','method':'POST','path':base+'/runs/execute','capability':'execute','input':{'run_version_id':'固定运行版本','run_sha256':'固定摘要'}},
+        {'operation':'cancel','method':'POST','path':base+'/jobs/{job_id}/cancel','capability':'execute','input':{'expected_revision':0,'idempotency_key':'每次明确操作使用唯一键'},'constraint':'仅未领取的本地任务；远端在途任务保留原状态'}],
+        'execution_contract':'执行已确认的固定运行，复用原队列、原报价与预算。未知提交不能改模型重发。'}
+
 def error(message,code='invalid_service_operations'):
     from vsc.assets.resource_service import ResourceError
     raise ResourceError(message,code)
@@ -33,7 +44,7 @@ class ServiceOperationsService:
         return ServiceOperationsRepository(self.store)
 
     def service_operations_snapshot(self,p):
-        self.authorize_access(p,'read');return self._operations().snapshot(p)
+        self.authorize_access(p,'read');result=self._operations().snapshot(p);result['api_catalog']=api_capabilities(p);return result
 
     def configure_service_operations(self,p,payload,**kw):
         self._validate_write(payload,**kw);self.authorize_access(p,'manage');fields(payload,'document base_version_id');doc=payload['document'];fields(doc,'support_text terms_url privacy_url api_documentation')
@@ -106,10 +117,11 @@ class ServiceOperationsService:
         principal=current_principal()
         if not principal or not principal.api_key_id:denied('开放接口只接受专用API凭据')
         capability='execute' if operation in {'execute','cancel'} else 'read';self.authorize_access(p,capability)
-        if operation not in {'jobs','job','usage','preview','execute','cancel'}:error('开放操作不存在')
+        if operation not in {'capabilities','jobs','job','usage','preview','execute','cancel'}:error('开放操作不存在')
         payload=payload or {};call_id=str(uuid.uuid4());repo=self._operations();repo.call_event(p,call_id,operation,'started',0,client_ip=client_ip)
         try:
-            if operation=='jobs':
+            if operation=='capabilities':fields(payload,'');result=api_capabilities(p)
+            elif operation=='jobs':
                 if payload:fields(payload,'offset limit')
                 offset,limit=payload.get('offset',0),payload.get('limit',50)
                 if type(offset)is not int or offset<0 or type(limit)is not int or not 1<=limit<=200:error('任务分页需要非负offset与1–200的limit')

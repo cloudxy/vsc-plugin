@@ -83,7 +83,7 @@ test('server read-only overrides a writable project while valid sessions retain 
   await app.panel.selectProject('A');
   assert.equal(app.panel.state.writable,false);
   assert.equal(app.document.getElementById('session-label').textContent,'只读浏览');
-  assert.equal(app.document.getElementById('session-open').disabled,true);
+  assert.equal(app.document.getElementById('session-open').disabled,false); // Read-only sessions can still open authentication.
   app.panel.applySession({actor:'human',csrf_token:'csrf',write_available:true});
   assert.equal(app.panel.state.writable,true);
   assert.equal(app.document.getElementById('session-open').disabled,false);

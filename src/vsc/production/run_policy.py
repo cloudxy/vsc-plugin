@@ -101,7 +101,7 @@ def authorization_policy(run, run_id, job, resolve):
         raise ResourceError("继续制作必须引用原批次", "invalid_execution_authorization")
     original = resolve(auth["run_version_id"])
     if (not original.get("approved") or original.get("sha256") != auth["sha256"] or
-            original.get("artifact_type") not in {"production-run", "vsc.production_run"}):
+            original.get("artifact_type") not in {"production-run", "vsc.production_run", "workbench-generation-run"}):
         raise ResourceError("原制作授权版本或批准已失效", "execution_authorization_invalid")
     doc = original["document"]
     doc = json.loads(doc) if isinstance(doc, (str, bytes)) else doc

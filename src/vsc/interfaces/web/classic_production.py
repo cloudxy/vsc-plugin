@@ -17,6 +17,38 @@ def install_classic_production_routes(router, catalog, etag, actor):
     def preview(project_id: str, request: Request, body: dict):
         return etag(request, service(project_id).preview_classic_run(project_id, body.get("payload")))
 
+    @router.post("/{project_id}/classic-production/quote")
+    def working_quote(project_id: str, request: Request, body: dict):
+        return etag(request, service(project_id).preview_workbench_generation(project_id, body.get("payload")))
+
+    @router.post("/{project_id}/classic-production/generate")
+    async def generate(project_id: str, request: Request, body: dict):
+        if body.get("confirmed") is not True:
+            raise HTTPException(422, "请确认当前输入与报价后生成")
+        return await write(project_id, request, body, "generate_workbench")
+
+    @router.get("/{project_id}/working-selections")
+    def working_selections(project_id: str, request: Request, episode_id: str = None, shot_id: str = None):
+        return etag(request, service(project_id).list_working_selections(project_id, episode_id=episode_id, shot_id=shot_id))
+
+    @router.get("/{project_id}/working-candidates")
+    def working_candidates(project_id: str, request: Request, shot_id: str, output_kind: str,
+                           offset: int = 0, limit: int = 24, filter_kind: str = 'all'):
+        return etag(request, service(project_id).list_working_candidates(
+            project_id, shot_id, output_kind, offset=offset, limit=limit, filter_kind=filter_kind))
+
+    @router.post("/{project_id}/working-selections")
+    async def working_select(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "save_working_selection")
+
+    @router.get("/{project_id}/episode-assets")
+    def episode_assets(project_id: str, request: Request, episode_id: str):
+        return etag(request, service(project_id).list_episode_assets(project_id, episode_id))
+
+    @router.post("/{project_id}/episode-assets")
+    async def episode_asset_save(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "save_episode_asset")
+
     async def write(project_id, request, body, method):
         identity = actor(request)
         if not isinstance(body.get("payload"), dict) or "actor" in body:
@@ -44,3 +76,15 @@ def install_classic_production_routes(router, catalog, etag, actor):
 
     @router.post('/{project_id}/classic-production/shots')
     async def shots(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'change_classic_shots')
+
+    @router.post('/{project_id}/classic-production/favorite')
+    async def favorite(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, 'favorite_classic_media')
+
+    @router.post('/{project_id}/classic-production/prompt-assist')
+    async def prompt_assist(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, 'start_prompt_assist')
+
+    @router.get('/{project_id}/classic-production/prompt-assist/{request_id}')
+    def prompt_result(project_id: str, request_id: str, request: Request):
+        return etag(request, service(project_id).get_prompt_assist(project_id, request_id))

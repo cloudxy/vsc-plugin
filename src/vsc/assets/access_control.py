@@ -35,12 +35,15 @@ def expires(value):
     return parsed
 
 CAPABILITIES={'owner':{'read','edit','review','approve','execute','manage','publish'},'editor':{'read','edit','execute'},'reviewer':{'read','review'},'viewer':{'read'}}
-MANAGE_ACTIONS={'management_rename','management_trash','management_restore','management_purge','management_retention','service_operations_configure','service_announcement_publish','service_request_process','access_assign_project','access_member','access_review_policy','commerce_configure_plan','commerce_configure_campaign','commerce_allocate','commerce_reclaim'}
+MANAGE_ACTIONS={'community_rule_save','community_moderate','distribution_channel_save','management_rename','management_trash','management_restore','management_purge','management_retention','service_operations_configure','service_announcement_publish','service_request_process','access_assign_project','access_member','access_review_policy','commerce_configure_plan','commerce_configure_campaign','commerce_allocate','commerce_reclaim'}
 REVIEW_ACTIONS={'record_review','add_script_note','add_artifact_review_note','access_review_commit','create_role_dispatch'}
 APPROVE_ACTIONS={'decide_artifact','select_candidate','reject_candidate','retire_binding','decide_rights','decide_script_note','decide_script_suggestion'}
-EXECUTE_ACTIONS={'claim_spatial_export','finish_spatial_export','cancel_spatial_export','cancel_edit_export','start_creative_lyrics','analyze_creative_music','claim_spatial_plan_task','service_api_cancel','execute_canvas_agent_turn','execute_intelligent_task','create_generation_job','enqueue_local_production','run_text_tool','start_text_tool_attempt','create_edit_render','request_edit_export','create_preview_job','process_creative_tool_local'}
-PUBLISH_ACTIONS={'publish_canvas_template','create_creative_canvas_template','publish_creative_canvas_template','access_share','library_publish'}
+EXECUTE_ACTIONS={'start_prompt_assist','start_provider_asset_registration','finish_provider_asset_registration','claim_spatial_export','finish_spatial_export','cancel_spatial_export','cancel_edit_export','start_creative_lyrics','analyze_creative_music','claim_spatial_plan_task','service_api_cancel','execute_canvas_agent_turn','execute_intelligent_task','create_generation_job','enqueue_local_production','run_text_tool','start_text_tool_attempt','create_edit_render','request_edit_export','create_preview_job','process_creative_tool_local'}
+PUBLISH_ACTIONS={'community_publication_state','distribution_prepare','distribution_submit','distribution_receipt','publish_canvas_template','create_creative_canvas_template','publish_creative_canvas_template','access_share','library_publish'}
 def action_capability(action):
+    if action == "community_report":return "read"
+    if action=='commerce_workspace_transfer':return 'manage'
+    if action in {'generate_workbench', 'generate_canvas_work'}:return 'execute'
     if action in {'service_request_create','service_request_withdraw','service_export_build','service_api_key_issue','service_api_key_revoke','service_account_close'}:return 'read'
     if action in MANAGE_ACTIONS:return 'manage'
     if action in REVIEW_ACTIONS:return 'review'
@@ -56,6 +59,9 @@ class AccessControlServiceMixin:
     def commerce_validate_member(self,project_id,target_actor):return self.store.access_member_valid(project_id,target_actor)
     def access_scope(self,project_id):return self.authorize_access(project_id)
     def access_snapshot(self):return self.store.access_snapshot()
+    def access_workspace_resources(self,workspace_id,*,offset=0,limit=24,query=''):
+        if type(offset)is not int or offset<0 or type(limit)is not int or not 1<=limit<=100 or not isinstance(query,str) or len(query)>200:raise ResourceError('分页或检索条件无效','invalid_access_input')
+        return self.store.access_workspace_resources(workspace_id,offset=offset,limit=limit,query=query.strip())
     def access_command(self,action,payload,*,expected_revision,idempotency_key,actor):
         if not isinstance(payload,dict) or type(expected_revision)is not int or expected_revision<0 or not isinstance(idempotency_key,str) or not 1<=len(idempotency_key)<=200:raise ResourceError('需要固定权限版本和操作标识','invalid_access_input')
         return self.store.access_command(action,payload,expected_revision=expected_revision,idempotency_key=idempotency_key,actor=actor)

@@ -123,6 +123,13 @@ class AccessControlRepository:
             allowed=self._share_media_ids(conn,share)
             document=payload.get('document',{})
             if any(n.get('media_id') and n['media_id'] not in allowed or n.get('job_id') for n in document.get('nodes',[])):denied('协作链接不能新增未共享媒体或任务绑定')
+            current=conn.execute(select(S.creative_canvases.c.current_version_id).where(S.creative_canvases.c.project_id==project_id,S.creative_canvases.c.id==target_id)).scalar_one()
+            original=self._canvas_document(conn,project_id,self._one(conn,S.creative_canvas_versions,project_id,current))
+            references=('shot_id','model_id','spatial_scene_id','spatial_version_id','edit_workspace_id','edit_version_id','tool_draft_id')
+            by_id={node['id']:node for node in original['nodes']}
+            for node in document.get('nodes',[]):
+                prior=by_id.get(node['id'],{})
+                if any(node.get(key)!=prior.get(key) for key in references):denied('协作链接不能新增或替换未共享的领域引用')
 
     def access_filter_projects(self,items):
         if current_principal() is None:return items
@@ -226,7 +233,7 @@ class AccessControlRepository:
             for row in conn.execute(select(S.projects)).mappings():
                 try:scope=self._access_require(conn,row['id'])
                 except ResourceError:continue
-                project_rows.append({'id':row['id'],'name':row['name'],**scope})
+                project_rows.append({'id':row['id'],'name':row['name'],'revision':row['revision'],**scope})
             managed_projects={r['id'] for r in project_rows if 'manage' in r['capabilities']}
             members=[]
             for table,field,ids in [(S.access_workspace_members,'workspace_id',managed),(S.access_project_members,'project_id',managed_projects)]:
@@ -237,7 +244,34 @@ class AccessControlRepository:
             shares=[{k:v for k,v in dict(r).items() if k!='secret_sha256'} for r in conn.execute(select(S.access_shares).where(or_(S.access_shares.c.created_by==person['id'],S.access_shares.c.project_id.in_(managed_projects))).order_by(S.access_shares.c.created_at.desc())).mappings()]
             credentials=[{k:v for k,v in dict(r).items() if k!='secret_sha256'} for r in conn.execute(select(S.access_credentials).where(S.access_credentials.c.identity_id==person['id'])).mappings()]
             revision=conn.execute(select(S.access_state.c.revision).where(S.access_state.c.id==1)).scalar_one()
+            names={row['id']:row['name'] for row in workspaces+project_rows}
+            for row in project_rows:
+                row['workspace_name']=names.get(row.get('workspace_id'),'尚未归属')
+            for row in members+invitations:
+                row['scope_name']=names.get(row.get('workspace_id') or row.get('project_id'),'不可访问的范围')
+            for row in workspaces:
+                row['parent_name']=names.get(row.get('parent_id'))
+                row['project_count']=sum(p.get('workspace_id')==row['id'] for p in project_rows)
             return clean({'identity':{k:person[k] for k in ('id','actor','display_name','preferences')},'workspaces':workspaces,'projects':project_rows,'members':members,'invitations':invitations,'shares':shares,'credentials':credentials,'access_revision':revision})
+
+    def access_workspace_resources(self,workspace_id,*,offset=0,limit=24,query=''):
+        with self.engine.connect() as conn:
+            _,person,_=self._access_principal(conn)
+            if not person:denied('工作室需要成员身份')
+            self._workspace_require(conn,checked_id(workspace_id),'read',person['id'])
+            projects=[]
+            for row in conn.execute(select(S.projects.c.id,S.projects.c.name).join(S.access_projects,S.access_projects.c.project_id==S.projects.c.id).where(S.access_projects.c.workspace_id==workspace_id)).mappings():
+                try:self._access_require(conn,row['id'])
+                except ResourceError:continue
+                projects.append(dict(row))
+            media=S.media_items
+            conditions=[media.c.project_id.in_([row['id'] for row in projects])]
+            if query:conditions.append(media.c.name.icontains(query,autoescape=True))
+            total=conn.execute(select(func.count()).select_from(media).where(*conditions)).scalar_one()
+            rows=conn.execute(select(media.c.id,media.c.project_id,media.c.name,media.c.modality,media.c.created_at).where(*conditions).order_by(media.c.created_at.desc(),media.c.id).offset(offset).limit(limit)).mappings()
+            names={row['id']:row['name'] for row in projects}
+            items=[{**dict(row),'project_name':names[row['project_id']]} for row in rows]
+            return clean({'workspace_id':workspace_id,'projects':projects,'items':items,'total':total,'offset':offset,'limit':limit,'next_offset':offset+limit if offset+limit<total else None})
 
     def access_bind_new_project(self,conn,project_id,actor):
         principal,person,_=self._access_principal(conn)
@@ -383,20 +417,36 @@ class AccessControlRepository:
             for node in doc['nodes']:node.pop('job_id',None)
             return clean({'project_id':share['project_id'],'canvas_id':share['canvas_id'],'version_id':version_id,'version':version['version'],'title':version['title'],'document':doc,'mode':share['mode'],'project_revision':self._project(conn,share['project_id'])['revision'],'expires_at':share['expires_at'],'media_ids':sorted(self._share_media_ids(conn,share))})
 
-    def team_review_queue(self,project_id,lane):
+    def team_review_queue(self,project_id,lane,*,offset=0,limit=24,status=None,episode_id=None,query=''):
         from vsc.assets.team_review import LANES
         with self.engine.connect() as conn:
             project=self._project(conn,project_id);scope=self._access_require(conn,project_id)
             binding=conn.execute(select(S.access_projects).where(S.access_projects.c.project_id==project_id)).mappings().first()
-            query=select(S.binding_candidates,S.binding_slots.c.role,S.binding_slots.c.target_object_id).join(S.binding_slots,(S.binding_slots.c.project_id==S.binding_candidates.c.project_id)&(S.binding_slots.c.id==S.binding_candidates.c.slot_id)).where(S.binding_candidates.c.project_id==project_id,S.binding_slots.c.role.in_(LANES[lane]['roles'])).order_by(S.binding_candidates.c.created_at.desc()).limit(200)
+            candidates_table=S.binding_candidates;slots=S.binding_slots;media_table=S.media_items
+            latest=select(S.access_review_submissions.c.review_id).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.candidate_id==candidates_table.c.id,S.access_review_submissions.c.lane==lane).order_by(S.access_review_submissions.c.created_at.desc(),S.access_review_submissions.c.id.desc()).limit(1).correlate(candidates_table).scalar_subquery()
+            submitted=select(S.access_review_submissions.c.id).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.candidate_id==candidates_table.c.id,S.access_review_submissions.c.lane==lane).exists()
+            conditions=[candidates_table.c.project_id==project_id,slots.c.role.in_(LANES[lane]['roles'])]
+            if query:conditions.append(media_table.c.name.icontains(query,autoescape=True))
+            if status=='unsubmitted':conditions.append(~submitted)
+            elif status=='pending':conditions.extend([submitted,latest.is_(None)])
+            elif status:conditions.append(latest.in_(select(S.media_reviews.c.id).where(S.media_reviews.c.project_id==project_id,S.media_reviews.c.outcome==status)))
+            if episode_id:
+                self._one(conn,S.episodes,project_id,checked_id(episode_id))
+                scenes=select(S.scenes.c.id).where(S.scenes.c.project_id==project_id,S.scenes.c.parent_id==episode_id)
+                sequences=select(S.sequences.c.id).where(S.sequences.c.project_id==project_id,S.sequences.c.parent_id.in_(scenes))
+                shots=select(S.shots.c.id).where(S.shots.c.project_id==project_id,S.shots.c.parent_id.in_(sequences))
+                conditions.append(or_(slots.c.target_object_id==episode_id,slots.c.target_object_id.in_(scenes),slots.c.target_object_id.in_(sequences),slots.c.target_object_id.in_(shots)))
+            source=candidates_table.join(slots,(slots.c.project_id==candidates_table.c.project_id)&(slots.c.id==candidates_table.c.slot_id)).join(media_table,(media_table.c.project_id==candidates_table.c.project_id)&(media_table.c.id==candidates_table.c.media_id)).join(S.media_blobs,S.media_blobs.c.id==media_table.c.blob_id)
+            total=conn.execute(select(func.count()).select_from(source).where(*conditions)).scalar_one()
+            page=select(candidates_table,slots.c.role,slots.c.target_object_id,media_table.c.name,media_table.c.modality,S.media_blobs.c.sha256).select_from(source).where(*conditions).order_by(candidates_table.c.created_at.desc(),candidates_table.c.id.desc()).offset(offset).limit(limit)
             candidates=[]
-            for row in conn.execute(query).mappings():
-                media=self._media(conn,project_id,row['media_id']);candidates.append({**dict(row),'name':media['name'],'modality':media['modality'],'sha256':media['sha256']})
+            for row in conn.execute(page).mappings():candidates.append(dict(row))
             submissions=[]
-            for row in conn.execute(select(S.access_review_submissions).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.lane==lane).order_by(S.access_review_submissions.c.created_at.desc())).mappings():
+            for row in conn.execute(select(S.access_review_submissions).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.lane==lane,S.access_review_submissions.c.candidate_id.in_([c['id'] for c in candidates])).order_by(S.access_review_submissions.c.created_at.desc(),S.access_review_submissions.c.id.desc())).mappings():
                 review=self._one(conn,S.media_reviews,project_id,row['review_id']) if row['review_id'] else None
                 submissions.append({**dict(row),'review':review,'status':review['outcome'] if review else 'pending'})
-            return clean({'lane':lane,'label':LANES[lane]['label'],'enabled':bool(binding and lane in binding['review_lanes']),'candidates':candidates,'submissions':submissions,'revision':project['revision'],'capabilities':scope['capabilities']})
+            episodes=[dict(row) for row in conn.execute(select(S.creative_objects.c.id,S.creative_objects.c.title,S.creative_objects.c.display_code).join(S.episodes,(S.episodes.c.project_id==S.creative_objects.c.project_id)&(S.episodes.c.id==S.creative_objects.c.id)).where(S.creative_objects.c.project_id==project_id).order_by(S.episodes.c.ordinal,S.episodes.c.id)).mappings()]
+            return clean({'lane':lane,'label':LANES[lane]['label'],'enabled':bool(binding and lane in binding['review_lanes']),'candidates':candidates,'submissions':submissions,'episodes':episodes,'total':total,'offset':offset,'limit':limit,'next_offset':offset+limit if offset+limit<total else None,'revision':project['revision'],'capabilities':scope['capabilities']})
 
     def submit_team_review(self,project_id,payload,**kw):
         from vsc.assets.team_review import LANES

@@ -96,6 +96,39 @@ def install_creative_canvas_routes(router, catalog, etag, actor):
     async def prepare(project_id: str, canvas_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "prepare_creative_canvas", canvas_id)
 
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/domain-nodes")
+    async def domain_node(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "create_canvas_domain_node", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/to-edit")
+    async def to_edit(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "canvas_node_to_edit", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/candidates")
+    async def candidates(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "canvas_node_candidates", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/domain-outputs")
+    async def domain_outputs(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "use_canvas_domain_output", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/work-input")
+    async def work_input(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "prepare_canvas_work_input", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/work-quote")
+    def work_quote(project_id: str, canvas_id: str, request: Request, body: dict):
+        use=service(project_id);use.get_creative_canvas(project_id,canvas_id)
+        return etag(request,use.preview_canvas_work_generation(project_id,body.get('payload',{})))
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/generate")
+    async def generate(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "generate_canvas_work", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/generation-outputs")
+    async def generation_outputs(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "adopt_canvas_work_outputs", canvas_id)
+
     @router.post("/{project_id}/creative-canvases/{canvas_id}/run-proposals")
     async def run_proposal(project_id: str, canvas_id: str, request: Request, body: dict):
         payload = body.get("payload")

@@ -77,7 +77,8 @@ def validate_plan(value):
 
 def require_supported_entitlements(document):
     if document.get("watermark_required"):
-        _error("导出水印尚无完整执行能力，不能启用或出售要求水印的套餐", "commerce_entitlement_unavailable")
+        from vsc.post.export_entitlements import available
+        if not available():_error('本机缺少导出水印所需的 FFmpeg、ffprobe 或 Pillow','commerce_entitlement_unavailable')
 
 
 class CommerceService:
@@ -104,8 +105,20 @@ class CommerceService:
         result["native_budget"]=self.budget_status(project_id)
         result["capabilities"]={"pricing":bool(result["plans"]),"payment":bool(getattr(self,"commerce_payment_gateway",None)),
             "invoice":bool(getattr(self,"commerce_invoice_gateway",None)),"manage":self._commerce_manage(project_id),
-            "renewal":True,"automatic_renewal":False,"partial_refund":False,"watermark_entitlement":False,"seat_entitlement":hasattr(self,"authorize_access")}
+            "renewal":True,"automatic_renewal":False,"partial_refund":False,"watermark_entitlement":True,"watermark_scope":['edit_video','edit_cover','selected_clips','edit_package_render'],"seat_entitlement":hasattr(self,"authorize_access")}
+        from vsc.assets.access_control import current_principal
+        from vsc.post.export_entitlements import available
+        result['capabilities']['watermark_entitlement']=available()
+        principal=current_principal()
+        result['workspace']=self._commerce().workspace_summary(project_id) if principal and principal.identity_id and result['capabilities']['manage'] else {'workspace_id':None,'projects':[],'members':[],'transfers':[]}
         return result
+
+    def transfer_workspace_credits(self,project_id,payload,**kw):
+        self._validate_write(payload,**kw);self._commerce_access(project_id,'manage')
+        if set(payload)-{'bucket_id','target_project_id','target_revision','credits','reclaim_transfer_id'} or not {'bucket_id','target_project_id','target_revision','credits'}<=set(payload):_error('分配需要来源额度、目标项目与版本、信用数')
+        positive(payload['credits'],'额度')
+        if type(payload['target_revision'])is not int or payload['target_revision']<0:_error('目标项目版本无效')
+        return self._commerce().transfer_workspace(project_id,payload,**kw)
 
     def commerce_entitlements(self,project_id,conn=None):
         return self._commerce().entitlements(project_id,conn=conn)
@@ -238,7 +251,7 @@ class CommerceService:
 
     def request_commerce_invoice(self,project_id,payload,**kw):
         self._validate_write(payload,**kw);self._commerce_access(project_id,"edit")
-        if set(payload)!={"order_id","title","tax_id","email"}:_error("发票需要订单、抬头、税号和接收邮箱")
+        if set(payload)-{"order_id","title","tax_id","email","workspace_id"} or not {"order_id","title","tax_id","email"}<=set(payload):_error("发票需要订单、抬头、税号和接收邮箱")
         for key,limit in (("title",200),("tax_id",100),("email",254)):
             if not isinstance(payload[key],str) or not payload[key].strip() or len(payload[key])>limit:_error("发票字段不正确："+key)
         if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+",payload["email"]):_error("邮箱格式不正确")

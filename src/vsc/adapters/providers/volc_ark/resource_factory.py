@@ -68,7 +68,7 @@ def volc_ark_factory(job, storage, *, sdk_http_client=None):
             "configuration_id": job["model"]["id"], "model_id": model, "model_version": job["model_version"],
             "job_id": job["id"], "logical_request_sha256": job["request_sha256"]}, http_client=sdk_http_client)
     logical = job["request_payload"].get("logical_request", job["request_payload"])
-    if logical.get("params"):
+    if logical.get("params") and logical.get("operation") != "draft_upgrade":
         raise ResourceError("当前方舟适配器未声明这些逻辑参数映射，禁止静默忽略", "unsupported_params")
     if job["modality"] == "image":
         sizes = defaults.get("size_map", {})
@@ -76,7 +76,7 @@ def volc_ark_factory(job, storage, *, sdk_http_client=None):
     if job["modality"] == "video":
         if not defaults.get("resolution") or not defaults.get("ratio"):
             raise ResourceError("视频模型需要 resolution 和 ratio 映射", "invalid_model_defaults")
-        return ConfiguredArkProvider(VolcArkVideoProvider(model, media_url, defaults["resolution"], defaults["ratio"], defaults.get("generate_audio", False), transport=transport), job["provider_id"], transport)
+        return ConfiguredArkProvider(VolcArkVideoProvider(model, media_url, defaults["resolution"], defaults["ratio"], defaults.get("generate_audio", False), transport=transport, video_draft=job["model"].get("capabilities",{}).get("video_draft") is True, sample_binding=job["request_payload"].get("sample_binding"), provider_id=job["provider_id"]), job["provider_id"], transport)
     binding = job["request_payload"].get("voice_binding")
     voice_defaults = {key: value for key, value in defaults.items() if key in {"format", "sample_rate", "speech_rate", "context_texts"}}
     return ConfiguredArkProvider(VolcArkAudioProvider(model, storage.root, "J-" + job["id"].replace("-", ""), binding, voice_defaults), job["provider_id"])

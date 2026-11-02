@@ -6,3 +6,38 @@ PANEL_REQUIRE_LOGIN = true
 GENERATION_WORKERS = 4
 GENERATION_PROJECT_CONCURRENCY = 4
 GENERATION_PROVIDER_CONCURRENCY = 4
+
+# Optional full-media understanding adapter; built-in visual sampling uses Grok Build.
+MEDIA_UNDERSTANDING_COMMAND = []
+
+# Optional external asset registry; no registration is submitted without configuration.
+ASSET_REGISTRY = {command = [], provider = "", account_scope = ""}
+
+# Optional verified identity channels. Secrets stay in the named environment
+# variables; enabling a channel never changes existing project grants.
+[AUTHENTICATION]
+enabled = false
+challenge_key_ref = "AUTH_CHALLENGE_KEY"
+
+[AUTHENTICATION.email]
+enabled = false
+host = ""
+port = 465
+tls = "implicit"
+username = ""
+password_ref = "VSC_SMTP_PASSWORD"
+from_address = ""
+
+[AUTHENTICATION.sms]
+enabled = false
+account_sid = ""
+api_key_sid = ""
+api_key_secret_ref = "TWILIO_API_KEY_SECRET"
+from_number = ""
+
+[AUTHENTICATION.oidc.providers.google]
+enabled = false
+issuer = "https://accounts.google.com"
+client_id = ""
+client_secret_ref = "GOOGLE_OIDC_CLIENT_SECRET"
+redirect_uri = ""

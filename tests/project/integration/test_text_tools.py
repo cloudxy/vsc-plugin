@@ -22,6 +22,8 @@ class FixedHost:
     def generate(self,tool,action,document,references):
         self.calls.append((tool,action,deepcopy(document),deepcopy(references)))
         if self.fail:raise ResourceError('synthetic failure','text_host_failed')
+        if action=='terms':return {'terms':[{'source':'阿叶','target':'Aya','aliases':'小叶'}],'translation_characters':[{'source':'阿叶','target':'Aya','aliases':'小叶','kind':'主角','description':'固定文本人物'}]}
+        if action=='analyze':return {'analysis':'固定文本行分析','category':'短剧','channel':'家庭','card_start_line':1,'card_end_line':2}
         if action=='score':return {'analysis':'显式标准分析','scores':[{'key':r['key'],'score':3,'evidence':'第一场固定证据','reason':'依据所给标准'} for r in document['criteria']]}
         if action=='observe':return {'observations':document['observations']}
         return {action if action not in {'translate','localize'} else 'body':'建议结果，尚未接受'}
@@ -35,6 +37,222 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
         self.root=Path(self.temp.name);self.service.storage=LocalStorage(self.root/'storage');self.service.text_tool_host=FixedHost()
 
     def draft(self,tool,**changes):return {**deepcopy(COMMON),**deepcopy(DEFAULTS[tool]),**changes}
+
+    def test_bounded_text_batch_original_attempts_manual_protection_and_translation_completion(self):
+        baseline=self.save('novel',self.draft('novel',source_text='第1章 起点\n离家\n第2章 归来\n回家',synopsis='回家',core_setting='小城',chapter_end=2,target_episodes=2))
+        plan=self.write('create_novel_plan',{'unit_id':baseline['unit_id'],'version_id':baseline['id'],'episodes':[dict(title='第一集',chapter_start=1,chapter_end=1,outline='离家'),dict(title='第二集',chapter_start=2,chapter_end=2,outline='归来')]})
+        first=self.service.get_text_tool(self.p,plan['episodes'][0]['unit_id']);manual=self.save('novel',dict(first['document'],body='保护的人工正文'),dict(unit_id=first['id'],id=first['current_version_id']))
+        batch=self.write('create_text_batch',dict(tool='novel',action='body',unit_ids=[r['unit_id'] for r in plan['episodes']],auto_accept=True,overwrite=False,qa_unit_id=baseline['unit_id']))
+        for _ in range(4):result=self.write('process_text_batch',{'batch_id':batch['id']})
+        self.assertEqual(result['status'],'completed');self.assertEqual([r['status'] for r in result['items']],['skipped','completed','completed'])
+        self.assertEqual(len(self.service.text_tool_host.calls),2)
+        self.assertEqual(self.service.get_text_tool(self.p,manual['unit_id'])['document']['body'],'保护的人工正文')
+        qa=self.service.get_text_tool_attempt(self.p,result['items'][-1]['attempt_id']);self.assertEqual(len(qa['references']),2)
+        translation=self.save('translation',self.draft('translation',body='Proofread line.',proofread=True,target_language='English'))
+        complete=self.write('set_translation_stage',{'unit_id':translation['unit_id'],'version_id':translation['id'],'stage':'complete'})
+        self.assertTrue(self.service.get_text_tool(self.p,translation['unit_id'])['locked'])
+        with self.assertRaises(Conflict):self.save('translation',translation['document'],dict(unit_id=translation['unit_id'],id=complete['id']))
+        opened=self.write('set_translation_stage',{'unit_id':translation['unit_id'],'version_id':complete['id'],'stage':'draft'})
+        self.assertFalse(self.service.get_text_tool(self.p,translation['unit_id'])['locked'])
+
+    def test_batch_unknown_and_failure_never_resubmit_original_task(self):
+        one=self.save('scoring',self.draft('scoring',source_text='第一行\n第二行'))
+        batch=self.write('create_text_batch',dict(tool='scoring',action='analyze',unit_ids=[one['unit_id']],auto_accept=False))
+        host=self.service.text_tool_host
+        def unknown(*args):host.calls.append(args);raise ResourceError('unknown','text_submission_unknown')
+        host.generate=unknown
+        first=self.write('process_text_batch',{'batch_id':batch['id']});second=self.write('process_text_batch',{'batch_id':batch['id']})
+        self.assertEqual(first['items'][0]['attempt_id'],second['items'][0]['attempt_id']);self.assertEqual(len(host.calls),1)
+        self.write('stop_text_batch',{'batch_id':batch['id']});self.write('process_text_batch',{'batch_id':batch['id']});self.assertEqual(len(host.calls),1)
+
+    def test_text_fixed_member_sets_reject_late_append_and_incomplete_commit(self):
+        from sqlalchemy import insert,select,update
+        from sqlalchemy.exc import IntegrityError
+        from vsc.adapters.persistence.postgres import schema as S
+        baseline=self.save('novel',self.draft('novel',source_text='第1章 起点\n出门',synopsis='出门',core_setting='小城',chapter_end=1,target_episodes=1))
+        plan=self.write('create_novel_plan',dict(unit_id=baseline['unit_id'],version_id=baseline['id'],episodes=[dict(title='第一集',chapter_start=1,chapter_end=1,outline='出门')]))
+        extra=self.save('novel',self.draft('novel',body='独立参考'))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(insert(S.text_tool_novel_episodes).values(project_id=self.p,id=str(uuid.uuid4()),plan_id=plan['id'],unit_id=extra['unit_id'],ordinal=2,chapter_start=1,chapter_end=1))
+        child=self.service.get_text_tool(self.p,plan['episodes'][0]['unit_id'])
+        target={'unit_id':child['id'],'id':child['current_version_id']}
+        started=self.store.start_text_tool_attempt(self.p,dict(unit_id=target['unit_id'],input_version_id=target['id'],action='body',new_attempt=True),backend='isolated-seal-test',caller='fixed-caller',expected_revision=self.rev,idempotency_key=uuid.uuid4().hex,actor='test-human');self.rev=started['revision']
+        self.assertEqual(len(self.service.get_text_tool_attempt(self.p,started['id'])['references']),1)
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(insert(S.text_tool_attempt_inputs).values(project_id=self.p,id=str(uuid.uuid4()),attempt_id=started['id'],version_id=baseline['id'],ordinal=1))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(update(S.text_tool_attempts).where(S.text_tool_attempts.c.project_id==self.p,S.text_tool_attempts.c.id==started['id']).values(input_count=2))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(insert(S.text_tool_attempts).values(project_id=self.p,id=str(uuid.uuid4()),unit_id=extra['unit_id'],input_version_id=extra['id'],action='body',backend='isolated-seal-test',status='running',input_count=1,created_by='test-human'))
+        batch=self.write('create_text_batch',dict(tool='novel',action='body',unit_ids=[extra['unit_id']],auto_accept=False,overwrite=True))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(insert(S.text_tool_batch_items).values(project_id=self.p,id=str(uuid.uuid4()),batch_id=batch['id'],unit_id=baseline['unit_id'],input_version_id=baseline['id'],ordinal=1,action='body',status='pending'))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(update(S.text_tool_batches).where(S.text_tool_batches.c.project_id==self.p,S.text_tool_batches.c.id==batch['id']).values(item_count=2))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:
+            conn.execute(insert(S.text_tool_batches).values(project_id=self.p,id=str(uuid.uuid4()),tool='novel',action='body',auto_accept=False,status='ready',item_count=1,created_by='test-human'))
+        for _ in range(2):completed=self.write('process_text_batch',dict(batch_id=batch['id']))
+        self.assertEqual(completed['status'],'completed');self.assertEqual(len(completed['items']),1)
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.scalar(select(S.text_tool_attempts.c.input_count).where(S.text_tool_attempts.c.project_id==self.p,S.text_tool_attempts.c.id==started['id'])),1)
+        self.assertEqual(len(self.store.get_novel_plan(self.p,baseline['unit_id'])['episodes']),1)
+
+    def test_text_migration_empty_downgrade_and_fact_refusal(self):
+        from alembic import command
+        from alembic.config import Config
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+        from support.fixtures.postgres import isolated_postgres
+        from support.paths import ROOT
+        from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
+        from vsc.assets.resource_service import ResourceService
+        with isolated_postgres(TEST_URL) as engine:
+            cfg=Config(str(ROOT/'migrations/postgres/alembic.ini'))
+            with engine.begin() as conn:
+                cfg.attributes['connection']=conn;command.downgrade(cfg,'0035_canvas_product_flow')
+                self.assertIsNone(conn.execute(text("SELECT to_regclass('text_tool_batches')")).scalar_one())
+                command.upgrade(cfg,'head')
+            service=ResourceService(PostgresResourceStore(engine=engine))
+            project=service.create_project({'name':'migration fixture','profile_snapshot':{'profile_id':'vsc.synthetic','version':'1','stages':[]}},actor='test-human')
+            draft=service.save_text_tool(project['id'],dict(tool='novel',group_key='g',unit_key='u',title='fixture',ordinal=0,episode_id=None,base_version_id=None,document=self.draft('novel',source_text='第1章 起点\n出门',synopsis='归来',core_setting='小城',chapter_end=1,target_episodes=1)),expected_revision=0,idempotency_key=uuid.uuid4().hex,actor='test-human')
+            plan=service.create_novel_plan(project['id'],dict(unit_id=draft['unit_id'],version_id=draft['id'],episodes=[dict(title='一集',chapter_start=1,chapter_end=1,outline='出门')]),expected_revision=draft['revision'],idempotency_key=uuid.uuid4().hex,actor='test-human')
+            with engine.connect() as conn:
+                cfg.attributes['connection']=conn
+                with self.assertRaises(IntegrityError) as failure:
+                    with conn.begin():command.downgrade(cfg,'0035_canvas_product_flow')
+                self.assertEqual(failure.exception.orig.sqlstate,'23514')
+                self.assertEqual(conn.execute(text('SELECT count(*) FROM text_tool_novel_plans')).scalar_one(),1)
+            service.create_text_batch(project['id'],dict(tool='novel',action='body',unit_ids=[plan['episodes'][0]['unit_id']],auto_accept=False),expected_revision=plan['revision'],idempotency_key=uuid.uuid4().hex,actor='test-human')
+            with engine.connect() as conn:
+                cfg.attributes['connection']=conn
+                with self.assertRaises(IntegrityError) as failure:
+                    with conn.begin():command.downgrade(cfg,'0036_text_product_flow')
+                self.assertEqual(failure.exception.orig.sqlstate,'23514')
+                self.assertEqual(conn.execute(text('SELECT count(*) FROM text_tool_batches')).scalar_one(),1)
+
+    def test_media_understanding_qc_suggestion_decisions_and_embedded_evidence(self):
+        import hashlib
+        from vsc.production.media_understanding import GrokFrameUnderstanding
+        media,path=self.video('semantic.mp4',2);calls=[]
+        class MediaHost:
+            name='synthetic-source-media-recorder';basis='source_media';capabilities={'observe','subtitle_semantics','visual_quality','audiovisual','content'}
+            def available(self):return True
+            def analyze(self,request,actual):
+                self_hash=hashlib.sha256(actual.read_bytes()).hexdigest()
+                if self_hash!=request['media']['sha256']:raise AssertionError('wrong media bytes')
+                calls.append(deepcopy(request))
+                if request['action']=='observe':return {'observations':[{'start_ms':0,'end_ms':900,'kind':'action','text':'合成工程观察，非模型质量证据'}]}
+                return {'issues':[{'rule':request['checks'][0],'start_ms':100,'end_ms':900,'code':'synthetic_typo','severity':'warning','message':'合成字幕建议','evidence':'固定源帧100ms','original_subtitle':'错字','suggested_subtitle':'正字'}]}
+        self.service.media_understanding_host=MediaHost()
+        saved=self.save('breakdown',self.draft('breakdown',media_id=media,understanding_mode='deep'))
+        run=self.write('run_text_tool',{'unit_id':saved['unit_id'],'input_version_id':saved['id'],'action':'observe'})
+        self.assertEqual(run['status'],'completed');accepted=self.accept(run,saved);self.assertEqual(accepted['document']['observation_basis'],'source_media')
+        qc=self.save('qc',self.draft('qc',videos=[{'media_id':media,'name':'','sha256':''}],subtitles=[{'filename':'semantic.vtt','text':'WEBVTT\n\n00:00.100 --> 00:00.900\n错字\n'}],checks=['subtitle_semantics']))
+        run=self.write('run_text_tool',{'unit_id':qc['unit_id'],'input_version_id':qc['id'],'action':'check'});self.assertEqual(run['status'],'completed');qc=self.accept(run,qc)
+        self.assertEqual(calls[-1]['subtitles']['cues'][0]['text'],'错字')
+        self.write('decide_text_issue',{'version_id':qc['id'],'issue_index':0,'decision':'fixed','reason':'已核对合成字幕'})
+        evidence=self.write('capture_text_tool_evidence',{'version_id':qc['id'],'issue_index':0})
+        fixed=self.write('freeze_text_review_report',{'version_id':qc['id']});raw=self.service.text_tool_export(self.p,fixed['id'],'xlsx')[0]
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            self.assertIn('xl/media/evidence1.png',archive.namelist());self.assertTrue(archive.read('xl/media/evidence1.png').startswith(b'\x89PNG'));self.assertIn('已核对合成字幕',archive.read('xl/worksheets/sheet1.xml').decode())
+        corrected=self.write('apply_text_issue_subtitle',{'unit_id':qc['unit_id'],'version_id':qc['id'],'issue_index':0,'subtitle_filename':'semantic.vtt'})
+        doc=corrected['document'];self.assertIn('正字',doc['subtitles'][-1]['text']);self.assertIn('错字',doc['subtitles'][0]['text']);self.assertEqual(doc['check_ranges'][0]['start_ms'],100)
+        self.assertEqual(self.service.text_tool_export(self.p,fixed['id'],'xlsx')[0],raw)
+        canvas=self.write('create_creative_canvas',{'title':'理解来源','document':{'nodes':[{'id':'source','type':'video','media_id':media,'title':'视频','x':0,'y':0}],'edges':[]}})
+        request={'unit_id':saved['unit_id'],'version_id':accepted['id'],'canvas_id':canvas['id'],'canvas_revision':canvas['canvas_revision'],'source_node_id':'source','dimension':'storyboard'}
+        preview=self.service.preview_breakdown_canvas(self.p,request);linked=self.write('apply_breakdown_canvas',{'request':request,'preview_sha256':preview['preview_sha256']});self.assertEqual(linked['added_count'],1)
+        self.assertEqual(len(self.service.get_creative_canvas(self.p,canvas['id'])['document']['edges']),1)
+
+    def test_multiformat_subtitles_and_actual_grok_frame_payload(self):
+        from vsc.post.subtitle_formats import normalize_subtitle
+        from vsc.post.subtitles import SubtitleError
+        import hashlib
+        samples={'srt':'1\n00:00:00,100 --> 00:00:00,900\n台词\n','vtt':'WEBVTT\n\n00:00.100 --> 00:00.900 align:start\n台词\n','ass':'[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.10,0:00:00.90,Default,,0,0,0,,台词','ssa':'[Events]\nFormat: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: Marked=0,0:00:00.10,0:00:00.90,Default,,0,0,0,,台词','txt':'[00:00.100-00:00.900] 台词'}
+        for kind,text_ in samples.items():
+            with self.subTest(kind=kind):self.assertEqual(normalize_subtitle('a.'+kind,text_,duration=1,require_timing=True)['cues'][0],dict(start_ms=100,end_ms=900,text='台词'))
+        with self.assertRaises(SubtitleError):normalize_subtitle('a.txt','无时码文本',require_timing=True)
+        media,path=self.video('frame-input.mp4',1)
+        from vsc.production.media_understanding import GrokFrameUnderstanding
+        captured=[]
+        def runner(command,**kw):
+            blocks=json.loads(Path(command[command.index('--prompt-file')+1]).read_text());pictures=[b for b in blocks if b['type']=='image'];captured.extend(pictures)
+            self.assertTrue(pictures);self.assertTrue(all(base64.b64decode(b['data']).startswith(b'\xff\xd8') for b in pictures));self.assertTrue(all(b['mimeType']=='image/jpeg' for b in pictures))
+            return subprocess.CompletedProcess(command,0,stdout=json.dumps({'observations':[{'start_ms':0,'end_ms':900,'kind':'action','text':'test fixture'}]}),stderr='')
+        request={'request_id':'offline-test','action':'observe','media':{'id':media,'duration_ms':1000,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()},'mode':'light','start_ms':0,'end_ms':1000}
+        result=GrokFrameUnderstanding(runner=runner).analyze(request,path);self.assertEqual(len(captured),2);self.assertEqual(result['observations'][0]['kind'],'action')
+
+    def test_novel_product_plan_real_ranges_shared_baseline_qa_batch_and_replay(self):
+        objects=self.hierarchy()
+        source='第1章 起点\n阿叶出门。\n第2章 归来\n阿叶回来。\n第3章 尾声\n阿叶告别。'
+        baseline=self.save('novel',self.draft('novel',source_text=source,synopsis='离家后归来',core_setting='当代小城',characters=[{'name':'阿叶','description':'同一个人'}],chapter_start=1,chapter_end=2,target_episodes=2))
+        episodes=[dict(title='离家',chapter_start=1,chapter_end=1,outline='出门'),dict(title='回家',chapter_start=2,chapter_end=2,outline='归来')]
+        request={'unit_id':baseline['unit_id'],'version_id':baseline['id'],'episodes':episodes}
+        plan=self.write('create_novel_plan',request);self.assertEqual(self.write('create_novel_plan',request)['id'],plan['id'])
+        saved=[]
+        for row in plan['episodes']:
+            unit=self.service.get_text_tool(self.p,row['unit_id']);doc=unit['document']
+            self.assertNotIn('尾声',doc['source_text']);self.assertEqual(doc['core_setting'],'当代小城')
+            self.assertEqual(doc['source_text'].count('章'),1)
+            draft=self.save('novel',dict(doc,body=row['title']+'正文'),{'unit_id':unit['id'],'id':unit['current_version_id']},title=row['title'])
+            saved.append(draft)
+        child=self.service.get_text_tool(self.p,saved[0]['unit_id'])
+        with self.assertRaises(Conflict):self.save('novel',dict(child['document'],core_setting='擅改共享设定'),saved[0])
+        with self.assertRaises(Conflict):self.save('novel',dict(child['document'],novel_baseline_version_id=''),saved[0])
+        with self.assertRaises(Conflict):self.write('save_text_tool',{**{k:child[k] for k in ('tool','group_key','unit_key','title','episode_id')},'unit_id':child['id'],'ordinal':99,'base_version_id':child['current_version_id'],'document':child['document']})
+        run=self.write('run_text_tool',{'unit_id':saved[0]['unit_id'],'input_version_id':saved[0]['id'],'action':'qa_notes'})
+        self.assertEqual(run['status'],'completed');refs=self.service.get_text_tool_attempt(self.p,run['id'])['references']
+        self.assertEqual({r['id'] for r in refs},{plan['plan_version_id'],*[row['id'] for row in saved]})
+        self.assertNotIn('第2章',self.service.text_tool_host.calls[-1][2]['source_text'])
+        revised=self.save('novel',dict(saved[1]['document'],body='归来修订正文'),saved[1],title='回家')
+        with self.assertRaises(Conflict):self.accept(run,saved[0])
+        request={'plan_id':plan['id'],'work_id':objects['work'],'code_prefix':'NOV-'}
+        preview=self.service.preview_novel_batch_import(self.p,request)
+        result=self.write('import_novel_batch',{'request':request,'preview_sha256':preview['preview_sha256']})
+        again=self.write('import_novel_batch',{'request':request,'preview_sha256':preview['preview_sha256']})
+        self.assertTrue(again['already_imported']);self.assertEqual(len(result['episodes']),2)
+        for item in result['episodes']:
+            self.assertFalse(item['automatic_approval'])
+            self.assertIn('正文',self.service.store.get_script_draft(self.p,item['episode_id'])['content']['body'])
+        bad=deepcopy(episodes);bad[1]['chapter_end']=3
+        with self.assertRaises(ResourceError):self.write('create_novel_plan',{'unit_id':baseline['unit_id'],'version_id':baseline['id'],'episodes':bad})
+
+    def test_translation_product_ranges_role_terms_residuals_and_source_exports(self):
+        first=self.save('translation',self.draft('translation',target_language='English',episode_number=1,body='Aya leaves.',proofread=True))
+        third=self.save('translation',self.draft('translation',target_language='English',episode_number=3,body='Aya returns.',proofread=True))
+        base=self.draft('translation',translation_mode='incremental',episode_number=2,target_language='English',source_text='阿叶回来',body='Aya 回来',reference_version_ids=[first['id']],translation_characters=[{'source':'阿叶','target':'Aya','aliases':'小叶','kind':'主角','description':'来自小城'}])
+        saved=self.save('translation',base)
+        unit=self.service.get_text_tool(self.p,saved['unit_id']);self.assertEqual(unit['residuals'][0]['line'],1)
+        self.assertEqual(self.service.text_tool_export(self.p,saved['id'],'txt',view='source')[0].decode(),'阿叶回来')
+        bilingual=self.service.text_tool_export(self.p,saved['id'],'txt',view='bilingual')[0].decode();self.assertIn('阿叶回来',bilingual);self.assertIn('Aya 回来',bilingual)
+        source_json=json.loads(self.service.text_tool_export(self.p,saved['id'],'json',view='source')[0]);self.assertEqual(source_json['units'][0]['source_text'],'阿叶回来');self.assertNotIn('body',source_json['units'][0])
+        for changes in [{'reference_version_ids':[]},{'reference_version_ids':[third['id']]},{'reference_version_ids':[first['id'],third['id']]},{'episode_number':1}]:
+            with self.subTest(changes=changes),self.assertRaises(ResourceError):self.save('translation',dict(base,**changes))
+
+    def test_scoring_line_boundary_multiple_fixed_runs_and_immutable_exports(self):
+        saved=self.save('scoring',self.draft('scoring',source_text='开场\n冲突\n结尾',card_start_line=1,card_end_line=2,criteria=[{'key':'cause','label':'因果','max_score':5,'weight':1}]))
+        request={'unit_id':saved['unit_id'],'input_version_id':saved['id'],'action':'score','new_attempt':True}
+        first=self.write('run_text_tool',request);second=self.write('run_text_tool',request)
+        adopted=self.accept(second,saved)
+        document=json.loads(self.service.text_tool_export(self.p,adopted['id'],'json')[0]);self.assertEqual(len(document['runs']),2)
+        self.assertEqual(document['card']['text'],'开场\n冲突');self.assertEqual({r['id'] for r in document['runs']},{first['id'],second['id']})
+        before=self.service.text_tool_export(self.p,adopted['id'],'csv')[0]
+        self.write('run_text_tool',dict(request,input_version_id=adopted['id']))
+        self.assertEqual(self.service.text_tool_export(self.p,adopted['id'],'csv')[0],before)
+        stale=dict(adopted['document'],source_text='变更\n冲突\n结尾')
+        with self.assertRaises(ResourceError) as error:self.save('scoring',stale,adopted)
+        self.assertEqual(error.exception.code,'scoring_card_stale')
+        stale['card_source_sha256']='';self.save('scoring',stale,adopted)
+
+    def test_analysis_and_terms_are_comparable_patches_with_old_draft_protection(self):
+        translation=self.save('translation',self.draft('translation',source_text='阿叶又名小叶',target_language='English'))
+        terms=self.write('run_text_tool',{'unit_id':translation['unit_id'],'input_version_id':translation['id'],'action':'terms'})
+        self.assertEqual(terms['status'],'completed');self.assertEqual(self.service.get_text_tool(self.p,translation['unit_id'])['document']['terms'],[])
+        accepted=self.accept(terms,translation);self.assertEqual(accepted['document']['translation_characters'][0]['kind'],'主角')
+        score=self.save('scoring',self.draft('scoring',source_text='第一行\n第二行\n第三行'))
+        analysis=self.write('run_text_tool',{'unit_id':score['unit_id'],'input_version_id':score['id'],'action':'analyze'})
+        accepted=self.accept(analysis,score);self.assertEqual(accepted['document']['category'],'短剧');self.assertEqual(accepted['document']['card_end_line'],2)
+        changed=self.save('scoring',dict(accepted['document'],review_decision='keep',review_reason='人工判断'),accepted)
+        with self.assertRaises(Conflict):self.accept(analysis,changed)
 
     def save(self,tool,document,old=None,title='测试单元',episode=None):
         unit=self.service.get_text_tool(self.p,old['unit_id']) if old else None
@@ -190,7 +408,7 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
     def test_translation_fixed_reference_replay_failure_and_stale_result(self):
         terms=[{'source':'阿叶','target':'Aya','aliases':'叶子'}]
         first=self.save('translation',self.draft('translation',body='Aya fixed translation',target_language='English',terms=terms,proofread=True))
-        second=self.save('translation',self.draft('translation',source_text='阿叶归来',target_language='English',terms=terms,reference_version_ids=[first['id']]))
+        second=self.save('translation',self.draft('translation',source_text='阿叶归来',target_language='English',episode_number=2,terms=terms,reference_version_ids=[first['id']]))
         request={'unit_id':second['unit_id'],'input_version_id':second['id'],'action':'translate','new_attempt':True}
         key=uuid.uuid4().hex;run=self.write('run_text_tool',request,idempotency_key=key)
         replay=self.service.run_text_tool(self.p,request,expected_revision=0,idempotency_key=key,actor='test-human')
@@ -243,7 +461,7 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
 
     def test_breakdown_and_nonzero_group_mapping_import_edit_workspace(self):
         media,path=self.video(duration=4)
-        breakdown=self.save('breakdown',self.draft('breakdown',media_id=media,observations=[{'start_ms':1000,'end_ms':1500,'kind':'镜头','text':'合成测试图移动'}]))
+        breakdown=self.save('breakdown',self.draft('breakdown',understanding_mode='manual',media_id=media,observations=[{'start_ms':1000,'end_ms':1500,'kind':'镜头','text':'合成测试图移动'}]))
         timed=self.service.text_tool_export(self.p,breakdown['id'],'timestamp-txt')[0].decode();plain=self.service.text_tool_export(self.p,breakdown['id'],'txt')[0].decode()
         self.assertIn('00:00:01.000',timed);self.assertNotIn('00:00:01.000',plain)
         objects=self.hierarchy()

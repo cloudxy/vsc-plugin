@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 FORMAT = "vsc.edit-workspace/v1"
-RECIPE = "first-cut-1"
+RECIPE = "first-cut-2"
 
 
 def validate_edit(document):
@@ -35,7 +35,7 @@ def validate_edit(document):
         if not isinstance(items, list) or len(items) > 500:
             raise ValueError("音轨必须为不超过 500 段的列表")
         for clip in items:
-            fields = {"id", "media_id", "in_frame", "out_frame", "volume", "muted", "shot_id", "at_frame", "fade_in", "fade_out", "purpose"}
+            fields = {"id", "media_id", "in_frame", "out_frame", "volume", "muted", "shot_id", "at_frame", "fade_in", "fade_out", "purpose", "working_selection_version_id", "fade_in_frames", "fade_out_frames"}
             if not isinstance(clip, dict) or set(clip) - fields:
                 raise ValueError("素材片段含未知字段")
             if not isinstance(clip.get("id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", clip["id"]) or clip["id"] in ids:
@@ -45,6 +45,8 @@ def validate_edit(document):
                 raise ValueError("片段必须引用已登记素材")
             if "purpose" in clip and (track != "audio" or clip["purpose"] not in {"music", "ambience", "sfx", "dialogue_dry"}):
                 raise ValueError("音轨用途须为音乐、环境、音效或配音")
+            if 'working_selection_version_id' in clip and (track != 'clips' or not isinstance(clip['working_selection_version_id'], str) or not clip['working_selection_version_id']):
+                raise ValueError('工作选片来源需要固定版本，且只能属于画面轨')
             for key in ("in_frame", "out_frame"):
                 if type(clip.get(key)) is not int or clip[key] < 0:
                     raise ValueError("裁剪边界必须为非负整数帧")
@@ -61,6 +63,11 @@ def validate_edit(document):
                     raise ValueError("音轨位置和淡入淡出须为非负整数帧")
             if clip.get("fade_in", 0) + clip.get("fade_out", 0) > duration:
                 raise ValueError("淡入淡出不能超过片段长度")
+            for key in ('fade_in_frames','fade_out_frames'):
+                if key in clip and (track!='clips' or type(clip[key])is not int or clip[key]<0):
+                    raise ValueError('画面淡变须属于画面轨，且为非负整数帧')
+            if clip.get('fade_in_frames',0)+clip.get('fade_out_frames',0)>duration:
+                raise ValueError('画面淡入淡出不能超过片段长度')
             if track == "clips":
                 total += duration
     if total > document["fps"] * 3600:
@@ -94,6 +101,8 @@ def edit_operation(document, operation):
         if type(frame) is not int or not clips[index]["in_frame"] < frame < clips[index]["out_frame"]:
             raise ValueError("分割点须位于片段内部")
         right = dict(clips[index], id=operation.get("new_id"), in_frame=frame)
+        right.pop('fade_in_frames',None)
+        clips[index].pop('fade_out_frames',None)
         clips[index]["out_frame"] = frame
         clips.insert(index + 1, right)
     elif action == "move":
@@ -173,13 +182,20 @@ class FirstCutRenderer:
             has_audio = modality == "video" and any(s["codec_type"] == "audio" for s in streams) and not clip.get("muted")
             if not has_audio:
                 args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
-            args += ["-map", "0:v:0", "-map", "0:a:0" if has_audio else "1:a:0", "-vf",
-                     f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}",
+            video_filter=f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
+            if clip.get('fade_in_frames'):
+                video_filter+=f",fade=t=in:start_frame=0:nb_frames={clip['fade_in_frames']}"
+            if clip.get('fade_out_frames'):
+                # Match Remotion's last frame at black; audio remains independently editable.
+                start_frame=max(0,clip['out_frame']-clip['in_frame']-1-clip['fade_out_frames'])
+                video_filter+=f",fade=t=out:start_frame={start_frame}:nb_frames={clip['fade_out_frames']}"
+            args += ["-map", "0:v:0", "-map", "0:a:0" if has_audio else "1:a:0", "-vf", video_filter,
                      "-af", f"aresample=48000,volume={clip.get('volume', 1)}", "-ac", "2", "-c:v", "libx264",
                      "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", str(duration), "-movflags", "+faststart", str(target)]
             _run(args,cancelled=cancelled)
             normalized.append(target)
-            recipe.append({"clip_id": clip["id"], "in_frame": clip["in_frame"], "out_frame": clip["out_frame"], "modality": modality})
+            recipe.append({"clip_id": clip["id"], "in_frame": clip["in_frame"], "out_frame": clip["out_frame"], "modality": modality,
+                           'fade_in_frames':clip.get('fade_in_frames',0),'fade_out_frames':clip.get('fade_out_frames',0)})
         (directory / "concat.txt").write_text("\n".join("file '" + p.name + "'" for p in normalized) + "\n")
         master = directory / "master.mp4"
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "1", "-i", "concat.txt", "-c", "copy", str(master)], cwd=directory,cancelled=cancelled)

@@ -25,8 +25,16 @@ class AssetCenterRepository:
         e,c = S.library_entries,S.library_catalog_edits
         ranked = select(c,func.row_number().over(partition_by=c.c.entry_id,order_by=c.c.revision.desc()).label("rank")).subquery()
         query = select(e.c.current_version_id).outerjoin(ranked,and_(ranked.c.entry_id==e.c.id,ranked.c.rank==1))
-        query=query.where(e.c.status=="active",e.c.rights_status=="active")
-        for key in ("asset_kind","workspace_id","form_name"):
+        query=query.where(e.c.status=="active",e.c.rights_status=="active",e.c.visibility=="workspace")
+        # Count and page the same public fixed-version set. Specifications with
+        # no actual media remain available through the unfiltered catalog API.
+        if filters.get("media_only"):
+            query=query.where(exists(select(1).where(
+                S.library_version_media.c.library_version_id==e.c.current_version_id,
+                S.library_version_media.c.modality.in_(["image","video","audio"]))))
+        if filters.get("asset_kind"):
+            query=query.where(func.coalesce(ranked.c.asset_kind,"other")==filters["asset_kind"])
+        for key in ("workspace_id","form_name"):
             if filters.get(key): query=query.where(ranked.c[key]==filters[key])
         if filters.get("review_status"):
             if filters["review_status"]=="draft":
@@ -36,7 +44,8 @@ class AssetCenterRepository:
             query=query.where(exists(select(1).where(S.library_catalog_tags.c.edit_id==ranked.c.id,S.library_catalog_tags.c.tag==filters["tag"])))
         if filters.get("query"):
             pattern="%"+filters["query"].replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%"
-            query=query.where(e.c.title.ilike(pattern,escape="\\"))
+            query=query.where(or_(e.c.title.ilike(pattern,escape="\\"),ranked.c.form_name.ilike(pattern,escape="\\"),
+                exists(select(1).where(S.library_catalog_tags.c.edit_id==ranked.c.id,S.library_catalog_tags.c.tag.ilike(pattern,escape="\\")))))
         with self.store.engine.connect() as conn:
             total=conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
             ids=list(conn.execute(query.order_by(e.c.title,e.c.id).offset(filters["offset"]).limit(filters["limit"])).scalars())
@@ -115,6 +124,10 @@ class AssetCenterRepository:
                 if not prior:self.store._create_object(conn,project,{"id":target,"kind":"asset","asset_kind":payload["asset_kind"],"display_code":"LIB-"+item["id"][:12],"title":fixed["title"]})
             result=self.library.use(project["id"],{"library_version_id":version_id,"member_key":item["member_key"],"target_object_id":target,"role":payload["role"],"slot_key":"main","select":False},
                 actor=kw["actor"],expected_revision=CURRENT_REVISION,idempotency_key="center-internal",_transaction=(conn,project))
+            if not payload.get("target_object_id"):
+                from .asset_cards import AssetCardsRepository
+                cards=AssetCardsRepository(self.store);current=cards._asset_card(conn,project["id"],target)
+                cards._save_asset_card(conn,project,dict(asset_id=target,name=current["name"],asset_kind=payload["asset_kind"],base_revision=current["revision"],forms=[dict(form_key="master",name="默认形态",base_version_id=None,media_id=result["media_id"],description=fixed.get("description", ""))]),kw["actor"])
             row=dict(id=new_id(),project_id=project["id"],cart_id=item["id"],target_object_id=target,role=payload["role"],actor=kw["actor"],media_id=result["media_id"],candidate_id=result["candidate_id"])
             conn.execute(insert(S.library_cart_imports).values(**row))
             return row

@@ -52,6 +52,10 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
         self.assertEqual(first,replay)
         again=self.write("import_asset_center_item",payload,idempotency_key="new-response-key")
         self.assertEqual(first["media_id"],again["media_id"])
+        card=self.service.get_asset_card(self.p,first["target_object_id"])
+        self.assertEqual(card["forms"][0]["media_id"],first["media_id"])
+        self.assertIsNotNone(card["forms"][0]["spec_id"])
+        self.assertEqual(len(card["forms"][0]["history"]),1)
         source_project=self.p
         other=self.service.create_project({"name":"另一个合成目标","profile_snapshot":{"profile_id":"vsc.synthetic","version":"1","stages":[]}},actor="test-human")
         second=self.service.import_asset_center_item(other["id"],payload,actor="test-human",expected_revision=0,idempotency_key="second-project")

@@ -117,11 +117,13 @@ class CommerceTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(self.gateway.created, 0)
         self.assertEqual(self.service.commerce_entitlements(self.p)["seat_limit"], 3)
         before = self.store.get_project(self.p)["revision"]
-        with self.assertRaises(ResourceError) as caught:
+        from unittest.mock import patch
+        with patch('vsc.post.export_entitlements.available',return_value=False),self.assertRaises(ResourceError) as caught:
             self.configure(watermark_required=True)
         self.assertEqual(caught.exception.code, "commerce_entitlement_unavailable")
         self.assertEqual(self.store.get_project(self.p)["revision"], before)
-        self.assertFalse(self.summary()["capabilities"]["watermark_entitlement"])
+        self.configure(watermark_required=True)
+        self.assertEqual(self.service.commerce_entitlements(self.p)['watermark_consumer'],'edit-export-v1')
 
     def test_checkout_response_loss_deduplicates_and_recovers(self):
         self.configure(); self.service.commerce_payment_gateway = self.gateway; self.gateway.lose_checkout = True
@@ -247,6 +249,43 @@ class CommerceTests(ResourceStoreFixture, unittest.TestCase):
         self.assertTrue(content.startswith(b"%PDF-")); self.assertEqual(len(sha),64)
         self.assertEqual((issuer.issued,issuer.queried),(1,1))
         self.assertNotIn("document",self.summary()["invoices"][0])
+
+    def test_workspace_transfer_reclaim_and_invoice_scope_use_original_ledgers(self):
+        from vsc.assets.access_control import Principal,set_principal,reset_principal
+        self.configure();order=self.paid_order()
+        owner=self.service.ensure_local_access('test-human')
+        token=set_principal(Principal(**owner));self.addCleanup(reset_principal,token)
+        def command(action,payload):
+            return self.service.access_command(action,payload,expected_revision=self.service.access_snapshot()['access_revision'],idempotency_key=uuid.uuid4().hex,actor='test-human')
+        studio=command('workspace',{'name':'制作组织','parent_id':None})['workspace_id']
+        child=command('workspace',{'name':'子工作室','parent_id':studio})['workspace_id']
+        target=self.service.create_project({'name':'目标制作项目'},actor='test-human')['id']
+        for project,workspace in ((self.p,studio),(target,child)):
+            preview=self.service.access_migration_preview(project,workspace)
+            command('assign-project',{'project_id':project,'workspace_id':workspace,'preview_sha256':preview['sha256']})
+        self.rev=self.service.get_project(self.p)['revision']
+        source=self.summary()['buckets'][0]
+        request=dict(bucket_id=source['id'],target_project_id=target,target_revision=self.service.get_project(target)['revision'],credits=40)
+        transferred=self.write('transfer_workspace_credits',request,idempotency_key='fixed-workspace-transfer')
+        replay=self.service.transfer_workspace_credits(self.p,request,expected_revision=0,idempotency_key='fixed-workspace-transfer',actor='test-human')
+        self.assertEqual(transferred,replay)
+        self.assertEqual(self.summary()['credit_balance'],60)
+        target_wallet=self.service.commerce_summary(target,actor='test-human')
+        self.assertEqual(target_wallet['credit_balance'],40)
+        self.assertEqual(target_wallet['buckets'][0]['expires_at'],source['expires_at'])
+        with self.assertRaises(Conflict):self.write('refund_commerce_order',{'order_id':order['id']})
+        reclaim=dict(bucket_id=transferred['target_bucket_id'],target_project_id=self.p,target_revision=self.rev,credits=40,reclaim_transfer_id=transferred['id'])
+        result=self.service.transfer_workspace_credits(target,reclaim,expected_revision=target_wallet['revision'],idempotency_key='return-unused',actor='test-human')
+        self.rev=result['target_revision']
+        self.assertEqual(self.summary()['credit_balance'],100)
+        self.assertEqual(self.service.commerce_summary(target,actor='test-human')['credit_balance'],0)
+        self.assertEqual(len(self.summary()['workspace']['transfers']),2)
+        payload=dict(order_id=order['id'],title='组织抬头',tax_id='TEST',email='test@example.invalid',workspace_id=child)
+        with self.assertRaises(ResourceError):self.write('request_commerce_invoice',payload)
+        invoice=self.write('request_commerce_invoice',dict(payload,workspace_id=studio))
+        self.assertEqual(self.service._commerce().invoice(self.p,invoice['id'])['workspace_id'],studio)
+        self.write('refund_commerce_order',{'order_id':order['id']})
+        self.assertEqual(self.summary()['credit_balance'],0)
 
     def test_database_blocks_negative_balance_and_contract_mutation(self):
         from sqlalchemy import insert, update

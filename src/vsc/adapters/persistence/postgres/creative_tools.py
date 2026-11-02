@@ -55,7 +55,7 @@ class CreativeToolsRepository:
         self.store._access_require(conn,p,'edit');self.store._access_require(conn,source,'read')
         management_project_guard(conn,source);management_object_guard(conn,p,episode);self.store._one(conn,S.episodes,p,episode)
         artifact=self.store._one(conn,S.artifact_versions,source,checked_id(payload['source_artifact_id']))
-        if artifact['artifact_type']!='local-tool-output':raise ResourceError('只能导入已登记的本机加工输出')
+        if artifact['artifact_type'] not in {'local-tool-output','creative-tool-output'}:raise ResourceError('只能导入已登记的工具输出')
         document=json.loads(artifact['document']);management_object_guard(conn,source,document['episode_id'])
         member=next((row for row in document['outputs'] if row['id']==payload['source_media_id']),None)
         if not member or member['sha256']!=payload['sha256']:raise Conflict('所选媒体不属于固定输出或摘要不符','tool_import_source_changed')
@@ -214,23 +214,24 @@ class CreativeToolsRepository:
 
     def _mv_edit_plan(self,conn,project,payload):
         from vsc.post.edit_workspace import FORMAT,validate_edit
-        if not isinstance(payload,dict) or set(payload)!={'draft_version_id'}:raise ResourceError('MV剪辑需固定已导入镜头计划的草稿')
+        if not isinstance(payload,dict) or set(payload)-{'draft_version_id','visual_segments'} or 'draft_version_id' not in payload:raise ResourceError('MV剪辑需固定已导入镜头计划的草稿')
         p=project['id'];artifact=self.store._one(conn,S.artifact_versions,p,checked_id(payload['draft_version_id']))
         if artifact['artifact_type']!=DRAFT_TYPE:raise ResourceError('需要工具草稿')
         saved=json.loads(artifact['document']);value=saved['input']
         imported=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key=='mv-import:'+artifact['id'])).mappings().first()
         if value['tool']!='mv' or not imported:raise ResourceError('先保存并导入此固定MV稿的原镜头计划')
-        plan=json.loads(imported['document'])['plan'];mapping=value['params'].get('visual_segments')
+        plan=json.loads(imported['document'])['plan'];mapping=payload.get('visual_segments',value['params'].get('visual_segments'))
         if not isinstance(mapping,list) or len(mapping)!=len(plan['shots']):raise ResourceError('请为每个MV段落明确选择已有图片或视频，不自动补占位画面')
         fps=24;clips=[];pins=[]
         for index,(shot,item) in enumerate(zip(plan['shots'],mapping)):
             if not isinstance(item,dict) or set(item)!={'media_id','in_ms'} or type(item['in_ms'])is not int or item['in_ms']<0:raise ResourceError('MV视觉段落需媒体与非负剪入毫秒')
             media=self.store._media(conn,p,checked_id(item['media_id']))
-            if media['modality'] not in {'image','video'} or media['id'] not in value['visual_media_ids']:raise ResourceError('请显式将所选画面加入本稿视觉参考')
+            generated=conn.execute(select(S.job_outputs.c.media_id).join(S.generation_jobs,(S.generation_jobs.c.project_id==p)&(S.generation_jobs.c.id==S.job_outputs.c.job_id)).where(S.job_outputs.c.project_id==p,S.job_outputs.c.media_id==media['id'],S.generation_jobs.c.shot_id==shot['shot_id'],S.generation_jobs.c.status=='succeeded')).first()
+            if media['modality'] not in {'image','video'} or media['id'] not in value['visual_media_ids'] and not generated:raise ResourceError('画面须来自本稿参考或此镜头成功候选')
             if media['modality']=='video' and (not media.get('duration_ms') or item['in_ms']+shot['duration_ms']>media['duration_ms']):raise ResourceError('选中视频不足以覆盖段落，不能静默循环')
             if media['modality']=='image' and item['in_ms']:raise ResourceError('静态图片剪入点须为0')
             pin=next((r for r in saved['media'] if r['media_id']==media['id']),None)
-            if not pin or pin['sha256']!=media['sha256']:raise Conflict('MV视觉素材固定摘要不符')
+            if not generated and (not pin or pin['sha256']!=media['sha256']):raise Conflict('MV视觉素材固定摘要不符')
             # Cumulative rounding preserves the full music duration across short segments.
             length=round(shot['end_ms']*fps/1000)-round(shot['start_ms']*fps/1000)
             if length<1:raise ResourceError('MV段落短于一帧，请合并后重试')
@@ -262,7 +263,7 @@ class CreativeToolsRepository:
             rows = conn.execute(select(S.artifact_versions).join(S.artifact_object_scopes,
                 (S.artifact_object_scopes.c.project_id == S.artifact_versions.c.project_id) &
                 (S.artifact_object_scopes.c.artifact_id == S.artifact_versions.c.id)).where(
-                S.artifact_versions.c.project_id == p, S.artifact_versions.c.artifact_type == "local-tool-output",
+                S.artifact_versions.c.project_id == p, S.artifact_versions.c.artifact_type.in_(["local-tool-output","creative-tool-output"]),
                 S.artifact_object_scopes.c.object_id == episode_id).order_by(S.artifact_versions.c.created_at.desc())).mappings()
             return clean([dict(json.loads(row["document"]), id=row["id"]) for row in rows])
 
@@ -275,14 +276,17 @@ class CreativeToolsRepository:
                 raise ResourceError("本机加工需要工具草稿")
             saved = json.loads(artifact["document"])
             value = saved["input"]
-            if value["tool"] not in LOCAL_TOOLS or not value["source_media_id"]:
+            if value["tool"] not in LOCAL_TOOLS|{'music_mix'} or not value["source_media_id"]:
                 raise ResourceError("本机加工类型或源视频缺失")
             key = "local-tool-output:" + artifact["id"]
             previous = conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id == p,
                 S.artifact_versions.c.artifact_key == key)).mappings().first()
             if previous:
                 return dict(json.loads(previous["document"]), id=previous["id"], already_processed=True)
-            media, gaps = self.store._usable(conn, p, value["source_media_id"], "video_take")
+            if value['tool']=='music_mix':
+                from .workbench_generation import working_media
+                media,gaps=working_media(self.store,conn,p,value['source_media_id'],'video_take')
+            else:media, gaps = self.store._usable(conn, p, value["source_media_id"], "video_take")
             gaps = [gap for gap in gaps if gap != "technical_check_missing"]
             if gaps:
                 raise ResourceError("源视频不可加工：" + ", ".join(gaps), "local_source_unusable")
@@ -295,6 +299,12 @@ class CreativeToolsRepository:
                 if [gap for gap in gaps if gap!='technical_check_missing']:raise ResourceError('替换片当前不可用','local_replacement_unusable')
                 pin=next((r for r in saved['media'] if r['role']=='replacement'),None)
                 if not pin or pin['sha256']!=replacement['sha256'] or pin['duration_ms']!=replacement.get('duration_ms'):raise Conflict('固定替换片已变化')
+            if value['tool']=='music_mix':
+                from .workbench_generation import working_media
+                replacement,gaps=working_media(self.store,conn,p,checked_id(value.get('audio_media_id')),'music')
+                if gaps:raise ResourceError('配乐音频当前不可用','music_audio_unusable')
+                pin=next((r for r in saved['media'] if r['role']=='audio'),None)
+                if not pin or pin['sha256']!=replacement['sha256'] or pin['duration_ms']!=replacement.get('duration_ms'):raise Conflict('固定配乐音频已变化')
             built, receipt = build(value, media, replacement)
             outputs = []
             for item in built:
@@ -305,7 +315,7 @@ class CreativeToolsRepository:
             operation = self.store.create_media_operation(p, dict(operation_type=value["tool"], recipe_version=RECIPE,
                 tool="ffmpeg", tool_version=receipt["ffmpeg_version"], parameters={"draft_version_id": artifact["id"], "draft_sha256": artifact["sha256"],
                     "params": value["params"], "ranges": value["ranges"]}, execution=receipt,
-                inputs=[{"media_id": media["id"], "role": "source"}]+([{'media_id':replacement['id'],'role':'replacement','start_ms':value['params'].get('replacement_in_ms',0)}] if replacement else []), outputs=outputs), _transaction=(conn, project), **kw)
+                inputs=[{"media_id": media["id"], "role": "source"}]+([{'media_id':replacement['id'],'role':'music' if value['tool']=='music_mix' else 'replacement','start_ms':value['audio_in_ms'] if value['tool']=='music_mix' else value['params'].get('replacement_in_ms',0)}] if replacement else []), outputs=outputs), _transaction=(conn, project), **kw)
             result = dict(tool=value["tool"], episode_id=value["episode_id"], draft_version_id=artifact["id"], source_media_id=media["id"],
                 source_sha256=media["sha256"], operation_id=operation["id"], outputs=outputs, receipt=receipt)
             output = self.store._create_artifact(conn, project, dict(artifact_key=key, artifact_type="local-tool-output", stage="production",
@@ -320,13 +330,15 @@ class CreativeToolsRepository:
         def work(conn, project):
             p = project["id"]
             artifact = self.store._one(conn, S.artifact_versions, p, checked_id(payload.get("output_version_id")))
-            if artifact["artifact_type"] != "local-tool-output":
+            if artifact["artifact_type"] not in {"local-tool-output","creative-tool-output"}:
                 raise ResourceError("需要本机加工的固定输出")
             output = json.loads(artifact["document"])
             if payload.get("media_id") not in {row["id"] for row in output["outputs"]}:
                 raise ResourceError("所选媒体不属于加工输出")
             media = self.store._media(conn, p, payload["media_id"])
             target, episode = payload.get("target"), output["episode_id"]
+            selected=next(row for row in output['outputs'] if row['id']==media['id'])
+            if selected.get('role')=='depth_intermediate' and target!='canvas':raise ResourceError('深度中间视频仅供查看或来源图，不作为最终候选或剪辑','depth_intermediate_only')
             if target == "candidate":
                 shot = checked_id(payload.get("shot_id"))
                 if shot not in self.store._descendant_ids(conn, p, episode):
@@ -344,8 +356,26 @@ class CreativeToolsRepository:
                 if canvas["episode_id"] != episode or version["version"] != payload.get("canvas_revision"):
                     raise Conflict("目标画布范围或版本已变化")
                 document = self.store._canvas_document(conn, p, version)
+                if output['tool']=='depth_motion':
+                    original=self.store._one(conn,S.artifact_versions,p,output['draft_version_id'])
+                    value=json.loads(original['document'])['input']
+                    depth=next(row for row in output['outputs'] if row['role']=='depth_intermediate')
+                    final=next(row for row in output['outputs'] if row['role']=='generated_video')
+                    nodes=[('source',value['source_media_id'],'原始动作视频',None,0,0),('character',value['visual_media_ids'][0],'人物图',None,300,240),
+                           ('depth',depth['id'],'灰度深度中间视频',depth['job_id'],300,0),('final',final['id'],'最终人物视频',final['job_id'],600,0)]
+                    prefix='depth-'+artifact['id']+'-';existing={node['id'] for node in document['nodes']}
+                    for key,identifier,title,job,x,y in nodes:
+                        item=self.store._media(conn,p,identifier)
+                        if prefix+key not in existing:document['nodes'].append(dict(id=prefix+key,type=item['modality'],title=title,x=x,y=y,media_id=identifier,job_id=job,group='深度动作 '+artifact['id'][:8],params={}))
+                    edges={edge['id'] for edge in document['edges']}
+                    for index,(source,target) in enumerate([('source','depth'),('depth','final'),('character','final')]):
+                        identifier=prefix+'edge-'+str(index)
+                        if identifier not in edges:document['edges'].append(dict(id=identifier,source=prefix+source,target=prefix+target,port='derived_from'))
+                    return self.store.save_creative_canvas(p,dict(canvas_id=canvas['id'],canvas_revision=version['version'],title=version['title'],document=document),_transaction=(conn,project),**kw)
+                source = next(row for row in output["outputs"] if row["id"] == media["id"])
                 document["nodes"].append(dict(id="local-"+new_id(), type=media["modality"], title=media["name"],
-                    x=40, y=40+40*len(document["nodes"]), media_id=media["id"], params={"operation_id": output["operation_id"]}))
+                    x=40, y=40+40*len(document["nodes"]), media_id=media["id"], job_id=source.get("job_id"),
+                    params={"operation_id": output["operation_id"]} if output.get("operation_id") else {}))
                 return self.store.save_creative_canvas(p, dict(canvas_id=canvas["id"], canvas_revision=version["version"],
                     title=version["title"], document=document), _transaction=(conn, project), **kw)
             if target == "editing":
@@ -379,6 +409,7 @@ class CreativeToolsRepository:
                 .order_by(S.artifact_versions.c.version)).mappings()
             latest = {}
             for row in rows:
+                if row["artifact_key"] != "creative-tool:"+episode_id+":"+json.loads(row["document"])["input"]["tool"]:continue
                 latest[row["artifact_key"]] = dict(id=row["id"], version=row["version"], sha256=row["sha256"],
                     document=json.loads(row["document"]), created_at=row["created_at"])
             return clean(dict(items=list(latest.values()), revision=project["revision"]))
@@ -392,9 +423,141 @@ class CreativeToolsRepository:
                 S.artifact_versions.c.artifact_key == key).order_by(S.artifact_versions.c.version.desc()).limit(1)).scalar()
             if (str(current) if current else None) != payload["base_draft_id"]:
                 raise Conflict("此工具已有新草稿；请保留输入并读取比较", "tool_draft_conflict")
+            dependencies=[]
+            if payload.get('origin_draft_id'):
+                origin=self.store._one(conn,S.artifact_versions,project['id'],checked_id(payload['origin_draft_id']))
+                original=json.loads(origin['document'])['input']
+                if origin['artifact_type']!=DRAFT_TYPE or original['tool']!=value['tool'] or original['source_media_id']!=value['source_media_id'] or original['episode_id']!=value['episode_id']:raise ResourceError('工具来源与画布固定输入不符','tool_origin_mismatch')
+                dependencies=[origin['id']]
             return self.store._create_artifact(conn, project, dict(artifact_type=DRAFT_TYPE, artifact_key=key,
-                stage="production", document=document, object_ids=[value["episode_id"]], supersedes_id=current))
+                stage="production", document=document, object_ids=[value["episode_id"]], supersedes_id=current,dependency_ids=dependencies))
         return self.store._mutate(project_id, "save_creative_tool_draft", payload, callback=work, **kw)
+
+    def working_input(self,p,draft_id):
+        with self.store.engine.connect() as conn:
+            self.store._one(conn,S.artifact_versions,p,checked_id(draft_id))
+            row=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key=='tool-work:'+draft_id)).mappings().first()
+            if not row:raise ResourceError('先固定此工具的生成输入','tool_work_input_required')
+            return clean(dict(row))
+
+    def prepare_work(self,p,payload,**kw):
+        import uuid
+        from vsc.assets.classic_production import normalize_draft
+        from vsc.production.creative_tools import TOOLS
+        def work(conn,project):
+            artifact=self.store._one(conn,S.artifact_versions,p,checked_id(payload['draft_version_id']))
+            if artifact['artifact_type']!=DRAFT_TYPE:raise ResourceError('需要固定工具草稿')
+            value=json.loads(artifact['document'])['input'];tool=value['tool']
+            if tool not in {'music_description','music_lyrics','instrumental','ambience','sfx','speech','music_mix','depth_motion'}:raise ResourceError('此工具没有工作生成适配器','tool_adapter_unavailable')
+            if tool=='music_lyrics' and any(value.get(field) for field in ('source_media_id','audio_media_id','visual_media_ids','script_line_ids','voice_media_id','speaker','replacement_media_id')):
+                raise ResourceError('歌词演唱只接受固定歌词与风格，不会静默忽略参考媒体或音色','song_inputs_unsupported')
+            if tool=='music_mix':
+                if not value['source_media_id']:raise ResourceError('先选择配乐的源视频，再生成完整音乐','music_source_required')
+                source=self.store._media(conn,p,checked_id(value['source_media_id']))
+                if source['modality']!='video' or not source.get('duration_ms') or not 0<=value['music_start_ms']<value['music_end_ms']<=source['duration_ms']:
+                    raise ResourceError('配乐使用区间须位于已核验的源视频内','music_range_invalid')
+            key='tool-work:'+artifact['id'];prior=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key==key)).mappings().first()
+            if prior:return dict(draft_version_id=prior['id'],tool_draft_id=artifact['id'])
+            shot=value['shot_id']
+            if not shot:
+                parent=value['episode_id'];self.store._one(conn,S.episodes,p,parent)
+                for kind in ('scene','sequence','shot'):
+                    identity=str(uuid.uuid5(uuid.UUID(p),'tool-work:'+value['episode_id']+':'+tool+':'+kind))
+                    if not conn.execute(select(S.creative_objects.c.id).where(S.creative_objects.c.project_id==p,S.creative_objects.c.id==identity)).first():
+                        table={'scene':S.scenes,'sequence':S.sequences,'shot':S.shots}[kind];ordinal=conn.scalar(select(func.coalesce(func.max(table.c.ordinal),-1)+1).where(table.c.project_id==p,table.c.parent_id==parent))
+                        self.store._create_object(conn,project,dict(id=identity,kind=kind,parent_id=parent,ordinal=ordinal,display_code='TOOL-'+kind.upper()+'-'+identity[:8],title='独立声音工作范围' if kind!='shot' else '声音工作请求'))
+                    parent=identity
+                shot=parent
+            prompt=value['prompt'].strip()
+            if tool=='depth_motion':
+                if not value['source_media_id'] or len(value['visual_media_ids'])!=1 or not value['depth_model_id'] or not prompt or value['audio_media_id'] or value['script_line_ids'] or value['voice_media_id']:
+                    raise ResourceError('深度动作须固定源视频、唯一人物图、两个模型及最终画面要求','depth_motion_inputs')
+                refs=[]
+                for role,identifier,modality in [('operation_source',value['source_media_id'],'video'),('character',value['visual_media_ids'][0],'image')]:
+                    media=self.store._media(conn,p,checked_id(identifier))
+                    if media['modality']!=modality:raise ResourceError('深度动作源媒体类型不匹配','depth_motion_inputs')
+                    refs.append(dict(role=role,media_id=media['id'],sha256=media['sha256']))
+                document=normalize_draft(dict(shot_id=shot,mode='depth_motion',purpose='reference_to_video',model_id=value['model_id'],prompt=prompt,
+                    duration_ms=value['duration_ms'],references=refs,tool_settings=dict(value['params'],depth_model_id=value['depth_model_id'])))
+                created=self.store._create_artifact(conn,project,dict(artifact_key=key,artifact_type='classic-production-draft',stage='workspace',document=document,dependency_ids=[artifact['id']],object_ids=[shot]))
+                self.store._project_classic_draft_media(conn,project,created,document)
+                return dict(draft_version_id=created['id'],tool_draft_id=artifact['id'],shot_id=shot)
+            if tool!='speech':prompt='\n'.join(v for v in [prompt,value['style'].strip(),'仅使用乐器与非人声音色，不含歌词和演唱人声。' if tool in {'instrumental','music_mix'} else ''] if v)
+            if not prompt:raise ResourceError('请输入实际生成内容')
+            document=normalize_draft(dict(shot_id=shot,mode='audio_speech' if tool=='speech' else 'audio_song' if tool=='music_lyrics' else 'audio',purpose='music' if tool=='music_mix' else TOOLS[tool][2],model_id=value['model_id'],prompt=prompt,duration_ms=max(1,value['duration_ms']),params=value['params'],references=[],**({'tool_settings':{'speaker':value['speaker']}} if tool=='speech' else {'lyrics':value['lyrics']} if tool=='music_lyrics' else {})))
+            created=self.store._create_artifact(conn,project,dict(artifact_key=key,artifact_type='classic-production-draft',stage='workspace',document=document,dependency_ids=[artifact['id']],object_ids=[shot]))
+            self.store._project_classic_draft_media(conn,project,created,document)
+            return dict(draft_version_id=created['id'],tool_draft_id=artifact['id'],shot_id=shot)
+        return self.store._mutate(p,'prepare_creative_tool_work',payload,callback=work,**kw)
+
+    def generate_work(self,p,payload,*,preview,work_preview,**kw):
+        def work(conn,project):
+            fixed=preview(p,payload['request'])
+            if not fixed.get('ready') or fixed['preview_sha256']!=payload['preview_sha256']:raise Conflict('生成报价已变化，请核对当前固定输入','tool_quote_changed')
+            depth=fixed.get('artifact',{}).get('document',{}).get('working_dependency_contract')=='depth-motion/v1'
+            result=self.store.generate_workbench(p,dict(request=payload['request'] if depth else fixed['work_request'],preview_sha256=fixed['preview_sha256']),build_preview=preview if depth else work_preview,_transaction=(conn,project),**{k:v for k,v in kw.items() if k!='_transaction'})
+            return dict(result,tool_draft_id=payload['request']['draft_version_id'])
+        return self.store._mutate(p,'generate_creative_tool_work',payload,callback=work,**kw)
+
+    def work_runs(self,p,episode):
+        with self.store.engine.connect() as conn:
+            result=[]
+            drafts=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_type==DRAFT_TYPE,S.artifact_versions.c.artifact_key.like('creative-tool:'+episode+':%')).order_by(S.artifact_versions.c.created_at.desc())).mappings()
+            for draft in drafts:
+                work=conn.execute(select(S.artifact_versions.c.id).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key=='tool-work:'+draft['id'])).scalar()
+                if not work:continue
+                runs=conn.execute(select(S.workbench_run_inputs.c.run_version_id).where(S.workbench_run_inputs.c.project_id==p,S.workbench_run_inputs.c.draft_version_id==work)).scalars()
+                for run in runs:
+                    jobs=[dict(j) for j in conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id==p,S.generation_jobs.c.run_version_id==run)).mappings()]
+                    for job in jobs:
+                        job['outputs']=[dict(o) for o in conn.execute(select(S.job_outputs).where(S.job_outputs.c.project_id==p,S.job_outputs.c.job_id==job['id'])).mappings()]
+                    result.append(dict(tool_draft_id=draft['id'],run_version_id=run,tool=json.loads(draft['document'])['input']['tool'],jobs=jobs))
+            return clean(result)
+
+    def resolve_generated_music(self,p,payload,**kw):
+        def work(conn,project):
+            artifact=self.store._one(conn,S.artifact_versions,p,checked_id(payload['draft_version_id']))
+            if artifact['artifact_type']!=DRAFT_TYPE:raise ResourceError('需要固定配乐输入')
+            saved=json.loads(artifact['document']);value=saved['input']
+            if value['tool']!='music_mix':raise ResourceError('仅配乐操作可接续混合')
+            run=self.store._one(conn,S.artifact_versions,p,checked_id(payload['run_version_id']))
+            working=conn.execute(select(S.workbench_run_inputs.c.draft_version_id).where(S.workbench_run_inputs.c.project_id==p,S.workbench_run_inputs.c.run_version_id==run['id'])).scalar()
+            if not working:raise ResourceError('配乐须使用原工作生成运行')
+            fixed=self.store._one(conn,S.artifact_versions,p,working)
+            if fixed['artifact_key']!='tool-work:'+artifact['id']:raise ResourceError('生成运行不属于这份配乐输入','music_run_scope')
+            media_id=checked_id(payload['audio_media_id'])
+            found=conn.execute(select(S.job_outputs.c.media_id).join(S.generation_jobs,(S.generation_jobs.c.project_id==p)&(S.generation_jobs.c.id==S.job_outputs.c.job_id)).where(S.job_outputs.c.project_id==p,S.job_outputs.c.media_id==media_id,S.generation_jobs.c.run_version_id==run['id'],S.generation_jobs.c.status=='succeeded')).first()
+            if not found:raise ResourceError('完整配乐尚未在原任务成功登记','music_output_pending')
+            media=self.store._media(conn,p,media_id)
+            if media['modality']!='audio':raise ResourceError('需要完整音频结果')
+            key='creative-tool:'+value['episode_id']+':music-resolved:'+artifact['id']+':'+media_id
+            prior=conn.execute(select(S.artifact_versions.c.id).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key==key)).scalar()
+            if prior:return {'draft_version_id':prior}
+            value['audio_media_id']=media_id;saved['media']=[r for r in saved['media'] if r['role']!='audio']+[dict(role='audio',media_id=media_id,sha256=media['sha256'],duration_ms=media['duration_ms'])]
+            result=self.store._create_artifact(conn,project,dict(artifact_key=key,artifact_type=DRAFT_TYPE,stage='workspace',document=saved,dependency_ids=[artifact['id'],run['id']],object_ids=[value['episode_id']]))
+            return {'draft_version_id':result['id']}
+        return self.store._mutate(p,'resolve_creative_music_output',payload,callback=work,**kw)
+
+    def publish_work_outputs(self,p,payload,**kw):
+        def work(conn,project):
+            run=self.store._one(conn,S.artifact_versions,p,checked_id(payload['run_version_id']))
+            fixed_id=conn.execute(select(S.workbench_run_inputs.c.draft_version_id).where(S.workbench_run_inputs.c.project_id==p,S.workbench_run_inputs.c.run_version_id==run['id'])).scalar()
+            if not fixed_id:raise ResourceError('需要原工具工作运行')
+            fixed=self.store._one(conn,S.artifact_versions,p,fixed_id)
+            if not fixed['artifact_key'].startswith('tool-work:'):raise ResourceError('运行不属于声音工具')
+            source=self.store._one(conn,S.artifact_versions,p,fixed['artifact_key'][len('tool-work:'):]);value=json.loads(source['document'])['input'];key='tool-generated-output:'+run['id']
+            prior=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key==key)).mappings().first()
+            if prior:return dict(json.loads(prior['document']),id=prior['id'])
+            jobs=conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id==p,S.generation_jobs.c.run_version_id==run['id'])).mappings().all()
+            if not jobs or len(jobs)!=len(json.loads(run['document'])['series_batch']['jobs']) or any(j['status']!='succeeded' for j in jobs):raise ResourceError('原任务尚未全部完成','tool_output_pending')
+            outputs=[]
+            for job in jobs:
+                for identifier in conn.execute(select(S.job_outputs.c.media_id).where(S.job_outputs.c.project_id==p,S.job_outputs.c.job_id==job['id'])).scalars():
+                    media=self.store._media(conn,p,identifier);outputs.append({k:media[k] for k in ('id','name','modality','sha256')}|{'media_id':identifier,'role':'depth_intermediate' if job['purpose']=='depth' else 'generated_'+job['modality'],'job_id':job['id']})
+            result=dict(tool=value['tool'],episode_id=value['episode_id'],draft_version_id=source['id'],run_version_id=run['id'],outputs=outputs,receipt={'source':'original-generation-jobs','job_ids':[j['id'] for j in jobs]})
+            artifact=self.store._create_artifact(conn,project,dict(artifact_type='creative-tool-output',artifact_key=key,stage='workspace',document=result,dependency_ids=[source['id'],run['id']],object_ids=[value['episode_id']]))
+            return dict(result,id=artifact['id'])
+        return self.store._mutate(p,'publish_creative_tool_outputs',payload,callback=work,**kw)
 
     def import_mv(self, project_id, payload, *, service, **kw):
         def work(conn, project):
@@ -436,6 +599,44 @@ class CreativeToolsRepository:
                 stage="production", document=result, object_ids=shots))
             return dict(id=registered["id"], scene_id=scene["id"], shot_ids=shots, already_imported=False, approved=False)
         return self.store._mutate(project_id, "import_creative_mv", payload, callback=work, **kw)
+
+    def mv_workspace(self,p,draft_id):
+        with self.store.engine.connect() as conn:
+            project=self.store._project(conn,p);artifact=self.store._one(conn,S.artifact_versions,p,checked_id(draft_id))
+            imported=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key=='mv-import:'+artifact['id'])).mappings().first()
+            if not imported:raise ResourceError('先导入固定MV镜头计划','mv_plan_missing')
+            value=json.loads(artifact['document'])['input'];plan=json.loads(imported['document'])['plan'];shots=[]
+            for shot in plan['shots']:
+                jobs=[dict(j) for j in conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id==p,S.generation_jobs.c.shot_id==shot['shot_id']).order_by(S.generation_jobs.c.created_at.desc())).mappings()]
+                ids=set(value['visual_media_ids'])
+                for job in jobs:
+                    if job['status']=='succeeded':ids.update(conn.execute(select(S.job_outputs.c.media_id).where(S.job_outputs.c.project_id==p,S.job_outputs.c.job_id==job['id'])).scalars())
+                shots.append(dict(shot,candidates=[self.store._media(conn,p,i) for i in sorted(ids)],jobs=jobs))
+            return clean(dict(draft_version_id=artifact['id'],plan_id=imported['id'],shots=shots,revision=project['revision']))
+
+    def prepare_mv_shot(self,p,payload,**kw):
+        from vsc.assets.classic_production import normalize_draft
+        def work(conn,project):
+            artifact=self.store._one(conn,S.artifact_versions,p,checked_id(payload['draft_version_id']));saved=json.loads(artifact['document']);value=saved['input']
+            imported=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key=='mv-import:'+artifact['id'])).mappings().first()
+            if value['tool']!='mv' or not imported:raise ResourceError('先导入固定MV镜头计划')
+            shot=next((r for r in json.loads(imported['document'])['plan']['shots'] if r['shot_id']==payload['shot_id']),None)
+            if not shot:raise ResourceError('镜头不属于此MV计划')
+            model=conn.execute(select(S.provider_models).where(S.provider_models.c.id==checked_id(payload['model_id']))).mappings().one_or_none()
+            if not model or model['modality'] not in {'image','video'} or not model['enabled']:raise ResourceError('请选择实际图像或视频模型')
+            refs=[];reference=payload.get('reference_media_id')
+            if reference:
+                if reference not in value['visual_media_ids']:raise ResourceError('参考须属于本稿固定输入')
+                media=self.store._media(conn,p,checked_id(reference))
+                if media['modality']!='image':raise ResourceError('首帧参考需要图片')
+                refs=[dict(role='reference_image' if model['modality']=='image' else 'first_frame',media_id=reference,sha256=media['sha256'])]
+            mode='image' if model['modality']=='image' else 'single' if refs else 'text';preferred='first_frame' if mode=='image' else 'image_to_video' if refs else 'text_to_video';purposes=model['capabilities'].get('purposes',[])
+            purpose=preferred if preferred in purposes else 'video_clip' if 'video_clip' in purposes else preferred
+            doc=normalize_draft(dict(mode=mode,shot_id=shot['shot_id'],model_id=model['id'],purpose=purpose,prompt='\n'.join(x for x in [shot['prompt'],value['style']] if x),duration_ms=shot['duration_ms'],references=refs))
+            result=self.store._create_artifact(conn,project,dict(artifact_type='classic-production-draft',artifact_key='mv-work:'+imported['id']+':'+shot['shot_id'],stage='workspace',document=doc,dependency_ids=[artifact['id'],imported['id']],object_ids=[shot['shot_id']]))
+            self.store._project_classic_draft_media(conn,project,result,doc)
+            return dict(draft_version_id=result['id'],shot_id=shot['shot_id'])
+        return self.store._mutate(p,'prepare_creative_mv_shot',payload,callback=work,**kw)
 
     def propose(self, project_id, payload, *, preview, **kw):
         def work(conn, project):

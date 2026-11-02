@@ -202,3 +202,30 @@ class CanvasExecutionTests(ResourceStoreFixture,unittest.TestCase):
         self.write('update_generation_job',dict(job_id=job,status='failed',raw_response={'synthetic':'definite local failure before submission'}))
         preview=self.service.preview_canvas_fallback(self.p,row['step_id']);self.assertEqual(preview['model_ids'],[self.models[1]['id']]);self.assertEqual(preview['artifact']['document']['execution_policy']['authorization']['run_version_id'],row['artifact_id'])
         successor=self.write('propose_canvas_fallback',dict(step_id=row['step_id'],preview_sha256=preview['preview_sha256']));self.assertFalse(self.service.get_artifact_version(self.p,successor['artifact_id'])['approved']);self.assertEqual(self.service.list_generation_jobs(self.p)['total'],1)
+
+
+@unittest.skipUnless(TEST_URL and HAS_DB, "requires configured isolated PostgreSQL")
+class CanvasInputModeTests(ResourceStoreFixture, unittest.TestCase):
+    def test_canvas_reference_modes_fix_original_input_and_purpose(self):
+        objects=self.hierarchy()
+        provider='canvas_modes_'+uuid.uuid4().hex
+        self.service.register_provider(dict(id=provider,base_url='https://example.invalid',auth_ref='OFFLINE_TEST_KEY'),actor='test-admin')
+        model=self.service.register_model(dict(provider_id=provider,model_key='video',model_version='offline',modality='video',capabilities=dict(purposes=['image_to_video','reference_to_video','text_to_video'],reference_media=True,reference_video=True,reference_audio=True,first_frame=True)),actor='test-admin')
+        image=self.media('image');video=self.media('video',modality='video');audio=self.media('audio',modality='audio')
+        cases=[([], 'text','text_to_video'),([('image',image,'first_frame')], 'single','image_to_video'),([('image',image,'reference_image')], 'omni','reference_to_video'),([('image',image,'reference_image'),('video',video,'reference_video'),('audio',audio,'reference_audio')],'omni','reference_to_video')]
+        for refs,mode,purpose in cases:
+            with self.subTest(mode=mode,ports=[r[2] for r in refs]):
+                nodes=[dict(id='out',type='video',text='Follow these fixed references.')]
+                edges=[]
+                for index,(kind,mid,port) in enumerate(refs):
+                    key='ref'+str(index);nodes.append(dict(id=key,type=kind,media_id=mid));edges.append(dict(id='edge'+str(index),source=key,target='out',port=port))
+                canvas=self.write('create_creative_canvas',dict(episode_id=objects['episode'],document=dict(nodes=nodes,edges=edges)))
+                result=self.write('prepare_canvas_work_input',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=objects['shot'],model_id=model['id']))
+                fixed=result['document'];self.assertEqual((fixed['mode'],fixed['purpose']),(mode,purpose))
+                self.assertEqual([r['media_id'] for r in fixed['references']],[r[1] for r in refs])
+                from vsc.adapters.persistence.postgres.workbench_generation import working_context
+                with self.engine.connect() as conn:
+                    context=working_context(self.store,conn,self.store._project(conn,self.p),result['draft_version_id'])
+                self.assertEqual({r['media_id'] for r in context['media']},{r[1] for r in refs})
+                self.assertFalse(context['gaps'])
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)

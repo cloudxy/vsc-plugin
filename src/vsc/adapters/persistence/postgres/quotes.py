@@ -7,7 +7,7 @@ from .budget_store import native_units, operation_key
 from .values import checked_id, clean
 
 
-def run_quote(store, conn, project, jobs):
+def run_quote(store, conn, project, jobs, document=None):
     if not isinstance(jobs, list) or not jobs or len(jobs) > 200:
         raise ResourceError('报价需要1至200个固定任务', 'invalid_generation_quote')
     result, totals, native, operations = [], {}, {}, set()
@@ -18,9 +18,18 @@ def run_quote(store, conn, project, jobs):
         asset, shot, purpose, modality = (original.get(key) for key in ('asset_id', 'shot_id', 'purpose', 'modality'))
         if bool(asset) == bool(shot):
             raise ResourceError('报价任务须且仅须指定镜头或资产', 'job_target_required')
-        context = (store._compile_asset_context(conn, project, checked_id(asset), purpose,
-                       spec_version_id=original.get('spec_version_id')) if asset else
-                   store._compile_context(conn, project, checked_id(shot), purpose))
+        if document and document.get('workbench_draft'):
+            from .workbench_generation import working_context
+            if asset:
+                raise ResourceError('工作草稿必须属于具体镜头', 'working_input_scope')
+            context = working_context(store, conn, project, document['workbench_draft']['id'],
+                                      shot_id=checked_id(shot), purpose=purpose)
+            if context['working_draft']['sha256'] != document['workbench_draft'].get('sha256'):
+                raise Conflict('工作生成草稿摘要变化', 'working_input_changed')
+        else:
+            context = (store._compile_asset_context(conn, project, checked_id(asset), purpose,
+                           spec_version_id=original.get('spec_version_id')) if asset else
+                       store._compile_context(conn, project, checked_id(shot), purpose))
         if not context['ready']:
             raise ResourceError('当前固定输入有缺口，不能报价', 'context_gaps')
         if original.get('context_sha256', context['sha256']) != context['sha256']:
@@ -29,7 +38,10 @@ def run_quote(store, conn, project, jobs):
         request['context_sha256'] = context['sha256']
         model, provider = store._generation_model(conn, {'model_id': job.get('model_id'), 'purpose': purpose, 'modality': modality}, lock=False)
         validate_capabilities(dict(model), request, context)
-        if request.get('operation'):
+        if request.get('operation')=='draft_upgrade':
+            from .video_samples import resolve_sample
+            resolve_sample(store,conn,project,request,dict(model))
+        if request.get('operation') in {'edit', 'extend'} and modality == 'video':
             from vsc.production.video_operations import validate_source_metadata
             source, gaps = store._usable(conn, project['id'], checked_id(request['source_media_id']), purpose)
             if gaps:
@@ -43,7 +55,8 @@ def run_quote(store, conn, project, jobs):
             raise ResourceError('报价任务意图重复', 'invalid_generation_quote')
         operations.add(operation)
         units = native_units(request)
-        quote = dict(quote_request(dict(model), request, units), operation=operation)
+        from vsc.production.bounded import quotation_request
+        quote = dict(quote_request(dict(model), quotation_request(document or {}, request, candidate), units), operation=operation)
         result.append(quote)
         for unit, amount in units.items():
             native[unit] = native.get(unit, 0) + amount
@@ -69,7 +82,7 @@ def preview(store, project_id, payload):
     with store.engine.connect().execution_options(isolation_level='REPEATABLE READ', vsc_readonly_preview=True) as conn, conn.begin():
         conn.execute(text('SET TRANSACTION READ ONLY'))
         project = store._project(conn, checked_id(project_id))
-        quote = run_quote(store, conn, project, jobs)
+        quote = run_quote(store, conn, project, jobs, document)
         return clean({'project_id': project['id'], 'revision': project['revision'], 'read_only': True,
                       'generation_quote': quote, 'needs_approval': True})
 
@@ -77,7 +90,8 @@ def preview(store, project_id, payload):
 def check_pinned(document, model, request, candidate_no):
     if 'quote_policy' in document and quote_policy_errors(document['quote_policy']):
         raise ResourceError('运行包报价偏差策略无效', 'invalid_generation_quote')
-    current = quote_request(dict(model), request, native_units(request))
+    from vsc.production.bounded import quotation_request
+    current = quote_request(dict(model), quotation_request(document, request, candidate_no), native_units(request))
     pinned = document.get('generation_quote')
     if 'generation_quote' in document:
         if quote_errors(pinned):

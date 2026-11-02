@@ -102,7 +102,7 @@ class ClassicProductionTests(ResourceStoreFixture, unittest.TestCase):
         request = {'draft_version_id':saved['id'], 'execution_policy':self.policy()}
         preview = self.service.preview_classic_run(self.p, request)
         self.assertFalse(preview['ready'])
-        self.assertIn('classic_mode_unavailable', [gap['code'] for gap in preview['gaps']])
+        self.assertIn('subject_selection_required', [gap['code'] for gap in preview['gaps']])
         with self.assertRaises(ResourceError):
             self.write('propose_classic_run', {'request':request, 'preview_sha256':'0'*64})
         bad = dict(doc, references=[{'role':'speech','media_id':media}])
@@ -184,7 +184,7 @@ class ClassicProductionTests(ResourceStoreFixture, unittest.TestCase):
         for bad in [dict(doc,time_ms=3000),dict(doc,source_sha256='0'*64),dict(doc,source_media_id=str(uuid.uuid4()))]:
             with self.assertRaises(ResourceError):self.write('save_classic_reference_edit',{'shot_id':objects['shot'],'mode':'omni','document':bad,'base_edit_id':saved['id']})
 
-    def test_image_tools_fixed_semantic_request_and_unavailable_specialized_consumers(self):
+    def test_image_tools_fixed_semantic_request_and_required_native_capabilities(self):
         from vsc.production.resource_settings import ResourceSettings,PRESETS
         objects,media,_=self.ready_shot();preset=next(r for r in PRESETS if r['id']=='xai-grok-imagine-image');payload={k:v for k,v in preset.items() if k not in {'id','label'}};payload.update(enabled=True,model_version='offline-image-tools')
         model=ResourceSettings(self.store).save(payload,'test-human')['id']
@@ -193,8 +193,8 @@ class ClassicProductionTests(ResourceStoreFixture, unittest.TestCase):
         job=preview['artifact']['document']['series_batch']['jobs'][0];self.assertEqual(job['request']['reference_media_ids'],[media]);self.assertIn('37',job['request']['prompt']);self.assertIn('12',job['request']['prompt'])
         for tool in ['three_view','face_views','headshot','texture','expression','lighting']:
             typed=dict(doc,mode='image_'+tool,tool_settings={});version=self.write('save_classic_draft',{'document':typed,'base_draft_id':None});value=self.service.preview_classic_run(self.p,{'draft_version_id':version['id'],'execution_policy':self.policy()});self.assertTrue(value['ready'],value);self.assertEqual(value['artifact']['document']['series_batch']['jobs'][0]['request']['reference_media_ids'],[media])
-        for mode in ['image_inpaint','image_panorama','image_upscale','image_watermark']:
-            blocked=dict(doc,mode=mode,tool_settings={});version=self.write('save_classic_draft',{'document':blocked,'base_draft_id':None});value=self.service.preview_classic_run(self.p,{'draft_version_id':version['id'],'execution_policy':self.policy()});self.assertFalse(value['ready']);self.assertIn('image_tool_unavailable',[g['code'] for g in value['gaps']])
+        for mode in ['image_panorama','image_upscale','image_watermark']:
+            blocked=dict(doc,mode=mode,tool_settings={},references=[{'role':'operation_source','media_id':media}]);version=self.write('save_classic_draft',{'document':blocked,'base_draft_id':None});value=self.service.preview_classic_run(self.p,{'draft_version_id':version['id'],'execution_policy':self.policy()});self.assertFalse(value['ready']);self.assertIn('inpaint_inputs_required' if mode=='image_watermark' else 'model_capability_mismatch',[g['code'] for g in value['gaps']])
         self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
 
     def test_classic_shot_creation_sparse_reordering_and_candidate_configuration_scope(self):
@@ -319,13 +319,13 @@ assert.ok(root.textContent.includes('生成视频方式'));assert.equal(button('
 let failDraft=true,previewCalls=0;const attempts=[];
 const compact=module.createClassicProduction(root,{api:async(url,opts)=>{
  if(url.endsWith('/drafts')){attempts.push(JSON.parse(opts.body));if(failDraft){failDraft=false;throw new Error('save unavailable');}}
- if(url.endsWith('/preview')){previewCalls++;return {revision:6,ready:false,gaps:[]};}
+ if(url.endsWith('/quote')){previewCalls++;return {revision:6,ready:false,gaps:[]};}
  return api(url,opts);
 },session:()=>({actor:'human',csrf:'x',revision,writable:true}),setRevision:v=>revision=v,notice:v=>notes.push(v),navigate(){},media(){},openArtifact(){}});
-await compact.load({projectId:'p',objectId:'shot'});
+await compact.load({projectId:'compact',objectId:'shot'});
 form=root.querySelector('form');prompt=form.querySelector('textarea');prompt.value='预览前必须保存';await form.dispatch('input',{target:prompt});
-await button('预览生成').click();assert.equal(previewCalls,0);assert.equal(prompt.value,'预览前必须保存');
-await button('预览生成').click();assert.equal(previewCalls,1);assert.equal(attempts[0].idempotency_key,attempts[1].idempotency_key);compact.suspend();
+await button('生成').click();assert.equal(previewCalls,0);assert.equal(prompt.value,'预览前必须保存');
+await button('生成').click();assert.equal(previewCalls,1);assert.equal(attempts[0].idempotency_key,attempts[1].idempotency_key);compact.suspend();
 console.log('PASS mode buffers, idempotent retry and old write isolation');
 """
         result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,

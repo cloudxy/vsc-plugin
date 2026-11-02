@@ -161,7 +161,10 @@ class OfficialArkTransport:
             if path == "/images/generations":
                 response = sdk.images.generate(**payload)
             elif path == "/contents/generations/tasks":
-                response = sdk.content_generation.tasks.create(**payload)
+                arguments = dict(payload)
+                if 'output_format' in arguments:
+                    arguments['extra_body'] = {'output_format': arguments.pop('output_format')}
+                response = sdk.content_generation.tasks.create(**arguments)
             else:
                 response = sdk.content_generation.tasks.get(path.rsplit("/", 1)[1])
             raw = response.model_dump(mode="json", exclude_none=True)

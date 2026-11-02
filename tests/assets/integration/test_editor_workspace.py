@@ -17,6 +17,28 @@ from vsc.assets.resource_service import Conflict, ResourceError
 from vsc.post.edit_workspace import FORMAT, edit_operation
 
 
+class EditTransitionRenderTests(unittest.TestCase):
+    def test_real_fade_frames_match_preview_and_preserve_duration(self):
+        from PIL import Image
+        from vsc.post.edit_workspace import FirstCutRenderer,validate_edit
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):self.skipTest('requires FFmpeg')
+        with tempfile.TemporaryDirectory(prefix='vsc-transition-') as directory:
+            root=Path(directory);source=root/'red.png';Image.new('RGB',(128,128),'red').save(source)
+            doc={'format':FORMAT,'width':128,'height':128,'fps':24,'clips':[
+                {'id':'a','media_id':'fixed-red','in_frame':0,'out_frame':24,'fade_out_frames':6},
+                {'id':'b','media_id':'fixed-red','in_frame':0,'out_frame':24,'fade_in_frames':6}], 'audio':[],'captions':[]}
+            self.assertEqual(validate_edit(doc),48)
+            output,receipt=FirstCutRenderer().render(doc,{key:{'path':source,'modality':'image'} for key in ('a','b')},root)
+            raw=subprocess.check_output(['ffmpeg','-v','error','-i',str(output),'-vf','scale=1:1','-pix_fmt','rgb24','-fps_mode','passthrough','-f','rawvideo','-'])
+            frames=[raw[i:i+3] for i in range(0,len(raw),3)]
+            self.assertEqual(len(frames),48);self.assertGreater(frames[10][0],200)
+            self.assertLess(max(frames[23]),15);self.assertLess(max(frames[24]),15)
+            self.assertGreater(frames[32][0],200);self.assertEqual(receipt['frames'],48)
+            self.assertEqual(receipt['clips'][0]['fade_out_frames'],6)
+            invalid=copy.deepcopy(doc);invalid['clips'][0]['fade_in_frames']=20
+            with self.assertRaisesRegex(ValueError,'不能超过'):validate_edit(invalid)
+
+
 @unittest.skipUnless(HAS_DB_DEPS and TEST_URL, "requires isolated PostgreSQL")
 class EditorWorkspaceTests(ResourceStoreFixture, unittest.TestCase):
     def setUp(self):
@@ -79,6 +101,56 @@ class EditorWorkspaceTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(len(pins), 1)
         self.assertEqual(pins[0]["media_id"], media)
         self.assertEqual(pins[0]["source_out_frame"], 48)
+
+    def test_selected_clip_archive_uses_fixed_trims_and_excludes_other_clips(self):
+        media, _ = self.seed_media()
+        document = self.document(media)
+        document['clips'][0].update(in_frame=12, out_frame=36)
+        document['clips'].append({'id': 'clip2', 'media_id': media, 'in_frame': 36, 'out_frame': 72})
+        saved = self.save(document)
+        with self.assertRaises(ResourceError):
+            self.service.export_edit_workspace(self.p, saved['edit_version_id'], 'clips', ['missing'])
+        path, mime, temporary = self.service.export_edit_workspace(self.p, saved['edit_version_id'], 'clips', ['clip1'])
+        try:
+            self.assertEqual(mime, 'application/zip')
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(set(archive.namelist()), {'clip-001.mp4', 'manifest.json'})
+                manifest = json.loads(archive.read('manifest.json'))
+                self.assertEqual(manifest['clips'][0]['in_frame'], 12)
+                output = self.root / 'downloaded-clip.mp4'
+                output.write_bytes(archive.read('clip-001.mp4'))
+            probe = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-show_format', '-of', 'json', str(output)]))
+            self.assertAlmostEqual(float(probe['format']['duration']), 1, delta=.1)
+            subprocess.run(['ffmpeg', '-v', 'error', '-i', str(output), '-f', 'null', '-'], check=True, capture_output=True)
+        finally:
+            temporary.cleanup()
+
+    def test_export_watermark_uses_configured_policy_and_preserves_preview_source(self):
+        from vsc.post.first_cut_worker import FirstCutWorker
+        media,source=self.seed_media();saved=self.save(self.document(media))
+        job=self.write('request_edit_export',{'edit_version_id':saved['edit_version_id']})
+        self.assertEqual(FirstCutWorker(self.store,self.storage).run_once(self.p)['status'],'succeeded')
+        original,_=self.service.edit_export_content(self.p,job['id'])
+        original_sha=hashlib.sha256(original.read_bytes()).hexdigest()
+        provider='watermark_'+uuid.uuid4().hex
+        self.service.register_provider({'id':provider,'base_url':'https://example.invalid','auth_ref':'OFFLINE_ONLY'},actor='test-human')
+        model=self.service.register_model({'provider_id':provider,'model_key':'synthetic','model_version':'1','modality':'image','capabilities':{'purposes':['identity_ref']}},actor='test-human')['id']
+        self.rev=self.store.get_project(self.p)['revision']
+        document=dict(plan_key='export-test',title='隔离导出合同',amount_minor=100,currency='TST',credits=100,bucket_kind='credit',validity_days=2,checkout_minutes=10,purposes=['identity_ref'],rates=[dict(model_id=model,unit='images',credits_per_unit=1)],refund_policy='none',max_concurrent_jobs=1,invoice_enabled=False,seat_limit=2,watermark_required=True,renewal_policy='none')
+        policy=self.write('configure_commerce_plan',{'document':document,'base_version_id':None,'metering_enabled':True})
+        marked,fixed=self.service.edit_export_content(self.p,job['id'],for_download=True)
+        try:
+            self.assertNotEqual(hashlib.sha256(marked.read_bytes()).hexdigest(),original_sha)
+            self.assertEqual(fixed['source_sha256'],original_sha)
+            self.assertEqual(fixed['export_policy']['price_version_id'],policy['id'])
+            subprocess.run(['ffmpeg','-v','error','-i',str(marked),'-f','null','-'],check=True,capture_output=True)
+        finally:fixed['_temporary'].cleanup()
+        preview,_=self.service.edit_export_content(self.p,job['id'])
+        self.assertEqual(hashlib.sha256(preview.read_bytes()).hexdigest(),original_sha)
+        path,_,temporary=self.service.export_edit_workspace(self.p,saved['edit_version_id'],'project')
+        try:
+            with zipfile.ZipFile(path) as archive:self.assertTrue(json.loads(archive.read('manifest.json'))['export_policy']['watermark_required'])
+        finally:temporary.cleanup()
 
     def test_real_first_cut_mixes_captions_and_survives_http_duplicate(self):
         from fastapi.testclient import TestClient
@@ -186,7 +258,7 @@ class EditorWorkspaceTests(ResourceStoreFixture, unittest.TestCase):
                     'media':{'path':'media/synthetic.mp4','sha256':self.service.get_media(self.p,media)['sha256']},
                     'source':{'kind':'manual','artifact':{'id':origin,'sha256':origin_sha},'imported_by':'test-human','provenance':'owned synthetic test pattern'}}]}})
         self.write('decide_artifact',{'artifact_id':selected['id'],'reason':'合成操作者确认选片清单'})
-        doc=self.document(media);doc['clips'][0].update(muted=True,in_frame=12,out_frame=48)
+        doc=self.document(media);doc['clips'][0].update(muted=True,in_frame=12,out_frame=48,fade_in_frames=6,fade_out_frames=8)
         fixed=self.save(doc)
         options=self.service.edit_timeline_options(self.p,fixed['edit_version_id'])
         self.assertEqual([row['id'] for row in options['selected_takes']],[selected['id']])
@@ -195,6 +267,7 @@ class EditorWorkspaceTests(ResourceStoreFixture, unittest.TestCase):
         preview=self.service.preview_edit_timeline(self.p,request)
         segment=preview['artifact']['document']['render_plan']['segments'][0]
         self.assertEqual((segment['source_in_frame'],segment['duration_in_frames'],segment['fit']),(12,36,'contain'))
+        self.assertEqual((segment['fade_in_frames'],segment['fade_out_frames']),(6,8))
         proposal=self.write('propose_edit_timeline',{'request':request,'preview_sha256':preview['preview_sha256']})
         with self.assertRaises(ResourceError):self.write('freeze_edit_timeline',{'artifact_id':proposal['artifact_id']})
         self.write('decide_artifact',{'artifact_id':proposal['artifact_id'],'reason':'合成操作者批准固定时间线'})

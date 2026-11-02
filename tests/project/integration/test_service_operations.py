@@ -133,6 +133,9 @@ class ServiceOperationsTests(ResourceStoreFixture,unittest.TestCase):
         with TestClient(app) as client:
             headers={'Authorization':'Bearer '+secret};url='/api/v1/service-api/projects/'+self.p
             self.assertEqual(client.get(url+'/jobs',headers=headers).status_code,200)
+            capabilities=client.get(url+'/capabilities',headers=headers)
+            self.assertEqual(capabilities.status_code,200,capabilities.text)
+            self.assertEqual({row['operation'] for row in capabilities.json()['operations']},{'jobs','job','usage','preview','execute','cancel'})
             self.assertEqual(client.get('/api/v1/service-api/projects/'+other+'/jobs',headers=headers).status_code,403)
             self.assertEqual(client.get('/api/v1/projects/'+self.p+'/tree',headers=headers).status_code,403)
             self.assertEqual(client.post('/api/v1/access/login',json={'secret':secret},headers={'Origin':'http://testserver'}).status_code,403)

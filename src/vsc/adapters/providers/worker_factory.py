@@ -9,6 +9,19 @@ from vsc.assets.resource_service import ResourceError
 def worker_adapter_factory(job, storage):
     provider = job.get("provider") or {}
     identity = provider.get("configuration", {}) if isinstance(provider, dict) else {}
+    if identity.get('supplier') == 'fal':
+        from vsc.production.digital_human import DETECTION_MODEL, AVATAR_MODEL
+        if job['model']['model_key'] in {DETECTION_MODEL, AVATAR_MODEL}:
+            from vsc.adapters.providers.fal_avatar import fal_avatar_factory
+            return fal_avatar_factory(job, storage)
+        from vsc.adapters.providers.fal_media import fal_media_factory
+        return fal_media_factory(job, storage)
+    if identity.get("supplier") == "openai":
+        from vsc.adapters.providers.openai_image import openai_image_factory
+        return openai_image_factory(job, storage)
+    if identity.get("supplier") == "mureka":
+        from vsc.adapters.providers.mureka import mureka_factory
+        return mureka_factory(job, storage)
     if identity.get("supplier") == "volcengine" and identity.get("product") == "mediakit":
         from vsc.adapters.providers.speech.resource_factory import mediakit_audio_factory
         return mediakit_audio_factory(job, storage)

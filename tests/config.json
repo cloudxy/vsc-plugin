@@ -1261,7 +1261,9 @@
         "src/vsc/post/edit_workspace_handoff.py",
         "src/vsc/adapters/persistence/postgres/editor_handoff.py",
         "src/vsc/adapters/persistence/postgres/schema_editor_handoff.py",
-        "src/vsc/interfaces/web/static/edit-handoff.js"
+        "src/vsc/interfaces/web/static/edit-handoff.js",
+        "src/vsc/interfaces/web/static/edit-playback.js",
+        "src/vsc/post/export_entitlements.py"
       ]
     },
     "assets.integration.test_production_requirements": {
@@ -1371,7 +1373,10 @@
         "src/vsc/interfaces/web/team_review.py",
         "src/vsc/interfaces/web/static/access-control.js",
         "src/vsc/interfaces/web/static/team-review.js",
-        "migrations/postgres/versions/0032_fixed_member_seals.py"
+        "migrations/postgres/versions/0032_fixed_member_seals.py",
+        "src/vsc/assets/discovery.py",
+        "src/vsc/adapters/persistence/postgres/discovery.py",
+        "src/vsc/interfaces/web/static/discovery.js"
       ]
     },
     "project.integration.test_commerce": {
@@ -1384,7 +1389,10 @@
         "src/vsc/adapters/providers/commerce.py",
         "src/vsc/interfaces/web/commerce.py",
         "src/vsc/interfaces/web/static/commerce.js",
-        "migrations/postgres/versions/0032_fixed_member_seals.py"
+        "migrations/postgres/versions/0032_fixed_member_seals.py",
+        "src/vsc/adapters/persistence/postgres/workspace_commerce.py",
+        "src/vsc/adapters/persistence/postgres/schema_workspace_commerce.py",
+        "migrations/postgres/versions/0038_workspace_commerce.py"
       ]
     },
     "assets.integration.test_asset_center": {
@@ -1424,7 +1432,12 @@
         "src/vsc/production/overseas_production.py",
         "src/vsc/adapters/persistence/postgres/schema_text_tool_copies.py",
         "migrations/postgres/versions/0029_text_tool_receipts.py",
-        "migrations/postgres/versions/0031_text_tool_copies.py"
+        "migrations/postgres/versions/0031_text_tool_copies.py",
+        "src/vsc/production/media_understanding.py",
+        "src/vsc/post/subtitle_formats.py",
+        "src/vsc/production/text_tools.py",
+        "migrations/postgres/versions/0036_text_product_flow.py",
+        "migrations/postgres/versions/0037_text_media_review.py"
       ]
     },
     "project.integration.test_service_operations": {
@@ -1472,6 +1485,298 @@
       "sources": [
         "src/vsc/interfaces/web/static/text-tools.js",
         "tests/project/unit/text_tools.test.mjs"
+      ]
+    },
+    "assets.integration.test_working_state": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/working_state.py",
+        "src/vsc/adapters/persistence/postgres/working_state.py",
+        "src/vsc/adapters/persistence/postgres/schema_working_state.py",
+        "migrations/postgres/versions/0034_working_state.py"
+      ]
+    },
+    "project.integration.test_workbench_generation": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/adapters/persistence/postgres/quotes.py",
+        "src/vsc/adapters/persistence/postgres/production_store.py",
+        "src/vsc/adapters/persistence/postgres/production_guard.py",
+        "src/vsc/interfaces/web/classic_production.py"
+      ]
+    },
+    "project.integration.test_overseas_production": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/overseas_production.py",
+        "src/vsc/adapters/providers/asset_registry.py",
+        "src/vsc/adapters/persistence/postgres/provider_assets.py",
+        "src/vsc/adapters/persistence/postgres/schema_provider_assets.py",
+        "src/vsc/interfaces/web/static/media-upload.js",
+        "src/vsc/assets/source_resource.py",
+        "src/vsc/adapters/persistence/postgres/source_intake.py"
+      ]
+    },
+    "assets.integration.test_asset_cards": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/asset_cards.py",
+        "src/vsc/adapters/persistence/postgres/asset_cards.py",
+        "src/vsc/adapters/persistence/postgres/schema_asset_cards.py",
+        "src/vsc/interfaces/web/asset_cards.py",
+        "src/vsc/interfaces/web/static/asset-cards.js"
+      ]
+    },
+    "project.integration.test_task_center_progress": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/task_center.py",
+        "src/vsc/adapters/persistence/postgres/task_center.py"
+      ]
+    },
+    "project.integration.test_task_notifications": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/task_notifications.py",
+        "src/vsc/adapters/persistence/postgres/task_notifications.py",
+        "src/vsc/adapters/persistence/postgres/task_center.py",
+        "src/vsc/adapters/persistence/postgres/schema_task_notifications.py",
+        "src/vsc/interfaces/web/task_notifications.py",
+        "src/vsc/interfaces/web/static/task-notifications.js",
+        "src/vsc/interfaces/web/static/task-notifications.css",
+        "src/vsc/interfaces/web/static/production-platform.js",
+        "migrations/postgres/versions/0043_task_notifications.py"
+      ]
+    },
+    "project.integration.test_community": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/community.py",
+        "src/vsc/assets/canvas_templates.py",
+        "src/vsc/adapters/persistence/postgres/community.py",
+        "src/vsc/adapters/persistence/postgres/canvas_templates.py",
+        "src/vsc/adapters/persistence/postgres/schema_community.py",
+        "src/vsc/adapters/providers/distribution.py",
+        "src/vsc/interfaces/web/community.py",
+        "src/vsc/interfaces/web/static/community.js",
+        "src/vsc/interfaces/web/static/community.css",
+        "migrations/postgres/versions/0042_community_publication.py"
+      ]
+    },
+    "production.unit.test_mureka_provider": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/providers/mureka.py",
+        "src/vsc/adapters/providers/worker_factory.py",
+        "src/vsc/production/providers.py",
+        "src/vsc/production/resource_settings.py",
+        "src/vsc/production/run_authorization.py",
+        "src/vsc/adapters/persistence/postgres/budget_store.py"
+      ]
+    },
+    "production.integration.test_song_generation": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/providers/mureka.py",
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/assets/creative_tools.py",
+        "src/vsc/adapters/persistence/postgres/creative_tools.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/production/creative_tools.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/interfaces/web/static/creative-tools.js"
+      ]
+    },
+    "production.unit.test_openai_image": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/providers/openai_image.py",
+        "src/vsc/production/image_tools.py"
+      ]
+    },
+    "production.unit.test_image_controls": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/image-controls.js",
+        "src/vsc/interfaces/web/static/image-controls.css",
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/interfaces/web/static/reference-editor.js"
+      ]
+    },
+    "project.integration.test_image_inpaint": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/providers/openai_image.py",
+        "src/vsc/production/providers.py",
+        "src/vsc/production/run_authorization.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/production/image_tools.py",
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/interfaces/web/static/reference-editor.js"
+      ]
+    },
+    "production.unit.test_fal_media": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/providers/fal_media.py",
+        "src/vsc/production/fal_tools.py"
+      ]
+    },
+    "production.integration.test_fal_media_pipeline": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/providers/fal_media.py",
+        "src/vsc/production/fal_tools.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/production/bounded.py"
+      ]
+    },
+    "assets.integration.test_editor_candidates": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/editor_workspace.py",
+        "src/vsc/assets/editor_workspace.py",
+        "src/vsc/interfaces/web/editor_workspace.py",
+        "src/vsc/interfaces/web/static/edit-workspace.js"
+      ]
+    },
+    "production.unit.test_video_samples": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/video_samples.py",
+        "src/vsc/adapters/providers/volc_ark/sample.py",
+        "src/vsc/adapters/providers/volc_ark/provider.py",
+        "src/vsc/adapters/providers/volc_ark/resource_factory.py"
+      ]
+    },
+    "project.integration.test_project_presentation": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/project_presentation.py",
+        "src/vsc/adapters/persistence/postgres/discovery.py",
+        "src/vsc/project/resource_catalog.py",
+        "src/vsc/interfaces/web/static/discovery.js",
+        "src/vsc/interfaces/web/static/production-platform.js"
+      ]
+    },
+    "production.integration.test_video_samples": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/video_samples.py",
+        "src/vsc/adapters/persistence/postgres/video_samples.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/production/run_authorization.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/providers/volc_ark/sample.py",
+        "src/vsc/adapters/providers/volc_ark/provider.py",
+        "src/vsc/adapters/persistence/postgres/resource_settings_store.py"
+      ]
+    },
+    "production.unit.test_fal_avatar": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/digital_human.py",
+        "src/vsc/adapters/providers/fal_avatar.py",
+        "src/vsc/adapters/providers/fal_media.py"
+      ]
+    },
+    "production.integration.test_fal_avatar_pipeline": {
+      "owner": "production",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/digital_human.py",
+        "src/vsc/adapters/providers/fal_avatar.py",
+        "src/vsc/production/resource_worker.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/interfaces/web/static/subject-selector.js"
+      ]
+    },
+    "project.integration.test_authentication": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/authentication.py",
+        "src/vsc/adapters/providers/authentication.py",
+        "src/vsc/adapters/persistence/postgres/authentication.py",
+        "src/vsc/adapters/persistence/postgres/schema_authentication.py",
+        "src/vsc/interfaces/web/authentication.py",
+        "src/vsc/interfaces/web/static/access-control.js"
+      ]
+    },
+    "production.unit.test_i18n": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/i18n.js",
+        "src/vsc/interfaces/web/static/i18n-messages.js",
+        "tests/support/fixtures/frontend/i18n.cjs"
+      ]
+    },
+    "assets.integration.test_asset_center_gallery": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/asset_center.py",
+        "src/vsc/adapters/persistence/postgres/asset_center.py",
+        "src/vsc/interfaces/web/asset_center.py",
+        "src/vsc/interfaces/web/static/asset-center.js"
+      ]
+    },
+    "assets.unit.test_asset_center_gallery": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/asset-center.js",
+        "tests/support/fixtures/frontend/asset_center_gallery.cjs"
+      ]
+    },
+    "assets.unit.test_edit_workspace_frontend": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/edit-workspace.js",
+        "tests/assets/unit/edit_workspace_recovery.cjs"
+      ]
+    },
+    "project.integration.test_classic_controls": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/prompt_assist.py",
+        "src/vsc/assets/prompt_assist.py",
+        "src/vsc/adapters/persistence/postgres/classic_preferences.py",
+        "src/vsc/adapters/persistence/postgres/schema_classic_preferences.py",
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/interfaces/web/classic_production.py",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
       ]
     }
   },

@@ -47,6 +47,7 @@ def declare_commerce(project_table, ref, uid, stamp):
     redemptions = project_table("commerce_redemptions", *ref("commerce_campaigns", "campaign_id"), *ref("commerce_buckets", "bucket_id"),
         Column("actor", Text, nullable=False), Column("period", Text, nullable=False), stamp(), UniqueConstraint("project_id", "campaign_id", "actor", "period"))
     invoices = project_table("commerce_invoices", *ref("commerce_orders", "order_id"), Column("actor", Text, nullable=False),
+        Column('workspace_id',UUID(as_uuid=False),ForeignKey('access_workspaces.id')),
         Column("title", Text, nullable=False), Column("tax_id", Text, nullable=False), Column("email", Text, nullable=False),
         Column("gateway", Text, nullable=False), Column("status", Text, nullable=False), Column("external_id", Text), Column("error_code", Text),
         Column("document", LargeBinary), Column("sha256", String(64)), stamp(), UniqueConstraint("project_id", "order_id"),

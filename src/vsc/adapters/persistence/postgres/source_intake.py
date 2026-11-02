@@ -21,7 +21,14 @@ class SourceIntakeRepository:
     def source_intake_capabilities():
         return source_intake_capabilities()
 
-    def create_source_intake(self, project_id, payload, *, verified_media=None, **kw):
+    def source_import_media(self,project_id,item_id):
+        with self.engine.connect() as conn:
+            project=self._project(conn,project_id);item=self._one(conn,S.media_import_items,project['id'],checked_id(item_id))
+            if item['status']!='completed' or not item['media_id']:
+                raise ResourceError('请先完成原导入清单中的文件登记','import_not_completed')
+            return clean(self._media(conn,project['id'],item['media_id']))
+
+    def create_source_intake(self, project_id, payload, *, verified_media=None, verified_media_id=None, **kw):
         intent = required(payload, "intent")
         if intent not in ("screenplay", "novel", "outline", "reference"):
             raise ResourceError("来源用途必须明确为 screenplay/novel/outline/reference", "invalid_source_intent")
@@ -29,6 +36,16 @@ class SourceIntakeRepository:
         def work(conn, project):
             p, identifier = project["id"], new_id()
             media = None
+            if verified_media_id:
+                item=self._one(conn,S.media_import_items,p,checked_id(payload['import_item_id']))
+                if item['status']!='completed' or item['media_id']!=checked_id(verified_media_id):
+                    raise ResourceError('原导入文件未完成或不属于该素材','import_scope_mismatch')
+                media=self._media(conn,p,item['media_id'])
+                source_key='import:'+item['id']+':'+intent
+                prior=conn.execute(select(S.source_versions).where(S.source_versions.c.project_id==p,S.source_versions.c.source_key==source_key).order_by(S.source_versions.c.version.desc()).limit(1)).mappings().first()
+                if prior:
+                    metadata=conn.execute(select(S.source_intake_documents).where(S.source_intake_documents.c.project_id==p,S.source_intake_documents.c.source_id==prior['id'])).mappings().one()
+                    return {'id':prior['id'],'source_id':prior['id'],'source_key':source_key,'version':prior['version'],'sha256':prior['sha256'],'title':metadata['title'],'format':metadata['format'],'intent':intent,'media_id':media['id'],'original_sha256':media['sha256'],'registered':True,'parsed':False,'untrusted_material':True}
             if verified_media:
                 if not 0 < verified_media.get("size_bytes", 0) <= MAX_SOURCE_BYTES:
                     raise ResourceError("来源文件必须为非空且不超过 10 MiB", "source_size_limit")
@@ -48,7 +65,7 @@ class SourceIntakeRepository:
             title = payload.get("title") or payload.get("filename") or (media["name"] if media else "粘贴文案")
             if not isinstance(title, str) or not title.strip():
                 raise ResourceError("来源标题必须为非空文本", "invalid_source_title")
-            source_key = payload.get("source_key", identifier)
+            source_key = 'import:'+str(payload['import_item_id'])+':'+intent if verified_media_id else payload.get("source_key", identifier)
             version = conn.execute(select(func.coalesce(func.max(S.source_versions.c.version), 0)).where(
                 S.source_versions.c.project_id == p, S.source_versions.c.source_key == source_key)).scalar_one() + 1
             conn.execute(insert(S.source_versions).values(project_id=p, id=identifier, source_key=source_key,

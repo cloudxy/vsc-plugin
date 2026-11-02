@@ -112,7 +112,8 @@ class VolcArkImageProvider:
 
 class VolcArkVideoProvider:
     def __init__(self, model: str, media_url: Callable[[str], str], resolution: str, ratio: str,
-                 generate_audio: bool = False, transport=None):
+                 generate_audio: bool = False, transport=None, *, video_draft=False, sample_binding=None, provider_id="volc_ark"):
+        self.video_draft, self.sample_binding, self.provider_id = video_draft, sample_binding, provider_id
         self.model = model
         self.media_url = media_url
         self.resolution = resolution
@@ -122,26 +123,41 @@ class VolcArkVideoProvider:
 
     def preflight(self, req: VideoRequest = None):
         if req is not None:
+            from vsc.adapters.providers.volc_ark.sample import validate_draft_request, upgrade_payload
+            if getattr(req,'operation',None)=='draft_upgrade':
+                upgrade_payload(req,self.model,self.provider_id,self.sample_binding,resolution=self.resolution,enabled=self.video_draft)
+                return
+            if getattr(req,'operation',None):
+                raise VolcAdapterError('此方舟执行器未实现该原生加工操作，不能改成普通生成')
+            validate_draft_request(req,self.model,self.resolution,self.video_draft)
             reject_unmapped_visual_params(req.params)
 
     def submit(self, req: VideoRequest) -> JobHandle:
         self.preflight(req)
-        if req.duration_ms < 1000 or req.duration_ms % 1000 or not req.prompt.strip():
-            raise VolcAdapterError("方舟视频时长须为整秒且提示词非空")
-        first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
-        last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
-        refs = [self.media_url(media_id) for media_id in req.reference_media_ids]
-        audio_refs = [self.media_url(media_id) for media_id in req.reference_audio_media_ids]
-        # The existing Ark contract distinguishes hard first/last frames from
-        # reference mode. Never silently weaken a hard frame to a reference.
-        if (first or last) and (refs or audio_refs):
-            raise VolcAdapterError("硬首尾帧与其他参考图不可混用；先调整统一镜头规格")
-        content = volc_ark.video_content(req.prompt, first=first, last=last, images=refs, audios=audio_refs)
-        payload = {"model": self.model, "content": content, "resolution": self.resolution,
-                   "duration": req.duration_ms // 1000,
-                   "generate_audio": self.generate_audio, "return_last_frame": True, "watermark": False}
-        if not first:
-            payload["ratio"] = self.ratio
+        if getattr(req,'operation',None)=='draft_upgrade':
+            from vsc.adapters.providers.volc_ark.sample import upgrade_payload
+            payload=upgrade_payload(req,self.model,self.provider_id,self.sample_binding,resolution=self.resolution,enabled=self.video_draft)
+        else:
+            if req.duration_ms < 1000 or req.duration_ms % 1000 or not req.prompt.strip():
+                raise VolcAdapterError("方舟视频时长须为整秒且提示词非空")
+            first = self.media_url(req.first_frame_media_id) if req.first_frame_media_id else None
+            last = self.media_url(req.last_frame_media_id) if req.last_frame_media_id else None
+            refs = [self.media_url(media_id) for media_id in req.reference_media_ids]
+            audio_refs = [self.media_url(media_id) for media_id in req.reference_audio_media_ids]
+            video_refs = [self.media_url(media_id) for media_id in req.reference_video_media_ids]
+            # The existing Ark contract distinguishes hard first/last frames from
+            # reference mode. Never silently weaken a hard frame to a reference.
+            if (first or last) and (refs or audio_refs or video_refs):
+                raise VolcAdapterError("硬首尾帧与其他参考图不可混用；先调整统一镜头规格")
+            content = volc_ark.video_content(req.prompt, first=first, last=last, images=refs, videos=video_refs, audios=audio_refs)
+            payload = {"model": self.model, "content": content, "resolution": self.resolution,
+                       "duration": req.duration_ms // 1000,
+                       "generate_audio": self.generate_audio, "return_last_frame": True, "watermark": False}
+            if not first:
+                payload["ratio"] = self.ratio
+            if getattr(req,'draft',False):
+                payload['draft']=True
+                if first:payload['ratio']='adaptive'
         raw = self.transport("/contents/generations/tasks", payload)
         task_id = raw.get("id") if isinstance(raw, dict) else None
         if not isinstance(task_id, str) or not task_id:
@@ -154,6 +170,8 @@ class VolcArkVideoProvider:
         raw = self.transport(f"/contents/generations/tasks/{handle.external_task_id}")
         if not isinstance(raw, dict):
             raise VolcAdapterError("方舟视频查询响应不是对象")
+        if self.video_draft and (raw.get('id')!=handle.external_task_id or raw.get('model',self.model)!=self.model):
+            raise VolcAdapterError('样片查询回执身份与原任务不符，保留原回执继续核对')
         status = raw.get("status")
         if status == "succeeded":
             return JobStatus("succeeded", raw=raw)
@@ -218,9 +236,10 @@ class VolcArkAudioProvider:
             raise VolcAdapterError("语音格式、采样率或语速不在已验证映射内")
 
     def preflight(self, req: AudioRequest | None = None):
-        if req is not None and (req.purpose != "dialogue_dry"
-                or list(req.script_line_ids) != [self.binding["line_id"]]
-                or not req.prompt.strip() or req.reference_media_ids or req.voice_media_id or req.params):
+        standalone = bool(self.binding.get('working_draft_id'))
+        if req is not None and ((req.purpose != 'speech' or req.script_line_ids) if standalone else (req.purpose != 'dialogue_dry' or list(req.script_line_ids) != [self.binding.get('line_id')])):
+            raise VolcAdapterError('语音用途或固定文本范围与绑定不符')
+        if req is not None and (not req.prompt.strip() or req.reference_media_ids or req.voice_media_id or req.params):
             raise VolcAdapterError("音频请求与已批准台词或当前预置音色能力不符")
         if self.transport is None:
             speech.api_key()
@@ -308,4 +327,4 @@ class VolcArkAudioProvider:
             raise VolcAdapterError("语音结果暂存路径或摘要无效")
         return [GeneratedAsset("audio", local_path=expected, sha256=digest,
             metadata={"speaker": raw["speaker"], "resource_id": raw["resource_id"],
-                      "line_id": self.binding["line_id"], "entity_id": self.binding["entity_id"]})]
+                      **({"working_draft_id": self.binding["working_draft_id"]} if self.binding.get("working_draft_id") else {"line_id": self.binding["line_id"], "entity_id": self.binding["entity_id"]})})]

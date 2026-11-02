@@ -1,3 +1,4 @@
+import {msg,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 /* Full document reading, independent of storage-specific artifact envelopes. */
 const TYPES = {
   creative_brief:'创作委托', source_map:'来源映射', adaptation_plan:'改编方案',
@@ -36,7 +37,7 @@ const FIELDS = {
 const node = (tag, cls, text) => {
   const value = document.createElement(tag);
   if (cls) value.className = cls;
-  if (text != null) value.textContent = String(text);
+  if (text != null) setText(value,text);
   return value;
 };
 const words = value => String(value).replace(/([a-z\d])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').trim();
@@ -76,7 +77,7 @@ function appendReadableText(parent, text, className) {
     parent.append(node('div',className,text.slice(offset,offset+chunkSize)));
     offset=Math.min(text.length,offset+chunkSize);
     if(offset<text.length){
-      more.textContent=`继续显示文字（已显示 ${offset} / ${text.length} 字符）`;
+      setText(more,msg("ui.show_more_text_value0_value1_characters_shown",{value0:offset,value1:text.length}));
       parent.append(more);
     }
   };
@@ -87,7 +88,7 @@ export function renderArtifactContent(content, {mimeType=''}={}) {
   const body = node('div', 'document-content');
   const mediaKind=/^(video|audio|image)\//.exec(mimeType)?.[1];
   if(mediaKind){
-    body.append(node('p','document-media',`这份资料是${{video:'视频',audio:'音频',image:'图片'}[mediaKind]}，请打开对应素材查看。`));
+    body.append(node('p','document-media',msg("ui.this_material_is_value0_open_the_corresponding_media_to",{value0:{video:'视频',audio:'音频',image:'图片'}[mediaKind]})));
     return {body,value:undefined,mediaKind};
   }
   let value = content, structured = typeof content !== 'string';
@@ -107,16 +108,16 @@ export function renderArtifactContent(content, {mimeType=''}={}) {
       if(text.length>16384)appendReadableText(item.parent,text,'document-value');
       else item.parent.append(node('p', 'document-value', text));
     } else if (Array.isArray(data)) {
-      if (!data.length) { item.parent.append(node('p','document-empty','空列表（[]）')); continue; }
+      if (!data.length) { item.parent.append(node('p','document-empty',msg("ui.empty_list"))); continue; }
       const list = node('ol','document-array'); item.parent.append(list);
       const children = data.map((value,index) => {
-        const li = node('li','document-array-item'); li.setAttribute('aria-label',`第 ${index + 1} 项`); list.append(li);
+        const li = node('li','document-array-item'); bindAttribute(li,'aria-label',msg("ui.item_value0",{value0:index + 1})); list.append(li);
         return {value,parent:li};
       });
       for(let i=children.length-1;i>=0;i--)pending.push(children[i]);
     } else {
       const entries = Object.entries(data);
-      if (!entries.length) { item.parent.append(node('p','document-empty','空对象（{}）')); continue; }
+      if (!entries.length) { item.parent.append(node('p','document-empty',msg("ui.empty_object"))); continue; }
       const fields = node('dl','document-fields'); item.parent.append(fields);
       const children = entries.map(([key,value]) => {
         const term = node('dt','document-field-name',FIELDS[key] || words(key) || key);

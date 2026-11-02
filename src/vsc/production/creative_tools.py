@@ -8,10 +8,10 @@ FORMAT = "vsc.creative-tool-draft/v1"
 TOOLS = {
     "music_description": ("描述生成音乐候选", "audio", "music", ""),
     "ambience": ("环境声候选", "audio", "ambience", ""),
-    "music_lyrics": ("歌词生成歌曲", "audio", "song", "尚未接入歌词到演唱歌曲适配器"),
-    "instrumental": ("生成纯音乐", "audio", "music", "尚未接入纯音乐生成适配器"),
+    "music_lyrics": ("歌词生成歌曲", "audio", "song", ""),
+    "instrumental": ("生成纯音乐候选", "audio", "music", ""),
     "lyrics": ("歌词创作", "text", "lyrics", "文本歌词建议；不生成演唱音频"),
-    "speech": ("台词配音", "audio", "dialogue_dry", ""),
+    "speech": ("独立文字配音", "audio", "speech", ""),
     "voice": ("人物音色", "audio", "voice", "音色规格与授权沿人物资产入口；本工具不克隆声音"),
     "sfx": ("普通音效候选", "audio", "sfx", ""),
     "music_mix": ("视频配乐", "local", "music", ""),
@@ -19,7 +19,7 @@ TOOLS = {
     "video_edit": ("视频编辑", "video", "video_edit", ""),
     "video_extend": ("视频续接", "video", "video_extend", ""),
     "segment_remake": ("已有片段区间替换", "local", "segment_remake", "使用已登记替换片实际拼接；不从提示词生成新画面"),
-    "depth_motion": ("深度动作捕捉", "video", "depth_motion", "尚未接入源视频→深度中间视频→人物视频依赖链"),
+    "depth_motion": ("深度动作捕捉", "video", "reference_to_video", ""),
     "native_long_video": ("原生长视频", "video", "native_long_video", "尚未接入原生长视频模型；短片拼接不视为原生长视频"),
     "upscale": ("视频超分", "video", "upscale", "尚未接入超分适配器"),
     "remove_subtitles": ("字幕区域擦除", "local", "remove_subtitles", "矩形边界插值；不自动识别字幕，不还原被遮挡原画"),
@@ -39,13 +39,17 @@ def normalize_draft(value):
     fields = {"tool", "episode_id", "shot_id", "title", "prompt", "lyrics", "lrc", "style", "model_id",
               "params", "source_media_id", "audio_media_id", "visual_media_ids", "ranges", "segments",
               "keep_original", "music_start_ms", "music_end_ms", "audio_in_ms", "duration_ms", "dimensions",
-              "script_line_ids", "voice_media_id", "replacement_media_id"}
+              "script_line_ids", "voice_media_id", "replacement_media_id", "speaker", "depth_model_id"}
     if not isinstance(value, dict) or set(value) - fields or value.get("tool") not in TOOLS:
         _fail("工具草稿需要已知类型与支持的字段")
     result = deepcopy(value)
+    if result['tool']=='depth_motion':
+        result.setdefault('depth_model_id','')
+        if not isinstance(result['depth_model_id'],str) or len(result['depth_model_id'])>100:_fail('深度模型身份无效')
+    elif value.get('depth_model_id'):_fail('深度模型字段只用于深度动作')
     for key, limit in (("episode_id", 100), ("shot_id", 100), ("title", 200), ("prompt", 20000),
                        ("lyrics", 50000), ("lrc", 50000), ("style", 4000), ("model_id", 100),
-                       ("source_media_id", 100), ("audio_media_id", 100), ("voice_media_id", 100), ("replacement_media_id",100)):
+                       ("source_media_id", 100), ("audio_media_id", 100), ("voice_media_id", 100), ("replacement_media_id",100), ("speaker",128)):
         result.setdefault(key, "")
         if not isinstance(result[key], str) or len(result[key]) > limit:
             _fail("字段格式或长度不正确：" + key)
@@ -164,3 +168,28 @@ def music_edit(document, source, audio, *, fps=24, width=720, height=1280):
         captions=[])
     validate_edit(result)
     return result
+
+
+def render_music_mix(source_path,audio_path,document,directory):
+    """Render the explicit music interval and retain the full generated track."""
+    import json,shutil
+    from pathlib import Path
+    from vsc.assets.resource_service import ResourceError
+    from vsc.post.local_media_tools import command,inspect_video
+    info,duration,_,_=inspect_video(source_path)
+    audio=json.loads(command(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(audio_path)]))
+    track=next((r for r in audio.get('streams',[]) if r.get('codec_type')=='audio'),None)
+    if not track:raise ResourceError('配乐文件没有可解码音轨','music_audio_invalid')
+    music_ms=round(float(track.get('duration') or audio['format']['duration'])*1000)
+    music_edit(document,{'id':'source','duration_ms':round(duration*1000)},{'id':'audio','duration_ms':music_ms})
+    a,b,start=[document[k]/1000 for k in ('music_start_ms','music_end_ms','audio_in_ms')]
+    has_original=any(r.get('codec_type')=='audio' for r in info['streams'])
+    keep=document['keep_original'] and has_original
+    chain=f'[1:a:0]atrim=start={start}:duration={b-a},asetpts=PTS-STARTPTS,volume={.7 if keep else 1},adelay={round(a*1000)}:all=1,apad,atrim=duration={duration}[music]'
+    chain+=';[0:a:0][music]amix=inputs=2:duration=first:normalize=0[out]' if keep else ';[music]anull[out]'
+    directory=Path(directory);video=directory/'配乐视频.mp4';full=directory/('完整配乐'+audio_path.suffix)
+    command(['ffmpeg','-v','error','-nostdin','-y','-i',str(source_path),'-i',str(audio_path),'-filter_complex',chain,'-map','0:v:0','-map','[out]','-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t',str(duration),'-movflags','+faststart',str(video)],180)
+    _,actual,_,_=inspect_video(video)
+    if abs(actual-duration)>.1:raise ResourceError('混合输出时长与源视频不符','music_output_invalid')
+    shutil.copyfile(audio_path,full)
+    return [{'role':'mixed_video','path':video},{'role':'full_music','path':full}],{'ffmpeg_version':command(['ffmpeg','-version']).decode().splitlines()[0],'music_start_ms':document['music_start_ms'],'music_end_ms':document['music_end_ms'],'audio_in_ms':document['audio_in_ms'],'full_audio_ms':music_ms,'source_duration_ms':round(duration*1000),'keep_original':keep,'audio_generated_again':False}

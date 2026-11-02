@@ -9,7 +9,7 @@ from vsc.assets.resource_service import ResourceError
 READ_POSTS={'preview','preview-use','run-preview','import-preview','extract','capabilities','options','preview-proposal','quote'}
 REVIEW_PATHS={'reviews','artifact-review-notes','review-process','script-notes','commit'}
 APPROVE_PATHS={'artifact-decisions','binding-selections','binding-rejections','binding-retirements','rights-decisions','script-note-decisions','script-suggestion-decisions'}
-EXECUTE_PATHS={'execute','run','local-production-enqueue','generation-jobs','edit-exports'}
+EXECUTE_PATHS={'register-asset','execute','run','generate','local-production-enqueue','generation-jobs','edit-exports'}
 
 
 def request_principal(request,sessions,local_read=False):
@@ -28,7 +28,7 @@ def authorize_http(service,request):
         return
     if principal and principal.api_key_id:denied('API凭据不能用于界面与其他接口')
     # Credential exchange and same-origin session lifecycle perform their own checks.
-    if path.startswith('/api/v1/session') or path in {'/api/v1/access/login','/api/v1/access/join'}:return
+    if path.startswith('/api/v1/authentication/') or path.startswith('/api/v1/session') or path in {'/api/v1/access/login','/api/v1/access/join'}:return
     if path=='/api/v1/access/share-view':return
     if path.startswith('/api/v1/access'):
         if not principal or not principal.identity_id:denied('账户与团队管理需要成员身份')
@@ -47,6 +47,11 @@ def authorize_http(service,request):
             action='/'.join(rest[1:])
             if action in {'requests','requests/withdraw','exports/build','api-keys','api-keys/revoke','account-close/preview','account-close/execute'}:capability='read'
             elif action in {'configuration','announcements','requests/process'}:capability='manage'
+        if method=='POST' and rest==['task-notifications','read']:capability='read'
+        if method=='POST' and rest:
+            if rest[0] in {'community-rules','community-moderation','distribution-channels'}:capability='manage'
+            elif rest==['community-publications','state'] or rest[0]=='distribution-requests':capability='publish'
+            elif rest==['community-reports']:capability='read'
         if method=='POST' and len(rest)==3 and rest[0]=='edit-exports' and rest[-1]=='cancel':capability='execute'
         target_type,target_id=None,None
         if len(rest)==2 and rest[0]=='creative-canvas-versions':target_type,target_id='canvas_version',rest[1]
@@ -91,6 +96,10 @@ def install_access_routes(app,router,catalog,etag,actor,origin,new_session,sessi
 
     @app.get('/api/v1/access')
     def snapshot(request:Request):return etag(request,service().access_snapshot())
+
+    @app.get('/api/v1/access/workspaces/{workspace_id}/resources')
+    def resources(workspace_id:str,request:Request,offset:int=0,limit:int=24,query:str=''):
+        return etag(request,service().access_workspace_resources(workspace_id,offset=offset,limit=limit,query=query))
 
     @app.post('/api/v1/access/commands/{action}')
     async def command(action:str,request:Request,body:dict):

@@ -10,13 +10,15 @@ class IntelligentProductionServiceMixin:
     def intelligent_options(self,p):
         from vsc.production.resource_settings import ResourceSettings
         tree=self.get_project_tree(p);backend=getattr(self,'intelligent_planner',None) or GrokBuildIntelligentPlanner()
-        return dict(definition=deepcopy(DEFINITION),routes=ROUTES,templates=deepcopy(TEMPLATES),nodes=tree['nodes'],models=ResourceSettings(self.store).list()['configurations'],host_available=backend.available(),revision=tree['revision'])
+        return dict(definition=deepcopy(DEFINITION),routes=ROUTES,templates=deepcopy(TEMPLATES),nodes=tree['nodes'],models=ResourceSettings(self.store).list()['configurations'],host_available=backend.available(),media=self.list_resources(p,limit=200)['items'],revision=tree['revision'])
     def list_intelligent_workflows(self,p,episode_id=None):return self.store.list_intelligent_workflows(p,episode_id)
     def get_intelligent_workflow(self,p,identifier,version_id=None):
         result=self.store.get_intelligent_workflow(p,identifier,version_id)
         for row in result['selected_media']:
             row['url']='/api/v1/projects/'+p+'/media/'+row['media_id']+'/content'
         result['warnings']=self._intelligent_warnings(result['state'])
+        result['episode_assets']=self.list_episode_assets(p,result['workflow']['episode_id'])['items']
+        result['working_selections']=self.list_working_selections(p,episode_id=result['workflow']['episode_id'])['items']
         return result
     @staticmethod
     def _intelligent_warnings(state):
@@ -69,22 +71,22 @@ class IntelligentProductionServiceMixin:
             if purpose=='blocking' and state['blocking_mode']=='3d':gap('spatial_export_required','三维站位请进入原导演台，保存场景并导出实际截图')
             if purpose=='video' and any(w['unit_key']==key for w in self._intelligent_warnings(state)):gap('duration_mismatch','请核对逐段时间与目标时长后保存')
             for dep in [d for d in current['dependency_inputs'] if d['unit_key']==key]:
-                if not dep['selected']:gap('anchor_not_selected','依赖首图尚无固定已采用图片；选图后刷新依赖引用')
-                for media in dep['selected']:references.append(dict(role='reference_image',media_id=media['media_id']))
+                if not dep['selected']:gap('anchor_not_selected','依赖首图尚无固定工作图片；选图保存后刷新依赖引用')
+                for media in dep['selected']:references.append(dict(role='reference_image',media_id=media['media_id'],**({'episode_asset_form_version_id':media['episode_asset_form_version_id']} if media.get('episode_asset_form_version_id') else {})))
             for media in [m for m in state['media'] if m['unit_key']==key]:
                 if purpose in {'blocking','lineart'}:
-                    if media['purpose'] in {'reference_image','blocking','first_frame'}:references.append(dict(role='reference_image',media_id=media['media_id']))
+                    if media['purpose'] in {'reference_image','blocking','first_frame'}:references.append(dict(role='reference_image',media_id=media['media_id'],**({'episode_asset_form_version_id':media['episode_asset_form_version_id']} if media.get('episode_asset_form_version_id') else {})))
                 else:
                     role=unit['lineart_purpose'] if media['purpose']=='lineart' else 'first_frame' if media['purpose']=='first_frame' else 'reference_image'
-                    if role!='none':references.append(dict(role=role,media_id=media['media_id']))
+                    if role!='none':references.append(dict(role=role,media_id=media['media_id'],**({'episode_asset_form_version_id':media['episode_asset_form_version_id']} if media.get('episode_asset_form_version_id') else {})))
             references=list({(r['role'],r['media_id']):r for r in references}.values())
             if purpose!='video':mode='image';run_purpose='keyframe'
             else:
                 mode='multi' if state['route']=='multi_reference_video' else 'single' if state['route']=='storyboard_video' else 'multi' if len(references)>1 else 'single' if any(r['role']=='first_frame' for r in references) else 'text'
-                if mode=='single' and not any(r['role']=='first_frame' for r in references):gap('first_frame_required','分镜画面路线需要明确已采用首帧，不能把任意参考静默当首帧')
+                if mode=='single' and not any(r['role']=='first_frame' for r in references):gap('first_frame_required','分镜画面路线需要明确工作首帧，不能把任意参考静默当首帧')
                 if mode=='text' and references:gap('reference_role_required','单张参考请明确首帧用途，或补齐多参考路线')
                 run_purpose='video_clip'
-            choices=('keyframe','shot_keyframe','ref') if purpose!='video' else ('image_to_video','video_clip','i2v') if mode!='text' else ('video_clip',)
+            choices=('keyframe','shot_keyframe','first_frame','ref') if purpose!='video' else ('reference_to_video','image_to_video','video_clip','i2v') if mode=='multi' else ('image_to_video','video_clip','i2v') if mode!='text' else ('text_to_video','video_clip')
             if model:run_purpose=next((name for name in choices if name in model['capabilities'].get('purposes',[])),run_purpose)
             description=unit['description']
             if purpose=='lineart':description='绘制分镜网格线稿；保持以下逐段叙事与参考空间关系。\n'+description

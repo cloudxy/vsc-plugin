@@ -46,9 +46,9 @@ def _scope_allows(scope, purpose):
 
 
 def _imported_ancestor(conn, project_id, media_id):
-    # The DB predicate follows only typed, project-local operation/job inputs.
-    # UNION makes malformed historical cycles finite; no rights-chain locks or
-    # guessed matching by byte digest are introduced.
+    # The DB predicate follows typed operation/job and cross-project copy inputs.
+    # UNION makes historical cycles finite; copies preserve original library
+    # restrictions without guessing relationships from matching byte digests.
     return conn.execute(text("SELECT vsc_library_has_imported_ancestor(CAST(:project AS uuid), CAST(:media AS uuid))"),
         {"project": project_id, "media": media_id}).scalar_one()
 
