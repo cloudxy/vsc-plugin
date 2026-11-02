@@ -10,6 +10,44 @@ from vsc.assets.resource_service import ResourceError
 
 @unittest.skipUnless(TEST_URL and HAS_DB_DEPS,'requires isolated PostgreSQL')
 class TaskCenterProgressTests(ResourceStoreFixture,unittest.TestCase):
+    def test_episode_filter_limits_original_tasks_and_keeps_project_view(self):
+        import tempfile
+        from vsc.adapters.storage.local.store import LocalStorage
+        temporary=tempfile.TemporaryDirectory(prefix='vsc-task-scope-');self.addCleanup(temporary.cleanup)
+        self.addCleanup(setattr,self.service,'storage',self.service.storage)
+        self.service.storage=LocalStorage(temporary.name)
+        objects=self.hierarchy();first=objects['episode']
+        second=self.write('create_object',dict(kind='episode',display_code='SECOND',parent_id=objects['work'],ordinal=1))['id']
+        batches=[]
+        for episode in (first,second,None):
+            batch=self.write('create_media_import',dict(episode_id=episode,title='Scoped upload',
+                files=[dict(filename='item.txt',size_bytes=1,sha256='a'*64)],rights='unknown',source_evidence=''))
+            batches.append(self.service.get_media_import(self.p,batch['id'])['items'][0]['id'])
+        all_tasks=self.service.get_task_center(self.p,kind='import')
+        self.assertEqual({r['id'] for r in all_tasks['items']},set(batches))
+        for episode,expected in ((first,batches[0]),(second,batches[1])):
+            tasks=self.service.get_task_center(self.p,kind='import',episode_id=episode)
+            self.assertEqual(tasks['total'],1);self.assertEqual(tasks['episode_id'],episode)
+            self.assertEqual(tasks['items'][0]['id'],expected)
+            self.assertIn('episode='+episode,tasks['items'][0]['href'])
+            self.assertEqual(self.service.get_task_center(self.p,kind='import',episode_id=episode,offset=1)['items'],[])
+        other=self.service.create_project(dict(name='Other isolated scope'),actor='test-human')['id']
+        with self.assertRaises(ResourceError):self.service.get_task_center(other,episode_id=first)
+        with self.assertRaises(ResourceError):self.service.get_task_center(self.p,episode_id=objects['shot'])
+
+    def test_episode_filter_text_batch_uses_actual_member_scope(self):
+        objects=self.hierarchy();ep=objects['episode'];units=[]
+        for index,episode in enumerate((ep,None)):
+            row=self.write('save_text_tool',dict(tool='scoring',group_key='scope',unit_key=str(index),
+                title='Scoped text',ordinal=index,episode_id=episode,unit_id=None,base_version_id=None,
+                document={**deepcopy(COMMON),**deepcopy(DEFAULTS['scoring']),'source_text':'原文\n第二行'}))
+            units.append(row['unit_id'])
+        included=self.write('create_text_batch',dict(tool='scoring',action='analyze',unit_ids=units,auto_accept=False))
+        excluded=self.write('create_text_batch',dict(tool='scoring',action='analyze',unit_ids=[units[1]],auto_accept=False))
+        found=self.service.get_task_center(self.p,kind='text_batch',episode_id=ep)
+        self.assertEqual([r['id'] for r in found['items']],[included['id']])
+        self.assertNotIn(excluded['id'],[r['id'] for r in found['items']])
+
     def test_batch_children_keep_original_success_failure_and_deep_links(self):
         class Host:
             name='isolated-progress-host'

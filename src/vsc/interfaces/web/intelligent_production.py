@@ -42,6 +42,19 @@ def install_intelligent_routes(router,catalog,etag,actor):
     def run_preview(project_id:str,request:Request,body:dict):return etag(request,service(project_id).preview_intelligent_runs(project_id,body.get('payload')))
     @router.post('/{project_id}/intelligent-run-proposals')
     async def run_proposals(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'propose_intelligent_runs')
+    @router.post('/{project_id}/intelligent-work-batch-preview')
+    def work_batch_preview(project_id:str,request:Request,body:dict):return etag(request,service(project_id).preview_intelligent_work_batch(project_id,body.get('payload')))
+    @router.post('/{project_id}/intelligent-work-batches')
+    async def work_batch_generate(project_id:str,request:Request,body:dict):
+        if body.get('confirmed') is not True:raise HTTPException(422,'生成整批需要明确确认固定范围与报价')
+        return await write(project_id,request,body,'generate_intelligent_work_batch')
+    @router.get('/{project_id}/intelligent-work-batches/{batch_id}')
+    def work_batch_status(project_id:str,batch_id:str,request:Request):
+        return etag(request,service(project_id).intelligent_work_batch_status(project_id,batch_id))
+    @router.post('/{project_id}/intelligent-work-batches/{batch_id}/advance')
+    async def work_batch_advance(project_id:str,batch_id:str,request:Request):
+        return await run_in_threadpool(service(project_id).advance_intelligent_work_batch,
+            project_id,{'batch_artifact_id':batch_id},actor(request))
     @router.post('/{project_id}/intelligent-unit-copies')
     async def copy_unit(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'copy_intelligent_unit')
     @router.post('/{project_id}/intelligent-missing-assets-preview')

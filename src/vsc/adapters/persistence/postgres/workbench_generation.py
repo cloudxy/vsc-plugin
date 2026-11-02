@@ -203,6 +203,10 @@ def working_context(store, conn, project, draft_id, *, shot_id=None, purpose=Non
         settings={k:v for k,v in document['tool_settings'].items() if k!='depth_model_id'}
         context['working_native_media']=depth_operation_fields(store._media(conn,p,refs['operation_source']['media_id']),settings)
         context['working_dependency_contract']='depth-motion/v1'
+    from .professional_inputs import resolve_professional_inputs,validate_saved_sources
+    professional=resolve_professional_inputs(store,conn,project,document)
+    validate_saved_sources(conn,p,artifact['id'],document,professional)
+    context.update(professional['context'])
     context["sha256"] = context_digest(context)
     return clean(context)
 

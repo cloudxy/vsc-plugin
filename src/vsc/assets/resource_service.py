@@ -57,7 +57,7 @@ POST_ROLES = frozenset({"video_take", "dialogue_dry", "ambience", "music", "sfx"
 
 def context_digest(context):
     """Hash fixed creative inputs, excluding revision and availability displays."""
-    if "semantic_inputs" in context:
+    if "semantic_inputs" in context and not context.get('working_draft'):
         value = {k: context.get(k) for k in ("project_id", "shot_id", "purpose", "ancestors", "semantic_inputs")}
         if context.get("asset_id"):
             value["asset_id"] = context["asset_id"]
@@ -130,6 +130,7 @@ from vsc.assets.team_review import TeamReviewServiceMixin
 from vsc.assets.commerce import CommerceService
 from vsc.assets.community import CommunityServiceMixin
 from vsc.assets.canvas_templates import CanvasTemplatesServiceMixin
+from vsc.assets.episode_work import EpisodeWorkService
 
 
 class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
@@ -137,7 +138,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                       ProductionPlatformServiceMixin, ProjectManagementServiceMixin, CreativeCanvasService, ClassicProductionServiceMixin, WorkingStateService, IntelligentProductionServiceMixin,
                       SpatialSceneService, CreativeToolsService, MediaImportService, TextToolsServiceMixin,
                       AssetCenterService, AssetCardsServiceMixin, TaskCenterService, AccessControlServiceMixin, AuthenticationServiceMixin, PromptAssistServiceMixin, TeamReviewServiceMixin, CommerceService,
-                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin):
+                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin, EpisodeWorkService):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester

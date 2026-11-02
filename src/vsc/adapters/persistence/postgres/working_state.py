@@ -113,6 +113,8 @@ class WorkingStateRepository:
 
     def _project_classic_draft_media(self,conn,project,artifact,document):
         """Only called inside the artifact-save transaction, including explicit legacy backfill."""
+        from .professional_inputs import project_source_workflow
+        project_source_workflow(self,conn,project,artifact,document)
         p=project['id'];identifier=artifact['id']
         rows=conn.execute(select(S.classic_draft_media).where(S.classic_draft_media.c.project_id==p,
             S.classic_draft_media.c.draft_version_id==identifier).order_by(S.classic_draft_media.c.ordinal)).mappings().all()

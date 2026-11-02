@@ -137,6 +137,8 @@ class ClassicProductionRepository:
             if document['mode'] == 'digital_human' and document.get('subject_selection'):
                 from .workbench_generation import subject_sources
                 dependencies.append(subject_sources(self, conn, project['id'], document)['dependency_id'])
+            from .professional_inputs import resolve_professional_inputs
+            dependencies.extend(resolve_professional_inputs(self,conn,project,document)['dependency_ids'])
             artifact = self._create_artifact(conn, project, {"artifact_key": key, "artifact_type": DRAFT_TYPE,
                 "stage": "production", "document": document, "object_ids": [document["shot_id"]], "supersedes_id": current,
                 "dependency_ids":dependencies})

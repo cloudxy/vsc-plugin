@@ -39,8 +39,8 @@ def install_production_platform_routes(router, catalog, etag):
         return etag(request, service(project_id).budget_status(project_id))
 
     @router.get("/{project_id}/task-center")
-    def tasks(project_id: str,request: Request,offset: int=0,limit: int=24,kind: str=None,status: str=None):
-        return etag(request,service(project_id).get_task_center(project_id,offset,limit,kind,status))
+    def tasks(project_id: str,request: Request,offset: int=0,limit: int=24,kind: str=None,status: str=None,episode_id: str=None):
+        return etag(request,service(project_id).get_task_center(project_id,offset,limit,kind,status,episode_id))
 
     @router.get("/{project_id}/production-platform/jobs/{job_id}")
     def job(project_id: str, job_id: str, request: Request):

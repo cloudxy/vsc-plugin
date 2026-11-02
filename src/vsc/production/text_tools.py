@@ -6,6 +6,24 @@ import re
 from vsc.assets.resource_service import ResourceError
 
 
+def novel_materials_packet(actions):
+    """Freeze bounded method manifests at queue time, without invoking a host."""
+    from vsc.production.role_materials import TASKS,compile_role_materials
+    fixed={}
+    for action in sorted(set(actions)):
+        task='novel-'+action;selection=TASKS.get(task)
+        if selection is None:raise ResourceError('小说动作没有固定专业材料','role_materials_invalid')
+        fixed[action]=compile_role_materials(selection[0],selection[1],task)['manifest']
+    return dict(format='vsc.text-tool-role-materials/v1',tool='novel',actions=fixed)
+
+
+def novel_execution_materials(action,manifest):
+    from vsc.production.role_materials import TASKS,compile_role_materials
+    task='novel-'+action;selection=TASKS.get(task)
+    if selection is None or not isinstance(manifest,dict):raise ResourceError('小说任务缺少固定材料清单','role_materials_invalid')
+    return compile_role_materials(selection[0],selection[1],task,expected_manifest=manifest)
+
+
 def sha(text):
     return hashlib.sha256(text.encode('utf8')).hexdigest()
 

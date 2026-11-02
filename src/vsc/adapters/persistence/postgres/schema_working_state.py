@@ -86,3 +86,44 @@ def declare_working_state(project_table, ref, uid, stamp):
             if column.name.endswith('_id') and column.name not in {'project_id','id'}:
                 Index('ix_'+table.name+'_'+column.name,table.c.project_id,column)
     return result
+
+
+WORKING_PROFESSIONAL_GUARD_DDL = r'''
+CREATE FUNCTION vsc_classic_workflow_inputs() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE p uuid; a uuid; doc jsonb; source jsonb; member record; expected jsonb; target_episode uuid;
+BEGIN
+ p:=NEW.project_id;
+ IF TG_TABLE_NAME='artifact_versions' THEN
+  IF NEW.artifact_type<>'classic-production-draft' THEN RETURN NULL; END IF;
+  a:=NEW.id;
+ ELSE a:=NEW.draft_version_id; END IF;
+ SELECT vsc_professional_document(document) INTO doc FROM artifact_versions
+ WHERE project_id=p AND id=a AND artifact_type='classic-production-draft';
+ IF doc IS NULL THEN RAISE EXCEPTION 'workflow source requires a classic draft' USING ERRCODE='23514'; END IF;
+ source:=doc->'source_workflow';
+ IF source IS NULL OR source='null'::jsonb THEN
+  IF EXISTS(SELECT 1 FROM classic_draft_workflows WHERE project_id=p AND draft_version_id=a) THEN
+   RAISE EXCEPTION 'workflow source cannot be appended to a sealed draft' USING ERRCODE='23514'; END IF;
+  RETURN NULL;
+ END IF;
+ SELECT * INTO member FROM classic_draft_workflows WHERE project_id=p AND draft_version_id=a;
+ IF NOT FOUND THEN RAISE EXCEPTION 'classic workflow projection is incomplete' USING ERRCODE='23514'; END IF;
+ expected:=jsonb_build_object('version_id',member.version_id::text,'artifact_id',member.artifact_id::text,
+  'artifact_sha256',member.artifact_sha256,'state_sha256',member.state_sha256,'unit_key',member.unit_key);
+ IF source IS DISTINCT FROM expected THEN RAISE EXCEPTION 'classic workflow source differs from fixed document' USING ERRCODE='23514'; END IF;
+ target_episode:=vsc_professional_object_episode(p,(doc->>'shot_id')::uuid);
+ IF target_episode IS NULL OR NOT EXISTS(SELECT 1 FROM intelligent_versions v
+  JOIN intelligent_workflows w ON w.project_id=v.project_id AND w.id=v.workflow_id
+  JOIN intelligent_units u ON u.project_id=v.project_id AND u.version_id=v.id
+  JOIN artifact_versions av ON av.project_id=v.project_id AND av.id=v.artifact_id
+  WHERE v.project_id=p AND v.id=member.version_id AND v.artifact_id=member.artifact_id
+   AND av.sha256=member.artifact_sha256 AND av.artifact_type='intelligent-workflow-state'
+   AND u.unit_key=member.unit_key AND u.shot_id::text=doc->>'shot_id' AND w.episode_id=target_episode) THEN
+  RAISE EXCEPTION 'classic workflow must match original artifact, unit, shot and episode' USING ERRCODE='23514'; END IF;
+ RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER classic_workflow_inputs AFTER INSERT ON artifact_versions
+DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION vsc_classic_workflow_inputs();
+CREATE CONSTRAINT TRIGGER classic_workflow_inputs AFTER INSERT ON classic_draft_workflows
+DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION vsc_classic_workflow_inputs();
+'''

@@ -477,7 +477,7 @@ class TextToolsRepository:
             return {"id":unit["id"],"locked":payload["locked"],"message":"已开始的调用保留结果，但不会覆盖人工稿"}
         return self._mutate(project_id,"set_text_tool_lock",payload,callback=work,**kw)
 
-    def start_text_tool_attempt(self,project_id,payload,*,backend,caller,**kw):
+    def start_text_tool_attempt(self,project_id,payload,*,backend,caller,materials_artifact_id=None,**kw):
         def work(conn,project):
             p=project["id"];unit=self._text_unit(conn,p,payload.get("unit_id"))
             if unit["locked"]:raise Conflict("该单元已停止并锁定","text_tool_locked")
@@ -488,12 +488,25 @@ class TextToolsRepository:
             if unit["tool"]=="overseas" and action=="localize":
                 doc=normalize_document("overseas",doc)
                 self._overseas_baseline(conn,project,unit,doc["understanding_version_id"],"understanding",doc)
+            packet=None
+            if materials_artifact_id:
+                packet=self._one(conn,S.artifact_versions,p,materials_artifact_id);body=json.loads(bytes(packet['document']))
+                if unit['tool']!='novel' or packet['artifact_type']!='text-tool-role-materials' or body.get('format')!='vsc.text-tool-role-materials/v1' or body.get('tool')!='novel' or action not in body.get('actions',{}):raise ResourceError('排队材料不属于此小说动作','role_materials_invalid')
+                dependencies=set(conn.execute(select(S.artifact_dependencies.c.dependency_id).where(S.artifact_dependencies.c.project_id==p,S.artifact_dependencies.c.artifact_id==packet['id'])).scalars())
+                if version['id'] not in dependencies:raise ResourceError('排队材料未固定本次小说输入','role_materials_invalid')
+            def reuse(previous):
+                if packet:
+                    manifests=[]
+                    for raw in conn.execute(select(S.artifact_versions.c.document).join(S.text_tool_attempt_inputs,and_(S.text_tool_attempt_inputs.c.project_id==p,S.text_tool_attempt_inputs.c.version_id==S.artifact_versions.c.id)).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_type=='text-tool-role-materials',S.text_tool_attempt_inputs.c.attempt_id==previous['id'])).scalars():
+                        manifests.append(json.loads(raw).get('actions',{}).get(action))
+                    if manifests!=[body['actions'][action]]:raise Conflict('原尝试的专业材料与本批不同，请明确发起新的尝试','role_materials_changed')
+                return {'id':previous['id'],'caller':None}
             query=select(S.text_tool_attempts).where(S.text_tool_attempts.c.project_id==p,S.text_tool_attempts.c.unit_id==unit["id"])
             active=conn.execute(query.where(S.text_tool_attempts.c.status.in_(["running","submission_unknown"]))).mappings().first()
-            if active:return {"id":active["id"],"caller":None}
+            if active:return reuse(active)
             if not payload.get("new_attempt"):
                 previous=conn.execute(query.where(S.text_tool_attempts.c.input_version_id==version["id"],S.text_tool_attempts.c.action==action).order_by(S.text_tool_attempts.c.created_at.desc()).limit(1)).mappings().first()
-                if previous:return {"id":previous["id"],"caller":None}
+                if previous:return reuse(previous)
             identifier=new_id()
             references=list(doc.get('reference_version_ids',[]))
             if unit['tool']=='novel':
@@ -507,6 +520,12 @@ class TextToolsRepository:
                         for row in conn.execute(select(S.text_tool_novel_episodes).where(S.text_tool_novel_episodes.c.project_id==p,S.text_tool_novel_episodes.c.plan_id==plan).order_by(S.text_tool_novel_episodes.c.ordinal)).mappings():
                             references.append(self._text_unit(conn,p,row['unit_id'])['current_version_id'])
             references=list(dict.fromkeys(references))
+            if unit['tool']=='novel':
+                if packet is None:
+                    from vsc.production.text_tools import novel_materials_packet
+                    packet=self._create_artifact(conn,project,dict(artifact_type='text-tool-role-materials',artifact_key='text-attempt-role-materials:'+identifier,document=novel_materials_packet([action]),dependency_ids=list(dict.fromkeys([version['id']]+references)),object_ids=[unit['episode_id']] if unit['episode_id'] else []))
+                references.append(packet['id'])
+            elif materials_artifact_id:raise ResourceError('此文本工具不能使用小说角色材料','role_materials_invalid')
             conn.execute(insert(S.text_tool_attempts).values(project_id=p,id=identifier,unit_id=unit["id"],input_version_id=version["id"],action=action,backend="local-ffprobe-subtitles/v3" if action=="check" and not(set(doc['checks'])-{'metadata','subtitles','decode'}) else backend,status="running",input_count=len(references),created_by=kw["actor"]))
             for ordinal,ref in enumerate(references):
                 conn.execute(insert(S.text_tool_attempt_inputs).values(project_id=p,id=new_id(),attempt_id=identifier,version_id=ref,ordinal=ordinal))
@@ -520,7 +539,11 @@ class TextToolsRepository:
             if row["result_version_id"]:row["result"]=json.loads(self._one(conn,S.artifact_versions,p,row["result_version_id"])["document"])
             refs=[]
             for ref in conn.execute(select(S.text_tool_attempt_inputs.c.version_id).where(S.text_tool_attempt_inputs.c.project_id==p,S.text_tool_attempt_inputs.c.attempt_id==row['id']).order_by(S.text_tool_attempt_inputs.c.ordinal)).scalars():
-                fixed=self._one(conn,S.artifact_versions,p,ref);refs.append({'id':ref,'sha256':fixed['sha256'],'document':json.loads(fixed['document'])})
+                fixed=self._one(conn,S.artifact_versions,p,ref);document=json.loads(fixed['document'])
+                if fixed['artifact_type']=='text-tool-role-materials':
+                    if row.get('role_materials_manifest') or document.get('format')!='vsc.text-tool-role-materials/v1' or document.get('tool')!='novel' or row['action'] not in document.get('actions',{}):raise ResourceError('原任务的角色材料关联无效','role_materials_invalid')
+                    row=dict(row,role_materials_manifest=document['actions'][row['action']],materials_artifact_id=fixed['id']);continue
+                refs.append({'id':ref,'sha256':fixed['sha256'],'document':document})
             row=dict(row,references=refs)
             return clean({**row,"revision":project["revision"]})
 
@@ -858,7 +881,11 @@ class TextToolsRepository:
                 linked=set(conn.execute(select(S.text_tool_novel_episodes.c.unit_id).where(S.text_tool_novel_episodes.c.project_id==p,S.text_tool_novel_episodes.c.plan_id==plan['id'])).scalars()) if plan else set()
                 if linked!=set(ids):raise ResourceError('联合QA批次必须覆盖当前计划的完整分集')
                 rows.append(dict(unit_id=qa,input_version_id=fixed['id'],action='qa_notes',status='pending'))
-            conn.execute(insert(S.text_tool_batches).values(project_id=p,id=identifier,tool=payload['tool'],action=payload['action'],auto_accept=payload.get('auto_accept',False),status='ready',item_count=len(rows),created_by=kw['actor']))
+            materials_id=None
+            if payload['tool']=='novel':
+                from vsc.production.text_tools import novel_materials_packet
+                materials_id=self._create_artifact(conn,project,dict(artifact_type='text-tool-role-materials',artifact_key='text-batch-role-materials:'+identifier,document=novel_materials_packet([r['action'] for r in rows]),dependency_ids=list(dict.fromkeys(r['input_version_id'] for r in rows))))['id']
+            conn.execute(insert(S.text_tool_batches).values(project_id=p,id=identifier,tool=payload['tool'],action=payload['action'],auto_accept=payload.get('auto_accept',False),status='ready',item_count=len(rows),materials_artifact_id=materials_id,created_by=kw['actor']))
             for index,row in enumerate(rows):conn.execute(insert(S.text_tool_batch_items).values(project_id=p,id=new_id(),batch_id=identifier,ordinal=index,**row))
             return {'id':identifier,'count':len(rows),'status':'ready'}
         return self._mutate(project_id,'create_text_batch',payload,callback=work,**kw)

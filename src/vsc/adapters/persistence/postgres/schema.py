@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0046_classic_preferences"
+SCHEMA_REVISION = "0047_professional_inputs"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -1102,13 +1102,14 @@ from .schema_management import declare_management
 from .schema_canvas_execution import install_canvas_execution_schema, CANVAS_EXECUTION_IMMUTABLE
 from .schema_text_tool_copies import declare_text_tool_copies
 from .schema_creative_tool_imports import declare_creative_tool_imports
-from .schema_working_state import declare_working_state, WORKING_STATE_IMMUTABLE
+from .schema_working_state import declare_working_state, WORKING_STATE_IMMUTABLE, WORKING_PROFESSIONAL_GUARD_DDL
 from .schema_workspace_commerce import declare_workspace_commerce, WORKSPACE_COMMERCE_IMMUTABLE
 from .schema_asset_cards import declare_asset_cards, ASSET_CARD_IMMUTABLE
 from .schema_provider_assets import declare_provider_assets
 from .schema_community import declare_community, COMMUNITY_IMMUTABLE
 from .schema_task_notifications import declare_task_notifications
 from .schema_classic_preferences import declare_classic_preferences, CLASSIC_PREFERENCE_GUARD_DDL
+from .schema_professional_inputs import declare_professional_inputs, PROFESSIONAL_INPUT_IMMUTABLE, PROFESSIONAL_INPUT_GUARD_DDL
 globals().update(install_canvas_schema(metadata))
 globals().update(declare_editor(project_table, ref, uid, stamp))
 globals().update(install_spatial_schema(metadata))
@@ -1133,6 +1134,15 @@ globals().update(declare_provider_assets(project_table,ref,uid,stamp))
 globals().update(declare_community(project_table,ref,uid,stamp))
 globals().update(declare_task_notifications(project_table,ref,uid,stamp))
 globals().update(declare_classic_preferences(project_table,ref,uid,stamp))
+globals().update(declare_professional_inputs(metadata))
+text_tool_batches.append_column(uid('materials_artifact_id', nullable=True))
+text_tool_batches.append_constraint(ForeignKeyConstraint(
+    ['project_id', 'materials_artifact_id'],
+    ['artifact_versions.project_id', 'artifact_versions.id'], ondelete='RESTRICT'))
+text_tool_batches.append_constraint(CheckConstraint(
+    "materials_artifact_id IS NULL OR tool='novel'", name='materials_tool'))
+Index('ix_text_tool_batches_materials_artifact_id', text_tool_batches.c.project_id,
+      text_tool_batches.c.materials_artifact_id)
 intelligent_assets.append_column(uid('episode_asset_form_version_id', nullable=True))
 intelligent_assets.append_constraint(ForeignKeyConstraint(
     ['project_id','episode_asset_form_version_id'],
@@ -1154,7 +1164,7 @@ intelligent_media.append_constraint(CheckConstraint(
 Index('ix_intelligent_media_working_selection', intelligent_media.c.project_id, intelligent_media.c.working_selection_version_id)
 Index('ix_intelligent_media_episode_form', intelligent_media.c.project_id, intelligent_media.c.episode_asset_form_version_id)
 
-APPEND_ONLY_TABLES = AUTHENTICATION_IMMUTABLE + ("task_notification_events", "task_notification_reads") + COMMUNITY_IMMUTABLE + ASSET_CARD_IMMUTABLE + WORKSPACE_COMMERCE_IMMUTABLE + WORKING_STATE_IMMUTABLE + ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
+APPEND_ONLY_TABLES = PROFESSIONAL_INPUT_IMMUTABLE + AUTHENTICATION_IMMUTABLE + ("task_notification_events", "task_notification_reads") + COMMUNITY_IMMUTABLE + ASSET_CARD_IMMUTABLE + WORKSPACE_COMMERCE_IMMUTABLE + WORKING_STATE_IMMUTABLE + ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
     "library_entry_versions", "library_version_media", "library_entry_decisions",
     "render_caption_inputs", "edit_preview_inputs", "edit_preview_outputs", "media_recycle_actions",
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",
