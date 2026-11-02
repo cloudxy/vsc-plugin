@@ -294,3 +294,50 @@ class SpatialPlannerTests(ResourceStoreFixture,unittest.TestCase):
         self.write('save_spatial_scene',dict(spatial_scene_id=scene['id'],scene_revision=1,title='新的人工结构',document=document))
         with self.assertRaises(Conflict) as error:self.write('decide_spatial_plan_task',dict(task_id=task['id'],outcome='confirm',reason='合成旧计划尝试',document=plan['plan']['document']))
         self.assertEqual(error.exception.code,'spatial_plan_stale');self.assertEqual(self.service.get_spatial_scene(self.p,scene['id'])['document']['objects'][1]['position'][0],8)
+
+    def test_direct_generation_saves_one_editable_version_and_preserves_original(self):
+        scene=self.scene();calls=[]
+        class Planner:
+            def available(self):return True
+            def generate(self,packet,task,skill):
+                calls.append(task['id']);document=deepcopy(task['document']);document['objects'][1]['position'][0]=4
+                return dict(message='合成直接修改',questions=[],document=document)
+        self.service.spatial_planner=Planner()
+        task=self.write('create_spatial_plan_task',dict(spatial_scene_id=scene['id'],scene_revision=1,message='直接修改人物位置',apply_mode='direct'))
+        result=self.service.execute_spatial_plan_task(self.p,task['id'])
+        self.assertEqual(result['status'],'applied');self.assertEqual(result['apply_mode'],'direct')
+        current=self.service.get_spatial_scene(self.p,scene['id'])
+        self.assertEqual(current['scene_revision'],2);self.assertEqual(current['document']['objects'][1]['position'][0],4)
+        self.assertEqual(self.service.get_spatial_scene(self.p,scene['id'],1)['document']['objects'][1]['position'][0],-1)
+        self.assertEqual(current['plans'][0]['output_version_id'],current['version_id'])
+        self.service.execute_spatial_plan_task(self.p,task['id'])
+        self.assertEqual(len(calls),1);self.assertEqual(self.service.get_spatial_scene(self.p,scene['id'])['scene_revision'],2)
+        from sqlalchemy import select,func
+        from vsc.adapters.persistence.postgres import schema as S
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(select(func.count()).select_from(S.artifact_decisions).where(S.artifact_decisions.c.project_id==self.p)).scalar(),0)
+            decision=conn.execute(select(S.spatial_plan_decisions).where(S.spatial_plan_decisions.c.project_id==self.p,S.spatial_plan_decisions.c.task_id==task['id'])).mappings().one()
+            self.assertEqual(decision['actor'],'test-human')
+
+    def test_direct_generation_retains_questions_stale_changes_and_stopped_late_result(self):
+        fixture=self;scene=self.scene()
+        class Planner:
+            effect='questions'
+            def available(self):return True
+            def generate(self,packet,task,skill):
+                document=deepcopy(task['document']);document['objects'][1]['position'][0]=3
+                if self.effect=='stale':
+                    edited=deepcopy(task['document']);edited['objects'][1]['position'][0]=8
+                    fixture.write('save_spatial_scene',dict(spatial_scene_id=scene['id'],scene_revision=task['scene_revision'],title='并发修改',document=edited))
+                if self.effect=='stop':fixture.write('decide_spatial_plan_task',dict(task_id=task['id'],outcome='stop',reason='用户停止本次生成'))
+                return dict(message='合成回复',questions=['人物朝向？'] if self.effect=='questions' else [],document=document)
+        planner=Planner();self.service.spatial_planner=planner
+        for effect,version,status in [('questions',1,'needs_input'),('stale',1,'planned'),('stop',2,'stopped')]:
+            with self.subTest(effect=effect):
+                self.rev=self.service.get_project(self.p)['revision'];planner.effect=effect
+                task=self.write('create_spatial_plan_task',dict(spatial_scene_id=scene['id'],scene_revision=version,message=effect,apply_mode='direct'))
+                result=self.service.execute_spatial_plan_task(self.p,task['id'])
+                self.assertEqual(result['status'],status)
+                current=self.service.get_spatial_scene(self.p,scene['id']);self.assertEqual(current['scene_revision'],2 if effect!='questions' else 1)
+                if effect=='stale':self.assertEqual(result['error'],'spatial_plan_stale');self.assertEqual(current['document']['objects'][1]['position'][0],8)
+                if effect=='stop':self.assertIsNone(result['host_result']);self.assertIsNone(result['plan_artifact_id'])

@@ -27,6 +27,20 @@ def install_text_tools_routes(router,catalog,etag,actor):
     def options(project_id:str,request:Request):
         return etag(request,service(project_id).text_tool_options(project_id))
 
+    @router.get('/{project_id}/text-tools/overseas/registry')
+    def registry(project_id:str,request:Request,unit_id:str):return etag(request,service(project_id).overseas_registry_options(project_id,unit_id))
+
+    @router.post('/{project_id}/text-tools/overseas/register-asset')
+    async def register_asset(project_id:str,request:Request,body:dict):
+        if body.get('confirmed') is not True:raise HTTPException(422,'请明确确认向供应商注册所选资产')
+        return await write(project_id,request,body,'register_overseas_asset')
+
+    @router.post('/{project_id}/text-tools/overseas/asset-image')
+    async def asset_image(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'prepare_overseas_asset_image')
+
+    @router.post('/{project_id}/text-tools/overseas/select-asset-image')
+    async def select_asset_image(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'select_overseas_asset_image')
+
     @router.get("/{project_id}/text-tools")
     def listing(project_id:str,request:Request,tool:str,group_key:str=None):
         return etag(request,service(project_id).list_text_tools(project_id,tool,group_key))
@@ -91,8 +105,8 @@ def install_text_tools_routes(router,catalog,etag,actor):
         return await write(project_id,request,body,"import_text_tool")
 
     @router.get("/{project_id}/text-tools/exports/{version_id}")
-    def export(project_id:str,version_id:str,format:str):
-        data,mime,name=service(project_id).text_tool_export(project_id,version_id,format)
+    def export(project_id:str,version_id:str,format:str,view:str='translation'):
+        data,mime,name=service(project_id).text_tool_export(project_id,version_id,format,view=view)
         return Response(data,media_type=mime,headers={"Content-Disposition":'attachment; filename="'+name+'"',"X-VSC-Source-Version":version_id})
 
 
@@ -107,6 +121,48 @@ def install_text_tools_routes(router,catalog,etag,actor):
 
     @router.post("/{project_id}/text-tools/novel-import")
     async def novel(project_id:str,request:Request,body:dict):return await write(project_id,request,body,"import_text_tool_novel")
+
+    @router.post('/{project_id}/text-tools/novel-plan')
+    async def novel_plan(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'create_novel_plan')
+
+    @router.post('/{project_id}/text-tools/novel-batch-preview')
+    def novel_batch_preview(project_id:str,request:Request,body:dict):return etag(request,service(project_id).preview_novel_batch_import(project_id,body.get('payload')))
+
+    @router.post('/{project_id}/text-tools/novel-batch-import')
+    async def novel_batch_import(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'import_novel_batch')
+
+    @router.get('/{project_id}/text-tools/batches')
+    def batches(project_id:str,request:Request,tool:str):return etag(request,service(project_id).list_text_batches(project_id,tool))
+
+    @router.get('/{project_id}/text-tools/batches/{batch_id}')
+    def batch(project_id:str,batch_id:str,request:Request):return etag(request,service(project_id).get_text_batch(project_id,batch_id))
+
+    @router.post('/{project_id}/text-tools/batches')
+    async def create_batch(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'create_text_batch')
+
+    @router.post('/{project_id}/text-tools/batch-process')
+    async def process_batch(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'process_text_batch')
+
+    @router.post('/{project_id}/text-tools/batch-stop')
+    async def stop_batch(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'stop_text_batch')
+
+    @router.post('/{project_id}/text-tools/translation-stage')
+    async def translation_stage(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'set_translation_stage')
+
+    @router.post('/{project_id}/text-tools/issue-decision')
+    async def issue_decision(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'decide_text_issue')
+
+    @router.post('/{project_id}/text-tools/review-report')
+    async def review_report(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'freeze_text_review_report')
+
+    @router.post('/{project_id}/text-tools/issue-subtitle')
+    async def issue_subtitle(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'apply_text_issue_subtitle')
+
+    @router.post('/{project_id}/text-tools/breakdown-canvas-preview')
+    def breakdown_canvas_preview(project_id:str,request:Request,body:dict):return etag(request,service(project_id).preview_breakdown_canvas(project_id,body.get('payload')))
+
+    @router.post('/{project_id}/text-tools/breakdown-canvas')
+    async def breakdown_canvas(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'apply_breakdown_canvas')
 
     @router.post("/{project_id}/text-tools/evidence")
     async def evidence(project_id:str,request:Request,body:dict):return await write(project_id,request,body,"capture_text_tool_evidence")

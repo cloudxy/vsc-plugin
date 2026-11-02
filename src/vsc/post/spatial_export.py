@@ -157,8 +157,9 @@ def render_png(document, camera_id, instant, maximum=None):
     return rasterize(document, scene_meshes(document, instant), camera_at(document, camera_id, instant), lights, maximum)
 
 
-def export_glb(document, camera_id, instant):
-    """Bake the selected instant to static world meshes and real glTF cameras."""
+def export_glb(document, camera_id, instant, *, animated=False):
+    """Export a fixed pose or editable scene animation using embedded media only."""
+    if animated:return export_animated_glb(document,camera_id,instant)
     data = {"asset": {"version": "2.0", "generator": "VSC bounded spatial renderer 1"}, "scene": 0,
         "scenes": [{"nodes": []}], "nodes": [], "meshes": [], "materials": [], "cameras": [],
         "buffers": [{"byteLength": 0}], "bufferViews": [], "accessors": [], "images": [], "textures": [], "samplers": [],
@@ -237,6 +238,97 @@ def export_glb(document, camera_id, instant):
     return struct.pack("<III",0x46546c67,2,size)+struct.pack("<II",len(encoded),0x4e4f534a)+encoded+(struct.pack("<II",len(binary),0x004e4942)+binary if binary else b"")
 
 
+def export_animated_glb(document, camera_id, instant):
+    """Keep mesh/skin/morph structure; export scene-time channels, never static poses."""
+    from vsc.post.spatial_gltf import interpolate, MAX_BYTES
+    def quaternion(right, up, back):
+        m=[right,up,back];trace=sum(m[i][i] for i in range(3))
+        if trace>0:
+            w=math.sqrt(1+trace)*.5;v=[(m[1][2]-m[2][1])/(4*w),(m[2][0]-m[0][2])/(4*w),(m[0][1]-m[1][0])/(4*w),w]
+        else:
+            i=max(range(3),key=lambda j:m[j][j]);j=(i+1)%3;k=(i+2)%3;t=math.sqrt(1+m[i][i]-m[j][j]-m[k][k]);v=[0.,0.,0.,0.];v[i]=t*.5;v[j]=(m[i][j]+m[j][i])/(2*t);v[k]=(m[i][k]+m[k][i])/(2*t);v[3]=(m[j][k]-m[k][j])/(2*t)
+        length=math.sqrt(sum(x*x for x in v));return [x/length for x in v]
+    def rotation(angles):return quaternion(*[rotate(a,angles) for a in ([1,0,0],[0,1,0],[0,0,1])])
+    local=deepcopy(document);local['objects']=[]
+    for original in document['objects']:
+        if original['kind']=='mesh' and original.get('_gltf'):continue
+        item=deepcopy(original);item.update(position=[0,0,0],rotation=[0,0,0],scale=[1,1,1],keyframes=[]);local['objects'].append(item)
+    raw=export_glb(local,camera_id,0);size=struct.unpack_from('<I',raw,12)[0];data=json.loads(raw[20:20+size]);binary=bytearray(raw[28+size:])
+    for key in ('bufferViews','accessors','meshes','materials','textures','images','samplers','skins'):data.setdefault(key,[])
+    animation={'name':'VSC scene timeline','channels':[],'samplers':[]};key_count=0
+    def accessor(values,size,component=5126,target=None):
+        while len(binary)%4:binary.append(0)
+        start=len(binary);flat=[x for row in values for x in row] if size>1 else values
+        binary.extend(struct.pack('<'+{5126:'f',5123:'H',5125:'I'}[component]*len(flat),*flat));view={'buffer':0,'byteOffset':start,'byteLength':len(binary)-start}
+        if target:view['target']=target
+        data['bufferViews'].append(view);entry={'bufferView':len(data['bufferViews'])-1,'componentType':component,'count':len(values),'type':{1:'SCALAR',2:'VEC2',3:'VEC3',4:'VEC4',16:'MAT4'}[size]}
+        if size in (1,3):entry.update(min=[min(values)] if size==1 else [min(r[i] for r in values) for i in range(3)],max=[max(values)] if size==1 else [max(r[i] for r in values) for i in range(3)])
+        data['accessors'].append(entry);return len(data['accessors'])-1
+    def channel(node,path,times,values,interpolation='LINEAR'):
+        nonlocal key_count
+        key_count+=len(times)
+        if key_count>32768 or len(animation['channels'])>=256:raise ResourceError('场景动画关键帧或通道超过导出上限，请缩短时间或减少对象','spatial_animation_limit')
+        output=[v for row in values for v in row] if path=='weights' else values
+        animation['samplers'].append({'input':accessor(times,1),'output':accessor(output,1 if path=='weights' else 4 if path=='rotation' else 3),'interpolation':interpolation})
+        animation['channels'].append({'sampler':len(animation['samplers'])-1,'target':{'node':node,'path':path}})
+    times=sorted({0.,float(document['duration']),*[min(document['duration'],i/24) for i in range(1,math.ceil(document['duration']*24))]})
+    def object_transform(node,original):
+        initial=sample(original,0);node.update(translation=initial['position'],rotation=rotation(initial['rotation']),scale=original['scale'])
+        if original['keyframes']:
+            index=data['nodes'].index(node);channel(index,'translation',times,[sample(original,t)['position'] for t in times]);channel(index,'rotation',times,[rotation(sample(original,t)['rotation']) for t in times])
+    for node in data['nodes']:
+        identity=node.get('extras',{}).get('vsc_object_id')
+        if identity:object_transform(node,next(o for o in document['objects'] if o['id']==identity))
+        if 'camera' in node:
+            original=document['cameras'][node['camera']];camera,right,up,forward=camera_at(document,original['id'],0);node.pop('matrix',None);node.update(translation=camera['position'],rotation=quaternion(right,up,[-x for x in forward]))
+            if original['keyframes']:
+                index=data['nodes'].index(node);channel(index,'translation',times,[sample(original,t)['position'] for t in times]);channel(index,'rotation',times,[quaternion(right,up,[-x for x in forward]) for _,right,up,forward in [camera_at(document,original['id'],t) for t in times]])
+    def texture(value):
+        image=value['image'];offset=len(binary)
+        while offset%4:binary.append(0);offset+=1
+        binary.extend(image['bytes']);data['bufferViews'].append({'buffer':0,'byteOffset':offset,'byteLength':len(image['bytes'])});data['images'].append({'bufferView':len(data['bufferViews'])-1,'mimeType':image['mime']});data['samplers'].append(value['sampler']);data['textures'].append({'source':len(data['images'])-1,'sampler':len(data['samplers'])-1});return len(data['textures'])-1
+    for original in document['objects']:
+        model=original.get('_gltf')
+        if not model or not original['visible']:continue
+        parent=len(data['nodes']);node={'name':original['name'],'children':[],'extras':{'vsc_object_id':original['id']}};data['nodes'].append(node);data['scenes'][0]['nodes'].append(parent);object_transform(node,original)
+        node_offset=len(data['nodes']);mesh_offset=len(data['meshes']);skin_offset=len(data['skins'])
+        for mesh in model['meshes']:
+            primitives=[]
+            for primitive in mesh['primitives']:
+                attrs={name:accessor(values,len(values[0]),5123 if name.startswith('JOINTS') else 5126,34962) for name,values in primitive['attributes'].items()}
+                mat=deepcopy(primitive['material']);tint=[int(original['color'][i:i+2],16)/255 for i in (1,3,5)];pbr=mat['pbrMetallicRoughness'];pbr['baseColorFactor']=[v*t for v,t in zip(pbr['baseColorFactor'][:3],tint)]+pbr['baseColorFactor'][3:]
+                for owner in (mat,pbr):
+                    for name,info in owner.items():
+                        if name.endswith('Texture'):info['index']=texture(primitive['textures'][info['index']])
+                data['materials'].append(mat);value={'attributes':attrs,'indices':accessor([i for tri in primitive['triangles'] for i in tri],1,5125,34963),'material':len(data['materials'])-1,'mode':4}
+                if primitive['targets']:value['targets']=[{name:accessor(rows,3,5126,34962) for name,rows in target.items()} for target in primitive['targets']]
+                primitives.append(value)
+            data['meshes'].append({'primitives':primitives,**({'weights':mesh['weights']} if mesh['weights'] else {})})
+        for skin in model['skins']:data['skins'].append({'joints':[i+node_offset for i in skin['joints']],'inverseBindMatrices':accessor(skin['inverse'],16)})
+        for source in model['nodes']:
+            value={k:deepcopy(v) for k,v in source.items() if k in {'name','translation','rotation','scale','matrix','weights'}}
+            if 'mesh' in source:value['mesh']=mesh_offset+source['mesh']
+            if 'skin' in source:value['skin']=skin_offset+source['skin']
+            if 'children' in source:value['children']=[i+node_offset for i in source['children']]
+            data['nodes'].append(value)
+        node['children']=[i+node_offset for i in model['scenes'][original['geometry']['scene']]['nodes']]
+        config=original['animation'];clip=config['clip']
+        if clip is not None:
+            source=model['animations'][clip];duration=source['duration']
+            def source_time(t):
+                value=max(0,t*config['speed']+config['offset']);return value%duration if config['loop'] and duration else min(value,duration)
+            for c in source['channels']:
+                index=node_offset+c['node'];values=[interpolate(c,source_time(t)) for t in times];data['nodes'][index][c['path']]=values[0];channel(index,c['path'],times,values,'STEP' if c['interpolation']=='STEP' else 'LINEAR')
+    if len(data['nodes'])>256 or len(data['meshes'])>64:raise ResourceError('组合场景超过GLB的256节点或64网格上限，请拆分后导出','spatial_animation_limit')
+    data['extras'].update(animation_baked=False,source_time_seconds=instant,bake_description='Editable transforms, skins and morph targets; timeline sampled at 24 fps',duration_seconds=document['duration'])
+    if animation['channels']:data['animations']=[animation]
+    for key in ('textures','images','samplers','skins'):
+        if not data[key]:data.pop(key)
+    data['buffers']=[{'byteLength':len(binary)}];encoded=json.dumps(data,ensure_ascii=False,separators=(',',':')).encode();encoded+=b' '*((-len(encoded))%4);binary.extend(b'\0'*((-len(binary))%4));size=28+len(encoded)+len(binary)
+    if size>MAX_BYTES:raise ResourceError('动画GLB超过20MiB，请减少几何或时间','spatial_animation_limit')
+    return struct.pack('<III',0x46546c67,2,size)+struct.pack('<II',len(encoded),0x4e4f534a)+encoded+struct.pack('<II',len(binary),0x004e4942)+binary
+
+
 def import_glb(raw):
     """Decode a GLB for transient sampling; persisted scenes reference its media."""
     from vsc.post.spatial_gltf import decode_glb
@@ -263,7 +355,7 @@ class SpatialExporter:
                 if suffix=="png":
                     path.write_bytes(render_png(document,claimed["camera_id"],claimed["time"]))
                 elif suffix=="glb":
-                    path.write_bytes(export_glb(document,claimed["camera_id"],claimed["time"]))
+                    path.write_bytes(export_glb(document,claimed["camera_id"],claimed["time"],animated=True))
                 else:
                     ffmpeg=shutil.which("ffmpeg")
                     if not ffmpeg:raise ResourceError("未找到 FFmpeg", "spatial_encoder_missing")

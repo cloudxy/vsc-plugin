@@ -47,6 +47,9 @@ def install_commerce_routes(router,catalog,etag,actor,read_actor):
     @router.post("/{project_id}/commerce/allocations")
     async def allocate(project_id:str,request:Request,body:dict):return await write(project_id,request,body,"allocate_commerce_credits")
 
+    @router.post('/{project_id}/commerce/workspace-transfers')
+    async def transfer(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'transfer_workspace_credits')
+
     @router.post("/{project_id}/commerce/invoices")
     async def invoices(project_id:str,request:Request,body:dict):return await write(project_id,request,body,"request_commerce_invoice")
 

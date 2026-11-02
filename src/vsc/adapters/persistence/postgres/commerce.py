@@ -11,9 +11,10 @@ from vsc.assets.resource_service import Conflict, ResourceError
 from vsc.assets.commerce import instant, require_supported_entitlements
 from . import schema as S
 from .values import CURRENT_REVISION, checked_id, clean, digest, new_id
+from .workspace_commerce import WorkspaceCommerceRepository
 
 
-class CommerceRepository:
+class CommerceRepository(WorkspaceCommerceRepository):
     def __init__(self,store):self.store=store
 
     def _internal(self,p,action,payload,fn,key=None):
@@ -35,8 +36,10 @@ class CommerceRepository:
 
     def _entry(self,conn,p,bucket,delta,kind,key,actor,reservation=None):
         if delta:
-            conn.execute(insert(S.commerce_ledger).values(project_id=p,id=new_id(),bucket_id=bucket,delta=delta,
+            identifier=new_id()
+            conn.execute(insert(S.commerce_ledger).values(project_id=p,id=identifier,bucket_id=bucket,delta=delta,
                 kind=kind,event_key=key,actor=actor,reservation_id=reservation))
+            return identifier
 
     def _bucket(self,conn,p,*,source_key,credits,owner,kind,purposes,expires,order=None,parent=None,entry_kind="grant",actor="commerce-consumer"):
         identifier=new_id()
@@ -120,7 +123,7 @@ class CommerceRepository:
             project=self.store._project(connection,p);plan=self._policy(connection,project["id"])
             if not plan:return {"configured":False}
             return {"configured":True,"price_version_id":plan["id"],**{k:plan["document"][k] for k in ("seat_limit","max_concurrent_jobs","watermark_required")},
-                "watermark_consumer":"unconfigured" if plan["document"]["watermark_required"] else "not_required"}
+                "watermark_consumer":"edit-export-v1" if plan["document"]["watermark_required"] else "not_required"}
 
     def order(self,p,identifier):
         with self.store.engine.connect() as conn:
@@ -305,10 +308,15 @@ class CommerceRepository:
     def request_invoice(self,p,payload,*,gateway,**kw):
         def work(conn,project):
             p=project["id"];order=self.store._one(conn,S.commerce_orders,p,payload["order_id"])
+            workspace=payload.get('workspace_id')
+            if workspace:
+                self.store.access_workspace_guard(conn,workspace,'manage')
+                actual=conn.execute(select(S.access_projects.c.workspace_id).where(S.access_projects.c.project_id==p)).scalar_one_or_none()
+                if actual!=workspace:raise ResourceError('组织发票须属于订单所在工作空间','commerce_invoice_scope')
             if order["status"]!="paid" or not self._plan(conn,p,order["plan_id"])["document"]["invoice_enabled"]:raise ResourceError("订单未支付或未配置发票政策","invoice_order_ineligible")
             old=conn.execute(select(S.commerce_invoices).where(S.commerce_invoices.c.project_id==p,S.commerce_invoices.c.order_id==order["id"])).mappings().first()
             if old:
-                if any(old[k]!=payload[k] for k in ("title","tax_id","email")):raise Conflict("此订单已有发票申请，不能静默改抬头","invoice_conflict")
+                if any(old[k]!=payload.get(k) for k in ("title","tax_id","email","workspace_id")):raise Conflict("此订单已有发票申请，不能静默改抬头","invoice_conflict")
                 return dict(id=old["id"],status=old["status"])
             identifier=new_id();status="created" if gateway else "unconfigured"
             conn.execute(insert(S.commerce_invoices).values(project_id=p,id=identifier,actor=kw["actor"],gateway=gateway or "unconfigured",status=status,**payload))

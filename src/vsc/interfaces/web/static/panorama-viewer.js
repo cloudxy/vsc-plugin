@@ -1,0 +1,17 @@
+import {msg,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
+// Local 2:1 equirectangular viewing, with no external texture or renderer service.
+export function mountPanorama(host,url,{isCurrent=()=>host.isConnected}={}){
+  const canvas=document.createElement('canvas'),message=document.createElement('p'),controls=document.createElement('div');
+  canvas.width=640;canvas.height=360;canvas.style.cssText='max-width:100%;touch-action:none;cursor:grab';bindAttribute(canvas,'aria-label',msg("ui.panorama_viewer_drag_or_use_the_sliders_below_to"));
+  host.append(message,canvas,controls);let yaw=0,pitch=0,fov=75,pixels=null,width=0,height=0,frame=0;
+  const context=canvas.getContext('2d');
+  function slider(title,min,max,value,change){const label=document.createElement('label'),input=document.createElement('input');setText(label,title);input.type='range';input.min=min;input.max=max;input.value=value;bindAttribute(input,'aria-label',title);label.append(input);controls.append(label);input.oninput=()=>{change(Number(input.value));schedule();};return input;}
+  const horizontal=slider(msg("ui.horizontal_view"),-180,180,0,v=>yaw=v),vertical=slider(msg("ui.pitch"),-85,85,0,v=>pitch=v);slider(msg("ui.field_of_view"),35,110,75,v=>fov=v);
+  function schedule(){if(!frame)frame=requestAnimationFrame(draw);}
+  function draw(){frame=0;if(!pixels||!isCurrent())return;const out=context.createImageData(canvas.width,canvas.height),rad=Math.PI/180,cy=Math.cos(yaw*rad),sy=Math.sin(yaw*rad),cp=Math.cos(pitch*rad),sp=Math.sin(pitch*rad),scale=Math.tan(fov*rad/2),aspect=canvas.width/canvas.height;
+    for(let y=0;y<canvas.height;y++)for(let x=0;x<canvas.width;x++){const vx=(2*(x+.5)/canvas.width-1)*scale*aspect,vy=(1-2*(y+.5)/canvas.height)*scale,vz=1;const py=vy*cp+vz*sp,pz=vz*cp-vy*sp,px=vx*cy+pz*sy,pzz=pz*cy-vx*sy;const longitude=Math.atan2(px,pzz),latitude=Math.atan2(py,Math.hypot(px,pzz)),u=((longitude/(2*Math.PI)+.5)%1+1)%1,v=Math.max(0,Math.min(1,.5-latitude/Math.PI));const source=(Math.min(height-1,Math.floor(v*height))*width+Math.min(width-1,Math.floor(u*width)))*4,target=(y*canvas.width+x)*4;out.data[target]=pixels[source];out.data[target+1]=pixels[source+1];out.data[target+2]=pixels[source+2];out.data[target+3]=255;}
+    context.putImageData(out,0,0);horizontal.value=yaw;vertical.value=pitch;
+  }
+  let drag=null;canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,yaw,pitch};canvas.setPointerCapture(e.pointerId);};canvas.onpointermove=e=>{if(!drag)return;yaw=((drag.yaw+(drag.x-e.clientX)*.25+540)%360)-180;pitch=Math.max(-85,Math.min(85,drag.pitch+(e.clientY-drag.y)*.25));schedule();};canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;};
+  const image=new Image();image.onload=()=>{if(!isCurrent())return;if(image.naturalWidth!==image.naturalHeight*2){setText(message,msg("ui.this_media_is_not_a_2_1_panorama_and"));return;}const source=document.createElement('canvas');width=source.width=Math.min(image.naturalWidth,4096);height=source.height=width/2;const ctx=source.getContext('2d');ctx.drawImage(image,0,0,width,height);try{pixels=ctx.getImageData(0,0,width,height).data;setText(message,msg("ui.drag_to_look_around_or_use_the_horizontal_pitch"));schedule();}catch{setText(message,msg("ui.cannot_read_the_current_panorama_bytes_sign_in_again"));}};image.onerror=()=>{if(isCurrent())setText(message,msg("ui.panorama_media_could_not_be_loaded_the_original_task"));};image.src=url;
+}

@@ -15,17 +15,22 @@ def native_units(request):
     if modality == "image":
         result["images"] = 1
     elif modality == "video":
-        if request.get("operation") == "edit":
+        if request.get('purpose') == 'digital_human':
+            from vsc.production.digital_human import audio_duration
+            duration = audio_duration(request.get('duration_ms'), request.get('params', {}))
+            return {'remote_jobs': 1, 'video_seconds': math.ceil(duration / 1000)}
+        if request.get("operation") in {"edit", "depth", "draft_upgrade"}:
             duration = request.get("source_duration_ms")
             if type(duration) is not int or duration <= 0:
-                raise ResourceError("视频编辑预算需要核实源片时长", "invalid_native_units")
+                raise ResourceError("源视频加工预算需要核实源片时长", "invalid_native_units")
             return {"remote_jobs": 1, "video_seconds": math.ceil(duration / 1000)}
         duration = request.get("duration_ms", 5000)
         if type(duration) is not int or duration < 1000 or duration % 1000:
             raise ResourceError("正式视频预算需要正整数秒", "invalid_native_units")
         result["video_seconds"] = duration // 1000
     elif modality == "audio":
-        result.update(audio_jobs=1, speech_chars=len(request["prompt"]))
+        result["audio_jobs"] = 1
+        if request.get("purpose") != "song":result["speech_chars"] = len(request["prompt"])
     return result
 
 
@@ -74,10 +79,19 @@ class BudgetRepository:
             event = conn.execute(select(S.job_events.c.evidence).where(S.job_events.c.project_id == project['id'],
                 S.job_events.c.job_id == job['id'], S.job_events.c.event_type == 'intent_recorded').limit(1)).scalar_one_or_none()
             quote = (event or {}).get('generation_quote')
+            if quote is None:
+                import json
+                run = self._one(conn, S.artifact_versions, project['id'], job['run_version_id'])
+                document = json.loads(run['document'])
+                operation = operation_key(job['request_payload'], job['candidate_no'])
+                quote = next((item for item in document.get('generation_quote', {}).get('jobs', [])
+                              if item.get('operation') == operation), None)
             actual = {row['unit']: row['actual'] for row in conn.execute(select(S.job_budget_reservations).where(
                 S.job_budget_reservations.c.project_id == project['id'], S.job_budget_reservations.c.job_id == job['id'],
                 S.job_budget_reservations.c.actual.is_not(None))).mappings()}
-            return clean({'job_id': job['id'], 'status': job['status'], 'quote': quote,
+            reservations = [dict(row) for row in conn.execute(select(S.job_budget_reservations).where(
+                S.job_budget_reservations.c.project_id == project['id'], S.job_budget_reservations.c.job_id == job['id'])).mappings()]
+            return clean({'job_id': job['id'], 'status': job['status'], 'quote': quote, 'reservations': reservations,
                 'reconciliation': dict(reconcile_quote(quote, actual, actual_cost=self._recorded_bills(conn, project['id'], job['id']).get(job['id']), policy=(event or {}).get('quote_policy')),
                     actual_units_reported=bool(actual)) if quote else None})
 

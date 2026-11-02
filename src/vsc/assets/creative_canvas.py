@@ -16,7 +16,20 @@ NODE_TYPES = {
     "video": {"label": "视频", "inputs": {"prompt": "text", "first_frame": "image", "last_frame": "image",
               "reference_image": "image", "reference_video": "video", "reference_audio": "audio"}, "output": "video"},
     "audio": {"label": "音频", "inputs": {"prompt": "text", "reference_audio": "audio"}, "output": "audio"},
+    "spatial": {"label": "三维预演", "inputs": {"prompt": "text", "reference": "image"}, "output": "spatial"},
+    "director": {"label": "导演台", "inputs": {"prompt": "text", "reference": "image"}, "output": "spatial"},
+    "edit": {"label": "剪辑", "inputs": {"visual": ["image", "video"], "sound": "audio"}, "output": "video"},
+    "music_mix": {"label": "视频配乐", "inputs": {"source_video": "video", "sound": "audio", "prompt": "text"}, "output": "video"},
+    "processing": {"label": "视频加工", "inputs": {"source_video": "video", "prompt": "text"}, "output": "media"},
 }
+DOMAIN_TYPES = {"spatial", "director", "edit", "music_mix", "processing"}
+
+
+def accepts_port(target_type, port, source_type):
+    if port == "derived_from":
+        return target_type in {"text", "image", "video", "audio"} and source_type in NODE_TYPES
+    expected = NODE_TYPES[target_type]["inputs"].get(port)
+    return source_type in expected if isinstance(expected, list) else source_type == expected
 
 
 def _fail(message, code="invalid_canvas"):
@@ -44,7 +57,7 @@ def normalize_document(value):
         _fail("单个画布最多 200 个节点、800 条连线")
     result, by_id = [], {}
     for node in nodes:
-        if not isinstance(node, dict) or set(node) - {"id", "type", "title", "x", "y", "text", "params", "media_id", "job_id", "group"}:
+        if not isinstance(node, dict) or set(node) - {"id", "type", "title", "x", "y", "text", "params", "media_id", "job_id", "group", "domain_object_id", "domain_version_id"}:
             _fail("节点包含未支持的字段；运行状态不能写入画布")
         key = _key(node.get("id"))
         kind = node.get("type")
@@ -65,6 +78,15 @@ def normalize_document(value):
         row = {"id": key, "type": kind, "title": title.strip(), "x": _number(node.get("x", 0), -100000, 100000),
             "y": _number(node.get("y", 0), -100000, 100000), "text": content, "params": deepcopy(params), "group": group,
             "media_id": node.get("media_id") or None, "job_id": node.get("job_id") or None}
+        if kind in DOMAIN_TYPES:
+            if row["media_id"] or row["job_id"]:
+                _fail("工具节点引用原领域对象；输出放入独立媒体节点")
+            object_id, version_id = node.get("domain_object_id"), node.get("domain_version_id")
+            if bool(object_id) != bool(version_id):
+                _fail("工具节点必须同时固定原对象与版本")
+            row.update(domain_object_id=object_id or None, domain_version_id=version_id or None)
+        elif node.get("domain_object_id") or node.get("domain_version_id"):
+            _fail("媒体节点不接受工具对象引用")
         result.append(row)
         by_id[key] = row
     links, ids, signatures, single_ports = [], set(), set(), set()
@@ -76,8 +98,7 @@ def normalize_document(value):
         source, target, port = edge["source"], edge["target"], edge["port"]
         if not all(isinstance(v, str) for v in (source, target, port)) or source not in by_id or target not in by_id:
             _fail("连线端点不存在", "canvas_missing_node")
-        expected = NODE_TYPES[by_id[target]["type"]]["inputs"].get(port)
-        if source == target or expected != by_id[source]["type"]:
+        if source == target or not accepts_port(by_id[target]["type"], port, by_id[source]["type"]):
             _fail("端口不接受该节点类型", "canvas_port_mismatch")
         signature = (source, target, port)
         if key in ids or signature in signatures:
@@ -111,6 +132,48 @@ def normalize_document(value):
 
 
 class CreativeCanvasService:
+    def preview_canvas_work_generation(self, project_id, payload):
+        from vsc.production.quotes import fingerprint
+        preview = self.preview_workbench_generation(project_id, payload)
+        routing = self.store.canvas_work_routing(project_id, payload.get('draft_version_id'))
+        if routing:
+            preview['routing'] = routing
+            if preview['ready']:
+                preview['artifact']['document']['canvas_model_routing'] = routing
+                # Working provenance is pinned in the draft/typed run input,
+                # not an upstream creative approval dependency.
+                preview['preview_sha256'] = fingerprint(preview['artifact'])
+        return preview
+
+    def prepare_canvas_work_input(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.prepare_canvas_work_input(project_id, payload, **kw)
+
+    def generate_canvas_work(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        self.authorize_access(project_id, "execute")
+        return self.store.generate_canvas_work(project_id, payload, build_preview=self.preview_canvas_work_generation, **kw)
+
+    def adopt_canvas_work_outputs(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.adopt_canvas_work_outputs(project_id, payload, **kw)
+
+    def create_canvas_domain_node(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.create_canvas_domain_node(project_id, payload, **kw)
+
+    def canvas_node_to_edit(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.canvas_node_to_edit(project_id, payload, **kw)
+
+    def use_canvas_domain_output(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.use_canvas_domain_output(project_id, payload, **kw)
+
+    def canvas_node_candidates(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.canvas_node_candidates(project_id, payload, **kw)
+
     def canvas_agent_options(self, project_id):
         from vsc.production.canvas_agent import SKILLS,GrokBuildCanvasAgent
         tree=self.get_project_tree(project_id)
@@ -120,7 +183,9 @@ class CreativeCanvasService:
 
     def list_canvas_agent_sessions(self,project_id,canvas_id):return self.store.list_canvas_agent_sessions(project_id,canvas_id)
     def get_canvas_agent_turn(self,project_id,turn_id):return self.store.get_canvas_agent_turn(project_id,turn_id)
-    def preview_canvas_agent_run(self,project_id,turn_id):return self.preview_creative_canvas_run(project_id,self.store.get_canvas_agent_run_request(project_id,turn_id))
+    def preview_canvas_agent_run(self,project_id,turn_id):
+        request=self.store.get_canvas_agent_run_request(project_id,turn_id)
+        return self.preview_canvas_work_generation(project_id,request) if request.get('draft_version_id') else self.preview_creative_canvas_run(project_id,request)
     def create_canvas_agent_turn(self,project_id,payload,**kw):return self._write("create_canvas_agent_turn",project_id,payload,**kw)
     def execute_canvas_agent_turn(self,project_id,turn_id):
         self.authorize_access(project_id,"execute")
@@ -129,7 +194,8 @@ class CreativeCanvasService:
     def decide_canvas_agent_turn(self,project_id,payload,**kw):
         self._validate_write(payload,**kw)
         if payload.get("outcome") not in {"confirm","reject","stop"}:_fail("请选择确认、拒绝或停止")
-        return self.store.decide_canvas_agent_turn(project_id,payload,build_preview=self.preview_creative_canvas_run,**kw)
+        if payload.get('outcome') == 'confirm':self.authorize_access(project_id, 'execute')
+        return self.store.decide_canvas_agent_turn(project_id,payload,build_preview=self.preview_creative_canvas_run,build_work_preview=self.preview_canvas_work_generation,**kw)
 
     def _canvas_access(self,project_id,capability,version_id=None):
         if not hasattr(self,"authorize_access"):
@@ -187,6 +253,7 @@ class CreativeCanvasService:
 
     def propose_canvas_fallback(self,p,payload,**kw):
         self._validate_write(payload,**kw)
+        self.authorize_access(p, 'execute')
         return self.store.propose_canvas_fallback(p,payload,build_preview=self.preview_canvas_fallback,**kw)
 
     def propose_creative_canvas_run(self, project_id, payload, **kw):

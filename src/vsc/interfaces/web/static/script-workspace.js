@@ -1,3 +1,4 @@
+import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 /* 剧本工作区：可变工作副本 + 串行自动保存 + 批注 + 差异 + 提交人工确认。
    本模块只消费后端事实（draft / artifact 决定），不拥有批准权威。
    F01/F02：保存会话绑定 project+scope，串行保存队列，过期响应与切换后定时器不写当前会话；
@@ -5,7 +6,7 @@
    冻结版本审阅读取完整正文和真实范围；分集导航分页并按项目重建。 */
 
 export function createScriptWorkspace(container, ctx) {
-  const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node; };
+  const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text != null) setText(node,text); return node; };
   const notice = message => { if (message) ctx.onNotice(message); };
   const blank = () => ({format: 'vsc.screenplay/v1', body: '', adaptation_refs: [], scenes: []});
   let draft = null, scopeKey = '', scopeSelect = null, statusChip = null;
@@ -98,19 +99,19 @@ export function createScriptWorkspace(container, ctx) {
   async function ensureScopeSelect(target) {
     if (scopeSelect && scopeSelect.dataset.projectId === target.project) {
       if(!Array.from(scopeSelect.options || scopeSelect.children).some(row=>row.value===target.scopeKey)){
-        const option=el('option','',target.scopeLabel||'当前分集');option.value=target.scopeKey;scopeSelect.append(option);
+        const option=el('option','',target.scopeLabel||msg("ui.current_episode"));option.value=target.scopeKey;scopeSelect.append(option);
       }
       scopeSelect.value=target.scopeKey;return;
     }
     const select = el('select', 'script-scope');
     select.dataset.projectId = target.project;
-    select.setAttribute('aria-label', '剧本范围');
-    const all = el('option', '', '全项目剧本'); all.value = ''; select.append(all);
+    bindAttribute(select,'aria-label',msg("ui.script_scope"));
+    const all = el('option', '', msg("ui.whole_project_script")); all.value = ''; select.append(all);
     // Authority probe is bounded; the complete directory lives in the project
     // navigator instead of downloading every episode into this select.
     if(!target.scopeKey)await ctx.api(`${target.project}/workbench?section=children&limit=1`);
     if (target.scopeKey) {
-      const option = el('option', '', `当前集：${target.scopeLabel || '所选分集'}`);
+      const option = el('option', '', msg("ui.current_episode_value0",{value0:target.scopeLabel || msg("ui.selected_episode")}));
       option.value = target.scopeKey; select.append(option);
     }
     if (!sameSession(target)) return;
@@ -148,7 +149,7 @@ export function createScriptWorkspace(container, ctx) {
     session = target;
     clearTimeout(saveTimer); saveTimer = null; saving = false; lastError = null; conflict = false; conflictMessage = null; editSeq = 0; savedSeq = 0;
     draft = null;
-    container.replaceChildren(el('p', 'hint', '正在读取剧本工作副本…'));
+    container.replaceChildren(el('p', 'hint', msg("ui.loading_script_working_copy")));
     try {
       await ensureScopeSelect(target);
       if (!sameSession(target)) return;
@@ -164,7 +165,7 @@ export function createScriptWorkspace(container, ctx) {
     } catch (error) { if (sameSession(target)) notice(error.message); }
   }
 
-  function setStatus(text) { if (statusChip) statusChip.textContent = text; }
+  function setStatus(text) { if (statusChip) setText(statusChip,text); }
   function scheduleSave() {
     if (!sameSession(session) || !draft) return;
     editSeq++;                                     // F02：编辑序号与保存进度分离
@@ -193,7 +194,7 @@ export function createScriptWorkspace(container, ctx) {
       if (editSeq <= savedSeq) {recoveries.delete(recoveryKey(target));stash('vsc-script:'+recoveryKey(target),null);}
       updatePhase();
       const saved = container.querySelector('.script-saved-version');
-      if (saved) saved.textContent = `工作副本 r${draft.draft_revision}`;
+      if (saved) setText(saved,msg("ui.working_copy_r_value0",{value0:draft.draft_revision}));
       lastError = null; renderConflict(null);
     } catch (error) {
       if (!sameSession(target)) { recordDepartedSave(target, seqAtSend, null, error); return; }
@@ -265,40 +266,40 @@ export function createScriptWorkspace(container, ctx) {
     conflictMessage = message;
     if (!message) { banner.hidden = true; return; }
     banner.hidden = false;
-    banner.replaceChildren(el('p', '', message + '。本地编辑仍在页面中；加载最新会以服务器内容替换当前编辑。'));
-    const loadLatest = el('button', '', '加载最新并替换本地');
+    banner.replaceChildren(el('p', '', msg("ui.value0_local_edits_remain_on_this_page_loading_the",{value0:message})));
+    const loadLatest = el('button', '', msg("ui.load_latest_and_replace_local_copy"));
     const target = session;
     loadLatest.addEventListener('click', async () => {
       if (!sameSession(target) || !confirm('确定放弃本地未保存修改、加载服务器最新内容？')) return;
       await load({discardLocal: true});
     });
-    const keep = el('button', '', '保留本地暂不处理');
-    keep.addEventListener('click', () => { banner.hidden = true; notice('已保留本地编辑；解决冲突前自动保存暂停。'); });
+    const keep = el('button', '', msg("ui.keep_local_copy_for_now"));
+    keep.addEventListener('click', () => { banner.hidden = true; notice(msg("ui.local_edits_preserved_autosave_paused_until_conflict_resolution")); });
     banner.append(loadLatest, keep);
   }
 
   const phaseText = {empty: '未建立', editing: '编辑中', pending: '待人工确认', approved: '已批准基线', rejected: '已退回修改', revoked: '批准已撤销'};
   function updatePhase() {
     const chip = container.querySelector('.script-phase');
-    if (chip) chip.textContent = phaseText[editSeq > savedSeq ? 'editing' : draft.phase] || draft.phase;
+    if (chip) setText(chip,phaseText[editSeq > savedSeq ? 'editing' : draft.phase] || draft.phase);
   }
   function render() {
     container.replaceChildren();
     const header = el('header', 'script-header');
-    if(ctx.onBack){const back=el('button','','返回目录');back.type='button';back.addEventListener('click',()=>ctx.onBack());header.append(back);}
-    header.append(el('h2', '', '剧本'));
+    if(ctx.onBack){const back=el('button','',msg("ui.back_to_contents"));back.type='button';back.addEventListener('click',()=>ctx.onBack());header.append(back);}
+    header.append(el('h2', '', msg("nav.script")));
     statusChip = el('span', 'badge', '—');
     const phase = el('span', `badge script-phase ${draft.phase === 'pending' ? 'danger' : ''}`, phaseText[draft.phase] || draft.phase);
-    const saved = el('span', 'hint script-saved-version', draft.exists ? `r${draft.draft_revision}` : '尚无工作副本');
+    const saved = el('span', 'hint script-saved-version', draft.exists ? joinMessages(["r",draft.draft_revision,""]) : msg("ui.no_working_copy"));
     saved.title=`更新 ${String(draft.updated_at||'').slice(0,19)} · ${draft.updated_by||''}`;
     header.append(statusChip, phase, saved, scopeSelect || el('span'));
     container.append(header);
     const conflictBox = el('div', 'script-conflict'); conflictBox.hidden = true; container.append(conflictBox);
     if (draft.submitted) container.append(renderPending());
     const panels=el('div','script-panels'),stage=el('main','script-main'),inspector=el('aside','script-inspector');
-    stage.setAttribute('aria-label','剧本正文');inspector.setAttribute('aria-label','修改与意见');
-    const mobile=el('nav','script-panel-nav');mobile.setAttribute('aria-label','剧本面板');
-    for(const [key,label]of [['work','作品'],['modify','修改与意见']]){const b=el('button','',label);b.type='button';b.addEventListener('click',()=>{container.dataset.panel=key;for(const control of mobile.children)control.setAttribute('aria-pressed',String(control===b));(key==='work'?stage:inspector).focus?.();});b.setAttribute('aria-pressed',String((container.dataset.panel||'work')===key));mobile.append(b);}
+    bindAttribute(stage,'aria-label',msg("ui.script_body"));bindAttribute(inspector,'aria-label',msg("ui.changes_and_comments"));
+    const mobile=el('nav','script-panel-nav');bindAttribute(mobile,'aria-label',msg("ui.script_panel"));
+    for(const [key,label]of [['work',msg("ui.work")],['modify',msg("ui.changes_and_comments")]]){const b=el('button','',label);b.type='button';b.addEventListener('click',()=>{container.dataset.panel=key;for(const control of mobile.children)control.setAttribute('aria-pressed',String(control===b));(key==='work'?stage:inspector).focus?.();});b.setAttribute('aria-pressed',String((container.dataset.panel||'work')===key));mobile.append(b);}
     stage.tabIndex=-1;inspector.tabIndex=-1;container.append(mobile);
     stage.append(draft.exists ? renderEditor() : renderBootstrap());
     inspector.append(renderNoteComposer());
@@ -344,52 +345,52 @@ export function createScriptWorkspace(container, ctx) {
     box.dataset.submissionStamp = `${submitted.id}:${submitted.state}`;
     const target = session;
     const pending = submitted.state === 'pending';
-    box.append(el('h3', '', pending ? '冻结版本待人工确认' : `冻结版本：${phaseText[submitted.state] || submitted.state}`), el('p', 'hint',
-      `冻结版本 ${submitted.artifact_key || ''} v${submitted.version} · SHA ${String(submitted.sha256 || '').slice(0, 12)}。以下审阅的是被冻结的提交正文。${pending ? '决定只对该固定版本生效。' : ''}`));
-    if (submitted.matches_draft === false) box.append(el('p', 'hint', '服务器确认当前工作副本与此冻结版本不同；工作副本继续编辑，冻结版本保留自己的决定。'));
+    box.append(el('h3', '', pending ? msg("ui.frozen_version_awaiting_human_confirmation") : msg("ui.frozen_version_value0",{value0:phaseText[submitted.state] || submitted.state})), el('p', 'hint',
+      msg("ui.frozen_version_value0_v_value1_sha_value2_you_are",{value0:submitted.artifact_key || '',value1:submitted.version,value2:String(submitted.sha256 || '').slice(0, 12),value3:pending ? msg("ui.decision_applies_only_to_this_fixed_version") : ''})));
+    if (submitted.matches_draft === false) box.append(el('p', 'hint', msg("ui.the_server_confirmed_that_the_working_copy_differs_from")));
     const frozen = el('div', 'frozen-body hint');
-    frozen.textContent = '正在读取被冻结的提交正文…';
+    setText(frozen,msg("ui.loading_the_frozen_submitted_body"));
     let reviewed = false;
-    const reason = el('input', 'script-decision-reason'); reason.placeholder = '批准或退回的说明（必填）';
-    const approve = el('button', 'script-approve-button', '批准此版本'); approve.disabled = true;
-    const reject = el('button', 'script-reject-button', '退回修改'); reject.disabled = true;
+    const reason = el('input', 'script-decision-reason'); bindAttribute(reason,"placeholder",msg("ui.approval_or_return_explanation_required"));
+    const approve = el('button', 'script-approve-button', msg("ui.approve_this_version")); approve.disabled = true;
+    const reject = el('button', 'script-reject-button', msg("novel-parser.reject")); reject.disabled = true;
     ctx.api(`${target.project}/artifacts/${encodeURIComponent(submitted.id)}`).then(artifact => {
       if (!sameSession(target) || draft.submitted?.id !== submitted.id) return;
       const content = typeof artifact.content === 'string' ? artifact.content : JSON.stringify(artifact.content ?? '');
       let parsed = null;
       try { parsed = JSON.parse(content); } catch {}
       if (!parsed || !Array.isArray(parsed.scenes) || artifact.id !== submitted.id || !submitted.sha256 || artifact.sha256 !== submitted.sha256) {
-        frozen.textContent = '冻结正文或摘要与提交记录不一致，请重新加载并核对。'; return;
+        setText(frozen,msg("ui.the_frozen_body_or_checksum_does_not_match_its")); return;
       }
       const scenes = parsed?.scenes || [];
-      frozen.replaceChildren(el('p', '', `范围：${artifact.project_wide ? '全项目' : (artifact.object_ids || []).join('、')} · 场次 ${scenes.length}`),
-        el('p', 'frozen-screenplay-body', parsed.body || ''), el('p', '', `改编来源：${JSON.stringify(parsed.adaptation_refs || [])}`));
+      frozen.replaceChildren(el('p', '', msg("ui.scope_value0_scenes_value1",{value0:artifact.project_wide ? msg("ui.whole_project") : (artifact.object_ids || []).join('、'),value1:scenes.length})),
+        el('p', 'frozen-screenplay-body', parsed.body || ''), el('p', '', msg("ui.adaptation_source_value0",{value0:JSON.stringify(parsed.adaptation_refs || [])})));
       for (const scene of scenes) {
         const block = el('div', 'frozen-scene');
-        block.append(el('strong', '', `${scene.id}（约 ${scene.estimated_duration_ms || 0} ms）`));
-        for (const row of scene.actions || []) block.append(el('div', '', `行动：${row.text} · 叙事来源 ${(row.narrative_refs || []).join('、')}`));
-        for (const row of scene.dialogue || []) block.append(el('div', '', `${row.speaker || ''}：${row.text} · 叙事来源 ${(row.narrative_refs || []).join('、')}`));
-        for (const row of scene.silence || []) block.append(el('div', '', `静默：${row.text}（${row.duration_ms || '?'} ms；${row.purpose || ''}） · 叙事来源 ${(row.narrative_refs || []).join('、')}`));
+        block.append(el('strong', '', msg("ui.value0_about_value1_ms",{value0:scene.id,value1:scene.estimated_duration_ms || 0})));
+        for (const row of scene.actions || []) block.append(el('div', '', msg("ui.action_value0_narrative_source_value1",{value0:row.text,value1:(row.narrative_refs || []).join('、')})));
+        for (const row of scene.dialogue || []) block.append(el('div', '', msg("ui.value0_value1_narrative_source_value2",{value0:row.speaker || '',value1:row.text,value2:(row.narrative_refs || []).join('、')})));
+        for (const row of scene.silence || []) block.append(el('div', '', msg("ui.silence_value0_value1_ms_value2_narrative_source_value3",{value0:row.text,value1:row.duration_ms || '?',value2:row.purpose || '',value3:(row.narrative_refs || []).join('、')})));
         frozen.append(block);
       }
-      frozen.append(el('p', '', `固定前置版本：${(artifact.dependency_ids || artifact.dependencies?.map(row => row.id) || []).join('、')}`));
+      frozen.append(el('p', '', msg("ui.fixed_prerequisite_version_value0",{value0:(artifact.dependency_ids || artifact.dependencies?.map(row => row.id) || []).join('、')})));
       reviewed = true; approve.disabled = !pending; reject.disabled = !pending;
-    }).catch(error => { if (sameSession(target)) frozen.textContent = '读取冻结正文失败：' + error.message; });
+    }).catch(error => { if (sameSession(target)) setText(frozen,msg("ui.frozen_text_could_not_be_loaded_value0",{value0:error.message})); });
     approve.addEventListener('click', async () => {
       if (!reviewed || !pending || !sameSession(target)) return;
-      if (!reason.value.trim()) return notice('请填写决定说明。');
+      if (!reason.value.trim()) return notice(msg("ui.enter_the_decision_explanation"));
       if (!confirm('确认批准当前提交的剧本版本？下游设计与制作将以该固定版本为基线。')) return;
       try {
         await write('artifact-decisions', {artifact_id: submitted.id, outcome: 'approve', reason: reason.value}, true, target);
-        notice('冻结剧本版本已批准。'); await refreshMeta();
+        notice(msg("ui.frozen_script_version_approved")); await refreshMeta();
       } catch (error) { notice(error.message); }
     });
     reject.addEventListener('click', async () => {
       if (!reviewed || !pending || !sameSession(target)) return;
-      if (!reason.value.trim()) return notice('请填写退回说明。');
+      if (!reason.value.trim()) return notice(msg("ui.enter_the_reason_for_returning_it"));
       try {
         await write('artifact-decisions', {artifact_id: submitted.id, outcome: 'reject', reason: reason.value}, true, target);
-        notice('冻结版本已退回修改。'); await refreshMeta();
+        notice(msg("ui.frozen_version_returned_for_revision")); await refreshMeta();
       } catch (error) { notice(error.message); }
     });
     box.append(frozen);
@@ -399,8 +400,8 @@ export function createScriptWorkspace(container, ctx) {
 
   function renderBootstrap() {
     const box = el('section', 'script-bootstrap');
-    box.append(el('p', 'empty', '当前范围还没有剧本工作副本。点击开始后建立空白剧本；同一工作副本持续自动保存，提交确认才冻结正式版本。'));
-    const blankButton = el('button', '', '从空白剧本开始');
+    box.append(el('p', 'empty', msg("ui.this_scope_has_no_script_working_copy_start_with")));
+    const blankButton = el('button', '', msg("ui.start_a_blank_script"));
     blankButton.addEventListener('click', async () => {
       requireSession();
       draft = {...draft, exists: true, draft_revision: 0, content: draft.template_content || blank(), phase: 'editing'};
@@ -419,36 +420,36 @@ export function createScriptWorkspace(container, ctx) {
       const structured = draft.content?.structured_source;
       const speaker = el(structured ? 'select' : 'input', 'line-speaker');
       if (structured) {
-        speaker.setAttribute('aria-label', '说话人物');
+        bindAttribute(speaker,'aria-label',msg("ui.speaker"));
         const choices = [...(draft.character_choices || [])];
         if (!choices.some(choice=>choice.id===row.speaker)) choices.unshift({id:row.speaker || '',label:row.speaker_label || '请选择人物'});
         for (const choice of choices) {const option=el('option','',choice.label);option.value=choice.id;speaker.append(option);}
-      } else speaker.placeholder = '人物';
+      } else bindAttribute(speaker,"placeholder",msg("ui.character"));
       speaker.value = row.speaker || '';
       speaker.addEventListener(structured ? 'change' : 'input', scheduleSave);
       item.append(speaker);
       if(structured)item.append(choicePicker('character',choice=>{if(!draft.character_choices.some(row=>row.id===choice.id))draft.character_choices.push({id:choice.id,label:choice.title||choice.display_code});const option=el('option','',choice.title||choice.display_code);option.value=choice.id;speaker.append(option);speaker.value=choice.id;scheduleSave();}));
     }
     const text = el('textarea', 'line-text'); text.rows=2;text.value = row.text || '';
-    text.setAttribute('aria-label',kind==='dialogue'?'台词':kind==='silence'?'静默说明':'行动描述');
-    text.placeholder = kind === 'dialogue' ? '台词' : kind === 'action' ? '行动描述' : '静默说明';
+    bindAttribute(text,'aria-label',kind==='dialogue'?msg("ui.dialogue"):kind==='silence'?msg("ui.silence_description"):msg("ui.action_description"));
+    bindAttribute(text,"placeholder",kind === 'dialogue' ? msg("ui.dialogue") : kind === 'action' ? msg("ui.action_description") : msg("ui.silence_description"));
     text.addEventListener('input', scheduleSave);
-    const note = el('button', 'line-note', '批注');
+    const note = el('button', 'line-note', msg("ui.annotation"));
     note.addEventListener('click', async () => {
       noteTarget={scene_id:sceneId,line_id:item.dataset.lineId,kind,excerpt:text.value};
       const previous=container.querySelector('.script-note-composer');previous.parentNode.insertBefore(renderNoteComposer(),previous);previous.remove();
       container.dataset.panel='modify';container.querySelector('.script-note-composer textarea')?.focus();
     });
-    const remove = el('button', 'line-remove', '删除');
+    const remove = el('button', 'line-remove', msg("script-studio.delete_5"));
     remove.addEventListener('click', () => { item.remove(); scheduleSave(); });
     item.append(text, note, remove);
     const refs = el('input', 'line-refs'); refs.value = (row.narrative_refs || []).join(', ');
-    refs.placeholder = '叙事来源 ID（逗号分隔）'; refs.setAttribute('aria-label', '叙事来源 ID');
+    bindAttribute(refs,"placeholder",msg("ui.narrative_source_ids_comma_separated")); bindAttribute(refs,'aria-label',msg("ui.narrative_source_id"));
     refs.addEventListener('input', scheduleSave);
     const choices = draft.narrative_choices?.[sceneId] || [];
     if (choices.length) {
       const mapped = el('div', 'line-narrative-choices');
-      mapped.append(el('span', 'hint', '对应改编单元'));
+      mapped.append(el('span', 'hint', msg("ui.adaptation_unit")));
       for (const choice of choices) {
         const label = el('label'); const check = el('input'); check.type = 'checkbox';
         check.checked = (row.narrative_refs || []).includes(choice.id); check.dataset.refId = choice.id;
@@ -459,13 +460,13 @@ export function createScriptWorkspace(container, ctx) {
         });
         label.append(check, el('span', '', choice.label)); mapped.append(label);
       }
-      const evidence = el('details'); evidence.append(el('summary', '', '来源编号'), refs);
+      const evidence = el('details'); evidence.append(el('summary', '', msg("ui.source_number")), refs);
       item.append(mapped, evidence);
-    } else {const evidence=el('details','line-evidence');evidence.append(el('summary','','来源核对'),refs);item.append(evidence);}
+    } else {const evidence=el('details','line-evidence');evidence.append(el('summary','',msg("ui.source_verification")),refs);item.append(evidence);}
     if (kind === 'silence') {
       const duration = el('input', 'line-duration'); duration.type = 'number'; duration.min = '1';
-      duration.value = row.duration_ms ?? ''; duration.placeholder = '静默时长(ms)'; duration.setAttribute('aria-label', '静默时长（毫秒）');
-      const purpose = el('input', 'line-purpose'); purpose.value = row.purpose || ''; purpose.placeholder = '静默用途'; purpose.setAttribute('aria-label', '静默用途');
+      duration.value = row.duration_ms ?? ''; bindAttribute(duration,"placeholder",msg("ui.silence_duration_ms")); bindAttribute(duration,'aria-label',msg("ui.silence_duration_milliseconds"));
+      const purpose = el('input', 'line-purpose'); purpose.value = row.purpose || ''; bindAttribute(purpose,"placeholder",msg("ui.purpose_of_silence")); bindAttribute(purpose,'aria-label',msg("ui.purpose_of_silence"));
       duration.addEventListener('input', scheduleSave); purpose.addEventListener('input', scheduleSave);
       item.append(duration, purpose);
     }
@@ -473,9 +474,9 @@ export function createScriptWorkspace(container, ctx) {
   }
 
   function choicePicker(kind,onChoose){
-    const details=el('details','script-choice-picker');details.append(el('summary','',kind==='character'?'查找其他人物':'查找其他场次'));
-    const form=el('form'),input=el('input'),submit=el('button','','查找'),results=el('div');input.type='search';input.setAttribute('aria-label',kind==='character'?'人物名称':'场次名称');input.placeholder='输入名称…';submit.type='submit';form.append(input,submit);details.append(form,results);let request=0;
-    const read=async(offset=0)=>{const target=session,ticket=++request;results.textContent='正在读取…';try{const data=await ctx.api(`${target.project}/script-draft/choices?`+new URLSearchParams({scope_key:target.scopeKey,kind,query:input.value,offset:String(offset)}));if(!sameSession(target)||ticket!==request)return;results.replaceChildren();for(const row of data.items||[]){const b=el('button','',row.title||row.display_code);b.type='button';b.addEventListener('click',()=>{if(!sameSession(target))return;onChoose(row);details.open=false;});results.append(b);}if(!data.items?.length)results.append(el('p','hint','没有符合条件的已登记内容。'));if(offset>0){const prev=el('button','','上一页');prev.type='button';prev.addEventListener('click',()=>read(Math.max(0,offset-50)));results.append(prev);}if(data.next_offset!=null){const next=el('button','','下一页');next.type='button';next.addEventListener('click',()=>read(data.next_offset));results.append(next);}}catch(error){if(sameSession(target)&&ticket===request)results.textContent=error.message;}};
+    const details=el('details','script-choice-picker');details.append(el('summary','',kind==='character'?msg("ui.find_another_character"):msg("ui.find_another_scene")));
+    const form=el('form'),input=el('input'),submit=el('button','',msg("ui.find")),results=el('div');input.type='search';bindAttribute(input,'aria-label',kind==='character'?msg("ui.character_name"):msg("ui.scene_name"));bindAttribute(input,"placeholder",msg("ui.enter_a_name"));submit.type='submit';form.append(input,submit);details.append(form,results);let request=0;
+    const read=async(offset=0)=>{const target=session,ticket=++request;setText(results,msg("ui.loading"));try{const data=await ctx.api(`${target.project}/script-draft/choices?`+new URLSearchParams({scope_key:target.scopeKey,kind,query:input.value,offset:String(offset)}));if(!sameSession(target)||ticket!==request)return;results.replaceChildren();for(const row of data.items||[]){const b=el('button','',row.title||row.display_code);b.type='button';b.addEventListener('click',()=>{if(!sameSession(target))return;onChoose(row);details.open=false;});results.append(b);}if(!data.items?.length)results.append(el('p','hint',msg("ui.no_registered_content_matches")));if(offset>0){const prev=el('button','',msg("common.previous_page"));prev.type='button';prev.addEventListener('click',()=>read(Math.max(0,offset-50)));results.append(prev);}if(data.next_offset!=null){const next=el('button','',msg("common.next_page"));next.type='button';next.addEventListener('click',()=>read(data.next_offset));results.append(next);}}catch(error){if(sameSession(target)&&ticket===request)setText(results,error.message);}};
     form.addEventListener('submit',event=>{event.preventDefault();return read();});details.addEventListener('toggle',()=>{if(details.open&&!results.children.length&&!results.textContent)read();});return details;
   }
 
@@ -484,30 +485,30 @@ export function createScriptWorkspace(container, ctx) {
     card.dataset.sceneId = scene.id || uniqueId('SC');
     const header = el('header', 'scene-header');
     const id = el('input', 'scene-id'); id.value = card.dataset.sceneId; id.readOnly = true;
-    id.title = '固定场次身份；移动场次不会改变批注锚点'; id.setAttribute('aria-label', '固定场次 ID');
-    const duration = el('input', 'scene-duration'); duration.type = 'number'; duration.value = scene.estimated_duration_ms ?? 0; duration.title = '预估时长（毫秒）';
+    bindAttribute(id,"title",msg("ui.fixed_scene_identity_moving_a_scene_does_not_change")); bindAttribute(id,'aria-label',msg("ui.fixed_scene_id"));
+    const duration = el('input', 'scene-duration'); duration.type = 'number'; duration.value = scene.estimated_duration_ms ?? 0; bindAttribute(duration,"title",msg("ui.estimated_duration_milliseconds"));
     duration.addEventListener('input', scheduleSave);
-    const up = el('button', '', '上移');
+    const up = el('button', '', msg("agent.overseas_remake_move_up"));
     up.addEventListener('click', () => { if (card.previousElementSibling?.classList.contains('script-scene')) { card.parentNode.insertBefore(card, card.previousElementSibling); scheduleSave(); } });
-    const down = el('button', '', '下移');
+    const down = el('button', '', msg("agent.overseas_remake_move_down"));
     down.addEventListener('click', () => { if (card.nextElementSibling?.classList.contains('script-scene')) { card.parentNode.insertBefore(card.nextElementSibling, card); scheduleSave(); } });
-    const drop = el('button', '', '删除场次');
+    const drop = el('button', '', msg("ui.delete_scene"));
     drop.addEventListener('click', () => { if (confirm(`删除场次 ${card.dataset.sceneId}？`)) { card.remove(); scheduleSave(); } });
     if (draft.content?.structured_source) {
       id.type = 'hidden';
-      header.append(el('strong', '', draft.scene_choices?.find(choice=>choice.id===scene.id)?.label || scene.source_label || '导入场次'));
+      header.append(el('strong', '', draft.scene_choices?.find(choice=>choice.id===scene.id)?.label || scene.source_label || msg("ui.import_scenes")));
     }
-    if(!draft.content?.structured_source)header.append(el('strong','',draft.scene_choices?.find(choice=>choice.id===scene.id)?.label||scene.source_label||'场次'));
-    const tools=el('details','scene-tools');tools.append(el('summary','','场次操作'),id,el('span','hint','时长(ms)'),duration,up,down,drop);header.append(tools);
+    if(!draft.content?.structured_source)header.append(el('strong','',draft.scene_choices?.find(choice=>choice.id===scene.id)?.label||scene.source_label||msg("ui.scene")));
+    const tools=el('details','scene-tools');tools.append(el('summary','',msg("ui.scene_actions")),id,el('span','hint',msg("ui.duration_ms")),duration,up,down,drop);header.append(tools);
     card.append(header);
-    for (const [className, label, field, kind] of [['scene-actions', '行动', 'actions', 'action'],
-                                                   ['scene-dialogue', '对白', 'dialogue', 'dialogue'],
-                                                   ['scene-silence', '静默', 'silence', 'silence']]) {
+    for (const [className, label, field, kind] of [['scene-actions', msg("ui.action"), 'actions', 'action'],
+                                                   ['scene-dialogue', msg("agent.overseas_remake_dialogue"), 'dialogue', 'dialogue'],
+                                                   ['scene-silence', msg("ui.silence"), 'silence', 'silence']]) {
       const group = el('div', className);
       group.append(el('h4', '', label));
       const rows = el('div', 'scene-lines');
       for (const row of scene[field] || []) rows.append(lineRow(card.dataset.sceneId, kind, row));
-      const add = el('button', 'line-add', `添加${label}`);
+      const add = el('button', 'line-add', msg("ui.add_value0",{value0:label}));
       add.addEventListener('click', () => { rows.append(lineRow(card.dataset.sceneId, kind,
         {id: uniqueId('L'), text: '', narrative_refs: []})); scheduleSave(); });
       group.append(rows, add);
@@ -519,8 +520,8 @@ export function createScriptWorkspace(container, ctx) {
   function renderEditor() {
     const wrap = el('div', 'script-editor');
     const toolbar = el('div', 'script-toolbar');
-    const addScene = el('button', '', '添加场次');
-    const sceneChoice = el('select', 'script-scene-choice'); sceneChoice.setAttribute('aria-label', '选择已有场次');
+    const addScene = el('button', '', msg("ui.add_scene"));
+    const sceneChoice = el('select', 'script-scene-choice'); bindAttribute(sceneChoice,'aria-label',msg("ui.choose_an_existing_scene"));
     for (const choice of draft.scene_choices || []) {
       const option = el('option', '', choice.label); option.value = choice.id; sceneChoice.append(option);
     }
@@ -528,77 +529,77 @@ export function createScriptWorkspace(container, ctx) {
       try {
         draft.content = readEditor();
         const selected = sceneChoice.value || draft.scene_choices?.[0]?.id;
-        if (selected && draft.content.scenes.some(scene => scene.id === selected)) return notice('该场次已在当前稿中。');
+        if (selected && draft.content.scenes.some(scene => scene.id === selected)) return notice(msg("ui.this_scene_is_already_in_the_current_draft"));
         draft.content.scenes.push({id: selected || uniqueId('SC'), estimated_duration_ms: 0, actions: [], dialogue: [], silence: []});
         render(); scheduleSave();
       } catch (error) { notice(error.message); }
     });
-    const compare = el('button', '', '与已批准基线比较');
+    const compare = el('button', '', msg("ui.compare_with_approved_baseline"));
     compare.addEventListener('click', async () => {
       const target = session;
       const saved = await waitForSave();
-      if (!saved) return notice('存在未保存修改，先解决保存问题再比较。');
+      if (!saved) return notice(msg("ui.unsaved_changes_exist_resolve_saving_before_comparing"));
       try {
         const result = await ctx.api(`${target.project}/script-draft/compare?scope_key=${encodeURIComponent(target.scopeKey)}`);
         if (sameSession(target)) renderCompare(result);
       } catch (error) { if (sameSession(target)) notice(error.message); }
     });
-    const submit = el('button', 'script-submit-button', '提交人工确认');
+    const submit = el('button', 'script-submit-button', msg("ui.submit_for_human_confirmation"));
     submit.addEventListener('click', async () => {
       const target = session;
       const saved = await waitForSave();
-      if (!saved) return notice('保存未完成、失败或存在冲突，不得提交；请先成功保存当前内容。');  // F02/F04：提交屏障
+      if (!saved) return notice(msg("ui.saving_is_incomplete_failed_or_conflicted_submission_is_unavailable"));  // F02/F04：提交屏障
       if (!confirm('提交后当前内容冻结为待确认版本，等待人工批准；批准前不能进入正式设计与资产生产。')) return;
       try {
         const context = draft.submission_context;
-        if (!context) return notice('缺少当前范围的提交前置事实，请重新加载后再提交。');
-        if (context.missing_dependency_types?.length) return notice(`缺少已批准前置版本：${context.missing_dependency_types.join('、')}`);
+        if (!context) return notice(msg("ui.submission_prerequisite_facts_are_missing_for_this_scope_reload"));
+        if (context.missing_dependency_types?.length) return notice(msg("ui.approved_prerequisite_version_missing_value0",{value0:context.missing_dependency_types.join('、')}));
         const result = await write('script-submit', {scope_key: target.scopeKey, base_draft_revision: draft.draft_revision,
           artifact_type: context.artifact_type, dependency_ids: [...(context.dependency_ids || [])]}, false, target);
-        notice(`已提交待确认：版本 ${result.artifact.version}。`); await refreshMeta();
+        notice(msg("ui.submitted_for_confirmation_version_value0",{value0:result.artifact.version})); await refreshMeta();
       } catch (error) { notice(error.message); }
     });
     if (draft.scene_choices?.length) toolbar.append(sceneChoice);
     toolbar.append(choicePicker('scene',choice=>{if(!draft.scene_choices)draft.scene_choices=[];if(!draft.scene_choices.some(row=>row.id===choice.id))draft.scene_choices.push({id:choice.id,label:choice.title||choice.display_code});const option=el('option','',choice.title||choice.display_code);option.value=choice.id;sceneChoice.append(option);sceneChoice.value=choice.id;}));
-    toolbar.append(addScene, compare, submit, el('span', 'hint', '编辑自动保存到工作副本（只更新被改字段，引用与静默语义保留）；提交才形成正式待确认版本。'));
-    const tools=el('details','script-edit-tools');tools.append(el('summary','','场次与版本操作'),toolbar);wrap.append(tools);
+    toolbar.append(addScene, compare, submit, el('span', 'hint', msg("ui.edits_save_automatically_to_the_working_copy_updating_only")));
+    const tools=el('details','script-edit-tools');tools.append(el('summary','',msg("ui.scene_and_version_actions")),toolbar);wrap.append(tools);
     const board = el('div', 'script-board');
     const content = draft.content || blank();
     const fields = el('section', 'script-document-fields');
-    const bodyLabel = el('label', '', '剧本正文');
+    const bodyLabel = el('label', '', msg("ui.script_body"));
     const body = el('textarea', 'script-body'); body.value = content.body || ''; body.rows = 6;
     if (content.structured_source) {
       body.readOnly = true;
-      body.setAttribute('aria-label', '由场次与台词自动生成的连续正文');
-      bodyLabel.append(el('p','hint','连续正文随下方场次和台词自动生成，请在对应单元中校对。'));
+      bindAttribute(body,'aria-label',msg("ui.continuous_text_generated_from_scenes_and_dialogue"));
+      bodyLabel.append(el('p','hint',msg("ui.continuous_text_is_generated_from_the_scenes_and_dialogue")));
     } else body.addEventListener('input', scheduleSave);
     bodyLabel.append(body); fields.append(bodyLabel);
-    fields.append(el('h4', '', '固定改编来源'));
+    fields.append(el('h4', '', msg("ui.fixed_adaptation_source")));
     const refs = el('div', 'script-adaptation-refs');
     function addRef(ref = {}) {
       const row = el('div', 'script-adaptation-ref'); row.dataset.refId = ref.id || '';
-      const id = el('input', 'adaptation-id'); id.value = ref.id || ''; id.placeholder = '来源版本 ID'; id.setAttribute('aria-label', '改编来源版本 ID');
-      const sha = el('input', 'adaptation-sha'); sha.value = ref.sha256 || ''; sha.placeholder = '来源 SHA-256'; sha.setAttribute('aria-label', '改编来源 SHA-256');
-      const remove = el('button', '', '移除来源'); remove.addEventListener('click', () => { row.remove(); scheduleSave(); });
+      const id = el('input', 'adaptation-id'); id.value = ref.id || ''; bindAttribute(id,"placeholder",msg("ui.source_version_id")); bindAttribute(id,'aria-label',msg("ui.adaptation_source_version_id"));
+      const sha = el('input', 'adaptation-sha'); sha.value = ref.sha256 || ''; bindAttribute(sha,"placeholder",msg("ui.source_sha_256")); bindAttribute(sha,'aria-label',msg("ui.adaptation_source_sha_256"));
+      const remove = el('button', '', msg("ui.remove_source")); remove.addEventListener('click', () => { row.remove(); scheduleSave(); });
       const pin = draft.submission_context?.dependencies?.find(item => item.id === ref.id);
-      row.append(el('span', '', pin ? `${pin.artifact_key || '已批准改编'} · v${pin.version}` : '已登记来源'));
-      const advanced = el('details'); advanced.append(el('summary', '', '版本证据'), id, sha);
+      row.append(el('span', '', pin ? joinMessages(["",pin.artifact_key || msg("ui.approved_adaptation")," · v",pin.version,""]) : msg("ui.registered_sources")));
+      const advanced = el('details'); advanced.append(el('summary', '', msg("ui.version_evidence")), id, sha);
       id.addEventListener('input', scheduleSave); sha.addEventListener('input', scheduleSave); row.append(advanced, remove); refs.append(row);
     }
     for (const ref of content.adaptation_refs || []) addRef(ref);
-    const addRefButton = el('button', 'script-add-adaptation', '添加改编来源');
+    const addRefButton = el('button', 'script-add-adaptation', msg("ui.add_adaptation_source"));
     addRefButton.addEventListener('click', () => {
       const pin = draft.submission_context?.dependencies?.find(item => item.artifact_type === 'vsc.adaptation_plan');
-      if (pin && Array.from(refs.querySelectorAll('.adaptation-id')).some(input => input.value === pin.id)) return notice('当前已包含这个批准版本。');
+      if (pin && Array.from(refs.querySelectorAll('.adaptation-id')).some(input => input.value === pin.id)) return notice(msg("ui.this_approved_version_is_already_included"));
       addRef(pin || {}); scheduleSave();
     });
     const dependencies = draft.submission_context;
     fields.append(refs, addRefButton, el('p', 'script-dependencies hint', dependencies
-      ? `提交固定前置：${(dependencies.dependencies || []).map(row => `${row.artifact_key || row.artifact_type || row.id} v${row.version} · ${row.sha256}`).join('；') || '当前 Profile 无前置要求'}${dependencies.missing_dependency_types?.length ? '；缺少已批准版本：' + dependencies.missing_dependency_types.join('、') : ''}`
-      : '正在等待当前范围的提交前置事实。'));
-    const evidence=el('details','script-source-evidence');evidence.append(el('summary','','来源、结构与提交核对'),fields);wrap.append(evidence);
+      ? msg("ui.fixed_submission_prerequisites_value0_value1",{value0:(dependencies.dependencies || []).map(row => `${row.artifact_key || row.artifact_type || row.id} v${row.version} · ${row.sha256}`).join('；') || msg("ui.current_profile_has_no_prerequisites"),value1:dependencies.missing_dependency_types?.length ? msg("ui.approved_versions_missing_value0",{value0:dependencies.missing_dependency_types.join('、')}) : ''})
+      : msg("ui.waiting_for_submission_prerequisite_facts_for_this_scope")));
+    const evidence=el('details','script-source-evidence');evidence.append(el('summary','',msg("ui.source_structure_and_submission_checks")),fields);wrap.append(evidence);
     for (const scene of content.scenes || []) board.append(sceneCard(scene));
-    if (!(content.scenes || []).length) board.append(el('p', 'empty', '还没有场次；点击“添加场次”开始写剧本。'));
+    if (!(content.scenes || []).length) board.append(el('p', 'empty', msg("ui.no_scenes_yet_select_add_scene_to_start_writing")));
     wrap.append(board);
     return wrap;
   }
@@ -606,9 +607,9 @@ export function createScriptWorkspace(container, ctx) {
   function renderCompare(result) {
     let panel = container.querySelector('.script-compare');
     if (!panel) { panel = el('section', 'script-compare'); container.querySelector('.script-main').prepend(panel); }
-    panel.replaceChildren(el('h3', '', '与已批准基线的差异'));
+    panel.replaceChildren(el('h3', '', msg("ui.differences_from_approved_baseline")));
     const changes = result.changes || {};
-    if (!changes.changed) { panel.append(el('p', 'hint', result.base ? '与基线一致，没有结构差异。' : '尚无该范围的已批准基线；提交并获得批准后才会形成比较基线。')); return; }
+    if (!changes.changed) { panel.append(el('p', 'hint', result.base ? msg("ui.matches_the_baseline_no_structural_differences") : msg("ui.no_approved_baseline_exists_for_this_scope_submission_and"))); return; }
     const scenes = changes.scenes || {};
     const summary = [];
     if (scenes.added?.length) summary.push(`新增场次 ${scenes.added.join('、')}`);
@@ -617,7 +618,7 @@ export function createScriptWorkspace(container, ctx) {
     if (summary.length) panel.append(el('p', '', summary.join('；')));
     const list = el('ul', 'compare-list');
     for (const change of changes.lines || []) {
-      const item = el('li', '', `${change.scene_id || ''} ${change.line_id || ''} ${change.field || ''}（${change.change}）`);
+      const item = el('li', '', joinMessages(["",change.scene_id || ''," ",change.line_id || ''," ",change.field || '',"（",change.change,"）"]));
       if (change.before != null) item.append(el('s', '', JSON.stringify(change.before)));
       if (change.after != null) item.append(el('b', '', JSON.stringify(change.after)));
       list.append(item);
@@ -629,13 +630,13 @@ export function createScriptWorkspace(container, ctx) {
     const panel = el('section', 'script-suggestions');
     const suggestions = draft.suggestions || [];
     const pending = suggestions.filter(row => row.status === 'pending');
-    panel.append(el('h3', '', `修改建议（${pending.length} 待处理 / 共 ${suggestions.length}）`));
-    const goal = el('input', 'script-ai-goal'); goal.placeholder = '希望改善什么，例如对白更自然、动作更可拍';
+    panel.append(el('h3', '', msg("ui.revision_suggestions_value0_pending_value1_total",{value0:pending.length,value1:suggestions.length})));
+    const goal = el('input', 'script-ai-goal'); bindAttribute(goal,"placeholder",msg("ui.describe_the_desired_improvement_such_as_more_natural_dialogue"));
     goal.maxLength = 2000;
-    const generate = el('button', 'script-ai-generate', '生成 AI 建议');
+    const generate = el('button', 'script-ai-generate', msg("ui.generate_ai_suggestions"));
     generate.addEventListener('click', async () => {
       const target = session, objective = goal.value.trim();
-      if (!objective) return notice('先填写本次建议目标。');
+      if (!objective) return notice(msg("ui.enter_the_goal_for_this_suggestion_round_first"));
       generate.disabled = true;
       try {
         if (!await waitForSave() || !sameSession(target)) return;
@@ -643,7 +644,7 @@ export function createScriptWorkspace(container, ctx) {
         const fresh = await ctx.api(`${target.project}/script-draft?scope_key=${encodeURIComponent(target.scopeKey)}`);
         if (!sameSession(target)) return;
         if (editSeq !== seq || saving || conflict || fresh.draft_revision !== draft.draft_revision) {
-          return notice('正文在准备建议时发生变化，请保存后重新生成。');
+          return notice(msg("ui.text_changed_while_preparing_suggestions_save_and_generate_again"));
         }
         const fingerprint = JSON.stringify([fresh.draft_revision, fresh.content_sha256, objective]);
         const key = recoveryKey(target), previous = suggestionAttempts.get(key);
@@ -653,25 +654,25 @@ export function createScriptWorkspace(container, ctx) {
           base_draft_revision: fresh.draft_revision, base_content_sha256: fresh.content_sha256, goal: objective,
           new_attempt:attempt.newAttempt===true}, false, target, attempt.commandKey);
         if (!sameSession(target)) return;
-        notice(result.status === 'completed' ? '建议已生成，请逐处审阅接受。' :
-          result.status === 'stale' ? '生成期间剧本已修改，结果已隔离；请基于新稿重新生成。' :
-          '本次生成未完成，已保留调用记录；不会自动再次调用。');
+        notice(result.status === 'completed' ? msg("ui.suggestions_generated_review_and_accept_each_change") :
+          result.status === 'stale' ? msg("ui.script_changed_during_generation_the_result_is_isolated_generate") :
+          msg("ui.generation_did_not_complete_call_record_preserved_no_automatic"));
         await refreshMeta();
       } catch (error) { if (sameSession(target)) notice(error.message); }
       finally { if (sameSession(target)) generate.disabled = false; }
     });
-    const newRound = el('button', '', '明确新增一轮建议');
+    const newRound = el('button', '', msg("ui.start_another_suggestion_round"));
     newRound.addEventListener('click', () => {
       if (!confirm('新增一轮会使用新的宿主调用额度；旧的未知调用仍不会重试。继续？')) return;
-      suggestionAttempts.set(recoveryKey(session),{requestNew:true}); notice('已选择新一轮；填写目标后点击生成 AI 建议。');
+      suggestionAttempts.set(recoveryKey(session),{requestNew:true}); notice(msg("ui.new_round_selected_enter_a_goal_then_select_generate"));
     });
-    panel.append(goal, generate, newRound, el('p', 'hint', '通过本机 Grok Build 登录生成局部建议，使用其订阅额度；相同稿次与目标只恢复原调用，接受前不会修改正文。'));
+    panel.append(goal, generate, newRound, el('p', 'hint', msg("ui.generate_local_suggestions_through_your_grok_build_sign_in")));
     for (const run of draft.suggestion_runs || []) {
-      const attempt = el('div', 'hint', `${run.goal} · 基于 r${run.base_draft_revision} · ${run.status}`);
+      const attempt = el('div', 'hint', msg("ui.value0_based_on_r_value1_value2",{value0:run.goal,value1:run.base_draft_revision,value2:run.status}));
       if (run.status === 'running') {
-        attempt.append(el('span', '', run.result_available ? ' · 已有宿主结果，可恢复登记' : ' · 调用状态尚未确认，不会自动重提'));
+        attempt.append(el('span', '', run.result_available ? msg("ui.host_result_exists_and_registration_can_be_recovered") : msg("ui.call_status_is_unconfirmed_no_automatic_resubmission")));
         if (run.result_available) {
-          const resume = el('button', '', '恢复已有建议结果'), target=session;
+          const resume = el('button', '', msg("ui.recover_existing_suggestion_result")), target=session;
           resume.addEventListener('click', async()=>{try{await write(`script-suggestion-runs/${run.id}/resume`,{},false,target);await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}});
           attempt.append(resume);
         }
@@ -683,26 +684,26 @@ export function createScriptWorkspace(container, ctx) {
       const item = el('li', `note-${row.status}`);
       const label = `${row.scene_id}${row.line_id ? ' / ' + row.line_id : ''} · ${row.kind}.${row.field}`;
       item.append(el('span', 'note-anchor', label), el('s', '', String(row.before_value ?? '')),
-        el('b', '', String(row.after_value)), el('small', '', `${row.origin} · r${row.base_draft_revision} · ${row.reason}`));
-      const compare=el('button','','在作品区比较这一处');compare.addEventListener('click',()=>{
+        el('b', '', String(row.after_value)), el('small', '', joinMessages(["",row.origin," · r",row.base_draft_revision," · ",row.reason,""])));
+      const compare=el('button','',msg("ui.compare_this_change_in_the_work_area"));compare.addEventListener('click',()=>{
         let panel=container.querySelector('.script-line-comparison');if(!panel){panel=el('section','script-line-comparison');container.querySelector('.script-main').prepend(panel);}
-        panel.replaceChildren(el('h3','','本轮修改比较'),el('p','','原文'),el('del','',String(row.before_value??'')),el('p','','建议'),el('ins','',String(row.after_value)),el('p','hint',row.reason));
-        const back=el('button','','返回原位置');back.addEventListener('click',()=>{panel.remove();Array.from(container.querySelectorAll('.script-line')).find(node=>node.dataset.lineId===row.line_id)?.querySelector('.line-text')?.focus();});panel.append(back);container.dataset.panel='work';panel.scrollIntoView?.({block:'start'});
+        panel.replaceChildren(el('h3','',msg("ui.changes_in_this_round")),el('p','',msg("script-studio.text_082")),el('del','',String(row.before_value??'')),el('p','',msg("ui.suggestion")),el('ins','',String(row.after_value)),el('p','hint',row.reason));
+        const back=el('button','',msg("ui.return_to_original_position"));back.addEventListener('click',()=>{panel.remove();Array.from(container.querySelectorAll('.script-line')).find(node=>node.dataset.lineId===row.line_id)?.querySelector('.line-text')?.focus();});panel.append(back);container.dataset.panel='work';panel.scrollIntoView?.({block:'start'});
       });item.append(compare);
       if (row.status === 'pending') {
-        const accept = el('button', '', '接受这一处');
+        const accept = el('button', '', msg("ui.accept_this_change"));
         accept.addEventListener('click', async () => {
           const target = session, seq = editSeq;
-          if (editSeq > savedSeq || saving) return notice('有未保存编辑；先成功保存再接受建议。');
+          if (editSeq > savedSeq || saving) return notice(msg("ui.unsaved_edits_exist_save_successfully_before_accepting_suggestions"));
           const reason = '在原处比较后接受这一处建议';
           try {
             await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
               outcome: 'accept', reason}, false, target);
-            notice('建议已应用到工作副本；编辑器已刷新为新稿。');
+            notice(msg("ui.suggestions_applied_to_the_working_copy_editor_refreshed_to"));
             await refreshChangedDraft(target, seq);
           } catch (error) { notice(error.message); }
         });
-        const reject = el('button', '', '拒绝');
+        const reject = el('button', '', msg("ui.reject"));
         reject.addEventListener('click', async () => {
           const reason = '保留原文，拒绝这一处建议';
           try { await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
@@ -710,15 +711,15 @@ export function createScriptWorkspace(container, ctx) {
         });
         item.append(accept, reject);
       } else if (row.status === 'accepted') {
-        const undo = el('button', '', '撤销接受');
+        const undo = el('button', '', msg("ui.undo_acceptance"));
         undo.addEventListener('click', async () => {
           const target = session, seq = editSeq;
-          if (editSeq > savedSeq || saving) return notice('有未保存编辑；先成功保存再撤销。');
+          if (editSeq > savedSeq || saving) return notice(msg("ui.unsaved_edits_exist_save_successfully_before_undoing"));
           const reason = '撤销本处接受，恢复原文';
           try {
             await write('script-suggestion-decisions', {scope_key: scopeKey, suggestion_id: row.id,
               outcome: 'undo_accept', reason}, false, target);
-            notice('已撤销并改回原值。');
+            notice(msg("ui.acceptance_undone_original_values_restored"));
             await refreshChangedDraft(target, seq);
           } catch (error) { notice(error.message); }
         });
@@ -726,7 +727,7 @@ export function createScriptWorkspace(container, ctx) {
       }
       list.append(item);
     }
-    if (!suggestions.length) list.append(el('li', 'hint', '还没有修改建议；填写目标后生成，再逐处接受。'));
+    if (!suggestions.length) list.append(el('li', 'hint', msg("ui.no_suggestions_yet_enter_a_goal_generate_suggestions_then")));
     panel.append(list);
     panel.append(pagination('suggestions',draft.suggestions_page));
     return panel;
@@ -736,18 +737,18 @@ export function createScriptWorkspace(container, ctx) {
     const target = session;
     let panel = container.querySelector('.script-impact');
     if (!panel) { panel = el('section', 'script-impact'); const before=container.querySelector('.script-suggestions');before.parentNode.insertBefore(panel,before); }
-    panel.replaceChildren(el('h3', '', '修订影响（相对已批准基线）'), el('p', 'hint', '读取中…'));
+    panel.replaceChildren(el('h3', '', msg("ui.revision_impact_relative_to_approved_baseline")), el('p', 'hint', msg("ui.loading_extra_218")));
     try {
       const impact = await ctx.api(`${target.project}/script-draft/impact?scope_key=${encodeURIComponent(target.scopeKey)}`);
       if (!sameSession(target)) return;
-      panel.replaceChildren(el('h3', '', '修订影响（相对已批准基线）'));
+      panel.replaceChildren(el('h3', '', msg("ui.revision_impact_relative_to_approved_baseline")));
       if (!impact.changed_lines.length && !impact.shots.length && !impact.cues.length) {
-        panel.append(el('p', 'hint', impact.baseline_artifact_id ? '没有检出会影响下游的行级变化。' : '该范围尚无已批准基线，无从比对影响。'));
+        panel.append(el('p', 'hint', impact.baseline_artifact_id ? msg("ui.no_line_level_changes_affecting_downstream_work_were_found") : msg("ui.this_scope_has_no_approved_baseline_for_impact_comparison")));
         return;
       }
       const lines = el('ul', 'compare-list');
       for (const change of impact.changed_lines) {
-        const item = el('li', '', `${change.scene_id || ''} ${change.line_id || ''} ${change.field || ''}（${change.change}）`);
+        const item = el('li', '', joinMessages(["",change.scene_id || ''," ",change.line_id || ''," ",change.field || '',"（",change.change,"）"]));
         if (change.before != null) item.append(el('s', '', JSON.stringify(change.before)));
         if (change.after != null) item.append(el('b', '', JSON.stringify(change.after)));
         lines.append(item);
@@ -758,8 +759,8 @@ export function createScriptWorkspace(container, ctx) {
       if (impact.cues.length) meta.push(`声音Cue ${impact.cues.map(c => c.label || c.cue_key || c.id).join('、')}${impact.cues.some(c => c.timeline_items) ? `（含时间线用料 ${impact.cues.reduce((n, c) => n + (c.timeline_items || 0), 0)} 处）` : ''}`);
       if (impact.unresolved?.length) meta.push(`待核实 ${impact.unresolved.length} 项（基线缺行或场级变化）`);
       for (const line of meta) panel.append(el('p', '', line));
-      panel.append(el('p', 'hint', '影响清单来自真实覆盖／声音Cue／时间线关系；未列出的关系不代表不存在，标注为待核实。'));
-    } catch (error) { if (sameSession(target)) panel.append(el('p', 'hint', '影响读取失败：' + error.message)); }
+      panel.append(el('p', 'hint', msg("ui.the_impact_list_comes_from_actual_coverage_sound_cue")));
+    } catch (error) { if (sameSession(target)) panel.append(el('p', 'hint', msg("ui.impact_could_not_be_loaded_value0",{value0:error.message}))); }
   }
 
   async function refreshChangedDraft(target, seq) {
@@ -774,83 +775,83 @@ export function createScriptWorkspace(container, ctx) {
   }
 
   function pagination(kind,page) {
-    const bar=el('nav','script-pagination');bar.setAttribute('aria-label',kind==='notes'?'批注分页':'建议分页');
+    const bar=el('nav','script-pagination');bindAttribute(bar,'aria-label',kind==='notes'?msg("ui.annotation_pagination"):msg("ui.suggestion_pagination"));
     if(!page)return bar;
-    for(const [label,offset]of [['上一页',page.offset>0?Math.max(0,page.offset-50):null],['下一页',page.next_offset]]){
+    for(const [label,offset]of [[msg("common.previous_page"),page.offset>0?Math.max(0,page.offset-50):null],[msg("common.next_page"),page.next_offset]]){
       const b=el('button','',label);b.disabled=offset==null;b.addEventListener('click',async()=>{if(kind==='notes')noteOffset=offset;else suggestionOffset=offset;await refreshMeta();});bar.append(b);
     }
-    bar.append(el('span','hint',`从第 ${page.offset+1} 条起，每页最多50条`));return bar;
+    bar.append(el('span','hint',msg("ui.starting_at_item_value0_up_to_50_per_page",{value0:page.offset+1})));return bar;
   }
 
   function renderNoteComposer() {
-    const form=el('form','script-note-composer');form.append(el('h3','','修改这一处'));
+    const form=el('form','script-note-composer');form.append(el('h3','',msg("ui.edit_this_part")));
     const key=recoveryKey(session),stored=noteDrafts.get(key)||unstash('vsc-script-note:'+key);
     if(!noteTarget&&stored?.target)noteTarget=stored.target;
-    if(!noteTarget){form.append(el('p','hint','点击正文旁的“批注”，对这一行说清改什么、保留什么。整集与整场意见保留原专业处理入口。'));return form;}
+    if(!noteTarget){form.append(el('p','hint',msg("ui.select_annotation_beside_a_line_and_describe_what_to")));return form;}
     const anchor={...noteTarget},target=session;
-    form.append(el('p','script-note-anchor',`所选${anchor.kind==='dialogue'?'对白':anchor.kind==='silence'?'静默':'行动'}：${anchor.excerpt}`));
-    const input=el('textarea','script-note-body');input.rows=4;input.maxLength=4000;input.required=true;input.setAttribute('aria-label','对这一行的修改意见');
-    input.placeholder='例如：这句改短，保留动作和事实…';input.value=stored?.target?.line_id===anchor.line_id?stored.body:'';
+    form.append(el('p','script-note-anchor',msg("ui.selected_value0_value1",{value0:anchor.kind==='dialogue'?msg("agent.overseas_remake_dialogue"):anchor.kind==='silence'?msg("ui.silence"):msg("ui.action"),value1:anchor.excerpt})));
+    const input=el('textarea','script-note-body');input.rows=4;input.maxLength=4000;input.required=true;bindAttribute(input,'aria-label',msg("ui.revision_comment_for_this_line"));
+    bindAttribute(input,"placeholder",msg("ui.for_example_shorten_this_line_while_retaining_its_action"));input.value=stored?.target?.line_id===anchor.line_id?stored.body:'';
     const remember=()=>{const value={target:anchor,body:input.value};noteDrafts.set(key,value);stash('vsc-script-note:'+key,value);};input.addEventListener('input',remember);
-    const save=el('button','','保存原意见'),process=el('button','','保存并提出局部修改'),status=el('p','hint');status.setAttribute('role','status');
+    const save=el('button','',msg("ui.save_original_comment")),process=el('button','',msg("ui.save_and_propose_a_local_revision")),status=el('p','hint');status.setAttribute('role','status');
     save.type='submit';process.type='button';let commandKey=null,recorded=null;
     input.addEventListener('input',()=>{commandKey=null;recorded=null;});
     const submit=async(execute)=>{
       if(save.disabled||!sameSession(target))return;
       if(!input.value.trim())return input.focus();remember();save.disabled=process.disabled=true;
       try{
-        if(!await waitForSave()||!sameSession(target)){status.textContent='正文保存未完成，意见仍保留在这里。请先重试保存。';return;}
+        if(!await waitForSave()||!sameSession(target)){setText(status,msg("ui.the_body_has_not_finished_saving_your_comment_remains"));return;}
         commandKey ||= crypto.randomUUID();
         recorded ||= await write('script-notes',{scope_key:target.scopeKey,scene_id:anchor.scene_id,line_id:anchor.line_id,
           body:input.value,base_draft_revision:draft.draft_revision},false,target,commandKey);
         if(execute){const noteId=recorded.id || recorded.note?.id;if(!noteId)throw new Error('原意见已保存，但回执没有批注身份；请从下方已保存意见继续。');await write('review-process',{script_note_id:noteId},false,target,'review:'+commandKey);}
-        if(sameSession(target)){status.textContent=execute?'原意见已固定；处理状态和建议在下方回看。':'原意见已固定到所见稿次。';noteDrafts.delete(key);stash('vsc-script-note:'+key,null);input.value='';await refreshMeta();}
-      }catch(error){if(sameSession(target))status.textContent=`${error.message}。意见文字已保留，可从本处继续。`;}
+        if(sameSession(target)){setText(status,execute?msg("ui.original_comment_is_fixed_review_its_status_and_suggestions"):msg("ui.original_comment_fixed_to_the_displayed_draft"));noteDrafts.delete(key);stash('vsc-script-note:'+key,null);input.value='';await refreshMeta();}
+      }catch(error){if(sameSession(target))setText(status,msg("ui.value0_comment_text_is_preserved_continue_here",{value0:error.message}));}
       finally{if(sameSession(target))save.disabled=process.disabled=false;}
     };
     form.addEventListener('submit',event=>{event.preventDefault();return submit(false);});process.addEventListener('click',()=>submit(true));
-    const retry=el('button','','重试保存正文');retry.type='button';retry.addEventListener('click',async()=>{lastError=null;await flushSave();status.textContent=lastError?'正文仍未保存，意见已保留。':'正文已保存，可以继续提交意见。';});
+    const retry=el('button','',msg("ui.retry_saving_text"));retry.type='button';retry.addEventListener('click',async()=>{lastError=null;await flushSave();setText(status,lastError?msg("ui.text_is_still_unsaved_the_comment_is_preserved"):msg("ui.text_saved_you_can_continue_submitting_the_comment"));});
     form.append(input,save,process,retry,status);return form;
   }
 
   function renderNotes() {
     const panel = el('section', 'script-notes');
     const notes = draft.notes || [];
-    panel.append(el('h3', '', `批注（${notes.filter(row => row.status === 'open').length} 待处理 / 共 ${notes.length}）`));
+    panel.append(el('h3', '', msg("ui.annotations_value0_pending_value1_total",{value0:notes.filter(row => row.status === 'open').length,value1:notes.length})));
     const list = el('ul', 'notes-list');
     for (const note of notes) {
       const item = el('li', `note-${note.status}`);
       const baseline = note.base_draft_revision != null && note.base_content_sha256
         ? `基准 r${note.base_draft_revision} · SHA ${note.base_content_sha256}${note.base_artifact_id ? ' · 冻结版本 ' + note.base_artifact_id : ''}`
         : '基准未知（历史批注未记录所见版本）';
-      item.append(el('span', 'note-anchor', `${note.scope_key == null ? '未归属历史 · ' : ''}${note.scene_id}${note.line_id ? ' / ' + note.line_id : ''}`),
+      item.append(el('span', 'note-anchor', joinMessages(["",note.scope_key == null ? msg("ui.unassigned_history") : '',"",note.scene_id,"",note.line_id ? joinMessages([" / ",note.line_id]) : '',""])),
         el('span', '', note.body),
         el('small', 'note-baseline', baseline),
-        el('small', '', `${note.author} · ${String(note.created_at || '').slice(0, 19)} · ${{open: '待处理', resolved: '已解决', dismissed: '已忽略'}[note.status]}`));
+        el('small', '', joinMessages(["",note.author," · ",String(note.created_at || '').slice(0, 19)," · ",{open: '待处理', resolved: '已解决', dismissed: '已忽略'}[note.status],""])));
       if (note.status === 'open') {
         if(note.line_id && note.base_draft_revision!=null){
-          const action=(label,newAttempt=false)=>{const propose=el('button','',label),target=session,key=crypto.randomUUID();propose.addEventListener('click',async()=>{if(!sameSession(target))return;propose.disabled=true;try{if(!await waitForSave())return notice('正文尚未保存，原意见保留；保存成功后再处理。');if(!sameSession(target))return;await write('review-process',{script_note_id:note.id,...(newAttempt?{new_attempt:true}:{})},false,target,key);if(sameSession(target))await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}finally{if(sameSession(target))propose.disabled=false;}});return propose;};
+          const action=(label,newAttempt=false)=>{const propose=el('button','',label),target=session,key=crypto.randomUUID();propose.addEventListener('click',async()=>{if(!sameSession(target))return;propose.disabled=true;try{if(!await waitForSave())return notice(msg("ui.text_is_unsaved_original_comment_preserved_save_successfully_before"));if(!sameSession(target))return;await write('review-process',{script_note_id:note.id,...(newAttempt?{new_attempt:true}:{})},false,target,key);if(sameSession(target))await refreshMeta();}catch(error){if(sameSession(target))notice(error.message);}finally{if(sameSession(target))propose.disabled=false;}});return propose;};
           item.append(action('按此意见提出局部修改'));if(note.review_history?.responses?.length)item.append(action('明确新一轮局部修改',true));
         }
-        const resolve = el('button', '', '解决');
+        const resolve = el('button', '', msg("ui.resolve"));
         resolve.addEventListener('click', async () => {
           const reason = prompt('解决说明：'); if (!reason) return;
           try { await write('script-note-decisions', {note_id: note.id, outcome: 'resolve', reason}); await refreshMeta(); } catch (error) { notice(error.message); }
         });
-        const dismiss = el('button', '', '忽略');
+        const dismiss = el('button', '', msg("ui.dismiss"));
         dismiss.addEventListener('click', async () => {
           const reason = prompt('忽略说明：'); if (!reason) return;
           try { await write('script-note-decisions', {note_id: note.id, outcome: 'dismiss', reason}); await refreshMeta(); } catch (error) { notice(error.message); }
         });
         item.append(resolve, dismiss);
       }
-      if(note.review_history){const history=el('div','note-results');for(const response of note.review_history.responses || []){history.append(el('p','',response.explanation),el('p','hint',response.limitations));for(const run of response.runs || []){history.append(el('p','',({completed:'已有局部建议，请在差异区决定',submission_unknown:'提交结果待核实，不会自动重发',failed:'此次处理失败，原意见保留',stale:'稿次已变化，请重新定位'})[run.status] || '仍在处理，刷新回看'));for(const suggestion of run.suggestions || [])history.append(el('s','',suggestion.before_value),el('b','',suggestion.after_value));}}item.append(history);}
-      const history=el('details','note-history'),body=el('div');history.append(el('summary','','查看本条处理记录'),body);let loaded=false;
-      history.addEventListener('toggle',async()=>{if(!history.open||loaded)return;const target=session;try{const data=await ctx.api(`${target.project}/review-history?script_note_id=${encodeURIComponent(note.id)}&limit=10`);if(!sameSession(target))return;const {renderReviewHistory}=await import('./review.js');if(!sameSession(target))return;body.replaceChildren(renderReviewHistory(data,{historyPage:async(filters,page)=>{const data=await ctx.api(`${target.project}/review-history?`+new URLSearchParams({...filters,...page}));if(sameSession(target))return data;},onError:error=>notice(error.message)}));loaded=true;}catch(error){if(sameSession(target))body.textContent=error.message;}});item.append(history);
+      if(note.review_history){const history=el('div','note-results');for(const response of note.review_history.responses || []){history.append(el('p','',response.explanation),el('p','hint',response.limitations));for(const run of response.runs || []){history.append(el('p','',({completed:'已有局部建议，请在差异区决定',submission_unknown:'提交结果待核实，不会自动重发',failed:'此次处理失败，原意见保留',stale:'稿次已变化，请重新定位'})[run.status] || msg("ui.still_processing_refresh_to_review")));for(const suggestion of run.suggestions || [])history.append(el('s','',suggestion.before_value),el('b','',suggestion.after_value));}}item.append(history);}
+      const history=el('details','note-history'),body=el('div');history.append(el('summary','',msg("ui.view_processing_history_for_this_item")),body);let loaded=false;
+      history.addEventListener('toggle',async()=>{if(!history.open||loaded)return;const target=session;try{const data=await ctx.api(`${target.project}/review-history?script_note_id=${encodeURIComponent(note.id)}&limit=10`);if(!sameSession(target))return;const {renderReviewHistory}=await import('./review.js');if(!sameSession(target))return;body.replaceChildren(renderReviewHistory(data,{historyPage:async(filters,page)=>{const data=await ctx.api(`${target.project}/review-history?`+new URLSearchParams({...filters,...page}));if(sameSession(target))return data;},onError:error=>notice(error.message)}));loaded=true;}catch(error){if(sameSession(target))setText(body,error.message);}});item.append(history);
       list.append(item);
     }
-    if (!notes.length) list.append(el('li', 'hint', '还没有批注；在台词或行动行点“批注”。'));
-    panel.append(list,pagination('notes',draft.notes_page), el('p', 'hint', '新批注绑定已保存的所见稿次、内容摘要与场次／行身份，不进入剧本正文；解决批注不等于批准剧本。'));
+    if (!notes.length) list.append(el('li', 'hint', msg("ui.no_annotations_yet_select_annotation_on_a_dialogue_or")));
+    panel.append(list,pagination('notes',draft.notes_page), el('p', 'hint', msg("ui.new_annotations_bind_to_the_saved_draft_content_digest")));
     return panel;
   }
 

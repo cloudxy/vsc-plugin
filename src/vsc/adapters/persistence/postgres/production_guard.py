@@ -325,10 +325,17 @@ def validate_guard(store, conn, project, run, context=None, job=None, model=None
 
 
 def validate_submission(store, conn, project, job):
+    run = store._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
+    from .workbench_generation import RUN_TYPE, context_for_run
+    if run["artifact_type"] == RUN_TYPE:
+        context = context_for_run(store, conn, project, run, job["shot_id"], job["purpose"])
+        if not context["ready"] or context["sha256"] != job["context_sha256"]:
+            raise ResourceError("固定工作输入已不可用", "stale_job")
+        return
     if job["status"] == "created":
         store.check_job_script_confirmation(conn, project, shot_id=job.get("shot_id"), asset_id=job.get("asset_id"), run_version_id=job["run_version_id"])
         request = job["request_payload"]
-        if request.get("operation"):
+        if request.get("operation") in {"edit", "extend"} and job["modality"] == "video":
             from vsc.production.video_operations import validate_source_metadata
             source, gaps = store._usable(conn, project["id"], request["source_media_id"], job["purpose"])
             if gaps:

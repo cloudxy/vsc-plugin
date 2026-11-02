@@ -166,6 +166,8 @@ class GrokVideoProvider:
         if req is not None:
             if req.reference_audio_media_ids:
                 raise GrokAdapterError("Grok 视频的 reference_audios 只接平台预置 voice_id（模型默认参数 reference_voice_ids），不能传音频素材文件")
+            if req.reference_video_media_ids:
+                raise GrokAdapterError('当前Grok生成适配器不接受参考视频文件；请选择声明视频参考能力的模型')
             self._compile(req)
         local_auth()
 

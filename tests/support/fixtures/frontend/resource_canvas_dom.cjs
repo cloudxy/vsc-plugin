@@ -3,14 +3,16 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const path=require('node:path');
 
 class Element {
-  constructor(tag){this.tagName=tag;this.children=[];this.attributes={};this.listeners={};this.parentElement=null;this._text='';this.value='';}
+  constructor(tag){this.ownerDocument=doc;this.tagName=tag;this.children=[];this.attributes={};this.listeners={};this.parentElement=null;this._text='';this.value='';}
   set textContent(value){this._text=String(value);this.children=[];}
   get textContent(){return this._text+this.children.map(c=>c.textContent).join('');}
   set id(value){this.setAttribute('id',value);} get id(){return this.getAttribute('id');}
   set className(value){this.setAttribute('class',value);} get className(){return this.getAttribute('class')||'';}
   setAttribute(k,v){this.attributes[k]=String(v);}getAttribute(k){return this.attributes[k]??null;}
+  removeAttribute(k){delete this.attributes[k];}
   append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}}
   replaceChildren(...children){this.children=[];this._text='';this.append(...children);}
   addEventListener(type,fn){(this.listeners[type]??=[]).push(fn);}
@@ -20,11 +22,17 @@ class Element {
   setPointerCapture(){}
   all(predicate){return this.children.flatMap(c=>[...(predicate(c)?[c]:[]),...c.all(predicate)]);}
 }
-const doc={createElement:t=>new Element(t),createElementNS:(_,t)=>new Element(t)};
+const doc={createElement:t=>new Element(t),createElementNS:(_,t)=>new Element(t),createTextNode:text=>{const node=new Element('#text');node.textContent=text;return node;}};
 const memory=new Map(), requests=[], pending=[];
 const context=vm.createContext({document:doc,localStorage:{getItem:k=>memory.get(k),setItem:(k,v)=>memory.set(k,v)},URLSearchParams,AbortController,setTimeout,clearTimeout,console,
   fetch:(url,options)=>{requests.push({url,options});return new Promise(resolve=>pending.push(resolve));}});
-vm.runInContext(fs.readFileSync(process.argv[2],'utf8').replace('export function createResourceCanvas','function createResourceCanvas'),context);
+const folder=path.resolve(path.dirname(process.argv[2]),'..');
+  const catalog=fs.readFileSync(path.join(folder,'static/i18n-messages.js'),'utf8').replaceAll('export const ','const ');
+  vm.runInContext('(()=>{'+catalog+';globalThis.uiMessages={MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES};})()',context);
+  const i18n=fs.readFileSync(path.join(folder,'static/i18n.js'),'utf8').replace("import {MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES} from './i18n-messages.js';",'const {MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES}=globalThis.uiMessages;').replaceAll('export function ','function ').replaceAll('export const ','const ');
+  vm.runInContext('(()=>{'+i18n+';globalThis.uiI18n={msg,joinMessages,setText,bindAttribute,isMessage,option,mountLocalePicker,getLocale,getLocaleRevision,setLocale};})()',context);
+  const withI18n=source=>source.replace(/import\s*\{([^}]+)\}\s*from '\.\/i18n\.js';/g,(_,bindings)=>'const {'+bindings.replace(/ as /g,':')+'}=globalThis.uiI18n;');
+vm.runInContext(withI18n(fs.readFileSync(process.argv[2],'utf8')).replace('export function createResourceCanvas','function createResourceCanvas'),context);
 const container=new Element('section'), opened=[];
 const canvas=context.createResourceCanvas(container,{onSelect:n=>opened.push(n)});
 function graph(project,id,label=id){return {project_id:project,revision:4,nodes:[{id:'media:'+id,kind:'media',entity_id:id,label,summary:{modality:'image'}}],edges:[],groups:[{kind:'media',total:1}],warnings:[],next_offset:null};}

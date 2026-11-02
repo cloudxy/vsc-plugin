@@ -1,3 +1,4 @@
+import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 /* Creative reading workspace. Its views never own project facts or approvals. */
 const SECTIONS = {
   overview: '创作概览', shots: '镜头', lines: '剧本与台词', assets: '资产',
@@ -79,7 +80,7 @@ const FIELDS = {
 };
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
-  if (text != null) node.textContent = String(text);
+  if (text != null) setText(node,text);
   if (cls) node.className = cls;
   return node;
 };
@@ -109,34 +110,34 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   let reviewer=null,reviewRequest=0,activeRef=null,allowAuto=true;
   const host = el('div', null, 'creative-workbench');
   const heading = el('header', null, 'workbench-heading');
-  const trail = el('nav', null, 'workbench-trail'); trail.setAttribute('aria-label', '当前创作范围');
+  const trail = el('nav', null, 'workbench-trail'); bindAttribute(trail,'aria-label',msg("ui.current_creation_scope"));
   heading.append(trail);
   const form = el('form', null, 'workbench-search');
-  const search = el('input'); search.type = 'search'; search.placeholder = '检索镜头、台词、资产与制作资料';
-  search.setAttribute('aria-label', '检索创作资料'); search.maxLength = 200;
+  const search = el('input'); search.type = 'search'; bindAttribute(search,"placeholder",msg("ui.search_shots_dialogue_assets_and_production_material"));
+  bindAttribute(search,'aria-label',msg("ui.search_creation_materials")); search.maxLength = 200;
   const whole = el('input'); whole.type = 'checkbox';
   const wholeLabel = el('label'); wholeLabel.append(whole, document.createTextNode('全项目检索'));
-  const submit = el('button', '检索'); submit.type = 'submit';
-  const clear = el('button', '清除'); clear.type = 'button';
+  const submit = el('button', msg("ui.search_708")); submit.type = 'submit';
+  const clear = el('button', msg("ui.clear")); clear.type = 'button';
   form.append(search, wholeLabel, submit, clear);
   const filters = el('div', null, 'workbench-filters');
-  const statusFilter=el('select');statusFilter.setAttribute('aria-label','资料版本与采用状态');
+  const statusFilter=el('select');bindAttribute(statusFilter,'aria-label',msg("ui.material_versions_and_selection_status"));
   for(const [value,name] of [['','全部版本与状态'],['current','当前文案版本'],['approved','已批准'],['draft','草稿'],['selected','当前采用素材'],['candidate','素材候选'],['unassociated','待关联素材']]){const o=el('option',name);o.value=value;statusFilter.append(o);}
-  const kindFilter=el('select');kindFilter.setAttribute('aria-label','资料类型');
+  const kindFilter=el('select');bindAttribute(kindFilter,'aria-label',msg("ui.material_type"));
   for(const [value,name] of [['','全部资料类型'],...['character','location','prop','costume','voice','style','dialogue','narration','action','ambience','music','foley','sfx','silence','combat','dance','vfx','image','video','audio'].map(value=>[value,label(value)])]){const o=el('option',name);o.value=value;kindFilter.append(o);}
-  const purposeFilter=el('select');purposeFilter.setAttribute('aria-label','制作用途');
+  const purposeFilter=el('select');bindAttribute(purposeFilter,'aria-label',msg("ui.production_purpose"));
   for(const [value,name] of [['','全部制作用途'],...['identity_face','location_master','composition','first_frame','last_frame','video_take','dialogue_dry','voice_sample','ambience','music','sfx','style_reference'].map(value=>[value,label(value)])]){const o=el('option',name);o.value=value;purposeFilter.append(o);}
-  const associationFilter=el('select');associationFilter.setAttribute('aria-label','关联状态');
+  const associationFilter=el('select');bindAttribute(associationFilter,'aria-label',msg("ui.link_status"));
   for(const [value,name] of [['','全部关联状态'],['associated','已有关系'],['unassociated','待关联']]){const o=el('option',name);o.value=value;associationFilter.append(o);}
   filters.append(statusFilter,kindFilter,purposeFilter,associationFilter);form.append(filters);
-  const navigation = el('nav', null, 'workbench-navigation'); navigation.setAttribute('aria-label', '当前任务的资料导航');
+  const navigation = el('nav', null, 'workbench-navigation'); bindAttribute(navigation,'aria-label',msg("ui.material_navigation_for_this_task"));
   const status = el('p', '', 'workbench-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const gaps = el('div', null, 'workbench-gaps');
   const body = el('div', null, 'workbench-content');
   const pagination = el('div', null, 'pagination');
-  const prev = el('button', '上一页'), pageInfo = el('span'), next = el('button', '下一页');
+  const prev = el('button', msg("common.previous_page")), pageInfo = el('span'), next = el('button', msg("common.next_page"));
   prev.type = next.type = 'button'; pagination.append(prev, pageInfo, next);
-  const stage=el('section',null,'object-stage'),catalog=el('details',null,'workbench-catalog'),catalogTitle=el('summary','资料、镜头与专业工具');catalog.append(catalogTitle,form,navigation,status,gaps,body,pagination);stage.hidden=true;catalog.open=true;
+  const stage=el('section',null,'object-stage'),catalog=el('details',null,'workbench-catalog'),catalogTitle=el('summary',msg("ui.material_shots_and_specialist_tools"));catalog.append(catalogTitle,form,navigation,status,gaps,body,pagination);stage.hidden=true;catalog.open=true;
   if(createReviewer){host.classList.add('workbench-has-stage');host.append(heading,stage,catalog);}else host.append(heading,form,navigation,status,gaps,body,pagination);container.replaceChildren(host);
   async function openReview(ref,row={}){
     if(!createReviewer)return (ref.startsWith('media:')?onMedia:onArtifact)?.(ref.split(':').slice(1).join(':'));
@@ -145,7 +146,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       onRef:fixed=>{if(request===reviewRequest){activeRef=`${fixed.kind}:${fixed.id}`;onStageRef?.(fixed);}}});
     if(request!==reviewRequest||context?.projectId!==scope.projectId||context?.objectId!==scope.objectId)return;reviewer=value;
   }
-  if(createReviewer)heading.append(button('返回资料与镜头',()=>{allowAuto=false;stage.querySelectorAll('video,audio').forEach(node=>node.pause?.());catalog.open=true;}));
+  if(createReviewer)heading.append(button(msg("ui.back_to_material_and_shots"),()=>{allowAuto=false;stage.querySelectorAll('video,audio').forEach(node=>node.pause?.());catalog.open=true;}));
   catalog.addEventListener('toggle',()=>{if(catalog.open)stage.querySelectorAll('video,audio').forEach(node=>node.pause?.());});
 
   function taskNavigation() { return TASK_NAVIGATION[context?.task] || TASK_NAVIGATION.workbench; }
@@ -160,7 +161,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   }
   async function act(callback, ...args) {
     const binding={...context};
-    try { await callback?.(...args); } catch (error) { if(binding.projectId!==context?.projectId||binding.objectId!==context?.objectId||binding.task!==context?.task)return;status.textContent = error.message; onError(error); }
+    try { await callback?.(...args); } catch (error) { if(binding.projectId!==context?.projectId||binding.objectId!==context?.objectId||binding.task!==context?.task)return;setText(status,error.message); onError(error); }
   }
   function button(text, callback, cls) {
     const binding=context?{...context}:null,b = el('button', text, cls); b.type = 'button'; b.addEventListener('click', () => {if(binding&&(binding.projectId!==context?.projectId||binding.objectId!==context?.objectId||binding.task!==context?.task))return;return act(callback);}); return b;
@@ -172,7 +173,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     const focusKey = document.activeElement?.dataset?.navFocus;
     navigation.replaceChildren();
     const selectedGroup = groupFor(section) || taskNavigation().groups[0];
-    const groups = el('div', null, 'workbench-nav-groups'); groups.setAttribute('role','group'); groups.setAttribute('aria-label','资料分组');
+    const groups = el('div', null, 'workbench-nav-groups'); groups.setAttribute('role','group'); bindAttribute(groups,'aria-label',msg("ui.material_group"));
     for (const id of taskNavigation().groups) {
       const group = NAV_GROUPS[id];
       const b = button(group.label, () => id === selectedGroup && group.sections.includes(section) ? undefined : chooseSection(group.sections[0]), 'workbench-group-button');
@@ -182,7 +183,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     navigation.append(groups);
     const group = NAV_GROUPS[selectedGroup];
     if (group.sections.length > 1 || section !== group.sections[0]) {
-      const children = el('div', null, 'workbench-nav-sections'); children.setAttribute('role','group'); children.setAttribute('aria-label',group.label + '包含的资料');
+      const children = el('div', null, 'workbench-nav-sections'); children.setAttribute('role','group'); bindAttribute(children,'aria-label',msg("ui.materials_contained_in_value0",{value0:group.label}));
       const keys = group.sections.includes(section) ? group.sections : [...group.sections, section];
       for (const key of keys) {
         const b = button(SECTIONS[key] || RELATION_SECTIONS[key] || key, () => chooseSection(key));
@@ -200,12 +201,12 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     return request();
   }
   function drawHeading() {
-    const path=el('details',null,'workbench-ancestry'),parents=el('div'),summary=el('summary','目录与上级');path.append(summary);
+    const path=el('details',null,'workbench-ancestry'),parents=el('div'),summary=el('summary',msg("ui.directory_and_parent"));path.append(summary);
     path.addEventListener('keydown',event=>{if(event.key==='Escape'&&path.open){event.preventDefault();path.open=false;summary.focus();}});
-    parents.append(button('全部项目', () => onObject?.(null)));
+    parents.append(button(msg("novel-parser.all_projects"), () => onObject?.(null)));
     for (const row of data.ancestors || []) parents.append(objectButton(row));path.append(parents);trail.replaceChildren(path);
     const scope = data.scope;
-    const current = el('strong', scope?.id ? title(scope) : '项目创作概览', 'workbench-current-scope');
+    const current = el('strong', scope?.id ? title(scope) : msg("ui.project_creation_overview"), 'workbench-current-scope');
     current.setAttribute('aria-current', 'location');
     current.title=current.textContent;
     trail.append(el('span', '›'), current);
@@ -215,15 +216,15 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     const messages = [...(data.gaps || []), ...(data.warnings || [])];
     if (!messages.length) return;
     const group = el('details', null, 'workbench-gap-list');
-    group.append(el('summary', `资料缺口与查阅说明 · ${messages.length}`));
+    group.append(el('summary', msg("ui.material_gaps_and_reading_notes_value0",{value0:messages.length})));
     const ul = el('ul');
     messages.forEach(value => ul.append(el('li', typeof value === 'string' ? value : value.message || value.description || value.code)));
     group.append(ul); gaps.append(group);
   }
   function appendFacts(target, row, skip = new Set()) {
     const fps=Number(row.fps_num)/Number(row.fps_den),time=value=>(value/fps).toFixed(3)+' 秒';
-    if(fps>0&&Number.isFinite(fps)&&row.offset_frame!=null&&row.duration_frames!=null)target.append(el('p',`成片区间 ${time(row.offset_frame)} → ${time(row.offset_frame+row.duration_frames)} · ${fps.toFixed(3)} 帧／秒`,'hint'));
-    if(fps>0&&Number.isFinite(fps)&&row.source_in_frame!=null&&row.source_out_frame!=null)target.append(el('p',`源素材区间 ${time(row.source_in_frame)} → ${time(row.source_out_frame)}`,'hint'));
+    if(fps>0&&Number.isFinite(fps)&&row.offset_frame!=null&&row.duration_frames!=null)target.append(el('p',msg("ui.final_output_range_value0_value1_value2_frames_second",{value0:time(row.offset_frame),value1:time(row.offset_frame+row.duration_frames),value2:fps.toFixed(3)}),'hint'));
+    if(fps>0&&Number.isFinite(fps)&&row.source_in_frame!=null&&row.source_out_frame!=null)target.append(el('p',msg("ui.source_media_range_value0_value1",{value0:time(row.source_in_frame),value1:time(row.source_out_frame)}),'hint'));
     const dl = el('dl', null, 'workbench-facts');
     for (const [key, value] of Object.entries(row)) {
       if (skip.has(key) || !(key in FIELDS) || value == null || value === '' || (Array.isArray(value) && !value.length)) continue;
@@ -237,9 +238,9 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
   function references(target, row, key) {
     const links = el('div', null, 'workbench-links');
     if (onLocalAction) {
-      if (key === 'instances') links.append(button('替换这个实例版本', () => onLocalAction('replace_instance', row)));
-      if (key === 'shots') links.append(button('只重做本镜声音', () => onLocalAction('redo_sound', row)));
-      if (key === 'jobs' || key === 'job_attempts') links.append(button('新增一次抽样', () => onLocalAction('resample', row)));
+      if (key === 'instances') links.append(button(msg("ui.replace_this_instance_version"), () => onLocalAction('replace_instance', row)));
+      if (key === 'shots') links.append(button(msg("ui.redo_only_this_shot_s_audio"), () => onLocalAction('redo_sound', row)));
+      if (key === 'jobs' || key === 'job_attempts') links.append(button(msg("ui.add_one_sampling_attempt"), () => onLocalAction('resample', row)));
     }
     const seen = new Set();
     const link = (kind, id, name) => {
@@ -249,8 +250,8 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       links.append(button(name, () => fn?.(id)));
     };
     if (key === 'shots' || row.kind === 'shot' || key === 'assets') link('object', row.object_id || row.id, key === 'assets' ? '查看资产用途' : '进入镜头');
-    if (key === 'shots' && row.id) links.append(button('查看覆盖剧本行', () => {section='coverage';entity=row.id;offset=0;revision=null;return request();}));
-    if (key === 'jobs' && row.id) links.append(button('尝试与参数对照', () => {section='job_attempts';entity=row.id;offset=0;revision=null;return request();}));
+    if (key === 'shots' && row.id) links.append(button(msg("ui.view_covered_screenplay_lines"), () => {section='coverage';entity=row.id;offset=0;revision=null;return request();}));
+    if (key === 'jobs' && row.id) links.append(button(msg("ui.compare_attempts_and_parameters"), () => {section='job_attempts';entity=row.id;offset=0;revision=null;return request();}));
     for (const [field, name] of [['shot_id', '定位镜头'], ['asset_id', '定位资产'], ['speaker_id', '定位人物'], ['voice_id','定位声线身份'],['scene_id', '定位场次'], ['target_object_id', '定位用途对象']]) link('object', row[field], name);
     for (const field of ['artifact_id', 'script_version_id', 'coverage_version_id', 'evidence_version_id', 'scope_version_id','method_artifact_id','criteria_artifact_id','trial_run_id','subtitle_version_id','lipsync_version_id']) link('artifact', row[field], '阅读固定文案');
     for (const field of ['media_id', 'reference_media_id', 'selected_media_id']) link('media', row[field], field === 'selected_media_id' ? '播放当前采用' : '预览素材');
@@ -259,13 +260,13 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if(key==='lines'){drill('查看覆盖镜头','coverage',row.id);drill('查看声音','cues',row.id);drill('省略与处理','dispositions',row.id);}
     if(key==='assets')drill('查看使用实例','instances',row.id);
     if(key==='bindings')drill('查看此用途全部候选','candidates',row.id);
-    if(key==='bindings'&&onLibrary&&(row.target_object_id||row.object_id)&&(row.role||row.purpose||row.kind))links.append(button('从公共库选择用于此处',()=>onLibrary({target_object_id:row.target_object_id||row.object_id,role:row.role||row.purpose||row.kind,onUsed:()=>request()})));
+    if(key==='bindings'&&onLibrary&&(row.target_object_id||row.object_id)&&(row.role||row.purpose||row.kind))links.append(button(msg("ui.choose_from_the_shared_library_for_this_use"),()=>onLibrary({target_object_id:row.target_object_id||row.object_id,role:row.role||row.purpose||row.kind,onUsed:()=>request()})));
     if(key==='instances')drill('查看持物与接触','interactions',row.id);
     if(key==='cues'){drill('覆盖镜头','cue_shots',row.id);drill('配音与声音用途','cue_slots',row.id);drill('时间线区间','cue_timeline_items',row.id);}
     if(key==='performances'){drill('动作镜头','execution_shots',row.id);drill('参与者','execution_participants',row.id);drill('参考与素材','execution_materials',row.id);drill('制作用途','execution_slots',row.id);}
     if(key==='cue_timeline_items')drill('查看实际源区间','timeline_media',row.item_id);
     if(row.line_id)drill('对应台词','lines',row.line_id);
-    if(onCompare&&row.media_id)links.append(button('加入候选比较',async()=>{await onCompare(row.media_id);status.textContent='已加入候选比较，可从上方比较入口并排查看。';}));
+    if(onCompare&&row.media_id)links.append(button(msg("ui.add_to_candidate_comparison"),async()=>{await onCompare(row.media_id);setText(status,msg("ui.added_to_candidate_comparison_use_compare_above_to_view"));}));
     for (const field of ['shots', 'assets', 'media', 'references', 'coverage','current_coverage', 'participants', 'participants_refs', 'shot_refs', 'media_refs']) {
       for (const ref of Array.isArray(row[field]) ? row[field] : []) {
         if (typeof ref === 'string') continue;
@@ -276,7 +277,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     }
     if (onGraph && row.id) {
       const graphKinds = {shots: 'object', assets: 'object', lines: 'line', instances: 'instance', cues: 'cue', performances: 'performance', bindings: 'slot', materials:'media',states:'state',voices:'voice', versions: 'artifact'};
-      if (graphKinds[key]) links.append(button('关系与影响', () => onGraph(graphKinds[key] + ':' + (key==='voices'?row.voice_spec_id:row.id))));
+      if (graphKinds[key]) links.append(button(msg("ui.relationships_and_impact"), () => onGraph(graphKinds[key] + ':' + (key==='voices'?row.voice_spec_id:row.id))));
     }
     if (links.childElementCount) target.append(links);
   }
@@ -286,10 +287,10 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if (!id || !preview) return null;
     const purpose = typeof preview === 'string' ? preview : preview.purpose;
     if (!['thumbnail', 'poster', 'waveform'].includes(purpose)) return null;
-    const open = button('预览', () => openReview('media:'+id,row), 'workbench-thumbnail');
-    const img = el('img'); img.loading = 'lazy'; img.alt = row.name || title(row);
+    const open = button(msg("common.preview"), () => openReview('media:'+id,row), 'workbench-thumbnail');
+    const img = el('img'); img.loading = 'lazy'; bindAttribute(img,"alt",row.name || title(row));
     img.src = `/api/v1/projects/${encodeURIComponent(context.projectId)}/media/${encodeURIComponent(id)}/preview?purpose=${encodeURIComponent(purpose)}`;
-    img.addEventListener('error', () => { img.remove(); open.textContent = '查看素材详情'; }, {once: true});
+    img.addEventListener('error', () => { img.remove(); setText(open,msg("ui.view_media_details")); }, {once: true});
     open.replaceChildren(img); return open;
   }
   function rowCard(row, key) {
@@ -303,14 +304,14 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     const thumb = mediaPreview(row); if (thumb) card.append(thumb);
     const text = row.text || row.excerpt || row.content_excerpt || row.summary_text || row.observation;
     if (text) card.append(el('p', text, 'workbench-excerpt'));
-    if(key==='lines'&&row.coverage_truncated)card.append(el('p','覆盖摘要已截断，完整覆盖情况尚未确定。','badge warning'));
-    else if(key==='lines'&&Array.isArray(row.uncovered_ranges))card.append(el('p',row.uncovered_ranges.length?'当前批准覆盖仍有文字缺口；请检查覆盖或已有省略依据。':'当前批准覆盖已涵盖此行全文。',row.uncovered_ranges.length?'hint':'badge'));
+    if(key==='lines'&&row.coverage_truncated)card.append(el('p',msg("ui.the_coverage_summary_is_truncated_complete_coverage_is_not"),'badge warning'));
+    else if(key==='lines'&&Array.isArray(row.uncovered_ranges))card.append(el('p',row.uncovered_ranges.length?msg("ui.approved_coverage_still_has_text_gaps_check_coverage_or"):msg("ui.approved_coverage_includes_this_entire_line"),row.uncovered_ranges.length?'hint':'badge'));
     appendFacts(card, row);
     if(key==='job_attempts') {
-      const timeline=el('section',null,'workbench-attempt-events');timeline.append(el('h4','实际任务事件与输出'));
-      for(const event of row.events||[]) timeline.append(el('p',`${event.at||''} · ${label(event.event)} · ${prose(event.evidence)||'未记录额外用量或错误'}`));
-      if(!(row.events||[]).length)timeline.append(el('p','尚无任务事件，不能推断已提交或已有用量。','hint'));
-      for(const output of row.outputs||[])timeline.append(button('预览本次输出',()=>onMedia?.(output.media_id)));
+      const timeline=el('section',null,'workbench-attempt-events');timeline.append(el('h4',msg("ui.actual_task_events_and_outputs")));
+      for(const event of row.events||[]) timeline.append(el('p',joinMessages(["",event.at||''," · ",label(event.event)," · ",prose(event.evidence)||msg("ui.no_additional_usage_or_error_recorded"),""])));
+      if(!(row.events||[]).length)timeline.append(el('p',msg("ui.no_task_events_exist_submission_or_usage_cannot_be"),'hint'));
+      for(const output of row.outputs||[])timeline.append(button(msg("ui.preview_this_output"),()=>onMedia?.(output.media_id)));
       card.append(timeline);
     }
     references(card, row, key);
@@ -319,15 +320,15 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       if (!row[field] || typeof row[field] !== 'object') continue;
       const values = Array.isArray(row[field]) ? row[field] : [row[field]];
       if (!values.length) continue;
-      const group = el('details', null, 'workbench-candidates'); group.append(el('summary', `${name} · ${row[field + '_total'] ?? values.length}`));
+      const group = el('details', null, 'workbench-candidates'); group.append(el('summary', joinMessages(["",name," · ",row[field + '_total'] ?? values.length,""])));
       for (const value of values) {
         const item = el('div', null, 'workbench-candidate'); item.append(el('p', title(value)));
         appendFacts(item, value); references(item, value, ''); group.append(item);
       }
       card.append(group);
     }
-    if (row.candidate_count > (row.candidates || []).length) card.append(el('p', `共 ${row.candidate_count} 个候选；在素材列表按用途对象继续检索或比较。`, 'hint'));
-    const evidence = el('details', null, 'workbench-evidence'); evidence.append(el('summary', '固定引用与制作证据'));
+    if (row.candidate_count > (row.candidates || []).length) card.append(el('p', msg("ui.value0_candidates_continue_searching_or_comparing_by_target_object",{value0:row.candidate_count}), 'hint'));
+    const evidence = el('details', null, 'workbench-evidence'); evidence.append(el('summary', msg("ui.fixed_references_and_production_evidence")));
     evidence.append(el('pre', JSON.stringify(row, null, 2), 'structured')); card.append(evidence);
     return card;
   }
@@ -336,17 +337,17 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     const h = el('header', null, 'workbench-section-heading');
     h.append(el('h2', SECTIONS[key] || RELATION_SECTIONS[key] || key));
     const total = value.filtered_total ?? value.total ?? value.items.length;
-    h.append(el('span', `${value.items.length} 项已加载 / ${total} 项命中${value.scope_total != null ? ' · 范围共 ' + value.scope_total + ' 项' : ''}`, 'hint'));
-    if (compact) h.append(button('查看全部', async () => { section = key; entity = null; offset = 0; drawNavigation(); await request(); }));
-    if(entity)h.append(button('显示此类型全部资料',async()=>{entity=null;offset=0;await request();}));
+    h.append(el('span', msg("ui.value0_loaded_value1_matches_value2",{value0:value.items.length,value1:total,value2:value.scope_total != null ? msg("ui.value0_items_in_scope",{value0:value.scope_total}) : ''}), 'hint'));
+    if (compact) h.append(button(msg("home.template_view_all"), async () => { section = key; entity = null; offset = 0; drawNavigation(); await request(); }));
+    if(entity)h.append(button(msg("ui.show_all_material_of_this_type"),async()=>{entity=null;offset=0;await request();}));
     panel.append(h);
-    if (!value.items.length) panel.append(el('p',value.unsupported_filters?'此权威尚未提供所选筛选，匹配数量未知。可从素材入口使用已支持的检索。':value.load_on_demand?`已登记 ${total} 项，进入此类型按需查阅。`:(query?'此范围没有匹配资料。':'此范围尚未登记此类资料；可从固定文案和已有素材继续整理。'),'workbench-empty'));
+    if (!value.items.length) panel.append(el('p',value.unsupported_filters?msg("ui.this_source_does_not_support_the_selected_filter_so"):value.load_on_demand?msg("ui.value0_items_registered_open_this_category_to_browse_as",{value0:total}):(query?msg("ui.no_matching_materials_in_this_scope"):msg("ui.no_materials_of_this_type_are_registered_in_this")),'workbench-empty'));
     const grid = el('div', null, key === 'lines' || key === 'cues' ? 'workbench-grid workbench-grid-wide' : 'workbench-grid');
     if(key==='shots'){
       const groups=new Map();for(const row of value.items){const id=row.scene_id||'current';if(!groups.has(id))groups.set(id,[]);groups.get(id).push(row);}
-      for(const [id,items]of groups){const group=el('section',null,'workbench-shot-scene');group.append(el('h3',items[0].scene_title||data.scope?.title||'场内镜头'));const cards=el('div',null,'workbench-shot-grid');for(const row of items)cards.append(rowCard(row,key));group.append(cards);grid.append(group);}
+      for(const [id,items]of groups){const group=el('section',null,'workbench-shot-scene');group.append(el('h3',items[0].scene_title||data.scope?.title||msg("ui.shots_in_scene")));const cards=el('div',null,'workbench-shot-grid');for(const row of items)cards.append(rowCard(row,key));group.append(cards);grid.append(group);}
     }else value.items.forEach(row => grid.append(rowCard(row, key))); panel.append(grid);
-    if (value.truncated || value.next_offset != null) panel.append(el('p', '当前为有界查询，更多资料可进入该类型继续分页。', 'hint'));
+    if (value.truncated || value.next_offset != null) panel.append(el('p', msg("ui.this_is_a_bounded_query_open_the_type_to"), 'hint'));
     return panel;
   }
   function render() {
@@ -354,21 +355,21 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if (section === 'overview') {
       const children = sectionValue(data, 'children');
       if (children.items.length) {
-        const group = el('section', null, 'workbench-children'); group.append(el('h2', '进入创作范围'));
+        const group = el('section', null, 'workbench-children'); group.append(el('h2', msg("ui.enter_creative_scope")));
         for (const row of children.items) group.append(objectButton(row, label(row.kind) + ' · '));
-        if (children.truncated || children.next_offset != null) group.append(el('p', '子级较多，可沿结构导航逐层展开，或直接检索目标。', 'hint'));
+        if (children.truncated || children.next_offset != null) group.append(el('p', msg("ui.there_are_many_children_expand_the_hierarchy_one_level"), 'hint'));
         body.append(group);
       }
       const keys = Object.keys(SECTIONS).filter(key => key !== 'overview' && (sectionValue(data,key).items.length || (sectionValue(data,key).load_on_demand && sectionValue(data,key).total>0)));
-      if (!keys.length) body.append(el('p', '当前范围尚未登记创作资料。已有文件可从素材、文案与版本入口查阅；文件位置不会被自动当作创作关系。', 'empty'));
+      if (!keys.length) body.append(el('p', msg("ui.no_creative_material_is_registered_in_this_scope_read"), 'empty'));
       keys.forEach(key => body.append(drawSection(key, true))); pagination.hidden = true;
     } else {
       body.append(drawSection(section)); const value = sectionValue(data, section);
       const total = value.filtered_total ?? value.total ?? value.items.length;
-      pageInfo.textContent = `${value.items.length ? offset + 1 : 0}–${offset + value.items.length} / ${total}`;
+      setText(pageInfo,joinMessages(["",value.items.length ? offset + 1 : 0,"–",offset + value.items.length," / ",total,""]));
       prev.disabled = offset === 0; next.disabled = value.next_offset == null; pagination.hidden = false;
     }
-    status.textContent = (query ? `检索“${query}” · ${globalSearch ? '全项目' : '当前创作范围'} · ` : '') + `资料快照 r${data.revision}。`;
+    setText(status,msg("ui.value0_material_snapshot_r_value1",{value0:query ? msg("ui.search_value0_value1",{value0:query,value1:globalSearch ? msg("ui.whole_project") : msg("ui.current_creation_scope")}) : '',value1:data.revision}));
     host.removeAttribute('aria-busy');
   }
   async function request() {
@@ -381,7 +382,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
     if (entity) params.set('entity_id',entity);
     for(const [key,input] of [['status',statusFilter],['kind',kindFilter],['purpose',purposeFilter],['association',associationFilter]])if(input.value)params.set(key,input.value.trim());
     if (revision != null && offset > 0) params.set('revision', String(revision));
-    status.textContent = '正在读取当前范围的创作资料…'; host.setAttribute('aria-busy', 'true');
+    setText(status,msg("ui.loading_creative_material_in_this_scope")); host.setAttribute('aria-busy', 'true');
     try {
       const response = await fetch(`/api/v1/projects/${encodeURIComponent(snapshot.projectId)}/workbench?${params}`, {credentials: 'same-origin', signal: controller.signal});
       const value = await response.json();
@@ -396,13 +397,13 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
         if(context.fixedRef)await openReview(context.fixedRef);
         else if(media&&(data.scope?.kind==='shot'||context.task==='candidates'||context.task==='delivery'))await openReview('media:'+media.media_id,media);
         else if(data.scope?.kind==='shot'||context.task==='delivery'){
-          stage.hidden=false;stage.replaceChildren(el('p',context.task==='delivery'?'当前范围尚无已登记的成片输出。时间线用料可从下方资料查阅，原用料不等同于成片。':'本镜尚无可播放的候选。可以先阅读设计、从用途选择参考，或从原制作入口恢复已有任务。','empty'));catalog.open=true;
+          stage.hidden=false;stage.replaceChildren(el('p',context.task==='delivery'?msg("ui.no_final_output_is_registered_in_this_scope_browse"):msg("ui.this_shot_has_no_playable_candidate_read_the_design"),'empty'));catalog.open=true;
         }
       }
     } catch (error) {
       if (seq !== ticket || disposed || error.name === 'AbortError') return;
-      body.replaceChildren(el('p', error.message, 'workbench-empty'), button('重新读取当前范围', async () => { offset = 0; revision = null; await request(); }));
-      status.textContent = '本次资料未能读取；其他已登记内容仍可从原入口查阅。';
+      body.replaceChildren(el('p', error.message, 'workbench-empty'), button(msg("ui.reload_current_scope"), async () => { offset = 0; revision = null; await request(); }));
+      setText(status,msg("ui.this_material_could_not_be_loaded_other_registered_content"));
       pagination.hidden = true; host.removeAttribute('aria-busy'); onError(error);
     }
   }
@@ -416,7 +417,7 @@ export function createCreativeWorkbench(container, {onObject, onMedia, onArtifac
       context = {...nextContext}; offset = 0; revision = null; data = null; entity=null;
       if (changed) { restorePreference(); query = ''; search.value = ''; globalSearch = false; whole.checked = false;statusFilter.value='';kindFilter.value='';purposeFilter.value='';associationFilter.value=''; }
       body.replaceChildren(); gaps.replaceChildren(); trail.replaceChildren(); drawNavigation();
-      if (!context.projectId) { status.textContent = '选择项目后查阅创作资料。'; return; }
+      if (!context.projectId) { setText(status,msg("ui.select_a_project_to_read_creative_material")); return; }
       return request();
     },
     async focus(nextSection) { if (nextSection in SECTIONS || nextSection in RELATION_SECTIONS) return chooseSection(nextSection); },

@@ -18,6 +18,33 @@ class FakeTransport:
 
 
 class VolcContract(unittest.TestCase):
+    def test_mixed_reference_video_keeps_fixed_modality_and_worker_membership(self):
+        from vsc.production.run_authorization import normalize_request, validate_capabilities
+        from vsc.production.resource_worker import ResourceWorker
+        from vsc.assets.resource_service import ResourceError
+        transport = FakeTransport([{'id': 'mixed-reference-task'}])
+        adapter = VolcArkVideoProvider('symbolic-model', lambda media: 'https://example.invalid/' + media,
+                                       '720p', '16:9', True, transport)
+        request = VideoRequest('S', 'motion_transfer', 'sha', 'fixed motion', ('hero',),
+                               reference_video_media_ids=('motion',))
+        adapter.submit(request)
+        self.assertEqual(transport.calls[0][1]['content'][2], {'type': 'video_url',
+            'video_url': {'url': 'https://example.invalid/motion'}, 'role': 'reference_video'})
+        logical = normalize_request({'prompt': 'fixed motion', 'reference_media_ids': ['hero'],
+            'reference_video_media_ids': ['motion']}, 'S', 'motion_transfer', 'video')
+        context = {'media': [{'media_id': 'hero', 'role': 'character'}, {'media_id': 'motion', 'role': 'motion_video'}]}
+        model = {'capabilities': {'purposes': ['motion_transfer'], 'reference_media': True, 'reference_video': True}}
+        validate_capabilities(model, logical, context)
+        with self.assertRaises(ResourceError):
+            validate_capabilities(model, dict(logical, reference_video_media_ids=['foreign']), context)
+        worker = object.__new__(ResourceWorker)
+        job = {'shot_id': 'S', 'purpose': 'motion_transfer', 'modality': 'video', 'context_sha256': 'sha',
+               'request_payload': logical, 'input_media': [{'media_id': 'hero'}]}
+        with self.assertRaises(ResourceError):
+            worker._request(job)
+        job['input_media'].append({'media_id': 'motion'})
+        self.assertEqual(worker._request(job).reference_video_media_ids, ['motion'])
+
     def test_unmapped_visual_parameters_are_rejected_before_any_transport(self):
         from dataclasses import replace
         for kind in ('image','video'):

@@ -7,6 +7,15 @@ from vsc.configuration import get_config
 # This exact typed relationship is cross-project; all other owned references
 # must include the current project key.
 CROSS_PROJECT_REFERENCES = {
+    ('asset_card_copy_sources', ('source_project_id', 'source_form_version_id'), 'asset_card_form_versions', ('project_id', 'id')),
+    ('commerce_workspace_transfers', ('reclaim_project_id', 'reclaim_of_id'), 'commerce_workspace_transfers', ('project_id', 'id')),
+    ('commerce_workspace_transfers', ('target_project_id', 'target_bucket_id'), 'commerce_buckets', ('project_id', 'id')),
+    ('commerce_workspace_transfers', ('target_project_id', 'target_entry_id'), 'commerce_ledger', ('project_id', 'id')),
+    ('template_copy_domains', ('source_project_id', 'source_edit_version_id'), 'edit_revisions', ('project_id', 'id')),
+    ('template_copy_domains', ('source_project_id', 'source_spatial_version_id'), 'spatial_scene_versions', ('project_id', 'id')),
+    ('template_copy_domains', ('source_project_id', 'source_tool_version_id'), 'artifact_versions', ('project_id', 'id')),
+    ('template_copy_media', ('source_project_id', 'source_media_id', 'blob_id'), 'media_items', ('project_id', 'id', 'blob_id')),
+
     ("creative_tool_imports", ("source_project_id", "source_artifact_id"), "artifact_versions", ("project_id", "id")),
     ("creative_tool_imports", ("source_project_id", "source_media_id", "blob_id"), "media_items", ("project_id", "id", "blob_id")),
     ("canvas_template_copies", ("source_project_id", "template_id"), "canvas_templates", ("project_id", "id")),

@@ -51,4 +51,7 @@ def install_production_platform_routes(router, catalog, etag):
         result = {key: value.get(key) for key in fields}
         result["events"] = [{key: row.get(key) for key in ("event_type", "created_at")}
                             for row in value.get("events", [])]
+        result['usage'] = service(project_id).get_generation_quote_status(project_id, job_id)
+        from datetime import datetime
+        result['elapsed_ms'] = max(0, round((datetime.fromisoformat(value['updated_at']) - datetime.fromisoformat(value['created_at'])).total_seconds() * 1000))
         return etag(request, result)

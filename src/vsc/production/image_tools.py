@@ -15,15 +15,12 @@ TOOLS={
  'expression':('表情与情绪',{'expression':'自然','strength':0.5}),
  'angle':('多角度',{'preset':'custom','yaw':0,'pitch':0,'roll':0,'zoom':1,'include_instructions':True}),
  'lighting':('打光与轮廓光',{'view':'front','direction':'front','intensity':1,'color':'#ffffff','cone':45,'rim':False}),
- 'inpaint':('局部重绘',{'mask_media_id':'','mask_sha256':''}),
+ 'inpaint':('局部重绘',{'mask_media_id':'','mask_sha256':'','mask_export_id':''}),
  'panorama':('720°全景',{'projection':'equirectangular'}),
- 'upscale':('4K/8K超分',{'target':'4k'}),
- 'watermark':('去水印',{'rights_confirmed':False}),
+ 'upscale':('4K/8K超分',{'target':'4k','creativity':0.35,'resemblance':0.6}),
+ 'watermark':('去水印',{'rights_confirmed':False,'mask_media_id':'','mask_sha256':'','mask_export_id':''}),
 }
-BLOCKED={'inpaint':'当前图像执行器没有独立遮罩输入协议；遮罩和修改说明可保存、导出，尚不能执行局部重绘。',
- 'panorama':'当前未接入可校验投影的全景生成器；不能把普通图像冒称720°全景。',
- 'upscale':'当前未接入专用超分适配器；不会把普通像素放大冒称AI超分。',
- 'watermark':'当前未接入专用去水印适配器；需具备明确处理权利。'}
+BLOCKED={}
 
 def finite(value,low,high):
  if type(value) not in (int,float) or not math.isfinite(value) or not low<=value<=high:raise ResourceError('编辑数值超出范围','invalid_reference_edit')
@@ -37,12 +34,13 @@ def normalize_tool(tool,settings):
  for k,v in value.items():
   if type(defaults[k]) is bool and type(v)is not bool:raise ResourceError('图像工具开关无效')
   if isinstance(defaults[k],str) and (not isinstance(v,str) or len(v)>200):raise ResourceError('图像工具文本参数无效')
- for key,lo,hi in [('strength',0,1),('yaw',-180,180),('pitch',-90,90),('roll',-180,180),('zoom',0.25,4),('intensity',0,5),('cone',1,180)]:
+ for key,lo,hi in [('strength',0,1),('creativity',0,1),('resemblance',0,1),('yaw',-180,180),('pitch',-90,90),('roll',-180,180),('zoom',0.25,4),('intensity',0,5),('cone',1,180)]:
   if key in value:finite(value[key],lo,hi)
  if 'color'in value and not re.fullmatch('#[0-9a-fA-F]{6}',value['color']):raise ResourceError('光源颜色无效')
  if tool=='angle' and value['preset'] not in {'custom','fisheye','tilt','front_high','front_low','top','back'}:raise ResourceError('角度预设无效')
  if tool=='lighting' and (value['direction'] not in {'front','back','left','right','top','bottom'} or value['view'] not in {'front','perspective'}):raise ResourceError('光源方向无效')
  if tool=='upscale' and value['target'] not in {'4k','8k'}:raise ResourceError('超分规格无效')
+ if tool=='panorama' and value['projection']!='equirectangular':raise ResourceError('全景预览使用VSC 2:1等距柱状合同')
  return value
 
 def tool_instruction(tool,value):
@@ -124,7 +122,10 @@ def render_reference(path,document):
     for delta in (-.5,.5):draw.line([b,(b[0]-length*math.cos(angle+delta),b[1]-length*math.sin(angle+delta))],fill=color,width=width)
  source=Image.alpha_composite(source.convert('RGBA'),overlay)
  outputs=[]
- for role,image in [('annotation',source),('mask',mask)]:
+ # Keep the established black/white export; the native edit protocol receives
+ # a separately fixed alpha mask, with transparent pixels marking the edit.
+ alpha_mask=Image.new('RGBA',source.size,(255,255,255,255));alpha_mask.putalpha(ImageOps.invert(mask))
+ for role,image in [('annotation',source),('mask',mask),('inpaint-mask',alpha_mask)]:
   stream=io.BytesIO();image.save(stream,format='PNG');outputs.append({'role':role,'bytes':stream.getvalue()})
  grid=d['grid']
  if grid['rows']*grid['columns']>1:

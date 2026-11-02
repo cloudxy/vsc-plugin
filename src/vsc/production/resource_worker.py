@@ -120,10 +120,12 @@ class ResourceWorker:
         fixed = {item["media_id"] for item in job["input_media"]}
         used = set(request.reference_media_ids)
         used.update(getattr(request, "reference_audio_media_ids", ()))
+        used.update(getattr(request, "reference_video_media_ids", ()))
         used.update(media_id for media_id, _ in (getattr(request, "keyframes", None) or ()))
         used.update(value for value in (getattr(request, "first_frame_media_id", None),
             getattr(request, "last_frame_media_id", None), getattr(request, "voice_media_id", None),
-            getattr(request, "source_media_id", None)) if value)
+            getattr(request, "source_media_id", None), getattr(request, "mask_media_id", None),
+            getattr(request, "subject_mask_media_id", None)) if value)
         if used - fixed:
             raise ResourceError("请求引用不属于任务固定输入", "unfixed_reference")
         if getattr(request, "operation", None):
@@ -131,6 +133,10 @@ class ResourceWorker:
                            and item["role"] == "operation_source"), None)
             if source is None or source["blob_sha256"] != request.source_sha256:
                 raise ResourceError("加工源SHA不属于任务固定输入", "unfixed_reference")
+            if request.operation == 'inpaint':
+                mask = next((item for item in job['input_media'] if item['media_id']==request.mask_media_id and item['role']=='operation_mask'),None)
+                if mask is None or mask['blob_sha256']!=request.mask_sha256:
+                    raise ResourceError('编辑遮罩SHA不属于任务固定输入','unfixed_reference')
         return request
 
     def _verify_inputs(self, job):
@@ -168,10 +174,7 @@ class ResourceWorker:
         adapter = self.adapter_factory(job, self.storage)
         started = time.monotonic()
         if not poll:
-            logical = job["request_payload"].get("logical_request", job["request_payload"])
-            context = (self.service.compile_asset_context(job["project_id"], job["asset_id"], job["purpose"],
-                           spec_version_id=logical.get("spec_version_id"))
-                       if job.get("asset_id") else self.service.compile_shot_context(job["project_id"], job["shot_id"], job["purpose"]))
+            context = self.service.compile_generation_job_context(job['project_id'], job['id'])
             if not context["ready"] or context["sha256"] != job["context_sha256"]:
                 raise ResourceError("任务固定输入已失效，须重编译后创建新候选", "stale_job")
             request = self._request(job)
@@ -233,7 +236,22 @@ class ResourceWorker:
         if not raw:
             raise ResourceError("没有已持久化的成功响应，不能恢复转存", "response_missing")
         adapter = adapter or self.adapter_factory(job, self.storage)
-        outputs = adapter.parse_result(raw)
+        try:
+            outputs = adapter.parse_result(raw)
+        except ResourceError as error:
+            logical = job['request_payload'].get('logical_request', job['request_payload'])
+            from vsc.production.digital_human import DETECTION_MODEL
+            if (error.code != 'subject_not_found' or logical.get('operation') != 'subject_detect' or
+                    job['model']['model_key'] != DETECTION_MODEL or raw.get('status') != 'COMPLETED' or
+                    raw.get('result', {}).get('masks') != []):
+                raise
+            # Provider completed and may bill this request. This is a local
+            # no-subject outcome, never a claim that remote inference failed.
+            return self._write('update_generation_job', project_id, {'job_id': job_id, 'status': 'failed',
+                'raw_response': raw, 'actual_units': {'remote_jobs': 1, 'images': 1},
+                'recovery_evidence': {'source': 'local_subject_result',
+                'error_code': 'subject_not_found', 'provider_status': 'COMPLETED', 'remote_failed': False}},
+                'subject-not-found:' + job_id)
         if not outputs:
             raise ResourceError("Provider 返回空结果", "empty_output")
         registered = []
@@ -289,6 +307,11 @@ class ResourceWorker:
             media = self.service.get_media(job["project_id"], media_id)
         except NotFound:
             return None
+        logical=job['request_payload'].get('logical_request',job['request_payload'])
+        from vsc.production.video_samples import validate_sample_output
+        if media.get('modality')=='video':validate_sample_output(logical,media)
+        if logical.get('operation')=='inpaint' and (media.get('width'),media.get('height'))!=(logical['width'],logical['height']):
+            raise ResourceError('局部重绘输出尺寸不符合固定请求，保留回执供恢复','image_edit_output_size')
         if media["modality"] != modality:
             raise ResourceError("已登记输出与固定模态不符", "output_changed")
         evidence = None
@@ -323,6 +346,10 @@ class ResourceWorker:
                                             "output_decode_failed") from error
                 if decoded.get("status") != "passed" or decoded.get("mode") != "complete":
                     raise ResourceError("生成结果没有完整解码证据，不能标记为制作完成。", "output_decode_failed")
+                from vsc.production.fal_tools import validate_output
+                validate_output(logical, media)
+                from vsc.production.digital_human import validate_output as validate_subject_output
+                validate_subject_output(logical, media, path.read_bytes() if logical.get('operation') == 'subject_detect' else None)
                 return {"media_id": media_id, "asset_type": modality, "original_uri": evidence.get("original_uri")}
         raise ResourceError("已登记输出字节不可读取", "media_unavailable")
 

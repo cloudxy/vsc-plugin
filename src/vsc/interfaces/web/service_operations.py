@@ -9,6 +9,19 @@ def install_service_operations_routes(app,router,catalog,etag,actor,read_actor):
         if catalog.service is None or catalog._reader(p) is not None:raise HTTPException(409,'运营与开放接口需要原PostgreSQL项目')
         return catalog.service
 
+    @app.get('/api/v1/discovery')
+    def discover(request:Request):
+        read_actor(request)
+        if catalog.service is None:raise HTTPException(409,'创作目录需要PostgreSQL')
+        from vsc.assets.discovery import discovery
+        return etag(request,discovery(catalog.service))
+
+    @app.get('/api/v1/discovery/tutorials/{identifier}')
+    def tutorial(identifier:str,request:Request):
+        read_actor(request)
+        from vsc.assets.discovery import tutorial as read_tutorial
+        return etag(request,read_tutorial(identifier))
+
     @router.get('/{project_id}/service-operations')
     def snapshot(project_id:str,request:Request):
         read_actor(request);return etag(request,service(project_id).service_operations_snapshot(project_id))
@@ -47,6 +60,8 @@ def install_service_operations_routes(app,router,catalog,etag,actor,read_actor):
 
     @app.get('/api/v1/service-api/projects/{project_id}/jobs')
     def jobs(project_id:str,request:Request,offset:int=0,limit:int=50):return etag(request,service(project_id).service_api_operation(project_id,'jobs',{'offset':offset,'limit':limit},client_ip=request.client.host if request.client else None))
+    @app.get('/api/v1/service-api/projects/{project_id}/capabilities')
+    def capabilities(project_id:str,request:Request):return etag(request,service(project_id).service_api_operation(project_id,'capabilities',client_ip=request.client.host if request.client else None))
     @app.get('/api/v1/service-api/projects/{project_id}/jobs/{job_id}')
     def job(project_id:str,job_id:str,request:Request):return etag(request,service(project_id).service_api_operation(project_id,'job',{'job_id':job_id},client_ip=request.client.host if request.client else None))
     @app.get('/api/v1/service-api/projects/{project_id}/usage')

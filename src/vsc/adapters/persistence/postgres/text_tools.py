@@ -1,6 +1,6 @@
 """Original project transactions own editing, fixed attempts and result adoption."""
 import json
-from sqlalchemy import select,insert,update
+from sqlalchemy import select,insert,update,and_
 from vsc.assets.resource_service import ResourceError,Conflict
 from vsc.assets.text_tools import TOOLS,text,validated_result,normalize_document
 from . import schema as S
@@ -35,9 +35,12 @@ class TextToolsRepository:
             raise ResourceError('含视频引用的工具需先显式导入媒体；此入口只复制纯文字工作稿','text_tool_copy_media_required')
         copied=conn.execute(select(S.text_tool_copies).where(S.text_tool_copies.c.project_id==target['id'],S.text_tool_copies.c.source_project_id==source,S.text_tool_copies.c.source_version_id==version['id'])).mappings().first()
         doc=dict(doc);detached=['source_refs'] if doc.get('source_refs') else [];doc['source_refs']=[]
+        if unit['tool']=='novel' and doc.get('novel_baseline_version_id'):
+            from vsc.production.text_tools import chapters
+            detached.append('novel_baseline_version_id');doc.update(novel_baseline_version_id='',chapter_start=1,chapter_end=len(chapters(doc['source_text'])))
         if unit['tool']=='translation':
             detached.extend(k for k in ('style_version_id','reference_version_ids') if doc.get(k))
-            doc.update(style_version_id='',reference_version_ids=[],proofread=False)
+            doc.update(style_version_id='',reference_version_ids=[],proofread=False,translation_mode='initial')
         return {'source':source,'unit':dict(unit),'version':dict(version),'document':doc,'detached':detached,'copied':dict(copied) if copied else None}
 
     def preview_text_tool_copy(self,project_id,payload):
@@ -123,7 +126,7 @@ class TextToolsRepository:
             unit,version,document=self._overseas_fixed(conn,project,payload,True);phase=payload["phase"]
             source=self._media(conn,project["id"],checked_id(document["source_media_id"]))
             coverage(document,source.get("duration_ms"));dependencies=[]
-            if not document["understanding"].strip():raise ResourceError("请填写明确标为人工观察的理解稿")
+            if not document["understanding"].strip():raise ResourceError("请保存明确标出观察依据的理解稿")
             if phase=="localization":
                 baseline,_=self._overseas_baseline(conn,project,unit,document["understanding_version_id"],"understanding",document)
                 dependencies=[baseline["id"]]
@@ -142,20 +145,61 @@ class TextToolsRepository:
     def overseas_status(self,project_id,unit_id):
         from vsc.production.overseas_production import BASELINE_TYPES
         with self.engine.connect() as conn:
-            project=self._project(conn,checked_id(project_id));unit=self._text_unit(conn,project["id"],unit_id);baselines=[];groups=[]
-            rows=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project["id"],S.artifact_versions.c.artifact_type.in_([*BASELINE_TYPES.values(),"overseas-group-draft"])).order_by(S.artifact_versions.c.created_at,S.artifact_versions.c.version)).mappings()
+            project=self._project(conn,checked_id(project_id));unit=self._text_unit(conn,project["id"],unit_id);baselines=[];groups=[];assets=[]
+            rows=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project["id"],S.artifact_versions.c.artifact_type.in_([*BASELINE_TYPES.values(),"overseas-group-draft","overseas-asset-image-draft"])).order_by(S.artifact_versions.c.created_at,S.artifact_versions.c.version)).mappings()
             for row in rows:
                 data=json.loads(row["document"])
                 if data.get("unit_id")!=unit["id"]:continue
                 if row["artifact_type"] in BASELINE_TYPES.values():baselines.append(dict(id=row["id"],version=row["version"],phase=data["phase"],approved=self._artifact_approved(conn,project["id"],row["id"]),document=data))
                 else:
-                    runs=list(conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project["id"],S.artifact_versions.c.artifact_key=="overseas-run:"+row["id"])).mappings())
+                    runs=list(conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project["id"],S.artifact_versions.c.artifact_key.in_(["overseas-run:"+row["id"],"workbench-run:"+data["classic_draft_id"]]))).mappings())
                     run_values=[]
                     for run in runs:
                         jobs=list(conn.execute(select(S.generation_jobs).where(S.generation_jobs.c.project_id==project["id"],S.generation_jobs.c.run_version_id==run["id"])).mappings())
-                        run_values.append(dict(id=run["id"],approved=self._artifact_approved(conn,project["id"],run["id"]),jobs=[dict(id=j["id"],status=j["status"],outputs=[dict(o) for o in conn.execute(select(S.job_outputs).where(S.job_outputs.c.project_id==project["id"],S.job_outputs.c.job_id==j["id"])).mappings()]) for j in jobs]))
-                    groups.append(dict(data,id=row["id"],runs=run_values))
-            return clean(dict(baselines=baselines,groups=groups,revision=project["revision"],limitations=["理解依据为人工观察，尚未接自动视觉识别。","供应商专用资产注册协议尚未接入；已登记图片可走原图生视频。", "采用分组候选只更新剪辑工作稿，正式选片和交付仍经原审阅。 "]))
+                        run_values.append(dict(id=run["id"],working=run["artifact_type"]=="workbench-generation-run",approved=self._artifact_approved(conn,project["id"],run["id"]),jobs=[dict(id=j["id"],status=j["status"],outputs=[dict(o) for o in conn.execute(select(S.job_outputs).where(S.job_outputs.c.project_id==project["id"],S.job_outputs.c.job_id==j["id"])).mappings()]) for j in jobs]))
+                    if row['artifact_type']=='overseas-asset-image-draft':assets.append(dict(data,id=row['id'],runs=run_values))
+                    else:
+                        selection=self._working_selection(conn,project['id'],data['group']['shot_id'],'video')
+                        groups.append(dict(data,id=row['id'],runs=run_values,working_selection_version_id=selection['id'] if selection else None))
+            return clean(dict(baselines=baselines,groups=groups,asset_images=assets,revision=project["revision"],limitations=["默认视觉理解只使用抽样图像，不能推断对白。","供应商注册必须有独立身份与回执；未配置时使用原参考图。", "工作选取用于本机剪辑；正式交付保留原审阅。"]))
+
+    def prepare_overseas_asset_image(self,project_id,payload,*,build_document,**kw):
+        if set(payload)!={'unit_id','version_id','entity_key','settings','attempt_key','base_classic_draft_id'}:raise ResourceError('资产图需要固定实体、镜头图像设置与明确尝试')
+        checked_id(payload['attempt_key'])
+        def work(conn,project):
+            key='overseas-asset-image:'+payload['unit_id']+':'+payload['attempt_key']
+            old=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project['id'],S.artifact_versions.c.artifact_key==key)).mappings().first()
+            if old:
+                data=json.loads(old['document'])
+                if data['request_sha256']!=digest(payload):raise Conflict('原资产图尝试不可更改输入')
+                return dict(data,id=old['id'])
+            unit,version,doc=self._overseas_fixed(conn,project,payload,True);entity=next((r for r in doc['entities'] if r['key']==payload['entity_key']),None)
+            if not entity:raise ResourceError('实体不属于当前工作稿')
+            settings=payload['settings']
+            if not isinstance(settings,dict) or set(settings)-{'shot_id','model_id','count','width','height'}:raise ResourceError('资产图只接受明确镜头及模型尺寸设置')
+            classic=build_document(project['id'],{**settings,'mode':'image','purpose':'identity_ref','prompt':json.dumps({'entity':entity,'target_language':doc['target_language']},ensure_ascii=False),'references':[{'role':'reference_image','media_id':entity['media_id']}] if entity['media_id'] else []})
+            if unit['episode_id'] and unit['episode_id'] not in self._ancestor_chain(classic['shot_id'],self._object_parents(conn,project['id'])):raise ResourceError('资产图镜头不属于此单元关联集')
+            saved=self.save_classic_draft(project['id'],{'document':classic,'base_draft_id':payload['base_classic_draft_id']},build_document=lambda _p,d:d,_transaction=(conn,project),**kw)
+            data={'unit_id':unit['id'],'source_version_id':version['id'],'entity_key':entity['key'],'entity':entity,'classic_draft_id':saved['id'],'request_sha256':digest(payload)}
+            artifact=self._create_artifact(conn,project,{'artifact_type':'overseas-asset-image-draft','artifact_key':key,'stage':'workspace','document':data,'dependency_ids':[version['id']]})
+            return dict(data,id=artifact['id'])
+        return self._mutate(project_id,'prepare_overseas_asset_image',payload,callback=work,**kw)
+
+    def select_overseas_asset_image(self,project_id,payload,**kw):
+        if set(payload)!={'unit_id','version_id','asset_draft_id','job_id','media_id'}:raise ResourceError('资产图采用需固定原任务与候选')
+        def work(conn,project):
+            unit,version,doc=self._overseas_fixed(conn,project,payload,True)
+            fixed=self._one(conn,S.artifact_versions,project['id'],payload['asset_draft_id']);data=json.loads(fixed['document'])
+            if fixed['artifact_type']!='overseas-asset-image-draft' or data['unit_id']!=unit['id']:raise ResourceError('资产图稿不属于此单元')
+            entity=next((r for r in doc['entities'] if r['key']==data['entity_key']),None)
+            if not entity or any(entity[k]!=data['entity'][k] for k in ('kind','name','localized','asset_id')):raise Conflict('实体设定已修改，请比较新的资产图输入')
+            job=self._one(conn,S.generation_jobs,project['id'],payload['job_id']);run=self._one(conn,S.artifact_versions,project['id'],job['run_version_id'])
+            if job['status']!='succeeded' or run['artifact_key']!='workbench-run:'+data['classic_draft_id']:raise ResourceError('候选不属于原资产图成功任务')
+            if not conn.execute(select(S.job_outputs.c.id).where(S.job_outputs.c.project_id==project['id'],S.job_outputs.c.job_id==job['id'],S.job_outputs.c.media_id==checked_id(payload['media_id']))).first():raise ResourceError('不是该任务的实际输出')
+            if self._media(conn,project['id'],payload['media_id'])['modality']!='image':raise ResourceError('需要图像输出')
+            entity['media_id']=payload['media_id'];saved=self._text_store_document(conn,project,unit,doc,version['id'])
+            return dict(saved,unit_id=unit['id'])
+        return self._mutate(project_id,'select_overseas_asset_image',payload,callback=work,**kw)
 
     def _overseas_group_input(self,conn,project,identifier):
         row=self._one(conn,S.artifact_versions,project["id"],checked_id(identifier))
@@ -187,7 +231,7 @@ class TextToolsRepository:
                 if data["unit_id"]==unit["id"] and data["group_key"]==payload["group_key"]:previous.append(old)
             if previous and not payload["new_attempt"]:raise Conflict("已有分组制作稿，请恢复原稿；新尝试须明确选择","overseas_attempt_exists")
             for old in previous:
-                runs=list(conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key=="overseas-run:"+old["id"])).mappings())
+                runs=list(conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key.in_(["overseas-run:"+old["id"],"workbench-run:"+json.loads(old["document"])["classic_draft_id"]]))).mappings())
                 for run in runs:
                     statuses=list(conn.execute(select(S.generation_jobs.c.status).where(S.generation_jobs.c.project_id==p,S.generation_jobs.c.run_version_id==run["id"])).scalars())
                     decision=self._latest(conn,S.artifact_decisions,p,"artifact_id",run["id"])
@@ -218,24 +262,53 @@ class TextToolsRepository:
         return self._mutate(project_id,"propose_overseas_group_run",payload,callback=work,**kw)
 
     def select_overseas_candidate(self,project_id,payload,*,normalize,**kw):
-        if set(payload)!={"unit_id","version_id","group_draft_id","job_id","media_id","candidate_in_ms"}:raise ResourceError("候选选择须固定原组、任务、媒体与剪入点")
+        if set(payload)-{"working_selection_version_id"}!={"unit_id","version_id","group_draft_id","job_id","media_id","candidate_in_ms"}:raise ResourceError("候选选择须固定原组、任务、媒体与剪入点")
         def work(conn,project):
             unit,version,document=self._overseas_fixed(conn,project,payload,True);fixed=self._overseas_group_input(conn,project,payload["group_draft_id"])
             if fixed["unit_id"]!=unit["id"]:raise ResourceError("制作组不属于当前单元")
             self._overseas_baseline(conn,project,unit,fixed["localization_version_id"],"localization",document)
             job=self._one(conn,S.generation_jobs,project["id"],checked_id(payload["job_id"]))
             run=self._one(conn,S.artifact_versions,project["id"],job["run_version_id"])
-            if run["artifact_key"]!="overseas-run:"+payload["group_draft_id"] or job["status"]!="succeeded":raise ResourceError("请选择本组原成功任务的候选")
+            if run["artifact_key"] not in {"overseas-run:"+payload["group_draft_id"],"workbench-run:"+fixed["classic_draft_id"]} or job["status"]!="succeeded":raise ResourceError("请选择本组原成功任务的候选")
             output=conn.execute(select(S.job_outputs.c.id).where(S.job_outputs.c.project_id==project["id"],S.job_outputs.c.job_id==job["id"],S.job_outputs.c.media_id==checked_id(payload["media_id"]))).first()
             if not output:raise ResourceError("候选媒体不是此原任务输出")
             group=next((g for g in document["groups"] if g["key"]==fixed["group_key"]),None)
             if not group:raise Conflict("工作稿已移除此组")
+            if run['artifact_type']=='workbench-generation-run':
+                from vsc.production.overseas_production import duration
+                if 'working_selection_version_id' not in payload:raise ResourceError('工作候选选择须固定所见选择版本')
+                candidate=conn.execute(select(S.binding_candidates.c.id).join(S.binding_slots,(S.binding_slots.c.project_id==S.binding_candidates.c.project_id)&(S.binding_slots.c.id==S.binding_candidates.c.slot_id)).where(S.binding_candidates.c.project_id==project['id'],S.binding_candidates.c.media_id==payload['media_id'],S.binding_slots.c.target_object_id==group['shot_id']).order_by(S.binding_candidates.c.created_at.desc()).limit(1)).scalar()
+                if not candidate:raise ResourceError('成功输出尚未形成原镜头候选')
+                self._save_working_selection(conn,project,{'shot_id':group['shot_id'],'output_kind':'video','candidate_id':candidate,'base_version_id':payload['working_selection_version_id'],'trim_in_ms':payload['candidate_in_ms'],'trim_out_ms':payload['candidate_in_ms']+duration(group)},kw['actor'])
             group.update(candidate_media_id=payload["media_id"],candidate_in_ms=payload["candidate_in_ms"])
             saved=self._text_store_document(conn,project,unit,normalize(project["id"],"overseas",document),version["id"])
             return dict(saved,unit_id=unit["id"],message="已固定工作稿候选；正式选片仍由原审阅决定")
         return self._mutate(project_id,"select_overseas_candidate",payload,callback=work,**kw)
 
     def _text_store_document(self,conn,project,unit,document,previous):
+        if unit['tool']=='novel' and previous:
+            relation=conn.execute(select(S.text_tool_novel_episodes.c.plan_id).where(S.text_tool_novel_episodes.c.project_id==project['id'],S.text_tool_novel_episodes.c.unit_id==unit['id'])).scalar()
+            if relation:
+                fixed_plan=self._one(conn,S.text_tool_novel_plans,project['id'],relation)
+                if document.get('novel_baseline_version_id')!=fixed_plan['plan_version_id']:raise Conflict('逐集工作稿不得脱离固定全剧计划','novel_baseline_changed')
+        if unit['tool']=='novel' and document.get('novel_baseline_version_id'):
+            fixed=self._one(conn,S.artifact_versions,project['id'],document['novel_baseline_version_id']);plan=json.loads(fixed['document'])
+            if any(document.get(key)!=plan[key] for key in ('synopsis','core_setting','characters')):
+                raise Conflict('共享全剧设定已固定，请从原文单元建立修订计划','novel_baseline_changed')
+            planned=next((r for r in plan['episodes'] if r['ordinal']==unit['ordinal']),None)
+            if not planned or any(document[key]!=planned[key] for key in ('source_text','chapter_start','chapter_end')):
+                raise Conflict('本集原文必须匹配固定计划的实际章范围','novel_chapter_range')
+        if unit['tool']=='translation' and document.get('reference_version_ids'):
+            refs=[]
+            for identifier in document['reference_version_ids']:
+                fixed=self._one(conn,S.artifact_versions,project['id'],identifier)
+                owner=self._text_unit(conn,project['id'],fixed['artifact_key'].split(':',1)[1])
+                prior=json.loads(fixed['document'])
+                if owner['group_key']!=unit['group_key'] or owner['id']==unit['id'] or prior.get('target_language')!=document['target_language']:
+                    raise ResourceError('精校参考须为同工作组、同目标语言的前集','translation_reference_scope')
+                refs.append(prior.get('episode_number',1))
+            if refs!=list(range(1,len(refs)+1)) or document['episode_number']<=refs[-1]:
+                raise ResourceError('精校参考须从第1集连续排列，且不得与目标集重叠','translation_reference_range')
         value=self._create_artifact(conn,project,{"artifact_type":"text-tool-draft","artifact_key":"text-tool:"+unit["id"],
             "stage":"script","document":document,"object_ids":[unit["episode_id"]] if unit["episode_id"] else [],
             "supersedes_id":previous})
@@ -270,6 +343,105 @@ class TextToolsRepository:
             history=[dict(r) for r in conn.execute(select(S.artifact_versions.c.id,S.artifact_versions.c.version,S.artifact_versions.c.sha256,S.artifact_versions.c.created_at).where(S.artifact_versions.c.project_id==project["id"],S.artifact_versions.c.artifact_key==version["artifact_key"]).order_by(S.artifact_versions.c.version.desc())).mappings()]
             return clean({**unit,"document":document,"version":version["version"],"sha256":version["sha256"],"attempts":attempts,"history":history,"revision":project["revision"]})
 
+    def create_novel_plan(self,project_id,payload,**kw):
+        from vsc.production.text_tools import novel_plan
+        if set(payload)!={'unit_id','version_id','episodes'}:raise ResourceError('全剧计划需要保存稿与逐集章范围')
+        def work(conn,project):
+            p=project['id'];unit=self._text_unit(conn,p,payload['unit_id'])
+            version,doc=self._text_version(conn,p,unit,payload['version_id'])
+            if unit['tool']!='novel' or unit['locked'] or unit['current_version_id']!=version['id'] or doc.get('novel_baseline_version_id'):
+                raise Conflict('请从当前未锁定的全剧小说原文建立分集计划')
+            rows=novel_plan(doc,payload['episodes'])
+            key='novel-plan:'+digest(payload)
+            old=conn.execute(select(S.artifact_versions.c.id).where(S.artifact_versions.c.project_id==p,S.artifact_versions.c.artifact_key==key)).scalar()
+            if old:
+                plan=conn.execute(select(S.text_tool_novel_plans).where(S.text_tool_novel_plans.c.project_id==p,S.text_tool_novel_plans.c.plan_version_id==old)).mappings().one()
+                return {'id':plan['id'],'plan_version_id':old,'already_created':True}
+            fixed=self._create_artifact(conn,project,{'artifact_type':'novel-adaptation-plan','artifact_key':key,'stage':'script',
+                'document':{'format':'vsc.novel-plan/v1','baseline_version_id':version['id'],'baseline_sha256':version['sha256'],
+                    'synopsis':doc['synopsis'],'core_setting':doc['core_setting'],'characters':doc['characters'],'episodes':rows},'dependency_ids':[version['id']]})
+            plan_id=new_id();conn.execute(insert(S.text_tool_novel_plans).values(project_id=p,id=plan_id,unit_id=unit['id'],baseline_version_id=version['id'],plan_version_id=fixed['id']))
+            created=[]
+            for row in rows:
+                identifier=new_id();child={'id':identifier,'project_id':p,'tool':'novel','group_key':'novel-'+plan_id,'unit_key':'episode-'+str(row['ordinal']),
+                    'title':row['title'],'ordinal':row['ordinal'],'episode_id':None,'current_version_id':None,'locked':False}
+                conn.execute(insert(S.text_tool_units).values(**child))
+                content=normalize_document('novel',dict(doc,source_text=row['source_text'],chapter_start=row['chapter_start'],chapter_end=row['chapter_end'],
+                    outline=row['outline'],body='',scenes='',qa_notes='',novel_baseline_version_id=fixed['id']))
+                saved=self._text_store_document(conn,project,child,content,None)
+                conn.execute(insert(S.text_tool_novel_episodes).values(project_id=p,id=new_id(),plan_id=plan_id,unit_id=identifier,
+                    ordinal=row['ordinal'],chapter_start=row['chapter_start'],chapter_end=row['chapter_end']))
+                created.append({'unit_id':identifier,'version_id':saved['id'],'title':row['title']})
+            return {'id':plan_id,'plan_version_id':fixed['id'],'episodes':created,'already_created':False}
+        return self._mutate(project_id,'create_novel_plan',payload,callback=work,**kw)
+
+    def get_novel_plan(self,project_id,unit_id):
+        with self.engine.connect() as conn:
+            self._project(conn,project_id)
+            child=conn.execute(select(S.text_tool_novel_episodes.c.plan_id).where(S.text_tool_novel_episodes.c.project_id==project_id,S.text_tool_novel_episodes.c.unit_id==unit_id)).scalar()
+            query=select(S.text_tool_novel_plans).where(S.text_tool_novel_plans.c.project_id==project_id)
+            query=query.where(S.text_tool_novel_plans.c.id==child) if child else query.where(S.text_tool_novel_plans.c.unit_id==unit_id)
+            plan=conn.execute(query.order_by(S.text_tool_novel_plans.c.created_at.desc()).limit(1)).mappings().first()
+            if not plan:return None
+            rows=conn.execute(select(S.text_tool_novel_episodes).where(S.text_tool_novel_episodes.c.project_id==project_id,S.text_tool_novel_episodes.c.plan_id==plan['id']).order_by(S.text_tool_novel_episodes.c.ordinal)).mappings()
+            episodes=[]
+            for row in rows:
+                unit=self._text_unit(conn,project_id,row['unit_id']);version,doc=self._text_version(conn,project_id,unit)
+                episodes.append({**dict(row),'title':unit['title'],'version_id':version['id'],'has_body':bool(doc['body'].strip()),'locked':unit['locked']})
+            return clean(dict(plan,episodes=episodes))
+
+    def _novel_batch_plan(self,conn,project,payload):
+        from sqlalchemy import func
+        if set(payload)!={'plan_id','work_id','code_prefix'}:raise ResourceError('整剧导入需要计划、目标作品与分集编号前缀')
+        text(payload['code_prefix'],40,False)
+        plan=self._one(conn,S.text_tool_novel_plans,project['id'],checked_id(payload['plan_id']))
+        next_ordinal=conn.execute(select(func.coalesce(func.max(S.episodes.c.ordinal),-1)+1).where(S.episodes.c.project_id==project['id'],S.episodes.c.parent_id==checked_id(payload['work_id']))).scalar_one()
+        rows=conn.execute(select(S.text_tool_novel_episodes).where(S.text_tool_novel_episodes.c.project_id==project['id'],S.text_tool_novel_episodes.c.plan_id==plan['id']).order_by(S.text_tool_novel_episodes.c.ordinal)).mappings()
+        requests=[];plans=[]
+        for row in rows:
+            unit=self._text_unit(conn,project['id'],row['unit_id'])
+            request={'unit_id':unit['id'],'version_id':unit['current_version_id'],'episode_id':None,
+                'new_episode':{'work_id':payload['work_id'],'display_code':payload['code_prefix']+str(row['ordinal']).zfill(3),'title':unit['title'],'ordinal':next_ordinal+row['ordinal']-1},
+                'scene_id':None,'new_scene_title':unit['title']+' · 工作场次','asset_mapping':{}}
+            requests.append(request);plans.append(self._novel_import_plan(conn,project,request))
+        return {'plan_id':plan['id'],'requests':requests,'episodes':plans}
+
+    def preview_novel_batch_import(self,project_id,payload):
+        with self.engine.connect() as conn:
+            project=self._project(conn,project_id);plan=self._novel_batch_plan(conn,project,payload)
+            return {'plan':plan,'preview_sha256':digest(plan),'revision':project['revision']}
+
+    def import_novel_batch(self,project_id,payload,**kw):
+        if set(payload)!={'request','preview_sha256'}:raise ResourceError('整剧导入需要固定差异预览')
+        def work(conn,project):
+            key='novel-batch-import:'+digest(payload)
+            old=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project['id'],S.artifact_versions.c.artifact_key==key)).mappings().first()
+            if old:return dict(json.loads(old['document']),already_imported=True)
+            plan=self._novel_batch_plan(conn,project,payload['request'])
+            if digest(plan)!=payload['preview_sha256']:raise Conflict('分集工作稿或目标已变化，请重新预览','novel_batch_stale')
+            results=[]
+            for request,item in zip(plan['requests'],plan['episodes']):
+                result=self.import_text_tool_novel(project['id'],{'request':request,'preview_sha256':digest(item)},actor=kw['actor'],expected_revision=project['revision'],idempotency_key='novel-batch-item',_transaction=(conn,project))
+                results.append(result)
+            document={'plan_id':plan['plan_id'],'episodes':results,'automatic_approval':False}
+            fixed=self._create_artifact(conn,project,{'artifact_type':'novel-batch-import','artifact_key':key,'stage':'script','document':document})
+            return dict(document,id=fixed['id'],already_imported=False)
+        return self._mutate(project_id,'import_novel_batch',payload,callback=work,**kw)
+
+    def scoring_export_document(self,project_id,version_id):
+        from vsc.production.text_tools import scoring_boundary
+        with self.engine.connect() as conn:
+            fixed=self._one(conn,S.artifact_versions,project_id,version_id);doc=json.loads(fixed['document'])
+            unit=self._text_unit(conn,project_id,fixed['artifact_key'].split(':',1)[1]);runs=[]
+            for row in conn.execute(select(S.text_tool_attempts).where(S.text_tool_attempts.c.project_id==project_id,S.text_tool_attempts.c.unit_id==unit['id'],S.text_tool_attempts.c.created_at<=fixed['created_at']).order_by(S.text_tool_attempts.c.created_at)).mappings():
+                if not row['result_version_id']:continue
+                result_version=self._one(conn,S.artifact_versions,project_id,row['result_version_id'])
+                if result_version['created_at']>fixed['created_at']:continue
+                source=self._one(conn,S.artifact_versions,project_id,row['input_version_id']);input_=json.loads(source['document'])
+                result=json.loads(result_version['document'])
+                runs.append({'id':row['id'],'status':row['status'],'backend':row['backend'],'input_version_id':source['id'],'input_sha256':source['sha256'],'card':scoring_boundary(input_),'result':result,'error_code':row['error_code']})
+            return dict(doc,fixed_version_id=version_id,card=scoring_boundary(doc),runs=runs)
+
     def save_text_tool(self,project_id,payload,*,normalize,**kw):
         allowed={"unit_id","tool","group_key","unit_key","title","ordinal","episode_id","document","base_version_id"}
         if set(payload)-allowed or payload.get("tool") not in TOOLS:raise ResourceError("工具保存字段无效")
@@ -283,6 +455,8 @@ class TextToolsRepository:
                 if any(unit[k]!=payload.get(k) for k in ("tool","group_key","unit_key")) or unit["episode_id"]!=payload.get("episode_id"):
                     raise ResourceError("单元身份与集范围不可隐式变更")
                 if unit["current_version_id"]!=payload.get("base_version_id"):raise Conflict("人工稿已有新版本，输入已保留","text_tool_version_conflict")
+                if unit['tool']=='novel' and unit['ordinal']!=payload['ordinal'] and conn.execute(select(S.text_tool_novel_episodes.c.id).where(S.text_tool_novel_episodes.c.project_id==p,S.text_tool_novel_episodes.c.unit_id==identifier)).first():
+                    raise Conflict('已规划的分集顺序属于固定全剧计划，请建立修订计划','novel_baseline_changed')
                 conn.execute(update(S.text_tool_units).where(S.text_tool_units.c.project_id==p,S.text_tool_units.c.id==identifier).values(title=payload["title"],ordinal=payload["ordinal"]))
             else:
                 if payload.get("base_version_id"):raise ResourceError("新建单元不应带旧版本")
@@ -298,6 +472,7 @@ class TextToolsRepository:
     def set_text_tool_lock(self,project_id,payload,**kw):
         def work(conn,project):
             unit=self._text_unit(conn,project["id"],payload["unit_id"])
+            if unit['tool']=='translation' and not payload['locked'] and self._text_version(conn,project['id'],unit)[1].get('translation_stage')=='complete':raise Conflict('完成译文请使用重新打开编辑，保留完成状态历史')
             conn.execute(update(S.text_tool_units).where(S.text_tool_units.c.project_id==project["id"],S.text_tool_units.c.id==unit["id"]).values(locked=payload["locked"]))
             return {"id":unit["id"],"locked":payload["locked"],"message":"已开始的调用保留结果，但不会覆盖人工稿"}
         return self._mutate(project_id,"set_text_tool_lock",payload,callback=work,**kw)
@@ -310,7 +485,7 @@ class TextToolsRepository:
             if version["id"]!=unit["current_version_id"]:raise Conflict("运行输入不是当前保存稿","text_tool_version_conflict")
             action=payload.get("action")
             if action not in TOOLS[unit["tool"]]["actions"]:raise ResourceError("该工具不支持此动作")
-            if unit["tool"]=="overseas":
+            if unit["tool"]=="overseas" and action=="localize":
                 doc=normalize_document("overseas",doc)
                 self._overseas_baseline(conn,project,unit,doc["understanding_version_id"],"understanding",doc)
             query=select(S.text_tool_attempts).where(S.text_tool_attempts.c.project_id==p,S.text_tool_attempts.c.unit_id==unit["id"])
@@ -320,7 +495,21 @@ class TextToolsRepository:
                 previous=conn.execute(query.where(S.text_tool_attempts.c.input_version_id==version["id"],S.text_tool_attempts.c.action==action).order_by(S.text_tool_attempts.c.created_at.desc()).limit(1)).mappings().first()
                 if previous:return {"id":previous["id"],"caller":None}
             identifier=new_id()
-            conn.execute(insert(S.text_tool_attempts).values(project_id=p,id=identifier,unit_id=unit["id"],input_version_id=version["id"],action=action,backend="local-ffprobe-srt/v2" if action=="check" else backend,status="running",created_by=kw["actor"]))
+            references=list(doc.get('reference_version_ids',[]))
+            if unit['tool']=='novel':
+                if doc.get('novel_baseline_version_id'):references.append(doc['novel_baseline_version_id'])
+                if action=='qa_notes':
+                    child=conn.execute(select(S.text_tool_novel_episodes.c.plan_id).where(S.text_tool_novel_episodes.c.project_id==p,S.text_tool_novel_episodes.c.unit_id==unit['id'])).scalar()
+                    query=select(S.text_tool_novel_plans.c.id).where(S.text_tool_novel_plans.c.project_id==p)
+                    query=query.where(S.text_tool_novel_plans.c.id==child) if child else query.where(S.text_tool_novel_plans.c.unit_id==unit['id'])
+                    plan=conn.execute(query.order_by(S.text_tool_novel_plans.c.created_at.desc()).limit(1)).scalar()
+                    if plan:
+                        for row in conn.execute(select(S.text_tool_novel_episodes).where(S.text_tool_novel_episodes.c.project_id==p,S.text_tool_novel_episodes.c.plan_id==plan).order_by(S.text_tool_novel_episodes.c.ordinal)).mappings():
+                            references.append(self._text_unit(conn,p,row['unit_id'])['current_version_id'])
+            references=list(dict.fromkeys(references))
+            conn.execute(insert(S.text_tool_attempts).values(project_id=p,id=identifier,unit_id=unit["id"],input_version_id=version["id"],action=action,backend="local-ffprobe-subtitles/v3" if action=="check" and not(set(doc['checks'])-{'metadata','subtitles','decode'}) else backend,status="running",input_count=len(references),created_by=kw["actor"]))
+            for ordinal,ref in enumerate(references):
+                conn.execute(insert(S.text_tool_attempt_inputs).values(project_id=p,id=new_id(),attempt_id=identifier,version_id=ref,ordinal=ordinal))
             return {"id":identifier,"caller":caller}
         return self._mutate(project_id,"start_text_tool_attempt",payload,callback=work,**kw)
 
@@ -329,6 +518,10 @@ class TextToolsRepository:
             p=checked_id(project_id);project=self._project(conn,p)
             row=self._one(conn,S.text_tool_attempts,p,checked_id(attempt_id))
             if row["result_version_id"]:row["result"]=json.loads(self._one(conn,S.artifact_versions,p,row["result_version_id"])["document"])
+            refs=[]
+            for ref in conn.execute(select(S.text_tool_attempt_inputs.c.version_id).where(S.text_tool_attempt_inputs.c.project_id==p,S.text_tool_attempt_inputs.c.attempt_id==row['id']).order_by(S.text_tool_attempt_inputs.c.ordinal)).scalars():
+                fixed=self._one(conn,S.artifact_versions,p,ref);refs.append({'id':ref,'sha256':fixed['sha256'],'document':json.loads(fixed['document'])})
+            row=dict(row,references=refs)
             return clean({**row,"revision":project["revision"]})
 
     def recover_text_tool_attempt(self,project_id,payload,**kw):
@@ -389,9 +582,17 @@ class TextToolsRepository:
             if unit["locked"]:raise Conflict("单元已锁定，请先解锁")
             if run["status"]!="completed":raise ResourceError("此尝试尚无可接受结果")
             if payload["base_version_id"]!=unit["current_version_id"] or run["input_version_id"]!=unit["current_version_id"]:raise Conflict("人工稿已改变，结果只供比较，不自动覆盖","text_tool_result_stale")
+            if run['action']=='qa_notes':
+                for ref in conn.execute(select(S.text_tool_attempt_inputs.c.version_id).where(S.text_tool_attempt_inputs.c.project_id==p,S.text_tool_attempt_inputs.c.attempt_id==run['id'])).scalars():
+                    fixed=self._one(conn,S.artifact_versions,p,ref)
+                    if fixed['artifact_type']=='text-tool-draft':
+                        referenced=self._text_unit(conn,p,fixed['artifact_key'].split(':',1)[1])
+                        if referenced['current_version_id']!=ref:raise Conflict('联合QA涉及的其他分集已更新，请基于新稿重新检查','text_tool_result_stale')
             _,document=self._text_version(conn,p,unit)
             result=json.loads(self._one(conn,S.artifact_versions,p,run["result_version_id"])["document"])
             next_doc=normalize(p,unit["tool"],{**document,**result["patch"]})
+            if unit['tool']=='translation' and run['action']=='translate' and not document.get('style_request'):next_doc.update(translation_stage='translated',proofread=False)
+            if unit['tool']=='translation' and run['action']=='terms':next_doc['translation_stage']='draft'
             saved=self._text_store_document(conn,project,unit,next_doc,unit["current_version_id"])
             return {**saved,"unit_id":unit["id"],"version_id":saved["id"],"document":next_doc}
         return self._mutate(project_id,"accept_text_tool_result",payload,callback=work,**kw)
@@ -422,6 +623,13 @@ class TextToolsRepository:
             if not doc["groups"] or any(not g["candidate_media_id"] for g in doc["groups"]):raise ResourceError("每个出海组必须显式选择可用候选视频","localization_candidates_missing")
             fps=24
             clips=[{"id":"group-"+g["key"],"media_id":g["candidate_media_id"],"in_frame":round(g["candidate_in_ms"]*fps/1000),"out_frame":round((g["candidate_in_ms"]+duration(g))*fps/1000),"volume":1,"muted":False} for g in doc["groups"]]
+            for group,clip in zip(doc['groups'],clips):
+                if not group['shot_id']:continue
+                selection=conn.execute(select(S.working_selection_versions.c.id).join(S.binding_candidates,and_(S.binding_candidates.c.project_id==p,S.binding_candidates.c.id==S.working_selection_versions.c.candidate_id)).where(
+                    S.working_selection_versions.c.project_id==p,S.working_selection_versions.c.shot_id==group['shot_id'],S.working_selection_versions.c.output_kind=='video',
+                    S.binding_candidates.c.media_id==group['candidate_media_id'],S.working_selection_versions.c.trim_in_ms==group['candidate_in_ms'],
+                    S.working_selection_versions.c.trim_out_ms==group['candidate_in_ms']+duration(group)).order_by(S.working_selection_versions.c.created_at.desc()).limit(1)).scalar()
+                if selection:clip.update(shot_id=group['shot_id'],working_selection_version_id=str(selection))
             plan={"kind":"editing","unit_id":unit["id"],"version_id":version["id"],"episode_id":episode,"edit_revision":current["revision"] if current else 0,
                   "change":"update" if current else "create","previous_document":self._one(conn,S.edit_revisions,p,current["current_version_id"])["document"] if current else None,"document":{"format":"vsc.edit-workspace/v1","width":720,"height":1280,"fps":fps,"clips":clips,"audio":[],"captions":[]}}
         else:
@@ -590,7 +798,9 @@ class TextToolsRepository:
         if not video or not subtitle:raise ResourceError("目标原视频或字幕不在固定质检版本中")
         media=self._media(conn,p,clip["media_id"])
         if video["sha256"]!=media["sha256"]:raise Conflict("固定质检源片变化")
-        entries=parse_srt(subtitle["text"],strict=True,duration=media["duration_ms"]/1000)
+        from vsc.post.subtitle_formats import normalize_subtitle
+        normalized=normalize_subtitle(subtitle['filename'],subtitle['text'],duration=media['duration_ms']/1000,require_timing=True)
+        entries=[(r['start_ms']/1000,r['end_ms']/1000,r['text']) for r in normalized['cues']]
         offset=0
         for row in document["clips"]:
             if row["id"]==clip["id"]:break
@@ -625,3 +835,157 @@ class TextToolsRepository:
             if digest(plan)!=payload["preview_sha256"]:raise Conflict("质检稿或剪辑已变化，请重新预览")
             return EditorWorkspaceRepository(self).save(project_id,{k:plan[k] for k in ("episode_id","edit_revision","document")},_transaction=(conn,project),**kw)
         return self._mutate(project_id,"apply_text_tool_subtitles",payload,callback=work,**kw)
+
+    def create_text_batch(self,project_id,payload,**kw):
+        if set(payload)-{'tool','action','unit_ids','auto_accept','overwrite','qa_unit_id'} or payload.get('tool') not in TOOLS or payload.get('action') not in TOOLS[payload['tool']]['actions']:
+            raise ResourceError('批次需要明确工具、动作和工作单元')
+        ids=payload.get('unit_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=200 or len(set(ids))!=len(ids):raise ResourceError('批次需要1–200个不重复单元')
+        if type(payload.get('auto_accept',False))is not bool or type(payload.get('overwrite',False))is not bool:raise ResourceError('批次采用和改写标记无效')
+        def work(conn,project):
+            p=project['id'];identifier=new_id();rows=[]
+            for uid in ids:
+                unit=self._text_unit(conn,p,uid);fixed,doc=self._text_version(conn,p,unit)
+                if unit['tool']!=payload['tool'] or unit['locked']:raise Conflict('批次单元类型不一致或已锁定')
+                if unit['tool']=='translation' and payload['action']=='translate' and doc.get('translation_stage')=='complete':raise Conflict('完成译文须显式重新打开编辑')
+                status='skipped' if payload['action'] in {'body','translate'} and doc.get('body','').strip() and not payload.get('overwrite') else 'pending'
+                rows.append(dict(unit_id=uid,input_version_id=fixed['id'],action=payload['action'],status=status))
+            qa=payload.get('qa_unit_id')
+            if qa:
+                if payload['tool']!='novel' or payload['action']!='body' or not payload.get('auto_accept'):raise ResourceError('跨集QA需要自动采用正文批次')
+                base=self._text_unit(conn,p,qa);fixed,_=self._text_version(conn,p,base)
+                plan=conn.execute(select(S.text_tool_novel_plans).where(S.text_tool_novel_plans.c.project_id==p,S.text_tool_novel_plans.c.unit_id==qa).order_by(S.text_tool_novel_plans.c.created_at.desc()).limit(1)).mappings().first()
+                linked=set(conn.execute(select(S.text_tool_novel_episodes.c.unit_id).where(S.text_tool_novel_episodes.c.project_id==p,S.text_tool_novel_episodes.c.plan_id==plan['id'])).scalars()) if plan else set()
+                if linked!=set(ids):raise ResourceError('联合QA批次必须覆盖当前计划的完整分集')
+                rows.append(dict(unit_id=qa,input_version_id=fixed['id'],action='qa_notes',status='pending'))
+            conn.execute(insert(S.text_tool_batches).values(project_id=p,id=identifier,tool=payload['tool'],action=payload['action'],auto_accept=payload.get('auto_accept',False),status='ready',item_count=len(rows),created_by=kw['actor']))
+            for index,row in enumerate(rows):conn.execute(insert(S.text_tool_batch_items).values(project_id=p,id=new_id(),batch_id=identifier,ordinal=index,**row))
+            return {'id':identifier,'count':len(rows),'status':'ready'}
+        return self._mutate(project_id,'create_text_batch',payload,callback=work,**kw)
+
+    def get_text_batch(self,project_id,batch_id):
+        with self.engine.connect() as conn:
+            project=self._project(conn,project_id);batch=self._one(conn,S.text_tool_batches,project_id,checked_id(batch_id))
+            items=[dict(r) for r in conn.execute(select(S.text_tool_batch_items).where(S.text_tool_batch_items.c.project_id==project_id,S.text_tool_batch_items.c.batch_id==batch_id).order_by(S.text_tool_batch_items.c.ordinal)).mappings()]
+            for row in items:row['title']=self._text_unit(conn,project_id,row['unit_id'])['title']
+            return clean(dict(batch,items=items,revision=project['revision']))
+
+    def list_text_batches(self,project_id,tool):
+        with self.engine.connect() as conn:
+            project=self._project(conn,project_id)
+            rows=conn.execute(select(S.text_tool_batches).where(S.text_tool_batches.c.project_id==project_id,S.text_tool_batches.c.tool==tool).order_by(S.text_tool_batches.c.created_at.desc()).limit(50)).mappings()
+            return clean({'items':[dict(r) for r in rows],'revision':project['revision']})
+
+    def claim_text_batch(self,project_id,payload,**kw):
+        def work(conn,project):
+            p=project['id'];batch=self._one(conn,S.text_tool_batches,p,payload['batch_id'])
+            if batch['status'] in {'stopped','completed'}:return dict(batch,item=None)
+            rows=conn.execute(select(S.text_tool_batch_items).where(S.text_tool_batch_items.c.project_id==p,S.text_tool_batch_items.c.batch_id==batch['id']).order_by(S.text_tool_batch_items.c.ordinal)).mappings().all()
+            item=next((dict(r) for r in rows if r['status'] not in {'completed','skipped'}),None)
+            if item and item['status'] in {'failed','blocked'}:return dict(batch,item=None)
+            conn.execute(update(S.text_tool_batches).where(S.text_tool_batches.c.project_id==p,S.text_tool_batches.c.id==batch['id']).values(status='running' if item else 'completed'))
+            if item:conn.execute(update(S.text_tool_batch_items).where(S.text_tool_batch_items.c.project_id==p,S.text_tool_batch_items.c.id==item['id']).values(status='running'))
+            return dict(batch,item=item)
+        return self._mutate(project_id,'claim_text_batch',payload,callback=work,**kw)
+
+    def finish_text_batch_item(self,project_id,payload,**kw):
+        def work(conn,project):
+            row=self._one(conn,S.text_tool_batch_items,project['id'],payload['item_id'])
+            if row['status'] in {'completed','skipped'}:return dict(row)
+            if payload.get('attempt_id'):
+                attempt=self._one(conn,S.text_tool_attempts,project['id'],payload['attempt_id'])
+                if attempt['unit_id']!=row['unit_id'] or attempt['input_version_id']!=row['input_version_id'] or attempt['action']!=row['action']:raise ResourceError('批次回执不属于固定单元输入')
+            values={k:payload.get(k) for k in ('status','attempt_id','output_version_id','error_code')}
+            conn.execute(update(S.text_tool_batch_items).where(S.text_tool_batch_items.c.project_id==project['id'],S.text_tool_batch_items.c.id==row['id']).values(**values))
+            return dict(row,**values)
+        return self._mutate(project_id,'finish_text_batch_item',payload,callback=work,**kw)
+
+    def stop_text_batch(self,project_id,payload,**kw):
+        def work(conn,project):
+            batch=self._one(conn,S.text_tool_batches,project['id'],payload['batch_id'])
+            if batch['status']!='completed':conn.execute(update(S.text_tool_batches).where(S.text_tool_batches.c.project_id==project['id'],S.text_tool_batches.c.id==batch['id']).values(status='stopped'))
+            return {'id':batch['id'],'status':'stopped','in_flight_preserved':True}
+        return self._mutate(project_id,'stop_text_batch',payload,callback=work,**kw)
+
+    def decide_text_issue(self,project_id,payload,**kw):
+        if set(payload)!={'version_id','issue_index','decision','reason'} or payload['decision'] not in {'open','fixed','dismissed'} or type(payload['issue_index'])is not int:raise ResourceError('问题处理需要固定报告、行号、决定与理由')
+        text(payload['reason'],2000,False)
+        def work(conn,project):
+            fixed=self._one(conn,S.artifact_versions,project['id'],payload['version_id']);doc=json.loads(fixed['document'])
+            if fixed['artifact_type']!='text-tool-draft' or doc.get('format')!='vsc.text-tool/qc/v1' or not 0<=payload['issue_index']<len(doc['issues']):raise ResourceError('问题处理不属于固定质检报告')
+            identifier=new_id();conn.execute(insert(S.text_tool_issue_decisions).values(project_id=project['id'],id=identifier,created_by=kw['actor'],**payload))
+            return {'id':identifier,**payload}
+        return self._mutate(project_id,'decide_text_issue',payload,callback=work,**kw)
+
+    def text_issue_reviews(self,project_id,version_id):
+        with self.engine.connect() as conn:
+            self._project(conn,project_id)
+            rows=conn.execute(select(S.text_tool_issue_decisions).where(S.text_tool_issue_decisions.c.project_id==project_id,S.text_tool_issue_decisions.c.version_id==version_id).order_by(S.text_tool_issue_decisions.c.created_at)).mappings()
+            latest={r['issue_index']:dict(r) for r in rows};return clean(list(latest.values()))
+
+    def freeze_text_review_report(self,project_id,payload,**kw):
+        def work(conn,project):
+            fixed=self._one(conn,S.artifact_versions,project['id'],payload['version_id']);doc=json.loads(fixed['document'])
+            if fixed['artifact_type']!='text-tool-draft' or doc.get('format')!='vsc.text-tool/qc/v1':raise ResourceError('需要固定质检工作稿')
+            decisions=conn.execute(select(S.text_tool_issue_decisions).where(S.text_tool_issue_decisions.c.project_id==project['id'],S.text_tool_issue_decisions.c.version_id==fixed['id']).order_by(S.text_tool_issue_decisions.c.created_at)).mappings()
+            doc['review_decisions']=clean(list({r['issue_index']:dict(r) for r in decisions}.values()));doc['evidence_images']=[]
+            for row in conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project['id'],S.artifact_versions.c.artifact_type=='qc-evidence')).mappings():
+                evidence=json.loads(row['document'])
+                if evidence['report_version_id']==fixed['id']:doc['evidence_images'].append({k:evidence[k] for k in ('issue_index','media_id','sha256')})
+            doc['report_source_version_id']=fixed['id'];doc['report_source_sha256']=fixed['sha256']
+            return self._create_artifact(conn,project,{'artifact_type':'text-tool-review-report','artifact_key':'text-review:'+new_id(),'stage':'post','document':doc,'dependency_ids':[fixed['id']]})
+        return self._mutate(project_id,'freeze_text_review_report',payload,callback=work,**kw)
+
+    def set_translation_stage(self,project_id,payload,**kw):
+        if set(payload)!={'unit_id','version_id','stage'} or payload['stage'] not in {'draft','terms_reviewed','translated','complete'}:raise ResourceError('翻译阶段变更无效')
+        def work(conn,project):
+            unit=self._text_unit(conn,project['id'],payload['unit_id']);fixed,doc=self._text_version(conn,project['id'],unit,payload['version_id'])
+            if unit['tool']!='translation' or unit['current_version_id']!=fixed['id']:raise Conflict('翻译工作稿已变化')
+            if payload['stage'] in {'translated','complete'} and not doc['body'].strip():raise ResourceError('先保存译文')
+            if payload['stage']=='complete' and not doc.get('proofread'):raise ResourceError('完成前须明确人工精校')
+            saved=self._text_store_document(conn,project,unit,dict(doc,translation_stage=payload['stage'],proofread=False if payload['stage']=='draft' else doc['proofread']),fixed['id'])
+            conn.execute(update(S.text_tool_units).where(S.text_tool_units.c.project_id==project['id'],S.text_tool_units.c.id==unit['id']).values(locked=payload['stage']=='complete'))
+            return dict(saved,unit_id=unit['id'],stage=payload['stage'])
+        return self._mutate(project_id,'set_translation_stage',payload,callback=work,**kw)
+
+    def _breakdown_canvas_plan(self,conn,project,payload):
+        if set(payload)!={'unit_id','version_id','canvas_id','canvas_revision','source_node_id','dimension'} or payload['dimension'] not in {'storyboard','video','audio'}:raise ResourceError('拉片回流需固定工作稿、原画布源节点与维度')
+        unit=self._text_unit(conn,project['id'],payload['unit_id']);fixed,doc=self._text_version(conn,project['id'],unit,payload['version_id'])
+        if unit['tool']!='breakdown' or not doc['observations']:raise ResourceError('请先保存带时码观察结果')
+        canvas,current=self._canvas_version(conn,project,payload['canvas_id'])
+        if current['version']!=payload['canvas_revision']:raise Conflict('原画布已有新版本，请重新预览')
+        document=self._canvas_document(conn,project['id'],current);source=next((n for n in document['nodes'] if n['id']==payload['source_node_id']),None)
+        if not source or source['type']!='video' or source['media_id']!=doc['media_id']:raise ResourceError('回流源节点必须引用本次理解的固定视频')
+        allowed={'storyboard':{'scene','character','action','screen_text'},'video':{'scene','action','camera','visual'},'audio':{'dialogue','audio','music'}}[payload['dimension']]
+        observations=[r for r in doc['observations'] if r['kind'] in allowed]
+        if payload['dimension']=='audio' and doc.get('observation_basis')=='sampled_frames_no_audio':raise ResourceError('抽帧观察没有音轨证据，不能产生音频维度结果')
+        if not observations:raise ResourceError('所选维度没有可用的实际观察')
+        if len(document['nodes'])+len(observations)>200:raise ResourceError('回流超过单画布200节点，请分批')
+        nodes=[];edges=[]
+        for i,row in enumerate(observations):
+            key='analysis-'+fixed['id'][:12]+'-'+payload['dimension']+'-'+str(i)
+            if any(n['id']==key for n in document['nodes']):continue
+            nodes.append({'id':key,'type':'text','title':{'storyboard':'分镜观察','video':'视频区间','audio':'音频观察'}[payload['dimension']]+' '+str(i+1),
+                'x':source['x']+360,'y':source['y']+i*180,'text':str(row['start_ms'])+'–'+str(row['end_ms'])+' ms\n'+row['text'],
+                'params':{'analysis_dimension':payload['dimension'],'source_start_ms':row['start_ms'],'source_end_ms':row['end_ms'],'source_version_id':fixed['id'],'observation_basis':doc.get('observation_basis','manual')},'group':'analysis-'+fixed['id'][:12]})
+            edges.append({'id':'edge-'+key,'source':source['id'],'target':key,'port':'derived_from'})
+        return {'canvas_id':canvas['id'],'canvas_revision':current['version'],'title':current['title'],'source_version_id':fixed['id'],'document':dict(document,nodes=document['nodes']+nodes,edges=document['edges']+edges),'added_count':len(nodes)}
+
+    def preview_breakdown_canvas(self,project_id,payload):
+        with self.engine.connect() as conn:
+            project=self._project(conn,project_id);plan=self._breakdown_canvas_plan(conn,project,payload)
+            return {'plan':plan,'preview_sha256':digest(plan),'revision':project['revision']}
+
+    def apply_breakdown_canvas(self,project_id,payload,**kw):
+        if set(payload)!={'request','preview_sha256'}:raise ResourceError('回流需要固定预览')
+        def work(conn,project):
+            key='breakdown-canvas:'+digest(payload)
+            old=conn.execute(select(S.artifact_versions).where(S.artifact_versions.c.project_id==project['id'],S.artifact_versions.c.artifact_key==key)).mappings().first()
+            if old:return json.loads(old['document'])
+            plan=self._breakdown_canvas_plan(conn,project,payload['request'])
+            if digest(plan)!=payload['preview_sha256']:raise Conflict('画布或理解结果发生变化，请重新预览')
+            saved=self.save_creative_canvas(project['id'],{k:plan[k] for k in ('canvas_id','canvas_revision','title','document')},_transaction=(conn,project),**kw)
+            result={'canvas_id':plan['canvas_id'],'version_id':saved['version_id'],'added_count':plan['added_count']}
+            self._create_artifact(conn,project,{'artifact_key':key,'artifact_type':'breakdown-canvas-import','stage':'direct','document':result,'dependency_ids':[plan['source_version_id']]})
+            return result
+        return self._mutate(project_id,'apply_breakdown_canvas',payload,callback=work,**kw)

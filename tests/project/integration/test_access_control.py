@@ -160,6 +160,63 @@ class AccessControlTests(ResourceStoreFixture,unittest.TestCase):
         self.assertNotEqual(again['submission_id'],submission['submission_id'])
         self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
 
+    def test_workspace_resources_follow_project_membership_and_return_names(self):
+        studio=self.command('workspace',{'name':'可读工作室','parent_id':None})['workspace_id']
+        self.assign(workspace=studio)
+        media=self.media('workspace-visible')
+        snapshot=self.service.access_snapshot()
+        project=next(row for row in snapshot['projects'] if row['id']==self.p)
+        self.assertEqual(project['workspace_name'],'可读工作室')
+        self.assertTrue(all(row['scope_name'] for row in snapshot['members']))
+        value=self.service.access_workspace_resources(studio,query='workspace-visible',limit=1)
+        self.assertEqual(value['total'],1)
+        self.assertEqual(value['items'][0]['id'],media)
+        member,_,_=self.invite('viewer',scope='workspace',target=studio)
+        with self.as_member(member):
+            self.assertEqual(self.service.access_workspace_resources(studio)['total'],1)
+            with self.assertRaises(ResourceError):self.service.access_workspace_resources(self.owner['workspace_id'])
+        self.command('member',{'scope':'workspace','scope_id':studio,'identity_id':member['identity_id'],'role':'viewer','active':False})
+        with self.as_member(member):
+            with self.assertRaises(ResourceError):self.service.access_workspace_resources(studio)
+
+    def test_discovery_returns_actual_canvas_and_does_not_leak_other_member_project(self):
+        from fastapi.testclient import TestClient
+        self.assign();canvas=self.canvas('可继续的创作')
+        self.write('publish_canvas_template',{'canvas_id':canvas['id'],'canvas_revision':canvas['canvas_revision'],'title':'固定模板'})
+        member,credential,_=self.invite('viewer')
+        with self.as_member(member):
+            private=self.service.create_project({'name':'成员私人创作'},actor=member['actor'])
+            self.service.create_creative_canvas(private['id'],{'title':'不应泄漏','document':{'nodes':[],'edges':[]}},actor=member['actor'],expected_revision=0,idempotency_key='private-canvas')
+        with TestClient(self.app()) as client:
+            headers=self.client_login(client)
+            response=client.get('/api/v1/discovery',headers=headers);self.assertEqual(response.status_code,200,response.text)
+            data=response.json()
+            self.assertTrue(any(row['target_id']==canvas['id'] and 'task_target='+canvas['id'] in row['href'] for row in data['recent']))
+            self.assertFalse(any(row['project_id']==private['id'] for row in data['recent']))
+            self.assertTrue(any(row['title']=='固定模板' for row in data['templates']))
+            self.assertTrue(data['skills']);self.assertTrue(data['tutorials'])
+            tutorial=client.get('/api/v1/discovery/tutorials/'+data['tutorials'][0]['id'],headers=headers)
+            self.assertEqual(tutorial.status_code,200,tutorial.text);self.assertTrue(tutorial.json()['content'])
+
+    def test_review_filters_and_pages_keep_candidate_and_submission_together(self):
+        self.assign();objects=self.hierarchy()
+        first=self.candidate(objects['shot'],self.media('review-first'),role='storyboard')['candidate_id']
+        second=self.candidate(objects['shot'],self.media('review-second'),role='storyboard')['candidate_id']
+        self.command('review-policy',{'project_id':self.p,'lanes':['storyboard']})
+        submitted=self.write('submit_team_review',{'candidate_id':first,'lane':'storyboard'})
+        pending=self.service.team_review_queue(self.p,'storyboard',status='pending',episode_id=objects['episode'],limit=1)
+        self.assertEqual(pending['total'],1);self.assertEqual(pending['candidates'][0]['id'],first)
+        self.assertEqual(pending['submissions'][0]['id'],submitted['submission_id'])
+        unsubmitted=self.service.team_review_queue(self.p,'storyboard',status='unsubmitted',query='second')
+        self.assertEqual([row['id'] for row in unsubmitted['candidates']],[second]);self.assertEqual(unsubmitted['submissions'],[])
+        first_page=self.service.team_review_queue(self.p,'storyboard',limit=1)
+        second_page=self.service.team_review_queue(self.p,'storyboard',limit=1,offset=first_page['next_offset'])
+        self.assertEqual({first_page['candidates'][0]['id'],second_page['candidates'][0]['id']},{first,second})
+        self.write('commit_team_review',{'submission_id':submitted['submission_id'],'outcome':'pass','reason':'可进入后续选用'})
+        passed=self.service.team_review_queue(self.p,'storyboard',status='pass')
+        self.assertEqual([row['id'] for row in passed['candidates']],[first])
+        self.assertEqual(self.service.team_review_queue(self.p,'storyboard',status='pending')['total'],0)
+
     def test_permissions_use_real_request_and_local_auto_login_remains(self):
         from fastapi.testclient import TestClient
         with TestClient(self.app(local_auto_session=True)) as client:

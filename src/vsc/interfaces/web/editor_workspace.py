@@ -24,6 +24,10 @@ def install_editor_workspace_routes(router, catalog, etag, actor):
     def seed(project_id: str, request: Request, episode_id: str):
         return etag(request, service(project_id).seed_edit_workspace(project_id, episode_id))
 
+    @router.get('/{project_id}/edit-candidates')
+    def candidates(project_id: str, request: Request, episode_id: str, offset: int = 0, limit: int = 48):
+        return etag(request,service(project_id).list_edit_candidates(project_id,episode_id,offset=offset,limit=limit))
+
     @router.get('/{project_id}/edit-workspace/{version_id}/timeline-options')
     def timeline_options(project_id: str, version_id: str, request: Request):
         return etag(request, service(project_id).edit_timeline_options(project_id,version_id))
@@ -55,16 +59,19 @@ def install_editor_workspace_routes(router, catalog, etag, actor):
             actor=actor(request),expected_revision=body.get('expected_revision'),idempotency_key=body.get('idempotency_key'))
 
     @router.get('/{project_id}/edit-workspace/{version_id}/download')
-    def download(project_id: str, version_id: str, kind: str):
-        path, mime, temporary = service(project_id).export_edit_workspace(project_id, version_id, kind)
+    def download(project_id: str, version_id: str, kind: str, clip_keys: str = ''):
+        path, mime, temporary = service(project_id).export_edit_workspace(project_id, version_id, kind,
+            clip_keys.split(',') if clip_keys else None)
         return FileResponse(path, media_type=mime, filename=path.name,
             background=BackgroundTask(temporary.cleanup), headers={'X-VSC-Adoption':'unapproved-working-edit'})
 
     @router.get("/{project_id}/edit-exports/{job_id}/content")
     def content(project_id: str, job_id: str, download: bool = False):
-        path, result = service(project_id).edit_export_content(project_id, job_id)
+        path, result = service(project_id).edit_export_content(project_id, job_id,for_download=download)
         return FileResponse(path, media_type="video/mp4", filename="first-cut.mp4" if download else None,
-            content_disposition_type="attachment" if download else "inline", headers={"X-VSC-Adoption": "unapproved-first-cut"})
+            content_disposition_type="attachment" if download else "inline",
+            background=BackgroundTask(result['_temporary'].cleanup) if result.get('_temporary') else None,
+            headers={"X-VSC-Adoption": "unapproved-first-cut",'X-VSC-Watermark':'required' if result.get('export_policy',{}).get('watermark_required') else 'not-required'})
 
     @router.get('/{project_id}/edit-exports/{job_id}/cover')
     def cover(project_id: str, job_id: str, at_ms: int = 0):

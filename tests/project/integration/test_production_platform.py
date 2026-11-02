@@ -108,6 +108,26 @@ class ProductionPlatformTests(ResourceStoreFixture, unittest.TestCase):
                 expected_revision=0, idempotency_key=uuid.uuid4().hex, actor='test-human')
         self.assertEqual(self.service.get_production_episodes(self.p, limit=1, offset=1)['items'][0]['id'], third)
 
+    def test_initial_shots_middle_insert_and_page_boundary_move_keep_identity(self):
+        batch=self.write('create_episode_batch',{'titles':['集'+str(n) for n in range(26)],'initial_shot_count':1})
+        ids=[r['id'] for r in batch['items']]
+        tree=self.service.get_project_tree(self.p)['nodes'];shot=next(n['id'] for n in tree if n['kind']=='shot')
+        media=self.media();candidate=self.write('propose_binding',{'target_object_id':shot,'media_id':media,'role':'first_frame','slot_key':'workbench'})
+        self.write('save_working_selection',{'shot_id':shot,'candidate_id':candidate['candidate_id'],'output_kind':'image','base_version_id':None})
+        inserted=self.write('create_episode_batch',{'titles':['中间集'],'parent_id':batch['parent_id'],'initial_shot_count':2,'insert_before_id':ids[1]})['items'][0]['id']
+        read=self.service.get_production_episodes(self.p)
+        self.assertEqual([r['id'] for r in read['items']][:3],[ids[0],inserted,ids[1]])
+        self.assertEqual(read['items'][1]['shot_count'],2);self.assertEqual(read['items'][0]['shot_count'],1)
+        moving=read['items'][24]['id'];before=read['items'][23]['id']
+        self.write('reorder_episodes',{'episode_id':moving,'direction':'up'})
+        self.assertEqual(self.service.get_production_episodes(self.p,offset=23,limit=2)['items'][0]['id'],moving)
+        self.assertEqual(self.service.get_production_episodes(self.p,offset=24,limit=1)['items'][0]['id'],before)
+        selected=self.service.list_working_selections(self.p,shot_id=shot)['items'][0]
+        self.assertEqual(selected['media_id'],media)
+        foreign=self.write('create_object',{'kind':'work','title':'另一部','display_code':'OTHER','ordinal':1})['id']
+        from vsc.assets.resource_service import ResourceError
+        with self.assertRaises(ResourceError):self.write('create_episode_batch',{'titles':['不应写入'],'parent_id':foreign,'insert_before_id':ids[0]})
+
     def test_batch_preview_keeps_readiness_and_rejects_other_episode(self):
         from vsc.assets.resource_service import ResourceError, Conflict
         objects = self.hierarchy()
@@ -176,7 +196,7 @@ globalThis.Option=function(title,value){const n=document.createElement('option')
 Element.prototype.showModal=function(){this.open=true;};
 Element.prototype.close=function(){this.open=false;return this.dispatch('close');};
 Object.defineProperty(Element.prototype,'options',{get(){return this.children.filter(n=>n.tagName==='OPTION');}});
-const module=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync('src/vsc/interfaces/web/static/production-platform.js')).toString('base64'));
+const module=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync('src/vsc/interfaces/web/static/production-platform.js','utf8').replace(/^import .*?;$/gm,'')).toString('base64'));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};};
 const first=deferred(),writeFail=deferred(),notices=[],calls=[];
 const page=title=>({project_id:title,revision:4,read_only:false,episodes:{items:[],works:[],total:0,next_offset:null}});

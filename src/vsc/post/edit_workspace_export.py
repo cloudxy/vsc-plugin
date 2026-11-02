@@ -32,7 +32,7 @@ def write_archive(fixed, paths, destination):
             'modality':row['modality'], 'track':row['track']}
     manifest = {'format':'vsc.edit-workspace-package/v1', 'project_id':fixed['project_id'],
         'episode_id':fixed['episode_id'], 'edit_version_id':fixed['id'], 'edit_sha256':fixed['sha256'],
-        'adoption':'unapproved-working-edit', 'inputs':inputs}
+        'adoption':'unapproved-working-edit', 'inputs':inputs,'export_policy':fixed.get('export_policy',{})}
     with zipfile.ZipFile(destination,'w',compression=zipfile.ZIP_STORED,allowZip64=True) as archive:
         for name,value in [('edit-workspace.json',document),('manifest.json',manifest)]:
             archive.writestr(name,json.dumps(value,ensure_ascii=False,sort_keys=True,indent=2)+'\n')
@@ -56,6 +56,38 @@ def write_archive(fixed, paths, destination):
             if digest.hexdigest() != row['sha256']:
                 raise ValueError('工程导出的固定素材摘要已改变')
             written.add(row['path'])
+    return manifest
+
+
+def write_clip_archive(fixed, paths, selected, destination):
+    """Export each selected clip with its own trim and original sound settings."""
+    import tempfile
+    from vsc.post.edit_workspace import FirstCutRenderer
+    document = fixed['document']
+    by_key = {row['clip_key']: row for row in fixed['inputs']}
+    manifest = {'format': 'vsc.selected-clips/v1', 'edit_version_id': fixed['id'],
+                'edit_sha256': fixed['sha256'], 'clips': []}
+    with tempfile.TemporaryDirectory(prefix='vsc-selected-clips-') as directory:
+        with zipfile.ZipFile(destination, 'w', compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for index, clip in enumerate(document['clips'], 1):
+                if clip['id'] not in selected:
+                    continue
+                target = Path(directory) / str(index)
+                target.mkdir()
+                single = {**document, 'clips': [clip], 'audio': [], 'captions': []}
+                row = by_key[clip['id']]
+                output, receipt = FirstCutRenderer().render(single,
+                    {clip['id']: {'path': paths[clip['id']], 'modality': row['modality']}}, target)
+                from vsc.post.export_entitlements import watermark
+                output,policy_receipt=watermark(output,target/'marked.mp4',fixed.get('export_policy',{}))
+                if policy_receipt:receipt['export_policy']=policy_receipt
+                filename = f'clip-{index:03d}.mp4'
+                archive.write(output, filename)
+                manifest['clips'].append({'file': filename, 'clip_id': clip['id'],
+                    'source_media_id': clip['media_id'], 'source_sha256': row['blob_sha256'],
+                    'in_frame': clip['in_frame'], 'out_frame': clip['out_frame'],
+                    'fps': document['fps'], 'receipt': receipt})
+            archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=2) + '\n')
     return manifest
 
 
@@ -93,5 +125,8 @@ def render_package(directory):
     target = root/'rendered'
     target.mkdir(exist_ok=False)
     output,receipt = FirstCutRenderer().render(document,inputs,target)
+    from vsc.post.export_entitlements import watermark
+    output,policy_receipt=watermark(output,target/'marked.mp4',manifest.get('export_policy',{}))
+    if policy_receipt:receipt['export_policy']=policy_receipt
     (target/'receipt.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2)+'\n','utf-8')
     return output

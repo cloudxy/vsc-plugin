@@ -113,25 +113,31 @@ from vsc.assets.production_platform import ProductionPlatformServiceMixin
 from vsc.assets.project_management import ProjectManagementServiceMixin
 from vsc.assets.creative_canvas import CreativeCanvasService
 from vsc.assets.classic_production import ClassicProductionServiceMixin
+from vsc.assets.working_state import WorkingStateService
 from vsc.assets.intelligent_production import IntelligentProductionServiceMixin
 from vsc.assets.spatial_scene import SpatialSceneService
 from vsc.assets.creative_tools import CreativeToolsService
 from vsc.assets.media_imports import MediaImportService
 from vsc.assets.text_tools import TextToolsServiceMixin
 from vsc.assets.asset_center import AssetCenterService
+from vsc.assets.asset_cards import AssetCardsServiceMixin
 from vsc.assets.task_center import TaskCenterService
 from vsc.assets.service_operations import ServiceOperationsService
 from vsc.assets.access_control import AccessControlServiceMixin
+from vsc.assets.authentication import AuthenticationServiceMixin
+from vsc.assets.prompt_assist import PromptAssistServiceMixin
 from vsc.assets.team_review import TeamReviewServiceMixin
 from vsc.assets.commerce import CommerceService
+from vsc.assets.community import CommunityServiceMixin
+from vsc.assets.canvas_templates import CanvasTemplatesServiceMixin
 
 
 class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
                       MediaRecycleService, EditPreviewService, SharedLibraryService, EditorWorkspaceService,
-                      ProductionPlatformServiceMixin, ProjectManagementServiceMixin, CreativeCanvasService, ClassicProductionServiceMixin, IntelligentProductionServiceMixin,
+                      ProductionPlatformServiceMixin, ProjectManagementServiceMixin, CreativeCanvasService, ClassicProductionServiceMixin, WorkingStateService, IntelligentProductionServiceMixin,
                       SpatialSceneService, CreativeToolsService, MediaImportService, TextToolsServiceMixin,
-                      AssetCenterService, TaskCenterService, AccessControlServiceMixin, TeamReviewServiceMixin, CommerceService,
-                      ServiceOperationsService):
+                      AssetCenterService, AssetCardsServiceMixin, TaskCenterService, AccessControlServiceMixin, AuthenticationServiceMixin, PromptAssistServiceMixin, TeamReviewServiceMixin, CommerceService,
+                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
@@ -537,8 +543,20 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def _preflight_generation_job(self, project_id, payload):
         from vsc.production.video_operations import verify_operation_source
-        verify_operation_source(self, project_id, payload.get("request_payload", {}))
+        if payload.get("modality") == "video":verify_operation_source(self, project_id, payload.get("request_payload", {}))
         project = self.store.get_project(project_id)
+        run = self.store.get_artifact_version(project_id, required(payload, "run_version_id"))
+        from vsc.adapters.persistence.postgres.workbench_generation import RUN_TYPE, context_for_run
+        if run["artifact_type"] == RUN_TYPE:
+            with self.store.engine.connect() as conn:
+                context = context_for_run(self.store, conn, project, run,
+                                          required(payload, "shot_id"), payload.get("purpose"))
+            if not context["ready"]:
+                raise ResourceError("工作生成固定输入不可用", "context_gaps")
+            if self.storage is not None:
+                for media in context["media"]:
+                    self._verify_media(project_id, media["media_id"], media["sha256"])
+            return
         profile = project.get("profile_snapshot", {})
         from vsc.production.run_policy import production_gate
         gated = profile.get("production_policy") == "light-short-v1" or any(stage.get("id") == "animatic" for stage in profile.get("stages", []))
@@ -595,6 +613,25 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def get_generation_job(self, project_id, job_id):
         return self.store.get_generation_job(project_id, job_id)
+
+    def compile_generation_job_context(self, project_id, job_id):
+        job = self.store.get_generation_job(project_id, job_id)
+        if job.get('asset_id'):
+            return self.compile_asset_context(project_id, job['asset_id'], job['purpose'],
+                spec_version_id=job['request_payload'].get('spec_version_id'))
+        from vsc.adapters.persistence.postgres.workbench_generation import RUN_TYPE, context_for_run
+        from vsc.adapters.persistence.postgres import schema as S
+        with self.store.engine.connect() as conn:
+            project = self.store._project(conn, project_id)
+            run = self.store._one(conn, S.artifact_versions, project_id, job['run_version_id'])
+            working = run['artifact_type'] == RUN_TYPE
+            context = context_for_run(self.store, conn, project, run, job['shot_id'], job['purpose']) if working else None
+        if not working:
+            return self.compile_shot_context(project_id, job['shot_id'], job['purpose'])
+        if self.storage is not None:
+            for reference in context['media']:
+                self._verify_media(project_id, reference['media_id'], reference['sha256'])
+        return context
 
     def list_generation_jobs(self, project_id, status=None, offset=0, limit=50):
         if offset < 0 or not 1 <= limit <= 200:

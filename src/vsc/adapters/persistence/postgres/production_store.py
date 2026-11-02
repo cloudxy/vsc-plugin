@@ -317,9 +317,10 @@ class ProductionRepository:
             [dict(row, execution_policy=json.loads(row["run_document"]).get("execution_policy")) for row in history],
             inherited_policy=inherited)
         logical = job["request_payload"].get("logical_request", job["request_payload"])
+        from .workbench_generation import context_for_run
         context = (self._compile_asset_context(conn, project, job["asset_id"], job["purpose"],
                        spec_version_id=logical.get("spec_version_id"))
-                   if job.get("asset_id") else self._compile_context(conn, project, job["shot_id"], job["purpose"]))
+                   if job.get("asset_id") else context_for_run(self, conn, project, run, job["shot_id"], job["purpose"]))
         if not context["ready"] or context["sha256"] != job["context_sha256"]:
             raise ResourceError("任务固定输入已失效，须重编译后创建新候选", "stale_job")
         enabled = conn.execute(select(S.provider_models.c.enabled, S.providers.c.enabled.label("provider_enabled"))
@@ -327,6 +328,11 @@ class ProductionRepository:
             .where(S.provider_models.c.id == job["model_id"])).mappings().one()
         if not enabled["enabled"] or not enabled["provider_enabled"]:
             raise ResourceError("任务固定供应商或模型已停用", "provider_disabled")
+        if logical.get('operation')=='draft_upgrade':
+            from .video_samples import resolve_sample
+            model=dict(conn.execute(select(S.provider_models).where(S.provider_models.c.id==job['model_id'])).mappings().one())
+            if resolve_sample(self,conn,project,logical,model)!=logical.get('sample_binding'):
+                raise ResourceError('原样片固定来源已变化','sample_binding_invalid')
 
     def _generation_authorization_policy(self, conn, project, run_id, document, job):
         from vsc.production.run_policy import authorization_policy
@@ -365,13 +371,16 @@ class ProductionRepository:
         asset_id = checked_id(payload["asset_id"]) if payload.get("asset_id") else None
         if (shot_id is None) == (asset_id is None):
             raise ResourceError("任务须指定且仅指定镜头或资产身份", "job_target_required")
-        self.check_job_script_confirmation(conn, project, shot_id=shot_id, asset_id=asset_id, run_version_id=required(payload, "run_version_id"))
+        run = self._one(conn, S.artifact_versions, p, required(payload, "run_version_id"))
+        from .workbench_generation import context_for_run, RUN_TYPE
+        if run["artifact_type"] != RUN_TYPE:
+            self.check_job_script_confirmation(conn, project, shot_id=shot_id, asset_id=asset_id, run_version_id=run["id"])
         if asset_id and (payload.get("modality") != "image" or payload.get("purpose") not in {"identity_ref", "location_master", "ref", "asset_ref", "prop_ref", "costume_ref", "style_ref"}):
             raise ResourceError("资产首参考只支持声明的图像用途", "asset_generation_unsupported")
         request = dict(required(payload, "request_payload"))
         context = (self._compile_asset_context(conn, project, asset_id, payload.get("purpose"),
             spec_version_id=request.get("spec_version_id")) if asset_id else
-            self._compile_context(conn, project, shot_id, payload.get("purpose")))
+            context_for_run(self, conn, project, run, shot_id, payload.get("purpose")))
         if not context["ready"]:
             raise ResourceError("镜头上下文存在缺口，不能提交生成", "context_gaps")
         if payload.get("context_sha256") != context["sha256"]:
@@ -381,13 +390,13 @@ class ProductionRepository:
             raise ResourceError("运行版本未批准", "run_unapproved")
         model, provider = self._generation_model(conn, payload)
         model_id = model['id']
-        if any(key in request for key in ("input_media", "input_versions", "voice_binding")):
+        if any(key in request for key in ("input_media", "input_versions", "voice_binding", "sample_binding")):
             raise ResourceError("请求固定输入由服务端编译，客户端不能覆写", "untrusted_job_inputs")
         if request.get("context_sha256", context["sha256"]) != context["sha256"]:
             raise Conflict("逻辑请求上下文不匹配", "context_conflict")
         request = normalize_request(request, shot_id, payload["purpose"], payload["modality"], asset_id=asset_id)
         input_media = list(context["media"])
-        if request.get("operation"):
+        if request.get("operation") in {"edit", "extend"} and payload["modality"] == "video":
             from vsc.production.video_operations import SOURCE_ROLE, validate_source_metadata
             source, gaps = self._usable(conn, p, checked_id(request["source_media_id"]), payload["purpose"])
             if gaps:
@@ -437,14 +446,20 @@ class ProductionRepository:
             version = self._one(conn, S.artifact_versions, p, artifact_id)
             if version["sha256"] != sha or not self._artifact_approved(conn, p, artifact_id):
                 raise ResourceError("run固定上游版本摘要或批准失效", "run_inputs_mismatch")
-        validate_guard(self, conn, project, run, context=context, model=model)
+        if run["artifact_type"] != RUN_TYPE:
+            validate_guard(self, conn, project, run, context=context, model=model)
         voice_binding = validate_capabilities(dict(model), request, context)
+        if request.get('operation')=='draft_upgrade':
+            from .video_samples import resolve_sample
+            request['sample_binding']=resolve_sample(self,conn,project,request,dict(model))
         if voice_binding:
             request["voice_binding"] = voice_binding
         request["context_sha256"] = context["sha256"]
         request["input_media"] = [{k: item[k] for k in ("media_id", "blob_id", "sha256", "role", "binding_decision_id")}
                                   for item in input_media]
         request["input_versions"] = [{k: artifact[k] for k in ("id", "sha256", "artifact_type")} for artifact in context["artifacts"]]
+        if context.get("working_draft"):
+            request["input_versions"].append({**context["working_draft"], "artifact_type": "classic-production-draft"})
         from .quotes import check_pinned
         quote = check_pinned(run_document, model, request, candidate_no)
         request_sha = digest(request)
@@ -462,6 +477,10 @@ class ProductionRepository:
         for artifact in context["artifacts"]:
             conn.execute(insert(S.job_input_versions).values(project_id=p, id=new_id(), job_id=row_id,
                 artifact_id=artifact["id"], sha256=artifact["sha256"], role=artifact["artifact_type"]))
+        if context.get("working_draft"):
+            conn.execute(insert(S.job_input_versions).values(project_id=p, id=new_id(), job_id=row_id,
+                artifact_id=context["working_draft"]["id"], sha256=context["working_draft"]["sha256"],
+                role="classic-production-draft"))
         conn.execute(insert(S.job_events).values(project_id=p, id=new_id(), job_id=row_id, event_type="intent_recorded",
             evidence={"generation_quote": quote, "quote_policy": run_document.get('quote_policy', {})}))
         return {"id": row_id, "status": "created", "idempotency_key": key, "request_sha256": request_sha}
@@ -536,7 +555,7 @@ class ProductionRepository:
                     media_id=media["id"], asset_type=output_type, original_uri=output.get("original_uri")))
             if status == "succeeded" and not primary_output:
                 raise ResourceError("成功任务缺少本次用途的实际输出；封面或缩略图不能代替视频", "job_primary_output_required")
-            if status == "succeeded" and job["request_payload"].get("operation"):
+            if status == "succeeded" and job["modality"] == "video" and job["request_payload"].get("operation") in {"edit", "extend"}:
                 self._register_job_video_operation(conn, p, job, outputs, payload.get("raw_response", job["raw_response"]))
             values = {"status": status, "external_task_id": external, "updated_at": datetime.now(timezone.utc)}
             # The active worker keeps its lease across provider response,
@@ -550,6 +569,22 @@ class ProductionRepository:
             if job["status"] == "created" and status in {"submitted", "submission_unknown"}:
                 values["attempt"] = job["attempt"] + 1
             conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id == p, S.generation_jobs.c.id == job["id"]).values(**values))
+            if status == 'succeeded' and job['shot_id'] and job['modality'] in {'image', 'video'}:
+                working_run = conn.execute(select(S.workbench_run_inputs.c.id).where(
+                    S.workbench_run_inputs.c.project_id == p,
+                    S.workbench_run_inputs.c.run_version_id == job['run_version_id'],
+                    S.workbench_run_inputs.c.shot_id == job['shot_id'])).scalar_one_or_none()
+                if working_run and job['purpose']!='depth' and job['request_payload'].get('operation') != 'subject_detect':
+                    for output in outputs:
+                        media = self._media(conn, p, output['media_id'])
+                        if media['modality'] != job['modality']:
+                            continue
+                        candidate = self.propose_binding(p, {
+                            'target_object_id': job['shot_id'], 'media_id': media['id'],
+                            'role': 'video_take' if job['modality'] == 'video' else 'first_frame',
+                            'slot_key': 'workbench', 'context_sha256': job['context_sha256']},
+                            _transaction=(conn, project), **kw)
+                        self._auto_select_working_candidate(conn, project, job, candidate['id'])
             if status in {"succeeded", "failed", "cancelled"}:
                 self._settle_budget(conn, p, job, payload.get("actual_units"))
                 from .commerce import CommerceRepository

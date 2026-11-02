@@ -31,7 +31,7 @@ def validate_source_metadata(request, media):
 
 def verify_operation_source(service, project_id, raw):
     """Before intent: verify registered SHA and decode actual controlled bytes."""
-    if not isinstance(raw, dict) or not raw.get("operation"):
+    if not isinstance(raw, dict) or raw.get("operation") not in {"edit", "extend"}:
         return
     from vsc.production.run_authorization import normalize_request
     request = normalize_request(raw, raw.get("shot_id"), raw.get("purpose", "video_" + raw["operation"]), raw.get("modality", "video"))

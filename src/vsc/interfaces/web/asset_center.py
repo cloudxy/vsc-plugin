@@ -8,9 +8,9 @@ def install_asset_center_routes(app,router,catalog,etag,actor,read_actor):
         return catalog.service
 
     @app.get("/api/v1/asset-center")
-    def search(request:Request,query:str="",tag:str="",form_name:str="",asset_kind:str="",workspace_id:str="",review_status:str="",offset:int=0,limit:int=24):
+    def search(request:Request,query:str="",tag:str="",form_name:str="",asset_kind:str="",workspace_id:str="",review_status:str="",offset:int=0,limit:int=24,media_only:bool=False):
         identity=read_actor(request)
-        return etag(request,service().search_asset_center(dict(query=query,tag=tag,form_name=form_name,asset_kind=asset_kind,workspace_id=workspace_id,review_status=review_status,offset=offset,limit=limit),identity))
+        return etag(request,service().search_asset_center(dict(query=query,tag=tag,form_name=form_name,asset_kind=asset_kind,workspace_id=workspace_id,review_status=review_status,offset=offset,limit=limit,media_only=media_only),identity))
 
     @app.post("/api/v1/asset-center/catalog")
     def edit(request:Request,body:dict):

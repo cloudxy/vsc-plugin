@@ -62,8 +62,31 @@ class ResourceSettingsRepository:
             raise ResourceError("配置写入需要真实操作人", "actor_required")
         provider_id, model_id = "config-" + uuid.uuid4().hex, str(uuid.uuid4())
         previous = payload.get("id")
+        reuse = payload.get("reuse_model_id")
         try:
             with self.engine.begin() as conn:
+                if reuse:
+                    if previous:
+                        raise ResourceError("同账户新增模型不能同时替换旧配置", "invalid_provider_config")
+                    source = self._row(conn, reuse, lock=True, current=True)
+                    # Reuse the actual registered account, never infer identity
+                    # from matching credential variable names or endpoints.
+                    identity = ("supplier", "product", "plan", "region", "execution", "tool_id",
+                                "base_url", "auth_ref", "modality", "model_key")
+                    if any(source.get(key) != payload.get(key) for key in identity):
+                        raise ResourceError("同账户模型必须保留原连接与模型标识", "sample_account_mismatch")
+                    from vsc.production.video_samples import SAMPLE_MODELS
+                    if source['model_key'] not in SAMPLE_MODELS or source['capabilities'].get('video_draft') is not True or payload['capabilities'].get('video_draft') is not True:
+                        raise ResourceError("此入口仅为已声明原生样片能力的模型增加固定配置", "sample_capability_missing")
+                    if payload['default_params'].get('resolution') not in {'480p','1080p'}:
+                        raise ResourceError("样片账户配置须为480p或1080p", "sample_resolution_mismatch")
+                    provider_id = source['provider_id']
+                    conn.execute(select(S.providers.c.id).where(S.providers.c.id == provider_id).with_for_update()).one()
+                    conn.execute(insert(S.provider_models).values(id=model_id, provider_id=provider_id,
+                        model_key=payload['model_key'], model_version=payload['model_version'], modality=payload['modality'],
+                        capabilities=payload['capabilities'], default_params=payload['default_params'],
+                        cost_rule={}, enabled=payload['enabled']))
+                    return self._row(conn, model_id)
                 if previous:
                     self._row(conn, previous, lock=True, current=True)
                 conn.execute(insert(S.providers).values(id=provider_id, name=payload["name"], modality=payload["modality"],

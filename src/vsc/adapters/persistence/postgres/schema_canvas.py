@@ -4,7 +4,7 @@ from sqlalchemy import (BigInteger, CheckConstraint, Column, DateTime, Float, Fo
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 CANVAS_TABLES = ("creative_canvases", "creative_canvas_versions", "creative_canvas_nodes",
-                 "creative_canvas_edges", "creative_canvas_preparations", "creative_canvas_runs")
+                 "creative_canvas_edges", "creative_canvas_preparations", "creative_canvas_runs", "canvas_generation_inputs")
 CANVAS_APPEND_ONLY = CANVAS_TABLES[1:]
 
 
@@ -38,13 +38,23 @@ def install_canvas_schema(metadata):
         Column("node_type", Text, nullable=False), Column("ordinal", Integer, nullable=False),
         Column("title", Text, nullable=False), Column("x", Float, nullable=False), Column("y", Float, nullable=False),
         Column("content", Text, nullable=False), Column("params", JSONB, nullable=False), Column("group_name", Text, nullable=False),
-        uid("media_id"), uid("job_id"), PrimaryKeyConstraint("project_id", "version_id", "node_key"),
+        uid("media_id"), uid("job_id"), uid("spatial_scene_id"), uid("spatial_version_id"),
+        uid("edit_workspace_id"), uid("edit_version_id"), uid("tool_draft_id"),
+        PrimaryKeyConstraint("project_id", "version_id", "node_key"),
         UniqueConstraint("project_id", "version_id", "ordinal"),
         UniqueConstraint("project_id", "version_id", "node_key", "node_type"),
         ForeignKeyConstraint(["project_id", "version_id"], ["creative_canvas_versions.project_id", "creative_canvas_versions.id"]),
         ForeignKeyConstraint(["project_id", "media_id"], ["media_items.project_id", "media_items.id"]),
         ForeignKeyConstraint(["project_id", "job_id"], ["generation_jobs.project_id", "generation_jobs.id"]),
-        CheckConstraint("node_type IN ('text','image','video','audio')", name="type"),
+        ForeignKeyConstraint(["project_id", "spatial_scene_id"], ["spatial_scenes.project_id", "spatial_scenes.id"]),
+        ForeignKeyConstraint(["project_id", "spatial_scene_id", "spatial_version_id"], ["spatial_scene_versions.project_id", "spatial_scene_versions.spatial_scene_id", "spatial_scene_versions.id"]),
+        ForeignKeyConstraint(["project_id", "edit_workspace_id"], ["edit_workspaces.project_id", "edit_workspaces.id"]),
+        ForeignKeyConstraint(["project_id", "edit_workspace_id", "edit_version_id"], ["edit_revisions.project_id", "edit_revisions.workspace_id", "edit_revisions.id"]),
+        ForeignKeyConstraint(["project_id", "tool_draft_id"], ["artifact_versions.project_id", "artifact_versions.id"]),
+        CheckConstraint("node_type IN ('text','image','video','audio','spatial','director','edit','music_mix','processing')", name="type"),
+        CheckConstraint("(spatial_scene_id IS NULL) = (spatial_version_id IS NULL) AND (edit_workspace_id IS NULL) = (edit_version_id IS NULL) AND "
+            "(spatial_scene_id IS NULL OR node_type IN ('spatial','director')) AND (edit_workspace_id IS NULL OR node_type='edit') AND "
+            "(tool_draft_id IS NULL OR node_type IN ('music_mix','processing')) AND (node_type IN ('text','image','video','audio') OR (media_id IS NULL AND job_id IS NULL))", name="domain_shape"),
         CheckConstraint("node_type <> 'text' OR (media_id IS NULL AND job_id IS NULL)", name="text_reference"),
         CheckConstraint("ordinal >= 0 AND x BETWEEN -100000 AND 100000 AND y BETWEEN -100000 AND 100000", name="position"))
     edges = table("creative_canvas_edges", uid("version_id", nullable=False), Column("edge_key", Text, nullable=False),
@@ -59,11 +69,15 @@ def install_canvas_schema(metadata):
         ForeignKeyConstraint(["project_id", "version_id", "target_key", "target_type"],
             ["creative_canvas_nodes.project_id", "creative_canvas_nodes.version_id", "creative_canvas_nodes.node_key", "creative_canvas_nodes.node_type"]),
         CheckConstraint("source_key <> target_key AND ordinal >= 0", name="endpoints"),
-        CheckConstraint("(port = 'prompt' AND source_type = 'text' AND target_type IN ('image','video','audio')) OR "
-            "(port = 'reference' AND source_type = 'image' AND target_type = 'image') OR "
+        CheckConstraint("(port = 'prompt' AND source_type = 'text' AND target_type IN ('image','video','audio','spatial','director','music_mix','processing')) OR "
+            "(port = 'reference' AND source_type = 'image' AND target_type IN ('image','spatial','director')) OR "
             "(port IN ('first_frame','last_frame','reference_image') AND source_type = 'image' AND target_type = 'video') OR "
             "(port = 'reference_video' AND source_type = 'video' AND target_type = 'video') OR "
-            "(port = 'reference_audio' AND source_type = 'audio' AND target_type IN ('video','audio'))", name="port_type"))
+            "(port = 'reference_audio' AND source_type = 'audio' AND target_type IN ('video','audio')) OR "
+            "(port='visual' AND source_type IN ('image','video') AND target_type='edit') OR "
+            "(port='sound' AND source_type='audio' AND target_type IN ('edit','music_mix')) OR "
+            "(port='source_video' AND source_type='video' AND target_type IN ('music_mix','processing')) OR "
+            "(port='derived_from' AND source_type IN ('text','image','video','audio','spatial','director','edit','music_mix','processing') AND target_type IN ('text','image','video','audio'))", name="port_type"))
     Index("uq_canvas_single_frame", edges.c.project_id, edges.c.version_id, edges.c.target_key, edges.c.port,
           unique=True, postgresql_where=text("port IN ('first_frame','last_frame')"))
     preparations = table("creative_canvas_preparations", uid("id", nullable=False), uid("version_id", nullable=False),
@@ -81,8 +95,14 @@ def install_canvas_schema(metadata):
         ForeignKeyConstraint(["project_id", "version_id", "node_key"],
             ["creative_canvas_nodes.project_id", "creative_canvas_nodes.version_id", "creative_canvas_nodes.node_key"]),
         ForeignKeyConstraint(["project_id", "artifact_id"], ["artifact_versions.project_id", "artifact_versions.id"]))
+    generation_inputs = table("canvas_generation_inputs", uid("draft_version_id", nullable=False), uid("version_id", nullable=False),
+        Column("node_key", Text, nullable=False), uid("shot_id", nullable=False), stamp(),
+        PrimaryKeyConstraint("project_id", "draft_version_id"),
+        ForeignKeyConstraint(["project_id", "draft_version_id"], ["artifact_versions.project_id", "artifact_versions.id"]),
+        ForeignKeyConstraint(["project_id", "version_id", "node_key"], ["creative_canvas_nodes.project_id", "creative_canvas_nodes.version_id", "creative_canvas_nodes.node_key"]),
+        ForeignKeyConstraint(["project_id", "shot_id"], ["shots.project_id", "shots.id"]))
     for relation in (canvases, versions, nodes, preparations, runs):
         for column in relation.c:
             if column.name.endswith("_id") and column.name != "project_id":
                 Index("ix_%s_%s" % (relation.name, column.name), relation.c.project_id, column)
-    return {relation.name: relation for relation in (canvases, versions, nodes, edges, preparations, runs)}
+    return {relation.name: relation for relation in (canvases, versions, nodes, edges, preparations, runs, generation_inputs)}

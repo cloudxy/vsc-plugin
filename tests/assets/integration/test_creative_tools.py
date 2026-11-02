@@ -139,6 +139,12 @@ class CreativeToolsTests(ResourceStoreFixture, unittest.TestCase):
         count=len(backend.calls);self.assertEqual(unknown['status'],'submission_unknown')
         self.assertEqual(self.write('create_creative_lyrics',dict(draft_version_id=adopted['id'],new_attempt=True))['id'],unknown['id']);self.assertEqual(len(backend.calls),count)
         self.assertEqual(self.service.get_creative_lyrics(self.p,unknown['id'])['status'],'submission_unknown');self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+        tasks = self.service.get_task_center(self.p, kind='lyrics')
+        self.assertEqual(tasks['total'], 2)
+        active = next(item for item in tasks['items'] if item['id'] == unknown['id'])
+        self.assertEqual(active['status'], 'submission_unknown')
+        self.assertIn('tool=lyrics', active['href'])
+        self.assertIn('episode=' + self.objects['episode'], active['href'])
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'requires actual media tools')
     def test_local_onsets_editable_segments_original_mv_shots_and_editor(self):
@@ -455,3 +461,119 @@ class CreativeToolsTests(ResourceStoreFixture, unittest.TestCase):
             with self.assertRaises(ResourceError):
                 self.write("use_creative_tool_output",dict(output_version_id=result["id"],media_id=media,target="editing",edit_revision=1))
             self.service.storage=None
+
+
+# Real media/PG consumers; providers below only return deterministic local bytes.
+import json
+import wave
+import struct
+import math
+from datetime import datetime, timedelta, timezone
+
+class CompletionProvider:
+ def __init__(self,modality="image",content=None):
+  from support.fixtures.resources import png_bytes
+  self.modality=modality;self.content=content or png_bytes();self.submits=0
+ def submit(self,request):
+  from vsc.production.providers import JobHandle
+  self.submits+=1;return JobHandle("fixture","fixture",None,{"fixture":"local bytes"})
+ def parse_result(self,raw):
+  from vsc.production.providers import GeneratedAsset
+  return [GeneratedAsset(self.modality,inline_bytes=self.content)]
+
+@unittest.skipUnless(HAS_DB_DEPS and TEST_URL and shutil.which('ffmpeg') and shutil.which('ffprobe'), "requires isolated PostgreSQL and real media tools")
+class SoundCompletionTests(ResourceStoreFixture,unittest.TestCase):
+ def setUp(self):
+  super().setUp();self.objects=self.hierarchy();self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+  from vsc.adapters.storage.local.store import LocalStorage
+  self.service.storage=LocalStorage(self.root/'media')
+ def register(self,path):
+  with path.open('rb') as f:staged=self.service.storage.stage_upload(f,path.name)
+  return self.write('register_media',dict(staged_upload=staged['staged_upload'],rights='owned',source=dict(kind='isolated-pattern',content='synthetic local test')))['id']
+ def audio(self,seconds=12):
+  p=self.root/'test.wav'
+  with wave.open(str(p),'wb') as f:f.setnchannels(1);f.setsampwidth(2);f.setframerate(16000);f.writeframes(b''.join(struct.pack('<h',int(7000*math.sin(2*math.pi*440*i/16000))) for i in range(seconds*16000)))
+  return p
+ def model(self,speech=False):
+  from vsc.production.resource_settings import ResourceSettings,PRESETS
+  preset=next(p for p in PRESETS if p['id']==('volcengine-agent-plan' if speech else 'volcengine-seed-audio'))
+  d={k:v for k,v in preset.items() if k not in {'id','label'}};d.update(enabled=True,model_version='isolated-completion')
+  if speech:d.update(modality='audio',model_key='seed-tts-2.0',capabilities={'purposes':['speech','dialogue_dry']},default_params={'format':'wav','sample_rate':16000})
+  return ResourceSettings(self.store).save(d,'test-human')['id']
+ def policy(self):
+  now=datetime.now(timezone.utc);return dict(version='bounded-v1',first_draft_due_at=(now+timedelta(minutes=10)).isoformat(),stop_submitting_at=(now+timedelta(minutes=30)).isoformat(),max_attempts_per_purpose=1,max_repair_rounds=0,authorization={'mode':'new_batch','reason':'isolated actual worker verification'})
+ def test_speech_original_worker_and_fixed_text(self):
+  from vsc.production.resource_worker import ResourceWorker
+  from vsc.adapters.providers.volc_ark.provider import VolcArkAudioProvider
+  from vsc.adapters.providers.volc_ark.resource_factory import ConfiguredArkProvider
+  draft=self.write('save_creative_tool_draft',dict(base_draft_id=None,document=dict(tool='speech',episode_id=self.objects['episode'],prompt='你好，独立朗读。',model_id=self.model(True),speaker='zh_female_vv_uranus_bigtts')))
+  fixed=self.write('prepare_creative_tool_work',{'draft_version_id':draft['id']});self.assertTrue(fixed['shot_id']);request=dict(draft_version_id=draft['id'],execution_policy=self.policy());quote=self.service.preview_creative_tool_run(self.p,request);self.assertTrue(quote['ready'],quote)
+  run=self.write('generate_creative_tool_work',dict(request=request,preview_sha256=quote['preview_sha256']));self.write('configure_budget',dict(limits={'remote_jobs':4,'audio_jobs':4,'speech_chars':400},reason='isolated speech'))
+  content=self.audio(1).read_bytes();calls=[]
+  def factory(job,storage):
+   def transport(payload,resource):calls.append(payload);return content,{'text_words':10}
+   return ConfiguredArkProvider(VolcArkAudioProvider('seed-tts-2.0',storage.root,'J-'+job['id'].replace('-',''),job['request_payload']['voice_binding'],{'format':'wav','sample_rate':16000},transport),'volc_ark' if job['provider_id']=='volc_ark' else job['provider_id'])
+  worker=ResourceWorker(self.service,factory);worker.run_once(self.p);job=self.service.get_generation_job(self.p,run['jobs'][0]['id']);self.assertEqual(job['status'],'succeeded',job);self.assertEqual(len(calls),1);self.assertEqual(calls[0]['req_params']['text'],'你好，独立朗读。');self.assertIn('working_draft_id',job['request_payload']['voice_binding']);self.assertNotIn('line_id',job['request_payload']['voice_binding']);worker.run_once(self.p);self.assertEqual(len(calls),1)
+ def test_music_generate_mix_dual_output_and_recovery(self):
+  from vsc.production.resource_worker import ResourceWorker
+  FakeProvider = CompletionProvider
+  from vsc.assets.resource_service import ResourceError
+  source=self.root/'source.mp4';subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','color=blue:size=128x128:rate=10','-f','lavfi','-i','sine=frequency=220:sample_rate=16000','-t','10','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',str(source)],check=True)
+  source_id=self.register(source);audio=self.audio();draft=self.write('save_creative_tool_draft',dict(base_draft_id=None,document=dict(tool='music_mix',episode_id=self.objects['episode'],prompt='温和钢琴',model_id=self.model(),source_media_id=source_id,music_start_ms=0,music_end_ms=10000,keep_original=True)))
+  self.write('prepare_creative_tool_work',{'draft_version_id':draft['id']});request=dict(draft_version_id=draft['id'],execution_policy=self.policy());quote=self.service.preview_creative_tool_run(self.p,request);self.assertTrue(quote['ready'],quote);run=self.write('generate_creative_tool_work',dict(request=request,preview_sha256=quote['preview_sha256']));self.write('configure_budget',dict(limits={'remote_jobs':4,'audio_jobs':4,'speech_chars':1000},reason='isolated music'))
+  adapter=FakeProvider('audio',audio.read_bytes());worker=ResourceWorker(self.service,lambda j,s:adapter);worker.run_once(self.p);self.rev=self.service.get_project(self.p)['revision'];job=self.service.get_generation_job(self.p,run['jobs'][0]['id']);self.assertEqual(job['status'],'succeeded',job);media=job['outputs'][0]['media_id'];payload=dict(draft_version_id=draft['id'],run_version_id=run['run_version_id'],audio_media_id=media)
+  # Failed mix leaves the completed original generation intact and can recover without a second submit.
+  import unittest.mock as mock
+  with mock.patch('vsc.production.creative_tools.render_music_mix',side_effect=ResourceError('fixture mix failed','local_tool_failed')):
+   with self.assertRaises(ResourceError):self.write('mix_creative_tool_work',payload)
+  self.rev=self.service.get_project(self.p)['revision'];mixed=self.write('mix_creative_tool_work',payload);self.assertEqual({o['modality'] for o in mixed['outputs']},{'video','audio'});self.assertEqual(adapter.submits,1)
+  output_audio=self.service.get_media(self.p,next(o['id'] for o in mixed['outputs'] if o['modality']=='audio'));self.assertEqual(output_audio['duration_ms'],12000);output_video=self.service.get_media(self.p,next(o['id'] for o in mixed['outputs'] if o['modality']=='video'));self.assertAlmostEqual(output_video['duration_ms'],10000,delta=100)
+  again=self.write('mix_creative_tool_work',payload);self.assertEqual(again['id'],mixed['id']);self.assertEqual(adapter.submits,1)
+ def test_attachment_actual_input_and_spatial_animated_roundtrip(self):
+  from PIL import Image
+  from vsc.production.canvas_agent import prepare_attachments
+  from vsc.production.spatial_planner import reference_blocks
+  txt=self.root/'notes.md';txt.write_text('清晨公园。橘猫在长椅旁。');text_id=self.register(txt);png=self.root/'ref.png';Image.new('RGB',(32,32),'red').save(png);image_id=self.register(png)
+  canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}));turn=self.write('create_canvas_agent_turn',dict(canvas_id=canvas['id'],canvas_revision=1,message='整理大纲',skill_id='story-outline',attachment_media_ids=[text_id,image_id]));detail=self.service.get_canvas_agent_turn(self.p,turn['id']);prepared=prepare_attachments(self.service,self.p,detail);self.assertEqual(prepared['attachment_texts'][0]['text'],txt.read_text());self.assertTrue(any(b['type']=='image' for b in prepared['_media_blocks']))
+  from sqlalchemy import insert
+  from sqlalchemy.exc import IntegrityError
+  from vsc.adapters.persistence.postgres import schema as S
+  late=self.root/'late.txt';late.write_text('提交后的新附件不得改变原任务');late_id=self.register(late);fixed=self.service.get_media(self.p,late_id)
+  with self.assertRaises(IntegrityError):
+   with self.store.engine.begin() as conn:conn.execute(insert(S.canvas_agent_attachments).values(project_id=self.p,turn_id=turn['id'],ordinal=2,media_id=late_id,blob_id=fixed['blob_id'],blob_sha256=fixed['sha256']))
+  self.assertEqual(len(self.service.get_canvas_agent_turn(self.p,turn['id'])['attachments']),2)
+  scene=self.write('create_spatial_scene',dict(mode='previs',title='参考图场景',document={'objects':[{'id':'reference','kind':'reference','media_id':image_id}],'cameras':[{'id':'eye'}]}))
+  task=self.write('create_spatial_plan_task',dict(spatial_scene_id=scene['id'],scene_revision=1,message='根据图片调整构图'))
+  seen=[]
+  class Planner:
+   def available(self):return True
+   def generate(self,packet,task,skill):seen.extend(task['_image_blocks']);return {'message':'已给出可编辑构图','questions':[],'document':task['document']}
+  self.service.spatial_planner=Planner();planned=self.service.execute_spatial_plan_task(self.p,task['id']);self.rev=self.service.get_project(self.p)['revision'];self.assertEqual(planned['status'],'planned');self.assertTrue(any(x['type']=='image' for x in seen));self.write('decide_spatial_plan_task',dict(task_id=task['id'],outcome='confirm',reason='test actual input',document=planned['plan']['document']))
+  from vsc.post.spatial_gltf import decode_glb,sample_model
+  from vsc.post.spatial_export import export_glb
+  from vsc.assets.spatial_scene import normalize_scene
+  from support.fixtures.spatial_glb import animated_glb
+  model=decode_glb(animated_glb());doc=normalize_scene({'duration':2,'objects':[{'id':'mesh','kind':'mesh','media_id':image_id,'color':'#ffffff','geometry':{'source_sha256':'a'*64,'scene':0},'animation':{'clip':0}}],'cameras':[{'id':'eye'}]});doc['objects'][0]['_gltf']=model;result=decode_glb(export_glb(doc,'eye',0,animated=True));self.assertTrue(result['animations']);self.assertTrue(result['skins']);a=sample_model(model,0,0,.5)[0]['vertices'];b=sample_model(result,0,0,.5)[0]['vertices'];self.assertTrue(all(abs(x-y)<1e-5 for aa,bb in zip(a,b) for x,y in zip(aa,bb)))
+ def test_mv_generated_candidates_into_original_edit(self):
+  from vsc.production.resource_settings import ResourceSettings,PRESETS
+  from vsc.production.resource_worker import ResourceWorker
+  FakeProvider = CompletionProvider
+  from vsc.assets.resource_service import ResourceError
+  preset=next(p for p in PRESETS if p['id']=='volcengine-agent-plan');d={k:v for k,v in preset.items() if k not in {'id','label'}};d.update(enabled=True,model_version='isolated-mv',model_key='doubao-seedream-4-5-251128')
+  model=ResourceSettings(self.store).save(d,'test-human')['id'];audio=self.register(self.audio(2))
+  draft=self.write('save_creative_tool_draft',dict(document=dict(tool='mv',episode_id=self.objects['episode'],audio_media_id=audio,segments=[dict(start_ms=0,end_ms=2000,title='音乐开场',lyrics='开场',prompt='公园的长椅')]),base_draft_id=None))
+  imported=self.write('import_creative_mv',{'draft_version_id':draft['id']});shot=imported['shot_ids'][0]
+  with self.assertRaises(ResourceError):self.write('prepare_creative_mv_shot',dict(draft_version_id=draft['id'],shot_id=self.objects['shot'],model_id=model))
+  fixed=self.write('prepare_creative_mv_shot',dict(draft_version_id=draft['id'],shot_id=shot,model_id=model));request=dict(draft_version_id=fixed['draft_version_id'],execution_policy=self.policy());quote=self.service.preview_workbench_generation(self.p,request);self.assertTrue(quote['ready'],quote)
+  run=self.write('generate_workbench',dict(request=request,preview_sha256=quote['preview_sha256']));self.write('configure_budget',dict(limits={'remote_jobs':4,'images':4},reason='isolated-mv'))
+  adapter=FakeProvider();worker=ResourceWorker(self.service,lambda j,s:adapter);worker.run_once(self.p);self.rev=self.service.get_project(self.p)['revision'];job=self.service.get_generation_job(self.p,run['jobs'][0]['id']);self.assertEqual(job['status'],'succeeded',job);output=job['outputs'][0]['media_id']
+  space=self.service.creative_mv_workspace(self.p,draft['id']);self.assertIn(output,[m['id'] for m in space['shots'][0]['candidates']]);edit_request=dict(draft_version_id=draft['id'],visual_segments=[dict(media_id=output,in_ms=0)]);edit=self.service.preview_creative_mv_edit(self.p,edit_request);self.assertEqual(edit['plan']['document']['clips'][0]['media_id'],output);self.assertEqual(edit['plan']['document']['audio'][0]['out_frame'],48)
+  unrelated=self.media('unrelated-image')
+  with self.assertRaises(ResourceError):self.service.preview_creative_mv_edit(self.p,dict(draft_version_id=draft['id'],visual_segments=[dict(media_id=unrelated,in_ms=0)]))
+  applied=self.write('apply_creative_mv_edit',dict(request=edit_request,preview_sha256=edit['preview_sha256']));self.assertTrue(applied);self.assertEqual(adapter.submits,1)
+ def test_generated_tool_output_is_adoptable(self):
+  from vsc.production.resource_worker import ResourceWorker
+  FakeProvider = CompletionProvider
+  draft=self.write('save_creative_tool_draft',dict(base_draft_id=None,document=dict(tool='instrumental',episode_id=self.objects['episode'],prompt='温和钢琴',model_id=self.model())))
+  self.write('prepare_creative_tool_work',{'draft_version_id':draft['id']});request=dict(draft_version_id=draft['id'],execution_policy=self.policy());quote=self.service.preview_creative_tool_run(self.p,request);self.assertTrue(quote['ready'],quote);run=self.write('generate_creative_tool_work',dict(request=request,preview_sha256=quote['preview_sha256']));self.write('configure_budget',dict(limits={'remote_jobs':4,'audio_jobs':4},reason='isolated-consumer'))
+  adapter=FakeProvider('audio',self.audio(2).read_bytes());worker=ResourceWorker(self.service,lambda j,s:adapter);worker.run_once(self.p);self.service.advance_creative_tool_work(self.p,{'run_version_id':run['run_version_id']},actor='test-human');self.rev=self.service.get_project(self.p)['revision'];options=self.service.creative_tools_options(self.p,self.objects['episode']);output=next(o for o in options['local_outputs'] if o.get('run_version_id')==run['run_version_id']);media=output['outputs'][0]['id'];canvas=self.write('create_creative_canvas',dict(episode_id=self.objects['episode'],document={'nodes':[],'edges':[]}));self.write('use_creative_tool_output',dict(output_version_id=output['id'],media_id=media,target='canvas',canvas_id=canvas['id'],canvas_revision=1));read=self.service.get_creative_canvas(self.p,canvas['id']);self.assertEqual(read['document']['nodes'][0]['media_id'],media);self.assertEqual(adapter.submits,1)

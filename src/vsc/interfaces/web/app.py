@@ -42,10 +42,14 @@ from vsc.interfaces.web.creative_tools import install_creative_tools_routes,inst
 from vsc.interfaces.web.media_imports import install_media_import_routes
 from vsc.interfaces.web.text_tools import install_text_tools_routes, install_standalone_text_tool_routes
 from vsc.interfaces.web.access_control import install_access_routes,request_principal,authorize_http
+from vsc.interfaces.web.authentication import install_authentication_routes
 from vsc.interfaces.web.team_review import install_team_review_routes
 from vsc.interfaces.web.commerce import install_commerce_routes, install_commerce_notification_routes, is_commerce_notification
 from vsc.interfaces.web.service_operations import install_service_operations_routes
 from vsc.interfaces.web.asset_center import install_asset_center_routes
+from vsc.interfaces.web.asset_cards import install_asset_card_routes
+from vsc.interfaces.web.task_notifications import install_task_notification_routes
+from vsc.interfaces.web.community import install_community_routes
 from vsc.assets.access_control import set_principal,reset_principal,Principal
 
 
@@ -429,11 +433,15 @@ def create_app(config=None, catalog=None, service=None):
     install_text_tools_routes(router, catalog, etag, actor)
     install_standalone_text_tool_routes(app, catalog, actor)
     install_access_routes(app, router, catalog, etag, actor, origin, new_session, sessions)
+    install_authentication_routes(app,catalog,origin,actor,new_session,sessions)
     install_team_review_routes(router,catalog,etag,actor)
     install_commerce_routes(router,catalog,etag,actor,read_actor)
     install_commerce_notification_routes(app,catalog)
     install_service_operations_routes(app,router,catalog,etag,actor,read_actor)
     install_asset_center_routes(app,router,catalog,etag,actor,read_actor)
+    install_asset_card_routes(router,catalog,etag,actor)
+    install_task_notification_routes(router,catalog,etag,read_actor)
+    install_community_routes(app,router,catalog,etag,actor,read_actor)
 
     @router.post("/{project_id}/generation-recoveries")
     def recover_generation(project_id: str, request: Request, body: dict):

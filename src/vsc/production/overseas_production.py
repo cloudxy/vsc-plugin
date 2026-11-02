@@ -7,6 +7,30 @@ from vsc.assets.resource_service import ResourceError
 BASELINE_TYPES = {"understanding": "overseas-understanding", "localization": "overseas-localization"}
 
 
+def understanding_patch(value,source_duration,basis):
+    """Preserve model observations as editable suggestions, with inference separate."""
+    if not isinstance(value,dict) or set(value)!={'understanding','entities','segments'} or not isinstance(value['understanding'],str):
+        raise ResourceError('视频理解未返回固定结构','invalid_media_understanding_result')
+    if not isinstance(value['entities'],list) or not isinstance(value['segments'],list) or not 1<=len(value['segments'])<=200 or len(value['entities'])>200:
+        raise ResourceError('视频理解的镜头或实体数量无效','invalid_media_understanding_result')
+    entities=[];segments=[];groups=[];cursor=0
+    for row in value['entities']:
+        if not isinstance(row,dict) or set(row)!={'key','kind','name'} or row['kind'] not in {'character','scene'}:
+            raise ResourceError('视频理解实体格式无效','invalid_media_understanding_result')
+        entities.append(dict(row,localized='',asset_id='',media_id=''))
+    for row in value['segments']:
+        if not isinstance(row,dict) or set(row)!={'key','start_ms','end_ms','observed','inferred','character_keys','scene_key'} or not isinstance(row['character_keys'],list) or not all(isinstance(k,str) for k in row['character_keys']):
+            raise ResourceError('视频理解镜头格式无效','invalid_media_understanding_result')
+        a,b=row['start_ms'],row['end_ms']
+        if type(a)is not int or type(b)is not int or a!=cursor or not a<b<=source_duration:
+            raise ResourceError('镜头须连续覆盖固定源片，无重叠、遗漏或越界','overseas_coverage')
+        group='g_'+row['key'];cursor=b
+        groups.append(dict(key=group,source_start_ms=a,source_end_ms=b,target_duration_ms=b-a,shot_id='',prompt='',first_frame_media_id='',candidate_media_id='',candidate_in_ms=0))
+        segments.append(dict(key=row['key'],group=group,source_start_ms=a,source_end_ms=b,source_text=row['observed'],inference=row['inferred'],entity_keys=','.join(row['character_keys']),scene_key=row['scene_key'],target_start_ms=0,target_end_ms=b-a,localized_text=''))
+    if cursor!=source_duration:raise ResourceError('镜头未覆盖完整源片','overseas_coverage')
+    return dict(understanding=value['understanding'],entities=entities,segments=segments,groups=groups,observation_basis=basis,understanding_version_id='')
+
+
 def entity_refs(value):
     return list(dict.fromkeys(item.strip() for item in value.split(",") if item.strip()))
 
@@ -45,14 +69,14 @@ def normalize(document):
 def snapshot(document, phase):
     """Exclude mutable selection/production controls from the understanding basis."""
     result = {"source_media_id": document["source_media_id"], "understanding": document["understanding"],
-              "evidence_kind": "human-observation", "entities": [], "segments": []}
+              "evidence_kind": document.get('observation_basis') or "human-observation", "entities": [], "segments": []}
     for entity in document["entities"]:
         fields = ("key", "kind", "name") if phase == "understanding" else ("key", "kind", "name", "localized", "asset_id", "media_id")
         result["entities"].append({k: entity[k] for k in fields})
     for row in document["segments"]:
         fields = ("key", "source_start_ms", "source_end_ms", "source_text", "entity_keys", "scene_key")
         if phase == "localization": fields += ("group", "target_start_ms", "target_end_ms", "localized_text")
-        result["segments"].append({k: row[k] for k in fields})
+        result["segments"].append({**{k: row[k] for k in fields},**({'inference':row['inference']} if row.get('inference') else {})})
     if phase == "localization":
         result.update(target_language=document["target_language"], body=document["body"],
                       understanding_version_id=document["understanding_version_id"],

@@ -101,15 +101,22 @@ class ProductionPlatformServiceMixin:
         from vsc.assets.resource_service import ResourceError
         self._validate_write(payload, **kw)
         titles = payload.get("titles")
-        if (set(payload) - {"titles", "parent_id"} or not isinstance(titles, list)
+        if (set(payload) - {"titles", "parent_id", "initial_shot_count", "insert_before_id", "insert_after_id"} or not isinstance(titles, list)
                 or not 1 <= len(titles) <= 50 or any(not isinstance(t, str) or not t.strip()
                     or len(t) > 200 for t in titles)):
             raise ResourceError("请提供 1–50 个非空集名，每个不超过 200 字")
+        count=payload.get('initial_shot_count',0)
+        if type(count) is not int or not 0<=count<=200 or count*len(titles)>1000:
+            raise ResourceError('每集初始分镜数须为0–200，本批总分镜不超过1000')
+        if payload.get('insert_before_id') and payload.get('insert_after_id'):raise ResourceError('只能选择一个插入位置')
         return self._write("create_episode_batch", project_id, payload, **kw)
 
     def reorder_episodes(self, project_id, payload, **kw):
         from vsc.assets.resource_service import ResourceError
         self._validate_write(payload, **kw)
+        if 'episode_id' in payload:
+            if set(payload)!={'episode_id','direction'} or payload['direction'] not in {'up','down'}:raise ResourceError('请选择本集上移或下移')
+            return self._write("reorder_episodes",project_id,payload,**kw)
         ids = payload.get("episode_ids")
         if (set(payload) != {"parent_id", "episode_ids"} or not isinstance(ids, list)
                 or not ids or len(ids) > 1000 or any(not isinstance(i, str) for i in ids)):

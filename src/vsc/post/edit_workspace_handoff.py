@@ -25,7 +25,8 @@ def timeline_document(project_id, episode_id, version, selected, assignments, pl
                 duration_in_frames=duration,source_in_frame=clip['in_frame'],
                 volume=clip.get('volume',1),muted=clip.get('muted',False),track_key=track)
             if kind in {'image','video'}:
-                segment.update(source_shot_id=choice['shot_id'],fit='contain')
+                segment.update(source_shot_id=choice['shot_id'],fit='contain',
+                    fade_in_frames=clip.get('fade_in_frames',0),fade_out_frames=clip.get('fade_out_frames',0))
             if track=='audio':
                 segment.update(audio_fade_in_frames=clip.get('fade_in',0),audio_fade_out_frames=clip.get('fade_out',0))
             audible = kind in {'audio','video'} and not segment['muted'] and segment['volume']>0

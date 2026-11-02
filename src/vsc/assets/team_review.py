@@ -2,9 +2,10 @@
 
 LANES={'character':{'label':'人设参考审核','roles':['identity_face','costume']},'storyboard':{'label':'分镜图审核','roles':['storyboard','composition']},'video':{'label':'视频审核','roles':['video_take']}}
 class TeamReviewServiceMixin:
-    def team_review_queue(self,project_id,lane):
+    def team_review_queue(self,project_id,lane,*,offset=0,limit=24,status=None,episode_id=None,query=''):
         if lane not in LANES:raise ResourceError('审核线路无效')
-        return self.store.team_review_queue(project_id,lane)
+        if type(offset)is not int or offset<0 or type(limit)is not int or not 1<=limit<=100 or status not in {None,'unsubmitted','pending','pass','fail','needs_changes'} or not isinstance(query,str) or len(query)>200:raise ResourceError('审核筛选条件无效')
+        return self.store.team_review_queue(project_id,lane,offset=offset,limit=limit,status=status,episode_id=episode_id,query=query.strip())
     def submit_team_review(self,project_id,payload,**kw):
         self._validate_write(payload,**kw)
         if set(payload)-{'candidate_id','lane','supersedes_id'} or payload.get('lane') not in LANES:raise ResourceError('提交需要原候选、线路及可选前次记录')

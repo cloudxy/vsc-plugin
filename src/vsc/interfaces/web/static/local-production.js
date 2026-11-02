@@ -1,5 +1,6 @@
+import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 /* Versioned local edits. The existing artifact decision remains the approval. */
-const node = (tag, text) => { const value = document.createElement(tag); if (text != null) value.textContent = text; return value; };
+const node = (tag, text) => { const value = document.createElement(tag); if (text != null) setText(value,text); return value; };
 export function createLocalProduction(dialog, ctx) {
   let ticket = 0;
   return {async open(action, row) {
@@ -10,21 +11,21 @@ export function createLocalProduction(dialog, ctx) {
     if (!active()) return;
     dialog.replaceChildren();
     const title = {replace_instance:'替换这个使用实例的固定版本', redo_sound:'只重做本镜声音', resample:'明确新增一次抽样'}[action];
-    const heading = node('h2', title), close = node('button', '关闭'); close.addEventListener('click', () => {ticket++;dialog.close();});
+    const heading = node('h2', title), close = node('button', msg("common.close")); close.addEventListener('click', () => {ticket++;dialog.close();});
     const form = node('div'), select = node('select'), seed = node('input'), status = node('p'), details = node('section');
-    select.setAttribute('aria-label', action === 'replace_instance' ? '替换规格版本' : '声音用途');
+    bindAttribute(select,'aria-label',action === 'replace_instance' ? msg("ui.replacement_specification_version") : msg("ui.sound_purpose"));
     if (action === 'replace_instance') for (const spec of options.specs || []) {
-      const item = node('option', `${spec.title} · v${spec.artifact_version}${spec.current_for_instance ? '（本实例当前版本）' : ''}`); item.value = spec.id; select.append(item);
+      const item = node('option', joinMessages(["",spec.title," · v",spec.artifact_version,"",spec.current_for_instance ? msg("ui.current_version_for_this_instance") : '',""])); item.value = spec.id; select.append(item);
     }
     if (action === 'redo_sound') for (const purpose of options.purposes || []) {
       const names = {dialogue_dry:'对白干声',dialogue:'对白',tts:'配音',ambience:'环境声',music:'配乐',sfx:'音效',sound_effect:'音效'};
       const item = node('option', names[purpose] || purpose);item.value = purpose;select.append(item);
     }
     if(row.media_review_id && row.purpose){select.value=row.purpose;select.disabled=true;}
-    seed.type = 'number'; seed.placeholder = '新 seed（选填；留空保留原参数）';seed.setAttribute('aria-label', '新抽样seed');
+    seed.type = 'number'; bindAttribute(seed,"placeholder",msg("ui.new_seed_optional_leave_blank_to_keep_original_parameters"));bindAttribute(seed,'aria-label',msg("ui.new_sampling_seed"));
     if (action !== 'resample') form.append(select); if (action !== 'replace_instance') form.append(seed);
-    const preview = node('button', '预览目标与影响'), propose = node('button', '提交待审方案');
-    const authorize=node('button','按所见范围重做声音'),resume=node('button','继续已授权的制作');authorize.className='primary';
+    const preview = node('button', msg("ui.preview_target_and_impact")), propose = node('button', msg("ui.submit_plan_for_review"));
+    const authorize=node('button',msg("ui.redo_sound_for_the_displayed_scope")),resume=node('button',msg("ui.continue_authorized_production"));authorize.className='primary';
     propose.disabled = authorize.disabled = true;
     const receiptStore=ctx.receiptStore || (typeof sessionStorage==='undefined'?null:sessionStorage);
     const receiptKey=`vsc.local-authorized:${ctx.session().actor||'reader'}:${project}:${action}:${entity}`;
@@ -50,33 +51,33 @@ export function createLocalProduction(dialog, ctx) {
         if (seed.value !== '') {const value=Number(seed.value);if(!Number.isSafeInteger(value))throw new Error('seed须为整数');parameters.params={seed:value};}
         const result = await ctx.api(`${base}/local-production/preview`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:parameters})});
         if (!active() || attempt !== previewTicket) return;
-        fixed={...result,payload:parameters};proposalKey=crypto.randomUUID();details.replaceChildren(node('h3', `本次只涉及 ${result.targets.length} 个目标`));
+        fixed={...result,payload:parameters};proposalKey=crypto.randomUUID();details.replaceChildren(node('h3', msg("ui.this_action_involves_only_value0_targets",{value0:result.targets.length})));
         for (const target of result.targets) {
           const label=({dialogue_dry:'对白干声',dialogue:'对白',tts:'配音',ambience:'环境声',music:'配乐',sfx:'音效',sound_effect:'音效'})[target.purpose]||target.purpose||'制作目标';
-          details.append(node('p',target.label || `${label} · 候选 ${target.candidate_no ?? ''}`));
-          if(action==='redo_sound'&&target.after_prompt)details.append(node('p',`本次固定内容：${target.after_prompt}`));
+          details.append(node('p',target.label || msg("ui.value0_candidate_value1",{value0:label,value1:target.candidate_no ?? ''})));
+          if(action==='redo_sound'&&target.after_prompt)details.append(node('p',msg("ui.fixed_content_for_this_action_value0",{value0:target.after_prompt})));
         }
         const quote=result.artifact?.document?.generation_quote;
         if(quote){
-          const pricing=node('section');pricing.className='generation-quote';pricing.append(node('h3','授权前用量与费用估算'));
-          for(const [currency,amount] of Object.entries(quote.known_subtotals||{}))pricing.append(node('p',`已知部分估算：${amount} ${currency}；实际账单另核。`));
-          if(quote.unknown_jobs)pricing.append(node('p',`${quote.unknown_jobs} 项金额尚不确定，不表示免费；原生用量上限仍沿原预算。`));
-          for(const item of quote.jobs||[]){const source=item.source;if(source?.source_date)pricing.append(node('p',`价格依据日期：${source.source_date}；${item.reason}`));}
+          const pricing=node('section');pricing.className='generation-quote';pricing.append(node('h3',msg("ui.usage_and_cost_estimate_before_authorization")));
+          for(const [currency,amount] of Object.entries(quote.known_subtotals||{}))pricing.append(node('p',msg("ui.known_portion_estimate_value0_value1_verify_the_actual_bill",{value0:amount,value1:currency})));
+          if(quote.unknown_jobs)pricing.append(node('p',msg("ui.amounts_for_value0_items_remain_unknown_this_does_not",{value0:quote.unknown_jobs})));
+          for(const item of quote.jobs||[]){const source=item.source;if(source?.source_date)pricing.append(node('p',msg("ui.price_evidence_date_value0_value1",{value0:source.source_date,value1:item.reason})));}
           details.append(pricing);
         }
-        const evidence=node('details');evidence.append(node('summary','固定输入、版本及参数差异'),node('pre',JSON.stringify({sources:result.sources,targets:result.targets},null,2)));details.append(evidence);
+        const evidence=node('details');evidence.append(node('summary',msg("ui.fixed_inputs_versions_and_parameter_differences")),node('pre',JSON.stringify({sources:result.sources,targets:result.targets},null,2)));details.append(evidence);
         if(result.review)details.prepend(node('blockquote',result.review.body));
         if(action==='redo_sound'){
-          const usage=node('section');usage.append(node('h3','本次用量'));
+          const usage=node('section');usage.append(node('h3',msg("ui.usage_for_this_action")));
           const operations=Object.values(result.artifact?.document?.operations||{});
           for(const unit of operations)usage.append(node('p',Object.entries(unit).map(([k,v])=>`${({remote_jobs:'远端任务数',audio_jobs:'声音任务数',speech_chars:'语音字符数',images:'图片数',video_seconds:'视频秒数',vision_jobs:'视觉任务数',audio_seconds:'音频秒数',duration_seconds:'时长（秒）',characters:'字符数',calls:'调用次数',tokens:'Token',unit:'单位',quantity:'数量',amount:'数量',basis:'计量依据'})[k]||k}：${typeof v==='object'?JSON.stringify(v):v}`).join('；')));
-          if(!operations.length)usage.append(node('p','当前方案未提供可核实的原生用量；费用由原预算与服务回执核对。'));
+          if(!operations.length)usage.append(node('p',msg("ui.this_plan_has_no_verifiable_native_usage_check_costs")));
           details.append(usage);
-          status.textContent='沿所见固定台词、声线和参数新增声音候选，保留原视频。一次授权会依次登记方案、批准所见版本并入队；原预算、权限和执行前检查仍生效。';
-        }else status.textContent='确认预览后只建立待审版本；批准后才能入队。';
+          setText(status,msg("ui.create_new_sound_candidates_using_the_displayed_fixed_dialogue"));
+        }else setText(status,msg("ui.confirming_the_preview_creates_only_a_version_awaiting_review"));
         propose.disabled=authorize.disabled=!!receipt;
         if(receipt)status.textContent+=' 已有未完成的操作回执，请先接续原来的制作。';
-      } catch(error) {if(active())status.textContent=error.message;}
+      } catch(error) {if(active())setText(status,error.message);}
     });
     propose.addEventListener('click', async () => {
       if(!fixed || !active())return;propose.disabled=true;
@@ -86,7 +87,7 @@ export function createLocalProduction(dialog, ctx) {
         if(!active())return;ctx.revision(result.revision);dialog.close();
         if(row.media_review_id && typeof row.onReviewProposed==='function')await row.onReviewProposed(result);
         else await ctx.onArtifact(result.artifact.id);
-      } catch(error) {if(active()){status.textContent=error.message;propose.disabled=false;}}
+      } catch(error) {if(active()){setText(status,error.message);propose.disabled=false;}}
     });
     async function continueAuthorized(){
       if(!receipt||!active())return;
@@ -103,7 +104,7 @@ export function createLocalProduction(dialog, ctx) {
         const proposed=await readReceipt(receipt.keys.propose);
         if(proposed){receipt.proposal=proposed.artifact.id;receipt.revision=proposed.revision;persist();}
         if(!receipt.proposal){
-          status.textContent='正在登记所见声音方案…';
+          setText(status,msg("ui.registering_the_displayed_sound_plan"));
           if(!receipt.payload){
             if(!fixed||fixed.preview_sha256!==receipt.preview_sha256)throw new Error('原固定方案尚未登记，请重新读取相同输入；范围或版本变化时须重新决定');
             receipt.payload={...fixed.payload,preview_sha256:fixed.preview_sha256};
@@ -114,27 +115,27 @@ export function createLocalProduction(dialog, ctx) {
         const approved=await readReceipt(receipt.keys.approve);
         if(approved){receipt.approved=true;receipt.revision=approved.revision;persist();}
         if(!receipt.approved){
-          status.textContent='正在记录本次固定版本的批准…';
+          setText(status,msg("ui.recording_approval_of_this_fixed_version"));
           const result=await post('artifact-decisions',{artifact_id:receipt.proposal,outcome:'approve',reason:'用户在所见声音范围与用量预览中明确授权重做'},receipt.keys.approve,receipt.revision);
           receipt.approved=true;receipt.revision=result.revision;persist();if(active())ctx.revision(result.revision);
         }
         const enqueued=await readReceipt(receipt.keys.enqueue);
         if(enqueued){receipt.enqueued=true;receipt.revision=enqueued.revision;receipt.jobs=enqueued.jobs;}
         if(!receipt.enqueued){
-          status.textContent='正在将已批准声音方案入队…';
+          setText(status,msg("ui.queueing_the_approved_sound_plan"));
           const result=await post('local-production-enqueue',{artifact_id:receipt.proposal},receipt.keys.enqueue,receipt.revision);
           receipt.enqueued=true;receipt.revision=result.revision;receipt.jobs=result.jobs;persist();if(active())ctx.revision(result.revision);
         }
         const artifactId=receipt.proposal;receipt=null;fixed=null;persist();if(!active())return;
-        resume.hidden=true;status.textContent='声音任务已入队，等待执行器产生新候选；尚未替换原声音。';
-        const open=node('button','回看本次声音方案');open.addEventListener('click',()=>ctx.onArtifact(artifactId));details.append(open);
+        resume.hidden=true;setText(status,msg("ui.sound_task_queued_waiting_for_the_worker_to_create"));
+        const open=node('button',msg("ui.review_this_sound_plan"));open.addEventListener('click',()=>ctx.onArtifact(artifactId));details.append(open);
         if(row.media_review_id&&typeof row.onReviewProposed==='function')await row.onReviewProposed({artifact:{id:artifactId}});
-      }catch(error){if(active()){status.textContent=`${error.message}。已完成步骤保留，可继续接续。`;resume.hidden=false;}}
+      }catch(error){if(active()){setText(status,msg("ui.value0_completed_steps_are_preserved_continue_from_them",{value0:error.message}));resume.hidden=false;}}
       finally{if(active()){resume.disabled=preview.disabled=false;authorize.disabled=!!receipt||!fixed;propose.disabled=!!receipt||!fixed;}}
     }
     authorize.addEventListener('click',async()=>{
       if(!fixed||!active()||authorize.disabled)return;
-      if(!ctx.session().actor){status.textContent='请先登录，再授权制作。';return;}
+      if(!ctx.session().actor){setText(status,msg("ui.sign_in_before_authorizing_production"));return;}
       receipt={payload:{...fixed.payload,preview_sha256:fixed.preview_sha256},preview_sha256:fixed.preview_sha256,revision:fixed.revision,
         keys:{propose:crypto.randomUUID(),approve:crypto.randomUUID(),enqueue:crypto.randomUUID()}};
       persist();await continueAuthorized();

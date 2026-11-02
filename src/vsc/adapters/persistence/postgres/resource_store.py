@@ -34,8 +34,11 @@ from .creative_canvas import CreativeCanvasRepository
 from .spatial_scene import SpatialSceneRepository
 from .text_tools import TextToolsRepository
 from .classic_production import ClassicProductionRepository
+from .classic_preferences import ClassicPreferencesRepository
+from .working_state import WorkingStateRepository
 from .intelligent_production import IntelligentProductionRepository
 from .access_control import AccessControlRepository
+from .authentication import AuthenticationRepository
 from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CURRENT_REVISION
 
 
@@ -54,8 +57,8 @@ from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CU
 class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository,
                             ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository,
                             SourceIntakeRepository, ResourceModelRepository, ProductionPlatformRepository, ProjectManagementRepository,
-                            CreativeCanvasRepository, ClassicProductionRepository, IntelligentProductionRepository, SpatialSceneRepository, TextToolsRepository,
-                            AccessControlRepository):
+                            CreativeCanvasRepository, ClassicProductionRepository, ClassicPreferencesRepository, WorkingStateRepository, IntelligentProductionRepository, SpatialSceneRepository, TextToolsRepository,
+                            AccessControlRepository, AuthenticationRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:
             raise ResourceError("PostgreSQL 连接未配置", "database_not_configured", 503)
@@ -169,13 +172,22 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             with self.engine.begin() as conn:
                 if hasattr(self,'access_transaction_guard'):self.access_transaction_guard(conn,project_id,action,payload,actor)
                 from .shared_library import library_project_lock_ids
-                locks = set(library_project_lock_ids(conn, project_id, _library_versions)) | related_projects
+                from .copy_lineage import source_projects_for_copy
+                def source_locks():
+                    found = set(library_project_lock_ids(conn, project_id, _library_versions)) | related_projects
+                    pending = set(found)
+                    while pending:
+                        source = pending.pop()
+                        more = set(source_projects_for_copy(conn, source)) - found
+                        found.update(more);pending.update(more)
+                    return found
+                locks = source_locks()
                 conn.execute(select(S.projects.c.id).where(S.projects.c.id.in_(locks))
                     .order_by(S.projects.c.id).with_for_update()).all()
                 # A concurrent target adoption may have added an edge while
                 # locks were acquired. Restart from a fresh graph, never take
                 # an extra source lock after the ordered target lock.
-                if (set(library_project_lock_ids(conn, project_id, _library_versions)) | related_projects) - set(locks):
+                if source_locks() - locks:
                     raise Conflict("共享来源关系已改变，请重试当前操作", "library_graph_changed")
                 project = self._project(conn, project_id, lock=True)
                 migration_actions = set(conn.execute(select(S.project_revisions.c.action).where(
@@ -739,8 +751,14 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         scope = payload.get("rights_scope", {"purposes": ["*"] if rights == "owned" else []})
         if not isinstance(scope, dict) or not isinstance(scope.get("purposes"), list):
             raise ResourceError("权利范围必须包含 purposes 列表", "invalid_rights_scope")
+        expires = payload.get("rights_expires_at")
+        if expires is not None:
+            try:
+                expires = datetime.fromisoformat(expires.replace("Z", "+00:00")) if isinstance(expires, str) else expires
+                if not isinstance(expires, datetime) or expires.tzinfo is None:raise ValueError()
+            except (ValueError, TypeError):raise ResourceError("权利期限需要带时区的时间", "invalid_rights_expiry")
         conn.execute(insert(S.rights_decisions).values(project_id=p, id=new_id(), media_id=media_id,
-            source_id=source_id, outcome=rights, scope=scope,
+            source_id=source_id, outcome=rights, scope=scope, expires_at=expires,
             **self._decision(conn, project, actor, payload.get("rights_reason", "登记时明确的权利状态"))))
         return {"id": media_id, "sha256": sha, "blob_id": blob["id"], "rights": rights}
 
@@ -978,7 +996,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
     def _usable(self, conn, p, media_id, purpose):
         media = self._media(conn, p, media_id)
         from .shared_library import library_media_gaps
-        gaps = library_media_gaps(self, conn, p, media_id, purpose)
+        from .copy_lineage import copy_media_gaps
+        gaps = sorted(set(library_media_gaps(self, conn, p, media_id, purpose) + copy_media_gaps(self, conn, p, media_id, purpose)))
         if not any(x["available"] for x in media["locations"]):
             gaps.append("missing_bytes")
         rights = self._latest(conn, S.rights_decisions, p, "media_id", media_id)

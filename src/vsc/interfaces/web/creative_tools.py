@@ -48,6 +48,30 @@ def install_creative_tools_routes(router, catalog, etag, actor):
     async def apply_music(project_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "apply_creative_music")
 
+    @router.post('/{project_id}/creative-tools/work-input')
+    async def work_input(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'prepare_creative_tool_work')
+
+    @router.post('/{project_id}/creative-tools/generate')
+    async def generate_work(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'generate_creative_tool_work')
+
+    @router.post('/{project_id}/creative-tools/advance')
+    async def advance_work(project_id:str,request:Request,body:dict):return await run_in_threadpool(service(project_id).advance_creative_tool_work,project_id,body.get('payload',{}),actor=actor(request))
+
+    @router.post('/{project_id}/creative-tools/mix-generated')
+    async def mix_generated(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'mix_creative_tool_work')
+
+    @router.get('/{project_id}/creative-tools/mv-workspace')
+    def mv_workspace(project_id:str,request:Request,draft_version_id:str):return etag(request,service(project_id).creative_mv_workspace(project_id,draft_version_id))
+
+    @router.post('/{project_id}/creative-tools/mv-shot-input')
+    async def mv_shot_input(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'prepare_creative_mv_shot')
+
+    @router.post('/{project_id}/creative-tools/mv-shot-preview')
+    def mv_shot_preview(project_id:str,request:Request,body:dict):return etag(request,service(project_id).preview_workbench_generation(project_id,body.get('payload')))
+
+    @router.post('/{project_id}/creative-tools/mv-shot-generate')
+    async def mv_shot_generate(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'generate_workbench')
+
     @router.post("/{project_id}/creative-tools/run-proposals")
     async def propose(project_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "propose_creative_tool_run")

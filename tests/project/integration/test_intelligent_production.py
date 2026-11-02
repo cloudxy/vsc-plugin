@@ -113,6 +113,26 @@ class IntelligentProductionTests(ResourceStoreFixture,unittest.TestCase):
             with self.assertRaises(ResourceError):self.save(state)
             self.assertEqual(self.detail()['state']['units'][0]['spatial_version_id'],fixed)
 
+    def test_working_images_and_episode_forms_compile_without_formal_adoption(self):
+        from sqlalchemy import select,func
+        from vsc.adapters.persistence.postgres import schema as S
+        media=self.media('单元工作参考');candidate=self.write('propose_binding',dict(target_object_id=self.objects['shot'],media_id=media,role='first_frame',slot_key='workbench'))
+        selected=self.write('save_working_selection',dict(shot_id=self.objects['shot'],output_kind='image',candidate_id=candidate['candidate_id'],base_version_id=None))
+        asset=self.write('save_episode_asset',dict(episode_id=self.objects['episode'],base_revision=0,asset_key='person',name='本集人物',asset_kind='character',forms=[dict(form_key='master',name='日常装',base_version_id=None,media_id=media)]))
+        state=self.detail()['state'];state['units']=[self.unit()];state['media']=[dict(unit_key='u1',purpose='first_frame',media_id=media,decision_id=None,working_selection_version_id=selected['selection_version_id'],spatial_export_id=None),dict(unit_key='u1',purpose='reference_image',media_id=media,decision_id=None,episode_asset_form_version_id=asset['forms'][0]['version_id'],spatial_export_id=None)];self.save(state)
+        current=self.detail();prepared=self.write('prepare_intelligent_drafts',dict(workflow_id=self.flow,version_id=current['version']['id'],unit_keys=['u1'],purpose='video',model_id=''))
+        self.assertEqual(prepared['items'][0]['gaps'],[])
+        inputs=self.service.get_classic_draft_inputs(self.p,prepared['items'][0]['draft_artifact_id'])['items'];self.assertEqual(len(inputs),2);self.assertIn(asset['forms'][0]['version_id'],[r['episode_asset_form_version_id'] for r in inputs])
+        self.write('save_working_selection',dict(shot_id=self.objects['shot'],output_kind='image',candidate_id=None,base_version_id=selected['selection_version_id']))
+        self.assertEqual(self.detail()['state']['media'][0]['media_id'],media)
+        with self.engine.connect() as conn:self.assertEqual(conn.scalar(select(func.count()).select_from(S.binding_decisions).where(S.binding_decisions.c.project_id==self.p)),0)
+
+    def test_plan_confirmation_creates_episode_hierarchy_and_stable_asset_versions(self):
+        task=self.task();self.confirm(task);assets=self.detail()['episode_assets'];self.assertEqual(assets[0]['name'],'测试人物');self.assertEqual(len(assets[0]['forms']),2)
+        self.assertTrue(all(a['episode_asset_form_version_id'] for a in self.detail()['state']['assets']))
+        task=self.task('blocking');self.write('decide_intelligent_task',dict(task_id=task['id'],outcome='confirm',reason='确认自动本集镜组',sequence_id=None));self.assertTrue(self.detail()['state']['units'][0]['shot_id'])
+        self.save();self.assertEqual(len(self.detail()['episode_assets']),1)
+
     def test_http_original_workflow_reopen_and_same_save_request_replay(self):
         from fastapi.testclient import TestClient
         from vsc.interfaces.web.app import create_app

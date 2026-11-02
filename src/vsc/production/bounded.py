@@ -13,8 +13,38 @@ from vsc.production.run_authorization import normalize_request
 from vsc.production.run_policy import enforce_execution_policy, policy_errors
 
 OUTPUT_FIELDS = {"reference_media_ids", "reference_audio_media_ids", "first_frame_media_id",
-                 "last_frame_media_id", "voice_media_id"}
-LIST_FIELDS = {"reference_media_ids", "reference_audio_media_ids"}
+                 "last_frame_media_id", "voice_media_id", "reference_video_media_ids"}
+LIST_FIELDS = {"reference_media_ids", "reference_audio_media_ids", "reference_video_media_ids"}
+
+
+def depth_dependency_tasks(run):
+    """The sole working-output adoption contract: exact two-stage depth run."""
+    rows=tasks(run)
+    if run.get('working_dependency_contract')!='depth-motion/v1' or not run.get('workbench_draft') or len(rows)!=2:
+        raise ResourceError('深度工作运行合同不完整','depth_run_invalid')
+    depth,final=rows
+    expected=[{'task_key':depth['task_key'],'field':'reference_video_media_ids','role':'reference_video','output_index':0}]
+    if (depth.get('depends_on') or depth.get('output_inputs') or request_for(depth).get('purpose')!='depth' or request_for(depth).get('operation')!='depth' or
+            final.get('depends_on')!=[depth['task_key']] or final.get('output_inputs')!=expected or request_for(final).get('purpose')!='reference_to_video' or
+            request_for(final).get('reference_video_media_ids') or request_for(final).get('shot_id')!=request_for(depth).get('shot_id')):
+        raise ResourceError('深度工作运行的模型、阶段或输出选择器不匹配','depth_run_invalid')
+    return depth,final
+
+
+def quotation_request(run, request, candidate_no):
+    """Price a declared future output selector, never an invented media ID.
+
+    Actual resolved input is independently checked by authorize_run before the
+    pinned quote is accepted. Ordinary/formal requests retain exact old hashing.
+    """
+    if run.get('working_dependency_contract')!='depth-motion/v1':return request
+    _,final=depth_dependency_tasks(run)
+    if task_identity(final)!=(request.get('shot_id'),request.get('asset_id'),request.get('purpose'),candidate_no):return request
+    raw=request_for(final)
+    fixed=normalize_request(raw,raw['shot_id'],raw['purpose'],raw['modality'])
+    fixed['context_sha256']=final['quote_context_sha256']
+    fixed['output_inputs']=copy.deepcopy(final['output_inputs'])
+    return fixed
 
 
 def tasks(run):
@@ -136,7 +166,7 @@ real stored output SHA. It must never come directly from an HTTP payload.
             raise ResourceError("上游输出序号不存在", "task_output_missing")
         selected = [media for media in context.get("media", []) if media["media_id"] == output["media_id"]
                     and media["sha256"] == output["sha256"] and media["role"] == ref["role"]
-                    and media.get("binding_decision_id")]
+                    and (media.get("binding_decision_id") or context.get('working_dependency_contract')=='depth-motion/v1' and context.get('working_draft') and media.get('working_run_output')==result['job_id'])]
         if not selected:
             raise ResourceError("上游输出尚未按指定用途有效选择，不能自动采用", "task_output_not_selected")
         field = ref["field"]
@@ -179,7 +209,7 @@ def preview_batch(service, project_id, payload):
     artifact = service.get_artifact_version(project_id, run_id)
     if payload.get("run_sha256") and payload["run_sha256"] != artifact["sha256"]:
         raise Conflict("运行包摘要与预览不符", "run_sha256_mismatch")
-    if artifact.get("artifact_type") not in {"production-run", "vsc.production_run"} or not artifact.get("approved"):
+    if artifact.get("artifact_type") not in {"production-run", "vsc.production_run", "workbench-generation-run"} or not artifact.get("approved"):
         raise ResourceError("批量操作须使用已批准运行包", "run_unapproved")
     run = _document(artifact)
     errors = graph_errors(run)
@@ -234,9 +264,15 @@ def preview_batch(service, project_id, payload):
             inherited = authorization_policy(run, run_id, target,
                 lambda identifier: service.get_artifact_version(project_id, identifier))
             enforce_execution_policy(run, target, jobs, inherited_policy=inherited)
-            context = (service.compile_asset_context(project_id, asset, purpose,
-                           spec_version_id=request_for(row).get("spec_version_id")) if asset else
-                       service.compile_shot_context(project_id, shot, purpose))
+            if artifact.get("artifact_type") == "workbench-generation-run":
+                from vsc.adapters.persistence.postgres.workbench_generation import context_for_run
+                with service.store.engine.connect() as conn:
+                    project = service.store._project(conn, project_id)
+                    context = context_for_run(service.store, conn, project, artifact, shot, purpose)
+            else:
+                context = (service.compile_asset_context(project_id, asset, purpose,
+                               spec_version_id=request_for(row).get("spec_version_id")) if asset else
+                           service.compile_shot_context(project_id, shot, purpose))
             if not context["ready"]:
                 item.update(status="blocked", gaps=context["gaps"])
             else:

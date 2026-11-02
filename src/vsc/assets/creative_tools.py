@@ -73,7 +73,8 @@ class CreativeToolsService:
             tools=tools, models=models, drafts=drafts["items"],
             media=[{key: row.get(key) for key in ("id", "name", "modality", "sha256", "duration_ms")} for row in media["items"]],
             media_total=media["total"], local_outputs=local_outputs, canvases=canvases,
-            music_results=music_results)
+            music_results=music_results, work_runs=self._creative_tools().work_runs(project_id,episode["id"]) if episode else [],
+            preset_voices=[{"id":"zh_female_vv_uranus_bigtts","name":"Vivi · 预置女声"}])
 
     def create_creative_lyrics(self,p,payload,**kw):
         from vsc.assets.resource_service import ResourceError
@@ -145,7 +146,10 @@ class CreativeToolsService:
                 if not location:raise ResourceError("替换素材缺少可用本地副本")
                 replacement_path=self.storage.verify(location["object_key"],replacement["sha256"])
             with tempfile.TemporaryDirectory(prefix="vsc-local-tool-") as directory:
-                outputs, receipt = process(path, value, directory, replacement_path)
+                if value['tool']=='music_mix':
+                    from vsc.production.creative_tools import render_music_mix
+                    outputs,receipt=render_music_mix(path,replacement_path,value,directory)
+                else:outputs, receipt = process(path, value, directory, replacement_path)
                 registered = []
                 for item in outputs:
                     with item["path"].open("rb") as stream:
@@ -203,7 +207,7 @@ class CreativeToolsService:
     def save_creative_tool_draft(self, project_id, payload, **kw):
         from vsc.assets.resource_service import ResourceError
         self._validate_write(payload, **kw)
-        if set(payload) != {"document", "base_draft_id"}:
+        if set(payload)-{"origin_draft_id"} != {"document", "base_draft_id"}:
             raise ResourceError("保存需要工具输入与当前草稿版本")
         return self._creative_tools().save(project_id, payload, build=self._creative_tool_document, **kw)
 
@@ -267,6 +271,15 @@ class CreativeToolsService:
         artifact, saved = self._fixed_creative_tool(project_id, payload["draft_version_id"])
         value, gaps = saved["input"], []
         tool = value["tool"]
+        if tool=='depth_motion':
+            return self._preview_depth_motion(project_id,payload,artifact)
+        if tool in {'speech','music_description','music_lyrics','instrumental','ambience','sfx','music_mix'}:
+            try:fixed=self._creative_tools().working_input(project_id,artifact['id'])
+            except ResourceError as exc:
+                if exc.code!='tool_work_input_required':raise
+                return dict(ready=False,gaps=[dict(code=exc.code,message=str(exc))],revision=self.get_project(project_id)['revision'])
+            request=dict(payload,draft_version_id=fixed['id']);result=self.preview_workbench_generation(project_id,request)
+            return dict(result,work_request=request,tool_draft_id=artifact['id'])
         model = next((row for row in ResourceSettings(self.store).list()["configurations"] if row["id"] == value["model_id"]), None)
         if tool not in {"speech", "music_description", "ambience", "sfx", "video_edit", "video_extend"}:
             gaps.append(dict(code="tool_adapter_unavailable", message=TOOLS[tool][3] or "此工具使用原剪辑或镜头计划入口"))
@@ -328,6 +341,98 @@ class CreativeToolsService:
             document=run, dependency_ids=[row["id"] for row in pins], object_ids=[value["shot_id"]])
         return dict(ready=True, gaps=[], artifact=output, preview_sha256=fingerprint(output), revision=quote["revision"],
                     generation_quote=quote["generation_quote"], commerce_quote=commerce, needs_approval=True)
+
+    def _preview_depth_motion(self,p,payload,tool_artifact):
+        from vsc.assets.resource_service import ResourceError,Conflict
+        from vsc.adapters.persistence.postgres.workbench_generation import working_context
+        from vsc.production.run_authorization import normalize_request,validate_capabilities
+        from vsc.production.resource_settings import ResourceSettings
+        from vsc.production.quotes import fingerprint
+        fixed=self._creative_tools().working_input(p,tool_artifact['id']);document=json.loads(fixed['document'])
+        if document['mode']!='depth_motion':raise ResourceError('深度运行需要固定的两阶段工作稿','depth_run_invalid')
+        with self.store.engine.connect() as conn:
+            project=self.store._project(conn,p)
+            depth_context=working_context(self.store,conn,project,fixed['id'],purpose='depth')
+            final_context=working_context(self.store,conn,project,fixed['id'],purpose='reference_to_video')
+        models={row['id']:row for row in ResourceSettings(self.store).list()['configurations']}
+        depth_model=models.get(document['tool_settings']['depth_model_id']);final_model=models.get(document['model_id'])
+        gaps=list(depth_context['gaps'])+list(final_context['gaps'])
+        if not depth_model or not depth_model['enabled'] or not depth_model['adapter_available'] or 'depth' not in depth_model['capabilities'].get('video_operations',[]):
+            gaps.append(dict(code='depth_model_required',message='请选择已启用的原生深度中间模型'))
+        if not final_model or not final_model['enabled'] or not final_model['adapter_available'] or not all(final_model['capabilities'].get(k) for k in ('reference_media','reference_video')) or 'reference_to_video' not in final_model['capabilities'].get('purposes',[]):
+            gaps.append(dict(code='model_capability_mismatch',message='最终模型必须同时支持人物图片与真实参考视频'))
+        if gaps:return dict(ready=False,gaps=gaps,revision=project['revision'])
+        for media in final_context['media']:self._verify_media(p,media['media_id'],media['sha256'])
+        shot=document['shot_id'];character=next(ref['media_id'] for ref in document['references'] if ref['role']=='character')
+        depth=normalize_request(depth_context['working_native_media'],shot,'depth','video');depth['context_sha256']=depth_context['sha256']
+        final=normalize_request(dict(prompt=document['prompt'],duration_ms=document['duration_ms'],reference_media_ids=[character]),shot,'reference_to_video','video')
+        validate_capabilities(depth_model,depth,depth_context);validate_capabilities(final_model,final,final_context)
+        depth_key='depth:'+tool_artifact['id'];final_key='final:'+tool_artifact['id']
+        run=dict(format='vsc.production-run/v1',project_id=p,phase='production',approved_inputs=[],execution_policy=payload['execution_policy'],
+            approved_media_inputs=[{key:ref[key] for key in ('media_id','sha256','role')} for ref in document['references']],
+            workbench_draft={'id':fixed['id'],'sha256':fixed['sha256']},working_dependency_contract='depth-motion/v1',
+            series_batch={'jobs':[
+                dict(task_key=depth_key,model_id=depth_model['id'],candidate_no=self.store.next_classic_candidate(p,shot,'depth'),request=depth),
+                dict(task_key=final_key,model_id=final_model['id'],candidate_no=self.store.next_classic_candidate(p,shot,'reference_to_video'),request=final,
+                     quote_context_sha256=final_context['sha256'],depends_on=[depth_key],output_inputs=[dict(task_key=depth_key,field='reference_video_media_ids',role='reference_video',output_index=0)])]})
+        # Exercise the same source-anchor and exact-task authorization during
+        # preview, before a user can confirm a run that submission would reject.
+        from vsc.production.run_authorization import authorize_run
+        from vsc.production.bounded import depth_dependency_tasks
+        depth_dependency_tasks(run)
+        authorize_run(run,'workbench-generation-run',depth_context,
+            normalize_request(depth,shot,'depth','video'),run['series_batch']['jobs'][0]['candidate_no'],model_id=depth_model['id'])
+        quote=self.preview_generation_quote(p,dict(document=run));run['generation_quote']=quote['generation_quote'];run['operations']={row['operation']:row['native_units'] for row in quote['generation_quote']['jobs']}
+        from vsc.production.commerce_quote import attach_commerce_quote
+        commerce=attach_commerce_quote(self,p,run,quote,payload)
+        if quote['revision']!=project['revision']:raise Conflict('深度工作输入在报价期间发生变化')
+        artifact=dict(artifact_key='workbench-depth:'+tool_artifact['id'],artifact_type='workbench-generation-run',stage='workspace',document=run,dependency_ids=[],object_ids=[shot])
+        return dict(ready=True,gaps=[],revision=project['revision'],artifact=artifact,preview_sha256=fingerprint(artifact),generation_quote=quote['generation_quote'],commerce_quote=commerce,needs_approval=False,needs_confirmation=True,tool_draft_id=tool_artifact['id'])
+
+    def creative_mv_workspace(self,p,draft_id):return self._creative_tools().mv_workspace(p,draft_id)
+
+    def prepare_creative_mv_shot(self,p,payload,**kw):
+        self._validate_write(payload,**kw)
+        return self._creative_tools().prepare_mv_shot(p,payload,**kw)
+
+    def prepare_creative_tool_work(self,p,payload,**kw):
+        self._validate_write(payload,**kw)
+        return self._creative_tools().prepare_work(p,payload,**kw)
+
+    def generate_creative_tool_work(self,p,payload,**kw):
+        self._validate_write(payload,**kw);self.authorize_access(p,'execute')
+        return self._creative_tools().generate_work(p,payload,preview=self.preview_creative_tool_run,work_preview=self.preview_workbench_generation,**kw)
+
+    def advance_creative_tool_work(self,p,payload,*,actor):
+        from vsc.production.canvas_execution import advance_runs
+        self.authorize_access(p,'execute')
+        run_id=payload['run_version_id'];run=self.get_artifact_version(p,run_id)
+        import json
+        document=json.loads(run['document']);draft=self.get_artifact_version(p,document['workbench_draft']['id'])
+        if not draft['artifact_key'].startswith(('tool-work:','mv-work:')):raise ValueError('不是工具生成任务')
+        progress=advance_runs(self,p,[run_id],actor);mixed=[]
+        if draft['artifact_key'].startswith('mv-work:'):return {'items':progress,'revision':self.get_project(p)['revision']}
+        tool_id=draft['artifact_key'][len('tool-work:'):];original,saved=self._fixed_creative_tool(p,tool_id)
+        groups=[g for g in self._creative_tools().work_runs(p,saved['input']['episode_id']) if g['run_version_id']==run_id]
+        if groups and len(groups[0]['jobs'])==len(document['series_batch']['jobs']) and all(j['status']=='succeeded' for j in groups[0]['jobs']):
+            self._creative_tools().publish_work_outputs(p,{'run_version_id':run_id},actor=actor,expected_revision=self.get_project(p)['revision'],idempotency_key='tool-generated-output:'+run_id)
+        if saved['input']['tool']=='music_mix':
+            for group in self._creative_tools().work_runs(p,saved['input']['episode_id']):
+                if group['run_version_id']!=run_id:continue
+                for job in group['jobs']:
+                    if job['status']!='succeeded':continue
+                    for output in job['outputs']:
+                        try:mixed.append(self.mix_creative_tool_work(p,{'draft_version_id':tool_id,'run_version_id':run_id,'audio_media_id':output['media_id']},actor=actor,expected_revision=self.get_project(p)['revision'],idempotency_key='music-mix:'+run_id+':'+output['media_id']))
+                        except Exception as exc:
+                            from vsc.assets.resource_service import ResourceError
+                            if not isinstance(exc,ResourceError):raise
+                            mixed.append({'status':'mix_failed','code':exc.code,'message':str(exc),'audio_media_id':output['media_id']})
+        return {'items':progress,'mixed':mixed,'revision':self.get_project(p)['revision']}
+
+    def mix_creative_tool_work(self,p,payload,**kw):
+        self._validate_write(payload,**kw)
+        fixed=self._creative_tools().resolve_generated_music(p,payload,**kw)
+        return self.process_creative_tool_local(p,{'draft_version_id':fixed['draft_version_id']},actor=kw['actor'],expected_revision=self.get_project(p)['revision'],idempotency_key=kw['idempotency_key']+':mix')
 
     def propose_creative_tool_run(self, project_id, payload, **kw):
         from vsc.assets.resource_service import ResourceError

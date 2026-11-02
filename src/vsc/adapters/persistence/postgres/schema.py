@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0033_creative_tool_imports"
+SCHEMA_REVISION = "0046_classic_preferences"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -1091,6 +1091,7 @@ from .schema_spatial import install_spatial_schema, SPATIAL_IMMUTABLE
 from .schema_imports import declare_imports
 from .schema_text_tools import declare_text_tools
 from .schema_access import declare_access, ACCESS_IMMUTABLE
+from .schema_authentication import declare_authentication, AUTHENTICATION_IMMUTABLE, AUTHENTICATION_GUARD_DDL
 from .schema_canvas_agent import install_canvas_agent_schema, CANVAS_AGENT_IMMUTABLE
 from .schema_commerce import declare_commerce, COMMERCE_IMMUTABLE
 from .schema_asset_center import declare_asset_center, CENTER_IMMUTABLE
@@ -1101,12 +1102,20 @@ from .schema_management import declare_management
 from .schema_canvas_execution import install_canvas_execution_schema, CANVAS_EXECUTION_IMMUTABLE
 from .schema_text_tool_copies import declare_text_tool_copies
 from .schema_creative_tool_imports import declare_creative_tool_imports
+from .schema_working_state import declare_working_state, WORKING_STATE_IMMUTABLE
+from .schema_workspace_commerce import declare_workspace_commerce, WORKSPACE_COMMERCE_IMMUTABLE
+from .schema_asset_cards import declare_asset_cards, ASSET_CARD_IMMUTABLE
+from .schema_provider_assets import declare_provider_assets
+from .schema_community import declare_community, COMMUNITY_IMMUTABLE
+from .schema_task_notifications import declare_task_notifications
+from .schema_classic_preferences import declare_classic_preferences, CLASSIC_PREFERENCE_GUARD_DDL
 globals().update(install_canvas_schema(metadata))
 globals().update(declare_editor(project_table, ref, uid, stamp))
 globals().update(install_spatial_schema(metadata))
 globals().update(declare_imports(project_table, ref, uid, stamp))
 globals().update(declare_text_tools(project_table, ref, uid, stamp))
 globals().update(declare_access(metadata))
+globals().update(declare_authentication(metadata))
 globals().update(install_canvas_agent_schema(metadata))
 globals().update(declare_commerce(project_table, ref, uid, stamp))
 globals().update(declare_asset_center(metadata, project_table, ref, uid, stamp))
@@ -1117,8 +1126,35 @@ globals().update(declare_management(project_table,ref,uid,stamp))
 globals().update(install_canvas_execution_schema(metadata))
 globals().update(declare_text_tool_copies(project_table,ref,stamp))
 globals().update(declare_creative_tool_imports(project_table,ref,stamp))
+globals().update(declare_working_state(project_table,ref,uid,stamp))
+globals().update(declare_workspace_commerce(project_table,ref,uid,stamp))
+globals().update(declare_asset_cards(project_table,ref,uid,stamp))
+globals().update(declare_provider_assets(project_table,ref,uid,stamp))
+globals().update(declare_community(project_table,ref,uid,stamp))
+globals().update(declare_task_notifications(project_table,ref,uid,stamp))
+globals().update(declare_classic_preferences(project_table,ref,uid,stamp))
+intelligent_assets.append_column(uid('episode_asset_form_version_id', nullable=True))
+intelligent_assets.append_constraint(ForeignKeyConstraint(
+    ['project_id','episode_asset_form_version_id'],
+    ['episode_asset_form_versions.project_id','episode_asset_form_versions.id']))
+Index('ix_intelligent_assets_episode_form', intelligent_assets.c.project_id, intelligent_assets.c.episode_asset_form_version_id)
+intelligent_media.c.decision_id.nullable = True
+intelligent_media.append_column(uid('working_selection_version_id', nullable=True))
+intelligent_media.append_column(uid('episode_asset_form_version_id', nullable=True))
+intelligent_media.append_constraint(ForeignKeyConstraint(
+    ['project_id','working_selection_version_id'],
+    ['working_selection_versions.project_id','working_selection_versions.id']))
+intelligent_media.append_constraint(ForeignKeyConstraint(
+    ['project_id','episode_asset_form_version_id'],
+    ['episode_asset_form_versions.project_id','episode_asset_form_versions.id']))
+intelligent_media.append_constraint(CheckConstraint(
+    'num_nonnulls(decision_id,working_selection_version_id,episode_asset_form_version_id)<=1 AND '
+    '(decision_id IS NOT NULL OR working_selection_version_id IS NOT NULL OR episode_asset_form_version_id IS NOT NULL OR spatial_export_id IS NOT NULL)',
+    name='working_media_source'))
+Index('ix_intelligent_media_working_selection', intelligent_media.c.project_id, intelligent_media.c.working_selection_version_id)
+Index('ix_intelligent_media_episode_form', intelligent_media.c.project_id, intelligent_media.c.episode_asset_form_version_id)
 
-APPEND_ONLY_TABLES = ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
+APPEND_ONLY_TABLES = AUTHENTICATION_IMMUTABLE + ("task_notification_events", "task_notification_reads") + COMMUNITY_IMMUTABLE + ASSET_CARD_IMMUTABLE + WORKSPACE_COMMERCE_IMMUTABLE + WORKING_STATE_IMMUTABLE + ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
     "library_entry_versions", "library_version_media", "library_entry_decisions",
     "render_caption_inputs", "edit_preview_inputs", "edit_preview_outputs", "media_recycle_actions",
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",

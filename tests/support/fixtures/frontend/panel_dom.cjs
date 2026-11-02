@@ -34,6 +34,10 @@ class Element {
   set id(value) { this.attributes.set('id', value); }
   get id() { return this.attributes.get('id') || ''; }
   get childElementCount() { return this.children.length; }
+  get childNodes() { return this.children; }
+  get options() { return this.children.filter(node=>node.tagName==='OPTION'); }
+  get selectedOptions() { return this.options.filter(node=>node.value===this.value); }
+  get text() { return this.textContent; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); if(name==='class')this.className=String(value); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   removeAttribute(name) { this.attributes.delete(name); }
@@ -142,9 +146,15 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
   const fixtureOptions=options;
   const memory=new Map();
   const context = vm.createContext({...options.window?{window:options.window}:{},document, fetch, URLSearchParams, URL, AbortController, console, Map, Set,setTimeout,clearTimeout,localStorage:{getItem:key=>memory.get(key),setItem:(key,value)=>memory.set(key,value)},crypto:require('node:crypto').webcrypto,confirm:message=>{confirmations.push(message);return fixtureOptions.confirm?.(message)??true;}});
-  vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/artifact-reader.js'),'utf8').replaceAll('export function ','function ')+';globalThis.artifactReader={artifactTitle,renderArtifactContent};})()',context,{filename:'artifact-reader.js'});
-  vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/workbench.js'),'utf8').replace('export function createCreativeWorkbench','function createCreativeWorkbench')+';globalThis.createCreativeWorkbench=createCreativeWorkbench;})()',context,{filename:'workbench.js'});
-  const source = fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'const {artifactTitle,renderArtifactContent}=globalThis.artifactReader;').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
+  const catalog=fs.readFileSync(path.join(folder,'static/i18n-messages.js'),'utf8').replaceAll('export const ','const ');
+  vm.runInContext('(()=>{'+catalog+';globalThis.uiMessages={MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES};})()',context);
+  const i18n=fs.readFileSync(path.join(folder,'static/i18n.js'),'utf8').replace("import {MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES} from './i18n-messages.js';",'const {MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES}=globalThis.uiMessages;').replaceAll('export function ','function ').replaceAll('export const ','const ');
+  vm.runInContext('(()=>{'+i18n+';globalThis.uiI18n={msg,joinMessages,setText,bindAttribute,isMessage,option,mountLocalePicker,getLocale,getLocaleRevision,setLocale};})()',context);
+  const withI18n=source=>source.replace(/import\s*\{([^}]+)\}\s*from '\.\/i18n\.js';/g,(_,bindings)=>'const {'+bindings.replace(/ as /g,':')+'}=globalThis.uiI18n;');
+  vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/artifact-reader.js'),'utf8')).replaceAll('export function ','function ')+';globalThis.artifactReader={artifactTitle,renderArtifactContent};})()',context,{filename:'artifact-reader.js'});
+  vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/workbench.js'),'utf8')).replace('export function createCreativeWorkbench','function createCreativeWorkbench')+';globalThis.createCreativeWorkbench=createCreativeWorkbench;})()',context,{filename:'workbench.js'});
+  vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/task-notifications.js'),'utf8')).replace('export function createTaskNotifications','function createTaskNotifications')+';globalThis.createTaskNotifications=createTaskNotifications;})()',context,{filename:'task-notifications.js'});
+  const source = withI18n(fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8')).replace("import {createTaskNotifications} from './task-notifications.js';",'const {createTaskNotifications}=globalThis;').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'const {artifactTitle,renderArtifactContent}=globalThis.artifactReader;').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
   vm.runInContext(source + '\nglobalThis.panel = {state, applySession, renderTree, selectProject, selectObject, loadProjects, reviewForm, switchView, loadArtifacts, openArtifact, syncRoute, openedCreativeTarget};', context, {filename: 'panel.js'});
   return {document, requests, writes, confirmations, panel: context.panel};
 }

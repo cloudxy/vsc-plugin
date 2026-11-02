@@ -79,7 +79,7 @@ class IntelligentProductionRepository:
         row=dict(project_id=p,id=identifier,workflow_id=workflow['id'],version=(base['version']+1 if base else 1),parent_id=base['id'] if base else None,artifact_id=artifact['id'],source_artifact_id=state.get('source_artifact_id'),template_artifact_id=state.get('template_artifact_id'),route=state['route'],blocking_mode=state['blocking_mode'],unit_count=len(units),asset_count=len(assets),dependency_count=len(deps),media_count=len(media),created_by=actor)
         conn.execute(insert(S.intelligent_versions).values(**row))
         for i,asset in enumerate(assets):
-            if set(asset)!={'asset_key','asset_id','spec_id'}:raise ResourceError('资产链接字段无效')
+            if not {'asset_key','asset_id','spec_id'}<=set(asset) or set(asset)-{'asset_key','asset_id','spec_id','episode_asset_form_version_id'}:raise ResourceError('资产链接字段无效')
             conn.execute(insert(S.intelligent_assets).values(project_id=p,version_id=identifier,ordinal=i,**asset))
         for i,unit in enumerate(units):conn.execute(insert(S.intelligent_units).values(project_id=p,version_id=identifier,ordinal=i,**unit))
         for dep in deps:
@@ -89,7 +89,7 @@ class IntelligentProductionRepository:
                 if dep['source_unit_key'] not in keys:raise ResourceError('首子依赖不能悬空')
             conn.execute(insert(S.intelligent_dependencies).values(project_id=p,version_id=identifier,**dep))
         for link in media:
-            if set(link)-{'unit_key','purpose','media_id','decision_id','spatial_export_id'} or link.get('unit_key') not in keys:raise ResourceError('媒体链接不属于本次单元')
+            if set(link)-{'unit_key','purpose','media_id','decision_id','spatial_export_id','working_selection_version_id','episode_asset_form_version_id'} or link.get('unit_key') not in keys:raise ResourceError('媒体链接不属于本次单元')
             item=self._one(conn,S.media_items,p,link['media_id'])
             if item['modality']!='image':raise ResourceError('站位与线稿必须引用真实图片')
             unit=next(u for u in units if u['unit_key']==link['unit_key'])
@@ -222,6 +222,12 @@ class IntelligentProductionRepository:
                         specs=[dict(id=new_id(),asset_id=asset_id,variant_key=v,description=row['description']) for v in row['variants']]
                         self._create_artifact(conn,project,dict(artifact_key='intelligent-asset:'+task['id']+':'+row['key'],artifact_type='asset-bible',document={'asset_specs':specs},asset_specs=specs,object_ids=[asset_id]))
                         links.extend(dict(asset_key=row['key']+'_'+spec['variant_key'],asset_id=asset_id,spec_id=spec['id']) for spec in specs)
+                        existing=conn.execute(select(S.episode_assets).where(S.episode_assets.c.project_id==p,S.episode_assets.c.episode_id==workflow['episode_id'],S.episode_assets.c.asset_key==row['key'])).mappings().first()
+                        prior_forms={f['form_key']:f for f in conn.execute(select(S.episode_asset_forms).where(S.episode_asset_forms.c.project_id==p,S.episode_asset_forms.c.episode_asset_id==existing['id'])).mappings()} if existing else {}
+                        episode_asset=self.save_episode_asset(p,dict(episode_id=workflow['episode_id'],**({'id':existing['id']} if existing else {}),base_revision=existing['revision'] if existing else 0,asset_key=row['key'],name=row['name'],asset_kind=row['kind'],forms=[dict(form_key=spec['variant_key'],name=spec['variant_key'],base_version_id=prior_forms.get(spec['variant_key'],{}).get('current_version_id'),source_asset_id=asset_id,spec_id=spec['id']) for spec in specs]),actor=actor,expected_revision=project['revision'],idempotency_key='intelligent-episode-assets:'+task['id']+':'+row['key'],_transaction=(conn,project))
+                        fixed_forms={form['form_key']:form['version_id'] for form in episode_asset['forms']}
+                        for link in links[-len(specs):]:
+                            link['episode_asset_form_version_id']=fixed_forms.get(next(spec['variant_key'] for spec in specs if spec['id']==link['spec_id']))
                     state['assets']=links
                 else:
                     sequence_id=payload.get('sequence_id');mapping=payload.get('shot_mapping',{})
@@ -233,7 +239,10 @@ class IntelligentProductionRepository:
                     for row in plan['units']:
                         unit=normalize_unit({k:v for k,v in row.items() if k!='parent_key'});shot=mapping.get(row['unit_key'])
                         if not shot:
-                            if not sequence_id:raise ResourceError('请明确导入到原片段，或逐项映射已有镜头','intelligent_sequence_required')
+                            if not sequence_id:
+                                ordinal=conn.execute(select(func.coalesce(func.max(S.scenes.c.ordinal),-1)).where(S.scenes.c.project_id==p,S.scenes.c.parent_id==workflow['episode_id'])).scalar_one()+1
+                                scene=self._create_object(conn,project,dict(kind='scene',display_code='AI-SC-'+new_id()[:8],title=workflow['title'],parent_id=workflow['episode_id'],ordinal=ordinal))
+                                sequence_id=self._create_object(conn,project,dict(kind='sequence',display_code='AI-SQ-'+new_id()[:8],title='制作镜组',parent_id=scene['id'],ordinal=0))['id']
                             ordinal=conn.execute(select(func.coalesce(func.max(S.shots.c.ordinal),-1)).where(S.shots.c.project_id==p,S.shots.c.parent_id==sequence_id)).scalar_one()+1
                             shot=self._create_object(conn,project,dict(kind='shot',display_code='AI-'+new_id()[:8],title=unit['title'],parent_id=sequence_id,ordinal=ordinal,duration_ms=unit['duration_ms']))['id']
                         unit['shot_id']=shot;added.append(unit)
@@ -256,6 +265,7 @@ class IntelligentProductionRepository:
             for row in documents:
                 if row['gaps']:items.append(row);continue
                 artifact=self._create_artifact(conn,project,dict(artifact_key='intelligent-classic:'+version['id']+':'+row['unit_key']+':'+payload['purpose'],artifact_type='classic-production-draft',document=row['document'],object_ids=[row['document']['shot_id']]))
+                self._project_classic_draft_media(conn,project,artifact,row['document'])
                 items.append(dict(unit_key=row['unit_key'],draft_artifact_id=artifact['id'],gaps=[]))
             return dict(items=items,version_id=version['id'],provider_submitted=False)
         return self._mutate(p,'prepare_intelligent_drafts',payload,actor=actor,callback=work,**kw)

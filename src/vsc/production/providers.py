@@ -26,6 +26,11 @@ class ImageRequest(BaseRequest):
     height: int = 1920
     # Appended after the original positional fields for compatibility.
     asset_id: str | None = None
+    operation: str | None = None
+    source_media_id: str | None = None
+    source_sha256: str | None = None
+    mask_media_id: str | None = None
+    mask_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,12 +48,19 @@ class VideoRequest(BaseRequest):
     source_media_id: str | None = None
     source_sha256: str | None = None
     source_duration_ms: int | None = None
+    reference_video_media_ids: tuple[str, ...] = ()
+    draft: bool = False
+    subject_mask_media_id: str | None = None
+    subject_mask_sha256: str | None = None
 
 
 @dataclass(frozen=True)
 class AudioRequest(BaseRequest):
     script_line_ids: tuple[str, ...] = ()
     voice_media_id: str | None = None
+    # Explicit singing input; ordinary music prompts and spoken dialogue keep
+    # their existing contracts and never implicitly become lyrics.
+    lyrics: str | None = None
 
 
 @dataclass(frozen=True)
