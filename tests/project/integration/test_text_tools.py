@@ -79,9 +79,9 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
         started=self.store.start_text_tool_attempt(self.p,dict(unit_id=target['unit_id'],input_version_id=target['id'],action='body',new_attempt=True),backend='isolated-seal-test',caller='fixed-caller',expected_revision=self.rev,idempotency_key=uuid.uuid4().hex,actor='test-human');self.rev=started['revision']
         self.assertEqual(len(self.service.get_text_tool_attempt(self.p,started['id'])['references']),1)
         with self.assertRaises(IntegrityError),self.engine.begin() as conn:
-            conn.execute(insert(S.text_tool_attempt_inputs).values(project_id=self.p,id=str(uuid.uuid4()),attempt_id=started['id'],version_id=baseline['id'],ordinal=1))
+            conn.execute(insert(S.text_tool_attempt_inputs).values(project_id=self.p,id=str(uuid.uuid4()),attempt_id=started['id'],version_id=extra['id'],ordinal=2))
         with self.assertRaises(IntegrityError),self.engine.begin() as conn:
-            conn.execute(update(S.text_tool_attempts).where(S.text_tool_attempts.c.project_id==self.p,S.text_tool_attempts.c.id==started['id']).values(input_count=2))
+            conn.execute(update(S.text_tool_attempts).where(S.text_tool_attempts.c.project_id==self.p,S.text_tool_attempts.c.id==started['id']).values(input_count=3))
         with self.assertRaises(IntegrityError),self.engine.begin() as conn:
             conn.execute(insert(S.text_tool_attempts).values(project_id=self.p,id=str(uuid.uuid4()),unit_id=extra['unit_id'],input_version_id=extra['id'],action='body',backend='isolated-seal-test',status='running',input_count=1,created_by='test-human'))
         batch=self.write('create_text_batch',dict(tool='novel',action='body',unit_ids=[extra['unit_id']],auto_accept=False,overwrite=True))
@@ -94,7 +94,7 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
         for _ in range(2):completed=self.write('process_text_batch',dict(batch_id=batch['id']))
         self.assertEqual(completed['status'],'completed');self.assertEqual(len(completed['items']),1)
         with self.engine.connect() as conn:
-            self.assertEqual(conn.scalar(select(S.text_tool_attempts.c.input_count).where(S.text_tool_attempts.c.project_id==self.p,S.text_tool_attempts.c.id==started['id'])),1)
+            self.assertEqual(conn.scalar(select(S.text_tool_attempts.c.input_count).where(S.text_tool_attempts.c.project_id==self.p,S.text_tool_attempts.c.id==started['id'])),2)
         self.assertEqual(len(self.store.get_novel_plan(self.p,baseline['unit_id'])['episodes']),1)
 
     def test_text_migration_empty_downgrade_and_fact_refusal(self):

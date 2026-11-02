@@ -129,7 +129,7 @@ class TaskNotificationTests(ResourceStoreFixture,unittest.TestCase):
         class Host:
             name='isolated-unknown-host';calls=0
             def available(self):return True
-            def generate(self,*args):self.calls+=1;raise TimeoutError('isolated timeout')
+            def generate(self,*args,materials=None):self.calls+=1;raise TimeoutError('isolated timeout')
         host=Host();self.service.text_tool_host=host;self.addCleanup(delattr,self.service,'text_tool_host')
         unit=self.write('save_text_tool',dict(tool='novel',group_key='unknown',unit_key='one',title='未知原任务',ordinal=0,episode_id=None,base_version_id=None,document={**deepcopy(COMMON),**deepcopy(DEFAULTS['novel']),'body':'固定人工稿'}))
         payload=dict(unit_id=unit['unit_id'],input_version_id=unit['id'],action='body',new_attempt=True)

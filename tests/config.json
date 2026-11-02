@@ -1946,6 +1946,13 @@
         "src/vsc/adapters/persistence/postgres/schema_professional_inputs.py",
         "migrations/postgres/versions/0047_professional_inputs.py"
       ]
+    },
+    "project.unit.test_intelligent_batch_progress": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/intelligent-production.js"
+      ]
     }
   },
   "dependencies": {
