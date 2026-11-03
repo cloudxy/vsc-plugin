@@ -113,6 +113,12 @@ class ResourceCatalog:
         result["items"] = [self._media_status(row) for row in result["items"]]
         return result
 
+    def project_media(self, **filters):
+        """Global PostgreSQL media read; local mirrors are not a second catalog."""
+        if self.service is None:
+            raise CatalogError('项目媒资目录需要 PostgreSQL 权威', 409, 'authority_unavailable')
+        return self.service.list_project_media(**filters)
+
     def media(self, project_id, media_id):
         reader = self._reader(project_id)
         return reader.media(media_id) if reader else self._media_status(self.service.get_media(project_id, media_id), verify=True)

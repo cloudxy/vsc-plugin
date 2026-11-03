@@ -183,6 +183,45 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         return self.store.list_resources(project_id, object_id=object_id, offset=offset,
                                          limit=limit, modality=modality, **filters)
 
+    def list_project_media(self, *, project_id=None, episode_id=None, modality=None, query='',
+                           created_after=None, created_before=None, order='created_desc', offset=0, limit=24):
+        """Read original project media with SQL pagination and complete-project ACLs."""
+        from datetime import datetime, timedelta, timezone
+        from vsc.adapters.persistence.postgres.media_catalog import ProjectMediaCatalog
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if (type(offset) is not int or not 0 <= offset <= 2147483647
+                or type(limit) is not int or not 1 <= limit <= 100):
+            raise ResourceError('分页要求 offset >= 0，1 <= limit <= 100', 'invalid_page')
+        if (modality is not None and not isinstance(modality, str)
+                or modality not in {None, '', 'image', 'video', 'audio', 'text', 'document', 'other'}):
+            raise ResourceError('媒资类型无效', 'invalid_media_filter')
+        if not isinstance(query, str) or len(query) > 200 or '\x00' in query:
+            raise ResourceError('媒资搜索文字无效', 'invalid_media_filter')
+        if not isinstance(order, str) or order not in {'updated_desc', 'created_desc'}:
+            raise ResourceError('媒资排序无效', 'invalid_media_filter')
+        def boundary(value, end=False):
+            if value is None or value == '':
+                return None
+            if not isinstance(value, str):
+                raise ResourceError('时间筛选需要 ISO8601 时间', 'invalid_media_filter')
+            try:
+                if len(value) == 10:
+                    parsed = datetime.strptime(value, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    return parsed + timedelta(days=1) if end else parsed
+                parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                if parsed.tzinfo is None:
+                    raise ValueError('missing timezone')
+                return parsed.astimezone(timezone.utc)
+            except (ValueError, OverflowError):
+                raise ResourceError('时间筛选需要有效日期或含时区的 ISO8601 时间', 'invalid_media_filter')
+        after, before = boundary(created_after), boundary(created_before, True)
+        if after and before and after >= before:
+            raise ResourceError('开始时间必须早于结束时间', 'invalid_media_filter')
+        return ProjectMediaCatalog(self.store, self.classic_candidate_configuration).search(dict(
+            project_id=checked_id(project_id) if project_id else None,
+            episode_id=checked_id(episode_id) if episode_id else None, modality=modality or None,
+            query=query.strip(), created_after=after, created_before=before, order=order, offset=offset, limit=limit))
+
     def get_media(self, project_id, media_id):
         from vsc.assets.media_availability import media_availability
         value = self.store.get_media(project_id, media_id)

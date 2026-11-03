@@ -13,6 +13,11 @@ def install_project_management_routes(app,router,catalog,etag,actor,read_actor):
         read_actor(request)
         return etag(request,service().management_recycled_projects())
 
+    @app.get('/api/v1/project-management/recycle-items')
+    def recycle_items(request:Request, kind:str='all', limit:int=24, cursor:str=None):
+        read_actor(request)
+        return etag(request,service().management_recycle_items(kind=kind,limit=limit,cursor=cursor))
+
     @router.get('/{project_id}/management')
     def snapshot(project_id:str,request:Request,folder_id:str=None,kind:str=None,q:str='',offset:int=0,limit:int=100):
         return etag(request,service().management_snapshot(project_id,folder_id=folder_id,kind=kind,q=q,offset=offset,limit=limit))

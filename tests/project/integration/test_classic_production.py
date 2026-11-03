@@ -222,6 +222,51 @@ class ClassicProductionTests(ResourceStoreFixture, unittest.TestCase):
         other=self.write('change_classic_shots',{'action':'create','parent_id':parent,'title':'禁止跨镜配置猜测'})['id']
         self.assertFalse(self.service.classic_candidate_configuration(self.p,other,media)['available'])
 
+    def test_ordinary_omni_candidate_restores_fixed_draft_without_new_generation(self):
+        """Reading ordinary omni output retains its fixed mode and parameters, without new jobs."""
+        objects, first, model = self.ready_shot()
+        second = self.media("第二张固定参考")
+        document = dict(shot_id=objects["shot"], mode="omni", model_id=model, purpose="reference_to_video", prompt="保留普通全能参考原配置",
+            width=1080, height=1920, duration_ms=5000, count=2, params={"seed":314, "generate_audio":False},
+            references=[{"role":"reference_image","media_id":first}, {"role":"reference_image","media_id":second}])
+        draft = self.write("save_classic_draft", {"document":document, "base_draft_id":None})
+        expected = json.loads(self.service.get_artifact_version(self.p,draft["id"])["document"])
+        policy = dict(self.policy(), authorization={"mode":"new_batch", "reason":"隔离固定候选种子，无供应商执行"})
+        request = dict(draft_version_id=draft["id"], execution_policy=policy)
+        quote = self.service.preview_workbench_generation(self.p, request)
+        self.assertTrue(quote["ready"], quote)
+        # The fixture has no execution runtime. This records normal run/job intent only.
+        generated = self.write("generate_workbench", {"request":request, "preview_sha256":quote["preview_sha256"]})
+        job = generated["jobs"][0]
+        self.write("update_generation_job", {"job_id":job["id"], "status":"submitted", "external_task_id":"offline-fixed-omni"})
+        import io
+        import shutil
+        import tempfile
+        from pathlib import Path
+        from support.fixtures.media import production_media
+        from vsc.adapters.storage.local.store import LocalStorage
+        if not shutil.which('ffmpeg'):
+            self.skipTest('requires FFmpeg for a real output duration')
+        storage_temp = tempfile.TemporaryDirectory(prefix='vsc-classic-config-output-')
+        self.addCleanup(storage_temp.cleanup)
+        previous_storage = self.service.storage
+        self.addCleanup(setattr, self.service, 'storage', previous_storage)
+        self.service.storage = LocalStorage(Path(storage_temp.name)/'storage')
+        staged = self.service.storage.stage_upload(io.BytesIO(production_media()['mp4']), 'offline-config-output.mp4')
+        output = self.write('register_media', {'staged_upload':staged['staged_upload'], 'name':'离线候选输出', 'rights':'owned',
+            'source':{'kind':'synthetic','content':'本地真实字节 API 回归视频，无供应商调用'}})['id']
+        self.write("update_generation_job", {"job_id":job["id"], "status":"succeeded", "outputs":[{"media_id":output}]})
+        before_jobs, before_revision = self.service.list_generation_jobs(self.p)["total"], self.service.get_project(self.p)["revision"]
+        for _ in range(2):
+            restored = self.service.classic_candidate_configuration(self.p, objects["shot"], output)
+            self.assertTrue(restored["available"])
+            self.assertEqual(restored["configuration_source"], "fixed_workbench_draft")
+            self.assertEqual(restored["source_job_id"], job["id"])
+            self.assertEqual(restored["document"], expected)
+        self.assertEqual(self.service.list_generation_jobs(self.p)["total"], before_jobs)
+        self.assertEqual(self.service.get_project(self.p)["revision"], before_revision)
+        self.assertEqual(json.loads(self.service.get_artifact_version(self.p,draft["id"])["document"]), expected)
+
 
 class ClassicProductionFrontendTests(unittest.TestCase):
     def test_first_shot_creation_resumes_group_after_reload(self):
@@ -299,7 +344,7 @@ const api=async(url,opts)=>{
  return {sections:{candidates:{items:[]}}};
 };
 const app=module.createClassicProduction(root,{api,session:()=>({actor:'human',csrf:'x',revision,writable:true}),setRevision:v=>revision=v,notice:v=>notes.push(v),onShot(){},navigate(){},media(){},openArtifact(){}});
-const button=name=>root.querySelectorAll('button').find(row=>row.textContent===name);
+const button=name=>root.querySelectorAll('button').find(row=>row.textContent===name||row.getAttribute('aria-label')===name);
 await app.load({projectId:'p',objectId:'shot'});
 let form=root.querySelector('form'),prompt=form.querySelector('textarea');prompt.value='单图草稿';await form.dispatch('input',{target:prompt});
 await button('文生视频').click();form=root.querySelector('form');prompt=form.querySelector('textarea');prompt.value='文生草稿';await form.dispatch('input',{target:prompt});
@@ -327,6 +372,69 @@ form=root.querySelector('form');prompt=form.querySelector('textarea');prompt.val
 await button('生成').click();assert.equal(previewCalls,0);assert.equal(prompt.value,'预览前必须保存');
 await button('生成').click();assert.equal(previewCalls,1);assert.equal(attempts[0].idempotency_key,attempts[1].idempotency_key);compact.suspend();
 console.log('PASS mode buffers, idempotent retry and old write isolation');
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_catalog_reuse_preserves_drafts_cancel_scope_permissions_and_searchable_models(self):
+        import shutil
+        import subprocess
+        from support.paths import ROOT
+        if not shutil.which('node'):
+            self.skipTest('requires Node')
+        source = r"""
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
+globalThis.document=new Document('');
+Element.prototype.contains=function(node){while(node){if(node===this)return true;node=node.parentElement;}return false;};
+const storage=new Map();let failStorage=false;globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>{if(failStorage)throw new Error('quota');storage.set(k,v);},removeItem:k=>storage.delete(k)};
+const root=document.createElement('section');document.body.append(root);
+const {createClassicProduction}=await import(pathToFileURL(process.cwd()+'/src/vsc/interfaces/web/static/classic-production.js'));
+const notes=[],posts=[],reuseReads=[],gates=new Map();let writable=true,revision=5;
+const clone=v=>JSON.parse(JSON.stringify(v)),sha='a'.repeat(64),media=[{id:'image',modality:'image',sha256:sha,name:'图片'},{id:'video',modality:'video',sha256:sha,name:'视频'},{id:'audio',modality:'audio',sha256:sha,name:'音频'}];
+const original=shot=>({shot_id:shot,mode:'omni',model_id:'model-a',purpose:'reference_to_video',prompt:shot==='shot'?'原保存稿':'另一镜头原稿',duration_ms:5000,width:1080,height:1920,count:1,params:{seed:9},references:[]});
+const reused=shot=>({shot_id:shot,mode:'omni',model_id:'model-b',purpose:'reference_to_video',prompt:'来自原候选的完整配置',duration_ms:8000,width:1280,height:720,count:2,params:{seed:314,resolution:'720p',generate_audio:false},references:media.map(row=>({role:'reference_'+row.modality,media_id:row.id,sha256:sha}))});
+const configured=shot=>({available:true,configuration_source:'fixed_workbench_draft',source_job_id:'fixed-job',document:reused(shot)});
+const rows=[{id:'shot',parent_id:'group',title:'当前镜头'},{id:'other',parent_id:'group',title:'另一镜头'}];
+const models=['model-a','model-b'].map((id,index)=>({id,name:index?'secondary connection':'primary connection',model_key:'grok-imagine-video-1.5',model_version:'fixed-'+index,modality:'video',enabled:true,adapter_available:true,capabilities:{purposes:['reference_to_video','text_to_video'],max_duration_ms:10000},default_params:{resolution:'720p',generate_audio:true}}));
+const api=async(url,opts)=>{
+ const query=new URL(url,'http://fixture').searchParams;
+ if(opts?.method==='POST'){const body=JSON.parse(opts.body);posts.push({url,body});return {id:'saved-next',sha256:sha,version:2,revision:++revision};}
+ if(url.includes('section=shots')){const shot=query.get('object_id')||'shot';return {scope:{kind:'shot',id:shot},ancestors:[{kind:'episode',id:'episode'}],sections:{shots:{items:rows}}};}
+ if(url.includes('/candidate-configuration?')){const id=query.get('media_id'),shot=query.get('shot_id');reuseReads.push({id,shot});if(gates.has(id))return gates.get(id).promise;if(id==='forbidden')throw Object.assign(new Error('无权读取此候选'),{status:403});if(id==='unavailable')return {available:false,reason:'没有原生成配置'};if(id==='wrong-shot')return configured('foreign');return configured(shot);}
+ if(url.includes('/classic-production?')){const shot=query.get('shot_id');return {shot:rows.find(row=>row.id===shot),sibling_shots:rows,revision,drafts:[{id:'saved-'+shot,sha256:sha,version:1,document:original(shot)}],models,media,media_total:media.length,modes:{omni:{modality:'video',slots:{reference_image:'image',reference_video:'video',reference_audio:'audio'},purpose:'reference_to_video'},text:{modality:'video',slots:{}},single:{modality:'video',slots:{first_frame:'image'}},image:{modality:'image',slots:{reference_image:'image'}}}};}
+ if(url.includes('/working-candidates?'))return {items:[{media_id:query.get('shot_id')+'-'+query.get('output_kind'),name:'真实已选结果',selected:true,sha256:sha}],total:1,next_offset:null};
+ if(url.includes('/working-selections?'))return {items:rows.flatMap(row=>['image','video'].map(kind=>({shot_id:row.id,output_kind:kind,media_id:row.id+'-'+kind}))),revision};
+ if(url.includes('/media/')){const id=url.split('/media/')[1];return {id,name:'真实选取媒体',sha256:sha,modality:id.endsWith('-video')?'video':'image'};}
+ return {items:[],total:0};
+};
+const ctx={api,session:()=>({actor:'human',identityId:'human',writable,csrf:'x',revision}),setRevision:v=>revision=v,notice:value=>notes.push(String(value)),navigate(){},media(){}};
+let app=createClassicProduction(root,ctx);const scope={projectId:'p',objectId:'shot',productionKind:'video',mode:'omni'};
+const button=name=>root.querySelectorAll('button').find(node=>node.textContent===name||node.getAttribute('aria-label')===name),prompt=()=>root.querySelector('form').querySelector('textarea');
+const edit=async text=>{prompt().value=text;await root.querySelector('form').dispatch('input',{target:prompt()});};
+const ticks=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
+const gate=id=>{let resolve;const promise=new Promise(done=>resolve=done);const value={promise,resolve};gates.set(id,value);return value;};
+await app.load(scope);await edit('原稿的未保存修改');await app.load({...scope,reuseMediaId:'output'});
+assert.equal(prompt().value,'来自原候选的完整配置');assert.equal(root.querySelectorAll('.classic-reference-thumb').length,3);assert.equal(posts.length,0);
+let params=root.querySelectorAll('textarea').find(node=>node.getAttribute('aria-label')?.includes('模型参数'));assert.deepEqual(JSON.parse(params.value),reused('shot').params);
+assert.equal(root.querySelector('.classic-shot-rail').querySelector('video').dataset.mediaId,'shot-video');
+await edit('复用后的后续修改');app.suspend();app=createClassicProduction(root,ctx);await app.load({...scope,reuseMediaId:'output'});
+assert.equal(prompt().value,'复用后的后续修改');await app.load({...scope,reuseMediaId:'second-output'});assert.equal(prompt().value,'来自原候选的完整配置');await button('还原原草稿').click();assert.equal(prompt().value,'复用后的后续修改');await button('还原原草稿').click();assert.equal(prompt().value,'原稿的未保存修改');
+params=root.querySelectorAll('textarea').find(node=>node.getAttribute('aria-label')?.includes('模型参数'));assert.deepEqual(JSON.parse(params.value),{seed:9});assert.equal(posts.length,0);
+const search=root.querySelector('.classic-model-picker').querySelector('input'),beforeSearch=JSON.stringify([...storage]);search.value='secondary';await search.dispatch('input');await root.querySelector('form').dispatch('input',{target:search});
+assert.equal(JSON.stringify([...storage]),beforeSearch);const choices=root.querySelector('.classic-model-choices').querySelectorAll('button');assert.equal(choices.length,1);assert.equal(choices[0].dataset.modelId,'model-b');await choices[0].click();
+await root.querySelector('form').dispatch('submit');assert.equal(posts.length,1);assert.equal(posts[0].body.payload.base_draft_id,'saved-shot');assert.equal(posts[0].body.payload.document.model_id,'model-b');assert.equal(posts[0].body.payload.document.prompt,'原稿的未保存修改');assert.deepEqual(posts[0].body.payload.document.params,{seed:9});
+let delayed=gate('late'),pending=app.load({...scope,reuseMediaId:'late'});await ticks();await app.load({...scope,objectId:'other'});delayed.resolve(configured('shot'));await pending;assert.equal(prompt().value,'另一镜头原稿');assert.equal(root.querySelector('.classic-shot-rail').querySelector('video').dataset.mediaId,'shot-video');
+delayed=gate('cancel');pending=app.load({...scope,objectId:'other',reuseMediaId:'cancel'});await ticks();await button('取消').click();delayed.resolve(configured('other'));await pending;assert.equal(prompt().value,'另一镜头原稿');assert.ok(notes.at(-1).includes('已取消'));
+delayed=gate('edited');pending=app.load({...scope,objectId:'other',reuseMediaId:'edited'});await ticks();await edit('等待期间的新修改');delayed.resolve(configured('other'));await pending;assert.equal(prompt().value,'等待期间的新修改');assert.ok(notes.at(-1).includes('输入已改变'));
+for(const id of ['forbidden','unavailable','wrong-shot']){await app.load({...scope,objectId:'other',reuseMediaId:id});assert.equal(prompt().value,'等待期间的新修改');}
+writable=false;const readsBefore=reuseReads.length;await app.load({...scope,objectId:'other',reuseMediaId:'output'});assert.equal(reuseReads.length,readsBefore);assert.equal(prompt().value,'等待期间的新修改');assert.ok(notes.at(-1).includes('只读'));
+writable=true;failStorage=true;await app.load({...scope,objectId:'other',reuseMediaId:'output'});assert.equal(prompt().value,'等待期间的新修改');assert.ok(notes.at(-1).includes('无法保留原草稿'));failStorage=false;await button('重试读取配置').click();assert.equal(prompt().value,'来自原候选的完整配置');await button('还原原草稿').click();assert.equal(prompt().value,'等待期间的新修改');
+assert.equal(posts.length,1);assert.ok(posts.every(row=>row.url.endsWith('/drafts')));app.suspend();
+console.log('PASS catalog reuse, full params/references, original draft restore, repeated open, cancellation, changed inputs, stale scope, permissions, thumbnails, searchable models, no implicit writes');
 """
         result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
                                 capture_output=True, text=True, timeout=15)

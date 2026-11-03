@@ -4,7 +4,7 @@ from sqlalchemy import select, insert, update, func, and_, or_, exists
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from vsc.assets.resource_service import ResourceError, Conflict, NotFound
 from . import schema as S
-from .shared_library import SharedLibraryRepository
+from .shared_library import SharedLibraryRepository, _version_gaps
 from .values import checked_id, clean, digest, new_id, CURRENT_REVISION
 
 
@@ -22,6 +22,7 @@ class AssetCenterRepository:
             .where(S.library_catalog_tags.c.edit_id==row["id"]).order_by(S.library_catalog_tags.c.tag)).scalars()))
 
     def search(self, filters, actor):
+        if filters.get("source")=="official":return self._search_official(filters)
         e,c = S.library_entries,S.library_catalog_edits
         ranked = select(c,func.row_number().over(partition_by=c.c.entry_id,order_by=c.c.revision.desc()).label("rank")).subquery()
         query = select(e.c.current_version_id).outerjoin(ranked,and_(ranked.c.entry_id==e.c.id,ranked.c.rank==1))
@@ -51,11 +52,87 @@ class AssetCenterRepository:
             ids=list(conn.execute(query.order_by(e.c.title,e.c.id).offset(filters["offset"]).limit(filters["limit"])).scalars())
             rows=self.library._details(conn,ids)
             for row in rows:
+                row["source"]="shared"
                 row["catalog"]=self._latest(conn,row["id"])
                 if row["catalog"].get("library_version_id")!=row["version_id"]:row["catalog"]["review_status"]="draft"
                 owner=conn.execute(select(e.c.created_by).where(e.c.id==row["id"])).scalar_one()
                 row["can_edit_catalog"]=owner==actor
             return clean({"items":rows,"total":total,"offset":filters["offset"],"next_offset":filters["offset"]+len(rows) if filters["offset"]+len(rows)<total else None})
+
+    @staticmethod
+    def _official_publisher(actor):
+        from vsc.configuration import get_config
+        publishers=get_config("VSC_OFFICIAL_ASSET_PUBLISHERS",[])
+        if not isinstance(publishers,(list,tuple)) or any(not isinstance(p,str) or not p.strip() or len(p)>200 for p in publishers):
+            raise ResourceError("官方发布者配置需要明确的身份列表","official_publisher_config",503)
+        if actor not in publishers:
+            raise ResourceError("当前身份没有平台官方资产发布权限","official_publisher_required",403)
+
+    def publish_official(self,payload,actor):
+        self._official_publisher(actor)
+        request_sha=digest(payload)
+        o,v,e=S.official_asset_publications,S.library_entry_versions,S.library_entries
+        with self.store.engine.begin() as conn:
+            self.library._lock_key(conn,"official-command:"+actor+":"+payload["command_key"])
+            previous=conn.execute(select(o).where(o.c.publisher==actor,o.c.command_key==payload["command_key"])).mappings().first()
+            if previous:
+                if previous["request_sha256"]!=request_sha:raise Conflict("官方发布请求标识的内容已改变","idempotency_conflict")
+                return clean(dict(previous))
+            version=conn.execute(select(v).where(v.c.id==payload["library_version_id"],v.c.entry_id==payload["entry_id"])).mappings().first()
+            if not version:raise NotFound("原共享库固定版本不存在或不属于该库项")
+            sources=conn.execute(select(S.library_reuses.c.project_id).where(S.library_reuses.c.library_version_id==version["id"],S.library_reuses.c.reuse_mode=="publish")).scalars()
+            for project_id in sorted(set(sources)):
+                conn.execute(select(S.projects.c.id).where(S.projects.c.id==project_id).with_for_update(read=True)).one()
+            # Take the entry write lock before rights' shared entry lock, so
+            # competing publishers never deadlock while upgrading row locks.
+            entry=conn.execute(select(e).where(e.c.id==version["entry_id"]).with_for_update()).mappings().one()
+            # Same original rights closure and source-before-entry lock order as
+            # adoption. Official classification never grants an extra license.
+            if not version["allowed_purposes"]:raise ResourceError("原共享版本没有许可用途","library_purpose_not_allowed")
+            for purpose in version["allowed_purposes"]:
+                gaps=_version_gaps(self.store,conn,version,purpose,new_use=True)
+                if gaps:raise ResourceError("原共享素材当前不允许发布："+", ".join(gaps),gaps[0])
+            if entry["visibility"]!="workspace":raise ResourceError("官方目录仅接受已明确共享的原固定版本","official_shared_required")
+            existing=conn.execute(select(o).where(o.c.library_version_id==version["id"])).mappings().first()
+            if existing:raise Conflict("此固定库版本已有不可变官方发布记录","official_publication_exists")
+            row=dict(payload,id=new_id(),publisher=actor,request_sha256=request_sha)
+            conn.execute(insert(o).values(**row))
+            return clean(dict(conn.execute(select(o).where(o.c.id==row["id"])).mappings().one()))
+
+    def _search_official(self,filters):
+        o,v,e=S.official_asset_publications,S.library_entry_versions,S.library_entries
+        query=select(o).join(v,and_(v.c.id==o.c.library_version_id,v.c.entry_id==o.c.entry_id)).join(e,e.c.id==o.c.entry_id)
+        query=query.where(e.c.status=="active",e.c.rights_status=="active",e.c.visibility=="workspace",
+            or_(v.c.expires_at.is_(None),v.c.expires_at>func.now()))
+        if filters.get("asset_kind"):query=query.where(o.c.asset_kind==filters["asset_kind"])
+        # Facets use the readable base official kind, so selecting one facet
+        # does not erase the other actual choices. Each column is bounded.
+        facet_base=query.subquery()
+        for key in ("role_level","role_tag","gender","age_band"):
+            if filters.get(key):query=query.where(o.c[key]==filters[key])
+        if filters.get("media_only"):
+            query=query.where(exists(select(1).where(S.library_version_media.c.library_version_id==o.c.library_version_id,
+                S.library_version_media.c.modality.in_(["image","video","audio"]))))
+        if filters.get("query"):
+            pattern="%"+filters["query"].replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%"
+            query=query.where(or_(v.c.title.ilike(pattern,escape="\\"),v.c.description.ilike(pattern,escape="\\"),o.c.role_tag.ilike(pattern,escape="\\")))
+        with self.store.engine.connect() as conn:
+            facets={}
+            facets_truncated=False
+            for key in ("role_tag","role_level","gender","age_band"):
+                values=list(conn.execute(select(facet_base.c[key]).distinct().order_by(facet_base.c[key]).limit(101)).scalars())
+                facets[key]=values[:100]
+                facets_truncated=facets_truncated or len(values)>100
+            total=conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+            publications=[dict(row) for row in conn.execute(query.order_by(v.c.title,o.c.library_version_id)
+                .offset(filters["offset"]).limit(filters["limit"])).mappings()]
+            details=self.library._details(conn,[row["library_version_id"] for row in publications])
+            by_version={row["library_version_id"]:row for row in publications}
+            for row in details:
+                row.update(source="official",official=by_version[row["version_id"]],can_edit_catalog=False)
+            return clean({"items":details,"total":total,"offset":filters["offset"],"limit":filters["limit"],
+                "facets":facets,"facets_truncated":facets_truncated,
+                "next_offset":filters["offset"]+len(details) if filters["offset"]+len(details)<total else None})
 
     def edit(self, payload, actor):
         request_sha=digest(payload)
@@ -86,11 +163,15 @@ class AssetCenterRepository:
         with self.store.engine.connect() as conn:
             rows=conn.execute(select(S.library_cart_items).where(S.library_cart_items.c.actor==actor,S.library_cart_items.c.active)
                 .order_by(S.library_cart_items.c.created_at,S.library_cart_items.c.id)).mappings().all()
+            publications={row["library_version_id"]:dict(row) for row in conn.execute(select(S.official_asset_publications)
+                .where(S.official_asset_publications.c.library_version_id.in_({row["library_version_id"] for row in rows}))).mappings()}
             result=[]
             for row in rows:
                 fixed=self.library._detail(conn,row["library_version_id"])
                 member=next(item for item in fixed["members"] if item["member_key"]==row["member_key"])
-                result.append(dict(row,title=fixed["title"],member=member,allowed_purposes=fixed["allowed_purposes"]))
+                official=publications.get(row["library_version_id"])
+                result.append(dict(row,title=fixed["title"],member=member,allowed_purposes=fixed["allowed_purposes"],
+                    source="official" if official else "shared",official=dict(official) if official else None))
             return clean({"items":result})
 
     def cart_change(self, payload, actor):

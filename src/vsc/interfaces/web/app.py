@@ -163,6 +163,14 @@ def create_app(config=None, catalog=None, service=None):
     def index():
         return HTMLResponse((root / "templates" / "index.html").read_text("utf-8"))
 
+    @app.get('/api/v1/project-media')
+    def project_media(request: Request, project_id: str = None, episode_id: str = None,
+                      modality: str = None, query: str = '', created_after: str = None,
+                      created_before: str = None, order: str = 'created_desc', offset: int = 0, limit: int = 24):
+        return etag(request, catalog.project_media(project_id=project_id, episode_id=episode_id,
+            modality=modality, query=query, created_after=created_after, created_before=created_before,
+            order=order, offset=offset, limit=limit))
+
     def new_session(binding=None):
         identity = binding.get('actor') if binding else config.get("human_identity")
         if binding is None and (not config.get("access_token") or not identity):

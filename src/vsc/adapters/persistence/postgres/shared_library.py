@@ -352,7 +352,7 @@ class SharedLibraryRepository:
         except IntegrityError as exc:
             raise ResourceError("共享库关系不合法", "constraint_violation") from exc
 
-    def _preflight(self, conn, project, payload):
+    def _fixed_reference(self, conn, payload):
         version_id = checked_id(required(payload, "library_version_id"))
         version = conn.execute(select(S.library_entry_versions).where(S.library_entry_versions.c.id == version_id)).mappings().first()
         if version is None:
@@ -360,6 +360,10 @@ class SharedLibraryRepository:
         member = next((m for m in self._members(conn, version_id) if m["member_key"] == required(payload, "member_key")), None)
         if member is None:
             raise NotFound("库媒体成员不存在")
+        return version, member
+
+    def _preflight(self, conn, project, payload):
+        version, member = self._fixed_reference(conn, payload)
         role = required(payload, "role")
         gaps = _version_gaps(self.store, conn, version, role, new_use=True)
         try:
@@ -373,6 +377,34 @@ class SharedLibraryRepository:
         except ResourceError as error:
             gaps.append(error.code)
         return version, member, sorted(set(gaps))
+
+    def materialize_reference(self, conn, project, payload, actor):
+        """Register a fixed, licensed member without inventing a project asset."""
+        version, member = self._fixed_reference(conn, payload)
+        gaps = _version_gaps(self.store, conn, version, required(payload, "role"), new_use=True)
+        if gaps:
+            raise ResourceError("库素材不能用于当前引用: " + "；".join(GAP_MESSAGES.get(code, code) for code in gaps), "library_use_blocked")
+        self._verify(member)
+        return self._register_reference(conn, project, version, member, actor)
+
+    def _register_reference(self, conn, project, version, member, actor):
+        entry = conn.execute(select(S.library_entries).where(S.library_entries.c.id == version["entry_id"])).mappings().one()
+        location = next(item for item in member["locations"] if item["storage"] == "local" and item["available"])
+        source = {"kind": "workspace-library", "content": {"library_version_id": version["id"], "member_key": member["member_key"],
+            "sha256": member["sha256"], "license": version["license"], "allowed_purposes": version["allowed_purposes"]}}
+        registered = self.store._register_media(conn, project, dict(member, name=entry["title"], source=source,
+            rights="licensed", rights_scope={"purposes": version["allowed_purposes"]}, storage=location["storage"],
+            object_key=location["object_key"]), actor)
+        rights = self.store._latest(conn, S.rights_decisions, project["id"], "media_id", registered["id"])
+        reuse_id = new_id()
+        conn.execute(insert(S.library_reuses).values(project_id=project["id"], id=reuse_id, media_id=registered["id"],
+            source_id=rights["source_id"], rights_decision_id=rights["id"], library_key=entry["library_key"],
+            library_version=str(version["version"]), reuse_mode="reference", library_version_id=version["id"],
+            member_key=member["member_key"], blob_id=member["blob_id"]))
+        self.store.record_media_check(project["id"], {"media_id": registered["id"], "checker": "library-byte-verification",
+            "criteria_version": "sha256-controlled-storage/v1", "outcome": "pass", "report": {"sha256": member["sha256"]}},
+            actor=actor, expected_revision=project["revision"], idempotency_key="library-internal", _transaction=(conn, project))
+        return registered, rights, reuse_id
 
     def preview_use(self, project_id, payload):
         with self.store.engine.connect() as conn:
@@ -392,22 +424,8 @@ class SharedLibraryRepository:
             version, member, gaps = self._preflight(conn, project, payload)
             if gaps:
                 raise ResourceError("库素材不能用于目标: " + "；".join(GAP_MESSAGES.get(code, code) for code in gaps), "library_use_blocked")
-            entry = conn.execute(select(S.library_entries).where(S.library_entries.c.id == version["entry_id"])).mappings().one()
-            location = next(item for item in member["locations"] if item["storage"] == "local" and item["available"])
-            source = {"kind": "workspace-library", "content": {"library_version_id": version["id"], "member_key": member["member_key"],
-                "sha256": member["sha256"], "license": version["license"], "allowed_purposes": version["allowed_purposes"]}}
-            registered = self.store._register_media(conn, project, dict(member, name=entry["title"], source=source,
-                rights="licensed", rights_scope={"purposes": version["allowed_purposes"]}, storage=location["storage"],
-                object_key=location["object_key"]), actor)
-            rights = self.store._latest(conn, S.rights_decisions, project["id"], "media_id", registered["id"])
-            reuse_id = new_id()
-            conn.execute(insert(S.library_reuses).values(project_id=project["id"], id=reuse_id, media_id=registered["id"],
-                source_id=rights["source_id"], rights_decision_id=rights["id"], library_key=entry["library_key"],
-                library_version=str(version["version"]), reuse_mode="reference", library_version_id=version["id"],
-                member_key=member["member_key"], blob_id=member["blob_id"]))
+            registered, rights, reuse_id = self._register_reference(conn, project, version, member, actor)
             internal = {"actor": actor, "expected_revision": project["revision"], "idempotency_key": "library-internal", "_transaction": (conn, project)}
-            self.store.record_media_check(project["id"], {"media_id": registered["id"], "checker": "library-byte-verification",
-                "criteria_version": "sha256-controlled-storage/v1", "outcome": "pass", "report": {"sha256": member["sha256"]}}, **internal)
             binding = {key: payload[key] for key in ("target_object_id", "role", "slot_key", "identity_asset_id", "variant_spec_id", "spec_version_id", "line_coverage_id", "track_key", "context_sha256") if key in payload}
             candidate = self.store.propose_binding(project["id"], dict(binding, media_id=registered["id"]), **internal)
             decision = None

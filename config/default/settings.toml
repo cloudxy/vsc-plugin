@@ -7,6 +7,10 @@ GENERATION_WORKERS = 4
 GENERATION_PROJECT_CONCURRENCY = 4
 GENERATION_PROVIDER_CONCURRENCY = 4
 
+# Explicit trusted publisher identities for the platform's official asset catalog.
+# Empty by default; ordinary shared-library owners cannot self-designate official.
+OFFICIAL_ASSET_PUBLISHERS = []
+
 # Optional full-media understanding adapter; built-in visual sampling uses Grok Build.
 MEDIA_UNDERSTANDING_COMMAND = []
 

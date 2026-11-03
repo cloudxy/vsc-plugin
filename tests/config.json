@@ -1406,6 +1406,7 @@
         "src/vsc/assets/asset_center.py",
         "src/vsc/adapters/persistence/postgres/asset_center.py",
         "src/vsc/adapters/persistence/postgres/schema_asset_center.py",
+        "migrations/postgres/versions/0048_official_asset_catalog.py",
         "src/vsc/interfaces/web/asset_center.py",
         "src/vsc/interfaces/web/static/asset-center.js",
         "src/vsc/assets/task_center.py",
@@ -1481,6 +1482,59 @@
         "src/vsc/adapters/persistence/postgres/schema_management.py",
         "src/vsc/interfaces/web/project_management.py",
         "src/vsc/interfaces/web/static/project-management.js"
+      ]
+    },
+    "project.integration.test_media_catalog_access": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/media_catalog.py",
+        "src/vsc/adapters/persistence/postgres/access_control.py"
+      ]
+    },
+    "project.integration.test_recycle_global": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/project_management.py",
+        "src/vsc/adapters/persistence/postgres/project_management.py",
+        "src/vsc/adapters/persistence/postgres/media_catalog.py",
+        "src/vsc/interfaces/web/project_management.py"
+      ]
+    },
+    "project.unit.test_asset_center_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/asset-center.js",
+        "src/vsc/interfaces/web/static/asset-center.css",
+        "tests/project/unit/asset_center.test.mjs"
+      ]
+    },
+    "project.unit.test_canvas_placement_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "tests/project/unit/canvas_placement.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_classic_capabilities_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "tests/project/unit/classic_capabilities.test.mjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
+    },
+    "project.unit.test_trash_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/project-management.js",
+        "tests/project/unit/trash_frontend.test.mjs"
       ]
     },
     "project.unit.test_text_tools_frontend": {
@@ -1952,6 +2006,16 @@
       "layer": "unit",
       "sources": [
         "src/vsc/interfaces/web/static/intelligent-production.js"
+      ]
+    },
+    "project.unit.test_intelligent_races_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/intelligent-production.js",
+        "tests/project/unit/intelligent_races.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
       ]
     }
   },
