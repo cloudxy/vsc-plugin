@@ -10,6 +10,61 @@ class AssetCardTests(ResourceStoreFixture,unittest.TestCase):
     def card(self,name='人物',kind='character',media=None,voice=None):
         return self.write('save_asset_card',dict(name=name,asset_kind=kind,base_revision=0,forms=[dict(form_key='master',name='默认形态',base_version_id=None,description='明确的形态描述',media_id=media,voice_spec_id=voice)]))
 
+    def legacy_asset(self,name='旧人物'):
+        asset=self.write('create_object',dict(kind='asset',asset_kind='character',display_code=uuid.uuid4().hex,title=name))['id']
+        spec=dict(id=str(uuid.uuid4()),asset_id=asset,variant_key='master',description='旧版固定形态')
+        self.write('create_artifact',dict(artifact_key='legacy-'+uuid.uuid4().hex,artifact_type='asset-bible',
+            document={'asset_specs':[spec]},object_ids=[asset],asset_specs=[spec]))
+        return asset,spec['id']
+
+    def test_legacy_preview_is_current_usable_selection_and_does_not_change_forms(self):
+        from sqlalchemy import insert,select,update
+        from vsc.adapters.persistence.postgres import schema as S
+        previous_storage=self.service.storage;self.service.storage=None
+        self.addCleanup(setattr,self.service,'storage',previous_storage)
+        asset,spec=self.legacy_asset();empty=self.service.get_asset_card(self.p,asset)
+        self.assertIsNone(empty['preview']);self.assertEqual(empty['forms'][0]['spec_id'],spec)
+        self.assertIsNone(empty['forms'][0]['media_id'])
+        face1=self.media('人像一');face2=self.media('人像二');costume=self.media('服装')
+        first=self.candidate(asset,face1,role='identity_face',slot_key='front',variant_spec_id=spec);self.select(first)
+        second=self.candidate(asset,face2,role='identity_face',slot_key='side')
+        selection=self.select(second)
+        costume_candidate=self.candidate(asset,costume,role='costume',slot_key='outfit');self.select(costume_candidate)
+        card=self.service.get_asset_card(self.p,asset);preview=card['preview']
+        self.assertEqual(preview,dict(media_id=face2,source='current_binding',slot_id=second['slot_id'],slot_key='side',role='identity_face',variant_spec_id=None,candidate_id=second['candidate_id'],decision_id=selection['decision_id']))
+        self.assertIsNone(card['forms'][0]['media_id'])
+        self.assertEqual(self.service.list_asset_cards(self.p)['items'][0]['preview'],preview)
+        # A selected historical registration may become invalid later. A
+        # recycle action linked to its lifecycle decision represents that case.
+        deprecated=self.write('decide_media_lifecycle',dict(media_id=face2,outcome='deprecate',reason='历史用料失效'))
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.media_recycle_actions).values(project_id=self.p,id=str(uuid.uuid4()),media_id=face2,decision_id=deprecated['id']))
+        preview=self.service.get_asset_card(self.p,asset)['preview']
+        self.assertEqual(preview['media_id'],face1);self.assertEqual(preview['variant_spec_id'],spec)
+        with self.engine.begin() as conn:
+            blob=conn.execute(select(S.media_items.c.blob_id).where(S.media_items.c.project_id==self.p,S.media_items.c.id==face1)).scalar_one()
+            conn.execute(update(S.blob_locations).where(S.blob_locations.c.blob_id==blob).values(available=False))
+        self.assertEqual(self.service.get_asset_card(self.p,asset)['preview']['media_id'],costume)
+        self.write('decide_media_lifecycle',dict(media_id=face1,outcome='deprecate',reason='不再有效'))
+        self.assertEqual(self.service.get_asset_card(self.p,asset)['preview']['media_id'],costume)
+        self.write('retire_binding',dict(slot_id=costume_candidate['slot_id'],reason='结束选择'))
+        self.assertIsNone(self.service.get_asset_card(self.p,asset)['preview'])
+        self.assertIsNone(self.service.get_asset_card(self.p,asset)['forms'][0]['media_id'])
+
+    def test_preview_does_not_cross_project_or_override_working_card(self):
+        previous_storage=self.service.storage;self.service.storage=None
+        self.addCleanup(setattr,self.service,'storage',previous_storage)
+        asset,_=self.legacy_asset();image=self.media('旧选图')
+        chosen=self.candidate(asset,image,role='identity_face');self.select(chosen)
+        target=self.service.create_project({'name':'另一项目'},actor='test-human')['id']
+        with self.assertRaises(ResourceError):self.service.get_asset_card(target,asset)
+        self.assertEqual(self.service.list_asset_cards(target)['items'],[])
+        result=self.write('save_asset_card',dict(asset_id=asset,name='已有工作卡',asset_kind='character',base_revision=0,
+            forms=[dict(form_key='master',name='默认',base_version_id=None,description='工作卡优先',media_id=None)]))
+        card=self.service.get_asset_card(self.p,asset)
+        self.assertEqual(card['revision'],1);self.assertIsNone(card['preview']);self.assertIsNone(card['forms'][0]['media_id'])
+        self.assertEqual(result['forms'][0]['media_id'],None)
+
     def test_original_specs_history_voice_and_episode_alias_refresh(self):
         from sqlalchemy import select,func
         from vsc.adapters.persistence.postgres import schema as S

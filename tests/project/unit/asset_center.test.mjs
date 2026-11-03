@@ -37,12 +37,35 @@ globalThis.location={search:'',href:''};
 globalThis.history={pushState(_a,_b,url){location.search=url;},replaceState(_a,_b,url){location.search=url;}};
 globalThis.sessionStorage={getItem(){return null;},setItem(){},removeItem(){}};
 const {createAssetCenter}=await import('../../../src/vsc/interfaces/web/static/asset-center.js');
+const {legacyPreviewForm,applyLegacySuggestion}=await import('../../../src/vsc/interfaces/web/static/asset-cards.js');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle() { for(let i=0;i<15;i++) await tick(); }
 const asset=i=>({id:'id'+i,name:'资产'+i,asset_kind:'character',forms:[]});
 const context=(projects,api)=>({session:()=>({actor:'tester'}),projects:()=>projects,notice(){},api});
 const button=(root,name)=>root.walk().find(n=>n.tagName==='BUTTON'&&n.textContent===name);
 const cards=root=>root.querySelectorAll('.global-asset-card');
+
+test('legacy reference suggestion is scoped to an unambiguous form and preserves retained drafts',()=>{
+  const forms=[{form_key:'one',spec_id:'s1',media_id:null},{form_key:'two',spec_id:'s2',media_id:null}];
+  const card={forms,preview:{variant_spec_id:'s2',media_id:'selected'}};
+  assert.equal(legacyPreviewForm(card).form_key,'two');
+  assert.equal(legacyPreviewForm({...card,preview:{variant_spec_id:null}}),null);
+  assert.equal(legacyPreviewForm({forms:[forms[0]],preview:{variant_spec_id:null}}).form_key,'one');
+  const draft={forms:forms.map(f=>({...f}))};
+  assert.equal(applyLegacySuggestion(draft,true,{form_key:'two',media_id:'selected'}),false);
+  assert.equal(draft.forms[1].media_id,null);
+  assert.equal(applyLegacySuggestion(draft,false,{form_key:'two',media_id:'selected'}),true);
+  assert.equal(draft.forms[1].media_id,'selected');assert.equal(forms[1].media_id,null);
+});
+
+test('project cards show a selected-reference preview without altering forms',async()=>{
+  location.search='?page=asset-center';const legacy={id:'old',name:'旧道具',asset_kind:'object',forms:[{media_id:null}],preview:{media_id:'selected',source:'current_binding'}};
+  const working={id:'new',name:'当前形态',asset_kind:'character',forms:[{media_id:'form'}],preview:{media_id:'older',source:'current_binding'}};
+  const root=new Element('main',document),panel=createAssetCenter(root,context([{id:'p',name:'项目'}],async()=>({items:[legacy,working],next_offset:null,revision:1})));
+  await panel.load();await settle();const result=cards(root);assert.equal(result.length,2);const image=card=>card.walk().find(n=>n.tagName==='IMG');
+  assert.equal(image(result[0]).src,'/api/v1/projects/p/media/selected/content');assert.equal(image(result[0]).title,'已选参考图，仅用于预览');assert.equal(result[0].querySelector('.global-asset-badge').textContent,'道具');assert.equal(legacy.forms[0].media_id,null);
+  assert.equal(image(result[1]).src,'/api/v1/projects/p/media/form/content');panel.suspend();
+});
 
 // A slow project never blocks the first page of a fast project.  Scrolling
 // through bounded views must still expose every page and preserve failures.

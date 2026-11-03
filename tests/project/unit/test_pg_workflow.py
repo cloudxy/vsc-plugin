@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from support.paths import ROOT
 from vsc.assets.resource_service import ResourceError
-from vsc.project.pg_workflow import authority_pointer, check_gate, create_project, legacy_write_guard
+from vsc.project.pg_workflow import authority_pointer, check_gate, create_project, legacy_write_guard, workflow_status, _validated_contract
 from vsc.project.migration import _digest
 
 
@@ -32,7 +32,74 @@ def migrated_gate_service():
     return service, versions
 
 
+def repeated_gate_service():
+    service = Mock()
+    service.store.engine.connect.return_value = MagicMock()
+    profile = {"scope_required_from": "script", "contract_policy": "production-v2", "stages": [
+        {"id": "brief", "required": ["vsc.test"]}, {"id": "script", "required": []}]}
+    service.get_project.return_value = {"revision": 7, "profile_snapshot": profile}
+    service.get_project_tree.return_value = {"nodes": [{"id": "ep1", "kind": "episode"}, {"id": "ep2", "kind": "episode"}]}
+    service.list_sources.return_value = {"items": [{"id": "source"}]}
+    service.list_artifacts.return_value = {"items": [{"id": "same", "artifact_type": "vsc.test", "stage": "brief", "current": True, "approved": True}]}
+    service.get_artifact_version.return_value = {"id": "same", "sha256": "unchanged-id", "document": "original"}
+    return service
+
+
 class AuthorityAndGateTests(unittest.TestCase):
+    def test_status_reuses_success_only_within_call_and_runs_rules_per_scope(self):
+        service = repeated_gate_service()
+        def report(store, conn, project, artifact, context_scope=None):
+            return {"errors": ["episode rule"] if context_scope == "ep1" else [], "warnings": ["scope:" + str(context_scope)]}
+        with patch("vsc.project.pg_workflow.validate_contract", return_value=[]) as validate, patch(
+                "vsc.adapters.persistence.postgres.creative_rules.artifact_rule_report", side_effect=report) as rules:
+            status = workflow_status(service, "p")
+            self.assertEqual(validate.call_count, 1)
+            self.assertEqual(rules.call_count, 3)
+            self.assertEqual(service.get_artifact_version.call_count, 3)
+            self.assertTrue(status["gates"][0]["passed"])
+            self.assertEqual(status["gates"][0]["artifacts"], [{"id": "same", "sha256": "unchanged-id"}])
+            episode1, episode2 = status["gates"][1]["episodes"]
+            self.assertFalse(episode1["passed"]); self.assertTrue(episode2["passed"])
+            self.assertEqual(episode1["warnings"][0]["message"], "scope:ep1")
+            self.assertEqual(episode1["gaps"][0]["errors"], ["episode rule"])
+            self.assertEqual(episode2["gaps"], [])
+            workflow_status(service, "p")
+            self.assertEqual(validate.call_count, 2)
+            self.assertEqual(rules.call_count, 6)
+            check_gate(service, "p", "script")
+            self.assertEqual(validate.call_count, 3)
+            self.assertEqual(rules.call_count, 8)
+
+    def test_failed_contract_is_retried_and_same_version_changed_content_is_revalidated(self):
+        service = repeated_gate_service()
+        empty_report = {"errors": [], "warnings": []}
+        with patch("vsc.project.pg_workflow.validate_contract", side_effect=[["temporary failure"], []]) as validate, patch(
+                "vsc.adapters.persistence.postgres.creative_rules.artifact_rule_report", return_value=empty_report):
+            status = workflow_status(service, "p")
+            self.assertEqual(validate.call_count, 2)
+            self.assertEqual(status["gates"][0]["gaps"][0]["errors"], ["temporary failure"])
+            self.assertTrue(status["gates"][1]["passed"])
+        service = repeated_gate_service()
+        service.get_artifact_version.side_effect = [
+            {"id": "same", "sha256": "unchanged-id", "document": doc} for doc in ("before", "after", "after")]
+        with patch("vsc.project.pg_workflow.validate_contract", return_value=[]) as validate, patch(
+                "vsc.adapters.persistence.postgres.creative_rules.artifact_rule_report", return_value=empty_report):
+            workflow_status(service, "p")
+        self.assertEqual([call.args[0] for call in validate.call_args_list], ["before", "after"])
+
+    def test_contract_cache_keys_complete_inputs_and_does_not_cache_exceptions(self):
+        successful = set(); profile = {"policy": {"detail": [1]}}
+        with patch("vsc.project.pg_workflow.validate_contract", side_effect=[TimeoutError(), [], [], [], []]) as validate:
+            with self.assertRaises(TimeoutError):
+                _validated_contract("body", "vsc.test", "one", profile, successful)
+            _validated_contract("body", "vsc.test", "one", profile, successful)
+            _validated_contract(b"body", "vsc.test", "one", profile, successful)
+            _validated_contract("body", "vsc.other", "one", profile, successful)
+            _validated_contract("body", "vsc.test", "two", profile, successful)
+            profile["policy"]["detail"].append(2)
+            _validated_contract("body", "vsc.test", "one", profile, successful)
+            self.assertEqual(validate.call_count, 5)
+
     def test_pg_creation_selects_light_profile_without_changing_legacy_snapshot(self):
         from vsc.project.state import profile_for
         service = Mock()

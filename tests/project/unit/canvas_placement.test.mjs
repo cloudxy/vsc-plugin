@@ -29,11 +29,11 @@ async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null}={}) 
   const images=[];class FakeImage{constructor(){images.push(this);}}
   const store=new Map(),sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
   const window={addEventListener(){},removeEventListener(){}},location={search:''};
-  const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,setTimeout:()=>0,clearTimeout:()=>{}});
+  const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:()=>0,clearTimeout:()=>{}});
   const root=document.createElement('main');
   const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},api:async(path)=>path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
-  return {root,canvas,store,images,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
+  return {root,canvas,store,images,document,FakeImage,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
 function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.textContent==='添加图片');assert.ok(action);return action.fire('click');}
 function savedNode(store){return JSON.parse(store.get('vsc-creative-canvas:p1:c1')).document.nodes.at(-1);}
@@ -76,10 +76,15 @@ test('selected image exposes preview and original download without editing canva
  await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-image-preview'),null);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
 });
 
-test('panorama viewer opens the selected source and closes without changing the canvas',async()=>{
+test('panorama viewer opens inline for the selected image and closes without editing',async()=>{
  const node={id:'image1',type:'image',title:'全景参考',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};const a=await fixture({nodes:[node]});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
- await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');let dialog=a.root.querySelector('.cc-panorama-preview');assert.ok(dialog.open);assert.equal(a.images[0].src,'/api/v1/projects/p1/media/media1/content');a.images[0].naturalWidth=4;a.images[0].naturalHeight=2;a.images[0].onload();assert.ok(dialog.querySelector('canvas'));assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
- await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-panorama-preview'),null);await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');dialog=a.root.querySelector('.cc-panorama-preview');a.images[1].naturalWidth=16;a.images[1].naturalHeight=9;a.images[1].onload();assert.match(dialog.querySelector('p').textContent,/2:1/);await dialog.querySelector('button').fire('click');a.canvas.suspend();
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');card=a.root.querySelector('.cc-node');const viewer=card.querySelector('.cc-panorama-viewer');assert.ok(viewer);assert.equal(a.images[0].src,'/api/v1/projects/p1/media/media1/content');a.images[0].naturalWidth=16;a.images[0].naturalHeight=9;a.images[0].onload();assert.ok(viewer.querySelector('canvas'));assert.doesNotMatch(viewer.querySelector('p').textContent,/2:1/);assert.equal(card.querySelector('.cc-node-resolution').textContent,'16 × 9');assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
+ const late=a.images[0].onload;await card.querySelectorAll('button').find(b=>b.attrs['aria-label']==='退出全景预览').fire('click');assert.equal(a.root.querySelector('.cc-panorama-viewer'),null);assert.ok(a.root.querySelector('.cc-node').querySelector('img'));late();assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+});
+
+test('classic panorama viewer still rejects a non-2:1 source',async()=>{
+ const a=await fixture(),{mountPanorama}=await loadModule('panorama-viewer.js',{document:a.document,Image:a.FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{}}),host=a.document.createElement('div');
+ const viewer=mountPanorama(host,'/flat.png',{isCurrent:()=>true});a.images[0].naturalWidth=16;a.images[0].naturalHeight=9;a.images[0].onload();assert.match(host.querySelector('p').textContent,/2:1/);viewer.dispose();a.canvas.suspend();
 });
 
 test('closing an image tool leaves its source and document untouched',async()=>{
