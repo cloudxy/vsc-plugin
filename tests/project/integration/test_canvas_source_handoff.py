@@ -39,6 +39,109 @@ class CanvasSourceHandoffTests(ResourceStoreFixture,unittest.TestCase):
     def decide(self,turn,index,key=None,**extra):
         return self.write('decide_canvas_agent_turn',dict(turn_id=turn['id'],action_index=index,outcome='confirm',reason='隔离操作者确认当前动作',**extra),idempotency_key=key or uuid.uuid4().hex)
 
+    def image_tool_model(self):
+        provider='canvas_image_tool_'+uuid.uuid4().hex
+        self.service.register_provider(dict(id=provider,base_url='https://example.invalid',auth_ref='OFFLINE_TEST_KEY'),actor='test-admin')
+        return self.service.register_model(dict(provider_id=provider,model_key='image-edit',model_version='offline',modality='image',capabilities=dict(purposes=['image_edit'],reference_media=True,max_reference_images=1)),actor='test-admin')
+
+    def image_tool_canvas(self,tool,settings,refs):
+        nodes=[dict(id='out',type='image',text='附加画面说明',params={'seed':42,'vsc_image_tool':tool,'vsc_image_tool_settings':settings})]
+        edges=[]
+        for index,media in enumerate(refs):
+            key='ref'+str(index);nodes.append(dict(id=key,type='image',media_id=media));edges.append(dict(id='edge'+str(index),source=key,target='out',port='reference'))
+        return self.write('create_creative_canvas',dict(episode_id=self.objects['episode'],document=dict(nodes=nodes,edges=edges)))
+
+    def test_image_tools_pin_single_source_settings_and_preserve_replay(self):
+        source=self.media('tool source');model=self.image_tool_model()
+        for tool,settings in [('angle','{"yaw":45,"pitch":15}'),('lighting','{"direction":"left","rim":true}')]:
+            with self.subTest(tool=tool):
+                canvas=self.image_tool_canvas(tool,settings,[source]);payload=dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id'])
+                before=self.rev;key=uuid.uuid4().hex;fixed=self.write('prepare_canvas_work_input',payload,idempotency_key=key)
+                replay=self.service.prepare_canvas_work_input(self.p,payload,actor='test-human',expected_revision=before,idempotency_key=key)
+                self.assertEqual(replay,fixed);draft=fixed['document']
+                self.assertEqual((draft['mode'],draft['purpose']),('image_'+tool,'image_edit'))
+                self.assertEqual(draft['params'],{'seed':42});self.assertEqual(draft['references'][0]['media_id'],source)
+                self.assertEqual(draft['references'][0]['sha256'],self.service.get_media(self.p,source)['sha256'])
+                self.assertEqual(draft['prompt'],'附加画面说明')
+                if tool=='angle':self.assertEqual((draft['tool_settings']['yaw'],draft['tool_settings']['pitch'],draft['tool_settings']['include_instructions']),(45,15,True))
+                else:self.assertEqual((draft['tool_settings']['direction'],draft['tool_settings']['rim'],draft['tool_settings']['intensity']),('left',True,0.5))
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+
+    def test_image_tools_reject_unfixed_or_multiple_sources_and_forged_settings(self):
+        from vsc.assets.resource_service import ResourceError
+        source=self.media('tool source');other=self.media('second source');model=self.image_tool_model()
+        for refs in ([],[source,other]):
+            canvas=self.image_tool_canvas('angle','{}',refs)
+            with self.assertRaises(ResourceError) as error:self.write('prepare_canvas_work_input',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id']))
+            self.assertEqual(error.exception.code,'canvas_image_tool_source')
+        source_node=dict(id='source',type='image',media_id=source)
+        for kind,params in [('video',{'vsc_image_tool':'angle','vsc_image_tool_settings':'{}'}),('image',{'vsc_image_tool':'angle'}),('image',{'vsc_image_tool':'angle','vsc_image_tool_settings':'{"yaw":1,"yaw":2}'}),('image',{'vsc_image_tool':'angle','vsc_image_tool_settings':'{"include_instructions":false}'}),('image',{'vsc_image_tool':'angle','vsc_image_tool_settings':'{"yaw":999}'}),('image',{'vsc_image_tool':'unknown','vsc_image_tool_settings':'{}'})]:
+            with self.subTest(kind=kind,params=params),self.assertRaises(ResourceError):
+                self.write('create_creative_canvas',dict(episode_id=self.objects['episode'],document=dict(nodes=[source_node,dict(id='bad',type=kind,params=params)],edges=[])))
+        canvas=self.image_tool_canvas('angle','{}',[source])
+        with self.assertRaises(ResourceError) as error:self.write('prepare_canvas_work_input',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id'],purpose='identity_ref'))
+        self.assertEqual(error.exception.code,'canvas_image_tool_purpose');self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+
+    def test_image_tool_output_drift_creates_candidate_without_overwriting_current_node(self):
+        source=self.media('original source');replacement=self.media('replacement source');model=self.image_tool_model()
+        self.write('configure_budget',dict(limits={'remote_jobs':10,'images':10},reason='synthetic output records'))
+        with patch('vsc.production.resource_settings.ResourceSettings.list',return_value={'configurations':[dict(model,enabled=True,adapter_available=True)]}):
+            for mutation in ('settings','source'):
+                with self.subTest(mutation=mutation):
+                    canvas=self.image_tool_canvas('angle','{"yaw":45}',[source]);fixed=self.write('prepare_canvas_work_input',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id']))
+                    request=dict(draft_version_id=fixed['draft_version_id'],execution_policy=self.policy)
+                    quote=self.service.preview_canvas_work_generation(self.p,request);self.assertTrue(quote['ready'],quote)
+                    generated=self.write('generate_canvas_work',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',request=request,preview_sha256=quote['preview_sha256']))
+                    job=generated['jobs'][0]['id'];self.write('update_generation_job',dict(job_id=job,status='submitted',external_task_id='synthetic-'+job))
+                    output=self.media('tool result '+mutation);self.write('update_generation_job',dict(job_id=job,status='succeeded',outputs=[{'media_id':output}]))
+                    current=self.service.get_creative_canvas(self.p,canvas['id']);document=deepcopy(current['document'])
+                    for node in document['nodes']:node.pop('preview_url',None)
+                    if mutation=='settings':next(n for n in document['nodes'] if n['id']=='out')['params']['vsc_image_tool_settings']='{"yaw":90}'
+                    else:next(n for n in document['nodes'] if n['id']=='ref0')['media_id']=replacement
+                    saved=self.write('save_creative_canvas',dict(canvas_id=canvas['id'],canvas_revision=1,document=document))
+                    adopted=self.write('adopt_canvas_work_outputs',dict(canvas_id=canvas['id'],canvas_revision=saved['canvas_revision'],run_version_id=generated['run_version_id']))
+                    self.assertTrue(adopted['input_changed']);result=self.service.get_creative_canvas(self.p,canvas['id'])['document']
+                    self.assertIsNone(next(n for n in result['nodes'] if n['id']=='out')['media_id'])
+                    self.assertEqual(next(n for n in result['nodes'] if n['id'] in adopted['node_ids'])['media_id'],output)
+                    self.assertTrue(any(e['source']=='out' and e['target'] in adopted['node_ids'] and e['port']=='derived_from' for e in result['edges']))
+
+    def test_image_tool_current_job_detects_settings_changes(self):
+        source=self.media('status source');model=self.image_tool_model()
+        self.write('configure_budget',dict(limits={'remote_jobs':10,'images':10},reason='synthetic output status'))
+        with patch('vsc.production.resource_settings.ResourceSettings.list',return_value={'configurations':[dict(model,enabled=True,adapter_available=True)]}):
+            for tool,settings in (('angle','{"yaw":45}'),('lighting','{"direction":"left"}')):
+                with self.subTest(tool=tool):
+                    canvas=self.image_tool_canvas(tool,settings,[source]);fixed=self.write('prepare_canvas_work_input',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id']))
+                    request=dict(draft_version_id=fixed['draft_version_id'],execution_policy=self.policy);quote=self.service.preview_canvas_work_generation(self.p,request)
+                    generated=self.write('generate_canvas_work',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',request=request,preview_sha256=quote['preview_sha256']))
+                    job=generated['jobs'][0]['id'];self.write('update_generation_job',dict(job_id=job,status='submitted',external_task_id='synthetic-'+job))
+                    output=self.media('status result '+tool);self.write('update_generation_job',dict(job_id=job,status='succeeded',outputs=[{'media_id':output}]))
+                    self.write('adopt_canvas_work_outputs',dict(canvas_id=canvas['id'],canvas_revision=1,run_version_id=generated['run_version_id']))
+                    current=self.service.get_creative_canvas(self.p,canvas['id']);self.assertFalse(current['jobs']['out']['input_changed'])
+                    document=deepcopy(current['document'])
+                    for node in document['nodes']:node.pop('preview_url',None)
+                    target=next(n for n in document['nodes'] if n['id']=='out')
+                    target['params']['vsc_image_tool_settings']='{"yaw":90}' if tool=='angle' else '{"direction":"right"}'
+                    self.write('save_creative_canvas',dict(canvas_id=canvas['id'],canvas_revision=current['canvas_revision'],document=document))
+                    self.assertTrue(self.service.get_creative_canvas(self.p,canvas['id'])['jobs']['out']['input_changed'])
+
+    def test_canvas_run_options_expose_independent_image_tool_defaults(self):
+        import tempfile
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        from vsc.production.image_tools import TOOLS
+        with tempfile.TemporaryDirectory() as root:
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'test-human'},catalog=ResourceCatalog(root,self.service),service=self.service)
+            with TestClient(app) as client:
+                login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
+                headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
+                response=client.get('/api/v1/projects/'+self.p+'/creative-canvas-run-options',headers=headers)
+                self.assertEqual(response.status_code,200,response.text);body=response.json()
+                self.assertEqual(set(body['image_tools']),{'angle','lighting'});self.assertEqual(body['image_tools']['angle']['include_instructions'],True)
+                self.assertEqual(body['image_tools']['lighting']['intensity'],0.5);self.assertEqual(body['image_tools']['lighting']['view'],'perspective');self.assertEqual(TOOLS['lighting'][1]['intensity'],1);self.assertEqual(TOOLS['lighting'][1]['view'],'front')
+                self.assertIn('nodes',body);self.assertIn('models',body);self.assertIn('revision',body)
+
     def test_same_turn_text_and_media_edges_feed_fixed_drafts_and_replay_original_action(self):
         from sqlalchemy import select,func
         from vsc.adapters.persistence.postgres import schema as S

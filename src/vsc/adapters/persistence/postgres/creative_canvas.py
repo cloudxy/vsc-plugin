@@ -6,7 +6,8 @@ import hashlib
 
 from sqlalchemy import insert, select, update
 
-from vsc.assets.creative_canvas import normalize_document, DOMAIN_TYPES, NODE_TYPES
+from vsc.assets.creative_canvas import (normalize_document, DOMAIN_TYPES, NODE_TYPES, canvas_image_tool,
+    CANVAS_IMAGE_TOOL, CANVAS_IMAGE_TOOL_SETTINGS)
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
 from .values import checked_id, clean, digest, new_id
@@ -435,7 +436,13 @@ class CreativeCanvasRepository:
                     refs = [(e["port"], by_id[e["source"]]["media_id"]) for e in incoming if e["port"] != "prompt"]
                     request = job["request_payload"]
                     fixed = {item["media_id"] for item in request.get("input_media", [])}
-                    changed = "\n".join(prompt) != request.get("prompt", "") or node["params"] != request.get("params", {})
+                    tool = canvas_image_tool(node["type"], node["params"])
+                    params = node["params"]
+                    if tool:
+                        from vsc.production.image_tools import tool_instruction
+                        prompt.append(tool_instruction(tool["tool"], tool["settings"]))
+                        params = {key: value for key, value in params.items() if key not in (CANVAS_IMAGE_TOOL, CANVAS_IMAGE_TOOL_SETTINGS)}
+                    changed = "\n".join(prompt) != request.get("prompt", "") or params != request.get("params", {})
                     changed = changed or any(not media or media not in fixed for port, media in refs)
                     changed = changed or any([media for port, media in refs if port == name] !=
                         ([request[field]] if request.get(field) else []) for name, field in
@@ -835,6 +842,7 @@ class CreativeCanvasRepository:
             p=project['id'];canvas,version,document=self._canvas_current(conn,project,payload)
             node=next((n for n in document['nodes'] if n['id']==payload.get('node_id')),None)
             if not node or node['type'] not in {'image','video','audio'}:raise ResourceError('选择图片、视频或音频节点')
+            image_tool=canvas_image_tool(node['type'],node['params'])
             shot=payload.get('shot_id')
             if shot:
                 self._one(conn,S.shots,p,shot)
@@ -869,15 +877,22 @@ class CreativeCanvasRepository:
                 role={'reference':'reference_image','first_frame':'first_frame','last_frame':'last_frame'}.get(edge['port'],edge['port'])
                 references.append(dict(role=role,media_id=media['id'],sha256=media['sha256']))
             if node['text'].strip():prompts.append(node['text'])
+            if image_tool and (len(references)!=1 or references[0]['role']!='reference_image'):
+                raise ResourceError('图像工具需要且仅接受一张固定来源图片','canvas_image_tool_source')
             roles={r['role'] for r in references}
             mode='image' if node['type']=='image' else 'audio' if node['type']=='audio' else 'omni' if roles & {'reference_video','reference_audio'} or 'reference_image' in roles and 'first_frame' not in roles else 'first_last' if 'last_frame' in roles else 'multi' if 'reference_image' in roles else 'single' if 'first_frame' in roles else 'text'
+            if image_tool:mode='image_'+image_tool['tool']
             ordered=payload.get('model_ids');model_id=ordered[0] if isinstance(ordered,list) and ordered else payload.get('model_id')
             model=conn.execute(select(S.provider_models).where(S.provider_models.c.id==checked_id(model_id))).mappings().first()
-            preferred={'image':'first_frame','video':'reference_to_video' if mode in {'omni','multi'} else 'image_to_video' if references else 'text_to_video','audio':'sfx'}[node['type']]
+            preferred={'image':'image_edit' if image_tool else 'first_frame','video':'reference_to_video' if mode in {'omni','multi'} else 'image_to_video' if references else 'text_to_video','audio':'sfx'}[node['type']]
             purposes=model['capabilities'].get('purposes',[]) if model else []
-            purpose=payload.get('purpose') or (preferred if ordered or preferred in purposes else purposes[0] if purposes else preferred)
+            if image_tool and payload.get('purpose') not in (None,'image_edit'):
+                raise ResourceError('图像工具必须使用图像编辑用途','canvas_image_tool_purpose')
+            purpose='image_edit' if image_tool else payload.get('purpose') or (preferred if ordered or preferred in purposes else purposes[0] if purposes else preferred)
+            params={k:v for k,v in node['params'].items() if k not in {CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS}}
             document=normalize_draft(dict(shot_id=shot,mode=mode,model_id=model_id,purpose=purpose,prompt='\n'.join(prompts),
-                count=payload.get('count',1),width=payload.get('width',1080),height=payload.get('height',1920),duration_ms=payload.get('duration_ms',5000),params=node['params'],references=references))
+                count=payload.get('count',1),width=payload.get('width',1080),height=payload.get('height',1920),duration_ms=payload.get('duration_ms',5000),params=params,references=references,
+                **({'tool_settings':image_tool['settings']} if image_tool else {})))
             routing=None;dependencies=[]
             if ordered is not None:
                 from vsc.production.canvas_execution import route_models,draft_logical

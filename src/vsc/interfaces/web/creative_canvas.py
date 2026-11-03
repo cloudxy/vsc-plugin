@@ -34,9 +34,11 @@ def install_creative_canvas_routes(router, catalog, etag, actor):
 
     @router.get("/{project_id}/creative-canvas-run-options")
     def run_options(project_id: str, request: Request):
+        from vsc.assets.creative_canvas import canvas_image_tool_options
         use = service(project_id)
         tree = use.get_project_tree(project_id)
-        return etag(request, {"nodes": tree["nodes"], "models": use.list_models(), "revision": tree["revision"]})
+        return etag(request, {"nodes": tree["nodes"], "models": use.list_models(), "revision": tree["revision"],
+                              "image_tools": canvas_image_tool_options()})
 
     @router.get("/{project_id}/creative-canvas-versions/{version_id}")
     def fixed_version(project_id:str,version_id:str,request:Request):
