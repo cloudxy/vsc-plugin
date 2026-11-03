@@ -11,6 +11,7 @@ const TYPES={text:{label:'文本',ports:{}},image:{label:'图片',ports:{prompt:
 const DOMAIN_TYPES=new Set(['spatial','director','edit','music_mix','processing']);
 Object.assign(TYPES,{spatial:{label:'三维预演',ports:{prompt:'text',reference:'image'}},director:{label:'导演台',ports:{prompt:'text',reference:'image'}},edit:{label:'剪辑',ports:{visual:['image','video'],sound:'audio'}},music_mix:{label:'视频配乐',ports:{source_video:'video',sound:'audio',prompt:'text'}},processing:{label:'视频加工',ports:{source_video:'video',prompt:'text'}}});
 const PORTS={derived_from:'原结果来源',visual:'画面',sound:'声音',source_video:'源视频',prompt:'文本提示',reference:'参考图片',first_frame:'首帧',last_frame:'尾帧',reference_image:'参考图片',reference_video:'参考视频',reference_audio:'参考音频'};
+const IMAGE_TOOL_TITLES={angle:'多角度',lighting:'打光',three_view:'角色三视图',headshot:'生成大头照',face_views:'角色脸部三视图'};
 const copy=value=>JSON.parse(JSON.stringify(value));
 const el=(tag,text,cls)=>{const node=document.createElement(tag);if(text!=null)setText(node,text);if(cls)node.className=cls;return node;};
 const input=(label,value='',tag='input')=>{const field=el(tag);bindAttribute(field,'aria-label',label);field.value=value;return field;};
@@ -229,7 +230,7 @@ export function createCreativeCanvasPanel(ctx){
   }
   function imageNodeActions(s,node,card){
     const tools=el('nav',null,'cc-image-node-tools'),content=`${base(s)}/media/${encodeURIComponent(node.media_id)}/content`;tools.style.transform=`scale(${1/s.document.viewport.zoom}) translateX(-50%)`;bindAttribute(tools,'aria-label','图片操作');
-    if(!s.shared&&!s.readOnly){tools.append(button(s,'多角度',()=>openImageTool(s,node,'angle')),button(s,'打光',()=>openImageTool(s,node,'lighting')));}
+    if(!s.shared&&!s.readOnly){tools.append(button(s,'多角度',()=>openImageTool(s,node,'angle')),button(s,'打光',()=>openImageTool(s,node,'lighting')));const menu=el('details',null,'cc-image-generate'),items=el('div',null,'cc-image-generate-menu');menu.append(el('summary','生成'),items);for(const [tool,label] of [['three_view','角色三视图'],['headshot','生成大头照'],['face_views','角色脸部三视图'],[null,'多机位九宫格 2K'],[null,'多机位九宫格 4K'],[null,'剧情推进四格'],[null,'电影级光影校正'],[null,'画面推演-3s后'],[null,'画面推演-5s前']]){const item=button(s,label,()=>startImagePreset(s,node,tool));if(!tool){item.disabled=true;item.title='尚未接入';}items.append(item);}tools.append(menu);}
     const preview=button(s,'预览',()=>{if(!live(s))return;const dialog=el('dialog',null,'cc-image-preview'),image=el('img'),close=button(s,'关闭',()=>dialog.close());bindAttribute(dialog,'aria-label','预览 '+node.title);bindAttribute(image,'alt',node.title);image.src=content;dialog.append(close,image);dialog.addEventListener('close',()=>dialog.remove(),{once:true});s.root.append(dialog);dialog.showModal();});
     const download=el('a','下载');download.href=content+'?download=true';download.setAttribute('download','');tools.append(preview,download);card.append(tools);
     const editor=s.imageTool;if(editor&&editor.sourceId===node.id&&editor.sourceMediaId===node.media_id){const host=el('div',null,'cc-image-tool-panel cc-image-tool-panel--'+editor.tool);host.style.transform=`scale(${1/s.document.viewport.zoom}) translateX(-50%)`;card.append(host);mountImageControls(host,{tool:editor.tool,settings:editor.settings,defaults:editor.defaults,imageUrl:content,canvas:true,promptState:editor,onChange:()=>{},isCurrent:()=>live(s)&&s.imageTool===editor,onClose:()=>{s.imageTool=null;draw(s);},onSubmit:()=>applyImageTool(s,editor),onError:error=>notice(s,error.message)});}
@@ -241,10 +242,16 @@ export function createCreativeCanvasPanel(ctx){
     const defaults=options.image_tools?.[tool];if(!defaults)throw new Error('该图片工具尚未接入当前画布服务');revision(s,Math.max(s.revision,options.revision||0));
     s.imageTool={sourceId:node.id,sourceMediaId:mediaId,tool,defaults:copy(defaults),settings:copy(defaults),promptEnabled:false,prompt:''};draw(s);
   }
+  async function startImagePreset(s,node,tool){
+    const mediaId=node.media_id,request=Symbol();s.imageToolRequest=request;const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);
+    if(!live(s)||s.imageToolRequest!==request||s.selected.size!==1||!s.selected.has(node.id)||!s.document.nodes.some(n=>n.id===node.id&&n.media_id===mediaId))return;
+    const defaults=options.image_tools?.[tool];if(!defaults)throw new Error('该图片生成工具尚未接入当前画布服务');revision(s,Math.max(s.revision,options.revision||0));
+    const editor={sourceId:node.id,sourceMediaId:mediaId,tool,defaults:copy(defaults),settings:copy(defaults),promptEnabled:false,prompt:''};s.imageTool=editor;await applyImageTool(s,editor);
+  }
   async function applyImageTool(s,editor){
     const source=s.document.nodes.find(n=>n.id===editor.sourceId&&n.media_id===editor.sourceMediaId);
     if(!live(s)||s.imageTool!==editor||!source||s.selected.size!==1||!s.selected.has(source.id))throw new Error('来源图片已变化，请重新选择');
-    const target={id:crypto.randomUUID(),type:'image',title:source.title+' · '+(editor.tool==='angle'?'多角度':'打光'),x:source.x+300,y:source.y,text:editor.promptEnabled?editor.prompt:'',group:source.group,params:{vsc_image_tool:editor.tool,vsc_image_tool_settings:JSON.stringify(editor.settings)},media_id:null,job_id:null};
+    const target={id:crypto.randomUUID(),type:'image',title:source.title+' · '+IMAGE_TOOL_TITLES[editor.tool],x:source.x+300,y:source.y,text:editor.promptEnabled?editor.prompt:'',group:source.group,params:{vsc_image_tool:editor.tool,vsc_image_tool_settings:JSON.stringify(editor.settings)},media_id:null,job_id:null};
     change(s,()=>{s.document.nodes.push(target);s.document.edges.push({id:crypto.randomUUID(),source:source.id,target:target.id,port:'reference'});s.selected=new Set([target.id]);s.imageTool=null;});
     await runForm(s,target);
   }

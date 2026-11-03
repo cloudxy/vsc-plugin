@@ -125,6 +125,43 @@ class CanvasSourceHandoffTests(ResourceStoreFixture,unittest.TestCase):
                     self.write('save_creative_canvas',dict(canvas_id=canvas['id'],canvas_revision=current['canvas_revision'],document=document))
                     self.assertTrue(self.service.get_creative_canvas(self.p,canvas['id'])['jobs']['out']['input_changed'])
 
+    def test_canvas_fixed_view_tools_use_pinned_input_and_original_result(self):
+        from vsc.assets.resource_service import ResourceError
+        source=self.media('fixed view source');replacement=self.media('changed view source');model=self.image_tool_model()
+        self.write('configure_budget',dict(limits={'remote_jobs':10,'images':10},reason='synthetic view outputs'))
+        specs=(('three_view',{'layout':'front_side_back'}),('headshot',{'framing':'head_and_shoulders'}),('face_views',{'layout':'front_three_quarter_side'}))
+        with patch('vsc.production.resource_settings.ResourceSettings.list',return_value={'configurations':[dict(model,enabled=True,adapter_available=True)]}):
+            for tool,expected in specs:
+                with self.subTest(tool=tool):
+                    for refs in ([],[source,replacement]):
+                        invalid=self.image_tool_canvas(tool,'{}',refs)
+                        with self.assertRaises(ResourceError) as error:self.write('prepare_canvas_work_input',dict(canvas_id=invalid['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id']))
+                        self.assertEqual(error.exception.code,'canvas_image_tool_source')
+                    forged=json.dumps({next(iter(expected)):'伪造指令'})
+                    with self.assertRaises(ResourceError):self.image_tool_canvas(tool,forged,[source])
+                    canvas=self.image_tool_canvas(tool,'{}',[source]);payload=dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=self.objects['shot'],model_id=model['id'])
+                    before=self.rev;key=uuid.uuid4().hex;fixed=self.write('prepare_canvas_work_input',payload,idempotency_key=key)
+                    self.assertEqual(self.service.prepare_canvas_work_input(self.p,payload,actor='test-human',expected_revision=before,idempotency_key=key),fixed)
+                    draft=fixed['document'];self.assertEqual((draft['mode'],draft['purpose']),('image_'+tool,'image_edit'));self.assertEqual(draft['tool_settings'],expected)
+                    self.assertEqual(draft['references'][0]['media_id'],source);self.assertEqual(draft['references'][0]['sha256'],self.service.get_media(self.p,source)['sha256'])
+                    request=dict(draft_version_id=fixed['draft_version_id'],execution_policy=self.policy);quote=self.service.preview_canvas_work_generation(self.p,request);self.assertTrue(quote['ready'],quote)
+                    generated=self.write('generate_canvas_work',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',request=request,preview_sha256=quote['preview_sha256']))
+                    job=generated['jobs'][0]['id'];self.write('update_generation_job',dict(job_id=job,status='submitted',external_task_id='synthetic-'+job))
+                    output=self.media('fixed view output '+tool);self.write('update_generation_job',dict(job_id=job,status='succeeded',outputs=[{'media_id':output}]))
+                    if tool=='three_view':
+                        adopted=self.write('adopt_canvas_work_outputs',dict(canvas_id=canvas['id'],canvas_revision=1,run_version_id=generated['run_version_id']))
+                        result=self.service.get_creative_canvas(self.p,canvas['id']);self.assertFalse(adopted['input_changed'])
+                        self.assertEqual(next(n for n in result['document']['nodes'] if n['id']=='out')['media_id'],output)
+                        self.assertFalse(result['jobs']['out']['input_changed']);continue
+                    current=self.service.get_creative_canvas(self.p,canvas['id']);document=deepcopy(current['document'])
+                    for node in document['nodes']:node.pop('preview_url',None)
+                    next(n for n in document['nodes'] if n['id']=='ref0')['media_id']=replacement
+                    saved=self.write('save_creative_canvas',dict(canvas_id=canvas['id'],canvas_revision=1,document=document))
+                    adopted=self.write('adopt_canvas_work_outputs',dict(canvas_id=canvas['id'],canvas_revision=saved['canvas_revision'],run_version_id=generated['run_version_id']))
+                    self.assertTrue(adopted['input_changed']);result=self.service.get_creative_canvas(self.p,canvas['id'])['document']
+                    self.assertIsNone(next(n for n in result['nodes'] if n['id']=='out')['media_id'])
+                    self.assertEqual(next(n for n in result['nodes'] if n['id'] in adopted['node_ids'])['media_id'],output)
+
     def test_canvas_run_options_expose_independent_image_tool_defaults(self):
         import tempfile
         from fastapi.testclient import TestClient
@@ -138,7 +175,8 @@ class CanvasSourceHandoffTests(ResourceStoreFixture,unittest.TestCase):
                 headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
                 response=client.get('/api/v1/projects/'+self.p+'/creative-canvas-run-options',headers=headers)
                 self.assertEqual(response.status_code,200,response.text);body=response.json()
-                self.assertEqual(set(body['image_tools']),{'angle','lighting'});self.assertEqual(body['image_tools']['angle']['include_instructions'],True)
+                self.assertEqual(set(body['image_tools']),{'angle','lighting','three_view','headshot','face_views'});self.assertEqual(body['image_tools']['angle']['include_instructions'],True)
+                for tool in ('three_view','headshot','face_views'):self.assertEqual(body['image_tools'][tool],TOOLS[tool][1])
                 self.assertEqual(body['image_tools']['lighting']['intensity'],0.5);self.assertEqual(body['image_tools']['lighting']['view'],'perspective');self.assertEqual(TOOLS['lighting'][1]['intensity'],1);self.assertEqual(TOOLS['lighting'][1]['view'],'front')
                 self.assertIn('nodes',body);self.assertIn('models',body);self.assertIn('revision',body)
 

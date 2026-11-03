@@ -26,11 +26,13 @@ NODE_TYPES = {
 DOMAIN_TYPES = {"spatial", "director", "edit", "music_mix", "processing"}
 CANVAS_IMAGE_TOOL = "vsc_image_tool"
 CANVAS_IMAGE_TOOL_SETTINGS = "vsc_image_tool_settings"
+CANVAS_IMAGE_TOOLS = ("angle", "lighting", "three_view", "headshot", "face_views")
+CANVAS_FIXED_IMAGE_TOOLS = {"three_view", "headshot", "face_views"}
 
 
 def canvas_image_tool_options():
     from vsc.production.image_tools import TOOLS
-    options = {tool: deepcopy(TOOLS[tool][1]) for tool in ("angle", "lighting")}
+    options = {tool: deepcopy(TOOLS[tool][1]) for tool in CANVAS_IMAGE_TOOLS}
     options["lighting"]["intensity"] = 0.5
     options["lighting"]["view"] = "perspective"
     return options
@@ -42,7 +44,7 @@ def canvas_image_tool(kind, params):
     present = keys.intersection(params)
     if not present:
         return None
-    if present != keys or kind != "image" or not isinstance(params.get(CANVAS_IMAGE_TOOL), str) or params[CANVAS_IMAGE_TOOL] not in {"angle", "lighting"}:
+    if present != keys or kind != "image" or not isinstance(params.get(CANVAS_IMAGE_TOOL), str) or params[CANVAS_IMAGE_TOOL] not in CANVAS_IMAGE_TOOLS:
         _fail("画布图像工具及其参数必须同时绑定到图片节点", "invalid_canvas_image_tool")
     raw = params[CANVAS_IMAGE_TOOL_SETTINGS]
     if not isinstance(raw, str):
@@ -65,6 +67,8 @@ def canvas_image_tool(kind, params):
         _fail("画布图像工具参数须为 JSON 对象", "invalid_canvas_image_tool")
     tool = params[CANVAS_IMAGE_TOOL]
     normalized = normalize_tool(tool, {**canvas_image_tool_options()[tool], **settings})
+    if tool in CANVAS_FIXED_IMAGE_TOOLS and normalized != canvas_image_tool_options()[tool]:
+        _fail("画布图片生成工具使用固定视图规格", "invalid_canvas_image_tool")
     if tool == "angle" and not normalized["include_instructions"]:
         _fail("画布多角度必须包含固定角度指令", "invalid_canvas_image_tool")
     return {"tool": tool, "settings": normalized}

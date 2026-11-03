@@ -98,10 +98,29 @@ test('canvas image tool fixes source, settings and extra prompt before opening g
  assert.deepEqual(doc.edges.map(e=>[e.source,e.target,e.port]),[['source',target.id,'reference']]);assert.ok(a.root.querySelector('.cc-run-form'));a.canvas.suspend();
 });
 
+test('image generation presets fix the original reference before opening generation',async()=>{
+ const node={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
+ const image_tools={three_view:{layout:'front_side_back'},headshot:{framing:'head_and_shoulders'},face_views:{layout:'front_three_quarter_side'}};
+ for(const [tool,label] of [['three_view','角色三视图'],['headshot','生成大头照'],['face_views','角色脸部三视图']]){
+  const a=await fixture({nodes:[node],runOptions:{revision:1,nodes:[],models:[{id:'model1',enabled:true,modality:'image',model_key:'编辑模型',model_version:'1',capabilities:{purposes:['image_edit']}}],image_tools}});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
+  const menu=a.root.querySelector('.cc-image-generate-menu');assert.ok(menu);assert.equal(menu.querySelectorAll('button').find(b=>b.textContent==='剧情推进四格').disabled,true);
+  await menu.querySelectorAll('button').find(b=>b.textContent===label).fire('click');const doc=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1')).document,target=doc.nodes.find(n=>n.id!=='source');
+  assert.equal(target.params.vsc_image_tool,tool);assert.deepEqual(JSON.parse(target.params.vsc_image_tool_settings),image_tools[tool]);assert.deepEqual(doc.edges.map(e=>[e.source,e.target,e.port]),[['source',target.id,'reference']]);assert.ok(a.root.querySelector('.cc-run-form'));a.canvas.suspend();
+ }
+});
+
 test('late image tool options do not reopen the panel for a different selection',async()=>{
  let resolve;const waiting=new Promise(r=>resolve=r),node=(id,x)=>({id,type:'image',title:id,x,y:100,text:'',params:{},media_id:id,job_id:null,group:''});
  const a=await fixture({nodes:[node('first',100),node('second',400)],runOptions:waiting});let cards=a.root.querySelectorAll('.cc-node');await cards[0].fire('click',{target:cards[0].querySelector('img')});
  const opening=a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');cards=a.root.querySelectorAll('.cc-node');await cards[1].fire('click',{target:cards[1].querySelector('img')});
  resolve({revision:1,nodes:[],models:[],image_tools:{angle:{preset:'custom',yaw:0,pitch:0,roll:0,zoom:1,include_instructions:true}}});await opening;
  assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+});
+
+test('late image preset options do not create a node for a different selection',async()=>{
+ let resolve;const waiting=new Promise(r=>resolve=r),node=(id,x)=>({id,type:'image',title:id,x,y:100,text:'',params:{},media_id:id,job_id:null,group:''});
+ const a=await fixture({nodes:[node('first',100),node('second',400)],runOptions:waiting});let cards=a.root.querySelectorAll('.cc-node');await cards[0].fire('click',{target:cards[0].querySelector('img')});
+ const opening=a.root.querySelectorAll('button').find(b=>b.textContent==='角色三视图').fire('click');cards=a.root.querySelectorAll('.cc-node');await cards[1].fire('click',{target:cards[1].querySelector('img')});
+ resolve({revision:1,nodes:[],models:[],image_tools:{three_view:{layout:'front_side_back'}}});await opening;
+ assert.equal(a.root.querySelectorAll('.cc-node').length,2);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
 });
