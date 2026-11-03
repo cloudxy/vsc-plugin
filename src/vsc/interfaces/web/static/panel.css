@@ -49,3 +49,6 @@
 .artifact-evidence summary{cursor:pointer;font-size:.85rem}
 .reader>.badge.danger{white-space:normal;line-height:1.7;margin:0 0 1.25rem}
 @media(max-width:720px){.documents{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,28%) minmax(0,1fr)}.artifact-list{max-height:none}.document-field-value>.document-fields{margin-left:.25rem;padding-left:.6rem}.reading-artifacts>.tabs{padding-top:.2rem}}
+
+/* The asset workspace is a flex child; auto margins otherwise shrink it to its content. */
+#asset-center-view { width:100%; min-width:0; box-sizing:border-box; margin:0; }
