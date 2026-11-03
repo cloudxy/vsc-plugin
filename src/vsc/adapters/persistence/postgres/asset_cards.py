@@ -1,6 +1,6 @@
 """Asset card commands compose original objects, artifact projections and media registrations."""
 import json
-from sqlalchemy import select,insert,update,func,and_
+from sqlalchemy import select,insert,update,func,and_,case
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from vsc.assets.resource_service import ResourceError,Conflict
 from . import schema as S
@@ -10,7 +10,51 @@ class AssetCardsRepository:
     def __init__(self,store):self.store=store
     def __getattr__(self,name):return getattr(self.store,name)
 
-    def _asset_card(self,conn,p,asset_id,actor=None):
+    def _legacy_preview(self,conn,p,asset_id,asset_kind,usability_cache):
+        # This is a card-level display hint, never a form or production binding.
+        # Prefer an identity master over secondary views; within a role prefer
+        # the newest current selection, then use IDs as a deterministic tie-break.
+        roles={"character": ("identity_face", "costume"),
+               "location": ("location_master", "location_view"),
+               "style": ("style_reference",), "costume": ("costume",),
+               "prop": ("prop",), "object": ("prop",), "creature": ("prop",),
+               "vehicle": ("prop",), "plant": ("prop",)}.get(asset_kind, ())
+        if not roles:return None
+        slots, current, candidates, decisions, media = (S.binding_slots, S.current_bindings,
+            S.binding_candidates, S.binding_decisions, S.media_items)
+        lifecycle=(select(S.media_lifecycle_decisions.c.outcome).where(
+            S.media_lifecycle_decisions.c.project_id==p,S.media_lifecycle_decisions.c.media_id==media.c.id)
+            .order_by(S.media_lifecycle_decisions.c.decision_sequence.desc()).limit(1).scalar_subquery())
+        available=select(S.blob_locations.c.id).where(S.blob_locations.c.blob_id==media.c.blob_id,
+            S.blob_locations.c.available.is_(True)).exists()
+        query=(select(slots.c.id.label('slot_id'), slots.c.role, slots.c.slot_key,
+                      slots.c.variant_spec_id, candidates.c.id.label('candidate_id'),
+                      candidates.c.media_id, candidates.c.spec_version_id,
+                      decisions.c.id.label('decision_id'), decisions.c.decision_sequence)
+            .select_from(slots.join(current,and_(current.c.project_id==slots.c.project_id,current.c.slot_id==slots.c.id))
+                .join(candidates,and_(candidates.c.project_id==current.c.project_id,candidates.c.slot_id==current.c.slot_id,candidates.c.id==current.c.candidate_id))
+                .join(decisions,and_(decisions.c.project_id==current.c.project_id,decisions.c.slot_id==current.c.slot_id,decisions.c.candidate_id==current.c.candidate_id,decisions.c.id==current.c.decision_id))
+                .join(media,and_(media.c.project_id==candidates.c.project_id,media.c.id==candidates.c.media_id)))
+            .where(slots.c.project_id==p,slots.c.target_object_id==asset_id,
+                   slots.c.role.in_(roles),media.c.modality=='image',decisions.c.outcome=='select',
+                   func.coalesce(lifecycle,'')!='deprecate',available)
+            .order_by(case({role:index for index,role in enumerate(roles)},value=slots.c.role),
+                      decisions.c.decision_sequence.desc(),slots.c.id,candidates.c.id))
+        for row in conn.execute(query).mappings():
+            # _usable checks current rights, lifecycle, locations, technical
+            # checks and upstream library/copy restrictions, including expiry.
+            if row['spec_version_id'] and not self._artifact_approved(conn,p,row['spec_version_id']):continue
+            key=(row['media_id'],row['role'])
+            if key not in usability_cache:
+                _,gaps=self._usable(conn,p,*key)
+                usability_cache[key]=not gaps
+            if not usability_cache[key]:continue
+            return dict(media_id=row['media_id'],source='current_binding',slot_id=row['slot_id'],
+                        slot_key=row['slot_key'],role=row['role'],variant_spec_id=row['variant_spec_id'],
+                        candidate_id=row['candidate_id'],decision_id=row['decision_id'])
+        return None
+
+    def _asset_card(self,conn,p,asset_id,actor=None,include_preview=False,usability_cache=None):
         from .project_management import hidden_object_ids
         asset=self._one(conn,S.asset_identities,p,asset_id)
         if asset_id in hidden_object_ids(conn,p):raise ResourceError('此资产已移入回收','object_recycled',409)
@@ -22,6 +66,7 @@ class AssetCardsRepository:
             history=[dict(v) for v in conn.execute(select(S.asset_card_form_versions.c.id,S.asset_card_form_versions.c.version,S.asset_card_form_versions.c.form_name,S.asset_card_form_versions.c.media_id).where(S.asset_card_form_versions.c.project_id==p,S.asset_card_form_versions.c.form_id==form['id']).order_by(S.asset_card_form_versions.c.version.desc())).mappings()]
             rows.append(dict(form,version_id=fixed['id'],version=fixed['version'],spec_id=spec['id'],description=body.get('description',''),media_id=fixed['media_id'],voice_spec_id=fixed['voice_spec_id'],history=history))
         # Existing identities remain visible before the first working card is saved.
+        has_working_card=bool(rows)
         if not rows:
             seen=set()
             for spec in conn.execute(select(S.asset_spec_versions).join(S.artifact_versions,and_(S.artifact_versions.c.project_id==p,S.artifact_versions.c.id==S.asset_spec_versions.c.artifact_id)).where(S.asset_spec_versions.c.project_id==p,S.asset_spec_versions.c.asset_id==asset_id).order_by(S.artifact_versions.c.created_at.desc())).mappings():
@@ -29,21 +74,23 @@ class AssetCardsRepository:
                 seen.add(spec['variant_key']);document=json.loads(bytes(self._one(conn,S.artifact_versions,p,spec['artifact_id'])['document']));body=next((x for x in document.get('asset_specs',[]) if x.get('id')==spec['id']),{})
                 rows.append(dict(form_key=spec['variant_key'],name=spec['variant_key'],version_id=None,version=0,spec_id=spec['id'],description=body.get('description',''),media_id=None,voice_spec_id=None,history=[]))
         favorite=conn.execute(select(S.asset_card_favorites.c.active).where(S.asset_card_favorites.c.project_id==p,S.asset_card_favorites.c.asset_id==asset_id,S.asset_card_favorites.c.actor==actor)).scalar_one_or_none() if actor else False
-        return dict(id=asset_id,name=obj['title'] or obj['display_code'],asset_kind=asset['asset_kind'],revision=state['revision'] if state else 0,forms=rows,favorite=bool(favorite))
+        preview=self._legacy_preview(conn,p,asset_id,asset['asset_kind'],usability_cache if usability_cache is not None else {}) if include_preview and not has_working_card else None
+        return dict(id=asset_id,name=obj['title'] or obj['display_code'],asset_kind=asset['asset_kind'],revision=state['revision'] if state else 0,forms=rows,favorite=bool(favorite),preview=preview)
 
     def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False):
         from .project_management import hidden_object_ids
-        with self.engine.connect() as conn:
+        with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
             project=self._project(conn,p);hidden=hidden_object_ids(conn,p)
             q=select(S.asset_identities.c.id).join(S.creative_objects,and_(S.creative_objects.c.project_id==p,S.creative_objects.c.id==S.asset_identities.c.id)).where(S.asset_identities.c.project_id==p,S.asset_identities.c.id.not_in(hidden))
             if query:q=q.where(S.creative_objects.c.title.ilike('%'+query+'%'))
             if asset_kind:q=q.where(S.asset_identities.c.asset_kind==asset_kind)
             if favorites:q=q.join(S.asset_card_favorites,and_(S.asset_card_favorites.c.project_id==p,S.asset_card_favorites.c.asset_id==S.asset_identities.c.id,S.asset_card_favorites.c.actor==actor,S.asset_card_favorites.c.active))
             total=conn.scalar(select(func.count()).select_from(q.subquery()));ids=conn.execute(q.order_by(S.creative_objects.c.title,S.asset_identities.c.id).offset(offset).limit(limit)).scalars()
-            return clean(dict(items=[self._asset_card(conn,p,i,actor) for i in ids],total=total,offset=offset,next_offset=offset+limit if offset+limit<total else None,revision=project['revision']))
+            usability_cache={}
+            return clean(dict(items=[self._asset_card(conn,p,i,actor,include_preview=True,usability_cache=usability_cache) for i in ids],total=total,offset=offset,next_offset=offset+limit if offset+limit<total else None,revision=project['revision']))
 
     def get_asset_card(self,p,asset_id,actor=None):
-        with self.engine.connect() as conn:return clean(dict(self._asset_card(conn,p,checked_id(asset_id),actor),project_revision=self._project(conn,p)['revision']))
+        with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:return clean(dict(self._asset_card(conn,p,checked_id(asset_id),actor,include_preview=True),project_revision=self._project(conn,p)['revision']))
 
     def _save_asset_card(self,conn,project,payload,actor):
         p=project['id'];identifier=payload.get('asset_id');prior=None

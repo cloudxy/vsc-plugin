@@ -100,7 +100,31 @@ def _migrated_legacy_profile(service, project_id, profile, artifacts):
         return False
 
 
+def _contract_cache_key(document, artifact_type, policy, profile):
+    """Match validator bytes and the complete policy inputs; skip unsafe keys."""
+    try:
+        raw = document if isinstance(document, bytes) else (document if isinstance(document, str) else json.dumps(document, ensure_ascii=False)).encode("utf-8")
+        fixed_profile = json.dumps(profile, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return raw, artifact_type, policy, fixed_profile
+    except (TypeError, ValueError, UnicodeError):
+        return None
+
+
+def _validated_contract(document, artifact_type, policy, profile, successful):
+    key = _contract_cache_key(document, artifact_type, policy, profile)
+    if key is not None and key in successful:
+        return []
+    errors = list(validate_contract(document, artifact_type, policy, profile))
+    if key is not None and not errors:
+        successful.add(key)
+    return errors
+
+
 def check_gate(service, project_id, stage_id, scope=None):
+    return _check_gate(service, project_id, stage_id, scope, set())
+
+
+def _check_gate(service, project_id, stage_id, scope, successful):
     project = service.get_project(project_id)
     profile = project["profile_snapshot"]
     stages = profile.get("stages", [])
@@ -115,7 +139,7 @@ def check_gate(service, project_id, stage_id, scope=None):
         episodes = [node["id"] for node in service.get_project_tree(project_id)["nodes"] if node["kind"] == "episode"]
         if not episodes:
             return {"stage": stage_id, "scope": scope, "passed": False, "gaps": [{"code": "scope_required"}]}
-        results = [check_gate(service, project_id, stage_id, episode) for episode in episodes]
+        results = [_check_gate(service, project_id, stage_id, episode, successful) for episode in episodes]
         return {"stage": stage_id, "scope": None, "passed": all(row["passed"] for row in results),
                 "episodes": results, "gaps": [{"scope": row["scope"], **gap} for row in results for gap in row["gaps"]],
                 "warnings": [{"scope": row["scope"], **warning} for row in results for warning in row.get("warnings", [])], "revision": project["revision"]}
@@ -148,7 +172,7 @@ def check_gate(service, project_id, stage_id, scope=None):
         # valid pins while preserving the legacy Profile's any-valid Gate.
         for candidate in sorted(candidates, key=lambda row: (str(row.get("created_at") or ""), row.get("artifact_key", ""), row["id"])):
             artifact = service.get_artifact_version(project_id, candidate["id"])
-            errors = validate_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"), profile)
+            errors = _validated_contract(artifact["document"], artifact_type, profile.get("contract_policy", "production-v2"), profile, successful)
             from vsc.adapters.persistence.postgres.creative_rules import artifact_rule_report
             with service.store.engine.connect() as conn:
                 report = artifact_rule_report(service.store, conn, project, artifact, context_scope=scope)
@@ -168,7 +192,8 @@ def check_gate(service, project_id, stage_id, scope=None):
 
 def workflow_status(service, project_id, scope=None):
     project = service.get_project(project_id)
-    gates = [check_gate(service, project_id, s["id"], scope) for s in project["profile_snapshot"].get("stages", [])]
+    successful = set()
+    gates = [_check_gate(service, project_id, s["id"], scope, successful) for s in project["profile_snapshot"].get("stages", [])]
     return {"project": project, "gates": gates, "next_stage": next((g["stage"] for g in gates if not g["passed"]), None)}
 
 
