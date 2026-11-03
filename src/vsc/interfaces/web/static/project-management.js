@@ -20,9 +20,9 @@ export function createProjectManagement(root,ctx){
     const p=project,t=ticket,key=scopeKey();
     if(busy||inFlight.has(key))throw new Error('当前操作尚未完成');
     if(pending.has(key)&&!resume)throw new Error('上次操作回执未知，请先恢复原请求');
-    let request=pending.get(key);if(!request){request={payload,expected_revision:data.revision,idempotency_key:crypto.randomUUID()};pending.set(key,request);}
+    let request=pending.get(key);if(!request){request=payload.target_type==='media'&&payload.operation==='restore'?{payload:{media_ids:[payload.target_id],action:'restore',reason:payload.reason},expected_revision:data.revision,idempotency_key:crypto.randomUUID(),confirmed:true}:{payload,expected_revision:data.revision,idempotency_key:crypto.randomUUID()};pending.set(key,request);}
     busy=true;inFlight.add(key);render();
-    try{const result=await ctx.api(endpoint(p),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify(request)});pending.delete(key);
+    try{const result=await ctx.api(request.confirmed?`/api/v1/projects/${encodeURIComponent(p)}/recycle-actions`:endpoint(p),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify(request)});pending.delete(key);
       if(!same(t,p))return;ctx.setRevision?.(result.revision,p);
       if(result.status==='protected')ctx.notice(msg("ui.action_not_executed_value0",{value0:result.reasons.map(r=>r.message+'（'+r.table+'）').join('；')}));
       else ctx.notice(result.unchanged?msg("ui.state_already_matches"):msg("ui.saved_original_identity_and_fixed_audit_retained"));
@@ -40,7 +40,7 @@ export function createProjectManagement(root,ctx){
     dialog.append(f);root.append(dialog);dialog.onclose=()=>{dialog.remove();if(!pending.has(key)&&recycleOrigins.get(key)?.target_id===target.id)recycleOrigins.delete(key);if(same(t,p))render();};dialog.showModal();
   }
   async function returnToRecycle(){ctx.onScope?.(null);await load({project:null});}
-  async function recoverPending(){const key=scopeKey(),request=pending.get(key),origin=recycleOrigins.get(key),result=await write(null,true);if(!result)return;if(result.status!=='protected'&&origin&&request?.payload.operation==='restore'&&request.payload.target_id===origin.target_id&&project===origin.project_id&&identity===actorKey()){recycleOrigins.delete(key);await returnToRecycle();}}
+  async function recoverPending(){const key=scopeKey(),request=pending.get(key),origin=recycleOrigins.get(key),result=await write(null,true);if(!result)return;const original=request?.payload.operation==='restore'&&request.payload.target_id===origin?.target_id||request?.confirmed&&request.payload.action==='restore'&&request.payload.media_ids?.length===1&&request.payload.media_ids[0]===origin?.target_id;if(result.status!=='protected'&&origin&&original&&project===origin.project_id&&identity===actorKey()){recycleOrigins.delete(key);await returnToRecycle();}}
   async function restoreFromList(row){
     if(recycleOpening||!row.can_restore||!session().actor)return;const opening={};recycleOpening=opening;
     try{const p=row.project_id,owner=actorKey(),known=data?.projects?.find(item=>item.id===p);ctx.onScope?.(p,known||{id:p,name:row.title});const loaded=await load({project:p});
@@ -49,7 +49,7 @@ export function createProjectManagement(root,ctx){
       lifecycle(target,'restore',async()=>{recycleOrigins.delete(scopeKey());await returnToRecycle();},()=>{const key=scopeKey();if(!pending.has(key))recycleOrigins.set(key,{project_id:p,target_id:row.target_id});});
     }finally{if(recycleOpening===opening)recycleOpening=null;}
   }
-  const supportedRecycle=category=>['all','project','episode','asset'].includes(category);
+  const supportedRecycle=category=>['all','project','episode','asset','video'].includes(category);
   async function readRecycle(cursor=null,stack=[]){
     const t=ticket,category=recycleCategory,seq=++recycleSeq;if(!same(t,null))return;
     if(!supportedRecycle(category)){recycleState={status:'unsupported',cursor:null,stack:[]};render();return;}
@@ -61,14 +61,14 @@ export function createProjectManagement(root,ctx){
     }catch(error){if(same(t,null)&&seq===recycleSeq&&category===recycleCategory){recycleState={status:'error',error:error.message,cursor,stack};render();}}
   }
   function render(force=false){
-    if(!data||!force&&root.querySelector('dialog[open]'))return;root.replaceChildren();const head=el('header');head.append(el('h1',project?msg("ui.project_management"):msg("common.route_recycle_bin")),el('p',project?msg("ui.manage_project_names_folders_and_retention_settings"):'查看已回收的项目、剧集与资产，恢复后可继续创作','hint'));root.append(head);
+    if(!data||!force&&root.querySelector('dialog[open]'))return;root.replaceChildren();const head=el('header');head.append(el('h1',project?msg("ui.project_management"):msg("common.route_recycle_bin")),el('p',project?msg("ui.manage_project_names_folders_and_retention_settings"):'查看已回收的项目、剧集、资产和视频，恢复后可继续创作','hint'));root.append(head);
     const choices=el('select');bindAttribute(choices,'aria-label',msg("ui.manage_project"));choices.append(localizedOption('',msg("ui.select_a_project_extra_2")));for(const r of data.projects)choices.append(localizedOption(r.id,r.name+(r.state==='trashed'?' · 已回收':'')));choices.value=project||'';choices.onchange=()=>{const next=choices.value||null;ctx.onScope?.(next,data.projects.find(r=>r.id===next));filters={folder:'',kind:'',q:'',offset:0};load({project:next});};
     if(!project||!data.project){
       const state=recycleState||{status:'loading',stack:[]},supported=supportedRecycle(recycleCategory),bar=el('div',null,'management-recycle-toolbar'),categories=el('nav',null,'management-recycle-categories');categories.setAttribute('role','tablist');categories.setAttribute('aria-label','回收站分类');
       for(const [value,label]of [['all','全部'],['project','项目'],['episode','剧集'],['storyboard-group','分镜镜号'],['video-group','视频镜号'],['storyboard-image','分镜图'],['asset','资产'],['video','视频'],['canvas','画布']]){const b=button(label,()=>{if(recycleCategory!==value){recycleCategory=value;return readRecycle();}});b.setAttribute('role','tab');b.setAttribute('aria-selected',String(recycleCategory===value));if(!supportedRecycle(value))b.title='该分类尚未接入';categories.append(b);}
       const count=el('span',state.status==='ready'?'本页 '+state.items.length+' 项':state.status==='loading'?'正在加载':supported?'':'暂未接入','management-recycle-count');count.setAttribute('role','status');bar.append(categories,count);root.append(bar);
       const grid=el('div',null,'management-recycled');
-      if(state.status==='ready')for(const row of state.items){const card=el('article',null,'management-recycled-card'),cover=el('div','▤','management-cover'),info=el('div',null,'management-recycle-info'),actions=el('div',null,'management-recycle-actions');card.dataset.targetId=row.target_id;card.dataset.projectId=row.project_id;info.append(el('h3',row.title||row.target_id),el('p',({project:'项目',episode:'剧集',asset:'资产'})[row.kind]||row.kind,'hint'));if(row.target_type==='object'){const owner=data.projects.find(item=>item.id===row.project_id);info.append(el('p',owner?'项目：'+owner.name:'项目 '+row.project_id,'hint'));}
+      if(state.status==='ready')for(const row of state.items){const card=el('article',null,'management-recycled-card'),cover=el('div','▤','management-cover'),info=el('div',null,'management-recycle-info'),actions=el('div',null,'management-recycle-actions');card.dataset.targetId=row.target_id;card.dataset.projectId=row.project_id;info.append(el('h3',row.title||row.target_id),el('p',({project:'项目',episode:'剧集',asset:'资产',video:'视频'})[row.kind]||row.kind,'hint'));if(row.target_type==='object'||row.target_type==='media'){const owner=data.projects.find(item=>item.id===row.project_id);info.append(el('p',owner?'项目：'+owner.name:'项目 '+row.project_id,'hint'));}
         if(row.changed_at){const time=new Date(row.changed_at);info.append(el('p','回收于 '+(Number.isNaN(time.getTime())?row.changed_at:time.toLocaleString()),'hint'));}if(row.reason)info.append(el('p',row.reason,'management-recycle-reason'));
         if(!row.can_restore){const explanation=row.blocked_by_project?'请先恢复所属项目':row.blocked_by_ancestor?'请先恢复上级对象':'当前账号无法恢复此项';info.append(el('p',explanation,'management-recycle-blocked'));}
         actions.append(button('恢复',()=>restoreFromList(row),!row.can_restore||!session().actor),button(msg("ui.project_management"),async()=>{const known=data.projects.find(item=>item.id===row.project_id);ctx.onScope?.(row.project_id,known||{id:row.project_id,name:row.title});await load({project:row.project_id});}));info.append(actions);card.append(cover,info);grid.append(card);}

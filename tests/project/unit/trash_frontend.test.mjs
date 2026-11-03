@@ -107,3 +107,18 @@ test('asset restore recovers the original receipt and refresh failure never repe
  assert.deepEqual(scopes,['p1',null]);assert.match(root.textContent,/暂无数据/);assert.ok(notices.some(value=>value.includes('操作已保存，但项目列表刷新失败')));
  await panel.load({project:null});assert.equal(posts.length,2);panel.suspend();
 });
+
+test('video restore uses the original media endpoint and recovers the same request',async()=>{
+ let rows=[{...recycleItem('v1','video'),target_type:'media'}],revision=8,fail=true;const posts=[],root=new Node('main',document),scopes=[];
+ const ctx={session:()=>({actor:'test',csrf:'token'}),notice(){},setRevision(){},onScope:p=>scopes.push(p),onProjectsChanged(){},api:async(url,options)=>{
+  if(options?.method==='POST'){posts.push({url,body:JSON.parse(options.body)});if(fail){fail=false;const e=Error('回执未知');e.status=500;throw e;}rows=[];return {revision:++revision,items:[{id:'v1',status:'restored'}]};}
+  if(url==='/api/v1/projects')return {items:[{id:'p1',name:'项目'}]};if(url==='/api/v1/project-management/recycled')return {items:[]};
+  if(url.startsWith('/api/v1/project-management/recycle-items?'))return {items:rows,next_cursor:null};
+  if(url.startsWith('/api/v1/projects/p1/management?'))return {project:{id:'p1',name:'项目'},state:'active',revision,folders:[],items:[],total:0,next_offset:null};throw Error(url);
+ }};
+ const panel=createProjectManagement(root,ctx);await panel.load({project:null});await find(root,'BUTTON','视频').onclick();await find(root,'BUTTON','恢复').onclick();
+ const dialog=root.querySelector('dialog'),form=dialog.walk().find(n=>n.tagName==='FORM');dialog.walk().find(n=>n.tagName==='INPUT').value='恢复视频';await form.onsubmit({preventDefault(){}});dialog.close();
+ await find(root,'BUTTON','恢复原操作回执').onclick();assert.equal(posts.length,2);assert.deepEqual(posts[1],posts[0]);
+ assert.equal(posts[0].url,'/api/v1/projects/p1/recycle-actions');assert.equal(posts[0].body.confirmed,true);assert.deepEqual(posts[0].body.payload,{media_ids:['v1'],action:'restore',reason:'恢复视频'});
+ assert.deepEqual(scopes,['p1',null]);assert.match(root.textContent,/暂无数据/);panel.suspend();
+});

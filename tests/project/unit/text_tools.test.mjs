@@ -92,6 +92,12 @@ test('translation manual intake keeps its save controls reachable and persists l
  await a.view.querySelector('form').fire('submit');const req=a.requests.find(r=>r.path.endsWith('/text-tools/units')&&r.init.method==='POST');
  assert.equal(JSON.parse(req.init.body).payload.document.source_language,'英语');assert.equal(JSON.parse(req.init.body).payload.document.target_language,'中文（简体）');a.instance.suspend();
 });
+test('existing translation drafts update target language without inventing old provenance',async()=>{
+ const a=await toolsFixture();await a.instance.load({project:'p',tool:'translation',targetId:'translation-one'});await a.stage('source_text').fire('click');
+ const source=a.input('源剧本语言'),target=a.input('目标语言');assert.equal(source.value,'');source.value='英语';await source.fire('change');
+ assert.equal(target.value,'中文（简体）');assert.equal(a.button('增量翻译').hidden,true);await a.view.querySelector('form').fire('submit');
+ const req=a.requests.find(r=>r.path.endsWith('/text-tools/units')&&r.init.method==='POST');assert.equal(JSON.parse(req.init.body).payload.document.source_language,'英语');a.instance.suspend();
+});
 test('translation mode, history, preview and versioned style save have distinct real-module surfaces',async()=>{
  const a=await toolsFixture();await a.instance.load({project:'p',tool:'translation'});assert.ok(a.view.querySelector('.tt-translation-intake'));await a.button('增量翻译').fire('click');assert.equal(a.button('增量翻译').getAttribute('aria-pressed'),'true');assert.equal(a.view.querySelector('.tt-incremental-references').hidden,false);await a.button('风格库').fire('click');assert.equal(a.view.dataset.screen,'styles');a.input('名称').value='新风格';a.input('风格语言').value='英语';a.input('风格内容').value='短句与自然对白';await a.input('风格内容').fire('input');await a.button('保存风格').fire('click');assert.equal(JSON.parse(a.requests.find(r=>r.init.method==='POST').init.body).payload.content,'短句与自然对白');await a.button('← 返回').fire('click');await a.button('历史剧本').fire('click');assert.equal(a.view.dataset.screen,'history');await a.button('→').fire('click');assert.equal(a.view.querySelectorAll('.tt-workspace-stages')[0].querySelectorAll('button').length,3);await a.button('预览').fire('click');assert.ok(a.view.querySelector('.tt-dialog').textContent.includes('Translated text'));a.instance.suspend();
 });
