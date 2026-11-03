@@ -23,7 +23,7 @@ const field=(dialog,label)=>dialog.querySelectorAll('select').find(n=>n.getAttri
 (async()=>{
  const {createAssetCenter}=await import(pathToFileURL(path.resolve(__dirname,'../../../../src/vsc/interfaces/web/static/asset-center.js')));
  const i=await import(pathToFileURL(path.resolve(__dirname,'../../../../src/vsc/interfaces/web/static/i18n.js')));
- const center=createAssetCenter(root,{api,notice:m=>notices.push(String(m)),session:()=>({actor:'actor-fixed',csrf:'csrf'}),projects:()=>[{id:'project-fixed',name:'用户中文项目'},{id:'read-only',name:'只读',read_only:true}],projectId:()=> 'project-fixed',setRevision:()=>{}});
+ const center=createAssetCenter(root,{api,notice:m=>notices.push(String(m)),session:()=>({actor:'actor-fixed',csrf:'csrf'}),projects:()=>[{id:'project-fixed',name:'用户中文项目'},{id:'read-only',name:'只读',read_only:true}],projectId:()=> 'project-fixed',setRevision:()=>{}},{source:'shared'});
  await center.load();assert.ok(requests[0].includes('media_only=true'));assert.equal(root.querySelectorAll('article').length,1);assert.ok(root.textContent.includes('1 个媒体资产'));assert.equal(root.querySelector('img').src,'/fixed.png');
  await click(root,'添加到项目');let d=currentDialog();assert.deepEqual(field(d,'目标项目').options.map(n=>n.value),['','project-fixed']);await click(d,'添加到项目');const key='vsc-center-single:actor-fixed',first=JSON.parse(store.get(key));assert.equal(first.project,'project-fixed');assert.ok(first.request.idempotency_key);assert.ok(d.textContent.includes('lost'));
  const saved=store.get(key),projectControl=field(d,'目标项目'),kindControl=field(d,'添加位置');i.setLocale('en');assert.equal(projectControl.value,'project-fixed');assert.equal(kindControl.value,'character');assert.equal(store.get(key),saved);assert.ok(d.textContent.includes('用户保存的司机'));

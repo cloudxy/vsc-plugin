@@ -306,6 +306,8 @@ class TextToolsRepository:
                 prior=json.loads(fixed['document'])
                 if owner['group_key']!=unit['group_key'] or owner['id']==unit['id'] or prior.get('target_language')!=document['target_language']:
                     raise ResourceError('精校参考须为同工作组、同目标语言的前集','translation_reference_scope')
+                if prior.get('source_language') and document.get('source_language') and prior['source_language']!=document['source_language']:
+                    raise ResourceError('精校参考与当前原稿的源语言不一致','translation_reference_scope')
                 refs.append(prior.get('episode_number',1))
             if refs!=list(range(1,len(refs)+1)) or document['episode_number']<=refs[-1]:
                 raise ResourceError('精校参考须从第1集连续排列，且不得与目标集重叠','translation_reference_range')

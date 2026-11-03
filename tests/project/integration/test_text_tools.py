@@ -38,6 +38,23 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
 
     def draft(self,tool,**changes):return {**deepcopy(COMMON),**deepcopy(DEFAULTS[tool]),**changes}
 
+    def test_translation_language_is_fixed_and_reaches_the_host(self):
+        draft=self.save('translation',self.draft('translation',source_text='A person returns.',source_language='英语',target_language='中文（简体）'))
+        fixed=self.service.get_text_tool(self.p,draft['unit_id'])['document']
+        self.assertEqual((fixed['source_language'],fixed['target_language']),('英语','中文（简体）'))
+        result=self.write('run_text_tool',{'unit_id':draft['unit_id'],'input_version_id':draft['id'],'action':'terms'})
+        self.assertEqual(result['status'],'completed')
+        delivered=self.service.text_tool_host.calls[-1][2]
+        self.assertEqual((delivered['source_language'],delivered['target_language']),('英语','中文（简体）'))
+        self.assertEqual(normalize_document('translation',{'target_language':'英语'})['source_language'],'')
+
+    def test_translation_reference_language_preserves_legacy_and_rejects_mismatch(self):
+        old=self.save('translation',self.draft('translation',target_language='英语',episode_number=1,body='old',proofread=True))
+        self.save('translation',self.draft('translation',source_language='中文（简体）',target_language='英语',episode_number=2,reference_version_ids=[old['id']]))
+        fixed=self.save('translation',self.draft('translation',source_language='中文（简体）',target_language='英语',episode_number=1,body='first',proofread=True))
+        with self.assertRaises(ResourceError):
+            self.save('translation',self.draft('translation',source_language='英语',target_language='英语',episode_number=2,reference_version_ids=[fixed['id']]))
+
     def test_bounded_text_batch_original_attempts_manual_protection_and_translation_completion(self):
         baseline=self.save('novel',self.draft('novel',source_text='第1章 起点\n离家\n第2章 归来\n回家',synopsis='回家',core_setting='小城',chapter_end=2,target_episodes=2))
         plan=self.write('create_novel_plan',{'unit_id':baseline['unit_id'],'version_id':baseline['id'],'episodes':[dict(title='第一集',chapter_start=1,chapter_end=1,outline='离家'),dict(title='第二集',chapter_start=2,chapter_end=2,outline='归来')]})
