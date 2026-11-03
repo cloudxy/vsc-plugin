@@ -110,7 +110,7 @@ class ProjectManagementRepository:
 
     def management_recycle_items(self, kind='all', limit=24, cursor=None):
         """Read direct tombstones only, within the session's full-project grants."""
-        if kind not in {'all', 'project', 'episode', 'asset'} or type(limit) is not int or not 1 <= limit <= 100:
+        if kind not in {'all', 'project', 'episode', 'asset', 'video'} or type(limit) is not int or not 1 <= limit <= 100:
             raise ResourceError('回收列表筛选或分页范围不合法', 'invalid_page')
         boundary = None
         if cursor is not None:
@@ -121,7 +121,7 @@ class ProjectManagementRepository:
                 if not isinstance(data, list) or len(data) != 5 or data[0] != kind:
                     raise ValueError()
                 at = datetime.fromisoformat(data[1])
-                if at.tzinfo is None or data[3] not in {'project', 'episode', 'asset'}:
+                if at.tzinfo is None or data[3] not in {'project', 'episode', 'asset', 'video'}:
                     raise ValueError()
                 boundary = (at, checked_id(data[2]), data[3], checked_id(data[4]))
             except (ValueError, TypeError, UnicodeError, ResourceError):
@@ -148,7 +148,23 @@ class ProjectManagementRepository:
                     .join(projects, projects.c.id == obj.c.project_id).outerjoin(ps, ps.c.project_id == projects.c.id))\
                 .where(projects.c.id.in_(select(allowed.c.id)), os.c.state == 'trashed',
                     obj.c.kind.in_(['episode', 'asset']), func.coalesce(ps.c.state, 'active') != 'purged')
-            rows = union_all(project_rows, object_rows).subquery('recycle_items')
+            media, decisions, actions = S.media_items, S.media_lifecycle_decisions, S.media_recycle_actions
+            ranked = select(decisions.c.project_id, decisions.c.media_id, decisions.c.id, decisions.c.outcome,
+                decisions.c.created_at, decisions.c.reason, func.row_number().over(
+                    partition_by=(decisions.c.project_id, decisions.c.media_id),
+                    order_by=decisions.c.decision_sequence.desc()).label('rank')).where(
+                        decisions.c.project_id.in_(select(allowed.c.id))).subquery('recycle_media_decisions')
+            recorded = exists(select(1).select_from(actions).where(actions.c.project_id == ranked.c.project_id,
+                actions.c.media_id == ranked.c.media_id, actions.c.decision_id == ranked.c.id))
+            video_rows = select(projects.c.id.label('project_id'), media.c.id.label('target_id'),
+                literal('video').label('kind'), media.c.name.label('title'), ranked.c.created_at.label('changed_at'),
+                ranked.c.reason, projects.c.revision, (func.coalesce(ps.c.state, 'active') != 'active').label('blocked_by_project'),
+                literal(False).label('blocked_by_ancestor')).select_from(media.join(projects, projects.c.id == media.c.project_id)
+                .join(ranked, and_(ranked.c.project_id == media.c.project_id, ranked.c.media_id == media.c.id))
+                .outerjoin(ps, ps.c.project_id == projects.c.id)).where(projects.c.id.in_(select(allowed.c.id)),
+                    media.c.modality == 'video', ranked.c.rank == 1, ranked.c.outcome == 'deprecate', recorded,
+                    func.coalesce(ps.c.state, 'active') != 'purged')
+            rows = union_all(project_rows, object_rows, video_rows).subquery('recycle_items')
             query = select(rows)
             if kind != 'all':
                 query = query.where(rows.c.kind == kind)
@@ -173,7 +189,7 @@ class ProjectManagementRepository:
                         if exc.code != 'access_denied':
                             raise
                         permissions[p] = False
-                row['target_type'] = 'project' if row['kind'] == 'project' else 'object'
+                row['target_type'] = 'project' if row['kind'] == 'project' else 'media' if row['kind'] == 'video' else 'object'
                 row['can_restore'] = permissions[p] and not row['blocked_by_project'] and not row['blocked_by_ancestor']
             next_cursor = None
             if more:
