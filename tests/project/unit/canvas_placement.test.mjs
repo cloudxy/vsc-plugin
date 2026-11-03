@@ -56,7 +56,7 @@ test('image clicks and keyboard selection update the selected node without chang
   const a=await fixture({nodes:[node('first',100),node('second',400)]});
   let cards=a.root.querySelectorAll('.cc-node');assert.equal(cards.length,2);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);
   await cards[0].fire('click',{target:cards[0].querySelector('img')});cards=a.root.querySelectorAll('.cc-node');
-  assert.ok(cards[0].classList.contains('selected'));assert.equal(a.root.querySelector('.cc-inspector').hidden,false);
+  assert.ok(cards[0].classList.contains('selected'));assert.equal(a.root.querySelector('.cc-inspector').hidden,true);await cards[0].querySelector('.cc-node-head').fire('click');cards=a.root.querySelectorAll('.cc-node');assert.equal(a.root.querySelector('.cc-inspector').hidden,false);
   await cards[1].fire('click',{target:cards[1].querySelector('img'),shiftKey:true});cards=a.root.querySelectorAll('.cc-node');
   assert.ok(cards[0].classList.contains('selected'));assert.ok(cards[1].classList.contains('selected'));
   await cards[1].fire('keydown',{key:'Enter'});cards=a.root.querySelectorAll('.cc-node');
@@ -79,8 +79,16 @@ test('closing an image tool leaves its source and document untouched',async()=>{
  const node={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
  const angle={preset:'custom',yaw:0,pitch:0,roll:0,zoom:1,include_instructions:true};
  const a=await fixture({nodes:[node],runOptions:{revision:1,nodes:[],models:[],image_tools:{angle}}});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
- await a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');const panel=a.root.querySelector('.cc-image-tool-panel');assert.ok(panel);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);
+ await a.root.querySelector('.cc-node-head').fire('click');assert.equal(a.root.querySelector('.cc-inspector').hidden,false);await a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');const panel=a.root.querySelector('.cc-image-tool-panel');assert.ok(panel);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);
  await panel.querySelectorAll('button').find(b=>b.attrs['aria-label']==='关闭').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,false);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+});
+
+test('switching images through the minimap clears image-specific panels',async()=>{
+ const node=(id,x)=>({id,type:'image',title:id,x,y:100,text:'',params:{},media_id:id,job_id:null,group:''});const angle={preset:'custom',yaw:0,pitch:0,roll:0,zoom:1,include_instructions:true};
+ const a=await fixture({nodes:[node('first',100),node('second',400)],runOptions:{revision:1,nodes:[],models:[],image_tools:{angle}}});let cards=a.root.querySelectorAll('.cc-node');await cards[0].querySelector('.cc-node-head').fire('click');assert.equal(a.root.querySelector('.cc-inspector').hidden,false);
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');assert.ok(a.root.querySelector('.cc-image-tool-panel'));
+ await a.root.querySelector('.cc-minimap').querySelectorAll('button').find(b=>b.title==='second').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);
+ await a.root.querySelector('.cc-minimap').querySelectorAll('button').find(b=>b.title==='first').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
 });
 
 test('canvas image tool fixes source, settings and extra prompt before opening generation',async()=>{
