@@ -25,14 +25,15 @@ class Element {
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
 }
 async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null}={}) {
-  const document={createElement:t=>{const n=new Element(t);n.ownerDocument=document;return n;},createElementNS:(ns,t)=>{const n=document.createElement(t);n.namespaceURI=ns;return n;},createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;},documentElement:{}};
+  const document={createElement:t=>{const n=new Element(t);n.ownerDocument=document;if(t==='canvas')n.getContext=()=>({drawImage(){},getImageData(){return {data:new Uint8ClampedArray(32)};}});return n;},createElementNS:(ns,t)=>{const n=document.createElement(t);n.namespaceURI=ns;return n;},createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;},documentElement:{}};
+  const images=[];class FakeImage{constructor(){images.push(this);}}
   const store=new Map(),sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
   const window={addEventListener(){},removeEventListener(){}},location={search:''};
-  const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,setTimeout:()=>0,clearTimeout:()=>{}});
+  const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,setTimeout:()=>0,clearTimeout:()=>{}});
   const root=document.createElement('main');
   const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},api:async(path)=>path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
-  return {root,canvas,store,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
+  return {root,canvas,store,images,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
 function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.textContent==='添加图片');assert.ok(action);return action.fire('click');}
 function savedNode(store){return JSON.parse(store.get('vsc-creative-canvas:p1:c1')).document.nodes.at(-1);}
@@ -75,6 +76,12 @@ test('selected image exposes preview and original download without editing canva
  await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-image-preview'),null);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
 });
 
+test('panorama viewer opens the selected source and closes without changing the canvas',async()=>{
+ const node={id:'image1',type:'image',title:'全景参考',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};const a=await fixture({nodes:[node]});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');let dialog=a.root.querySelector('.cc-panorama-preview');assert.ok(dialog.open);assert.equal(a.images[0].src,'/api/v1/projects/p1/media/media1/content');a.images[0].naturalWidth=4;a.images[0].naturalHeight=2;a.images[0].onload();assert.ok(dialog.querySelector('canvas'));assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
+ await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-panorama-preview'),null);await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');dialog=a.root.querySelector('.cc-panorama-preview');a.images[1].naturalWidth=16;a.images[1].naturalHeight=9;a.images[1].onload();assert.match(dialog.querySelector('p').textContent,/2:1/);await dialog.querySelector('button').fire('click');a.canvas.suspend();
+});
+
 test('closing an image tool leaves its source and document untouched',async()=>{
  const node={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
  const angle={preset:'custom',yaw:0,pitch:0,roll:0,zoom:1,include_instructions:true};
@@ -112,7 +119,7 @@ test('image generation presets fix the original reference before opening generat
  const image_tools={three_view:{layout:'front_side_back'},headshot:{framing:'head_and_shoulders'},face_views:{layout:'front_three_quarter_side'}};
  for(const [tool,label] of [['three_view','角色三视图'],['headshot','生成大头照'],['face_views','角色脸部三视图']]){
   const a=await fixture({nodes:[node],runOptions:{revision:1,nodes:[],models:[{id:'model1',enabled:true,modality:'image',model_key:'编辑模型',model_version:'1',capabilities:{purposes:['image_edit']}}],image_tools}});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
-  const menu=a.root.querySelector('.cc-image-generate-menu');assert.ok(menu);assert.equal(menu.querySelectorAll('button').find(b=>b.textContent==='剧情推进四格').disabled,true);
+  const menu=a.root.querySelector('.cc-image-generate-menu--presets');assert.ok(menu);assert.equal(menu.querySelectorAll('button').find(b=>b.textContent==='剧情推进四格').disabled,true);
   await menu.querySelectorAll('button').find(b=>b.textContent===label).fire('click');const doc=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1')).document,target=doc.nodes.find(n=>n.id!=='source');
   assert.equal(target.params.vsc_image_tool,tool);assert.deepEqual(JSON.parse(target.params.vsc_image_tool_settings),image_tools[tool]);assert.deepEqual(doc.edges.map(e=>[e.source,e.target,e.port]),[['source',target.id,'reference']]);assert.ok(a.root.querySelector('.cc-run-form'));a.canvas.suspend();
  }
