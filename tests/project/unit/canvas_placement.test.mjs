@@ -67,6 +67,7 @@ test('image clicks and keyboard selection update the selected node without chang
 test('selected image exposes preview and original download without editing canvas data',async()=>{
  const node={id:'image1',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
  const a=await fixture({nodes:[node],viewport:{x:0,y:0,zoom:.5}});let card=a.root.querySelector('.cc-node');assert.equal(a.root.querySelector('.cc-image-node-tools'),null);
+ const image=card.querySelector('img');image.naturalWidth=3840;image.naturalHeight=2160;await image.fire('load');assert.equal(card.querySelector('.cc-node-resolution').textContent,'3840 × 2160');assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
  await card.fire('click',{target:card.querySelector('img')});card=a.root.querySelector('.cc-node');const toolbar=card.querySelector('.cc-image-node-tools');assert.ok(toolbar);assert.equal(toolbar.style.transform,'scale(2) translateX(-50%)');
  const link=toolbar.querySelector('a');assert.equal(link.href,'/api/v1/projects/p1/media/media1/content?download=true');
  await card.fire('click',{target:link});assert.equal(a.root.querySelector('.cc-node'),card);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
