@@ -14,6 +14,16 @@ from vsc.bootstrap import repository_root, script_path, service_from_environment
 
 
 class TestPackageLayout(unittest.TestCase):
+    def test_distribution_includes_every_postgres_migration(self):
+        # Missing revisions make an otherwise valid installed package impossible to upgrade.
+        key = '"share/vsc-workflow/migrations/postgres/versions"'
+        lines = (ROOT / 'pyproject.toml').read_text().splitlines()
+        entries = [line.split('=', 1)[1].strip() for line in lines if line.startswith(key)]
+        self.assertEqual(len(entries), 1)
+        packaged = set(ast.literal_eval(entries[0]))
+        actual = {str(path.relative_to(ROOT)) for path in (ROOT / 'migrations/postgres/versions').glob('*.py')}
+        self.assertEqual(packaged, actual)
+
     @unittest.skipUnless(importlib.util.find_spec("sqlalchemy") and importlib.util.find_spec("psycopg"), "requires postgres optional dependencies")
     def test_invalid_database_configuration_does_not_echo_connection_values(self):
         from vsc.assets.resource_service import ResourceError
