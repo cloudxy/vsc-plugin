@@ -4,6 +4,7 @@ The canvas owns editing history only. Media, approvals and task states remain
 owned by their original repositories; preparing a node never submits a provider.
 """
 from copy import deepcopy
+import json
 import math
 import re
 
@@ -23,6 +24,50 @@ NODE_TYPES = {
     "processing": {"label": "视频加工", "inputs": {"source_video": "video", "prompt": "text"}, "output": "media"},
 }
 DOMAIN_TYPES = {"spatial", "director", "edit", "music_mix", "processing"}
+CANVAS_IMAGE_TOOL = "vsc_image_tool"
+CANVAS_IMAGE_TOOL_SETTINGS = "vsc_image_tool_settings"
+
+
+def canvas_image_tool_options():
+    from vsc.production.image_tools import TOOLS
+    options = {tool: deepcopy(TOOLS[tool][1]) for tool in ("angle", "lighting")}
+    options["lighting"]["intensity"] = 0.5
+    options["lighting"]["view"] = "perspective"
+    return options
+
+
+def canvas_image_tool(kind, params):
+    """Validate the canvas-owned tool descriptor without passing it to a provider."""
+    keys = {CANVAS_IMAGE_TOOL, CANVAS_IMAGE_TOOL_SETTINGS}
+    present = keys.intersection(params)
+    if not present:
+        return None
+    if present != keys or kind != "image" or not isinstance(params.get(CANVAS_IMAGE_TOOL), str) or params[CANVAS_IMAGE_TOOL] not in {"angle", "lighting"}:
+        _fail("画布图像工具及其参数必须同时绑定到图片节点", "invalid_canvas_image_tool")
+    raw = params[CANVAS_IMAGE_TOOL_SETTINGS]
+    if not isinstance(raw, str):
+        _fail("画布图像工具参数须为 JSON 字符串", "invalid_canvas_image_tool")
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+    def reject_constant(_):
+        raise ValueError("nonfinite")
+    try:
+        settings = json.loads(raw, object_pairs_hook=pairs, parse_constant=reject_constant)
+    except (ValueError, TypeError, RecursionError):
+        _fail("画布图像工具参数 JSON 无效", "invalid_canvas_image_tool")
+    from vsc.production.image_tools import normalize_tool
+    if not isinstance(settings, dict):
+        _fail("画布图像工具参数须为 JSON 对象", "invalid_canvas_image_tool")
+    tool = params[CANVAS_IMAGE_TOOL]
+    normalized = normalize_tool(tool, {**canvas_image_tool_options()[tool], **settings})
+    if tool == "angle" and not normalized["include_instructions"]:
+        _fail("画布多角度必须包含固定角度指令", "invalid_canvas_image_tool")
+    return {"tool": tool, "settings": normalized}
 
 
 def accepts_port(target_type, port, source_type):
@@ -73,6 +118,7 @@ def normalize_document(value):
                 not isinstance(v, (str, int, float, bool, type(None))) or isinstance(v, str) and len(v) > 2000 or
                 isinstance(v, float) and not math.isfinite(v) for k, v in params.items()):
             _fail("节点参数必须是有界的简单键值")
+        canvas_image_tool(kind, params)
         if kind == "text" and (node.get("media_id") or node.get("job_id")):
             _fail("文本节点不能伪装媒体或生成任务")
         row = {"id": key, "type": kind, "title": title.strip(), "x": _number(node.get("x", 0), -100000, 100000),
