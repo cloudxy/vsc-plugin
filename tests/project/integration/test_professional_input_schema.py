@@ -208,7 +208,7 @@ class ProfessionalInputSchemaTests(ResourceStoreFixture, unittest.TestCase):
             conn.execute(update(S.text_tool_batches).where(S.text_tool_batches.c.id==good['id']).values(status='running'))
         self.rejects(lambda c:migrate(c,'0046_classic_preferences','downgrade'))
         with self.engine.connect() as conn:
-            self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),'0047_professional_inputs')
+            self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),S.SCHEMA_REVISION)
             self.assertEqual(conn.scalar(select(S.text_tool_batches.c.materials_artifact_id).where(S.text_tool_batches.c.id==good['id'])),material)
             self.assertEqual(bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==material))),bytes(fixed['document']))
 
@@ -262,7 +262,7 @@ class ProfessionalInputMigrationTests(unittest.TestCase):
                 migrate(conn,'0046_classic_preferences','downgrade')
                 self.assertNotIn('materials_artifact_id',{c['name'] for c in inspect(conn).get_columns('text_tool_batches')})
                 self.assertEqual(conn.scalar(text('SELECT item_count FROM text_tool_batches WHERE id=:id'),dict(id=batch_id)),1)
-                migrate(conn,'0047_professional_inputs')
+                migrate(conn,'head')
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
                 self.assertIsNone(conn.scalar(select(S.text_tool_batches.c.materials_artifact_id).where(S.text_tool_batches.c.id==batch_id)))
                 self.assertEqual(bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==baseline['id']))),old)
@@ -283,7 +283,7 @@ class ProfessionalInputMigrationTests(unittest.TestCase):
                 with engine.begin() as conn:migrate(conn,'0046_classic_preferences','downgrade')
             self.assertEqual(rejected.exception.orig.sqlstate,'23514')
             with engine.connect() as conn:
-                self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),'0047_professional_inputs')
+                self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),S.SCHEMA_REVISION)
                 self.assertEqual(bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==fixed['id']))),before)
                 self.assertEqual(conn.scalar(select(S.artifact_versions.c.sha256).where(S.artifact_versions.c.id==fixed['id'])),fixed['sha256'])
                 self.assertEqual(conn.scalar(select(S.projects.c.revision).where(S.projects.c.id==f.p)),f.rev)
@@ -303,12 +303,12 @@ class ProfessionalInputMigrationTests(unittest.TestCase):
                 migrate(conn,'0046_classic_preferences','downgrade')
                 self.assertFalse(inspect(conn).has_table('classic_draft_workflows'))
                 self.assertNotIn('source_cue_id',{x['name'] for x in inspect(conn).get_columns('edit_revision_media')})
-                migrate(conn,'0047_professional_inputs')
+                migrate(conn,'head')
                 self.assertEqual(bytes(conn.scalar(select(S.artifact_versions.c.document).where(S.artifact_versions.c.id==old['id']))),b'Legacy plain text.')
             new=f.write('create_artifact',dict(artifact_key='new-professional',artifact_type='professional-test',document={'professional_inputs':[dict(id=old['id'],sha256=old['sha256'],kind='screenplay')]},dependency_ids=[old['id']]))
             with self.assertRaises(IntegrityError) as rejected:
                 with engine.begin() as conn:migrate(conn,'0046_classic_preferences','downgrade')
             self.assertEqual(rejected.exception.orig.sqlstate,'23514')
             with engine.connect() as conn:
-                self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),'0047_professional_inputs')
+                self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),S.SCHEMA_REVISION)
                 self.assertEqual(conn.scalar(select(S.artifact_versions.c.sha256).where(S.artifact_versions.c.id==new['id'])),new['sha256'])

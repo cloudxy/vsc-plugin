@@ -8,9 +8,13 @@ def install_asset_center_routes(app,router,catalog,etag,actor,read_actor):
         return catalog.service
 
     @app.get("/api/v1/asset-center")
-    def search(request:Request,query:str="",tag:str="",form_name:str="",asset_kind:str="",workspace_id:str="",review_status:str="",offset:int=0,limit:int=24,media_only:bool=False):
+    def search(request:Request,query:str="",tag:str="",form_name:str="",asset_kind:str="",workspace_id:str="",review_status:str="",offset:int=0,limit:int=24,media_only:bool=False,source:str="shared",role_level:str="",role_tag:str="",gender:str="",age_band:str=""):
         identity=read_actor(request)
-        return etag(request,service().search_asset_center(dict(query=query,tag=tag,form_name=form_name,asset_kind=asset_kind,workspace_id=workspace_id,review_status=review_status,offset=offset,limit=limit,media_only=media_only),identity))
+        return etag(request,service().search_asset_center(dict(query=query,tag=tag,form_name=form_name,asset_kind=asset_kind,workspace_id=workspace_id,review_status=review_status,offset=offset,limit=limit,media_only=media_only,source=source,role_level=role_level,role_tag=role_tag,gender=gender,age_band=age_band),identity))
+
+    @app.post("/api/v1/asset-center/official/publish")
+    def publish_official(request:Request,body:dict):
+        return service().publish_official_asset(body.get("payload"),actor(request))
 
     @app.post("/api/v1/asset-center/catalog")
     def edit(request:Request,body:dict):

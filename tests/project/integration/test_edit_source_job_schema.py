@@ -76,7 +76,7 @@ class EditSourceJobSchemaTests(ResourceStoreFixture,unittest.TestCase):
             old=conn.scalar(select(S.edit_revisions.c.document).where(S.edit_revisions.c.id==legacy))
             migrate(conn,'0046_classic_preferences','downgrade')
             self.assertNotIn('source_job_id',{r['name'] for r in inspect(conn).get_columns('edit_revision_media')})
-            migrate(conn,'0047_professional_inputs')
+            migrate(conn,'head')
             self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
             self.assertIsNone(conn.scalar(select(S.edit_revision_media.c.source_job_id).where(S.edit_revision_media.c.edit_version_id==legacy)))
             self.assertEqual(conn.scalar(select(S.edit_revisions.c.document).where(S.edit_revisions.c.id==legacy)),old)
@@ -114,6 +114,6 @@ class EditSourceJobSchemaTests(ResourceStoreFixture,unittest.TestCase):
             self.rejects(lambda c,s=statement:c.execute(s))
         self.rejects(lambda c:migrate(c,'0046_classic_preferences','downgrade'))
         with self.engine.connect() as conn:
-            self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),'0047_professional_inputs')
+            self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')),S.SCHEMA_REVISION)
             self.assertEqual(conn.scalar(select(S.edit_revision_media.c.source_job_id).where(S.edit_revision_media.c.edit_version_id==fixed)),job)
             self.assertEqual(conn.scalar(select(S.edit_revisions.c.document).where(S.edit_revisions.c.id==fixed))['clips'][0]['source_job_id'],job)

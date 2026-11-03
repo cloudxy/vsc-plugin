@@ -1,6 +1,8 @@
 """Organization and tombstones under the original project lock and receipts."""
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import select, insert, update, delete, func, or_
+import base64
+import json
+from sqlalchemy import select, insert, update, delete, func, or_, and_, exists, literal, tuple_, union_all, false
 from vsc.assets.resource_service import ResourceError
 from . import schema as S
 from .values import checked_id, clean, new_id
@@ -76,6 +78,110 @@ def filter_management_rows(conn,p,table,rows):
 
 
 class ProjectManagementRepository:
+    def _recycle_readable_projects(self, conn):
+        from vsc.assets.access_control import CAPABILITIES, denied
+        principal, person, share = self._access_principal(conn)
+        projects, bindings = S.projects, S.access_projects
+        query = select(projects.c.id)
+        if principal is None:
+            return query
+        if principal.api_key_id:
+            denied('回收目录不接受开放接口凭据')
+        if not person:
+            if principal.local_read and not share:
+                return query.where(~exists(select(1).where(bindings.c.project_id == projects.c.id)))
+            return query.where(false())
+        roles = [role for role, capabilities in CAPABILITIES.items() if 'read' in capabilities]
+        workspaces, members, pm = S.access_workspaces, S.access_workspace_members, S.access_project_members
+        ancestry = select(workspaces.c.id.label('workspace_id'), workspaces.c.id.label('ancestor_id')).cte('recycle_workspace_ancestry', recursive=True)
+        ancestry = ancestry.union(select(ancestry.c.workspace_id, workspaces.c.parent_id).join(
+            workspaces, workspaces.c.id == ancestry.c.ancestor_id).where(workspaces.c.parent_id.is_not(None)))
+        workspace_grant = exists(select(1).select_from(ancestry.join(members, members.c.workspace_id == ancestry.c.ancestor_id))
+            .where(ancestry.c.workspace_id == bindings.c.workspace_id, members.c.identity_id == person['id'],
+                members.c.active.is_(True), or_(and_(ancestry.c.ancestor_id == ancestry.c.workspace_id,
+                    members.c.role.in_(roles)), members.c.role == 'owner')).correlate(bindings))
+        project_grant = exists(select(1).where(pm.c.project_id == bindings.c.project_id,
+            pm.c.identity_id == person['id'], pm.c.active.is_(True), pm.c.role.in_(roles)).correlate(bindings))
+        bound = exists(select(1).where(bindings.c.project_id == projects.c.id,
+            or_(workspace_grant, project_grant)).correlate(projects))
+        unassigned = and_(literal(bool(principal.local and person['subject_key'].startswith('local:'))),
+            ~exists(select(1).where(bindings.c.project_id == projects.c.id)))
+        return query.where(or_(bound, unassigned))
+
+    def management_recycle_items(self, kind='all', limit=24, cursor=None):
+        """Read direct tombstones only, within the session's full-project grants."""
+        if kind not in {'all', 'project', 'episode', 'asset'} or type(limit) is not int or not 1 <= limit <= 100:
+            raise ResourceError('回收列表筛选或分页范围不合法', 'invalid_page')
+        boundary = None
+        if cursor is not None:
+            try:
+                if not isinstance(cursor, str) or len(cursor) > 1024:
+                    raise ValueError()
+                data = json.loads(base64.urlsafe_b64decode(cursor + '=' * (-len(cursor) % 4)))
+                if not isinstance(data, list) or len(data) != 5 or data[0] != kind:
+                    raise ValueError()
+                at = datetime.fromisoformat(data[1])
+                if at.tzinfo is None or data[3] not in {'project', 'episode', 'asset'}:
+                    raise ValueError()
+                boundary = (at, checked_id(data[2]), data[3], checked_id(data[4]))
+            except (ValueError, TypeError, UnicodeError, ResourceError):
+                raise ResourceError('回收列表游标不合法', 'invalid_page')
+        from .access_control import authority_lock
+        with self.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
+            authority_lock(conn)
+            allowed = self._recycle_readable_projects(conn).cte('recycle_readable_projects')
+            projects, ps, os, obj, episodes = S.projects, S.management_project_states, S.management_object_states, S.creative_objects, S.episodes
+            parent_state = os.alias('recycle_parent_state')
+            blocked_parent = exists(select(1).select_from(episodes.join(parent_state, and_(
+                parent_state.c.project_id == episodes.c.project_id, parent_state.c.object_id == episodes.c.parent_id)))
+                .where(episodes.c.project_id == obj.c.project_id, episodes.c.id == obj.c.id, parent_state.c.state != 'active'))
+            project_rows = select(projects.c.id.label('project_id'), projects.c.id.label('target_id'),
+                literal('project').label('kind'), projects.c.name.label('title'), ps.c.changed_at, ps.c.reason,
+                projects.c.revision, literal(False).label('blocked_by_project'), literal(False).label('blocked_by_ancestor'))\
+                .select_from(projects.join(ps, ps.c.project_id == projects.c.id))\
+                .where(projects.c.id.in_(select(allowed.c.id)), ps.c.state == 'trashed')
+            object_rows = select(projects.c.id.label('project_id'), obj.c.id.label('target_id'), obj.c.kind,
+                obj.c.title, os.c.changed_at, os.c.reason, projects.c.revision,
+                (func.coalesce(ps.c.state, 'active') != 'active').label('blocked_by_project'),
+                blocked_parent.label('blocked_by_ancestor'))\
+                .select_from(obj.join(os, and_(os.c.project_id == obj.c.project_id, os.c.object_id == obj.c.id))
+                    .join(projects, projects.c.id == obj.c.project_id).outerjoin(ps, ps.c.project_id == projects.c.id))\
+                .where(projects.c.id.in_(select(allowed.c.id)), os.c.state == 'trashed',
+                    obj.c.kind.in_(['episode', 'asset']), func.coalesce(ps.c.state, 'active') != 'purged')
+            rows = union_all(project_rows, object_rows).subquery('recycle_items')
+            query = select(rows)
+            if kind != 'all':
+                query = query.where(rows.c.kind == kind)
+            if boundary:
+                at, project_id, item_kind, target_id = boundary
+                query = query.where(or_(rows.c.changed_at < at, and_(rows.c.changed_at == at,
+                    tuple_(rows.c.project_id, rows.c.kind, rows.c.target_id) > tuple_(
+                        literal(project_id, type_=projects.c.id.type), item_kind,
+                        literal(target_id, type_=projects.c.id.type)))))
+            page = [dict(row) for row in conn.execute(query.order_by(rows.c.changed_at.desc(), rows.c.project_id,
+                rows.c.kind, rows.c.target_id).limit(limit + 1)).mappings()]
+            more = len(page) > limit
+            page = page[:limit]
+            permissions = {}
+            for row in page:
+                p = row['project_id']
+                if p not in permissions:
+                    try:
+                        self._access_require(conn, p, 'manage')
+                        permissions[p] = True
+                    except ResourceError as exc:
+                        if exc.code != 'access_denied':
+                            raise
+                        permissions[p] = False
+                row['target_type'] = 'project' if row['kind'] == 'project' else 'object'
+                row['can_restore'] = permissions[p] and not row['blocked_by_project'] and not row['blocked_by_ancestor']
+            next_cursor = None
+            if more:
+                last = page[-1]
+                raw = json.dumps([kind, last['changed_at'].isoformat(), last['project_id'], last['kind'], last['target_id']], separators=(',', ':')).encode()
+                next_cursor = base64.urlsafe_b64encode(raw).decode().rstrip('=')
+            return clean({'items': page, 'limit': limit, 'next_cursor': next_cursor})
+
     def management_filter_active_projects(self,items):
         with self.engine.connect() as conn:
             inactive=set(conn.execute(inactive_project_ids()).scalars())

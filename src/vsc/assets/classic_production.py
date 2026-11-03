@@ -407,13 +407,15 @@ class ClassicProductionServiceMixin:
         self._classic_shot(project_id,shot_id)
         source=self.store.classic_candidate_configuration(project_id,shot_id,media_id)
         if not source:return {'available':False,'reason':'此候选没有本镜头原生成任务；不能猜测配置。'}
-        if source['request_payload'].get('operation') in {'inpaint','draft_upgrade','panorama'} or source['request_payload'].get('draft') is True:
-            run=self.get_artifact_version(project_id,source['run_version_id'])
-            fixed=json.loads(run['document']).get('workbench_draft')
+        run=self.get_artifact_version(project_id,source['run_version_id'])
+        fixed=json.loads(run['document']).get('workbench_draft')
+        if fixed or source['request_payload'].get('operation') in {'inpaint','draft_upgrade','panorama'} or source['request_payload'].get('draft') is True:
             if not fixed:return {'available':False,'reason':'此局部重绘结果缺少固定工作草稿。'}
             original=self.get_artifact_version(project_id,fixed['id'])
             if original['sha256']!=fixed['sha256']:raise Conflict('候选原配置摘要不符')
-            result={'available':True,'source_job_id':source['id'],'document':self._classic_document(project_id,json.loads(original['document']))}
+            document=json.loads(original['document'])
+            if document.get('shot_id') != shot_id:raise Conflict('候选固定工作稿不属于当前镜头')
+            result={'available':True,'configuration_source':'fixed_workbench_draft','source_job_id':source['id'],'document':self._classic_document(project_id,document)}
             if source['request_payload'].get('operation') == 'panorama':
                 if result['document']['mode'] != 'image_panorama':
                     return {'available':False,'reason':'原全景任务的固定工作稿模式不符。'}
@@ -434,4 +436,4 @@ class ClassicProductionServiceMixin:
         if mode=='single' and any(r['role']=='reference_image' for r in refs):mode='multi'
         if mode=='text' and refs:mode='multi'
         document=normalize_draft(dict(shot_id=shot_id,mode=mode,model_id=source['model_id'],purpose=source['purpose'],prompt=request.get('prompt',''),duration_ms=request.get('duration_ms',5000),width=request.get('width',1080),height=request.get('height',1920),count=1,params=request.get('params',{}),references=refs))
-        return {'available':True,'source_job_id':source['id'],'document':self._classic_document(project_id,document)}
+        return {'available':True,'configuration_source':'legacy_request','source_job_id':source['id'],'document':self._classic_document(project_id,document)}

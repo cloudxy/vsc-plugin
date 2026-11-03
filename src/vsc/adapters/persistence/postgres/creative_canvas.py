@@ -542,6 +542,26 @@ class CreativeCanvasRepository:
             return self._insert_canvas_version(conn, project, canvas, prepared, actor, current)
         return self._mutate(project_id, "save_creative_canvas", payload, actor=actor, callback=work, **kw)
 
+    def add_canvas_library_node(self, project_id, payload, actor, *, materialize_reference, **kw):
+        def work(conn, project):
+            canvas, current = self._canvas_version(conn, project, payload["canvas_id"])
+            if payload["canvas_revision"] != current["version"]:
+                raise Conflict("画布已有新版本，请先读回当前画布", "canvas_revision_conflict")
+            document = self._canvas_document(conn, project["id"], current)
+            if len(document["nodes"]) >= 200:
+                raise ResourceError("画布节点已达上限", "canvas_node_limit")
+            registered, _, reuse_id = materialize_reference(conn, project, payload, actor)
+            media = self._one(conn, S.media_items, project["id"], registered["id"])
+            if media["modality"] not in {"image", "video", "audio"}:
+                raise ResourceError("该库成员不能作为画布媒体节点", "canvas_media_type")
+            node_id = "library-" + reuse_id
+            document["nodes"].append({"id": node_id, "type": media["modality"], "title": media["name"],
+                "media_id": media["id"], "x": payload.get("x", 100), "y": payload.get("y", 100)})
+            saved = self._insert_canvas_version(conn, project, canvas, {"title": current["title"], "document": document}, actor, current)
+            return dict(saved, node_id=node_id, media_id=media["id"], library_reuse_id=reuse_id)
+        return self._mutate(project_id, "add_canvas_library_node", payload, actor=actor, callback=work,
+            _library_versions=(payload["library_version_id"],), **kw)
+
     def copy_creative_canvas(self, project_id, payload, actor, **kw):
         def work(conn, project):
             source, row = self._canvas_version(conn, project, required(payload, "canvas_id"), payload.get("canvas_revision"))

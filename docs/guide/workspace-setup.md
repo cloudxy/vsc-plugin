@@ -110,6 +110,12 @@ grok inspect
 
 现有会话未必重新扫描技能和项目说明；克隆或更新入口后请在本目录开始新会话。客户端若要求工作区信任，请在其界面完成。网页聊天或无法访问本机文件的云端会话不会因这些本地文件而自动接入。
 
+## 官方资产目录发布者
+
+官方目录读取显式发布的固定共享库版本，普通共享素材不会自动成为官方资产。平台维护人可在 `config/.env` 设置 `VSC_OFFICIAL_ASSET_PUBLISHERS='@json ["trusted-operator"]'`，填写既有的真实操作身份。默认空列表，未配置身份的发布请求会被拒绝；该设置不改变数据库账号、项目权限或素材许可。
+
+受信任身份先沿原共享库登记媒体、许可和固定版本，再调用 `POST /api/v1/asset-center/official/publish`，提交 `entry_id`、`library_version_id`、`asset_kind`、`role_level`、`role_tag`、`gender`、`age_band`、`notes` 和 `command_key`。身份及 CSRF 沿原操作会话。发布记录不可变，`GET /api/v1/asset-center?source=official` 读取固定版本及真实筛选值；停用原库或撤销许可后，原使用限制继续生效。
+
 ## 配置依据
 
 - [Codex 本地技能发现](https://learn.chatgpt.com/docs/build-skills) 与 [自定义子智能体](https://learn.chatgpt.com/docs/agent-configuration/subagents)

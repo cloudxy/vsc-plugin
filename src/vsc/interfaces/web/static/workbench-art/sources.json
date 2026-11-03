@@ -79,6 +79,12 @@
       "source": "Supplied Tian Gong homepage icon registry",
       "sha256": "e5557eaf3a9af2a094296624c748d6e243f5b55d95d9012291654497c2b9c5e5",
       "bytes": 3549
+    },
+    {
+      "file": "commerce-skills.webp",
+      "source": "https://static.skyproduction.cn/index_video/v6/commerce-skills-20261022-3853f7b67c48.webp",
+      "sha256": "c825d18d7668c482679625a19b0a85c6a97587263b6d80ed211becf107dd5d2d",
+      "bytes": 37254
     }
   ]
 }

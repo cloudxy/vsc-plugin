@@ -14,6 +14,51 @@ TEST_URL = os.environ.get("VSC_TEST_DATABASE_URL")
 
 @unittest.skipUnless(TEST_URL and HAS_DB, "requires configured isolated PostgreSQL")
 class CreativeCanvasTests(ResourceStoreFixture, unittest.TestCase):
+    def test_library_node_preserves_fixed_source_without_asset_or_generation(self):
+        import io
+        import tempfile
+        from sqlalchemy import select, func
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.storage.local.store import LocalStorage
+        from support.fixtures.resources import png_bytes
+        from vsc.assets.resource_service import Conflict, ResourceError
+        with tempfile.TemporaryDirectory() as directory:
+            previous = self.service.storage
+            self.service.storage = LocalStorage(directory)
+            try:
+                uploaded = self.service.storage.stage_upload(io.BytesIO(png_bytes()), "reference.png")
+                fixed = self.service.import_library({"library_key": "canvas-" + uuid.uuid4().hex,
+                    "title": "Fixed library reference", "category": "image", "description": "Synthetic owned image",
+                    "specification": {}, "allowed_purposes": ["identity_face"],
+                    "license": {"outcome": "owned", "allow_workspace_reuse": True, "evidence": "synthetic bytes"},
+                    "import_key": uuid.uuid4().hex, "members": [{"member_key": "front", "staged_upload": uploaded["staged_upload"]}]}, actor="test-human")
+                canvas = self.write("create_creative_canvas", {"title": "Reference canvas", "document": {"nodes": [], "edges": []}})
+                payload = {"canvas_id": canvas["id"], "canvas_revision": 1, "library_version_id": fixed["version_id"],
+                    "member_key": "front", "role": "identity_face", "x": 80, "y": 100}
+                before = self.rev
+                result = self.write("add_canvas_library_node", payload, idempotency_key="library-node")
+                replay = self.service.add_canvas_library_node(self.p, payload, actor="test-human", expected_revision=before, idempotency_key="library-node")
+                self.assertEqual(result, replay)
+                opened = self.service.get_creative_canvas(self.p, canvas["id"])
+                self.assertEqual(opened["canvas_revision"], 2)
+                self.assertEqual(opened["document"]["nodes"][0]["media_id"], result["media_id"])
+                self.assertEqual(opened["document"]["nodes"][0]["id"], result["node_id"])
+                with self.engine.connect() as conn:
+                    for table in (S.creative_objects, S.binding_candidates, S.generation_jobs):
+                        self.assertEqual(conn.execute(select(func.count()).select_from(table).where(table.c.project_id == self.p)).scalar_one(), 0)
+                    reuse = conn.execute(select(S.library_reuses).where(S.library_reuses.c.project_id == self.p)).mappings().one()
+                    self.assertEqual(reuse["library_version_id"], fixed["version_id"])
+                    self.assertEqual(reuse["member_key"], "front")
+                with self.assertRaises(Conflict):self.write("add_canvas_library_node", payload)
+                with self.assertRaises(ResourceError):self.write("add_canvas_library_node", dict(payload, canvas_revision=2, role="voice_sample"))
+                self.service.retire_library(fixed["entry_id"], {"outcome": "revoke_rights", "reason": "Synthetic revocation",
+                    "idempotency_key": "revoke-canvas-reference"}, actor="test-human")
+                with self.assertRaises(ResourceError):self.write("add_canvas_library_node", dict(payload, canvas_revision=2))
+                with self.engine.connect() as conn:
+                    self.assertEqual(conn.execute(select(func.count()).select_from(S.library_reuses).where(S.library_reuses.c.project_id == self.p)).scalar_one(), 1)
+            finally:
+                self.service.storage = previous
+
     def document(self, media=None, job=None):
         return {"nodes": [{"id": "prompt", "type": "text", "text": "固定画面"},
             {"id": "image", "type": "image", "media_id": media},

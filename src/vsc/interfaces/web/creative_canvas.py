@@ -21,6 +21,10 @@ def install_creative_canvas_routes(router, catalog, etag, actor):
     def history(project_id: str, canvas_id: str, request: Request):
         return etag(request, service(project_id).creative_canvas_history(project_id, canvas_id))
 
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/library-node")
+    async def library_node(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "add_canvas_library_node", canvas_id)
+
     @router.get("/{project_id}/creative-canvas-jobs")
     def jobs(project_id: str, request: Request, offset: int = 0, limit: int = 50):
         value = service(project_id).list_generation_jobs(project_id, offset=offset, limit=limit)

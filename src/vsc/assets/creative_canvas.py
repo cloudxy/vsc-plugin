@@ -288,6 +288,21 @@ class CreativeCanvasService:
     def copy_creative_canvas(self, project_id, payload, **kw):
         return self._write("copy_creative_canvas", project_id, payload, **kw)
 
+    def add_canvas_library_node(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        if (not isinstance(payload, dict) or set(payload)-{"canvas_id", "canvas_revision", "library_version_id", "member_key", "role", "x", "y"}
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1
+                or not isinstance(payload.get("member_key"), str) or not 1 <= len(payload["member_key"]) <= 200
+                or not isinstance(payload.get("role"), str) or not 1 <= len(payload["role"]) <= 80):
+            raise ResourceError("需要固定画布、库版本、媒体成员与引用用途", "invalid_canvas_library_reference")
+        from vsc.adapters.persistence.postgres.values import checked_id
+        for key in ("canvas_id", "library_version_id"):checked_id(payload.get(key))
+        for key in ("x", "y"):
+            if key in payload and (type(payload[key]) not in (int, float) or not -100000 <= payload[key] <= 100000):
+                raise ResourceError("节点位置无效", "invalid_canvas_position")
+        return self.store.add_canvas_library_node(project_id, payload,
+            materialize_reference=self._library().materialize_reference, **kw)
+
     def creative_canvas_history(self, project_id, canvas_id):
         return self.store.creative_canvas_history(project_id, canvas_id)
 

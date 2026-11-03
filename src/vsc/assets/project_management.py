@@ -9,6 +9,9 @@ class ProjectManagementServiceMixin:
     def management_recycled_projects(self):
         return self.store.management_recycled_projects()
 
+    def management_recycle_items(self, **filters):
+        return self.store.management_recycle_items(**filters)
+
     def management_command(self,project_id,payload,**kw):
         from vsc.assets.resource_service import ResourceError
         self._validate_write(payload,**kw)

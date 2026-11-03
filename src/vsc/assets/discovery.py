@@ -16,7 +16,7 @@ def discovery(service):
     result=discover(service.store)
     root=repository_root();skills=[]
     for identifier,item in SKILLS.items():
-        path=root/'skills'/identifier/'SKILL.md'
+        path=root/'skills'/item.get('source_skill',identifier)/'SKILL.md'
         if not path.is_file():continue
         skills.append(dict(id=identifier,**item,sha256=sha256(path.read_bytes()).hexdigest()))
     result['skills']=skills
