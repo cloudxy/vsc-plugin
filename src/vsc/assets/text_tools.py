@@ -20,7 +20,7 @@ TOOLS = {
 COMMON = {"source_text":"", "source_refs":[], "notes":""}
 DEFAULTS = {
  "novel":{"synopsis":"","core_setting":"","novel_baseline_version_id":"","characters":[],"outline":"","scenes":"","body":"","qa_notes":"","chapter_start":1,"chapter_end":1,"target_episodes":1},
- "translation":{"body":"","target_language":"","translation_mode":"initial","translation_stage":"draft","episode_number":1,"style":"","style_version_id":"","style_request":False,"terms":[],"translation_characters":[],"reference_version_ids":[],"proofread":False},
+ "translation":{"body":"","source_language":"","target_language":"","translation_mode":"initial","translation_stage":"draft","episode_number":1,"style":"","style_version_id":"","style_request":False,"terms":[],"translation_characters":[],"reference_version_ids":[],"proofread":False},
  "scoring":{"analysis":"","channel":"未知","category":"未分类","card_start":1,"card_end":1,"card_start_line":1,"card_end_line":1,"card_source_sha256":"","criteria":[],"scores":[],"risk_score":0,"quality_score":0,"confidence":0,"review_decision":"pending","review_reason":""},
  "breakdown":{"media_id":"","understanding_mode":"light","observation_basis":"","observations":[],"body":""},
  "qc":{"videos":[],"subtitles":[],"matches":[],"checks":["metadata","subtitles"],"content_rules":[],"rule_version":"vsc.media-review/v1","check_ranges":[],"base_report_version_id":"","issues":[]},
