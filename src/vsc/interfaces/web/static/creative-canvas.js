@@ -251,7 +251,7 @@ export function createCreativeCanvasPanel(ctx){
   function field(s,root,label,value,apply,tag='input'){const wrapper=el('label',label),control=input(label,value,tag);control.disabled=Boolean(s.readOnly);control.addEventListener('change',()=>{try{change(s,()=>apply(control.value));}catch(error){notice(s,error.message);}});wrapper.append(control);root.append(wrapper);return control;}
   function inspect(s){
     s.inspector.replaceChildren();
-    const node=s.document.nodes.find(n=>s.selected.has(n.id));s.inspector.hidden=!node;if(!node)return;
+    const node=s.document.nodes.find(n=>s.selected.has(n.id));s.inspector.hidden=!node||Boolean(s.imageTool&&s.imageTool.sourceId===node.id&&s.imageTool.sourceMediaId===node.media_id);if(s.inspector.hidden)return;
     s.inspector.append(el('h3',TYPES[node.type].label));field(s,s.inspector,'节点名称',node.title,v=>node.title=v);field(s,s.inspector,'文本或提示词',node.text,v=>node.text=v,'textarea');field(s,s.inspector,'分组',node.group,v=>node.group=v);
     if(s.shared){sharedInspect(s,node);return;}
     if(DOMAIN_TYPES.has(node.type)){domainInspect(s,node);return;}
