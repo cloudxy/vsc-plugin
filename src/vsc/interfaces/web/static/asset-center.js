@@ -158,6 +158,9 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  return {load,suspend(){disposed=true;generation++;root.querySelectorAll('dialog').forEach(d=>d.close());}};
 }
 
+// Project UI groups legacy objects with props without changing exact API filters.
+export const projectAssetCategoryParams=kind=>kind==='prop'?{include_object:'true'}:{};
+
 // The workbench library is a view over the authorized project card APIs.  It
 // never treats a shared-library entry as a project or an official asset.
 function createGlobalAssetLibrary(root,ctx){
@@ -196,7 +199,7 @@ function createGlobalAssetLibrary(root,ctx){
    if(!waiting&&!loading&&!failures.length&&!loaded&&!grid.querySelector('.global-asset-empty'))grid.append(element('p',selected.length?'暂无资产':'暂无可访问的项目','global-asset-empty'));
   }
   function pump(){if(!current(g))return;while(inFlight<concurrency&&queue.length&&shown+(inFlight+1)*size<=limit){const state=queue.shift(),offset=state.offset;state.status='loading';inFlight++;
-    Promise.resolve().then(()=>ctx.api(base(state.p.id)+'/asset-cards?'+new URLSearchParams({query:readQuery,asset_kind:readKind,offset:String(offset),limit:String(size),favorites:'false'}),{signal})).then(data=>{if(!current(g))return;if(!Array.isArray(data.items)||data.items.length>size)throw new Error('分页返回无效');if(state.revision!==null&&state.revision!==data.revision){state.changed=true;throw new Error('读取期间项目已变化，请从头重新读取');}if(data.next_offset!=null&&(!Number.isInteger(data.next_offset)||data.next_offset<=offset))throw new Error('分页游标无效');state.revision=data.revision;for(const row of data.items)card(row,state.p,grid);shown+=data.items.length;loaded+=data.items.length;if(data.next_offset==null)state.status='done';else{state.offset=data.next_offset;state.status='ready';queue.push(state);}}).catch(error=>{if(current(g)){state.status='failed';state.error=error;}}).finally(()=>{if(current(g)){inFlight--;pump();}});
+    Promise.resolve().then(()=>ctx.api(base(state.p.id)+'/asset-cards?'+new URLSearchParams({query:readQuery,asset_kind:readKind,...projectAssetCategoryParams(readKind),offset:String(offset),limit:String(size),favorites:'false'}),{signal})).then(data=>{if(!current(g))return;if(!Array.isArray(data.items)||data.items.length>size)throw new Error('分页返回无效');if(state.revision!==null&&state.revision!==data.revision){state.changed=true;throw new Error('读取期间项目已变化，请从头重新读取');}if(data.next_offset!=null&&(!Number.isInteger(data.next_offset)||data.next_offset<=offset))throw new Error('分页游标无效');state.revision=data.revision;for(const row of data.items)card(row,state.p,grid);shown+=data.items.length;loaded+=data.items.length;if(data.next_offset==null)state.status='done';else{state.offset=data.next_offset;state.status='ready';queue.push(state);}}).catch(error=>{if(current(g)){state.status='failed';state.error=error;}}).finally(()=>{if(current(g)){inFlight--;pump();}});
    }paint();}
   pump();
  }

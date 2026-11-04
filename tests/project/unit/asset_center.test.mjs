@@ -67,6 +67,15 @@ test('project cards show a selected-reference preview without altering forms',as
   assert.equal(image(result[1]).src,'/api/v1/projects/p/media/form/content');panel.suspend();
 });
 
+test('prop category asks for both current props and legacy objects',async()=>{
+  location.search='?page=asset-center';const calls=[];
+  const rows=[{id:'p1',name:'道具',asset_kind:'prop',forms:[]},{id:'p2',name:'旧物件',asset_kind:'object',forms:[]},{id:'p3',name:'人物',asset_kind:'character',forms:[]}];
+  const api=async url=>{calls.push(url);const params=new URL(url,'http://test').searchParams,kind=params.get('asset_kind');return {items:rows.filter(r=>!kind||r.asset_kind===kind||kind==='prop'&&params.get('include_object')==='true'&&r.asset_kind==='object'),next_offset:null,revision:1};};
+  const root=new Element('main',document),panel=createAssetCenter(root,context([{id:'project',name:'项目'}],api));await panel.load();await settle();
+  await button(root,'道具').onclick();await settle();assert.equal(cards(root).length,2);const params=new URL(calls.at(-1),'http://test').searchParams;assert.equal(params.get('asset_kind'),'prop');assert.equal(params.get('include_object'),'true');
+  await button(root,'人设').onclick();await settle();assert.equal(cards(root).length,1);assert.equal(new URL(calls.at(-1),'http://test').searchParams.has('include_object'),false);panel.suspend();
+});
+
 // A slow project never blocks the first page of a fast project.  Scrolling
 // through bounded views must still expose every page and preserve failures.
 test('progressively loads all pages with bounded concurrency and retry',async()=>{

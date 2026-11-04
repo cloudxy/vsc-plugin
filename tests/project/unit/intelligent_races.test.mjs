@@ -11,14 +11,14 @@ Element.prototype.pause=function(){this.paused=true;};
 Element.prototype.play=async function(){this.paused=false;};
 Element.prototype.scrollIntoView=function(){};
 
-async function fixture({interleaved=false,emptyWorkflow=false,delayPreview=false,withWarnings=false,historical=false}={}){
+async function fixture({interleaved=false,emptyWorkflow=false,delayPreview=false,withWarnings=false,historical=false,legacyAsset=false}={}){
  const document=new Document(''),root=document.createElement('section');document.body.append(root);
  const memory=new Map(),requests=[],pending={prepare:[],quote:[],save:[],preview:[]};
  const sessionStorage={getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k),get length(){return memory.size;},key:i=>[...memory.keys()][i]};
  const stages=['source','assets','blocking','template','script','video','preview'].map(key=>({key,title:key}));
  const unit=(key,kind='shot')=>({unit_key:key,kind,title:key,description:'提示词 '+key,duration_ms:7000,segments:[],skip_reason:'',lineart_purpose:'none',shot_id:key,professional:{narrative_purpose:'目的',entry_state:'入',exit_state:'出',bridge:'桥',sound_route:'native'}});
  const workflow={workflow:{id:'w',episode_id:'e',title:'流程'},version:{id:'v',version:1},history:[{id:'v',version:1}],definition:{stages},state:{route:'creation',document:{script_text:'剧本',notes:'',template_key:'cinematic',template_text:'模板'},assets:[],units:interleaved?[unit('s1'),unit('b','blocking'),unit('s2')]:[unit('s1'),unit('s2'),unit('b','blocking')],media:[],dependencies:[],blocking_mode:'2d'},episode_assets:[],tasks:[],runs:[],asset_runs:[],batches:[],working_selections:[],revision:1};
- if(emptyWorkflow)workflow.state.units=[];if(historical)workflow.history=[{id:'v-current',version:2},...workflow.history];
+ if(emptyWorkflow)workflow.state.units=[];if(historical)workflow.history=[{id:'v-current',version:2},...workflow.history];if(legacyAsset)workflow.episode_assets=[{id:'legacy',asset_key:'asset:legacy',asset_kind:'object',name:'旧物件',revision:1,forms:[{form_key:'master',name:'默认',current_version_id:'form-v1',media_id:null}]}];
  const options={definition:{stages},routes:{creation:'智能创作'},templates:{cinematic:{title:'电影叙事',text:'电影模板'}},nodes:[{id:'e',kind:'episode',title:'第1集'}],models:[{id:'model-a',modality:'video',enabled:true,adapter_available:true,name:'A'},{id:'model-b',modality:'video',enabled:true,adapter_available:true,name:'B'}],media:[],host_available:false,revision:1};
  const api=async(path,init={})=>{
   requests.push({path,init});
@@ -146,5 +146,13 @@ test('explicit review discards a stale preview after an edit',async()=>{
   const review=root.querySelectorAll('button').find(button=>button.textContent.includes('查看修改影响'));assert.ok(review);const waiting=review.click();await waitFor(()=>pending.preview.length===1);
   script.value='修改中';await script.dispatch('input');pending.preview[0]({sha256:'old',changes:[],warnings:[],retained_selected_media:[],retained_runs:[],revision:1});await waiting;
   assert.equal(root.querySelector('.ip-impact'),null);assert.equal(requests.some(row=>row.init.method==='PUT'),false);
+ }finally{panel.suspend();}
+});
+
+test('legacy object appears in episode prop column while retaining its type',async()=>{
+ const {root,panel,stage}=await fixture({legacyAsset:true});
+ try{
+  await stage('assets').click();const columns=root.querySelectorAll('.ip-asset-column');assert.equal(columns.length,3);
+  const card=columns[2].querySelector('.ip-asset-card');assert.ok(card);assert.match(card.textContent,/旧物件/);assert.equal(card.querySelector('select').value,'object');assert.equal(root.querySelector('.ip-other-assets').hidden,true);
  }finally{panel.suspend();}
 });

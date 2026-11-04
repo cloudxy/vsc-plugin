@@ -5,9 +5,12 @@ class AssetCardsServiceMixin:
     def _asset_cards(self):
         from vsc.adapters.persistence.postgres.asset_cards import AssetCardsRepository
         return AssetCardsRepository(self.store)
-    def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False):
-        if not isinstance(query,str) or len(query)>200 or asset_kind and asset_kind not in KINDS or type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=100:raise ResourceError('资产筛选或分页无效')
-        return self._asset_cards().list_asset_cards(p,query,asset_kind,offset,limit,actor,favorites)
+    def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False,include_object=False):
+        if (not isinstance(query,str) or len(query)>200 or asset_kind and asset_kind not in KINDS
+                or type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=100
+                or type(include_object) is not bool or include_object and asset_kind!='prop'):
+            raise ResourceError('资产筛选或分页无效')
+        return self._asset_cards().list_asset_cards(p,query,asset_kind,offset,limit,actor,favorites,include_object)
     def get_asset_card(self,p,asset_id,actor=None):return self._asset_cards().get_asset_card(p,asset_id,actor)
     def asset_card_options(self,p):
         from sqlalchemy import select,and_
