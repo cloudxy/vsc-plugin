@@ -10,6 +10,47 @@ class AssetCardTests(ResourceStoreFixture,unittest.TestCase):
     def card(self,name='人物',kind='character',media=None,voice=None):
         return self.write('save_asset_card',dict(name=name,asset_kind=kind,base_revision=0,forms=[dict(form_key='master',name='默认形态',base_version_id=None,description='明确的形态描述',media_id=media,voice_spec_id=voice)]))
 
+    def test_prop_filter_opt_in_groups_legacy_objects_before_pagination(self):
+        import tempfile
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        assets={}
+        for name,kind in [('A prop','prop'),('B object','object'),('C prop','prop'),('D person','character')]:
+            assets[name]=self.write('create_object',dict(kind='asset',asset_kind=kind,display_code=uuid.uuid4().hex,title=name))['id']
+        other=self.service.create_project({'name':'其他项目'},actor='test-human')['id']
+        self.service.create_object(other,dict(kind='asset',asset_kind='object',display_code='OTHER',title='AA other project'),
+            actor='test-human',expected_revision=0,idempotency_key='other-object')
+        legacy=self.service.list_asset_cards(self.p,asset_kind='prop')
+        self.assertEqual([row['id'] for row in legacy['items']],[assets['A prop'],assets['C prop']])
+        self.assertEqual([row['id'] for row in self.service.list_asset_cards(self.p,asset_kind='object')['items']],[assets['B object']])
+        first=self.service.list_asset_cards(self.p,asset_kind='prop',include_object=True,limit=2)
+        second=self.service.list_asset_cards(self.p,asset_kind='prop',include_object=True,limit=2,offset=first['next_offset'])
+        self.assertEqual(first['total'],3);self.assertEqual(second['total'],3);self.assertIsNone(second['next_offset'])
+        self.assertEqual([row['id'] for row in first['items']+second['items']],
+            [assets['A prop'],assets['B object'],assets['C prop']])
+        self.assertEqual([row['asset_kind'] for row in first['items']+second['items']],['prop','object','prop'])
+        self.write('favorite_asset_card',dict(asset_id=assets['B object'],active=True))
+        favorites=self.service.list_asset_cards(self.p,asset_kind='prop',include_object=True,actor='test-human',favorites=True)
+        self.assertEqual([row['id'] for row in favorites['items']],[assets['B object']])
+        self.assertEqual(self.service.list_asset_cards(self.p,asset_kind='prop',include_object=True,query='object')['total'],1)
+        for kind in ('','object','character'):
+            with self.subTest(kind=kind),self.assertRaises(ResourceError):
+                self.service.list_asset_cards(self.p,asset_kind=kind,include_object=True)
+        with self.assertRaises(ResourceError):self.service.list_asset_cards(self.p,asset_kind='prop',include_object='true')
+        with tempfile.TemporaryDirectory() as root:
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test',
+                'human_identity':'test-human','background_enabled':False},catalog=ResourceCatalog(root,service=self.service))
+            with TestClient(app) as client:
+                client.post('/api/v1/session',json={'token':'test'},headers={'origin':'http://testserver'})
+                path='/api/v1/projects/'+self.p+'/asset-cards'
+                combined=client.get(path,params={'asset_kind':'prop','include_object':'true','limit':2})
+                self.assertEqual(combined.status_code,200,combined.text);self.assertEqual(combined.json()['total'],3)
+                self.assertEqual([row['id'] for row in combined.json()['items']],[assets['A prop'],assets['B object']])
+                self.assertEqual(client.get(path,params={'asset_kind':'prop'}).json()['total'],2)
+                self.assertEqual(client.get(path,params={'asset_kind':'character','include_object':'true'}).status_code,422)
+                self.assertEqual(client.get(path,params={'asset_kind':'prop','include_object':'invalid'}).status_code,422)
+
     def legacy_asset(self,name='旧人物'):
         asset=self.write('create_object',dict(kind='asset',asset_kind='character',display_code=uuid.uuid4().hex,title=name))['id']
         spec=dict(id=str(uuid.uuid4()),asset_id=asset,variant_key='master',description='旧版固定形态')

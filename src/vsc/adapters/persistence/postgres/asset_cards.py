@@ -77,13 +77,13 @@ class AssetCardsRepository:
         preview=self._legacy_preview(conn,p,asset_id,asset['asset_kind'],usability_cache if usability_cache is not None else {}) if include_preview and not has_working_card else None
         return dict(id=asset_id,name=obj['title'] or obj['display_code'],asset_kind=asset['asset_kind'],revision=state['revision'] if state else 0,forms=rows,favorite=bool(favorite),preview=preview)
 
-    def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False):
+    def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False,include_object=False):
         from .project_management import hidden_object_ids
         with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
             project=self._project(conn,p);hidden=hidden_object_ids(conn,p)
             q=select(S.asset_identities.c.id).join(S.creative_objects,and_(S.creative_objects.c.project_id==p,S.creative_objects.c.id==S.asset_identities.c.id)).where(S.asset_identities.c.project_id==p,S.asset_identities.c.id.not_in(hidden))
             if query:q=q.where(S.creative_objects.c.title.ilike('%'+query+'%'))
-            if asset_kind:q=q.where(S.asset_identities.c.asset_kind==asset_kind)
+            if asset_kind:q=q.where(S.asset_identities.c.asset_kind.in_(['prop','object']) if include_object else S.asset_identities.c.asset_kind==asset_kind)
             if favorites:q=q.join(S.asset_card_favorites,and_(S.asset_card_favorites.c.project_id==p,S.asset_card_favorites.c.asset_id==S.asset_identities.c.id,S.asset_card_favorites.c.actor==actor,S.asset_card_favorites.c.active))
             total=conn.scalar(select(func.count()).select_from(q.subquery()));ids=conn.execute(q.order_by(S.creative_objects.c.title,S.asset_identities.c.id).offset(offset).limit(limit)).scalars()
             usability_cache={}
