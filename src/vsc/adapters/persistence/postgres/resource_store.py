@@ -993,20 +993,79 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             return {"id": row_id, "candidate_id": candidate["id"]}
         return self._mutate(project_id, "record_review", payload, actor=actor, callback=work, **kw)
 
-    def _usable(self, conn, p, media_id, purpose):
+    def _grid_parent(self, conn, p, media_id):
+        """Only an original successful split receipt can establish a crop lineage."""
+        output = conn.execute(select(S.operation_outputs).where(S.operation_outputs.c.project_id == p,
+            S.operation_outputs.c.media_id == media_id)).mappings().first()
+        if not output:
+            return None
+        operation = self._one(conn, S.media_operations, p, output['operation_id'])
+        if (operation['status'] != 'succeeded' or operation['operation_type'] != 'image-grid-split'
+                or operation['recipe_version'] != 'canvas-grid/v1' or operation['tool'] != 'vsc-local-image-grid'
+                or operation['tool_version'] != '1'):
+            return None
+        receipts = list(conn.execute(select(S.project_revisions.c.revision, S.command_receipts.c.response)
+            .select_from(S.project_revisions.join(S.command_receipts, and_(
+                S.project_revisions.c.project_id == S.command_receipts.c.project_id,
+                S.project_revisions.c.command_key == S.command_receipts.c.idempotency_key)))
+            .where(S.project_revisions.c.project_id == p, S.project_revisions.c.action == 'split_canvas_image',
+                   S.command_receipts.c.response['operation_id'].astext == operation['id'])).mappings())
+        if len(receipts) != 1:
+            return None
+        receipt = receipts[0]
+        response = receipt['response']
+        inputs = list(conn.execute(select(S.operation_inputs).where(S.operation_inputs.c.project_id == p,
+            S.operation_inputs.c.operation_id == operation['id'])).mappings())
+        outputs = list(conn.execute(select(S.operation_outputs).where(S.operation_outputs.c.project_id == p,
+            S.operation_outputs.c.operation_id == operation['id']).order_by(S.operation_outputs.c.ordinal)).mappings())
+        parameters = operation['parameters']
+        if (not isinstance(response, dict) or response.get('revision') != receipt['revision']
+                or len(inputs) != 1 or inputs[0]['role'] != 'source'
+                or not isinstance(parameters, dict) or not isinstance(parameters.get('cells'), list)
+                or len(outputs) != len(parameters['cells']) or not outputs
+                or any(row['role'] != 'tile' or row['ordinal'] != index for index, row in enumerate(outputs))
+                or response.get('media_ids') != [row['media_id'] for row in outputs]
+                or media_id not in response['media_ids']):
+            return None
+        parent = self._media(conn, p, inputs[0]['media_id'])
+        if parent['sha256'] != parameters.get('source_sha256'):
+            return None
+        return parent['id'], receipt['revision']
+
+    def _usable(self, conn, p, media_id, purpose, _grid_seen=None, _grid_cache=None):
+        seen = set() if _grid_seen is None else set(_grid_seen)
+        if media_id in seen:
+            return self._media(conn, p, media_id), ['grid_lineage_cycle']
+        if len(seen) >= 64:
+            return self._media(conn, p, media_id), ['grid_lineage_limit']
+        cache = {} if _grid_cache is None else _grid_cache
+        key = (media_id, purpose, frozenset(seen))
+        if key in cache:
+            media, cached = cache[key]
+            return media, list(cached)
         media = self._media(conn, p, media_id)
+        seen.add(media_id)
         from .shared_library import library_media_gaps
         from .copy_lineage import copy_media_gaps
         gaps = sorted(set(library_media_gaps(self, conn, p, media_id, purpose) + copy_media_gaps(self, conn, p, media_id, purpose)))
         if not any(x["available"] for x in media["locations"]):
             gaps.append("missing_bytes")
         rights = self._latest(conn, S.rights_decisions, p, "media_id", media_id)
-        if not rights or rights["outcome"] not in {"owned", "licensed"}:
+        grid = self._grid_parent(conn, p, media_id)
+        inherited = bool(grid and rights and rights['outcome'] == 'unknown'
+            and rights['based_on_revision'] == grid[1] - 1)
+        if not rights or rights["outcome"] not in {"owned", "licensed"} and not inherited:
             gaps.append("rights_unknown_or_restricted")
-        elif rights["expires_at"] and rights["expires_at"] <= datetime.now(timezone.utc):
+        elif not inherited and rights["expires_at"] and rights["expires_at"] <= datetime.now(timezone.utc):
             gaps.append("rights_expired")
-        elif purpose not in rights["scope"].get("purposes", []) and "*" not in rights["scope"].get("purposes", []):
+        elif not inherited and purpose not in rights["scope"].get("purposes", []) and "*" not in rights["scope"].get("purposes", []):
             gaps.append("rights_scope_mismatch")
+        if grid:
+            for parent_purpose in set((purpose, 'image_edit')):
+                _, parent_gaps = self._usable(conn, p, grid[0], parent_purpose, seen, cache)
+                # Split itself verifies the fixed source bytes; a missing old
+                # inspection isn't evidence of failure, but failures still block.
+                gaps.extend('grid_source_' + gap for gap in parent_gaps if gap != 'technical_check_missing')
         lifecycle = self._latest(conn, S.media_lifecycle_decisions, p, "media_id", media_id)
         if lifecycle and lifecycle["outcome"] == "deprecate":
             gaps.append("media_deprecated")
@@ -1021,7 +1080,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 latest_checks.setdefault((check["checker"], check["criteria_version"]), check)
             if any(check["outcome"] != "pass" for check in latest_checks.values()):
                 gaps.append("technical_check_failed")
-        return media, gaps
+        result = sorted(set(gaps))
+        cache[key] = (media, tuple(result))
+        return media, result
 
     def select_candidate(self, project_id, payload, actor, **kw):
         def work(conn, project):

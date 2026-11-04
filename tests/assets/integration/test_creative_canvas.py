@@ -14,6 +14,255 @@ TEST_URL = os.environ.get("VSC_TEST_DATABASE_URL")
 
 @unittest.skipUnless(TEST_URL and HAS_DB, "requires configured isolated PostgreSQL")
 class CreativeCanvasTests(ResourceStoreFixture, unittest.TestCase):
+    def test_grid_tracks_copied_media_source_rights(self):
+        import io, tempfile
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError
+        from threading import Event
+        from PIL import Image
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.assets.resource_service import ResourceError
+        with tempfile.TemporaryDirectory() as directory:
+            previous=self.service.storage;self.service.storage=LocalStorage(directory)
+            try:
+                data=io.BytesIO();Image.new('RGB',(8,8),'green').save(data,format='PNG')
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'source.png')
+                parent=self.write('register_media',{'staged_upload':staged['staged_upload'],'rights':'owned',
+                    'source':{'kind':'test','content':'owned image'}})['id']
+                card=self.write('save_asset_card',dict(name='source',asset_kind='character',base_revision=0,
+                    forms=[dict(form_key='master',name='default',base_version_id=None,media_id=parent)]))
+                source_project,source_revision=self.p,self.rev
+                target=self.service.create_project({'name':'copy target'},actor='test-human')['id']
+                copied=self.service.copy_asset_card(target,dict(source_project_id=source_project,source_asset_id=card['id'],
+                    form_version_ids=[card['forms'][0]['version_id']]),actor='test-human',expected_revision=0,idempotency_key='copy-grid')
+                self.p,self.rev=target,copied['revision']
+                copy_media=copied['forms'][0]['media_id']
+                canvas=self.write('create_creative_canvas',{'document':{'nodes':[{'id':'source','type':'image','media_id':copy_media}],'edges':[]}})
+                child=self.write('split_canvas_image',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='source',
+                    rows=2,columns=2,cells=[{'row':1,'column':1}]))['media_ids'][0]
+                def gaps():
+                    with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
+                        return self.store._usable(conn,self.p,child,'identity_face')[1]
+                self.assertEqual(gaps(),[])
+                shot=self.hierarchy()['shot'];candidate=self.candidate(shot,child,role='first_frame')
+                locked,release=Event(),Event();original=self.store._one
+                def hold_source(conn,table,p,identifier):
+                    row=original(conn,table,p,identifier)
+                    if p==source_project and table is S.media_items and identifier==parent:
+                        locked.set()
+                        if not release.wait(10):raise RuntimeError('source lock test timed out')
+                    return row
+                def revoke():
+                    return self.service.decide_rights(source_project,dict(media_id=parent,outcome='revoked',reason='revoked'),
+                        actor='test-human',expected_revision=source_revision,idempotency_key='revoke-copy-source')
+                def select_child():
+                    return self.service.select_candidate(self.p,dict(candidate_id=candidate['candidate_id'],reason='choose'),
+                        actor='test-human',expected_revision=self.rev,idempotency_key='concurrent-grid-select')
+                with patch.object(self.store,'_one',side_effect=hold_source),ThreadPoolExecutor(max_workers=2) as pool:
+                    changing=pool.submit(revoke);self.assertTrue(locked.wait(10));choosing=pool.submit(select_child)
+                    try:
+                        with self.assertRaises(TimeoutError):choosing.result(timeout=.25)
+                    finally:release.set()
+                    changing.result(timeout=10)
+                    with self.assertRaises(ResourceError):choosing.result(timeout=10)
+                self.assertTrue(any('copy_source_rights_restricted' in gap for gap in gaps()))
+            finally:self.service.storage=previous
+
+    def test_grid_tracks_shared_library_live_rights(self):
+        import io, tempfile
+        from PIL import Image
+        from vsc.adapters.storage.local.store import LocalStorage
+        with tempfile.TemporaryDirectory() as directory:
+            previous=self.service.storage;self.service.storage=LocalStorage(directory)
+            try:
+                data=io.BytesIO();Image.new('RGB',(8,8),'blue').save(data,format='PNG')
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'library.png')
+                library=self.service.import_library(dict(library_key='grid-'+uuid.uuid4().hex,title='Grid source',category='image',
+                    description='synthetic',specification={},allowed_purposes=['image_edit','identity_face'],
+                    license={'outcome':'owned','allow_workspace_reuse':True,'evidence':'synthetic'},
+                    import_key=uuid.uuid4().hex,members=[{'member_key':'front','staged_upload':staged['staged_upload']}]),actor='test-human')
+                canvas=self.write('create_creative_canvas',{'document':{'nodes':[],'edges':[]}})
+                added=self.write('add_canvas_library_node',dict(canvas_id=canvas['id'],canvas_revision=1,
+                    library_version_id=library['version_id'],member_key='front',role='identity_face',x=0,y=0))
+                result=self.write('split_canvas_image',dict(canvas_id=canvas['id'],canvas_revision=2,node_id=added['node_id'],
+                    rows=2,columns=2,cells=[{'row':1,'column':1}]))
+                child=result['media_ids'][0]
+                def gaps():
+                    with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
+                        return self.store._usable(conn,self.p,child,'identity_face')[1]
+                self.assertEqual(gaps(),[])
+                self.service.retire_library(library['entry_id'],{'outcome':'revoke_rights','reason':'revoked',
+                    'idempotency_key':'grid-library-revoke'},actor='test-human')
+                self.assertTrue(any('library_rights_revoked' in gap for gap in gaps()))
+            finally:self.service.storage=previous
+
+    def test_grid_inherited_rights_are_live_and_generic_operations_cannot_forge_them(self):
+        import io, tempfile
+        from PIL import Image
+        from sqlalchemy import select, func, insert
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.storage.local.store import LocalStorage
+        with tempfile.TemporaryDirectory() as directory:
+            previous=self.service.storage;self.service.storage=LocalStorage(directory)
+            try:
+                data=io.BytesIO();Image.new('RGB',(8,8),'red').save(data,format='PNG')
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'source.png')
+                parent=self.write('register_media',{'staged_upload':staged['staged_upload'],'rights':'owned',
+                    'source':{'kind':'test','content':'owned image'}})['id']
+                canvas=self.write('create_creative_canvas',{'document':{'nodes':[{'id':'source','type':'image','media_id':parent}],'edges':[]}})
+                payload={'canvas_id':canvas['id'],'canvas_revision':1,'node_id':'source','rows':2,'columns':2,'cells':[{'row':1,'column':1}]}
+                before=self.rev;first=self.write('split_canvas_image',payload,idempotency_key='first-grid')
+                self.assertEqual(self.service.split_canvas_image(self.p,payload,expected_revision=before,idempotency_key='first-grid',actor='test-human'),first)
+                child=first['media_ids'][0]
+                def gaps(identifier,purpose='identity_face'):
+                    with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
+                        return self.store._usable(conn,self.p,identifier,purpose)[1]
+                self.assertEqual(gaps(child),[])
+                with self.engine.connect() as conn:
+                    self.assertEqual(conn.scalar(select(func.count()).select_from(S.media_checks).where(
+                        S.media_checks.c.project_id==self.p,S.media_checks.c.media_id==child)),1)
+                nested=self.write('split_canvas_image',dict(payload,canvas_revision=2,node_id=first['node_ids'][0]),idempotency_key='second-grid')['media_ids'][0]
+                with patch.object(self.store,'_grid_parent',wraps=self.store._grid_parent) as lookups:
+                    self.assertEqual(gaps(nested),[])
+                    # One per distinct media/purpose; repeated image_edit
+                    # ancestry is reused only within this call.
+                    self.assertEqual(lookups.call_count,5)
+                self.write('decide_rights',dict(media_id=parent,outcome='revoked',reason='source revoked'))
+                self.assertTrue(any('rights_unknown_or_restricted' in gap for gap in gaps(nested)))
+                source=self.service.get_media(self.p,parent)['sources'][0]['source_id']
+                self.write('decide_rights',dict(media_id=parent,outcome='licensed',source_id=source,
+                    scope={'purposes':['image_edit']},reason='edit only'))
+                self.assertTrue(any('rights_scope_mismatch' in gap for gap in gaps(nested)))
+                self.write('decide_rights',dict(media_id=parent,outcome='licensed',source_id=source,
+                    scope={'purposes':['image_edit','identity_face']},expires_at='2000-01-01T00:00:00+00:00',reason='expired'))
+                self.assertTrue(any('rights_expired' in gap for gap in gaps(nested)))
+                self.write('decide_rights',dict(media_id=parent,outcome='owned',source_id=source,
+                    scope={'purposes':['*']},reason='restored'))
+                self.write('record_media_check',dict(media_id=child,checker='independent-review',criteria_version='1',outcome='fail'))
+                self.assertIn('technical_check_failed',gaps(child))
+                self.assertTrue(any('technical_check_failed' in gap for gap in gaps(nested)))
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'fake.png')
+                fake=self.write('register_media',{'staged_upload':staged['staged_upload'],'rights':'unknown'})['id']
+                self.write('create_media_operation',dict(operation_type='image-grid-split',recipe_version='canvas-grid/v1',
+                    tool='vsc-local-image-grid',tool_version='1',parameters={'source_sha256':self.service.get_media(self.p,parent)['sha256'],'cells':[{'row':1,'column':1}]},
+                    inputs=[{'media_id':parent,'role':'source'}],outputs=[{'media_id':fake,'role':'tile'}]))
+                self.assertIn('rights_unknown_or_restricted',gaps(fake))
+                # Historical duplicate authority evidence is ambiguous and must fail closed.
+                with self.engine.begin() as conn:
+                    response=conn.execute(select(S.command_receipts.c.response).where(
+                        S.command_receipts.c.project_id==self.p,S.command_receipts.c.idempotency_key=='first-grid')).scalar_one()
+                    conn.execute(insert(S.project_revisions).values(project_id=self.p,revision=self.rev+1000,
+                        actor='test-fixture',action='split_canvas_image',command_key='duplicate-fixture'))
+                    conn.execute(insert(S.command_receipts).values(project_id=self.p,idempotency_key='duplicate-fixture',
+                        request_sha256='0'*64,response=response))
+                self.assertIn('rights_unknown_or_restricted',gaps(child))
+            finally:self.service.storage=previous
+
+    def test_grid_split_preserves_selection_receipt_pixels_and_lineage(self):
+        import io, tempfile
+        from PIL import Image
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.assets.resource_service import Conflict, ResourceError
+        with tempfile.TemporaryDirectory() as directory:
+            previous=self.service.storage;self.service.storage=LocalStorage(directory)
+            try:
+                image=Image.new('RGB',(8,8),'red')
+                for y in range(4,8):
+                    for x in range(4,8):image.putpixel((x,y),(0,0,255))
+                data=io.BytesIO();image.save(data,format='PNG')
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'source.png')
+                media=self.write('register_media',{'staged_upload':staged['staged_upload'],'rights':'owned','source':{'kind':'test','content':'synthetic owned image'}})['id']
+                canvas=self.write('create_creative_canvas',{'document':{'nodes':[{'id':'source','type':'image','media_id':media}],'edges':[]}})
+                payload={'canvas_id':canvas['id'],'canvas_revision':1,'node_id':'source','rows':2,'columns':2,'cells':[{'row':2,'column':2},{'row':1,'column':1}]}
+                before=self.rev;result=self.write('split_canvas_image',payload,idempotency_key='grid-replay')
+                replay=self.service.split_canvas_image(self.p,payload,expected_revision=before,idempotency_key='grid-replay',actor='test-human')
+                self.assertEqual(replay,result);self.assertEqual(result['canvas_revision'],2);self.assertEqual(len(result['node_ids']),2)
+                opened=self.service.get_creative_canvas(self.p,canvas['id'],2)['document'];by_id={node['id']:node for node in opened['nodes']}
+                self.assertEqual([by_id[key]['media_id'] for key in result['node_ids']],result['media_ids'])
+                self.assertEqual([(edge['source'],edge['target'],edge['port']) for edge in opened['edges']], [('source',key,'derived_from') for key in result['node_ids']])
+                for identifier,color in zip(result['media_ids'],[(0,0,255),(255,0,0)]):
+                    row=self.service.get_media(self.p,identifier);self.assertEqual(row['rights']['outcome'],'unknown')
+                    path=next(item for item in row['locations'] if item['storage']=='local')['object_key']
+                    with Image.open(io.BytesIO(self.service.storage.read(path,row['sha256']))) as tile:self.assertEqual(tile.convert('RGB').getpixel((0,0)),color)
+                with self.engine.connect() as conn:
+                    operation=conn.execute(select(S.media_operations).where(S.media_operations.c.id==result['operation_id'])).mappings().one()
+                    self.assertEqual(operation['parameters']['cells'],payload['cells'])
+                    outputs=conn.execute(select(S.operation_outputs.c.media_id).where(S.operation_outputs.c.operation_id==result['operation_id']).order_by(S.operation_outputs.c.ordinal)).scalars().all()
+                    self.assertEqual(outputs,result['media_ids'])
+                from fastapi.testclient import TestClient
+                from vsc.interfaces.web.app import create_app
+                from vsc.project.resource_catalog import ResourceCatalog
+                app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'test-human'},catalog=ResourceCatalog(directory,self.service),service=self.service)
+                with TestClient(app) as client:
+                    unauthorized=client.post('/api/v1/projects/'+self.p+'/creative-canvases/'+canvas['id']+'/split-image',json={'payload':payload,'expected_revision':before,'idempotency_key':'other'})
+                    self.assertIn(unauthorized.status_code,(401,403))
+                    login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
+                    response=client.post('/api/v1/projects/'+self.p+'/creative-canvases/'+canvas['id']+'/split-image',
+                        json={'payload':{key:value for key,value in payload.items() if key!='canvas_id'},'expected_revision':before,'idempotency_key':'grid-replay'},
+                        headers={'Origin':'http://testserver','X-CSRF-Token':login.json()['csrf_token']})
+                    self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json(),result)
+                with self.assertRaises(Conflict):self.write('split_canvas_image',payload)
+                with self.assertRaises(ResourceError):self.write('split_canvas_image',dict(payload,canvas_revision=2,cells=[{'row':1,'column':1},{'row':1,'column':1}]))
+            finally:self.service.storage=previous
+
+    def test_grid_split_rolls_back_failed_registration_and_checks_source_bytes(self):
+        import io, tempfile
+        from PIL import Image
+        from sqlalchemy import func,select
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.assets.resource_service import ResourceError
+        with tempfile.TemporaryDirectory() as directory:
+            previous=self.service.storage;self.service.storage=LocalStorage(directory)
+            try:
+                data=io.BytesIO();Image.new('RGB',(2,2),'red').save(data,format='PNG')
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'source.png')
+                media=self.write('register_media',{'staged_upload':staged['staged_upload'],'rights':'owned','source':{'kind':'test','content':'synthetic source'}})['id']
+                canvas=self.write('create_creative_canvas',{'document':{'nodes':[{'id':'source','type':'image','media_id':media}],'edges':[]}})
+                payload={'canvas_id':canvas['id'],'canvas_revision':1,'node_id':'source','rows':2,'columns':2,'cells':[{'row':1,'column':1},{'row':2,'column':2}]}
+                with self.assertRaises(ResourceError) as dimensions:self.write('split_canvas_image',dict(payload,rows=3))
+                self.assertEqual(dimensions.exception.code,'canvas_grid_dimensions')
+                original=self.store._register_media;calls=[]
+                def fail_second(*args):
+                    calls.append(1)
+                    if len(calls)==2:raise ResourceError('synthetic failure')
+                    return original(*args)
+                with patch.object(self.store,'_register_media',side_effect=fail_second),self.assertRaises(ResourceError):
+                    self.write('split_canvas_image',payload,idempotency_key='retry-grid')
+                self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['canvas_revision'],1)
+                with self.engine.connect() as conn:
+                    self.assertEqual(conn.execute(select(func.count()).select_from(S.media_items).where(S.media_items.c.project_id==self.p)).scalar_one(),1)
+                result=self.write('split_canvas_image',payload,idempotency_key='retry-grid');self.assertEqual(len(result['node_ids']),2)
+                original_media=self.service.get_media(self.p,media);location=next(item for item in original_media['locations'] if item['storage']=='local')
+                self.service.storage.resolve(location['object_key']).write_bytes(b'tampered')
+                with self.assertRaises(ResourceError) as error:self.write('split_canvas_image',dict(payload,canvas_revision=2))
+                self.assertEqual(error.exception.code,'media_sha_mismatch')
+                self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['canvas_revision'],2)
+            finally:self.service.storage=previous
+
+    def test_grid_split_rejects_unusable_and_preserves_canvas_on_failure(self):
+        import io, tempfile
+        from PIL import Image
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.assets.resource_service import ResourceError
+        with tempfile.TemporaryDirectory() as directory:
+            previous=self.service.storage;self.service.storage=LocalStorage(directory)
+            try:
+                data=io.BytesIO();Image.new('RGB',(2,2),'red').save(data,format='PNG')
+                staged=self.service.storage.stage_upload(io.BytesIO(data.getvalue()),'source.png')
+                media=self.write('register_media',{'staged_upload':staged['staged_upload'],'rights':'unknown'})['id']
+                canvas=self.write('create_creative_canvas',{'document':{'nodes':[{'id':'source','type':'image','media_id':media}],'edges':[]}})
+                payload={'canvas_id':canvas['id'],'canvas_revision':1,'node_id':'source','rows':2,'columns':2,'cells':[{'row':1,'column':1}]}
+                with self.assertRaises(ResourceError) as error:self.write('split_canvas_image',payload)
+                self.assertEqual(error.exception.code,'canvas_grid_source_unusable')
+                self.assertIn('素材权利待确认或受限制',str(error.exception))
+                for cells in ([],[{'row':3,'column':1}],[{'row':True,'column':1}]):
+                    with self.assertRaises(ResourceError):self.write('split_canvas_image',dict(payload,cells=cells))
+                self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['canvas_revision'],1)
+            finally:self.service.storage=previous
+
     def test_library_node_preserves_fixed_source_without_asset_or_generation(self):
         import io
         import tempfile

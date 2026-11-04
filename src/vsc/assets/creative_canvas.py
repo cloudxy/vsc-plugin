@@ -353,6 +353,49 @@ class CreativeCanvasService:
         return self.store.add_canvas_library_node(project_id, payload,
             materialize_reference=self._library().materialize_reference, **kw)
 
+    def split_canvas_image(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        fields = {"canvas_id", "canvas_revision", "node_id", "rows", "columns", "cells"}
+        if set(payload) != fields or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1:
+            _fail("切分需要固定画布版本、节点和所选宫格", "invalid_canvas_grid")
+        rows, columns, cells = payload["rows"], payload["columns"], payload["cells"]
+        if type(rows) is not int or type(columns) is not int or not 1 <= rows <= 8 or not 1 <= columns <= 8 or not isinstance(cells, list) or not 1 <= len(cells) <= rows * columns:
+            _fail("宫格行列需为1至8，且必须选择至少一格", "invalid_canvas_grid")
+        seen = set()
+        for cell in cells:
+            if (not isinstance(cell, dict) or set(cell) != {"row", "column"} or type(cell["row"]) is not int or
+                    type(cell["column"]) is not int or not 1 <= cell["row"] <= rows or not 1 <= cell["column"] <= columns or
+                    (cell["row"], cell["column"]) in seen):
+                _fail("所选宫格无效、越界或重复", "invalid_canvas_grid")
+            seen.add((cell["row"], cell["column"]))
+
+        def build(media):
+            import hashlib, io
+            from vsc.production.image_tools import split_grid_image
+            if self.storage is None:
+                _fail("切分需要受控素材存储", "storage_unavailable")
+            locations = [item for item in media["locations"] if item["storage"] == "local" and item["available"]]
+            if not locations:
+                _fail("原图缺少可用本地字节", "media_unavailable")
+            content = None
+            for location in locations:
+                try:
+                    candidate = self.storage.read(location["object_key"], media["sha256"])
+                    if hashlib.sha256(candidate).hexdigest() == media["sha256"]:
+                        content = candidate
+                        break
+                except (OSError, ResourceError):
+                    continue
+            if content is None:
+                _fail("固定原图字节不可读取或摘要不符", "media_sha_mismatch")
+            outputs = []
+            for item in split_grid_image(content, rows, columns, cells):
+                staged = self.storage.stage_upload(io.BytesIO(item["bytes"]), "grid-%s-%s.png" % (item["row"], item["column"]))
+                outputs.append(self.storage.commit_upload(staged["staged_upload"]))
+            return outputs
+
+        return self.store.split_canvas_image(project_id, payload, build=build, **kw)
+
     def creative_canvas_history(self, project_id, canvas_id):
         return self.store.creative_canvas_history(project_id, canvas_id)
 
