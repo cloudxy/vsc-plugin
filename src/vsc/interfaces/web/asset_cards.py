@@ -7,9 +7,9 @@ def install_asset_card_routes(router,catalog,etag,actor):
         if catalog._reader(p) is not None or catalog.service is None:raise HTTPException(409,'项目资产卡需要PostgreSQL权威')
         return catalog.service
     @router.get('/{project_id}/asset-cards')
-    def listing(project_id:str,request:Request,query:str='',asset_kind:str='',offset:int=0,limit:int=24,favorites:bool=False,include_object:bool=False):
+    def listing(project_id:str,request:Request,query:str='',asset_kind:str='',offset:int=0,limit:int=24,favorites:bool=False,include_object:bool=False,include_blocking:bool=False):
         from vsc.assets.access_control import current_principal
-        principal=current_principal();return etag(request,service(project_id).list_asset_cards(project_id,query,asset_kind,offset,limit,principal.actor if principal else None,favorites,include_object))
+        principal=current_principal();return etag(request,service(project_id).list_asset_cards(project_id,query,asset_kind,offset,limit,principal.actor if principal else None,favorites,include_object,include_blocking))
     @router.get('/{project_id}/asset-card-options')
     def options(project_id:str,request:Request):return etag(request,service(project_id).asset_card_options(project_id))
     @router.get('/{project_id}/asset-cards/{asset_id}')

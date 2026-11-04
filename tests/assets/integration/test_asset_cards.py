@@ -10,6 +10,123 @@ class AssetCardTests(ResourceStoreFixture,unittest.TestCase):
     def card(self,name='人物',kind='character',media=None,voice=None):
         return self.write('save_asset_card',dict(name=name,asset_kind=kind,base_revision=0,forms=[dict(form_key='master',name='默认形态',base_version_id=None,description='明确的形态描述',media_id=media,voice_spec_id=voice)]))
 
+    def test_fixed_blocking_projection_is_opt_in_paged_and_respects_recycle(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        import tempfile
+        objects=self.hierarchy();image=self.media('站位参考')
+        candidate=self.write('propose_binding',dict(target_object_id=objects['shot'],media_id=image,role='first_frame',slot_key='station'))
+        selection=self.write('save_working_selection',dict(shot_id=objects['shot'],output_kind='image',candidate_id=candidate['candidate_id'],base_version_id=None))
+        flow=self.write('create_intelligent_workflow',dict(episode_id=objects['episode'],title='流程',route='storyboard',script_text='合成剧本'))['id']
+        state=self.service.get_intelligent_workflow(self.p,flow)
+        body=state['state'];body['units']=[dict(unit_key='station',kind='blocking',title='B 站位',description='',duration_ms=5000,
+            segments=[dict(start_ms=0,end_ms=5000,text='等待')],skip_reason='',lineart_purpose='none',shot_id=objects['shot'],spatial_version_id=None)]
+        body['media']=[dict(unit_key='station',purpose='blocking',media_id=image,decision_id=None,
+            working_selection_version_id=selection['selection_version_id'],spatial_export_id=None)]
+        payload=dict(workflow_id=flow,base_version_id=state['version']['id'],state=body)
+        impact=self.service.preview_intelligent_change(self.p,payload)
+        saved=self.write('save_intelligent_workflow',dict(payload,impact_sha256=impact['sha256']))
+        self.write('save_working_selection',dict(shot_id=objects['shot'],output_kind='image',candidate_id=None,base_version_id=selection['selection_version_id']))
+        self.card('A 人物');self.card('C 人物')
+        self.assertEqual(self.service.list_asset_cards(self.p)['total'],2)
+        pages=[self.service.list_asset_cards(self.p,include_blocking=True,offset=i,limit=1) for i in range(3)]
+        self.assertEqual([p['total'] for p in pages],[3,3,3])
+        rows=[p['items'][0] for p in pages];self.assertEqual([r['name'] for r in rows],['A 人物','B 站位','C 人物'])
+        station=rows[1];self.assertEqual(station['record_kind'],'blocking');self.assertEqual(station['source']['version_id'],saved['version_id'])
+        self.assertEqual(station['source']['media_id'],image);self.assertEqual(station['forms'],[]);self.assertEqual(station['preview']['media_id'],image)
+        self.assertEqual(self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['total'],1)
+        self.assertEqual(self.service.list_asset_cards(self.p,query='站位',include_blocking=True)['total'],1)
+        self.assertEqual(self.service.list_asset_cards(self.p,include_blocking=True,favorites=True,actor='test-human')['total'],0)
+        with self.assertRaises(ResourceError):self.service.list_asset_cards(self.p,asset_kind='blocking')
+        with tempfile.TemporaryDirectory() as root:
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test',
+                'human_identity':'test-human','background_enabled':False},catalog=ResourceCatalog(root,service=self.service))
+            with TestClient(app) as client:
+                client.post('/api/v1/session',json={'token':'test'},headers={'origin':'http://testserver'})
+                path='/api/v1/projects/'+self.p+'/asset-cards'
+                response=client.get(path,params={'asset_kind':'blocking','include_blocking':'true'})
+                self.assertEqual(response.status_code,200,response.text);self.assertEqual(response.json()['total'],1)
+                self.assertEqual(client.get(path,params={'asset_kind':'blocking'}).status_code,422)
+        parent=objects['work'];second={}
+        for kind in ('episode','scene','sequence','shot'):
+            row=self.write('create_object',dict(kind=kind,display_code=kind+'2',parent_id=parent,ordinal=1))
+            second[kind]=row['id'];parent=row['id']
+        candidate2=self.write('propose_binding',dict(target_object_id=second['shot'],media_id=image,role='first_frame',slot_key='station'))
+        selection2=self.write('save_working_selection',dict(shot_id=second['shot'],output_kind='image',candidate_id=candidate2['candidate_id'],base_version_id=None))
+        flow2=self.write('create_intelligent_workflow',dict(episode_id=second['episode'],route='storyboard',script_text='第二集'))['id']
+        current2=self.service.get_intelligent_workflow(self.p,flow2);state2=current2['state']
+        state2['units']=[dict(body['units'][0],unit_key='second',title='D 站位',shot_id=second['shot'])]
+        state2['media']=[dict(unit_key='second',purpose='blocking',media_id=image,decision_id=None,
+            working_selection_version_id=selection2['selection_version_id'],spatial_export_id=None)]
+        payload2=dict(workflow_id=flow2,base_version_id=current2['version']['id'],state=state2)
+        self.write('save_intelligent_workflow',dict(payload2,impact_sha256=self.service.preview_intelligent_change(self.p,payload2)['sha256']))
+        self.assertEqual({r['source']['episode_id'] for r in self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['items']},
+            {objects['episode'],second['episode']})
+        other=self.service.create_project({'name':'隔离项目'},actor='test-human')['id']
+        self.assertEqual(self.service.list_asset_cards(other,asset_kind='blocking',include_blocking=True)['total'],0)
+        from vsc.assets.access_control import Principal,set_principal,reset_principal
+        owner=self.service.ensure_local_access('test-human');owner_token=set_principal(Principal(**owner))
+        try:
+            migration=self.service.access_migration_preview(self.p,owner['workspace_id'])
+            self.service.access_command('assign-project',dict(project_id=self.p,workspace_id=owner['workspace_id'],preview_sha256=migration['sha256']),
+                expected_revision=self.service.access_snapshot()['access_revision'],idempotency_key=uuid.uuid4().hex,actor='test-human')
+            unauthorized=set_principal(Principal(local_read=True))
+            try:
+                with self.assertRaises(ResourceError):self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)
+            finally:reset_principal(unauthorized)
+            self.write('management_command',dict(operation='trash',target_type='object',target_id=objects['episode'],reason='测试回收'))
+            self.assertEqual(self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['total'],1)
+            self.write('management_command',dict(operation='restore',target_type='object',target_id=objects['episode'],reason='测试恢复'))
+            self.assertEqual(self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['total'],2)
+        finally:reset_principal(owner_token)
+        self.write('decide_rights',dict(media_id=image,outcome='revoked',reason='测试撤权'))
+        revoked=self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['items'][0]
+        self.assertIsNone(revoked['preview']);self.assertIn('rights_unknown_or_restricted',revoked['availability_gaps'])
+        self.write('decide_media_lifecycle',dict(media_id=image,outcome='deprecate',reason='测试回收'))
+        self.assertEqual(self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['total'],0)
+
+    def test_blocking_projection_rejects_inconsistent_fixed_source_and_deduplicates_export(self):
+        import tempfile
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.assets.spatial_scene import default_scene
+        objects=self.hierarchy();other=self.media('错误的图')
+        previous_storage=self.service.storage
+        self.addCleanup(setattr,self.service,'storage',previous_storage)
+        with tempfile.TemporaryDirectory() as directory:
+            self.service.storage=LocalStorage(directory)
+            doc=default_scene();doc.update(width=320,height=180)
+            scene=self.write('create_spatial_scene',dict(mode='blocking',scene_id=objects['scene'],document=doc,title='站位'))
+            exported=self.write('create_spatial_export',dict(spatial_scene_id=scene['id'],scene_revision=1,camera_id='camera-b',format='png',time=.25))
+            complete=self.service.execute_spatial_export(self.p,exported['id']);self.rev=self.service.get_project(self.p)['revision']
+            self.assertEqual(complete['status'],'succeeded');image=complete['media_id']
+            fixed=self.service.get_spatial_scene(self.p,scene['id'])['version_id']
+            flow=self.write('create_intelligent_workflow',dict(episode_id=objects['episode'],route='storyboard',script_text='合成剧本'))['id']
+            current=self.service.get_intelligent_workflow(self.p,flow);state=current['state'];state['blocking_mode']='3d'
+            def unit(key):return dict(unit_key=key,kind='blocking',title='站位'+key,description='',duration_ms=5000,
+                segments=[dict(start_ms=0,end_ms=5000,text='等')],skip_reason='',lineart_purpose='none',shot_id=objects['shot'],spatial_version_id=fixed)
+            state['units']=[unit('one'),unit('two'),unit('mismatch')]
+            state['media']=[dict(unit_key=key,purpose='blocking',media_id=mid,decision_id=None,spatial_export_id=exported['id'])
+                for key,mid in [('one',image),('two',image),('mismatch',other)]]
+            payload=dict(workflow_id=flow,base_version_id=current['version']['id'],state=state)
+            impact=self.service.preview_intelligent_change(self.p,payload)
+            with self.assertRaises(ResourceError):self.write('save_intelligent_workflow',dict(payload,impact_sha256=impact['sha256']))
+            state['units']=state['units'][:2];state['media']=state['media'][:2]
+            impact=self.service.preview_intelligent_change(self.p,payload);self.write('save_intelligent_workflow',dict(payload,impact_sha256=impact['sha256']))
+            found=self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)
+            self.assertEqual(found['total'],1);self.assertEqual(found['items'][0]['source']['media_id'],image)
+            self.assertEqual(found['items'][0]['source']['spatial_export_id'],exported['id'])
+            self.assertEqual(found['items'][0]['preview']['media_id'],image)
+            self.assertIn('technical_check_missing',found['items'][0]['availability_gaps'])
+            # A browseable screenshot is not a production approval. The real
+            # selection consumer still requires its technical check.
+            candidate=self.candidate(objects['shot'],image)
+            with self.assertRaises(ResourceError) as failure:self.select(candidate)
+            self.assertIn('technical_check_missing',str(failure.exception))
+            self.write('decide_rights',dict(media_id=image,outcome='revoked',reason='测试撤销来源'))
+            blocked=self.service.list_asset_cards(self.p,asset_kind='blocking',include_blocking=True)['items'][0]
+            self.assertIsNone(blocked['preview']);self.assertIn('rights_unknown_or_restricted',blocked['availability_gaps'])
+
     def test_prop_filter_opt_in_groups_legacy_objects_before_pagination(self):
         import tempfile
         from fastapi.testclient import TestClient

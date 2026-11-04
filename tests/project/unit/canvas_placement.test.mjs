@@ -20,6 +20,7 @@ class Element {
  getBoundingClientRect(){return {left:0,top:0,width:1200,height:800};}
  addEventListener(k,v){(this.listeners[k]??=[]).push(v);}
  get options(){return this.children.filter(x=>x.tagName==='OPTION');}
+ get isConnected(){return this.parentElement!==null;}
  async fire(type,properties={}){const event={target:this,preventDefault(){},...properties};if(this['on'+type])await this['on'+type](event);for(const f of this.listeners[type]||[])await f(event);if(['input','change'].includes(type)&&this.parentElement)await this.parentElement.fire(type,{...properties,target:event.target});}
  focus(){this.ownerDocument.activeElement=this;}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
@@ -39,6 +40,14 @@ function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.t
 function savedNode(store){return JSON.parse(store.get('vsc-creative-canvas:p1:c1')).document.nodes.at(-1);}
 async function selectGrid(a,cells=[[1,1],[1,2],[2,1],[2,2]]){await a.root.querySelectorAll('button').find(b=>b.textContent==='4宫格（2×2）').fire('click');for(const [r,c]of cells)await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']===`宫格 ${r}行${c}列`).fire('click');}
 function generateGrid(a){return a.root.querySelectorAll('button').find(b=>b.textContent==='生成图片').fire('click');}
+
+test('canvas imports only an available fixed blocking media from its project',async()=>{
+ let lastQuery;const a=await fixture({apiOverride:async path=>{if(path.includes('/asset-cards?')){lastQuery=new URL(path,'http://test').searchParams;return {revision:1,items:[{id:'projection-1',record_kind:'blocking',asset_kind:'blocking',name:'站位一',forms:[],preview:{media_id:'fixed-media'}},{id:'projection-2',record_kind:'blocking',asset_kind:'blocking',name:'站位二',forms:[],preview:null}],next_offset:null};}}});
+ await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');
+ assert.equal(lastQuery.get('include_blocking'),'true');const kind=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='资产类型');kind.value='blocking';await kind.fire('change');assert.equal(lastQuery.get('asset_kind'),'blocking');const items=a.root.querySelectorAll('.cc-asset-item');assert.equal(items.length,2);
+ const send=items.map(item=>item.querySelector('.cc-asset-send'));assert.equal(send[1].disabled,true);await send[0].fire('click');
+ assert.equal(savedNode(a.store).media_id,'fixed-media');assert.equal(savedNode(a.store).type,'image');a.canvas.suspend();
+});
 
 test('double click creates a node at the chosen point and preserves coordinates in the draft',async()=>{
   const a=await fixture();await a.stage.fire('dblclick',{clientX:510,clientY:280});
