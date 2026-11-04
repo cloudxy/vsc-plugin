@@ -11,17 +11,18 @@ Element.prototype.pause=function(){this.paused=true;};
 Element.prototype.play=async function(){this.paused=false;};
 Element.prototype.scrollIntoView=function(){};
 
-async function fixture({interleaved=false}={}){
+async function fixture({interleaved=false,emptyWorkflow=false,delayPreview=false,withWarnings=false,historical=false}={}){
  const document=new Document(''),root=document.createElement('section');document.body.append(root);
- const memory=new Map(),requests=[],pending={prepare:[],quote:[],save:[]};
+ const memory=new Map(),requests=[],pending={prepare:[],quote:[],save:[],preview:[]};
  const sessionStorage={getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k),get length(){return memory.size;},key:i=>[...memory.keys()][i]};
  const stages=['source','assets','blocking','template','script','video','preview'].map(key=>({key,title:key}));
  const unit=(key,kind='shot')=>({unit_key:key,kind,title:key,description:'提示词 '+key,duration_ms:7000,segments:[],skip_reason:'',lineart_purpose:'none',shot_id:key,professional:{narrative_purpose:'目的',entry_state:'入',exit_state:'出',bridge:'桥',sound_route:'native'}});
  const workflow={workflow:{id:'w',episode_id:'e',title:'流程'},version:{id:'v',version:1},history:[{id:'v',version:1}],definition:{stages},state:{route:'creation',document:{script_text:'剧本',notes:'',template_key:'cinematic',template_text:'模板'},assets:[],units:interleaved?[unit('s1'),unit('b','blocking'),unit('s2')]:[unit('s1'),unit('s2'),unit('b','blocking')],media:[],dependencies:[],blocking_mode:'2d'},episode_assets:[],tasks:[],runs:[],asset_runs:[],batches:[],working_selections:[],revision:1};
+ if(emptyWorkflow)workflow.state.units=[];if(historical)workflow.history=[{id:'v-current',version:2},...workflow.history];
  const options={definition:{stages},routes:{creation:'智能创作'},templates:{cinematic:{title:'电影叙事',text:'电影模板'}},nodes:[{id:'e',kind:'episode',title:'第1集'}],models:[{id:'model-a',modality:'video',enabled:true,adapter_available:true,name:'A'},{id:'model-b',modality:'video',enabled:true,adapter_available:true,name:'B'}],media:[],host_available:false,revision:1};
  const api=async(path,init={})=>{
   requests.push({path,init});
-  if(path.endsWith('/intelligent-change-preview'))return {sha256:'impact',changes:[],warnings:[],retained_selected_media:[],retained_runs:[],revision:1};
+  if(path.endsWith('/intelligent-change-preview')){if(delayPreview)return new Promise(resolve=>pending.preview.push(resolve));return {sha256:'impact',changes:[],warnings:withWarnings?[{message:'需要审阅'}]:[],retained_selected_media:[],retained_runs:[],revision:1};}
   if(path.endsWith('/intelligent-workflows/w')&&init.method==='PUT')return new Promise((resolve,reject)=>pending.save.push({resolve,reject}));
   if(path.endsWith('/intelligent-drafts'))return new Promise((resolve,reject)=>pending.prepare.push({resolve,reject}));
   if(path.endsWith('/classic-production/quote'))return new Promise((resolve,reject)=>pending.quote.push({resolve,reject}));
@@ -67,7 +68,8 @@ test('save response keeps the stage selected while the request was in flight',as
  const {root,panel,pending,stage}=await fixture();
  try{
   assert.ok(root.querySelector('.ip-word-count').textContent.includes('2/50000'));
-  const save=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='确认影响并保存全部');assert.ok(save);
+  const save=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');assert.ok(save);
+  const script=root.querySelector('.ip-script-stage').querySelector('textarea');script.value='修改后的剧本';await script.dispatch('input');
   await save.click();const saving=save.click();await waitFor(()=>pending.save.length===1);
   await stage('template').click();assert.equal(root.dataset.stage,'template');
   pending.save[0].resolve({id:'w',revision:2});await saving;assert.equal(root.dataset.stage,'template');
@@ -82,5 +84,67 @@ test('move controls reorder only matching unit types even when their data are in
   cards=root.querySelectorAll('.ip-unit');assert.deepEqual(cards.map(card=>card.dataset.unitKey),['s2','s1']);
   assert.equal(cards[1].querySelectorAll('button').find(button=>button.textContent==='下移').disabled,true);
   await stage('blocking').click();assert.deepEqual(root.querySelectorAll('.ip-unit').map(card=>card.dataset.unitKey),['b']);
+ }finally{panel.suspend();}
+});
+
+
+test('next step without edits navigates once and does not create a new version',async()=>{
+ const {root,panel,requests}=await fixture();
+ try{
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');
+  await next.click();assert.equal(root.dataset.stage,'assets');
+  assert.equal(requests.some(row=>row.path.endsWith('/intelligent-change-preview')||row.init.method==='PUT'),false);
+ }finally{panel.suspend();}
+});
+
+
+test('initial screenplay edit advances with a single action after safe impact preview',async()=>{
+ const {root,panel,requests,pending}=await fixture({emptyWorkflow:true});
+ try{
+  const script=root.querySelector('.ip-script-stage').querySelector('textarea');script.value='新增剧本';await script.dispatch('input');
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');const saving=next.click();
+  await waitFor(()=>pending.save.length===1);assert.equal(requests.filter(row=>row.path.endsWith('/intelligent-change-preview')).length,1);
+  pending.save[0].resolve({id:'w',revision:2});await saving;assert.equal(root.dataset.stage,'assets');
+ }finally{panel.suspend();}
+});
+
+
+for(const change of ['draft','stage'])test(`initial quick save does not submit when ${change} changes during preview`,async()=>{
+ const {root,panel,requests,pending,stage}=await fixture({emptyWorkflow:true,delayPreview:true});
+ try{
+  const script=root.querySelector('.ip-script-stage').querySelector('textarea');script.value='初稿';await script.dispatch('input');
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');const waiting=next.click();await waitFor(()=>pending.preview.length===1);
+  if(change==='draft'){script.value='修改中';await script.dispatch('input');}else await stage('template').click();
+  pending.preview[0]({sha256:'impact',changes:[],warnings:[],retained_selected_media:[],retained_runs:[],revision:1});await waiting;
+  assert.equal(requests.some(row=>row.init.method==='PUT'),false);
+ }finally{panel.suspend();}
+});
+
+
+test('quick save keeps the review step when a warning exists',async()=>{
+ const {root,panel,requests}=await fixture({emptyWorkflow:true,withWarnings:true});
+ try{
+  const script=root.querySelector('.ip-script-stage').querySelector('textarea');script.value='初稿';await script.dispatch('input');
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');await next.click();
+  assert.equal(requests.some(row=>row.init.method==='PUT'),false);assert.match(root.querySelector('.ip-impact').textContent,/需要审阅/);
+ }finally{panel.suspend();}
+});
+
+test('historical versions remain read-only',async()=>{
+ const {root,panel,requests}=await fixture({historical:true});
+ try{
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');assert.equal(next.disabled,true);
+  assert.equal(requests.some(row=>row.init.method==='PUT'),false);
+ }finally{panel.suspend();}
+});
+
+
+test('explicit review discards a stale preview after an edit',async()=>{
+ const {root,panel,requests,pending}=await fixture({delayPreview:true});
+ try{
+  const script=root.querySelector('.ip-script-stage').querySelector('textarea');script.value='初稿';await script.dispatch('input');
+  const review=root.querySelectorAll('button').find(button=>button.textContent.includes('查看修改影响'));assert.ok(review);const waiting=review.click();await waitFor(()=>pending.preview.length===1);
+  script.value='修改中';await script.dispatch('input');pending.preview[0]({sha256:'old',changes:[],warnings:[],retained_selected_media:[],retained_runs:[],revision:1});await waiting;
+  assert.equal(root.querySelector('.ip-impact'),null);assert.equal(requests.some(row=>row.init.method==='PUT'),false);
  }finally{panel.suspend();}
 });
