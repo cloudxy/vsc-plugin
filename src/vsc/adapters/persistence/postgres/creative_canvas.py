@@ -661,6 +661,59 @@ class CreativeCanvasRepository:
             raise Conflict('画布已改变；输出仍保留，请读取当前画布再采用', 'canvas_revision_conflict')
         return canvas, version, self._canvas_document(conn, project['id'], version)
 
+    def split_canvas_image(self, project_id, payload, *, build, actor, **kw):
+        def work(conn, project):
+            p = project['id'];canvas, version, document = self._canvas_current(conn, project, payload)
+            source = next((node for node in document['nodes'] if node['id'] == payload['node_id']), None)
+            if not source or source['type'] != 'image' or not source['media_id']:
+                raise ResourceError('请选择已固定图片的画布节点', 'canvas_grid_source_required')
+            if len(document['nodes']) + len(payload['cells']) > 200 or len(document['edges']) + len(payload['cells']) > 800:
+                raise ResourceError('所选切片超过画布节点或连线数量上限', 'canvas_grid_capacity')
+            media, gaps = self._usable(conn, p, source['media_id'], 'image_edit')
+            gaps = [gap for gap in gaps if gap != 'technical_check_missing']
+            if gaps:
+                labels = {'missing_bytes': '素材文件不可用', 'rights_unknown_or_restricted': '素材权利待确认或受限制',
+                          'rights_expired': '素材授权已到期', 'rights_scope_mismatch': '素材授权不包含图片编辑',
+                          'media_deprecated': '素材已停用', 'technical_check_failed': '素材技术检查未通过',
+                          'library_retired': '素材库条目已停用', 'library_rights_revoked': '素材库许可已撤回',
+                          'library_license_expired': '素材库许可已到期', 'library_purpose_not_allowed': '素材库许可不包含图片编辑',
+                          'library_source_rights_changed': '素材库来源权利已变化', 'copy_source_rights_restricted': '来源权利已受限制',
+                          'copy_source_rights_expired': '来源授权已到期', 'copy_source_rights_unknown': '来源权利待确认',
+                          'copy_source_rights_scope_mismatch': '来源授权不包含图片编辑'}
+                raise ResourceError('原图当前不可切分：' + '、'.join(labels.get(gap, '来源或许可不可用') for gap in gaps), 'canvas_grid_source_unusable')
+            if media['modality'] != 'image':
+                raise ResourceError('宫格切分只接受图片', 'canvas_grid_source_required')
+            prepared = build(media)
+            if len(prepared) != len(payload['cells']):
+                raise ResourceError('切片数量与所选宫格不符', 'canvas_grid_output_mismatch')
+            node_ids, media_ids = [], []
+            for index, (cell, result) in enumerate(zip(payload['cells'], prepared)):
+                probe = result.get('probe', {})
+                if (result.get('modality') != 'image' or probe.get('sha256') != result.get('sha256')
+                        or probe.get('decode', {}).get('status') != 'passed'
+                        or probe.get('decode', {}).get('mode') != 'complete'):
+                    raise ResourceError('切片缺少固定字节的完整解码检查', 'canvas_grid_output_unverified')
+                registered = self._register_media(conn, project, {**result, 'rights': 'unknown', 'source': {
+                    'kind': 'canvas-image-grid', 'content': {'canvas_version_id': version['id'], 'source_media_id': media['id'],
+                    'source_sha256': media['sha256'], 'rows': payload['rows'], 'columns': payload['columns'], **cell}}}, actor)
+                self.record_media_check(p, {'media_id': registered['id'], 'blob_sha256': registered['sha256'],
+                    'checker': 'canvas-grid-output-decode', 'criteria_version': '1', 'outcome': 'pass',
+                    'report': {'source': 'local-storage-complete-decode', 'probe': probe}},
+                    actor=actor, _transaction=(conn, project), **kw)
+                key = 'grid-' + new_id();node_ids.append(key);media_ids.append(registered['id'])
+                document['nodes'].append(dict(id=key, type='image', title='切片 %s-%s' % (cell['row'], cell['column']),
+                    x=min(100000, source['x']+300+(index % 4)*280), y=min(100000, source['y']+(index // 4)*230), media_id=registered['id']))
+                document['edges'].append(dict(id='derive-'+new_id(), source=source['id'], target=key, port='derived_from'))
+            operation = self.create_media_operation(p, {'operation_type': 'image-grid-split', 'recipe_version': 'canvas-grid/v1',
+                'tool': 'vsc-local-image-grid', 'tool_version': '1', 'parameters': {'canvas_version_id': version['id'],
+                'source_sha256': media['sha256'], 'rows': payload['rows'], 'columns': payload['columns'], 'cells': payload['cells']},
+                'inputs': [{'media_id': media['id'], 'role': 'source'}],
+                'outputs': [{'media_id': identifier, 'role': 'tile'} for identifier in media_ids]},
+                actor=actor, _transaction=(conn, project), **kw)
+            saved = self._insert_canvas_version(conn, project, canvas, {'title': version['title'], 'document': document}, actor, version)
+            return dict(saved, node_ids=node_ids, media_ids=media_ids, operation_id=operation['id'])
+        return self._mutate(project_id, 'split_canvas_image', payload, actor=actor, callback=work, **kw)
+
     def create_canvas_domain_node(self, project_id, payload, actor, **kw):
         from vsc.assets.spatial_scene import default_scene
         from vsc.production.creative_tools import normalize_draft, DRAFT_TYPE, FORMAT

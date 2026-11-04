@@ -22,6 +22,24 @@ TOOLS={
 }
 BLOCKED={}
 
+def split_grid_image(content, rows, columns, cells):
+ """Crop selected cells in caller order from fixed original image bytes."""
+ from PIL import Image, ImageOps, UnidentifiedImageError
+ try:
+  with Image.open(io.BytesIO(content)) as opened:
+   if opened.width * opened.height > 16777216:raise ResourceError('图片切分最多支持1600万像素','canvas_grid_image_too_large')
+   image=ImageOps.exif_transpose(opened);image.load()
+   if image.width < columns or image.height < rows:raise ResourceError('宫格行列不能超过图片像素尺寸','canvas_grid_dimensions')
+   result=[]
+   for cell in cells:
+    row,column=cell['row']-1,cell['column']-1
+    box=(column*image.width//columns,row*image.height//rows,(column+1)*image.width//columns,(row+1)*image.height//rows)
+    tile=image.crop(box);stream=io.BytesIO();tile.save(stream,format='PNG')
+    result.append({'bytes':stream.getvalue(),'row':row+1,'column':column+1})
+   return result
+ except (OSError,ValueError,UnidentifiedImageError,Image.DecompressionBombError) as exc:
+  raise ResourceError('固定图片无法解码','canvas_grid_decode_failed') from exc
+
 def finite(value,low,high):
  if type(value) not in (int,float) or not math.isfinite(value) or not low<=value<=high:raise ResourceError('编辑数值超出范围','invalid_reference_edit')
  return value

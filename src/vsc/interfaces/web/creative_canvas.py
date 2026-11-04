@@ -98,6 +98,10 @@ def install_creative_canvas_routes(router, catalog, etag, actor):
     async def copy(project_id: str, canvas_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "copy_creative_canvas", canvas_id)
 
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/split-image")
+    async def split_image(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "split_canvas_image", canvas_id)
+
     @router.post("/{project_id}/creative-canvases/{canvas_id}/prepare")
     async def prepare(project_id: str, canvas_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "prepare_creative_canvas", canvas_id)

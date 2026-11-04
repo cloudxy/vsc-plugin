@@ -24,19 +24,21 @@ class Element {
  focus(){this.ownerDocument.activeElement=this;}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
 }
-async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null}={}) {
+async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null}={}) {
   const document={createElement:t=>{const n=new Element(t);n.ownerDocument=document;if(t==='canvas')n.getContext=()=>({drawImage(){},getImageData(){return {data:new Uint8ClampedArray(32)};}});return n;},createElementNS:(ns,t)=>{const n=document.createElement(t);n.namespaceURI=ns;return n;},createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;},documentElement:{}};
   const images=[];class FakeImage{constructor(){images.push(this);}}
   const store=new Map(),sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
-  const window={addEventListener(){},removeEventListener(){}},location={search:''};
+  const listeners=new Map(),window={addEventListener(type,fn){(listeners.get(type)||listeners.set(type,new Set()).get(type)).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},fire(type,event={}){for(const fn of [...listeners.get(type)||[]])fn(event);}},location={search:''};
   const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:()=>0,clearTimeout:()=>{}});
   const root=document.createElement('main');
-  const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},api:async(path)=>path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1}};
+  const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1};}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
-  return {root,canvas,store,images,document,FakeImage,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
+  return {root,canvas,store,images,document,window,FakeImage,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
 function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.textContent==='添加图片');assert.ok(action);return action.fire('click');}
 function savedNode(store){return JSON.parse(store.get('vsc-creative-canvas:p1:c1')).document.nodes.at(-1);}
+async function selectGrid(a,cells=[[1,1],[1,2],[2,1],[2,2]]){await a.root.querySelectorAll('button').find(b=>b.textContent==='4宫格（2×2）').fire('click');for(const [r,c]of cells)await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']===`宫格 ${r}行${c}列`).fire('click');}
+function generateGrid(a){return a.root.querySelectorAll('button').find(b=>b.textContent==='生成图片').fire('click');}
 
 test('double click creates a node at the chosen point and preserves coordinates in the draft',async()=>{
   const a=await fixture();await a.stage.fire('dblclick',{clientX:510,clientY:280});
@@ -85,6 +87,72 @@ test('panorama viewer opens inline for the selected image and closes without edi
 test('classic panorama viewer still rejects a non-2:1 source',async()=>{
  const a=await fixture(),{mountPanorama}=await loadModule('panorama-viewer.js',{document:a.document,Image:a.FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{}}),host=a.document.createElement('div');
  const viewer=mountPanorama(host,'/flat.png',{isCurrent:()=>true});a.images[0].naturalWidth=16;a.images[0].naturalHeight=9;a.images[0].onload();assert.match(host.querySelector('p').textContent,/2:1/);viewer.dispose();a.canvas.suspend();
+});
+
+test('grid split retries the original receipt and places fixed outputs with their source edges',async()=>{
+ const source={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
+ const tiles=Array.from({length:4},(_,i)=>({id:'tile'+i,type:'image',title:'切图'+i,x:400,y:i*230,text:'',params:{},media_id:'tile-media'+i,job_id:null,group:''}));
+ const edges=tiles.map((n,i)=>({id:'edge'+i,source:'source',target:n.id,port:'derived_from'})),requests=[];
+ const a=await fixture({nodes:[source],apiOverride:async(path,options)=>{
+  if(path.endsWith('/split-image')){requests.push(JSON.parse(options.body));if(requests.length===1)throw Error('连接中断');return {revision:2,canvas_revision:2,node_ids:tiles.map(n=>n.id),media_ids:tiles.map(n=>n.media_id)};}
+  if(path.endsWith('?version=2'))return {revision:2,document:{viewport:{x:0,y:0,zoom:1},nodes:[source,...tiles],edges}};
+ }});
+ let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
+ await selectGrid(a);await generateGrid(a);
+ assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.ok(a.store.has('vsc-canvas-grid:test:p1:c1'));
+ await generateGrid(a);
+ assert.equal(requests.length,2);assert.deepEqual(requests[0],requests[1]);assert.equal(a.root.querySelectorAll('.cc-node').length,5);assert.equal(a.store.has('vsc-canvas-grid:test:p1:c1'),false);
+ assert.equal(a.root.querySelector('.cc-connections').querySelectorAll('path').length,4);a.canvas.suspend();
+});
+
+test('grid split preserves edits made while the request is running',async()=>{
+ const source={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
+ const tiles=Array.from({length:4},(_,i)=>({id:'tile'+i,type:'image',title:'切图'+i,x:400,y:i*230,text:'',params:{},media_id:'tile-media'+i,job_id:null,group:''}));
+ const edges=tiles.map((n,i)=>({id:'edge'+i,source:'source',target:n.id,port:'derived_from'}));let finish;
+ const waiting=new Promise(resolve=>{finish=resolve;});
+ const a=await fixture({nodes:[source],apiOverride:async(path)=>{if(path.endsWith('/split-image')){await waiting;return {revision:2,canvas_revision:2,node_ids:tiles.map(n=>n.id),media_ids:tiles.map(n=>n.media_id)};}if(path.endsWith('?version=2'))return {revision:2,document:{viewport:{x:0,y:0,zoom:1},nodes:[source,...tiles],edges}};}});
+ const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
+ await selectGrid(a);const pending=generateGrid(a);await new Promise(resolve=>setImmediate(resolve));
+ await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);finish();await pending;
+ assert.equal(a.root.querySelectorAll('.cc-node').length,6);const draft=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1'));assert.equal(draft.dirty,true);assert.equal(draft.document.nodes.length,6);assert.equal(draft.document.edges.length,4);a.canvas.suspend();
+});
+
+test('grid receipt lost after server save is recovered after reopening without duplicate nodes',async()=>{
+ const source={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
+ const tiles=Array.from({length:4},(_,i)=>({id:'tile'+i,type:'image',title:'切图'+i,x:400,y:i*230,text:'',params:{},media_id:'tile-media'+i,job_id:null,group:''}));
+ const edges=tiles.map((n,i)=>({id:'edge'+i,source:'source',target:n.id,port:'derived_from'}));let saved=false;const requests=[];
+ const fixed={revision:2,canvas_revision:2,title:'Test',episode_id:null,document:{viewport:{x:0,y:0,zoom:1},nodes:[source,...tiles],edges},jobs:{},runs:[],execution_steps:[]};
+ const a=await fixture({nodes:[source],apiOverride:async(path,options)=>{if(path.endsWith('/split-image')){requests.push(JSON.parse(options.body));if(!saved){saved=true;throw Error('回执丢失');}return {revision:2,canvas_revision:2,node_ids:tiles.map(n=>n.id),media_ids:tiles.map(n=>n.media_id)};}if(saved&&(path.endsWith('/creative-canvases/c1')||path.endsWith('?version=2')))return fixed;}});
+ const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});await selectGrid(a);await generateGrid(a);
+ await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelectorAll('.cc-node').length,5);
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原宫格切分').fire('click');
+ assert.deepEqual(requests[0],requests[1]);assert.equal(a.root.querySelectorAll('.cc-node').length,5);assert.equal(a.store.has('vsc-canvas-grid:test:p1:c1'),false);a.canvas.suspend();
+});
+
+test('custom grid chooses independent rows and columns before submitting',async()=>{
+ const source={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};let request;
+ const a=await fixture({nodes:[source],apiOverride:async(path,options)=>{if(path.endsWith('/split-image')){request=JSON.parse(options.body);const error=Error('停止测试');error.status=422;throw error;}}});
+ const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});const custom=a.root.querySelector('.cc-grid-custom-panel');const confirm=custom.querySelectorAll('button').find(b=>b.textContent==='确定');assert.equal(confirm.disabled,true);
+ await custom.querySelectorAll('button').find(b=>b.attrs['aria-label']==='5行7列').fire('click');assert.equal(confirm.disabled,false);await confirm.fire('click');
+ await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 2行3列').fire('click');await generateGrid(a);
+ assert.deepEqual(request.payload,{canvas_revision:1,node_id:'source',rows:5,columns:7,cells:[{row:2,column:3}]});assert.equal(a.store.has('vsc-canvas-grid:test:p1:c1'),false);a.canvas.suspend();
+});
+
+test('grid selection follows click order and exiting does not edit the canvas',async()=>{
+ const source={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};let request;
+ const a=await fixture({nodes:[source],apiOverride:async(path,options)=>{if(path.endsWith('/split-image')){request=JSON.parse(options.body);const error=Error('停止测试');error.status=422;throw error;}}});
+ const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});await selectGrid(a,[[2,2],[1,1]]);
+ await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 2行2列').fire('click');await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 2行2列').fire('click');await generateGrid(a);
+ assert.deepEqual(request.payload.cells,[{row:1,column:1},{row:2,column:2}]);await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='退出宫格切分').fire('click');
+ assert.equal(a.root.querySelector('.cc-grid-overlay'),null);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+});
+
+test('dragging across a grid selects the covered rectangle',async()=>{
+ const source={id:'source',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};let request;
+ const a=await fixture({nodes:[source],apiOverride:async(path,options)=>{if(path.endsWith('/split-image')){request=JSON.parse(options.body);const error=Error('停止测试');error.status=422;throw error;}}});
+ const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});await a.root.querySelectorAll('button').find(b=>b.textContent==='4宫格（2×2）').fire('click');
+ const overlay=a.root.querySelector('.cc-grid-overlay');await overlay.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 1行1列').fire('pointerdown',{button:0});await overlay.fire('pointerdown');await overlay.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 2行2列').fire('pointerenter');a.window.fire('pointerup');await generateGrid(a);
+ assert.deepEqual(request.payload.cells,[{row:1,column:1},{row:1,column:2},{row:2,column:1},{row:2,column:2}]);a.canvas.suspend();
 });
 
 test('closing an image tool leaves its source and document untouched',async()=>{
