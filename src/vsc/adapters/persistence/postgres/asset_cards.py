@@ -185,6 +185,19 @@ class AssetCardsRepository:
                 _,media_cache[media_id]=self._usable(conn,p,media_id,'reference_image',_grid_cache=grid_cache)
             gaps=media_cache[media_id]
             preview_gaps=[gap for gap in gaps if gap!='technical_check_missing']
+            # A fixed image may be licensed solely as a first/last frame or
+            # another image input. Browsing it must not assume a reference-image
+            # purpose; final consumers still check the purpose they actually use.
+            purpose_gaps={'rights_scope_mismatch','copy_source_rights_scope_mismatch',
+                          'library_purpose_not_allowed','library_source_rights_changed',
+                          'grid_source_rights_scope_mismatch','grid_source_copy_source_rights_scope_mismatch',
+                          'grid_source_library_purpose_not_allowed','grid_source_library_source_rights_changed'}
+            if preview_gaps and all(gap in purpose_gaps for gap in preview_gaps):
+                for purpose in ('first_frame','last_frame','image_edit','identity_face','location_master','prop'):
+                    _,alternate=self._usable(conn,p,media_id,purpose,_grid_cache=grid_cache)
+                    if not [gap for gap in alternate if gap!='technical_check_missing']:
+                        preview_gaps=[]
+                        break
             items.append(dict(id=row['record_id'],record_kind='blocking',name=row['name'],asset_kind='blocking',
                 revision=None,forms=[],favorite=False,preview=None if preview_gaps else dict(media_id=media_id,source='fixed_workflow'),
                 source=source,

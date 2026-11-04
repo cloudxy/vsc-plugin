@@ -569,6 +569,86 @@ class CreativeCanvasRepository:
         return self._mutate(project_id, "add_canvas_library_node", payload, actor=actor, callback=work,
             _library_versions=(payload["library_version_id"],), **kw)
 
+    def add_canvas_project_media_node(self, project_id, payload, actor, *, storage, **kw):
+        from .project_management import hidden_object_ids, management_project_guard
+        from .copy_lineage import assert_copy_source
+        from .asset_cards import AssetCardsRepository
+        source_project=checked_id(payload["source_project_id"]);source=payload["source"]
+        command_key=kw["idempotency_key"]
+        def work(conn,project):
+            self._access_require(conn,source_project,"read")
+            management_project_guard(conn,source_project)
+            hidden=hidden_object_ids(conn,source_project)
+            canvas,current=self._canvas_version(conn,project,payload["canvas_id"])
+            if payload["canvas_revision"]!=current["version"]:
+                raise Conflict("画布已有新版本，请先读回当前画布", "canvas_revision_conflict")
+            document=self._canvas_document(conn,project["id"],current)
+            if len(document["nodes"])>=200:raise ResourceError("画布节点已达上限", "canvas_node_limit")
+            source_media=checked_id(source["media_id"])
+            form_id=workflow_id=unit_key=purpose=None
+            if source["kind"]=="asset_form":
+                fixed=self._one(conn,S.asset_card_form_versions,source_project,source["form_version_id"])
+                form=self._one(conn,S.asset_card_forms,source_project,fixed["form_id"])
+                if (str(form["asset_id"])!=checked_id(source["asset_id"]) or str(fixed["media_id"])!=source_media
+                        or str(form["asset_id"]) in hidden or form["current_version_id"]!=fixed["id"]):
+                    raise Conflict("素材形态已变化或不可用，请刷新资产列表", "canvas_project_source_changed")
+                form_id=fixed["id"];title=fixed["asset_name"]+(" · "+fixed["form_name"] if fixed["form_name"] else "")
+            else:
+                station=AssetCardsRepository(self)._blocking_projection(source_project,hidden)
+                query=select(station).where(station.c.source_rank==1,
+                    station.c.workflow_id==checked_id(source["workflow_id"]),
+                    station.c.version_id==checked_id(source["version_id"]),
+                    station.c.episode_id==checked_id(source["episode_id"]),
+                    station.c.unit_key==source["unit_key"],station.c.media_id==source_media)
+                query=query.where(station.c.spatial_export_id==checked_id(source["spatial_export_id"]) if source["spatial_export_id"] else station.c.spatial_export_id.is_(None))
+                fixed=conn.execute(query).mappings().first()
+                if not fixed:raise Conflict("固定站位已变化或不可用，请刷新资产列表", "canvas_project_source_changed")
+                workflow_id=fixed["version_id"];unit_key=fixed["unit_key"];purpose="blocking";title=fixed["name"]
+            item=self._media(conn,source_project,source_media)
+            if item["modality"] not in {"image","video","audio"}:raise ResourceError("素材类型不能发送到画布", "canvas_media_type")
+            rights=assert_copy_source(self,conn,source_project,source_media)
+            # A canvas node has no production purpose yet. Validate the
+            # source's current authority and known technical failures without
+            # inventing reference_image/reference_audio use at import time.
+            # A proven grid derivative still requires its source image_edit
+            # authority, because that edit already happened.
+            gaps=[]
+            lifecycle=self._latest(conn,S.media_lifecycle_decisions,source_project,"media_id",source_media)
+            if lifecycle and lifecycle["outcome"]=="deprecate":gaps.append("media_deprecated")
+            checks=conn.execute(select(S.media_checks).where(S.media_checks.c.project_id==source_project,
+                S.media_checks.c.media_id==source_media).order_by(S.media_checks.c.project_revision.desc(),S.media_checks.c.id)).mappings()
+            latest={}
+            for check in checks:latest.setdefault((check["checker"],check["criteria_version"]),check)
+            if any(check["outcome"]!="pass" for check in latest.values()):gaps.append("technical_check_failed")
+            grid=self._grid_parent(conn,source_project,source_media)
+            if grid:
+                _,parents=self._usable(conn,source_project,grid[0],"image_edit")
+                gaps.extend("grid_source_"+gap for gap in parents if gap!="technical_check_missing")
+            if gaps:raise ResourceError("素材当前不可用于画布引用："+", ".join(gaps), "canvas_project_source_unavailable")
+            location=next((value for value in item["locations"] if value["available"]),None)
+            if not location:raise ResourceError("素材没有可用副本", "canvas_project_source_unavailable")
+            registered=self._register_media(conn,project,dict(item,id=new_id(),storage=location["storage"],object_key=location["object_key"],
+                rights=rights["outcome"] if rights else "unknown",rights_scope=rights["scope"] if rights else {"purposes":[]},
+                rights_expires_at=rights["expires_at"] if rights else None,
+                source={"kind":"canvas-project-reference","content":{"source_project_id":source_project,"source_media_id":source_media,"sha256":item["sha256"]}}),actor)
+            byte_check=self._record_canvas_copy_byte_check(conn,project,registered["id"],storage)
+            if byte_check.get("status")=="invalid":
+                raise ResourceError("原素材本地文件缺失或损坏，请检查来源副本", "canvas_project_source_bytes_invalid")
+            if byte_check.get("status") not in {"verified","unavailable"}:
+                raise ResourceError("素材检查状态无效，请重试", "canvas_project_source_check_invalid")
+            node_id="project-"+new_id()
+            document["nodes"].append({"id":node_id,"type":item["modality"],"title":(title or item["name"])[:200],
+                "media_id":registered["id"],"x":payload.get("x",100),"y":payload.get("y",100)})
+            saved=self._insert_canvas_version(conn,project,canvas,{"title":current["title"],"document":document},actor,current)
+            conn.execute(insert(S.canvas_project_media_links).values(id=new_id(),project_id=project["id"],
+                target_media_id=registered["id"],source_project_id=source_project,source_media_id=source_media,
+                blob_id=registered["blob_id"],sha256=item["sha256"],source_form_version_id=form_id,
+                source_workflow_version_id=workflow_id,source_unit_key=unit_key,source_purpose=purpose,
+                canvas_version_id=saved["version_id"],node_key=node_id,command_key=command_key,created_by=actor))
+            return dict(saved,node_id=node_id,media_id=registered["id"],byte_check=byte_check)
+        return self._mutate(project_id,"add_canvas_project_media_node",payload,actor=actor,callback=work,
+            _related_projects=(project_id,source_project),**kw)
+
     def copy_creative_canvas(self, project_id, payload, actor, **kw):
         def work(conn, project):
             source, row = self._canvas_version(conn, project, required(payload, "canvas_id"), payload.get("canvas_revision"))

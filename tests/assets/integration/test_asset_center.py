@@ -266,5 +266,5 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 with engine.begin() as conn:migrate(conn,'0047_professional_inputs','downgrade')
             with engine.connect() as conn:
-                self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),'0048_official_asset_catalog')
+                self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),S.SCHEMA_REVISION)
                 self.assertEqual(conn.execute(select(func.count()).select_from(S.official_asset_publications)).scalar_one(),1)

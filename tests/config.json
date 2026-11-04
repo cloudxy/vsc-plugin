@@ -1511,6 +1511,24 @@
         "tests/project/unit/asset_center.test.mjs"
       ]
     },
+    "project.unit.test_resource_catalog_content": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/project/resource_catalog.py"
+      ]
+    },
+    "project.integration.test_canvas_project_reference": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/copy_lineage.py",
+        "migrations/postgres/versions/0049_canvas_project_media.py"
+      ]
+    },
     "project.unit.test_canvas_placement_frontend": {
       "owner": "project",
       "layer": "unit",
@@ -1591,6 +1609,15 @@
         "src/vsc/adapters/persistence/postgres/schema_asset_cards.py",
         "src/vsc/interfaces/web/asset_cards.py",
         "src/vsc/interfaces/web/static/asset-cards.js"
+      ]
+    },
+    "assets.integration.test_cross_project_media_links": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/copy_lineage.py",
+        "src/vsc/adapters/persistence/postgres/schema_community.py",
+        "migrations/postgres/versions/0049_canvas_project_media.py"
       ]
     },
     "project.integration.test_task_center_progress": {
