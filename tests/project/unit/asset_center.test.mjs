@@ -15,6 +15,7 @@ class Element {
       node.parentElement=this; this.children.push(node);
     }
   }
+  prepend(...nodes) { for (const node of nodes.reverse()) { node.parentElement=this; this.children.unshift(node); } }
   replaceChildren(...nodes) { for (const n of this.children) n.parentElement=null; this.children=[]; this.append(...nodes); }
   setAttribute(k,v) { this.attributes[k]=String(v); }
   removeAttribute(k) { delete this.attributes[k]; }
@@ -37,7 +38,7 @@ globalThis.location={search:'',href:''};
 globalThis.history={pushState(_a,_b,url){location.search=url;},replaceState(_a,_b,url){location.search=url;}};
 globalThis.sessionStorage={getItem(){return null;},setItem(){},removeItem(){}};
 const {createAssetCenter}=await import('../../../src/vsc/interfaces/web/static/asset-center.js');
-const {legacyPreviewForm,applyLegacySuggestion}=await import('../../../src/vsc/interfaces/web/static/asset-cards.js');
+const {legacyPreviewForm,applyLegacySuggestion,mountAssetCards}=await import('../../../src/vsc/interfaces/web/static/asset-cards.js');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle() { for(let i=0;i<15;i++) await tick(); }
 const asset=i=>({id:'id'+i,name:'资产'+i,asset_kind:'character',forms:[]});
@@ -74,6 +75,26 @@ test('prop category asks for both current props and legacy objects',async()=>{
   const root=new Element('main',document),panel=createAssetCenter(root,context([{id:'project',name:'项目'}],api));await panel.load();await settle();
   await button(root,'道具').onclick();await settle();assert.equal(cards(root).length,2);const params=new URL(calls.at(-1),'http://test').searchParams;assert.equal(params.get('asset_kind'),'prop');assert.equal(params.get('include_object'),'true');
   await button(root,'人设').onclick();await settle();assert.equal(cards(root).length,1);assert.equal(new URL(calls.at(-1),'http://test').searchParams.has('include_object'),false);panel.suspend();
+});
+
+test('blocking pictures are filterable and previewed without asset identity actions',async()=>{
+  location.search='?page=asset-center';const calls=[];
+  const blocking={id:'projection',record_kind:'blocking',asset_kind:'blocking',name:'第一集站位',forms:[],preview:{media_id:'fixed-media'}};
+  const api=async url=>{calls.push(url);const q=new URL(url,'http://test').searchParams;return {items:q.get('asset_kind')&&q.get('asset_kind')!=='blocking'?[]:[blocking,{...blocking,id:'restricted',name:'不可用站位',preview:null}],next_offset:null,revision:1};};
+  const root=new Element('main',document),panel=createAssetCenter(root,context([{id:'project',name:'项目'}],api));await panel.load();await settle();
+  await button(root,'站位').onclick();await settle();const q=new URL(calls.at(-1),'http://test').searchParams;assert.equal(q.get('include_blocking'),'true');assert.equal(q.get('asset_kind'),'blocking');
+  const card=cards(root)[0];assert.equal(card.querySelector('.global-asset-badge').textContent,'站位');assert.equal(card.querySelector('.global-asset-actions'),null);
+  assert.equal(card.walk().find(n=>n.tagName==='IMG').src,'/api/v1/projects/project/media/fixed-media/content');
+  await card.querySelector('.global-asset-preview').onclick();assert.equal(root.querySelectorAll('dialog').length,1);await cards(root)[1].querySelector('.global-asset-preview').onclick();assert.match(root.querySelectorAll('dialog')[1].textContent,/素材当前不可预览/);assert.equal(calls.length,2);panel.suspend();
+});
+
+test('project batch operations never treat a blocking projection as an asset identity',async()=>{
+  const station={id:'blocking:key',record_kind:'blocking',asset_kind:'blocking',name:'站位',forms:[],preview:{media_id:'fixed'}};
+  const ordinary={...asset(1),record_kind:'asset'};const calls=[];
+  const ctx={...context([{id:'project',name:'项目'}],async url=>{calls.push(url);if(url.endsWith('/asset-card-options'))return {nodes:[],media:[],revision:1};return {items:[station,ordinary],total:2,next_offset:null,revision:1};}),setRevision(){}};
+  const root=new Element('main',document),panel=await mountAssetCards(root,ctx,{projectId:'project'});assert.equal(root.querySelectorAll('.asset-card').length,2);
+  assert.equal(root.querySelectorAll('.asset-card-menu').length,1);await button(root,'批量操作').onclick();assert.equal(root.querySelectorAll('.asset-card-check').length,1);
+  assert.equal(new URL(calls.at(-1),'http://test').searchParams.get('include_blocking'),'true');panel.suspend();
 });
 
 // A slow project never blocks the first page of a fast project.  Scrolling

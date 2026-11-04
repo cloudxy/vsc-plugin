@@ -1,6 +1,6 @@
 """Asset card commands compose original objects, artifact projections and media registrations."""
 import json
-from sqlalchemy import select,insert,update,func,and_,case
+from sqlalchemy import select,insert,update,func,and_,or_,case,exists,literal,cast,Text,union_all
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from vsc.assets.resource_service import ResourceError,Conflict
 from . import schema as S
@@ -77,10 +77,73 @@ class AssetCardsRepository:
         preview=self._legacy_preview(conn,p,asset_id,asset['asset_kind'],usability_cache if usability_cache is not None else {}) if include_preview and not has_working_card else None
         return dict(id=asset_id,name=obj['title'] or obj['display_code'],asset_kind=asset['asset_kind'],revision=state['revision'] if state else 0,forms=rows,favorite=bool(favorite),preview=preview)
 
-    def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False,include_object=False):
+    def _blocking_projection(self,p,hidden):
+        """Fixed workflow references only; this creates no asset identity or approval."""
+        w,v,u,m = S.intelligent_workflows,S.intelligent_versions,S.intelligent_units,S.intelligent_media
+        image,blob=S.media_items,S.media_blobs
+        newer=v.alias('newer_workflow_version')
+        d,c,slot=S.binding_decisions,S.binding_candidates,S.binding_slots
+        ws,wc=S.working_selection_versions,S.binding_candidates.alias('working_candidate')
+        shot,sequence,episode_scene=S.shots,S.sequences,S.scenes.alias('working_episode_scene')
+        form,ef,ea=S.episode_asset_form_versions,S.episode_asset_forms,S.episode_assets
+        export,out,spatial,scene=S.spatial_exports,S.spatial_export_outputs,S.spatial_scene_versions,S.spatial_scenes
+        spatial_episode_scene=S.scenes.alias('spatial_episode_scene')
+        def same(a,b):return a.c.project_id==b.c.project_id
+        decision=exists(select(1).select_from(d.join(c,and_(same(d,c),d.c.candidate_id==c.c.id))
+            .join(slot,and_(same(c,slot),c.c.slot_id==slot.c.id))).where(
+                d.c.project_id==p,d.c.id==m.c.decision_id,d.c.outcome=='select',c.c.media_id==m.c.media_id,
+                slot.c.target_object_id.not_in(hidden)))
+        working=exists(select(1).select_from(ws.join(wc,and_(same(ws,wc),ws.c.candidate_id==wc.c.id))
+            .join(shot,and_(same(ws,shot),ws.c.shot_id==shot.c.id))
+            .join(sequence,and_(same(shot,sequence),shot.c.parent_id==sequence.c.id))
+            .join(episode_scene,and_(same(sequence,episode_scene),sequence.c.parent_id==episode_scene.c.id)))
+            .where(ws.c.project_id==p,ws.c.id==m.c.working_selection_version_id,
+                   ws.c.output_kind=='image',ws.c.event_kind!='clear',ws.c.shot_id.not_in(hidden),
+                   episode_scene.c.parent_id==w.c.episode_id,wc.c.media_id==m.c.media_id))
+        episode_form=exists(select(1).select_from(form.join(ef,and_(same(form,ef),form.c.form_id==ef.c.id))
+            .join(ea,and_(same(ef,ea),ef.c.episode_asset_id==ea.c.id))).where(
+                form.c.project_id==p,form.c.id==m.c.episode_asset_form_version_id,
+                form.c.media_id==m.c.media_id,ea.c.episode_id==w.c.episode_id,
+                or_(form.c.source_asset_id.is_(None),form.c.source_asset_id.not_in(hidden))))
+        spatial_source=exists(select(1).select_from(export.join(out,and_(same(export,out),out.c.export_id==export.c.id))
+            .join(spatial,and_(same(export,spatial),export.c.version_id==spatial.c.id))
+            .join(scene,and_(same(spatial,scene),spatial.c.spatial_scene_id==scene.c.id))
+            .join(spatial_episode_scene,and_(same(scene,spatial_episode_scene),scene.c.scene_id==spatial_episode_scene.c.id))).where(
+                export.c.project_id==p,export.c.id==m.c.spatial_export_id,export.c.format=='png',export.c.status=='succeeded',
+                export.c.version_id==u.c.spatial_version_id,out.c.media_id==m.c.media_id,out.c.sha256==blob.c.sha256,
+                scene.c.mode=='blocking',scene.c.scene_id.not_in(hidden),spatial_episode_scene.c.parent_id==w.c.episode_id,
+                or_(scene.c.episode_id.is_(None),scene.c.episode_id==w.c.episode_id)))
+        lifecycle=(select(S.media_lifecycle_decisions.c.outcome).where(
+            S.media_lifecycle_decisions.c.project_id==p,S.media_lifecycle_decisions.c.media_id==image.c.id)
+            .order_by(S.media_lifecycle_decisions.c.decision_sequence.desc()).limit(1).scalar_subquery())
+        location=exists(select(1).where(S.blob_locations.c.blob_id==image.c.blob_id,S.blob_locations.c.available.is_(True)))
+        key=func.concat('blocking:',cast(v.c.id,Text),':',u.c.unit_key,':',cast(m.c.media_id,Text))
+        name=func.coalesce(func.nullif(u.c.title,''),image.c.name)
+        source_key=func.coalesce(cast(m.c.spatial_export_id,Text),key)
+        rows=(select(literal('blocking').label('record_kind'),key.label('record_id'),name.label('name'),
+                     w.c.id.label('workflow_id'),v.c.id.label('version_id'),w.c.episode_id.label('episode_id'),
+                     u.c.unit_key,m.c.media_id,m.c.spatial_export_id,
+                     func.row_number().over(partition_by=source_key,order_by=(v.c.created_at.desc(),v.c.id,u.c.unit_key,m.c.media_id)).label('source_rank'))
+              .select_from(w.join(v,and_(same(w,v),v.c.workflow_id==w.c.id))
+                .join(u,and_(same(v,u),u.c.version_id==v.c.id))
+                .join(m,and_(same(u,m),m.c.version_id==u.c.version_id,m.c.unit_key==u.c.unit_key))
+                .join(image,and_(same(m,image),image.c.id==m.c.media_id)).join(blob,blob.c.id==image.c.blob_id))
+              .where(w.c.project_id==p,w.c.episode_id.not_in(hidden),u.c.kind=='blocking',m.c.purpose=='blocking',
+                    or_(u.c.shot_id.is_(None),u.c.shot_id.not_in(hidden)),image.c.modality=='image',
+                    func.coalesce(lifecycle,'')!='deprecate',location,
+                    ~exists(select(1).where(newer.c.project_id==p,newer.c.workflow_id==w.c.id,newer.c.version>v.c.version)),
+                    or_(decision,working,episode_form,spatial_source),
+                    or_(m.c.spatial_export_id.is_(None),spatial_source)))
+        return rows.subquery('blocking_projection')
+
+    def list_asset_cards(self,p,query='',asset_kind='',offset=0,limit=24,actor=None,favorites=False,include_object=False,include_blocking=False):
         from .project_management import hidden_object_ids
-        with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
+        options={'vsc_readonly_preview':True}
+        if include_blocking:options['isolation_level']='REPEATABLE READ'
+        with self.engine.connect().execution_options(**options) as conn:
             project=self._project(conn,p);hidden=hidden_object_ids(conn,p)
+            if include_blocking:
+                return self._list_with_blocking(conn,project,p,hidden,query,asset_kind,offset,limit,actor,favorites,include_object)
             q=select(S.asset_identities.c.id).join(S.creative_objects,and_(S.creative_objects.c.project_id==p,S.creative_objects.c.id==S.asset_identities.c.id)).where(S.asset_identities.c.project_id==p,S.asset_identities.c.id.not_in(hidden))
             if query:q=q.where(S.creative_objects.c.title.ilike('%'+query+'%'))
             if asset_kind:q=q.where(S.asset_identities.c.asset_kind.in_(['prop','object']) if include_object else S.asset_identities.c.asset_kind==asset_kind)
@@ -88,6 +151,45 @@ class AssetCardsRepository:
             total=conn.scalar(select(func.count()).select_from(q.subquery()));ids=conn.execute(q.order_by(S.creative_objects.c.title,S.asset_identities.c.id).offset(offset).limit(limit)).scalars()
             usability_cache={}
             return clean(dict(items=[self._asset_card(conn,p,i,actor,include_preview=True,usability_cache=usability_cache) for i in ids],total=total,offset=offset,next_offset=offset+limit if offset+limit<total else None,revision=project['revision']))
+
+    def _list_with_blocking(self,conn,project,p,hidden,query,asset_kind,offset,limit,actor,favorites,include_object):
+        from .project_management import management_project_guard
+        self._access_require(conn,p,'read');management_project_guard(conn,p)
+        source_fields=('workflow_id','version_id','episode_id','unit_key','media_id','spatial_export_id')
+        identity=select(literal('asset').label('record_kind'),cast(S.asset_identities.c.id,Text).label('record_id'),
+            S.creative_objects.c.title.label('name'),*(cast(literal(None),Text).label(k) for k in source_fields)).join(S.creative_objects,and_(
+                S.creative_objects.c.project_id==p,S.creative_objects.c.id==S.asset_identities.c.id)).where(
+                    S.asset_identities.c.project_id==p,S.asset_identities.c.id.not_in(hidden))
+        if asset_kind=='blocking':identity=identity.where(literal(False))
+        elif asset_kind:identity=identity.where(S.asset_identities.c.asset_kind.in_(['prop','object']) if include_object else S.asset_identities.c.asset_kind==asset_kind)
+        if favorites:identity=identity.join(S.asset_card_favorites,and_(S.asset_card_favorites.c.project_id==p,
+            S.asset_card_favorites.c.asset_id==S.asset_identities.c.id,S.asset_card_favorites.c.actor==actor,S.asset_card_favorites.c.active))
+        station=self._blocking_projection(p,hidden)
+        blocking=select(station.c.record_kind,station.c.record_id,station.c.name,
+            *(cast(station.c[k],Text).label(k) for k in source_fields)).where(station.c.source_rank==1)
+        if asset_kind and asset_kind!='blocking' or favorites:blocking=blocking.where(literal(False))
+        combined=union_all(identity,blocking).subquery('project_asset_projection')
+        q=select(combined).where(combined.c.name.ilike('%'+query+'%')) if query else select(combined)
+        total=conn.scalar(select(func.count()).select_from(q.subquery()))
+        page=conn.execute(q.order_by(combined.c.name,combined.c.record_kind,combined.c.record_id).offset(offset).limit(limit)).mappings().all()
+        cache={};media_cache={};grid_cache={};items=[]
+        for row in page:
+            if row['record_kind']=='asset':
+                items.append(dict(self._asset_card(conn,p,row['record_id'],actor,include_preview=True,usability_cache=cache),record_kind='asset'))
+                continue
+            source={k:row[k] for k in source_fields};media_id=source['media_id']
+            # Browsing a fixed image does not certify it for production. A
+            # missing technical inspection is still reported to consumers;
+            # rights, lineage, failed inspections and other gaps remain gates.
+            if media_id not in media_cache:
+                _,media_cache[media_id]=self._usable(conn,p,media_id,'reference_image',_grid_cache=grid_cache)
+            gaps=media_cache[media_id]
+            preview_gaps=[gap for gap in gaps if gap!='technical_check_missing']
+            items.append(dict(id=row['record_id'],record_kind='blocking',name=row['name'],asset_kind='blocking',
+                revision=None,forms=[],favorite=False,preview=None if preview_gaps else dict(media_id=media_id,source='fixed_workflow'),
+                source=source,
+                availability_gaps=gaps))
+        return clean(dict(items=items,total=total,offset=offset,next_offset=offset+limit if offset+limit<total else None,revision=project['revision']))
 
     def get_asset_card(self,p,asset_id,actor=None):
         with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:return clean(dict(self._asset_card(conn,p,checked_id(asset_id),actor,include_preview=True),project_revision=self._project(conn,p)['revision']))
