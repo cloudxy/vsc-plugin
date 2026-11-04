@@ -25,14 +25,14 @@ class Element {
  focus(){this.ownerDocument.activeElement=this;}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
 }
-async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null}={}) {
+async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null,projects=null,denyProjectStorage=false}={}) {
   const document={createElement:t=>{const n=new Element(t);n.ownerDocument=document;if(t==='canvas')n.getContext=()=>({drawImage(){},getImageData(){return {data:new Uint8ClampedArray(32)};}});return n;},createElementNS:(ns,t)=>{const n=document.createElement(t);n.namespaceURI=ns;return n;},createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;},documentElement:{}};
   const images=[];class FakeImage{constructor(){images.push(this);}}
-  const store=new Map(),sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
+  const store=new Map(),sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(denyProjectStorage&&k.startsWith('vsc-canvas-project-node:'))throw Error('storage disabled');store.set(k,v);},removeItem:k=>store.delete(k)};
   const listeners=new Map(),window={addEventListener(type,fn){(listeners.get(type)||listeners.set(type,new Set()).get(type)).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},fire(type,event={}){for(const fn of [...listeners.get(type)||[]])fn(event);}},location={search:''};
   const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:()=>0,clearTimeout:()=>{}});
   const root=document.createElement('main');
-  const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1};}};
+  const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1};}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
   return {root,canvas,store,images,document,window,FakeImage,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
@@ -40,6 +40,74 @@ function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.t
 function savedNode(store){return JSON.parse(store.get('vsc-creative-canvas:p1:c1')).document.nodes.at(-1);}
 async function selectGrid(a,cells=[[1,1],[1,2],[2,1],[2,2]]){await a.root.querySelectorAll('button').find(b=>b.textContent==='4宫格（2×2）').fire('click');for(const [r,c]of cells)await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']===`宫格 ${r}行${c}列`).fire('click');}
 function generateGrid(a){return a.root.querySelectorAll('button').find(b=>b.textContent==='生成图片').fire('click');}
+async function openCrossProject(a){await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');const pick=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='资产项目');pick.value='p2';await pick.fire('change');}
+const crossProjects=[{id:'p1',name:'当前项目'},{id:'p2',name:'来源项目'}];
+const crossRow={id:'asset1',record_kind:'asset',asset_kind:'character',name:'角色',forms:[{form_key:'master',name:'默认',version_id:'form1',media_id:'source1'}]};
+const fixedCrossNode={id:'cross1',type:'image',title:'角色',x:100,y:100,text:'',params:{},media_id:'target1',job_id:null,group:''};
+const fixedCross={revision:2,canvas_revision:2,document:{viewport:{x:0,y:0,zoom:1},nodes:[fixedCrossNode],edges:[]}};
+
+test('cross-project click preserves the original request and recovers after lost receipt',async()=>{
+ const requests=[];const a=await fixture({projects:crossProjects,apiOverride:async(path,options)=>{
+  if(path.includes('/asset-cards?'))return {revision:1,items:[crossRow],next_offset:null};
+  if(path.endsWith('/project-media-node')){requests.push(JSON.parse(options.body));if(requests.length===1)throw Error('response lost');if(requests.length===2){const error=Error('身份已失效');error.status=403;throw error;}return {id:'c1',version_id:'version2',canvas_revision:2,revision:2,node_id:'cross1',media_id:'target1',byte_check:{checked:false,reason:'local_bytes_unavailable'}};}
+  if(path.endsWith('/creative-canvases/c1?version=2'))return fixedCross;
+ }});
+ await openCrossProject(a);await a.root.querySelector('.cc-asset-send').fire('click');assert.equal(requests.length,1);assert.equal(requests[0].payload.source.form_version_id,'form1');assert.equal(requests[0].payload.source_project_id,'p2');
+ await a.canvas.load(a.root,'p1',null,'c1');await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原项目素材引用').fire('click');
+ await new Promise(resolve=>setImmediate(resolve));const pending=JSON.parse(a.store.get('vsc-canvas-project-node:test:p1:c1'));assert.equal(pending.uncertain,true);assert.notEqual(pending.rejected,true);assert.equal(a.root.querySelectorAll('button').some(b=>b.textContent==='结束已拒绝的项目素材请求'),false);
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原项目素材引用').fire('click');assert.deepEqual(requests[1],requests[0]);assert.deepEqual(requests[2],requests[0]);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.match(a.root.querySelector('.cc-status').textContent,/生成前需完成媒体检查/);assert.equal(a.store.has('vsc-canvas-project-node:test:p1:c1'),false);a.canvas.suspend();
+});
+
+test('a definite initial permission rejection can be ended and local draft saved',async()=>{
+ let saved;const a=await fixture({projects:crossProjects,apiOverride:async(path,options)=>{
+  if(path.includes('/asset-cards?'))return {revision:1,items:[crossRow],next_offset:null};
+  if(path.endsWith('/project-media-node')){const error=Error('无权限');error.status=403;throw error;}
+  if(path.endsWith('/creative-canvases/c1')&&options?.method==='PUT'){saved=JSON.parse(options.body);return {revision:2,canvas_revision:2};}
+ }});
+ await openCrossProject(a);await a.root.querySelector('.cc-asset-send').fire('click');await new Promise(resolve=>setImmediate(resolve));
+ const pending=JSON.parse(a.store.get('vsc-canvas-project-node:test:p1:c1'));assert.equal(pending.rejected,true);await a.root.querySelectorAll('button').find(b=>b.textContent==='结束已拒绝的项目素材请求').fire('click');
+ await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);await a.root.querySelector('.cc-save').fire('click');assert.equal(saved.payload.document.nodes.length,1);assert.equal(a.store.has('vsc-canvas-project-node:test:p1:c1'),false);a.canvas.suspend();
+});
+
+test('cross-project drop retains edits made while the original request runs',async()=>{
+ let resolveRequest,request;const waiting=new Promise(resolve=>{resolveRequest=resolve;});
+ const a=await fixture({projects:crossProjects,apiOverride:async(path,options)=>{
+  if(path.includes('/asset-cards?'))return {revision:1,items:[crossRow],next_offset:null};
+  if(path.endsWith('/project-media-node')){request=JSON.parse(options.body);return waiting;}
+  if(path.endsWith('/creative-canvases/c1?version=2'))return fixedCross;
+ }});
+ await openCrossProject(a);const transfer={value:'',types:['application/x-vsc-canvas-asset'],setData(_type,value){this.value=value;},getData(){return this.value;}};
+ await a.root.querySelector('.cc-asset-open').fire('dragstart',{dataTransfer:transfer});const pending=a.stage.fire('drop',{dataTransfer:transfer,clientX:300,clientY:180});
+ await new Promise(resolve=>setImmediate(resolve));await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);resolveRequest({id:'c1',version_id:'version2',canvas_revision:2,revision:2,node_id:'cross1',media_id:'target1'});await pending;
+ assert.equal(request.payload.x,220);assert.equal(request.payload.y,132);const saved=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1')).document;assert.equal(saved.nodes.length,2);assert.ok(saved.nodes.some(n=>n.media_id==='target1'));assert.ok(saved.nodes.some(n=>n.media_id===null));a.canvas.suspend();
+});
+
+test('cross-project reference is not submitted if its recovery receipt cannot be stored',async()=>{
+ let submitted=false;const a=await fixture({projects:crossProjects,denyProjectStorage:true,apiOverride:async path=>{if(path.includes('/asset-cards?'))return {revision:1,items:[crossRow],next_offset:null};if(path.endsWith('/project-media-node'))submitted=true;}});
+ await openCrossProject(a);await a.root.querySelector('.cc-asset-send').fire('click');assert.equal(submitted,false);assert.match(a.root.querySelector('.cc-status').textContent,/无法保存原引用请求/);a.canvas.suspend();
+});
+
+test('cross-project blocking request sends fixed workflow provenance and excludes unavailable or unfixed items',async()=>{
+ let request;const source={workflow_id:'flow1',version_id:'workflow1',episode_id:'episode1',unit_key:'unit1',media_id:'source1',spatial_export_id:null};
+ const station={id:'blocking:key',record_kind:'blocking',asset_kind:'blocking',name:'站位',forms:[],preview:{media_id:'source1'},source};
+ const unavailable={...station,id:'blocked',name:'不可用',preview:null};const legacy={...crossRow,id:'legacy',forms:[{form_key:'master',media_id:'source1',version_id:null}]};
+ const a=await fixture({projects:crossProjects,apiOverride:async(path,options)=>{if(path.includes('/asset-cards?'))return {revision:1,items:[station,unavailable,legacy],next_offset:null};if(path.endsWith('/project-media-node')){request=JSON.parse(options.body);return {id:'c1',version_id:'version2',canvas_revision:2,revision:2,node_id:'cross1',media_id:'target1'};}if(path.endsWith('/creative-canvases/c1?version=2'))return fixedCross;}});
+ await openCrossProject(a);const items=a.root.querySelectorAll('.cc-asset-item');assert.equal(items[1].querySelector('.cc-asset-send').disabled,true);assert.equal(items[2].querySelector('.cc-asset-send').disabled,true);await items[0].querySelector('.cc-asset-send').fire('click');
+ assert.deepEqual(request.payload.source,{kind:'blocking',...source});a.canvas.suspend();
+});
+
+test('late cross-project receipt stays with its original canvas after switching',async()=>{
+ let resolveRequest,reads=0;const waiting=new Promise(resolve=>{resolveRequest=resolve;});
+ const a=await fixture({projects:crossProjects,apiOverride:async path=>{
+  if(path.includes('/asset-cards?'))return {revision:1,items:[crossRow],next_offset:null};
+  if(path.endsWith('/project-media-node'))return waiting;
+  if(path.endsWith('/creative-canvases/c1?version=2')){reads++;return fixedCross;}
+  if(path.endsWith('/creative-canvases/c2'))return {revision:1,canvas_revision:1,title:'另一个画布',episode_id:null,document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]},jobs:{},runs:[],execution_steps:[]};
+ }});
+ await openCrossProject(a);const pending=a.root.querySelector('.cc-asset-send').fire('click');await new Promise(resolve=>setImmediate(resolve));
+ await a.canvas.load(a.root,'p1',null,'c2');resolveRequest({id:'c1',version_id:'version2',canvas_revision:2,revision:2,node_id:'cross1',media_id:'target1'});await pending;
+ assert.equal(reads,0);assert.equal(a.root.querySelectorAll('.cc-node').length,0);assert.equal(JSON.parse(a.store.get('vsc-canvas-project-node:test:p1:c1')).result.node_id,'cross1');a.canvas.suspend();
+});
 
 test('canvas imports only an available fixed blocking media from its project',async()=>{
  let lastQuery;const a=await fixture({apiOverride:async path=>{if(path.includes('/asset-cards?')){lastQuery=new URL(path,'http://test').searchParams;return {revision:1,items:[{id:'projection-1',record_kind:'blocking',asset_kind:'blocking',name:'站位一',forms:[],preview:{media_id:'fixed-media'}},{id:'projection-2',record_kind:'blocking',asset_kind:'blocking',name:'站位二',forms:[],preview:null}],next_offset:null};}}});

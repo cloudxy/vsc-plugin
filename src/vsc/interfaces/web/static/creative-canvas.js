@@ -27,11 +27,12 @@ export function createCreativeCanvasPanel(ctx){
   const headers=()=>({'Content-Type':'application/json','X-CSRF-Token':ctx.session().csrf});
   const cacheKey=s=>`vsc-creative-canvas:${s.shared?"shared:":""}${s.project}:${s.id||'list:'+s.episode}`;
   const libraryKey=s=>`vsc-canvas-library-node:${s.actor}:${s.project}:${s.id}`;
+  const projectReferenceKey=s=>`vsc-canvas-project-node:${s.actor}:${s.project}:${s.id}`;
   const gridKey=s=>`vsc-canvas-grid:${s.actor}:${s.project}:${s.id}`;
   const notice=(s,text)=>{if(live(s)&&s.status)setText(s.status,text);};
   function button(s,label,fn){const b=el('button',label);b.type='button';b.addEventListener('click',async()=>{try{await fn();}catch(error){notice(s,error.message);}});return b;}
   function remember(s){if(!s.id)return;const prior=localRead(cacheKey(s));if(!live(s)&&prior?.owner!==s.owner)return;if(s.dirty||s.pending){if(!localWrite(cacheKey(s),{owner:s.owner,document:s.document,title:s.title,version:s.version,revision:s.revision,pending:s.pending,dirty:s.dirty}))notice(s,msg("ui.browser_draft_storage_is_unavailable_keep_this_page_open"));}else localWrite(cacheKey(s),null);}
-  function edited(s){if(s.readOnly)return;s.dirty=true;s.saveButton?.setAttribute('data-sync','pending');s.editSeq++;remember(s);clearTimeout(s.syncTimer);notice(s,s.pending?msg("ui.pending_sync_original_save_request_is_unconfirmed"):msg("ui.pending_sync_local_edits_preserved"));if(!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending)s.syncTimer=setTimeout(()=>{if(live(s)&&!s.saving)save(s);},1000);}
+  function edited(s){if(s.readOnly)return;s.dirty=true;s.saveButton?.setAttribute('data-sync','pending');s.editSeq++;remember(s);clearTimeout(s.syncTimer);notice(s,s.pending?msg("ui.pending_sync_original_save_request_is_unconfirmed"):msg("ui.pending_sync_local_edits_preserved"));if(!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending&&!s.projectPreparing)s.syncTimer=setTimeout(()=>{if(live(s)&&!s.saving)save(s);},1000);}
   function checkpoint(s){s.undo.push(copy({document:s.document,title:s.title}));if(s.undo.length>50)s.undo.shift();s.redo=[];}
   function change(s,fn){if(!live(s)||s.readOnly)return;checkpoint(s);fn();edited(s);draw(s);}
   function revision(s,value){s.revision=value;if(live(s))ctx.setRevision?.(value,s.project);}
@@ -45,6 +46,7 @@ export function createCreativeCanvasPanel(ctx){
     if(s.readOnly)return false;
     if(s.gridPending){notice(s,'宫格切分请求尚未读回，请先恢复原请求；本地修改已保留。');return false;}
     if(s.libraryPending){notice(s,'官方引用请求尚未读回，请先恢复原引用；本地修改已保留。');return false;}
+    if(s.projectPending){notice(s,'项目素材引用尚未读回，请先恢复原请求；本地修改已保留。');return false;}
     if(s.saving)return s.saving;
     if(!s.dirty&&!s.pending)return true;
     const submitted=s.pending||{path:url(s),method:'PUT',body:{payload:{canvas_revision:s.version,title:s.title,document:copy(s.document)},expected_revision:s.revision,idempotency_key:crypto.randomUUID()},seq:s.editSeq};
@@ -57,7 +59,7 @@ export function createCreativeCanvasPanel(ctx){
       if(live(s)){s.saveButton?.setAttribute('data-sync',unchanged?'saved':'pending');setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));notice(s,unchanged?msg("ui.saved_to_project"):msg("ui.previous_request_saved_continue_saving_current_edits"));}
       return unchanged;
     }catch(error){s.syncBlocked=true;if(live(s))s.saveButton?.setAttribute('data-sync','error');const rejected=error.status>=400&&error.status<500&&error.status!==409;if(rejected)s.pending=null;remember(s);notice(s,rejected?msg("ui.value0_local_draft_preserved_correct_the_issue_and_save",{value0:error.message}):msg("ui.value0_local_draft_and_original_request_preserved_recover_the",{value0:error.message}));return false;}
-    finally{s.saving=null;if(live(s)){s.saveButton.disabled=false;if(s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending)s.syncTimer=setTimeout(()=>save(s),1000);}}})();
+    finally{s.saving=null;if(live(s)){s.saveButton.disabled=false;if(s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending&&!s.projectPreparing)s.syncTimer=setTimeout(()=>save(s),1000);}}})();
     if(live(s))s.saveButton.disabled=true;
     return s.saving;
   }
@@ -113,7 +115,7 @@ export function createCreativeCanvasPanel(ctx){
       s.episode=data.episode_id;s.version=data.canvas_revision;s.title=data.title;s.document=cleanDocument(data.document);s.jobs=data.jobs||{};s.runs=data.runs||[];s.steps=data.execution_steps||[];s.preparations=data.preparations||[];revision(s,data.revision);
       const cached=localRead(cacheKey(s));let recovered=false;
       if(cached?.document){s.document=cached.document;s.title=cached.title;s.version=cached.version;s.pending=cached.pending;s.dirty=true;recovered=true;remember(s);}
-      s.libraryPending=localRead(libraryKey(s));s.gridPending=localRead(gridKey(s));editor(s);ctx.opened?.(s.id,s.project,s.episode);notice(s,s.gridPending?'宫格切分请求尚未读回，请在恢复菜单中继续原请求。':s.libraryPending?'官方引用请求尚未读回，请在资产面板恢复原引用。':recovered?msg("ui.local_draft_recovered_based_on_version_value0_server_version",{value0:s.version,value1:data.canvas_revision}):msg("ui.fixed_canvas_version_loaded_from_the_project"));const skill=s.requestedSkill||new URLSearchParams(location.search).get('skill');if(skill)await agentPanel(s,skill);
+      s.libraryPending=localRead(libraryKey(s));s.gridPending=localRead(gridKey(s));s.projectPending=localRead(projectReferenceKey(s));editor(s);ctx.opened?.(s.id,s.project,s.episode);notice(s,s.gridPending?'宫格切分请求尚未读回，请在恢复菜单中继续原请求。':s.libraryPending?'官方引用请求尚未读回，请在资产面板恢复原引用。':s.projectPending?'项目素材引用尚未读回，请在资产面板恢复原请求。':recovered?msg("ui.local_draft_recovered_based_on_version_value0_server_version",{value0:s.version,value1:data.canvas_revision}):msg("ui.fixed_canvas_version_loaded_from_the_project"));const skill=s.requestedSkill||new URLSearchParams(location.search).get('skill');if(skill)await agentPanel(s,skill);
     }catch(error){notice(s,error.message);if(live(s))s.root.append(button(s,msg("ui.retry_opening"),()=>open(s,id)));}
   }
   function cleanDocument(document){return {viewport:document.viewport,nodes:document.nodes.map(({preview_url,...node})=>node),edges:document.edges};}
@@ -138,7 +140,7 @@ export function createCreativeCanvasPanel(ctx){
     s.stage.scrollLeft=s.document.viewport.x;s.stage.scrollTop=s.document.viewport.y;
     s.root.append(el('p',msg("ui.execution_preparation_fixes_current_node_inputs_agent_can_ask"),'cc-limit'));
     s.stage.addEventListener('dragover',event=>{if([...event.dataTransfer?.types||[]].includes('application/x-vsc-canvas-asset')){event.preventDefault();event.dataTransfer.dropEffect='copy';}});
-    s.stage.addEventListener('drop',async event=>{const raw=event.dataTransfer?.getData('application/x-vsc-canvas-asset');if(!raw)return;event.preventDefault();try{const value=JSON.parse(raw),point=canvasPoint(s,event);if(value.kind==='library')await libraryReference(s,value,point);else if(value.kind==='project')addProjectForm(s,value,point);}catch(error){notice(s,error.message);}});
+    s.stage.addEventListener('drop',async event=>{const raw=event.dataTransfer?.getData('application/x-vsc-canvas-asset');if(!raw)return;event.preventDefault();try{const value=JSON.parse(raw),point=canvasPoint(s,event);if(value.kind==='library')await libraryReference(s,value,point);else if(value.kind==='project'){if(value.project_id===s.project)addProjectForm(s,value,point);else await projectReference(s,value,point);}}catch(error){notice(s,error.message);}});
     arrangeEditor(s,toolbar,actions,recovery);draw(s);
   }
   function arrangeEditor(s,toolbar,actions,recovery){
@@ -181,20 +183,20 @@ export function createCreativeCanvasPanel(ctx){
     let tab='project',project=s.project,kind='',query='',request=0,batch=false;const picks=new Map(),token=s.assetPanelEpoch,valid=()=>live(s)&&panel.isConnected&&s.assetPanelEpoch===token;
     const projectTab=button(s,msg('shell.project_assets'),()=>{tab='project';return render();}),officialTab=button(s,'官方资产',()=>{tab='official';return render();});head.append(projectTab,officialTab);const add=el('a','＋','cc-assets-new');add.href='/?'+new URLSearchParams({page:'assets',project:s.project});bindAttribute(add,'aria-label',msg('asset.create_asset'));head.append(add);panel.append(body);
     const names={character:'人设',location:'场景',prop:'道具',blocking:'站位',voice:'音频',style:'风格',costume:'服装',object:'道具',creature:'生物',vehicle:'载具',plant:'植物'};
-    function recovery(){if(!s.libraryPending)return;const box=el('div',null,'cc-assets-recovery');box.append(el('p',s.libraryPending.result?'原引用已保存，等待读回。':'原官方引用回执未确认；本地修改已保留。'),button(s,'恢复原官方引用',()=>libraryReference(s,null)));if(s.libraryPending.rejected)box.append(button(s,'结束已拒绝请求（保留草稿）',()=>{localWrite(libraryKey(s),null);s.libraryPending=null;return render();}));body.append(box);}
+    function recovery(){if(s.libraryPending){const box=el('div',null,'cc-assets-recovery');box.append(el('p',s.libraryPending.result?'原引用已保存，等待读回。':'原官方引用回执未确认；本地修改已保留。'),button(s,'恢复原官方引用',()=>libraryReference(s,null)));if(s.libraryPending.rejected)box.append(button(s,'结束已拒绝请求（保留草稿）',()=>{localWrite(libraryKey(s),null);s.libraryPending=null;return render();}));body.append(box);}if(s.projectPending){const box=el('div',null,'cc-assets-recovery');box.append(el('p',s.projectPending.result?'项目素材已保存，等待读回。':'项目素材引用回执未确认；本地修改已保留。'),button(s,'恢复原项目素材引用',()=>projectReference(s,null)));if(s.projectPending.rejected)box.append(button(s,'结束已拒绝的项目素材请求',()=>{if(!localWrite(projectReferenceKey(s),null))throw new Error('无法清除原请求，请检查浏览器存储。');s.projectPending=null;if(s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending)s.syncTimer=setTimeout(()=>{if(live(s))save(s);},1000);return render();}));body.append(box);}}
     async function render(){
       if(!valid())return;s.assetCenter?.suspend();s.assetCenter=null;request++;clearTimeout(s.assetSearchTimer);body.replaceChildren();picks.clear();projectTab.setAttribute('aria-pressed',String(tab==='project'));officialTab.setAttribute('aria-pressed',String(tab==='official'));add.hidden=tab!=='project';recovery();
       if(tab==='official'){const host=el('div',null,'cc-official-assets');body.append(host);s.assetCenter=createAssetCenter(host,{...ctx,session:()=>({...ctx.session(),revision:s.revision}),projectId:()=>s.project,setRevision:(value,p)=>{if(!p||p===s.project)revision(s,value);},notice:text=>notice(s,text)},{source:'official',embedded:true,canvas:true,onReference:({row,member})=>libraryReference(s,librarySelection(row,member)),onDragReference:(event,{row,member})=>dragAsset(event,librarySelection(row,member))});await s.assetCenter.load();return;}
       const filters=el('div',null,'cc-project-asset-filters'),projects=input('资产项目',project,'select');const available=ctx.projects?.()||[{id:s.project,name:ctx.projectName?.()||'当前项目'}];for(const p of available.filter(p=>!p.unavailable))projects.append(localizedOption(p.id,p.name));projects.value=project;projects.addEventListener('change',()=>{project=projects.value;batch=false;render().catch(error=>notice(s,error.message));});
       const types=input(msg('asset.asset_type'),kind,'select');types.append(localizedOption('',msg('common.all')));for(const [value,title]of [['character','人设'],['location','场景'],['prop','道具'],['blocking','站位'],['voice','音频']])types.append(localizedOption(value,title));types.value=kind;types.addEventListener('change',()=>{kind=types.value;render().catch(error=>notice(s,error.message));});
       const search=input(msg('ui.search_assets'),query);search.type='search';bindAttribute(search,'placeholder','搜索资产');search.addEventListener('input',()=>{query=search.value;clearTimeout(s.assetSearchTimer);s.assetSearchTimer=setTimeout(()=>show().catch(error=>notice(s,error.message)),250);});search.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(s.assetSearchTimer);show().catch(error=>notice(s,error.message));}});
-      const toggle=button(s,batch?'取消批量':'批量导入画布',()=>{batch=!batch;return render();});toggle.disabled=project!==s.project;if(toggle.disabled)bindAttribute(toggle,'title','跨项目资产须先复制到当前项目，不能直接绑定外部媒体。');filters.append(projects,types,search,toggle);body.append(filters);
-      if(project!==s.project)body.append(el('p','跨项目仅可浏览；先在项目资产中复制到当前项目后再导入。','cc-assets-scope-note'));
+      const toggle=button(s,batch?'取消批量':'批量导入画布',()=>{batch=!batch;return render();});toggle.disabled=project!==s.project;if(toggle.disabled)bindAttribute(toggle,'title','跨项目素材可逐项发送到画布。');filters.append(projects,types,search,toggle);body.append(filters);
+      if(project!==s.project)body.append(el('p','可将固定素材发送至当前画布。','cc-assets-scope-note'));
       const list=el('div',null,'cc-asset-grid'),paging=el('div',null,'cc-assets-paging'),bar=el('div',null,'cc-assets-batch');body.append(list,paging,bar);
       const paintBatch=()=>{bar.replaceChildren();if(!batch)return;bar.append(el('span','已选 '+picks.size+' 项'),button(s,'导入选中',()=>{const items=[...picks.values()];if(!items.length)throw new Error('请先选择要导入的资产形态');if(s.document.nodes.length+items.length>200)throw new Error('画布最多200个节点，请减少本次选择');change(s,()=>{for(const item of items)appendProjectForm(s,item);});picks.clear();batch=false;return render();}));};paintBatch();
       async function show(offset=0){const read=++request;const data=await ctx.api('/api/v1/projects/'+encodeURIComponent(project)+'/asset-cards?'+new URLSearchParams({query,asset_kind:kind,...projectAssetCategoryParams(kind),offset,limit:24,favorites:'false'}));if(!valid()||tab!=='project'||read!==request)return;list.replaceChildren();paging.replaceChildren();picks.clear();paintBatch();if(project===s.project)revision(s,data.revision);
-        for(const card of data.items||[])for(const form of card.forms?.length?card.forms:[{name:'',media_id:card.record_kind==='blocking'?card.preview?.media_id:null,version_id:null}]){const item={kind:'project',project_id:project,asset_id:card.record_kind==='blocking'?null:card.id,form_version_id:form.version_id,media_id:form.media_id,title:card.name+((card.forms?.length||0)>1?' · '+form.name:''),modality:card.asset_kind==='voice'?'audio':'image'},article=el('article',null,'cc-asset-item'),cover=el('div',null,'cc-asset-cover'),open=button(s,'',()=>projectPreview(s,item));open.className='cc-asset-open';bindAttribute(open,'aria-label',msg('gallery.preview',{name:item.title}));if(form.media_id){const visual=el(item.modality==='audio'?'audio':'img');visual.src='/api/v1/projects/'+encodeURIComponent(project)+'/media/'+encodeURIComponent(form.media_id)+'/content';if(item.modality==='audio')visual.controls=true;else{bindAttribute(visual,'alt',item.title);visual.addEventListener('error',()=>{visual.hidden=true;cover.append(el('span',msg('gallery.preview_unavailable'),'cc-asset-unavailable'));},{once:true});}open.append(visual);open.draggable=project===s.project;open.addEventListener('dragstart',event=>dragAsset(event,item));}else open.append(el('span',names[card.asset_kind]||'资产'));cover.append(open,el('small',names[card.asset_kind]||'资产','cc-asset-kind'));
-          if(batch&&form.media_id){const check=input('选择 '+item.title);check.type='checkbox';check.className='cc-asset-check';check.addEventListener('change',()=>{const key=card.id+':'+form.form_key;check.checked?picks.set(key,item):picks.delete(key);paintBatch();});cover.append(check);}else{const send=button(s,msg('ui.send_to_canvas'),()=>addProjectForm(s,item));send.className='cc-asset-send';send.disabled=project!==s.project||!form.media_id;cover.append(send);}article.append(cover,el('p',item.title));list.append(article);}
+        for(const card of data.items||[])for(const form of card.forms?.length?card.forms:[{name:'',media_id:card.record_kind==='blocking'?card.preview?.media_id:null,version_id:null}]){const source=card.record_kind==='blocking'&&card.source&&form.media_id===card.source.media_id?{kind:'blocking',workflow_id:card.source.workflow_id,version_id:card.source.version_id,episode_id:card.source.episode_id,unit_key:card.source.unit_key,media_id:card.source.media_id,spatial_export_id:card.source.spatial_export_id}:form.version_id&&form.media_id?{kind:'asset_form',asset_id:card.id,form_version_id:form.version_id,media_id:form.media_id}:null,item={kind:'project',project_id:project,asset_id:card.record_kind==='blocking'?null:card.id,form_version_id:form.version_id,media_id:form.media_id,source,title:card.name+((card.forms?.length||0)>1?' · '+form.name:''),modality:card.asset_kind==='voice'?'audio':'image'},article=el('article',null,'cc-asset-item'),cover=el('div',null,'cc-asset-cover'),open=button(s,'',()=>projectPreview(s,item));open.className='cc-asset-open';bindAttribute(open,'aria-label',msg('gallery.preview',{name:item.title}));if(form.media_id){const visual=el(item.modality==='audio'?'audio':'img');visual.src='/api/v1/projects/'+encodeURIComponent(project)+'/media/'+encodeURIComponent(form.media_id)+'/content';if(item.modality==='audio')visual.controls=true;else{bindAttribute(visual,'alt',item.title);visual.addEventListener('error',()=>{visual.hidden=true;cover.append(el('span',msg('gallery.preview_unavailable'),'cc-asset-unavailable'));},{once:true});}open.append(visual);open.draggable=project===s.project||!!source;open.addEventListener('dragstart',event=>dragAsset(event,item));}else open.append(el('span',names[card.asset_kind]||'资产'));cover.append(open,el('small',names[card.asset_kind]||'资产','cc-asset-kind'));
+          if(batch&&form.media_id){const check=input('选择 '+item.title);check.type='checkbox';check.className='cc-asset-check';check.addEventListener('change',()=>{const key=card.id+':'+form.form_key;check.checked?picks.set(key,item):picks.delete(key);paintBatch();});cover.append(check);}else{const send=button(s,msg('ui.send_to_canvas'),()=>item.project_id===s.project?addProjectForm(s,item):projectReference(s,item));send.className='cc-asset-send';send.disabled=!form.media_id||(project!==s.project&&!source);cover.append(send);}article.append(cover,el('p',item.title));list.append(article);}
         if(!list.children.length)list.append(el('p','暂无资产','cc-panel-empty'));if(offset)paging.append(button(s,msg('common.previous_page'),()=>show(Math.max(0,offset-24))));if(data.next_offset!=null)paging.append(button(s,msg('common.next_page'),()=>show(data.next_offset)));
       }await show();
     }s.assetRefresh=()=>valid()?render().catch(error=>notice(s,error.message)):null;await render();
@@ -203,10 +205,55 @@ export function createCreativeCanvasPanel(ctx){
   function dragAsset(event,value){if(!event.dataTransfer)return;event.dataTransfer.setData('application/x-vsc-canvas-asset',JSON.stringify(value));event.dataTransfer.effectAllowed='copy';}
   function appendProjectForm(s,item,point=null){if(item.project_id!==s.project)throw new Error('跨项目媒体须先复制到当前项目；本次没有绑定外部媒体。');if(s.document.nodes.length>=200)throw new Error('画布最多200个节点');if(!item.media_id||!['image','audio','video'].includes(item.modality))throw new Error('该资产形态没有可导入的媒体');const id=crypto.randomUUID();s.document.nodes.push({id,type:item.modality,title:item.title||TYPES[item.modality].label,...(point||canvasPoint(s)),text:'',params:{},media_id:item.media_id,job_id:null,group:''});s.selected.add(id);return id;}
   function addProjectForm(s,item,point=null){change(s,()=>appendProjectForm(s,item,point));}
-  function projectPreview(s,item){const dialog=el('dialog',null,'cc-asset-preview');bindAttribute(dialog,'aria-label',item.title);if(item.media_id){const visual=el(item.modality==='audio'?'audio':'img');visual.src='/api/v1/projects/'+encodeURIComponent(item.project_id)+'/media/'+encodeURIComponent(item.media_id)+'/content';if(item.modality==='audio')visual.controls=true;else bindAttribute(visual,'alt',item.title);dialog.append(visual);}const footer=el('footer');footer.append(el('strong',item.title),el('small',msg('shell.project_assets')));const send=button(s,msg('ui.send_to_canvas'),()=>{addProjectForm(s,item);dialog.close();});send.disabled=item.project_id!==s.project||!item.media_id;footer.append(send);dialog.append(footer,button(s,'×',()=>dialog.close()));s.root.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}
+  function projectPreview(s,item){const dialog=el('dialog',null,'cc-asset-preview');bindAttribute(dialog,'aria-label',item.title);if(item.media_id){const visual=el(item.modality==='audio'?'audio':'img');visual.src='/api/v1/projects/'+encodeURIComponent(item.project_id)+'/media/'+encodeURIComponent(item.media_id)+'/content';if(item.modality==='audio')visual.controls=true;else bindAttribute(visual,'alt',item.title);dialog.append(visual);}const footer=el('footer');footer.append(el('strong',item.title),el('small',msg('shell.project_assets')));const send=button(s,msg('ui.send_to_canvas'),async()=>{if(item.project_id===s.project)addProjectForm(s,item);else await projectReference(s,item);if(live(s))dialog.close();});send.disabled=!item.media_id||(item.project_id!==s.project&&!item.source);footer.append(send);dialog.append(footer,button(s,'×',()=>dialog.close()));s.root.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}
+  async function projectReference(s,selection,point=null){
+    if(!live(s)||s.readOnly||s.shared)return;
+    if(!ctx.session().actor)throw new Error('请先建立操作会话；本次尚未发送引用。');
+    if(s.libraryBusy||s.libraryPreparing||s.libraryPending||s.gridBusy||s.gridPreparing||s.gridPending)throw new Error('请先恢复正在处理的画布素材请求。');
+    if(s.projectBusy||s.projectPreparing)throw new Error('项目素材引用正在处理中，请等待读回。');
+    s.projectPreparing=true;clearTimeout(s.syncTimer);
+    try{
+      s.projectPending||=localRead(projectReferenceKey(s));
+      if(s.projectPending&&selection)throw new Error('请先恢复尚未确认的项目素材引用。');
+      if(!s.projectPending){
+        if(!selection||selection.project_id===s.project||!selection.source||!selection.media_id)throw new Error('请选择跨项目的固定素材。');
+        if(!await save(s)||!live(s))return;
+        const attempt={base_document:copy(s.document),base_title:s.title,request:{path:url(s)+'/project-media-node',method:'POST',body:{payload:{canvas_revision:s.version,source_project_id:selection.project_id,source:copy(selection.source),...(point||canvasPoint(s))},expected_revision:s.revision,idempotency_key:crypto.randomUUID()}}};
+        if(!localWrite(projectReferenceKey(s),attempt))throw new Error('无法保存原引用请求，请检查浏览器存储后重试。');
+        s.projectPending=attempt;
+      }
+    }finally{s.projectPreparing=false;if(live(s)&&s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending){clearTimeout(s.syncTimer);s.syncTimer=setTimeout(()=>save(s),1000);}}
+    const attempt=s.projectPending;if(attempt.rejected)throw new Error('原请求已被明确拒绝，请结束该请求并保留草稿后重试。');
+    const persistAttempt=()=>{const current=localRead(projectReferenceKey(s));if(!current||current.request?.body?.idempotency_key!==attempt.request.body.idempotency_key)return false;return localWrite(projectReferenceKey(s),attempt);};
+    s.projectBusy=true;clearTimeout(s.syncTimer);
+    try{
+      if(!attempt.result){attempt.result=await write(s,null,null,null,attempt.request);if(!persistAttempt()){if(!live(s))return;throw new Error('原引用已提交，无法保存回执；请恢复原请求。');}}
+      if(!live(s))return;
+      const fixed=await ctx.api(url(s)+'?version='+attempt.result.canvas_revision);if(!live(s)||s.projectPending!==attempt)return;
+      const node=cleanDocument(fixed.document).nodes.find(n=>n.id===attempt.result.node_id&&n.media_id===attempt.result.media_id);
+      if(!node)throw new Error('原引用已保存，但固定节点尚未读回；请继续恢复原请求。');
+      const existing=s.document.nodes.find(n=>n.id===node.id);
+      if(existing&&JSON.stringify(existing)!==JSON.stringify(node))throw new Error('已保存节点与本地草稿冲突；本地修改和原结果均保留。');
+      const comparison=copy(s.document);comparison.nodes=comparison.nodes.filter(n=>n.id!==node.id);
+      const changed=JSON.stringify(comparison)!==JSON.stringify(attempt.base_document)||s.title!==attempt.base_title;
+      if(!existing){checkpoint(s);s.document.nodes.push(node);}
+      s.version=attempt.result.canvas_revision;revision(s,Math.max(s.revision,attempt.result.revision,fixed.revision||0));s.selected=new Set([node.id]);
+      if(!localWrite(projectReferenceKey(s),null))throw new Error('引用已读回，但无法清除恢复记录；请检查浏览器存储。');
+      s.projectPending=null;s.dirty=changed;s.syncBlocked=false;s.editSeq++;remember(s);setText(s.versionLabel,msg('ui.saved_version_value0',{value0:s.version}));draw(s);
+      const check=attempt.result.byte_check;notice(s,(changed?'项目素材已加入；请求期间的本地修改已保留，请保存当前稿。':'项目素材已加入当前画布。')+(check&&!check.checked?'生成前需完成媒体检查。':''));s.assetRefresh?.();
+    }catch(error){
+      if(!attempt.result){
+        const definite=[400,401,403,404,409,410,413,415,422].includes(error.status);
+        if(definite&&!attempt.uncertain)attempt.rejected=true;
+        else if(!definite)attempt.uncertain=true;
+      }
+      persistAttempt();remember(s);if(live(s))s.assetRefresh?.();throw error;
+    }
+    finally{s.projectBusy=false;if(live(s)&&s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending){clearTimeout(s.syncTimer);s.syncTimer=setTimeout(()=>save(s),1000);}}
+  }
   function librarySelection(row,member){const choices=member.modality==='image'?['reference_image','identity_face','location_master','prop']:member.modality==='video'?['reference_video','video_take']:['reference_audio','voice_sample'];const role=choices.find(value=>row.allowed_purposes.includes('*')||row.allowed_purposes.includes(value));if(!role)throw new Error('此固定库成员没有可用的画布引用用途');return {kind:'library',library_version_id:row.version_id,member_key:member.member_key,role};}
   async function libraryReference(s,selection,point=null){
-    if(!live(s)||s.readOnly)return;if(!ctx.session().actor)throw new Error('请先建立操作会话；本次尚未发送引用。');if(s.gridPreparing||s.gridBusy||s.gridPending)throw new Error('请先恢复正在处理的宫格切分。');if(s.libraryBusy||s.libraryPreparing)throw new Error('原官方引用正在处理中，请等待读回。');s.libraryPreparing=true;
+    if(!live(s)||s.readOnly)return;if(!ctx.session().actor)throw new Error('请先建立操作会话；本次尚未发送引用。');if(s.gridPreparing||s.gridBusy||s.gridPending||s.projectPreparing||s.projectBusy||s.projectPending)throw new Error('请先恢复正在处理的画布素材请求。');if(s.libraryBusy||s.libraryPreparing)throw new Error('原官方引用正在处理中，请等待读回。');s.libraryPreparing=true;
     try{s.libraryPending||=localRead(libraryKey(s));
     if(s.libraryPending&&selection){const original=s.libraryPending.request.body.payload;if(['library_version_id','member_key','role'].some(key=>original[key]!==selection[key]))throw new Error('请先恢复未确认的原官方引用。');}
     if(!s.libraryPending){if(!selection)throw new Error('没有待恢复的官方引用');if(!await save(s)||!live(s))return;s.libraryPending={base_document:copy(s.document),base_title:s.title,request:{path:url(s)+'/library-node',method:'POST',body:{payload:{canvas_revision:s.version,library_version_id:selection.library_version_id,member_key:selection.member_key,role:selection.role,...(point||canvasPoint(s))},expected_revision:s.revision,idempotency_key:crypto.randomUUID()}}};localWrite(libraryKey(s),s.libraryPending);}
@@ -266,7 +313,7 @@ export function createCreativeCanvasPanel(ctx){
     overlay.addEventListener('pointerdown',()=>{window.addEventListener('pointerup',finish,{once:true});window.addEventListener('pointercancel',finish,{once:true});});grid.paint=paint;paint();return overlay;
   }
   async function splitGrid(s,selection){
-    if(!live(s)||s.readOnly||s.shared)return;if(!ctx.session().actor)throw new Error('请先建立操作会话；本次尚未发送切分请求。');if(s.libraryBusy||s.libraryPreparing||s.libraryPending)throw new Error('请先恢复正在处理的官方引用。');if(s.gridBusy||s.gridPreparing)throw new Error('宫格切分正在处理，请等待原请求读回。');
+    if(!live(s)||s.readOnly||s.shared)return;if(!ctx.session().actor)throw new Error('请先建立操作会话；本次尚未发送切分请求。');if(s.libraryBusy||s.libraryPreparing||s.libraryPending||s.projectBusy||s.projectPreparing||s.projectPending)throw new Error('请先恢复正在处理的画布素材请求。');if(s.gridBusy||s.gridPreparing)throw new Error('宫格切分正在处理，请等待原请求读回。');
     s.gridPreparing=true;
     try{
       s.gridPending||=localRead(gridKey(s));
@@ -295,7 +342,7 @@ export function createCreativeCanvasPanel(ctx){
       if(!s.document.nodes.some(n=>n.id===expected.node_id&&n.media_id===attempt.source_media_id))throw new Error('切分已保存，但本地来源图片已更改；保留本地稿，请恢复来源后继续读回。');
       if(s.version!==expected.canvas_revision&&s.version!==result.canvas_revision)throw new Error('画布已有新版本；原切分结果和本地草稿均保留，请先核对版本。');
       const changed=JSON.stringify(s.document)!==JSON.stringify(attempt.base_document)||s.title!==attempt.base_title;checkpoint(s);s.document.nodes.push(...nodes);s.document.edges.push(...edges);s.version=result.canvas_revision;revision(s,Math.max(s.revision,result.revision,fixed.revision||0));s.selected=new Set(ids);s.gridPending=null;localWrite(gridKey(s),null);s.dirty=changed;s.syncBlocked=false;s.editSeq++;remember(s);setText(s.versionLabel,msg('ui.saved_version_value0',{value0:s.version}));draw(s);notice(s,changed?'宫格切分已加入；请求期间的本地修改已保留，请保存当前稿。':'宫格切分已加入当前画布。');if(s.dirty)s.syncTimer=setTimeout(()=>{if(live(s))save(s);},1000);
-    }catch(error){if(!attempt.result&&error.status>=400&&error.status<500){s.gridPending=null;localWrite(gridKey(s),null);}else localWrite(gridKey(s),attempt);remember(s);throw error;}finally{s.gridBusy=false;if(live(s)&&s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending){clearTimeout(s.syncTimer);s.syncTimer=setTimeout(()=>{if(live(s))save(s);},1000);}}
+    }catch(error){if(!attempt.result&&error.status>=400&&error.status<500){s.gridPending=null;localWrite(gridKey(s),null);}else localWrite(gridKey(s),attempt);remember(s);throw error;}finally{s.gridBusy=false;if(live(s)&&s.dirty&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending&&!s.projectPreparing){clearTimeout(s.syncTimer);s.syncTimer=setTimeout(()=>{if(live(s))save(s);},1000);}}
   }
   async function openImageTool(s,node,tool){
     const mediaId=node.media_id,request=Symbol();s.imageToolRequest=request;

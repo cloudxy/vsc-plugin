@@ -1032,28 +1032,188 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             return None
         return parent['id'], receipt['revision']
 
+    def _canvas_copy_parent(self, conn, p, media_id):
+        """Recover only the immutable link committed by its original canvas receipt."""
+        link = conn.execute(select(S.canvas_project_media_links).where(
+            S.canvas_project_media_links.c.project_id == p,
+            S.canvas_project_media_links.c.target_media_id == media_id)).mappings().first()
+        if not link:
+            return None
+        revisions = list(conn.execute(select(S.project_revisions.c.revision, S.command_receipts.c.response)
+            .select_from(S.project_revisions.join(S.command_receipts, and_(
+                S.project_revisions.c.project_id == S.command_receipts.c.project_id,
+                S.project_revisions.c.command_key == S.command_receipts.c.idempotency_key)))
+            .where(S.project_revisions.c.project_id == p,
+                   S.project_revisions.c.command_key == link['command_key'],
+                   S.project_revisions.c.action == 'add_canvas_project_media_node')).mappings())
+        if len(revisions) != 1:
+            return None
+        fixed = self._one(conn, S.creative_canvas_versions, p, link['canvas_version_id'])
+        receipt = revisions[0]; response = receipt['response']
+        if (not isinstance(response, dict) or response.get('revision') != receipt['revision']
+                or response.get('id') != fixed['canvas_id'] or response.get('version_id') != link['canvas_version_id']
+                or response.get('node_id') != link['node_key'] or response.get('media_id') != media_id):
+            return None
+        source = self._media(conn, link['source_project_id'], link['source_media_id'])
+        target = self._media(conn, p, media_id)
+        if (source['blob_id'] != link['blob_id'] or target['blob_id'] != link['blob_id']
+                or source['sha256'] != link['sha256'] or target['sha256'] != link['sha256']):
+            return None
+        return link['source_project_id'], source['id'], receipt['revision']
+
+    def _unknown_inheritance_source(self, conn, p, media_id, rights, grid=None, grid_checked=False):
+        """Only an original unknown decision may inherit a verified origin."""
+        if not rights or rights['outcome'] != 'unknown':
+            return None
+        if not grid_checked:
+            grid = self._grid_parent(conn, p, media_id)
+        if grid and rights['based_on_revision'] == grid[1] - 1:
+            return ('grid', p, grid[0])
+        copied = self._canvas_copy_parent(conn, p, media_id)
+        if (copied and rights['based_on_revision'] == copied[2] - 1
+                and self._has_verified_grid_ancestor(conn, copied[0], copied[1])):
+            return ('canvas', copied[0], copied[1])
+        return None
+
+    def _has_verified_grid_ancestor(self, conn, p, media_id):
+        """A canvas reference alone does not grant unknown source rights."""
+        seen = set()
+        while len(seen) < 64:
+            identity = (str(p), str(media_id))
+            if identity in seen:
+                return False
+            seen.add(identity)
+            if self._grid_parent(conn, p, media_id):
+                return True
+            copied = self._canvas_copy_parent(conn, p, media_id)
+            if not copied:
+                return False
+            p, media_id = copied[0], copied[1]
+        return False
+
+    def _record_canvas_copy_byte_check(self, conn, project, media_id, storage):
+        """Record only actual, bounded full-image decoding of controlled bytes.
+
+        Browsing may continue without this evidence; normal production checks
+        will retain their missing-inspection gap. No human decision is made.
+        """
+        from vsc.adapters.storage.local.store import LocalStorage
+        from vsc.adapters.media.qa import LocalProbeAdapter, ProbeFailure
+
+        def outcome(status, reason):
+            return {'checked': status == 'verified', 'status': status, 'reason': reason}
+
+        media = self._media(conn, project['id'], media_id)
+        if media['modality'] != 'image':
+            return outcome('unavailable', 'image_only')
+        if type(storage) is not LocalStorage:
+            return outcome('unavailable', 'local_storage_unavailable')
+        locations = [location for location in media['locations']
+                     if location['available'] and location['storage'] == 'local']
+        if not locations:
+            return outcome('invalid', 'local_bytes_missing_or_changed')
+        if media['mime_type'] not in {'image/png', 'image/jpeg', 'image/gif', 'image/webp'}:
+            # A readable, SHA-matched local copy is still needed for browsing.
+            for location in locations:
+                try:
+                    path = storage.verify(location['object_key'], media['sha256'])
+                    if path.stat().st_size == media['size_bytes']:
+                        return outcome('unavailable', 'unsupported_image_format')
+                except (OSError, ValueError, ResourceError):
+                    continue
+            return outcome('invalid', 'local_bytes_missing_or_changed')
+        attempts = 0
+        unreadable = False
+
+        def unchanged(location):
+            try:
+                path = storage.verify(location['object_key'], media['sha256'])
+                return path if path.stat().st_size == media['size_bytes'] else None
+            except (OSError, ValueError, ResourceError):
+                return None
+
+        for location in locations:
+            path = unchanged(location)
+            if path is None:
+                continue
+            try:
+                with path.open('rb') as source:
+                    header = source.read(16)
+            except OSError:
+                continue
+            mime = ('image/png' if header.startswith(b'\x89PNG\r\n\x1a\n') else
+                    'image/jpeg' if header.startswith(b'\xff\xd8\xff') else
+                    'image/gif' if header.startswith((b'GIF87a', b'GIF89a')) else
+                    'image/webp' if header.startswith(b'RIFF') and header[8:12] == b'WEBP' else None)
+            if media['mime_type'] != mime:
+                if unchanged(location) is None:continue
+                return outcome('invalid', 'image_mime_mismatch')
+            # At most one retry after a location races with inspection. A
+            # still-readable copy can be browsed while technical evidence
+            # remains missing if that bounded retry budget is exhausted.
+            if attempts >= 2:
+                if unchanged(location) is None:continue
+                return outcome('unavailable', 'probe_retry_limit')
+            attempts += 1
+            try:
+                probe = LocalProbeAdapter(timeout=10, decode_timeout=15).probe(path)
+            except ProbeFailure as error:
+                if unchanged(location) is None:continue
+                if error.code == 'missing_tool':return outcome('unavailable', 'probe_missing_tool')
+                if error.code in {'timeout', 'decode_timeout'}:return outcome('unavailable', 'probe_timeout')
+                if error.code in {'media_unreadable', 'missing_media'}:
+                    unreadable = True
+                    continue
+                if error.code == 'media_changed_during_probe':
+                    unreadable = True
+                    continue
+                return outcome('invalid', 'image_decode_failed')
+            except (OSError, ValueError, ResourceError):
+                continue
+            images = [stream for stream in probe.get('streams', []) if stream.get('codec_type') == 'video']
+            if (probe.get('sha256') != media['sha256'] or probe.get('bytes') != media['size_bytes']
+                    or probe.get('decode', {}).get('status') != 'passed'
+                    or probe.get('decode', {}).get('mode') != 'complete'
+                    or not images or not images[0].get('width') or not images[0].get('height')
+                    or any(stream.get('codec_type') == 'audio' for stream in probe.get('streams', []))
+                    or media.get('width') is not None and images[0]['width'] != media['width']
+                    or media.get('height') is not None and images[0]['height'] != media['height']):
+                if unchanged(location) is None:continue
+                return outcome('invalid', 'image_decode_failed')
+            if unchanged(location) is None:continue
+            measured = {key: value for key, value in probe.items() if key != 'path'}
+            conn.execute(insert(S.media_checks).values(project_id=project['id'], id=new_id(),
+                media_id=media['id'], blob_id=media['blob_id'], blob_sha256=media['sha256'],
+                checker='canvas-project-image-decode', criteria_version='1', outcome='pass',
+                report={'source': 'local-storage-complete-decode', 'mime_type': mime, 'probe': measured},
+                project_revision=project['revision'] + 1))
+            return outcome('verified', 'complete_image_decode')
+        if unreadable and any(unchanged(location) is not None for location in locations):
+            return outcome('unavailable', 'probe_unreadable')
+        return outcome('invalid', 'local_bytes_missing_or_changed')
+
     def _usable(self, conn, p, media_id, purpose, _grid_seen=None, _grid_cache=None):
         seen = set() if _grid_seen is None else set(_grid_seen)
-        if media_id in seen:
+        identity = (str(p), str(media_id))
+        if identity in seen:
             return self._media(conn, p, media_id), ['grid_lineage_cycle']
         if len(seen) >= 64:
             return self._media(conn, p, media_id), ['grid_lineage_limit']
         cache = {} if _grid_cache is None else _grid_cache
-        key = (media_id, purpose, frozenset(seen))
+        key = (identity, purpose, frozenset(seen))
         if key in cache:
             media, cached = cache[key]
             return media, list(cached)
         media = self._media(conn, p, media_id)
-        seen.add(media_id)
+        seen.add(identity)
         from .shared_library import library_media_gaps
         from .copy_lineage import copy_media_gaps
-        gaps = sorted(set(library_media_gaps(self, conn, p, media_id, purpose) + copy_media_gaps(self, conn, p, media_id, purpose)))
+        gaps = sorted(set(library_media_gaps(self, conn, p, media_id, purpose) + copy_media_gaps(self, conn, p, media_id, purpose, _seen=seen, _cache=cache)))
         if not any(x["available"] for x in media["locations"]):
             gaps.append("missing_bytes")
         rights = self._latest(conn, S.rights_decisions, p, "media_id", media_id)
         grid = self._grid_parent(conn, p, media_id)
-        inherited = bool(grid and rights and rights['outcome'] == 'unknown'
-            and rights['based_on_revision'] == grid[1] - 1)
+        inherited = self._unknown_inheritance_source(conn, p, media_id, rights, grid=grid, grid_checked=True)
         if not rights or rights["outcome"] not in {"owned", "licensed"} and not inherited:
             gaps.append("rights_unknown_or_restricted")
         elif not inherited and rights["expires_at"] and rights["expires_at"] <= datetime.now(timezone.utc):
@@ -1066,6 +1226,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                 # Split itself verifies the fixed source bytes; a missing old
                 # inspection isn't evidence of failure, but failures still block.
                 gaps.extend('grid_source_' + gap for gap in parent_gaps if gap != 'technical_check_missing')
+        if inherited and inherited[0] == 'canvas':
+            _, parent_gaps = self._usable(conn, inherited[1], inherited[2], purpose, seen, cache)
+            gaps.extend('copy_source_' + gap for gap in parent_gaps if gap != 'technical_check_missing')
         lifecycle = self._latest(conn, S.media_lifecycle_decisions, p, "media_id", media_id)
         if lifecycle and lifecycle["outcome"] == "deprecate":
             gaps.append("media_deprecated")

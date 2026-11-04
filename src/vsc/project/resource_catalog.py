@@ -171,6 +171,7 @@ class ResourceCatalog:
         if reader:
             return reader.content_path(media_id)
         row = self.service.get_media(project_id, media_id)
+        mismatch = False
         if self.media_root:
             from vsc.adapters.persistence.legacy_json.panel import file_hash
             for location in row.get("locations", []):
@@ -179,8 +180,11 @@ class ResourceCatalog:
                     if not path.is_file():
                         continue
                     if file_hash(path) != row["sha256"]:
-                        raise CatalogError("素材 SHA 已变化", 409, "hash_mismatch")
+                        mismatch = True
+                        continue
                     return path
+        if mismatch:
+            raise CatalogError("素材 SHA 已变化", 409, "hash_mismatch")
         raise CatalogError("素材未配置可读取的受控存储位置", 404, "storage_unavailable")
 
     def preview_jobs(self, project_id, media_id=None):

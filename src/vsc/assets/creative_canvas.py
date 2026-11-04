@@ -353,6 +353,35 @@ class CreativeCanvasService:
         return self.store.add_canvas_library_node(project_id, payload,
             materialize_reference=self._library().materialize_reference, **kw)
 
+    def add_canvas_project_media_node(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        if (not isinstance(payload, dict) or set(payload)-{"canvas_id", "canvas_revision", "source_project_id", "source", "x", "y"}
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1
+                or not isinstance(payload.get("source"), dict)):
+            raise ResourceError("需要固定画布版本和项目素材来源", "invalid_canvas_project_reference")
+        from vsc.adapters.persistence.postgres.values import checked_id
+        for key in ("canvas_id", "source_project_id"):checked_id(payload.get(key))
+        if checked_id(project_id)==checked_id(payload["source_project_id"]):
+            raise ResourceError("当前项目素材请直接加入画布", "invalid_canvas_project_reference")
+        source=payload["source"]
+        if source.get("kind")=="asset_form":
+            if set(source)!={"kind", "asset_id", "form_version_id", "media_id"}:
+                raise ResourceError("需要固定资产形态和素材", "invalid_canvas_project_reference")
+            for key in ("asset_id", "form_version_id", "media_id"):checked_id(source[key])
+        elif source.get("kind")=="blocking":
+            fields={"kind", "workflow_id", "version_id", "episode_id", "unit_key", "media_id", "spatial_export_id"}
+            if (set(source)!=fields or not isinstance(source.get("unit_key"),str)
+                    or not 1<=len(source["unit_key"])<=200):
+                raise ResourceError("需要固定站位版本和素材", "invalid_canvas_project_reference")
+            for key in ("workflow_id", "version_id", "episode_id", "media_id"):checked_id(source[key])
+            if source["spatial_export_id"] is not None:checked_id(source["spatial_export_id"])
+        else:
+            raise ResourceError("素材来源类型无效", "invalid_canvas_project_reference")
+        for key in ("x", "y"):
+            if key in payload and (type(payload[key]) not in (int,float) or not -100000<=payload[key]<=100000):
+                raise ResourceError("节点位置无效", "invalid_canvas_position")
+        return self.store.add_canvas_project_media_node(project_id, payload, storage=self.storage, **kw)
+
     def split_canvas_image(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
         fields = {"canvas_id", "canvas_revision", "node_id", "rows", "columns", "cells"}

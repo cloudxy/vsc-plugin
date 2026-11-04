@@ -2,7 +2,7 @@
 from sqlalchemy import Column,Text,Integer,String,Boolean,ForeignKey,ForeignKeyConstraint,UniqueConstraint,CheckConstraint,Index
 from sqlalchemy.dialects.postgresql import UUID,JSONB
 
-COMMUNITY_TABLES=('community_rules','community_publications','community_versions','community_events','community_reports','community_moderation','distribution_channels','distribution_requests','distribution_events','template_copy_media','template_copy_domains')
+COMMUNITY_TABLES=('community_rules','community_publications','community_versions','community_events','community_reports','community_moderation','distribution_channels','distribution_requests','distribution_events','template_copy_media','template_copy_domains','canvas_project_media_links')
 COMMUNITY_IMMUTABLE=tuple(name for name in COMMUNITY_TABLES if name!='community_publications')
 
 def declare_community(project_table,ref,uid,stamp):
@@ -19,8 +19,32 @@ def declare_community(project_table,ref,uid,stamp):
     receipts=project_table('distribution_events',*ref('distribution_requests','request_id'),Column('sequence',Integer,nullable=False),Column('status',Text,nullable=False),Column('remote_id',Text),Column('public_url',Text),Column('error_code',Text),person('created_by'),stamp(),UniqueConstraint('project_id','request_id','sequence'),CheckConstraint("sequence>0 AND status IN ('prepared','submitting','submitted','unknown','completed','failed','cancelled')",name='status'))
     media=project_table('template_copy_media',*ref('canvas_template_copies','copy_id'),uid('source_project_id',nullable=False),uid('source_media_id',nullable=False),*ref('media_items','target_media_id'),uid('blob_id',nullable=False),Column('sha256',String(64),nullable=False),ForeignKeyConstraint(['source_project_id','source_media_id','blob_id'],['media_items.project_id','media_items.id','media_items.blob_id']),ForeignKeyConstraint(['project_id','target_media_id','blob_id'],['media_items.project_id','media_items.id','media_items.blob_id']),ForeignKeyConstraint(['blob_id','sha256'],['media_blobs.id','media_blobs.sha256']),UniqueConstraint('project_id','copy_id','source_media_id'))
     domains=project_table('template_copy_domains',*ref('canvas_template_copies','copy_id'),uid('source_project_id',nullable=False),uid('source_spatial_version_id',nullable=True),*ref('spatial_scene_versions','target_spatial_version_id',nullable=True),uid('source_tool_version_id',nullable=True),*ref('artifact_versions','target_tool_version_id',nullable=True),uid('source_edit_version_id',nullable=True),*ref('edit_revisions','target_edit_version_id',nullable=True),ForeignKeyConstraint(['source_project_id','source_spatial_version_id'],['spatial_scene_versions.project_id','spatial_scene_versions.id']),ForeignKeyConstraint(['source_project_id','source_tool_version_id'],['artifact_versions.project_id','artifact_versions.id']),ForeignKeyConstraint(['source_project_id','source_edit_version_id'],['edit_revisions.project_id','edit_revisions.id']),CheckConstraint('num_nonnulls(source_spatial_version_id,source_tool_version_id,source_edit_version_id)=1 AND (source_spatial_version_id IS NULL)=(target_spatial_version_id IS NULL) AND (source_tool_version_id IS NULL)=(target_tool_version_id IS NULL) AND (source_edit_version_id IS NULL)=(target_edit_version_id IS NULL)',name='typed_mapping'))
+    links=project_table('canvas_project_media_links',
+        uid('target_media_id',nullable=False),uid('source_project_id',nullable=False),
+        uid('source_media_id',nullable=False),uid('blob_id',nullable=False),
+        Column('sha256',String(64),nullable=False),uid('source_form_version_id',nullable=True),
+        uid('source_workflow_version_id',nullable=True),Column('source_unit_key',Text),
+        Column('source_purpose',Text),uid('canvas_version_id',nullable=False),
+        Column('node_key',Text,nullable=False),Column('command_key',Text,nullable=False),
+        Column('created_by',Text,nullable=False),stamp(),
+        UniqueConstraint('project_id','target_media_id',name='uq_canvas_project_media_target'),
+        UniqueConstraint('project_id','command_key',name='uq_canvas_project_media_command'),
+        ForeignKeyConstraint(['source_project_id','source_media_id','blob_id'],['media_items.project_id','media_items.id','media_items.blob_id'],ondelete='RESTRICT',name='fk_canvas_project_media_source'),
+        ForeignKeyConstraint(['project_id','target_media_id','blob_id'],['media_items.project_id','media_items.id','media_items.blob_id'],ondelete='RESTRICT',name='fk_canvas_project_media_target'),
+        ForeignKeyConstraint(['blob_id','sha256'],['media_blobs.id','media_blobs.sha256'],ondelete='RESTRICT',name='fk_canvas_project_media_hash'),
+        ForeignKeyConstraint(['source_project_id','source_form_version_id'],['asset_card_form_versions.project_id','asset_card_form_versions.id'],ondelete='RESTRICT',name='fk_canvas_project_media_form'),
+        ForeignKeyConstraint(['source_project_id','source_workflow_version_id','source_unit_key','source_purpose','source_media_id'],['intelligent_media.project_id','intelligent_media.version_id','intelligent_media.unit_key','intelligent_media.purpose','intelligent_media.media_id'],ondelete='RESTRICT',name='fk_canvas_project_media_block'),
+        ForeignKeyConstraint(['project_id','canvas_version_id','node_key'],['creative_canvas_nodes.project_id','creative_canvas_nodes.version_id','creative_canvas_nodes.node_key'],ondelete='RESTRICT',name='fk_canvas_project_media_node'),
+        ForeignKeyConstraint(['project_id','command_key'],['command_receipts.project_id','command_receipts.idempotency_key'],ondelete='RESTRICT',deferrable=True,initially='DEFERRED',name='fk_canvas_project_media_receipt'),
+        CheckConstraint('project_id<>source_project_id',name='scope'),
+        CheckConstraint("(source_form_version_id IS NOT NULL AND source_workflow_version_id IS NULL AND source_unit_key IS NULL AND source_purpose IS NULL) OR (source_form_version_id IS NULL AND source_workflow_version_id IS NOT NULL AND source_unit_key IS NOT NULL AND source_purpose IS NOT DISTINCT FROM 'blocking')",name='source_shape'),
+        CheckConstraint('length(btrim(node_key))>0 AND length(btrim(command_key)) BETWEEN 1 AND 200 AND length(btrim(created_by)) BETWEEN 1 AND 200',name='text'))
     result={t.name:t for t in (rules,pubs,versions,events,reports,moderation,channels,requests,receipts,media,domains)}
     for table in result.values():
         for c in table.c:
             if c.name.endswith('_id') and c.name not in {'project_id','id'}:Index('ix_'+table.name+'_'+c.name,table.c.project_id,c)
+    Index('ix_canvas_project_media_source_project',links.c.project_id,links.c.source_project_id)
+    Index('ix_canvas_project_media_source_media',links.c.source_project_id,links.c.source_media_id)
+    Index('ix_canvas_project_media_node',links.c.project_id,links.c.canvas_version_id,links.c.node_key)
+    result[links.name]=links
     return result
