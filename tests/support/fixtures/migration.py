@@ -44,8 +44,7 @@ def setup_postgres(case, root, test_url):
 
 
 def teardown_postgres(case):
-    from sqlalchemy import text
+    from support.fixtures.postgres import drop_schema
     case.engine.dispose()
-    with case.admin.begin() as conn:
-        conn.execute(text('DROP SCHEMA "' + case.schema + '" CASCADE'))
+    drop_schema(case.admin, case.schema)
     case.admin.dispose()
