@@ -557,21 +557,24 @@ class SharedLibraryTest(ResourceStoreFixture, unittest.TestCase):
                 conn.execute(insert(S.library_reuses).values(project_id=prior_project, id=str(uuid.uuid4()),
                     media_id=prior_media["id"], source_id=prior_source, library_key="prior-legacy-key", library_version="v0", reuse_mode="legacy"))
             cfg = Config(str(ROOT / "migrations/postgres/alembic.ini"))
-            with engine.begin() as conn:
-                def old_facts():
-                    return {name: [dict(row) for row in conn.execute(text("SELECT " + columns + " FROM " + name)).mappings()]
-                        for name, columns in {"projects": "id,revision,decision_sequence", "media_blobs": "id,sha256,size_bytes",
-                            "media_items": "project_id,id,blob_id", "source_versions": "project_id,id,sha256",
-                            "rights_decisions": "project_id,id,media_id,source_id,outcome,scope",
-                            "library_reuses": "project_id,id,media_id,source_id,library_key,library_version,reuse_mode"}.items()}
-                before_facts = old_facts()
+            def old_facts(connection):
+                return {name: [dict(row) for row in connection.execute(text("SELECT " + columns + " FROM " + name)).mappings()]
+                    for name, columns in {"projects": "id,revision,decision_sequence", "media_blobs": "id,sha256,size_bytes",
+                        "media_items": "project_id,id,blob_id", "source_versions": "project_id,id,sha256",
+                        "rights_decisions": "project_id,id,media_id,source_id,outcome,scope",
+                        "library_reuses": "project_id,id,media_id,source_id,library_key,library_version,reuse_mode"}.items()}
+            with engine.connect() as conn:
+                before_facts = old_facts(conn)
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
+            with engine.begin() as conn:
                 cfg.attributes["connection"] = conn
                 command.downgrade(cfg, "0012_assisted_workflow")
-                self.assertEqual(old_facts(), before_facts)
+                self.assertEqual(old_facts(conn), before_facts)
                 self.assertEqual(conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one(), "0012_assisted_workflow")
+            with engine.begin() as conn:
+                cfg.attributes["connection"] = conn
                 command.upgrade(cfg, "head")
-                self.assertEqual(old_facts(), before_facts)
+                self.assertEqual(old_facts(conn), before_facts)
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
 
     def test_legacy_json_preview_backup_resume_compare_cutover_and_original_consumer(self):

@@ -43,6 +43,8 @@ class ReviewFeedbackTests(ResourceStoreFixture, unittest.TestCase):
             with engine.begin() as conn:
                 config.attributes["connection"] = conn
                 command.downgrade(config, "0010_source_resources")
+            with engine.begin() as conn:
+                config.attributes["connection"] = conn
                 command.upgrade(config, "head")
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
     def setUp(self):

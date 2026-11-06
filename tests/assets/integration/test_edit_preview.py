@@ -452,6 +452,11 @@ class EditPreviewTests(EditPreviewFixture, unittest.TestCase):
             with engine.begin() as conn:
                 config.attributes["connection"] = conn
                 command.downgrade(config, "0011_review_feedback")
+            # Commit before upgrading. One transaction cannot hold both the
+            # dropped objects and the rebuilt head without exhausting the
+            # server lock table.
+            with engine.begin() as conn:
+                config.attributes["connection"] = conn
                 command.upgrade(config, "head")
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
                 schema_name = conn.execute(text("SELECT current_schema()")).scalar_one()
