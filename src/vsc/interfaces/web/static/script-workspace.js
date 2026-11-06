@@ -586,7 +586,7 @@ export function createScriptWorkspace(container, ctx) {
     const content = draft.content || blank();
     const fields = el('section', 'script-document-fields');
     const bodyLabel = el('label', '', msg("ui.script_body"));
-    const body = el('textarea', 'script-body'); body.value = content.body || ''; body.rows = 6;
+    const body = el('textarea', 'script-body screenplay-body'); body.value = content.body || ''; body.rows = Math.min(80, Math.max(28, (content.body || '').split('\n').length + 2));
     if (content.structured_source) {
       body.readOnly = true;
       bindAttribute(body,'aria-label',msg("ui.continuous_text_generated_from_scenes_and_dialogue"));
