@@ -266,6 +266,16 @@ def create_app(config=None, catalog=None, service=None):
             raise HTTPException(409, "本次服务没有配置项目数据库")
         return catalog.service.create_project(payload, actor=identity, idempotency_key=key)
 
+    @router.post("/empty-canvas")
+    def create_empty_canvas_project(request: Request, body: dict):
+        identity = actor(request)
+        payload, key = body.get("payload"), body.get("idempotency_key")
+        if not isinstance(payload, dict) or not isinstance(key, str):
+            raise HTTPException(422, "新建画布项目需要固定请求和操作标识")
+        if catalog.service is None:
+            raise HTTPException(409, "本次服务没有配置项目数据库")
+        return catalog.service.create_empty_canvas_project(payload, actor=identity, idempotency_key=key)
+
     @router.get("/{project_id}/tree")
     def tree(project_id: str, request: Request):
         return etag(request, catalog.project_tree(project_id))

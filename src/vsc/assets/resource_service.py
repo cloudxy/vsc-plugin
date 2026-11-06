@@ -167,6 +167,22 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         payload["profile"] = snapshot["profile_id"]
         return self.store.create_project(payload, actor=actor, **kwargs)
 
+    def create_empty_canvas_project(self, payload, actor=None, idempotency_key=None):
+        """Create one light-short project, its first episode and an empty canvas for one request."""
+        self._actor(actor)
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 160:
+            raise ResourceError("创建请求需要有效操作标识", "invalid_idempotency_key")
+        if payload != {"mode": "empty_canvas"}:
+            raise ResourceError("新建画布项目只创建空画布", "invalid_canvas_project")
+        project = self.create_project({"name": "未命名项目", "profile": "vsc.light-short"}, actor=actor, idempotency_key=idempotency_key)
+        project_id = project["id"]
+        current = self.get_project(project_id)
+        episode = self.create_episode_batch(project_id, {"titles": ["第一集"], "initial_shot_count": 0}, actor=actor, expected_revision=current["revision"], idempotency_key="empty-canvas-episode:" + idempotency_key)
+        current = self.get_project(project_id)
+        canvas = self.create_creative_canvas(project_id, {"episode_id": episode["items"][0]["id"], "title": "画布", "document": {"nodes": [], "edges": []}}, actor=actor, expected_revision=current["revision"], idempotency_key="empty-canvas:" + idempotency_key)
+        item = episode["items"][0]
+        return {"project_id": project_id, "project_name": project["name"], "episode_id": item["id"], "episode_name": item["title"], "canvas_id": canvas["id"], "canvas_name": canvas["title"], "revision": canvas["revision"]}
+
     def get_project(self, project_id):
         return self.store.get_project(project_id)
 
