@@ -26,6 +26,8 @@ _EDGES = """WITH RECURSIVE copy_edges AS ("""+_COPY_EDGES+"""), edges AS (
  UNION
  SELECT project_id,target_media_id,source_project_id,source_media_id,true,true FROM canvas_project_media_links
  UNION
+ SELECT project_id,target_media_id,source_project_id,source_media_id,true,true FROM classic_frame_media_links
+ UNION
  SELECT o.project_id,o.media_id,i.project_id,i.media_id,false,false
  FROM operation_outputs o JOIN operation_inputs i ON i.project_id=o.project_id AND i.operation_id=o.operation_id
  UNION
@@ -39,13 +41,15 @@ _EDGES = """WITH RECURSIVE copy_edges AS ("""+_COPY_EDGES+"""), edges AS (
 ) SELECT project_id,media_id,copied,crossed_canvas FROM ancestors
 """
 
-# These checks apply only once a canvas cross-project edge is traversed, and
-# only while the entire path has identical registered bytes. A generated or
-# edited output is not implicitly the same technical inspection as its input.
+# crossed_canvas marks an identical-byte cross-project reference. The edge is
+# either a canvas node or a classic first/last frame. A generated or edited
+# output is not implicitly the same technical inspection as its input.
 _CANVAS_IDENTICAL_ANCESTOR_GAPS = """WITH RECURSIVE copy_edges AS ("""+_COPY_EDGES+"""), edges AS (
  SELECT target_project,target_media,source_project,source_media,false AS canvas FROM copy_edges
  UNION
  SELECT project_id,target_media_id,source_project_id,source_media_id,true FROM canvas_project_media_links
+ UNION
+ SELECT project_id,target_media_id,source_project_id,source_media_id,true FROM classic_frame_media_links
  UNION
  SELECT o.project_id,o.media_id,i.project_id,i.media_id,false
  FROM operation_outputs o JOIN operation_inputs i ON i.project_id=o.project_id AND i.operation_id=o.operation_id
@@ -86,6 +90,7 @@ def source_projects_for_copy(conn,project_id):
       SELECT project_id,source_project_id FROM asset_card_copy_sources
       UNION SELECT project_id,source_project_id FROM template_copy_media
       UNION SELECT project_id,source_project_id FROM canvas_project_media_links
+      UNION SELECT project_id,source_project_id FROM classic_frame_media_links
     ), projects(id) AS (
       SELECT CAST(:project AS uuid)
       UNION SELECT e.source_project_id FROM projects p JOIN copy_projects e ON e.project_id=p.id

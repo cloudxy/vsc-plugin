@@ -202,6 +202,34 @@ class ClassicProductionServiceMixin:
             raise ResourceError("保存需要模式草稿与所见草稿版本")
         return self.store.save_classic_draft(project_id, payload, build_document=self._classic_document, **kw)
 
+    def import_classic_frame_media(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        if (not isinstance(payload, dict) or set(payload) != {"shot_id", "role", "source_project_id", "source"}
+                or payload.get("role") not in {"first_frame", "last_frame"} or not isinstance(payload.get("source"), dict)):
+            raise ResourceError("需要固定镜头、首尾帧用途和项目素材来源", "invalid_classic_frame_reference")
+        from vsc.adapters.persistence.postgres.values import checked_id
+        for key in ("shot_id", "source_project_id"):
+            checked_id(payload.get(key))
+        if checked_id(project_id) == checked_id(payload["source_project_id"]):
+            raise ResourceError("当前项目素材请直接选用", "invalid_classic_frame_reference")
+        source = payload["source"]
+        if source.get("kind") == "asset_form":
+            if set(source) != {"kind", "asset_id", "form_version_id", "media_id"}:
+                raise ResourceError("需要固定资产形态和素材", "invalid_classic_frame_reference")
+            for key in ("asset_id", "form_version_id", "media_id"):
+                checked_id(source[key])
+        elif source.get("kind") == "blocking":
+            fields = {"kind", "workflow_id", "version_id", "episode_id", "unit_key", "media_id", "spatial_export_id"}
+            if set(source) != fields or not isinstance(source.get("unit_key"), str) or not 1 <= len(source["unit_key"]) <= 200:
+                raise ResourceError("需要固定站位版本和素材", "invalid_classic_frame_reference")
+            for key in ("workflow_id", "version_id", "episode_id", "media_id"):
+                checked_id(source[key])
+            if source["spatial_export_id"] is not None:
+                checked_id(source["spatial_export_id"])
+        else:
+            raise ResourceError("素材来源类型无效", "invalid_classic_frame_reference")
+        return self.store.import_classic_frame_media(project_id, payload, storage=self.storage, **kw)
+
     def preview_classic_run(self, project_id, payload, *, working=False):
         from vsc.production.resource_settings import ResourceSettings
         from vsc.production.run_authorization import normalize_request

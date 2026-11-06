@@ -411,4 +411,4 @@ class CrossProjectMediaMigrationTests(ResourceStoreFixture, unittest.TestCase):
         with self.engine.connect() as conn:
             self.assertEqual(conn.scalar(select(S.canvas_project_media_links.c.id).where(
                 S.canvas_project_media_links.c.project_id == row['project_id'])), row['id'])
-            self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')), '0049_canvas_project_media')
+            self.assertEqual(conn.scalar(text('SELECT version_num FROM alembic_version')), S.SCHEMA_REVISION)
