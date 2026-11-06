@@ -6,7 +6,7 @@ const roles={character:'identity_face',location:'location_master',prop:'prop',vo
 export function createAssetCenter(root,ctx,{source='global',embedded=false,canvas=false,workbench=false,onReference=null,onDragReference=null}={}){
  if(source==='global')return createGlobalAssetLibrary(root,ctx);
  const official=source==='official';
- let disposed=false,generation=0,identity=null,offset=0,filters=official?{asset_kind:'character'}:{},tab='gallery',cart=[],selection=new Set(),workspaces=[];
+ let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],selection=new Set(),workspaces=[];
  const session=()=>ctx.session(),headers=()=>({'Content-Type':'application/json','X-CSRF-Token':session().csrf});
  const get=path=>ctx.api(path,{headers:{'X-CSRF-Token':session().csrf}});
  const post=(path,payload)=>ctx.api(path,{method:'POST',headers:headers(),body:JSON.stringify({payload})});
@@ -74,7 +74,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  async function officialCatalog(g){
   const form=el('form');form.className='center-official-filters';
   const selectFilter=(key,label,choices)=>{const select=field(form,label,'select');select.append(localizedOption('',label));for(const [value,title]of choices)select.append(localizedOption(value,title));select.value=filters[key]||'';select.onchange=()=>{filters[key]=select.value;offset=0;return load();};return select;};
-  let count;if(workbench){const tabs=el('div');tabs.className='center-official-kinds';for(const [value,title]of [['character','人设'],['location','场景'],['prop','道具']]){const n=button(title,()=>{filters.asset_kind=value;offset=0;return load();});n.setAttribute('aria-pressed',String(filters.asset_kind===value));tabs.append(n);}form.append(tabs);count=el('span','加载中…');count.className='center-count';count.setAttribute('role','status');form.append(count);}else selectFilter('asset_kind',msg('asset.asset_type'),[['character','人设'],['location',msg('asset.scene')],['prop',msg('asset.prop')]]);
+  let count;if(workbench){const tabs=el('div');tabs.className='center-official-kinds';for(const [value,title]of [['','全部'],['character','人设'],['location','场景'],['prop','道具'],['blocking','站位'],['voice','音频']]){const n=button(title,()=>{filters.asset_kind=value;offset=0;return load();});n.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));tabs.append(n);}form.append(tabs);count=el('span','加载中…');count.className='center-count';count.setAttribute('role','status');form.append(count);}else selectFilter('asset_kind',msg('asset.asset_type'),[['character','人设'],['location',msg('asset.scene')],['prop',msg('asset.prop')],['blocking','站位'],['voice','音频']]);
   selectFilter('role_level','角色级别',[['lead','主角'],['supporting','配角'],['extra','群演']]);
   const roleTag=selectFilter('role_tag','角色标签',filters.role_tag?[[filters.role_tag,filters.role_tag]]:[]);
   selectFilter('gender','性别',[['female','女'],['male','男'],['other','其他'],['unspecified','未识别']]);
