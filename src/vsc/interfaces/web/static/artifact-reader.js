@@ -84,20 +84,40 @@ function appendReadableText(parent, text, className) {
   more.addEventListener('click',next);next();
 }
 
+function screenplayLine(text) {
+  const line = text.trim();
+  if (!line) return null;
+  if (line.startsWith('△')) return ['sp-action', line.replace(/^△\s*/, '')];
+  if (/^（.+）$/.test(line)) return ['sp-paren', line];
+  if (/^\d+-\d+/.test(line)) return ['sp-slug', line];
+  if (line.startsWith('时长') || line.startsWith('出场') || line.includes('　')) return ['sp-meta', line];
+  if (line === '人物' || line.startsWith('第') && line.includes('集')) return ['sp-kicker', line];
+  if (!/[。，！？、：]/.test(line) && line.length <= 6) return ['sp-character', line];
+  if (line.startsWith('本集')) return ['sp-end', line];
+  return ['sp-dialogue', line];
+}
+
 export function renderScreenplay(doc) {
-  const sheet = node('article', 'screenplay-sheet');
+  const sheet = node('article', 'screenplay-page');
   const text = typeof doc?.body === 'string' ? doc.body.trim() : '';
-  if (text) {
-    sheet.append(node('pre', 'screenplay-body', text));
+  const lines = text ? text.split('\n') : [];
+  if (lines.length) {
+    const title = lines[0].trim();
+    if (title) sheet.append(node('h1', 'sp-title', title));
+    for (const raw of lines.slice(1)) {
+      const kind = screenplayLine(raw);
+      if (kind) sheet.append(node('p', kind[0], kind[1]));
+    }
     return sheet;
   }
   for (const scene of doc?.scenes || []) {
-    const block = node('section', 'screenplay-scene');
-    block.append(node('h2', 'screenplay-slug', scene.id || '场'));
-    for (const row of scene.actions || []) if (row.text) block.append(node('p', 'screenplay-action', row.text));
+    const block = node('section', 'sp-scene');
+    const seconds = Math.round((scene.estimated_duration_ms || 0) / 1000);
+    block.append(node('h2', 'sp-slug', seconds ? `${scene.id} · ${seconds}秒` : (scene.id || '场')));
+    for (const row of scene.actions || []) if (row.text) block.append(node('p', 'sp-action', row.text));
     for (const row of scene.dialogue || []) if (row.text) {
-      block.append(node('p', 'screenplay-speaker', row.speaker || '人物'));
-      block.append(node('p', 'screenplay-line', row.text));
+      block.append(node('p', 'sp-character', row.speaker || '人物'));
+      block.append(node('p', 'sp-dialogue', row.text));
     }
     sheet.append(block);
   }
