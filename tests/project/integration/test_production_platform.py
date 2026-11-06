@@ -226,3 +226,62 @@ console.log('PASS old read/write isolation and stable idempotency retry');
         result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_project_card_delete_confirms_without_a_typed_reason(self):
+        import shutil
+        import subprocess
+        from support.paths import ROOT
+        if not shutil.which('node'):
+            self.skipTest('requires Node for the project card dialog')
+        source = r'''
+import {pathToFileURL} from 'node:url';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
+const document=new Document(''),root=document.createElement('section');
+globalThis.document=document;
+globalThis.Option=function(title,value){const n=document.createElement('option');n.textContent=title;n.value=value;return n;};
+Element.prototype.showModal=function(){this.open=true;};
+Element.prototype.close=function(){this.open=false;return this.dispatch('close');};
+Element.prototype.replaceWith=function(node){const parent=this.parentElement;if(!parent)return;const index=parent.children.indexOf(this);parent.children.splice(index,1,node);this.parentElement=null;node.parentElement=parent;};
+const store=new Map();
+globalThis.sessionStorage={getItem:key=>store.has(key)?store.get(key):null,setItem:(key,value)=>store.set(key,value),removeItem:key=>store.delete(key)};
+const module=await import(pathToFileURL('src/vsc/interfaces/web/static/production-platform.js').href);
+const calls=[],notices=[];
+let projects=[{id:'p1',name:'示例项目',profile:'vsc.series-pg',read_only:false,counts:{episodes:1,images:0,videos:0,canvases:0}}];
+const ctx={session:()=>({actor:'human',csrf:'csrf',revision:4,writable:true}),setRevision(){},projectName:()=>'',notice:value=>notices.push(String(value)),
+  projects:()=>projects,refreshProjects:async()=>{projects=[];},navigate(){},
+  api:async(url,opts)=>{calls.push({url,opts});if(opts?.method==='POST')return {status:'trashed',revision:5};return {revision:4};}};
+const platform=module.createProductionPlatform(root,ctx);
+await platform.load({page:'projects'});
+const cardButton=label=>[...root.querySelectorAll('button')].find(node=>node.getAttribute('aria-label')===label);
+const remove=cardButton('删除');
+assert.ok(remove);
+await remove.click();
+let dialog=root.querySelector('dialog');
+assert.equal(dialog.getAttribute('aria-label'),'提示');
+assert.ok(dialog.textContent.includes('确定要删除项目“示例项目”吗？'));
+assert.equal(dialog.querySelector('input'),null);
+await [...dialog.querySelectorAll('button')].find(node=>node.textContent==='取消').click();
+assert.equal(calls.filter(call=>call.opts?.method==='POST').length,0);
+assert.equal(root.querySelector('dialog'),null);
+await cardButton('删除').click();
+dialog=root.querySelector('dialog');
+await dialog.querySelector('form').dispatch('submit');
+const posts=calls.filter(call=>call.opts?.method==='POST');
+assert.equal(posts.length,1);
+const body=JSON.parse(posts[0].opts.body);
+assert.equal(body.payload.operation,'trash');
+assert.equal(body.payload.target_type,'project');
+assert.equal(body.payload.target_id,'p1');
+assert.equal(body.payload.reason,'删除项目');
+assert.equal(body.expected_revision,4);
+assert.ok(body.idempotency_key);
+assert.deepEqual(notices,['删除成功']);
+assert.ok(!root.textContent.includes('示例项目'));
+platform.suspend();
+console.log('PASS project card delete confirms into recycle without a typed reason');
+'''
+        result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
