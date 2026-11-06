@@ -118,6 +118,9 @@ class SpatialSceneWebTests(ResourceStoreFixture,unittest.TestCase):
         script=self.client.get("/static/spatial-scene.js").text
         self.assertIn("/spatial-viewport",script)
         self.assertIn("link.download=",script)
+        self.assertIn("width===960&&height===540",script)
+        self.assertIn("ui.previs_export_sizes",script)
+        self.assertIn("s.exportButtons",script)
         before=self.client.get(self.base+"/spatial-scenes/"+scene).json()
         view=self.client.post(self.base+"/spatial-viewport",headers=self.headers,json={"document":doc,"camera_id":"camera-b","time":.25})
         self.assertEqual(view.status_code,200,view.text[:180] if view.status_code!=200 else "")

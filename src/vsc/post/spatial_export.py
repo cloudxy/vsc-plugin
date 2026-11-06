@@ -369,7 +369,8 @@ class SpatialExporter:
                 suffix=claimed["format"]
                 path=Path(directory)/('preview.'+suffix)
                 if suffix=="png":
-                    path.write_bytes(render_png(document,claimed["camera_id"],claimed["time"]))
+                    # Measured stills are larger than the video frame. MP4 below stays at the scene size.
+                    path.write_bytes(render_still_png(document,claimed["camera_id"],claimed["time"]))
                 elif suffix=="glb":
                     path.write_bytes(export_glb(document,claimed["camera_id"],claimed["time"],animated=True))
                 else:

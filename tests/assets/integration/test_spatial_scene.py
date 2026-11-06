@@ -292,6 +292,42 @@ class SpatialSceneTests(ResourceStoreFixture, unittest.TestCase):
                 ("exports",S.spatial_exports),("media",S.media_items),("canvases",S.creative_canvases),("workflows",S.intelligent_workflows))}
         self.assertEqual(before,after)
 
+    def test_registered_png_export_uses_measured_still_and_video_keeps_scene_size(self):
+        import subprocess
+        from sqlalchemy import func, select
+        from PIL import Image
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.resource_service import ResourceError
+        from vsc.assets.spatial_scene import default_scene
+        from vsc.post.spatial_export import render_png, render_still_png
+        wide=default_scene();wide.update(width=960,height=540,duration=1)
+        portrait=default_scene();portrait.update(width=540,height=960,duration=1)
+        wide_scene=self.write("create_spatial_scene",{"title":"横屏预演","document":wide})
+        portrait_scene=self.write("create_spatial_scene",{"title":"竖屏预演","document":portrait})
+        _,_,png_bytes=self.export(wide_scene)
+        saved=self.service.get_spatial_scene(self.p,wide_scene["id"])["document"]
+        self.assertEqual((saved["width"],saved["height"]),(960,540))
+        self.assertEqual(Image.open(io.BytesIO(png_bytes)).size,(1920,1080))
+        self.assertEqual(png_bytes,render_still_png(saved,"camera-a",0))
+        self.assertNotEqual(png_bytes,render_png(saved,"camera-a",0))
+        _,_,portrait_bytes=self.export(portrait_scene)
+        self.assertEqual(Image.open(io.BytesIO(portrait_bytes)).size,(1080,1920))
+        _,_,video_bytes=self.export(wide_scene,"mp4",duration=.1,fps=12)
+        path=Path(self.directory.name)/"still-vs-video.mp4";path.write_bytes(video_bytes)
+        stream=json.loads(subprocess.run(["ffprobe","-v","error","-show_streams","-of","json",str(path)],capture_output=True,check=True).stdout)["streams"][0]
+        self.assertEqual((stream["width"],stream["height"]),(960,540))
+        blank=default_scene();blank["objects"]=[]
+        empty=self.write("create_spatial_scene",{"title":"空场景","document":blank})
+        revision=self.service.get_project(self.p)["revision"]
+        with self.engine.connect() as conn:
+            before=conn.scalar(select(func.count()).select_from(S.spatial_exports))
+        with self.assertRaises(ResourceError) as blocked:
+            self.write("create_spatial_export",{"spatial_scene_id":empty["id"],"scene_revision":empty["scene_revision"],"camera_id":"camera-a","format":"png"})
+        self.assertEqual(blocked.exception.code,"spatial_export_empty")
+        self.assertEqual(self.service.get_project(self.p)["revision"],revision)
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.scalar(select(func.count()).select_from(S.spatial_exports)),before)
+
 @unittest.skipUnless(TEST_URL and HAS_DB,'requires isolated PostgreSQL')
 class SpatialPlannerTests(ResourceStoreFixture,unittest.TestCase):
     scene=SpatialSceneTests.scene
