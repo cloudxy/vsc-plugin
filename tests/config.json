@@ -488,6 +488,7 @@
         "src/vsc/project/migration_prepare.py",
         "src/vsc/project/migration_relations.py",
         "tests/support/fixtures/migration.py",
+        "tests/support/fixtures/postgres.py",
         "src/vsc/assets/projections.py",
         "src/vsc/production/production.py",
         "src/vsc/adapters/persistence/postgres/**",
@@ -501,6 +502,7 @@
         "src/vsc/project/migration.py",
         "src/vsc/project/pg_workflow.py",
         "tests/support/fixtures/migration.py",
+        "tests/support/fixtures/postgres.py",
         "src/vsc/adapters/persistence/postgres/**",
         "src/vsc/adapters/persistence/sqlite/series.py",
         "src/vsc/interfaces/cli/resources.py",
@@ -1590,7 +1592,8 @@
         "src/vsc/assets/working_state.py",
         "src/vsc/adapters/persistence/postgres/working_state.py",
         "src/vsc/adapters/persistence/postgres/schema_working_state.py",
-        "migrations/postgres/versions/0034_working_state.py"
+        "migrations/postgres/versions/0034_working_state.py",
+        "tests/support/fixtures/postgres.py"
       ]
     },
     "project.integration.test_workbench_generation": {

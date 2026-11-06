@@ -293,7 +293,8 @@ class WorkingStateTests(ResourceStoreFixture, unittest.TestCase):
             self.assertEqual(again,backfill)
         finally:
             if engine:engine.dispose()
-            with admin.begin() as conn:conn.execute(text('DROP SCHEMA IF EXISTS "'+schema+'" CASCADE'))
+            from support.fixtures.postgres import drop_schema
+            drop_schema(admin, schema)
             admin.dispose()
 
 
