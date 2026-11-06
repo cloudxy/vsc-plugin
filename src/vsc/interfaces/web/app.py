@@ -258,10 +258,11 @@ def create_app(config=None, catalog=None, service=None):
     def create_project(request: Request, body: dict):
         identity = actor(request)
         payload, key = body.get("payload"), body.get("idempotency_key")
-        if (not isinstance(payload, dict) or set(payload) - {"name", "profile"}
+        if (not isinstance(payload, dict) or set(payload) - {"name", "profile", "character_style"}
                 or not isinstance(payload.get("name"), str) or not payload["name"].strip()
-                or len(payload["name"]) > 200 or not isinstance(key, str) or not 1 <= len(key) <= 200):
-            raise HTTPException(422, "填写作品名称；创建请求需要有效的操作标识")
+                or len(payload["name"]) > 200 or not isinstance(key, str) or not 1 <= len(key) <= 200
+                or ("character_style" in payload and payload["character_style"] not in {"2d", "3d", "live"})):
+            raise HTTPException(422, "填写项目名称；创建请求需要有效的操作标识")
         if catalog.service is None:
             raise HTTPException(409, "本次服务没有配置项目数据库")
         return catalog.service.create_project(payload, actor=identity, idempotency_key=key)

@@ -227,6 +227,53 @@ console.log('PASS old read/write isolation and stable idempotency retry');
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_new_project_dialog_collects_name_episode_count_and_style(self):
+        import shutil
+        import subprocess
+        from support.paths import ROOT
+        if not shutil.which('node'):
+            self.skipTest('requires Node for the project dialog')
+        source = r'''
+import {pathToFileURL} from 'node:url';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
+const document=new Document(''),root=document.createElement('section');
+globalThis.document=document;
+globalThis.Option=function(title,value){const n=document.createElement('option');n.textContent=title;n.value=value;return n;};
+Element.prototype.showModal=function(){this.open=true;};
+Element.prototype.close=function(){this.open=false;return this.dispatch('close');};
+const module=await import(pathToFileURL('src/vsc/interfaces/web/static/production-platform.js').href);
+const calls=[];
+const ctx={session:()=>({actor:'human',csrf:'csrf',revision:0,writable:true,writeAvailable:true}),setRevision(){},projectName:()=>'',notice(){},
+  projects:()=>[],refreshProjects:async()=>{},navigate(){},created:async()=>{},
+  api:async(url,opts)=>{calls.push({url,opts});if(String(url).includes('episode-batches'))return {revision:2};return {id:'p9',revision:1};}};
+const platform=module.createProductionPlatform(root,ctx);
+await platform.load({page:'projects'});
+await [...root.querySelectorAll('button')].find(node=>node.textContent.includes('新建项目')).click();
+const dialog=root.querySelector('dialog');
+assert.equal(dialog.querySelector('h2').textContent,'新建项目');
+assert.ok(dialog.textContent.includes('项目名称'));
+assert.ok(dialog.textContent.includes('集数'));
+assert.ok(dialog.textContent.includes('2D动漫'));
+assert.ok(dialog.textContent.includes('真人'));
+const [name,count]=dialog.querySelectorAll('input');
+name.value='新片';count.value='2';
+dialog.querySelector('select').value='3d';
+await dialog.querySelector('form').dispatch('submit');
+const posts=calls.filter(call=>call.opts?.method==='POST').map(call=>({url:call.url,body:JSON.parse(call.opts.body)}));
+assert.equal(posts[0].body.payload.name,'新片');
+assert.equal(posts[0].body.payload.profile,'vsc.series-pg');
+assert.equal(posts[0].body.payload.character_style,'3d');
+assert.deepEqual(posts[1].body.payload.titles,['第1集','第2集']);
+assert.equal(posts[1].body.payload.initial_shot_count,0);
+platform.suspend();
+console.log('PASS new project dialog');
+'''
+        result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_project_card_delete_confirms_without_a_typed_reason(self):
         import shutil
         import subprocess

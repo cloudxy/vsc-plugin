@@ -31,3 +31,14 @@ class EmptyCanvasProjectTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual([row["id"] for row in listed["items"]], [created["canvas_id"]])
         with self.assertRaises(ResourceError):
             self.service.create_empty_canvas_project({"mode": "agent"}, actor="test-human", idempotency_key=uuid.uuid4().hex)
+
+    def test_character_style_is_stored_on_the_project_snapshot(self):
+        from vsc.assets.resource_service import ResourceError
+        project = self.service.create_project(
+            {"name": "样式项目", "profile": "vsc.light-short", "character_style": "3d"},
+            actor="test-human", idempotency_key="style-project")
+        self.assertEqual(self.service.get_project(project["id"])["profile_snapshot"]["character_style"], "3d")
+        with self.assertRaises(ResourceError):
+            self.service.create_project(
+                {"name": "坏类型", "character_style": "other"},
+                actor="test-human", idempotency_key="bad-style")
