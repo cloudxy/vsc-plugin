@@ -1,0 +1,22 @@
+{
+  "id": "dao-liuye",
+  "name": "柳叶刀",
+  "category_path": [
+    "道具",
+    "柳叶刀"
+  ],
+  "summary": "短柄单刃弯刀的正视、侧视和柄与刃口特写。",
+  "prompt": "A 16:9 photoreal prop asset sheet of a short willow-leaf saber on a light gray background. Front, side, and a close-up of the grip and blade edge.",
+  "sheet": "15.3",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}

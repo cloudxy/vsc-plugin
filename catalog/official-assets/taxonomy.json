@@ -1,0 +1,3732 @@
+{
+  "name": "官方资产图目录",
+  "spec": "docs/plans/active/creative-production/design/official-asset-specification.md",
+  "image_rule": {
+    "aspect_ratio": "16:9",
+    "native_pixels": [
+      1280,
+      720
+    ],
+    "delivered_pixels": [
+      2560,
+      1440
+    ],
+    "native_note": "生成器没有 4K 输出。成片由 1280×720 无损放到 2560×1440，PNG，不做有损压缩。",
+    "codec": "png",
+    "lossy": false,
+    "budget_bytes": 1073741824
+  },
+  "naming": "文件名用稳定 id，中文名称写在同名 json 的 name。路径按主门类。",
+  "sidecar_fields": [
+    "id",
+    "name",
+    "category_path",
+    "summary",
+    "prompt",
+    "sheet",
+    "aspect_ratio",
+    "delivered_pixels",
+    "native_pixels",
+    "codec",
+    "lossy"
+  ],
+  "public_rule": "每个主门类的 public_pick 为进入公共代码库的 10 张。其余类型先留在目录里，有图再补。",
+  "entries": [
+    {
+      "id": "ren-you",
+      "name": "幼年",
+      "category_path": [
+        "人物",
+        "幼年"
+      ],
+      "summary": "child about six years old, fully dressed in a plain coat, trousers and shoes, modest ordinary standing pose",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented child about six years old, fully dressed in a plain coat, trousers and shoes, modest ordinary standing pose. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-shaonan",
+      "name": "少年",
+      "category_path": [
+        "人物",
+        "少年"
+      ],
+      "summary": "teenage East Asian boy, short neat hair, simple jacket and trousers",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented teenage East Asian boy, short neat hair, simple jacket and trousers. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-shaonv",
+      "name": "少女",
+      "category_path": [
+        "人物",
+        "少女"
+      ],
+      "summary": "teenage East Asian girl, ponytail, simple coat and trousers, modest",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented teenage East Asian girl, ponytail, simple coat and trousers, modest. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-qingnan",
+      "name": "青年男",
+      "category_path": [
+        "人物",
+        "青年男"
+      ],
+      "summary": "二十多岁、短黑发、深色外套的青年男定妆板。含全身正、侧、背和正脸特写。",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented young East Asian man in his twenties, short black hair, lean build, dark plain jacket and trousers. Gray studio, even soft light. Full body front, side, and back standing in a relaxed A-pose on the same ground line, plus a large face close-up showing eyes, nose, jaw, and hairline. Head and shoes fully visible.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": "人物/ren-qingnan.png",
+      "status": "ready"
+    },
+    {
+      "id": "ren-qingnv",
+      "name": "青年女",
+      "category_path": [
+        "人物",
+        "青年女"
+      ],
+      "summary": "young East Asian woman in her twenties, long black hair, plain charcoal coat",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented young East Asian woman in her twenties, long black hair, plain charcoal coat. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-zhuangnan",
+      "name": "壮年男",
+      "category_path": [
+        "人物",
+        "壮年男"
+      ],
+      "summary": "adult East Asian man with a strong build, cropped hair, plain black training clothes",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented adult East Asian man with a strong build, cropped hair, plain black training clothes. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-zhongnv",
+      "name": "中年女",
+      "category_path": [
+        "人物",
+        "中年女"
+      ],
+      "summary": "middle-aged East Asian woman, low bun, muted tailored suit",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented middle-aged East Asian woman, low bun, muted tailored suit. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-laonan",
+      "name": "老年男",
+      "category_path": [
+        "人物",
+        "老年男"
+      ],
+      "summary": "elderly East Asian man, white hair, lined face, plain wool coat",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented elderly East Asian man, white hair, lined face, plain wool coat. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-laonv",
+      "name": "老年女",
+      "category_path": [
+        "人物",
+        "老年女"
+      ],
+      "summary": "elderly East Asian woman, silver low bun, plain dark coat",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented elderly East Asian woman, silver low bun, plain dark coat. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ren-qunyan",
+      "name": "群演原型",
+      "category_path": [
+        "人物",
+        "群演原型"
+      ],
+      "summary": "ordinary adult East Asian extra with a rounder face and different hairstyle from a leading man, plain gray work jacket",
+      "prompt": "A 16:9 photoreal film asset sheet of one invented ordinary adult East Asian extra with a rounder face and different hairstyle from a leading man, plain gray work jacket. Gray studio, even soft light. Full body front, side, and back in a relaxed A-pose on one ground line, plus a large face close-up. Head and shoes fully in frame.",
+      "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-ma",
+      "name": "马",
+      "category_path": [
+        "生物",
+        "马"
+      ],
+      "summary": "马的正面、侧面、背面和头部特写。",
+      "prompt": "A 16:9 photoreal film asset sheet of a horse. Front, side, back, and a head close-up.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": "生物/sheng-ma.png",
+      "status": "ready"
+    },
+    {
+      "id": "sheng-hu",
+      "name": "虎",
+      "category_path": [
+        "生物",
+        "虎"
+      ],
+      "summary": "虎的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a tiger on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-ying",
+      "name": "鹰",
+      "category_path": [
+        "生物",
+        "鹰"
+      ],
+      "summary": "鹰的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of an eagle with wings half open on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-yu",
+      "name": "鱼",
+      "category_path": [
+        "生物",
+        "鱼"
+      ],
+      "summary": "鱼的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a large carp on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-she",
+      "name": "蛇",
+      "category_path": [
+        "生物",
+        "蛇"
+      ],
+      "summary": "蛇的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a snake coiled and also extended on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-lang",
+      "name": "狼",
+      "category_path": [
+        "生物",
+        "狼"
+      ],
+      "summary": "狼的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a wolf on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-he",
+      "name": "鹤",
+      "category_path": [
+        "生物",
+        "鹤"
+      ],
+      "summary": "鹤的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a crane on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-die",
+      "name": "蝶",
+      "category_path": [
+        "生物",
+        "蝶"
+      ],
+      "summary": "蝶的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a large butterfly, wings open on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-mao",
+      "name": "猫",
+      "category_path": [
+        "生物",
+        "猫"
+      ],
+      "summary": "猫的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a domestic cat on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "sheng-long",
+      "name": "龙蛇",
+      "category_path": [
+        "生物",
+        "龙蛇"
+      ],
+      "summary": "龙蛇的全身正侧背与头部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of an invented horned scaled serpent, not a copyrighted dragon design on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-松",
+      "name": "松",
+      "category_path": [
+        "植物",
+        "松"
+      ],
+      "summary": "松的全株、树皮针叶近景，以及约一人高的标尺。",
+      "prompt": "A 16:9 photoreal film asset sheet of a pine tree, the whole tree, bark and needles, and a human-height scale.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": "植物/zhi-松.png",
+      "status": "ready"
+    },
+    {
+      "id": "zhi-竹",
+      "name": "竹",
+      "category_path": [
+        "植物",
+        "竹"
+      ],
+      "summary": "竹丛全貌、竿节近景和约一人高的标尺。",
+      "prompt": "A 16:9 photoreal film asset sheet of a bamboo clump with a human-height scale.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": "植物/zhi-竹.png",
+      "status": "ready"
+    },
+    {
+      "id": "zhi-梅",
+      "name": "梅",
+      "category_path": [
+        "植物",
+        "梅"
+      ],
+      "summary": "梅的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a plum tree in bloom, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-荷",
+      "name": "荷",
+      "category_path": [
+        "植物",
+        "荷"
+      ],
+      "summary": "荷的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a lotus plant, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-柳",
+      "name": "柳",
+      "category_path": [
+        "植物",
+        "柳"
+      ],
+      "summary": "柳的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a willow, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-稻",
+      "name": "稻",
+      "category_path": [
+        "植物",
+        "稻"
+      ],
+      "summary": "稻的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of rice plants, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-藤",
+      "name": "藤",
+      "category_path": [
+        "植物",
+        "藤"
+      ],
+      "summary": "藤的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a climbing vine, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-菌",
+      "name": "菌",
+      "category_path": [
+        "植物",
+        "菌"
+      ],
+      "summary": "菌的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a cluster of mushrooms, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-枯木",
+      "name": "枯木",
+      "category_path": [
+        "植物",
+        "枯木"
+      ],
+      "summary": "枯木的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a dead standing tree, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhi-牡丹",
+      "name": "牡丹",
+      "category_path": [
+        "植物",
+        "牡丹"
+      ],
+      "summary": "牡丹的全株与局部重点。",
+      "prompt": "A 16:9 photoreal film asset sheet of a peony shrub, gray studio, full plant, a detail of leaf or flower or bark, and a human-height scale mark beside it. No people.",
+      "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-zhai",
+      "name": "宅院厅堂",
+      "category_path": [
+        "地点",
+        "宅院厅堂"
+      ],
+      "summary": "宅院厅堂空镜：正面、反打、入口和柱础雕花近景。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a Chinese courtyard hall. Wide front, reverse, entrance, and a carved column.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": "地点/di-zhai.png",
+      "status": "ready"
+    },
+    {
+      "id": "di-wo",
+      "name": "卧房",
+      "category_path": [
+        "地点",
+        "卧房"
+      ],
+      "summary": "卧房的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a traditional bedroom, bed, window, dressing table. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-xiang",
+      "name": "街巷",
+      "category_path": [
+        "地点",
+        "街巷"
+      ],
+      "summary": "街巷的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a narrow brick alley, high walls, one end open. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-ban",
+      "name": "办公室",
+      "category_path": [
+        "地点",
+        "办公室"
+      ],
+      "summary": "办公室的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a modern office, main desk and guest seat. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-yi",
+      "name": "医院病房",
+      "category_path": [
+        "地点",
+        "医院病房"
+      ],
+      "summary": "医院病房的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a hospital ward, bed, window, corridor hint. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-ke",
+      "name": "客栈",
+      "category_path": [
+        "地点",
+        "客栈"
+      ],
+      "summary": "客栈的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of an inn hall, wooden tables, lanterns unlit by day. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-shan",
+      "name": "山林",
+      "category_path": [
+        "地点",
+        "山林"
+      ],
+      "summary": "山林的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a mountain forest path, rocks and trees. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-che",
+      "name": "车厢",
+      "category_path": [
+        "地点",
+        "车厢"
+      ],
+      "summary": "车厢的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a train compartment, window on the left. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-lao",
+      "name": "牢狱",
+      "category_path": [
+        "地点",
+        "牢狱"
+      ],
+      "summary": "牢狱的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a cell with iron bars. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "di-cha",
+      "name": "茶馆",
+      "category_path": [
+        "地点",
+        "茶馆"
+      ],
+      "summary": "茶馆的多角度空镜与平面关系。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a teahouse interior, tables and a counter. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-yiju",
+      "name": "宜居地表",
+      "category_path": [
+        "星球",
+        "宜居地表"
+      ],
+      "summary": "宜居地表的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of a habitable alien plain with a colored sky and two suns low. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-huang",
+      "name": "荒原",
+      "category_path": [
+        "星球",
+        "荒原"
+      ],
+      "summary": "荒原的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of a barren rocky planet surface. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-hai",
+      "name": "海洋星",
+      "category_path": [
+        "星球",
+        "海洋星"
+      ],
+      "summary": "海洋星的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of an ocean world seen from a rocky shore. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-bing",
+      "name": "冰原",
+      "category_path": [
+        "星球",
+        "冰原"
+      ],
+      "summary": "冰原的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of an ice planet surface. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-qi",
+      "name": "气态",
+      "category_path": [
+        "星球",
+        "气态"
+      ],
+      "summary": "气态的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of a gas giant filling the sky, no ground. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-kong",
+      "name": "星空",
+      "category_path": [
+        "星球",
+        "星空"
+      ],
+      "summary": "星空的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of a dense star field with a visible milky band. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-renzao",
+      "name": "人造天体",
+      "category_path": [
+        "星球",
+        "人造天体"
+      ],
+      "summary": "人造天体的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of the exterior of a blocky inhabited station. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-gui",
+      "name": "轨道居住地",
+      "category_path": [
+        "星球",
+        "轨道居住地"
+      ],
+      "summary": "轨道居住地的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of the interior of an orbital habitat with artificial light and windows. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-shuang",
+      "name": "双星",
+      "category_path": [
+        "星球",
+        "双星"
+      ],
+      "summary": "双星的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of a sky with two suns over a plain. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "xing-huo",
+      "name": "火山岩地表",
+      "category_path": [
+        "星球",
+        "火山岩地表"
+      ],
+      "summary": "火山岩地表的远景与地表或舱内。",
+      "prompt": "A 16:9 photoreal asset sheet of a volcanic rock plain. Show a wide view and a closer surface or interior view of the same world. No people, no story action.",
+      "sheet": "15.4 星球设定板：远景、地表或舱内、天空，同一世界。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-qipao",
+      "name": "旗袍",
+      "category_path": [
+        "服装",
+        "旗袍"
+      ],
+      "summary": "旗袍平铺正背、盘扣特写，以及穿上后的全身正面。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a silk qipao. Flat front, flat back, worn full length, and a close-up of the knot buttons.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": "服装/fu-qipao.png",
+      "status": "ready"
+    },
+    {
+      "id": "fu-zhongshan",
+      "name": "中山装",
+      "category_path": [
+        "服装",
+        "中山装"
+      ],
+      "summary": "中山装的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a Zhongshan suit with a closed collar and four pockets on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-xizhuang",
+      "name": "西装",
+      "category_path": [
+        "服装",
+        "西装"
+      ],
+      "summary": "单排扣西装的平铺正背、上身全身和驳领扣子特写。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a single-breasted dark suit.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": "服装/fu-xizhuang.png",
+      "status": "ready"
+    },
+    {
+      "id": "fu-yurong",
+      "name": "羽绒服",
+      "category_path": [
+        "服装",
+        "羽绒服"
+      ],
+      "summary": "羽绒服的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a long hooded down jacket on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-lifu",
+      "name": "开叉礼服",
+      "category_path": [
+        "服装",
+        "开叉礼服"
+      ],
+      "summary": "开叉礼服的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of an evening gown with a slit on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-chang",
+      "name": "常服",
+      "category_path": [
+        "服装",
+        "常服"
+      ],
+      "summary": "常服的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of everyday layered shirt and trousers on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-dan",
+      "name": "单衣",
+      "category_path": [
+        "服装",
+        "单衣"
+      ],
+      "summary": "单衣的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a single-layer unlined robe on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-jin",
+      "name": "劲装",
+      "category_path": [
+        "服装",
+        "劲装"
+      ],
+      "summary": "劲装的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a close-fitting martial outfit on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-jia",
+      "name": "札甲",
+      "category_path": [
+        "服装",
+        "札甲"
+      ],
+      "summary": "札甲的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of lamellar armor on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-hun",
+      "name": "婚服",
+      "category_path": [
+        "服装",
+        "婚服"
+      ],
+      "summary": "婚服的正背平铺、上身效果与重点。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a red wedding robe on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dao-liuye",
+      "name": "柳叶刀",
+      "category_path": [
+        "道具",
+        "柳叶刀"
+      ],
+      "summary": "短柄单刃弯刀的正视、侧视和柄与刃口特写。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a short willow-leaf saber on a light gray background. Front, side, and a close-up of the grip and blade edge.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": "道具/dao-liuye.png",
+      "status": "ready"
+    },
+    {
+      "id": "qiang-chang",
+      "name": "长枪",
+      "category_path": [
+        "道具",
+        "长枪"
+      ],
+      "summary": "红缨长枪的正侧与枪头特写。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a long spear with a red tassel.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": "道具/qiang-chang.png",
+      "status": "ready"
+    },
+    {
+      "id": "jian-chang",
+      "name": "长剑",
+      "category_path": [
+        "道具",
+        "长剑"
+      ],
+      "summary": "长剑的正侧与重点结构。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a straight longsword on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "fu-kaishan",
+      "name": "开山斧",
+      "category_path": [
+        "道具",
+        "开山斧"
+      ],
+      "summary": "开山斧的正侧与重点结构。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a large two-handed axe on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "qiangxie-shouqiang",
+      "name": "手枪",
+      "category_path": [
+        "道具",
+        "手枪"
+      ],
+      "summary": "手枪的正面、侧面和握把准星特写。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a modern pistol.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": "道具/qiangxie-shouqiang.png",
+      "status": "ready"
+    },
+    {
+      "id": "pao-qianyin",
+      "name": "大炮",
+      "category_path": [
+        "道具",
+        "大炮"
+      ],
+      "summary": "大炮的正侧与重点结构。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a towed cannon on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "huojian-wuqi",
+      "name": "火箭",
+      "category_path": [
+        "道具",
+        "火箭"
+      ],
+      "summary": "火箭的正侧与重点结构。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a weapon rocket on a simple stand, not a firework on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "zhou-mu",
+      "name": "木舟",
+      "category_path": [
+        "道具",
+        "木舟"
+      ],
+      "summary": "木舟的正侧与重点结构。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a wooden boat on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "feiji-luoxuan",
+      "name": "螺旋桨飞机",
+      "category_path": [
+        "道具",
+        "螺旋桨飞机"
+      ],
+      "summary": "螺旋桨飞机的正侧与重点结构。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a propeller airplane on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "feichuan-fangcang",
+      "name": "飞船",
+      "category_path": [
+        "道具",
+        "飞船"
+      ],
+      "summary": "方舱飞船的正面、侧面和舱门特写。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a blocky spacecraft with windows and landing gear. Front, side, and a close-up of a hatch.",
+      "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
+      "public_pick": true,
+      "image": "道具/feichuan-fangcang.png",
+      "status": "ready"
+    },
+    {
+      "id": "dong-gong",
+      "name": "弓步",
+      "category_path": [
+        "动作",
+        "弓步"
+      ],
+      "summary": "弓步一式的起势、定势和收势。",
+      "prompt": "A 16:9 photoreal action sheet of one bow stance in three phases: start, settled stance, and recovery.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": "动作/dong-gong.png",
+      "status": "ready"
+    },
+    {
+      "id": "dong-quan",
+      "name": "冲拳",
+      "category_path": [
+        "动作",
+        "冲拳"
+      ],
+      "summary": "冲拳的蓄力、打出和收回。",
+      "prompt": "A 16:9 photoreal action sheet of one straight punch in three phases.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": "动作/dong-quan.png",
+      "status": "ready"
+    },
+    {
+      "id": "dong-pi",
+      "name": "刀劈",
+      "category_path": [
+        "动作",
+        "刀劈"
+      ],
+      "summary": "刀劈的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only an overhead saber cut, the saber simple and unbranded. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-zou",
+      "name": "走",
+      "category_path": [
+        "动作",
+        "走"
+      ],
+      "summary": "走的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only a walking stride. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-pao",
+      "name": "跑",
+      "category_path": [
+        "动作",
+        "跑"
+      ],
+      "summary": "跑的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only a running stride. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-gui",
+      "name": "跪",
+      "category_path": [
+        "动作",
+        "跪"
+      ],
+      "summary": "跪的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only kneeling. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-zuo",
+      "name": "坐",
+      "category_path": [
+        "动作",
+        "坐"
+      ],
+      "summary": "坐的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only sitting down onto a plain stool. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-shangma",
+      "name": "上马",
+      "category_path": [
+        "动作",
+        "上马"
+      ],
+      "summary": "上马的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only mounting a horse. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-miaozhun",
+      "name": "瞄准",
+      "category_path": [
+        "动作",
+        "瞄准"
+      ],
+      "summary": "瞄准的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only aiming a pistol. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "dong-chitong",
+      "name": "吃痛后退",
+      "category_path": [
+        "动作",
+        "吃痛后退"
+      ],
+      "summary": "吃痛后退的起势、接触与收势。",
+      "prompt": "A 16:9 photoreal action sheet of one adult in plain dark clothes performing only a flinch and half-step backward from a hit. Three phases side by side: start, the moment of the action, and the end pose. Same camera, the weight-bearing foot visible. No second move.",
+      "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-xiyu",
+      "name": "细雨",
+      "category_path": [
+        "自然显现",
+        "细雨"
+      ],
+      "summary": "细雨的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of fine rain with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-baoyu",
+      "name": "暴雨",
+      "category_path": [
+        "自然显现",
+        "暴雨"
+      ],
+      "summary": "暴雨的天色、雨势、积水和石面近景。",
+      "prompt": "A 16:9 photoreal asset sheet of heavy rain.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": "自然显现/ziran-baoyu.png",
+      "status": "ready"
+    },
+    {
+      "id": "ziran-xue",
+      "name": "雪",
+      "category_path": [
+        "自然显现",
+        "雪"
+      ],
+      "summary": "雪的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of falling snow with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-wu",
+      "name": "雾",
+      "category_path": [
+        "自然显现",
+        "雾"
+      ],
+      "summary": "雾的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of fog with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-lei",
+      "name": "雷电",
+      "category_path": [
+        "自然显现",
+        "雷电"
+      ],
+      "summary": "雷电的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of a lightning flash over a dark field with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-lang",
+      "name": "浪",
+      "category_path": [
+        "自然显现",
+        "浪"
+      ],
+      "summary": "浪的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of an ocean wave with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-shanhuo",
+      "name": "山火",
+      "category_path": [
+        "自然显现",
+        "山火"
+      ],
+      "summary": "山火的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of a distant wildfire line with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-jiguang",
+      "name": "极光",
+      "category_path": [
+        "自然显现",
+        "极光"
+      ],
+      "summary": "极光的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of an aurora with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-liuxing",
+      "name": "流星",
+      "category_path": [
+        "自然显现",
+        "流星"
+      ],
+      "summary": "流星的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of a meteor streak with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "ziran-shachen",
+      "name": "沙尘",
+      "category_path": [
+        "自然显现",
+        "沙尘"
+      ],
+      "summary": "沙尘的开始、持续、结束与近景。",
+      "prompt": "A 16:9 photoreal asset sheet of a dust storm with no people. Three states: beginning, ongoing, and aftermath, plus one close-up of the phenomenon itself.",
+      "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-残影",
+      "name": "残影",
+      "category_path": [
+        "特效",
+        "残影"
+      ],
+      "summary": "残影的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of afterimage trails on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-光晕",
+      "name": "光晕",
+      "category_path": [
+        "特效",
+        "光晕"
+      ],
+      "summary": "光晕的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a soft halo of light on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-符阵",
+      "name": "符阵",
+      "category_path": [
+        "特效",
+        "符阵"
+      ],
+      "summary": "符阵的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a geometric rune circle on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-护盾",
+      "name": "护盾",
+      "category_path": [
+        "特效",
+        "护盾"
+      ],
+      "summary": "护盾的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of an energy shield on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-传送门",
+      "name": "传送门",
+      "category_path": [
+        "特效",
+        "传送门"
+      ],
+      "summary": "传送门的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a portal on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-速度线",
+      "name": "速度线",
+      "category_path": [
+        "特效",
+        "速度线"
+      ],
+      "summary": "速度线的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of speed lines on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-粒子叠层",
+      "name": "粒子叠层",
+      "category_path": [
+        "特效",
+        "粒子叠层"
+      ],
+      "summary": "粒子叠层的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a particle overlay on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-故障",
+      "name": "故障",
+      "category_path": [
+        "特效",
+        "故障"
+      ],
+      "summary": "故障的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a glitch band on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-剑气",
+      "name": "剑气",
+      "category_path": [
+        "特效",
+        "剑气"
+      ],
+      "summary": "剑气的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a blade-light streak on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "texiao-转场",
+      "name": "转场",
+      "category_path": [
+        "特效",
+        "转场"
+      ],
+      "summary": "转场的过程三态与近景。",
+      "prompt": "A 16:9 photoreal visual-effect asset sheet of a light transition wipe on a plain dark background. Beginning, middle, and end, plus a close-up. No story scene.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-posui",
+      "name": "破碎",
+      "category_path": [
+        "物理效果",
+        "破碎"
+      ],
+      "summary": "破碎的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of glass shattering. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-buliao",
+      "name": "布料",
+      "category_path": [
+        "物理效果",
+        "布料"
+      ],
+      "summary": "布料的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of cloth pulled by wind. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-liuti",
+      "name": "流体",
+      "category_path": [
+        "物理效果",
+        "流体"
+      ],
+      "summary": "流体的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of a splash of water. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-yanchen",
+      "name": "烟尘",
+      "category_path": [
+        "物理效果",
+        "烟尘"
+      ],
+      "summary": "烟尘的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of dust rising and settling. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-tafang",
+      "name": "塌方",
+      "category_path": [
+        "物理效果",
+        "塌方"
+      ],
+      "summary": "塌方的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of a small rock collapse. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-jinshu",
+      "name": "金属变形",
+      "category_path": [
+        "物理效果",
+        "金属变形"
+      ],
+      "summary": "金属变形的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of a metal bar bending. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-zhuiluo",
+      "name": "坠落",
+      "category_path": [
+        "物理效果",
+        "坠落"
+      ],
+      "summary": "坠落的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of an object falling onto a floor. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-chongji",
+      "name": "冲击波",
+      "category_path": [
+        "物理效果",
+        "冲击波"
+      ],
+      "summary": "冲击波的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of a shockwave pushing dust. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-silie",
+      "name": "撕裂",
+      "category_path": [
+        "物理效果",
+        "撕裂"
+      ],
+      "summary": "撕裂的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of cloth tearing. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "wuli-piaofu",
+      "name": "漂浮失重",
+      "category_path": [
+        "物理效果",
+        "漂浮失重"
+      ],
+      "summary": "漂浮失重的过程与受力物。",
+      "prompt": "A 16:9 photoreal physical-effect sheet of an object floating with no ground contact. Start, the moment of force, and the result, plus a close-up of the material. Plain background.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-chuxue",
+      "name": "出血",
+      "category_path": [
+        "生物效果",
+        "出血"
+      ],
+      "summary": "出血的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a small bleeding cut on a forearm. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-shangkou",
+      "name": "伤口",
+      "category_path": [
+        "生物效果",
+        "伤口"
+      ],
+      "summary": "伤口的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a fresh cut. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-jiexie",
+      "name": "结痂",
+      "category_path": [
+        "生物效果",
+        "结痂"
+      ],
+      "summary": "结痂的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a scab. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-tuipi",
+      "name": "蜕皮",
+      "category_path": [
+        "生物效果",
+        "蜕皮"
+      ],
+      "summary": "蜕皮的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a snake shedding skin. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-tongkong",
+      "name": "瞳孔",
+      "category_path": [
+        "生物效果",
+        "瞳孔"
+      ],
+      "summary": "瞳孔的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a human eye with a widened pupil. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-maofa",
+      "name": "毛发竖立",
+      "category_path": [
+        "生物效果",
+        "毛发竖立"
+      ],
+      "summary": "毛发竖立的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of fur standing up on an animal. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-kaihua",
+      "name": "开花结实",
+      "category_path": [
+        "生物效果",
+        "开花结实"
+      ],
+      "summary": "开花结实的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a plant budding then flowering. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-faguang",
+      "name": "发光器官",
+      "category_path": [
+        "生物效果",
+        "发光器官"
+      ],
+      "summary": "发光器官的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a creature with a glowing organ. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-jisheng",
+      "name": "寄生",
+      "category_path": [
+        "生物效果",
+        "寄生"
+      ],
+      "summary": "寄生的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of a small growth attached to bark. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shengxiao-shibian",
+      "name": "尸变",
+      "category_path": [
+        "生物效果",
+        "尸变"
+      ],
+      "summary": "尸变的变化过程与部位近景。",
+      "prompt": "A 16:9 photoreal biological-change sheet of bones only, not a graphic corpse. Before, during, and after, plus a close-up of the affected part. Clinical, not gory spectacle.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-ranshao",
+      "name": "燃烧",
+      "category_path": [
+        "化学效果",
+        "燃烧"
+      ],
+      "summary": "燃烧的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of a small controlled flame on a metal dish. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-maoyan",
+      "name": "冒烟",
+      "category_path": [
+        "化学效果",
+        "冒烟"
+      ],
+      "summary": "冒烟的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of white smoke rising. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-xiu",
+      "name": "锈蚀",
+      "category_path": [
+        "化学效果",
+        "锈蚀"
+      ],
+      "summary": "锈蚀的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of clean metal beside rusted metal of the same bar. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-jiejing",
+      "name": "结晶",
+      "category_path": [
+        "化学效果",
+        "结晶"
+      ],
+      "summary": "结晶的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of crystals growing. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-rongjie",
+      "name": "溶解",
+      "category_path": [
+        "化学效果",
+        "溶解"
+      ],
+      "summary": "溶解的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of a solid dissolving in clear liquid. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-bianse",
+      "name": "变色",
+      "category_path": [
+        "化学效果",
+        "变色"
+      ],
+      "summary": "变色的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of a cloth changing from pale to deep red. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-feiteng",
+      "name": "沸腾",
+      "category_path": [
+        "化学效果",
+        "沸腾"
+      ],
+      "summary": "沸腾的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of a boiling liquid. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-dongjie",
+      "name": "冻结",
+      "category_path": [
+        "化学效果",
+        "冻结"
+      ],
+      "summary": "冻结的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of frost forming on a surface. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-youmo",
+      "name": "油膜",
+      "category_path": [
+        "化学效果",
+        "油膜"
+      ],
+      "summary": "油膜的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of an oil film on water. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "hua-fenmo",
+      "name": "粉末",
+      "category_path": [
+        "化学效果",
+        "粉末"
+      ],
+      "summary": "粉末的反应前后。",
+      "prompt": "A 16:9 photoreal chemistry-effect sheet of a puff of powder. Before and after plus a close-up. Plain background, no people.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-zhenlie",
+      "name": "阵列",
+      "category_path": [
+        "数学效果",
+        "阵列"
+      ],
+      "summary": "阵列的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a regular array of identical cubes on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-duichen",
+      "name": "对称",
+      "category_path": [
+        "数学效果",
+        "对称"
+      ],
+      "summary": "对称的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a left-right symmetric pattern on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-wangge",
+      "name": "网格",
+      "category_path": [
+        "数学效果",
+        "网格"
+      ],
+      "summary": "网格的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a perspective grid on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-fenxing",
+      "name": "分形",
+      "category_path": [
+        "数学效果",
+        "分形"
+      ],
+      "summary": "分形的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a fractal shape with three visible levels on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-guiji",
+      "name": "轨迹",
+      "category_path": [
+        "数学效果",
+        "轨迹"
+      ],
+      "summary": "轨迹的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a dotted path left by a moving point on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-daoji",
+      "name": "倒计时",
+      "category_path": [
+        "数学效果",
+        "倒计时"
+      ],
+      "summary": "倒计时的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a large readable countdown numeral on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-quxian",
+      "name": "函数曲线",
+      "category_path": [
+        "数学效果",
+        "函数曲线"
+      ],
+      "summary": "函数曲线的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a simple rising curve on a plain chart on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-zhenfa",
+      "name": "阵法",
+      "category_path": [
+        "数学效果",
+        "阵法"
+      ],
+      "summary": "阵法的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a six-sided geometric figure on the ground on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-shuju",
+      "name": "数据图形",
+      "category_path": [
+        "数学效果",
+        "数据图形"
+      ],
+      "summary": "数据图形的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of a simple bar of increasing height on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "shu-suofang",
+      "name": "缩放",
+      "category_path": [
+        "数学效果",
+        "缩放"
+      ],
+      "summary": "缩放的数量规则能看出来。",
+      "prompt": "A 16:9 clean asset sheet of one square shown small and then large on a dark background. The quantity rule is visible. No decorative story.",
+      "sheet": "15.6 特效设定板：开始、持续、结束，加依附处近景。浅色或深色空底。",
+      "public_pick": true,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-素颜",
+      "name": "素颜",
+      "category_path": [
+        "人物",
+        "素颜"
+      ],
+      "summary": "人物 / 素颜。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-日常妆",
+      "name": "日常妆",
+      "category_path": [
+        "人物",
+        "日常妆"
+      ],
+      "summary": "人物 / 日常妆。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-盛装",
+      "name": "盛装",
+      "category_path": [
+        "人物",
+        "盛装"
+      ],
+      "summary": "人物 / 盛装。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-伤妆",
+      "name": "伤妆",
+      "category_path": [
+        "人物",
+        "伤妆"
+      ],
+      "summary": "人物 / 伤妆。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-病妆",
+      "name": "病妆",
+      "category_path": [
+        "人物",
+        "病妆"
+      ],
+      "summary": "人物 / 病妆。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-尸妆",
+      "name": "尸妆",
+      "category_path": [
+        "人物",
+        "尸妆"
+      ],
+      "summary": "人物 / 尸妆。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-主角原型",
+      "name": "主角原型",
+      "category_path": [
+        "人物",
+        "主角原型"
+      ],
+      "summary": "人物 / 主角原型。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-配角原型",
+      "name": "配角原型",
+      "category_path": [
+        "人物",
+        "配角原型"
+      ],
+      "summary": "人物 / 配角原型。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-人物-非写实",
+      "name": "非写实",
+      "category_path": [
+        "人物",
+        "非写实"
+      ],
+      "summary": "人物 / 非写实。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-家畜",
+      "name": "家畜",
+      "category_path": [
+        "生物",
+        "家畜"
+      ],
+      "summary": "生物 / 家畜。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-猛兽",
+      "name": "猛兽",
+      "category_path": [
+        "生物",
+        "猛兽"
+      ],
+      "summary": "生物 / 猛兽。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-灵长",
+      "name": "灵长",
+      "category_path": [
+        "生物",
+        "灵长"
+      ],
+      "summary": "生物 / 灵长。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-鸟",
+      "name": "鸟",
+      "category_path": [
+        "生物",
+        "鸟"
+      ],
+      "summary": "生物 / 鸟。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-虫",
+      "name": "虫",
+      "category_path": [
+        "生物",
+        "虫"
+      ],
+      "summary": "生物 / 虫。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-软体",
+      "name": "软体",
+      "category_path": [
+        "生物",
+        "软体"
+      ],
+      "summary": "生物 / 软体。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-幼体",
+      "name": "幼体",
+      "category_path": [
+        "生物",
+        "幼体"
+      ],
+      "summary": "生物 / 幼体。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-变异体",
+      "name": "变异体",
+      "category_path": [
+        "生物",
+        "变异体"
+      ],
+      "summary": "生物 / 变异体。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-骸骨",
+      "name": "骸骨",
+      "category_path": [
+        "生物",
+        "骸骨"
+      ],
+      "summary": "生物 / 骸骨。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物-群体",
+      "name": "群体",
+      "category_path": [
+        "生物",
+        "群体"
+      ],
+      "summary": "生物 / 群体。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-乔木",
+      "name": "乔木",
+      "category_path": [
+        "植物",
+        "乔木"
+      ],
+      "summary": "植物 / 乔木。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-灌木",
+      "name": "灌木",
+      "category_path": [
+        "植物",
+        "灌木"
+      ],
+      "summary": "植物 / 灌木。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-花",
+      "name": "花",
+      "category_path": [
+        "植物",
+        "花"
+      ],
+      "summary": "植物 / 花。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-草",
+      "name": "草",
+      "category_path": [
+        "植物",
+        "草"
+      ],
+      "summary": "植物 / 草。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-作物",
+      "name": "作物",
+      "category_path": [
+        "植物",
+        "作物"
+      ],
+      "summary": "植物 / 作物。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-藤蔓",
+      "name": "藤蔓",
+      "category_path": [
+        "植物",
+        "藤蔓"
+      ],
+      "summary": "植物 / 藤蔓。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-水生",
+      "name": "水生",
+      "category_path": [
+        "植物",
+        "水生"
+      ],
+      "summary": "植物 / 水生。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-果实",
+      "name": "果实",
+      "category_path": [
+        "植物",
+        "果实"
+      ],
+      "summary": "植物 / 果实。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-植物-群落",
+      "name": "群落",
+      "category_path": [
+        "植物",
+        "群落"
+      ],
+      "summary": "植物 / 群落。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-厨房",
+      "name": "厨房",
+      "category_path": [
+        "地点",
+        "厨房"
+      ],
+      "summary": "地点 / 厨房。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-妆台",
+      "name": "妆台",
+      "category_path": [
+        "地点",
+        "妆台"
+      ],
+      "summary": "地点 / 妆台。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-祠堂",
+      "name": "祠堂",
+      "category_path": [
+        "地点",
+        "祠堂"
+      ],
+      "summary": "地点 / 祠堂。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-市集",
+      "name": "市集",
+      "category_path": [
+        "地点",
+        "市集"
+      ],
+      "summary": "地点 / 市集。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-豪宅",
+      "name": "豪宅",
+      "category_path": [
+        "地点",
+        "豪宅"
+      ],
+      "summary": "地点 / 豪宅。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-民居",
+      "name": "民居",
+      "category_path": [
+        "地点",
+        "民居"
+      ],
+      "summary": "地点 / 民居。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-学校",
+      "name": "学校",
+      "category_path": [
+        "地点",
+        "学校"
+      ],
+      "summary": "地点 / 学校。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-车厢船舱",
+      "name": "车厢船舱",
+      "category_path": [
+        "地点",
+        "车厢船舱"
+      ],
+      "summary": "地点 / 车厢船舱。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-洞府",
+      "name": "洞府",
+      "category_path": [
+        "地点",
+        "洞府"
+      ],
+      "summary": "地点 / 洞府。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-屋顶",
+      "name": "屋顶",
+      "category_path": [
+        "地点",
+        "屋顶"
+      ],
+      "summary": "地点 / 屋顶。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-桥",
+      "name": "桥",
+      "category_path": [
+        "地点",
+        "桥"
+      ],
+      "summary": "地点 / 桥。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-地点-废墟",
+      "name": "废墟",
+      "category_path": [
+        "地点",
+        "废墟"
+      ],
+      "summary": "地点 / 废墟。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-星球-环与卫星",
+      "name": "环与卫星",
+      "category_path": [
+        "星球",
+        "环与卫星"
+      ],
+      "summary": "星球 / 环与卫星。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-星球-恒星",
+      "name": "恒星",
+      "category_path": [
+        "星球",
+        "恒星"
+      ],
+      "summary": "星球 / 恒星。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-夹衣",
+      "name": "夹衣",
+      "category_path": [
+        "服装",
+        "夹衣"
+      ],
+      "summary": "服装 / 夹衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-棉衣",
+      "name": "棉衣",
+      "category_path": [
+        "服装",
+        "棉衣"
+      ],
+      "summary": "服装 / 棉衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-皮草",
+      "name": "皮草",
+      "category_path": [
+        "服装",
+        "皮草"
+      ],
+      "summary": "服装 / 皮草。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-制服",
+      "name": "制服",
+      "category_path": [
+        "服装",
+        "制服"
+      ],
+      "summary": "服装 / 制服。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-工装",
+      "name": "工装",
+      "category_path": [
+        "服装",
+        "工装"
+      ],
+      "summary": "服装 / 工装。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-寝衣",
+      "name": "寝衣",
+      "category_path": [
+        "服装",
+        "寝衣"
+      ],
+      "summary": "服装 / 寝衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-浴衣",
+      "name": "浴衣",
+      "category_path": [
+        "服装",
+        "浴衣"
+      ],
+      "summary": "服装 / 浴衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-雨衣",
+      "name": "雨衣",
+      "category_path": [
+        "服装",
+        "雨衣"
+      ],
+      "summary": "服装 / 雨衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-战袍",
+      "name": "战袍",
+      "category_path": [
+        "服装",
+        "战袍"
+      ],
+      "summary": "服装 / 战袍。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-伪装",
+      "name": "伪装",
+      "category_path": [
+        "服装",
+        "伪装"
+      ],
+      "summary": "服装 / 伪装。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-丧服",
+      "name": "丧服",
+      "category_path": [
+        "服装",
+        "丧服"
+      ],
+      "summary": "服装 / 丧服。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-戏服",
+      "name": "戏服",
+      "category_path": [
+        "服装",
+        "戏服"
+      ],
+      "summary": "服装 / 戏服。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-内衣",
+      "name": "内衣",
+      "category_path": [
+        "服装",
+        "内衣"
+      ],
+      "summary": "服装 / 内衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-马褂",
+      "name": "马褂",
+      "category_path": [
+        "服装",
+        "马褂"
+      ],
+      "summary": "服装 / 马褂。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-坎肩",
+      "name": "坎肩",
+      "category_path": [
+        "服装",
+        "坎肩"
+      ],
+      "summary": "服装 / 坎肩。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-比甲",
+      "name": "比甲",
+      "category_path": [
+        "服装",
+        "比甲"
+      ],
+      "summary": "服装 / 比甲。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-蓑衣",
+      "name": "蓑衣",
+      "category_path": [
+        "服装",
+        "蓑衣"
+      ],
+      "summary": "服装 / 蓑衣。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-防护服",
+      "name": "防护服",
+      "category_path": [
+        "服装",
+        "防护服"
+      ],
+      "summary": "服装 / 防护服。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-潜水服",
+      "name": "潜水服",
+      "category_path": [
+        "服装",
+        "潜水服"
+      ],
+      "summary": "服装 / 潜水服。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-服装-宇航服",
+      "name": "宇航服",
+      "category_path": [
+        "服装",
+        "宇航服"
+      ],
+      "summary": "服装 / 宇航服。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-信物",
+      "name": "信物",
+      "category_path": [
+        "道具",
+        "信物"
+      ],
+      "summary": "道具 / 信物。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-文书",
+      "name": "文书",
+      "category_path": [
+        "道具",
+        "文书"
+      ],
+      "summary": "道具 / 文书。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-钥匙锁",
+      "name": "钥匙锁",
+      "category_path": [
+        "道具",
+        "钥匙锁"
+      ],
+      "summary": "道具 / 钥匙锁。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-药与毒",
+      "name": "药与毒",
+      "category_path": [
+        "道具",
+        "药与毒"
+      ],
+      "summary": "道具 / 药与毒。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-酒器",
+      "name": "酒器",
+      "category_path": [
+        "道具",
+        "酒器"
+      ],
+      "summary": "道具 / 酒器。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-灯烛",
+      "name": "灯烛",
+      "category_path": [
+        "道具",
+        "灯烛"
+      ],
+      "summary": "道具 / 灯烛。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-首饰",
+      "name": "首饰",
+      "category_path": [
+        "道具",
+        "首饰"
+      ],
+      "summary": "道具 / 首饰。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-面具",
+      "name": "面具",
+      "category_path": [
+        "道具",
+        "面具"
+      ],
+      "summary": "道具 / 面具。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-乐器",
+      "name": "乐器",
+      "category_path": [
+        "道具",
+        "乐器"
+      ],
+      "summary": "道具 / 乐器。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-刑具",
+      "name": "刑具",
+      "category_path": [
+        "道具",
+        "刑具"
+      ],
+      "summary": "道具 / 刑具。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-家具",
+      "name": "家具",
+      "category_path": [
+        "道具",
+        "家具"
+      ],
+      "summary": "道具 / 家具。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-匕首",
+      "name": "匕首",
+      "category_path": [
+        "道具",
+        "匕首"
+      ],
+      "summary": "道具 / 匕首。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-砍刀",
+      "name": "砍刀",
+      "category_path": [
+        "道具",
+        "砍刀"
+      ],
+      "summary": "道具 / 砍刀。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-弯刀",
+      "name": "弯刀",
+      "category_path": [
+        "道具",
+        "弯刀"
+      ],
+      "summary": "道具 / 弯刀。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-马刀",
+      "name": "马刀",
+      "category_path": [
+        "道具",
+        "马刀"
+      ],
+      "summary": "道具 / 马刀。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-手枪步枪以外的霰弹枪",
+      "name": "手枪步枪以外的霰弹枪",
+      "category_path": [
+        "道具",
+        "手枪步枪以外的霰弹枪"
+      ],
+      "summary": "道具 / 手枪步枪以外的霰弹枪。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-弓",
+      "name": "弓",
+      "category_path": [
+        "道具",
+        "弓"
+      ],
+      "summary": "道具 / 弓。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-弩",
+      "name": "弩",
+      "category_path": [
+        "道具",
+        "弩"
+      ],
+      "summary": "道具 / 弩。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-盾",
+      "name": "盾",
+      "category_path": [
+        "道具",
+        "盾"
+      ],
+      "summary": "道具 / 盾。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-木舟以外的帆船",
+      "name": "木舟以外的帆船",
+      "category_path": [
+        "道具",
+        "木舟以外的帆船"
+      ],
+      "summary": "道具 / 木舟以外的帆船。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-道具-直升机",
+      "name": "直升机",
+      "category_path": [
+        "道具",
+        "直升机"
+      ],
+      "summary": "道具 / 直升机。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-马步",
+      "name": "马步",
+      "category_path": [
+        "动作",
+        "马步"
+      ],
+      "summary": "动作 / 马步。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-虚步",
+      "name": "虚步",
+      "category_path": [
+        "动作",
+        "虚步"
+      ],
+      "summary": "动作 / 虚步。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-闪",
+      "name": "闪",
+      "category_path": [
+        "动作",
+        "闪"
+      ],
+      "summary": "动作 / 闪。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-跃",
+      "name": "跃",
+      "category_path": [
+        "动作",
+        "跃"
+      ],
+      "summary": "动作 / 跃。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-滚",
+      "name": "滚",
+      "category_path": [
+        "动作",
+        "滚"
+      ],
+      "summary": "动作 / 滚。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-掌",
+      "name": "掌",
+      "category_path": [
+        "动作",
+        "掌"
+      ],
+      "summary": "动作 / 掌。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-腿",
+      "name": "腿",
+      "category_path": [
+        "动作",
+        "腿"
+      ],
+      "summary": "动作 / 腿。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-跪拜",
+      "name": "跪拜",
+      "category_path": [
+        "动作",
+        "跪拜"
+      ],
+      "summary": "动作 / 跪拜。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-握手",
+      "name": "握手",
+      "category_path": [
+        "动作",
+        "握手"
+      ],
+      "summary": "动作 / 握手。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-动作-走的八向",
+      "name": "走的八向",
+      "category_path": [
+        "动作",
+        "走的八向"
+      ],
+      "summary": "动作 / 走的八向。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-雹",
+      "name": "雹",
+      "category_path": [
+        "自然显现",
+        "雹"
+      ],
+      "summary": "自然显现 / 雹。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-霜",
+      "name": "霜",
+      "category_path": [
+        "自然显现",
+        "霜"
+      ],
+      "summary": "自然显现 / 霜。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-露",
+      "name": "露",
+      "category_path": [
+        "自然显现",
+        "露"
+      ],
+      "summary": "自然显现 / 露。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-霾",
+      "name": "霾",
+      "category_path": [
+        "自然显现",
+        "霾"
+      ],
+      "summary": "自然显现 / 霾。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-风",
+      "name": "风",
+      "category_path": [
+        "自然显现",
+        "风"
+      ],
+      "summary": "自然显现 / 风。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-虹",
+      "name": "虹",
+      "category_path": [
+        "自然显现",
+        "虹"
+      ],
+      "summary": "自然显现 / 虹。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-日月食",
+      "name": "日月食",
+      "category_path": [
+        "自然显现",
+        "日月食"
+      ],
+      "summary": "自然显现 / 日月食。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-潮",
+      "name": "潮",
+      "category_path": [
+        "自然显现",
+        "潮"
+      ],
+      "summary": "自然显现 / 潮。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-瀑",
+      "name": "瀑",
+      "category_path": [
+        "自然显现",
+        "瀑"
+      ],
+      "summary": "自然显现 / 瀑。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-泉",
+      "name": "泉",
+      "category_path": [
+        "自然显现",
+        "泉"
+      ],
+      "summary": "自然显现 / 泉。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-自然显现-火山灰",
+      "name": "火山灰",
+      "category_path": [
+        "自然显现",
+        "火山灰"
+      ],
+      "summary": "自然显现 / 火山灰。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-抠像",
+      "name": "抠像",
+      "category_path": [
+        "特效",
+        "抠像"
+      ],
+      "summary": "特效 / 抠像。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-擦除",
+      "name": "擦除",
+      "category_path": [
+        "特效",
+        "擦除"
+      ],
+      "summary": "特效 / 擦除。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-替换",
+      "name": "替换",
+      "category_path": [
+        "特效",
+        "替换"
+      ],
+      "summary": "特效 / 替换。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-屏幕",
+      "name": "屏幕",
+      "category_path": [
+        "特效",
+        "屏幕"
+      ],
+      "summary": "特效 / 屏幕。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-分身",
+      "name": "分身",
+      "category_path": [
+        "特效",
+        "分身"
+      ],
+      "summary": "特效 / 分身。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-隐身",
+      "name": "隐身",
+      "category_path": [
+        "特效",
+        "隐身"
+      ],
+      "summary": "特效 / 隐身。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-特效-时间停格",
+      "name": "时间停格",
+      "category_path": [
+        "特效",
+        "时间停格"
+      ],
+      "summary": "特效 / 时间停格。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-物理效果-碰撞",
+      "name": "碰撞",
+      "category_path": [
+        "物理效果",
+        "碰撞"
+      ],
+      "summary": "物理效果 / 碰撞。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-物理效果-毛发",
+      "name": "毛发",
+      "category_path": [
+        "物理效果",
+        "毛发"
+      ],
+      "summary": "物理效果 / 毛发。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-物理效果-挤压",
+      "name": "挤压",
+      "category_path": [
+        "物理效果",
+        "挤压"
+      ],
+      "summary": "物理效果 / 挤压。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-物理效果-弹跳",
+      "name": "弹跳",
+      "category_path": [
+        "物理效果",
+        "弹跳"
+      ],
+      "summary": "物理效果 / 弹跳。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物效果-腐烂",
+      "name": "腐烂",
+      "category_path": [
+        "生物效果",
+        "腐烂"
+      ],
+      "summary": "生物效果 / 腐烂。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物效果-再生",
+      "name": "再生",
+      "category_path": [
+        "生物效果",
+        "再生"
+      ],
+      "summary": "生物效果 / 再生。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物效果-中毒外观",
+      "name": "中毒外观",
+      "category_path": [
+        "生物效果",
+        "中毒外观"
+      ],
+      "summary": "生物效果 / 中毒外观。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-生物效果-群体扑动",
+      "name": "群体扑动",
+      "category_path": [
+        "生物效果",
+        "群体扑动"
+      ],
+      "summary": "生物效果 / 群体扑动。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-化学效果-余焰",
+      "name": "余焰",
+      "category_path": [
+        "化学效果",
+        "余焰"
+      ],
+      "summary": "化学效果 / 余焰。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-化学效果-腐蚀",
+      "name": "腐蚀",
+      "category_path": [
+        "化学效果",
+        "腐蚀"
+      ],
+      "summary": "化学效果 / 腐蚀。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-化学效果-发光反应",
+      "name": "发光反应",
+      "category_path": [
+        "化学效果",
+        "发光反应"
+      ],
+      "summary": "化学效果 / 发光反应。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-数学效果-概率云",
+      "name": "概率云",
+      "category_path": [
+        "数学效果",
+        "概率云"
+      ],
+      "summary": "数学效果 / 概率云。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    },
+    {
+      "id": "extra-数学效果-计数",
+      "name": "计数",
+      "category_path": [
+        "数学效果",
+        "计数"
+      ],
+      "summary": "数学效果 / 计数。类型已入目录，图尚未生成。",
+      "prompt": "",
+      "sheet": "见方案对应设定板",
+      "public_pick": false,
+      "image": null,
+      "status": "pending"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "fu-qipao",
+  "name": "旗袍",
+  "category_path": [
+    "服装",
+    "旗袍"
+  ],
+  "summary": "旗袍平铺正背、盘扣特写，以及穿上后的全身正面。",
+  "prompt": "A 16:9 photoreal costume asset sheet of a silk qipao. Flat front, flat back, worn full length, and a close-up of the knot buttons.",
+  "sheet": "15.2",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}

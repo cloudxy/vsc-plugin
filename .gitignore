@@ -20,6 +20,9 @@ __pycache__/
 /projects/
 /library/
 
+# 官方资产原图全集只留在本机。公共代码库只收录每类精选。
+/assets/
+
 # ZCode 本地索引排除配置。
 /.zcodeignore
 

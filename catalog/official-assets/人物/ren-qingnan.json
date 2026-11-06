@@ -1,0 +1,22 @@
+{
+  "id": "ren-qingnan",
+  "name": "青年男",
+  "category_path": [
+    "人物",
+    "青年男"
+  ],
+  "summary": "二十多岁、短黑发、深色外套的青年男定妆板。含全身正、侧、背和正脸特写。",
+  "prompt": "A 16:9 photoreal film asset sheet of one invented young East Asian man in his twenties, short black hair, lean build, dark plain jacket and trousers. Gray studio, even soft light. Full body front, side, and back standing in a relaxed A-pose on the same ground line, plus a large face close-up showing eyes, nose, jaw, and hairline. Head and shoes fully visible.",
+  "sheet": "15.1",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}

@@ -1,0 +1,22 @@
+{
+  "id": "di-zhai",
+  "name": "宅院厅堂",
+  "category_path": [
+    "地点",
+    "宅院厅堂"
+  ],
+  "summary": "宅院厅堂空镜：正面、反打、入口和柱础雕花近景。",
+  "prompt": "A 16:9 photoreal empty-set asset sheet of a Chinese courtyard hall. Wide front, reverse, entrance, and a carved column.",
+  "sheet": "15.5",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}
