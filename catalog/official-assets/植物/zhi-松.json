@@ -1,0 +1,22 @@
+{
+  "id": "zhi-松",
+  "name": "松",
+  "category_path": [
+    "植物",
+    "松"
+  ],
+  "summary": "松的全株、树皮针叶近景，以及约一人高的标尺。",
+  "prompt": "A 16:9 photoreal film asset sheet of a pine tree, the whole tree, bark and needles, and a human-height scale.",
+  "sheet": "15.4",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}

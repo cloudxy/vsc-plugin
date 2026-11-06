@@ -1,0 +1,22 @@
+{
+  "id": "ziran-baoyu",
+  "name": "暴雨",
+  "category_path": [
+    "自然显现",
+    "暴雨"
+  ],
+  "summary": "暴雨的天色、雨势、积水和石面近景。",
+  "prompt": "A 16:9 photoreal asset sheet of heavy rain.",
+  "sheet": "15.4",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}

@@ -1,0 +1,22 @@
+{
+  "id": "qiangxie-shouqiang",
+  "name": "手枪",
+  "category_path": [
+    "道具",
+    "手枪"
+  ],
+  "summary": "手枪的正面、侧面和握把准星特写。",
+  "prompt": "A 16:9 photoreal prop asset sheet of a modern pistol.",
+  "sheet": "15.3",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}

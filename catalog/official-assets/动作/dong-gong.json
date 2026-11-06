@@ -1,0 +1,22 @@
+{
+  "id": "dong-gong",
+  "name": "弓步",
+  "category_path": [
+    "动作",
+    "弓步"
+  ],
+  "summary": "弓步一式的起势、定势和收势。",
+  "prompt": "A 16:9 photoreal action sheet of one bow stance in three phases: start, settled stance, and recovery.",
+  "sheet": "15.6",
+  "aspect_ratio": "16:9",
+  "native_pixels": [
+    1280,
+    720
+  ],
+  "delivered_pixels": [
+    2560,
+    1440
+  ],
+  "codec": "png",
+  "lossy": false
+}
