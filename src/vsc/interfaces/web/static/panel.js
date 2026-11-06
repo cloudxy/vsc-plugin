@@ -301,8 +301,21 @@ async function loadResourceModel(mode) {
 async function loadScriptWorkspace() {
   if (!state.project || state.view !== 'script') return;
   if(state.projectRows.get(state.project)?.storage_policy!=='postgres-series-v1'){
-    const button=el('button','',msg("ui.read_existing_screenplay_versions"));button.addEventListener('click',guard(()=>switchView('artifacts')));
-    $('script-view').replaceChildren(el('p','hint',msg("ui.this_project_is_read_only_under_its_original_storage")),button);return;
+    const root=$('script-view');
+    root.replaceChildren(el('p','hint',msg("ui.loading")));
+    try{
+      const data=await api(`${base()}/artifacts`);
+      const rows=(Array.isArray(data)?data:data.items||[]).filter(row=>String(row.type||'').includes('screenplay'));
+      const replaced=new Set(rows.map(row=>row.supersedes).filter(Boolean));
+      const current=rows.filter(row=>!replaced.has(row.id)).sort((a,b)=>String(b.id).localeCompare(String(a.id)))[0];
+      if(!current){root.replaceChildren(el('p','empty','这部作品还没有剧本。'));return;}
+      const artifact=await api(`${base()}/artifacts/${encodeURIComponent(current.id)}`);
+      let doc=artifact.content;
+      if(typeof doc==='string'){try{doc=JSON.parse(doc);}catch{doc={body:doc};}}
+      const {body}=renderArtifactContent(doc);
+      root.replaceChildren(el('h1','screenplay-title',state.projectRows.get(state.project)?.name||'剧本'),body);
+    }catch(error){root.replaceChildren(el('p','empty',error.message));}
+    return;
   }
   if (!scriptWorkspace) {
     const {createScriptWorkspace} = await import('./script-workspace.js');

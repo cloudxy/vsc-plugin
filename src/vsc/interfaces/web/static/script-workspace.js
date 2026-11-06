@@ -1,4 +1,5 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
+import {renderScreenplay} from './artifact-reader.js';
 /* 剧本工作区：可变工作副本 + 串行自动保存 + 批注 + 差异 + 提交人工确认。
    本模块只消费后端事实（draft / artifact 决定），不拥有批准权威。
    F01/F02：保存会话绑定 project+scope，串行保存队列，过期响应与切换后定时器不写当前会话；
@@ -362,18 +363,7 @@ export function createScriptWorkspace(container, ctx) {
       if (!parsed || !Array.isArray(parsed.scenes) || artifact.id !== submitted.id || !submitted.sha256 || artifact.sha256 !== submitted.sha256) {
         setText(frozen,msg("ui.the_frozen_body_or_checksum_does_not_match_its")); return;
       }
-      const scenes = parsed?.scenes || [];
-      frozen.replaceChildren(el('p', '', msg("ui.scope_value0_scenes_value1",{value0:artifact.project_wide ? msg("ui.whole_project") : (artifact.object_ids || []).join('、'),value1:scenes.length})),
-        el('p', 'frozen-screenplay-body', parsed.body || ''), el('p', '', msg("ui.adaptation_source_value0",{value0:JSON.stringify(parsed.adaptation_refs || [])})));
-      for (const scene of scenes) {
-        const block = el('div', 'frozen-scene');
-        block.append(el('strong', '', msg("ui.value0_about_value1_ms",{value0:scene.id,value1:scene.estimated_duration_ms || 0})));
-        for (const row of scene.actions || []) block.append(el('div', '', msg("ui.action_value0_narrative_source_value1",{value0:row.text,value1:(row.narrative_refs || []).join('、')})));
-        for (const row of scene.dialogue || []) block.append(el('div', '', msg("ui.value0_value1_narrative_source_value2",{value0:row.speaker || '',value1:row.text,value2:(row.narrative_refs || []).join('、')})));
-        for (const row of scene.silence || []) block.append(el('div', '', msg("ui.silence_value0_value1_ms_value2_narrative_source_value3",{value0:row.text,value1:row.duration_ms || '?',value2:row.purpose || '',value3:(row.narrative_refs || []).join('、')})));
-        frozen.append(block);
-      }
-      frozen.append(el('p', '', msg("ui.fixed_prerequisite_version_value0",{value0:(artifact.dependency_ids || artifact.dependencies?.map(row => row.id) || []).join('、')})));
+      frozen.replaceChildren(renderScreenplay(parsed));
       reviewed = true; approve.disabled = !pending; reject.disabled = !pending;
     }).catch(error => { if (sameSession(target)) setText(frozen,msg("ui.frozen_text_could_not_be_loaded_value0",{value0:error.message})); });
     approve.addEventListener('click', async () => {
