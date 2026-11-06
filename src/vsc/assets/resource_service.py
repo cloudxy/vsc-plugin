@@ -153,6 +153,9 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         self._actor(actor)
         required(payload, "name")
         payload = dict(payload)
+        style = payload.pop("character_style", None)
+        if style is not None and style not in {"2d", "3d", "live"}:
+            raise ResourceError("项目类型须为 2D动漫、3D动漫或真人", "invalid_project_style")
         if "profile_snapshot" not in payload:
             from vsc.project.state import profile_for
             payload["profile_snapshot"] = profile_for(payload.get("profile", "vsc.series-pg"))
@@ -164,6 +167,10 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
             raise ResourceError("Profile名称与固定快照不一致", "invalid_profile_snapshot")
         if snapshot.get("storage_policy", "postgres-series-v1") != "postgres-series-v1":
             raise ResourceError("新PostgreSQL项目需要匹配的存储策略Profile", "invalid_profile_snapshot")
+        if style:
+            snapshot = dict(snapshot)
+            snapshot["character_style"] = style
+            payload["profile_snapshot"] = snapshot
         payload["profile"] = snapshot["profile_id"]
         return self.store.create_project(payload, actor=actor, **kwargs)
 

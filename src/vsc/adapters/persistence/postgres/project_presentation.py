@@ -45,7 +45,8 @@ def project_cards(store, projects):
                     S.creative_canvases.c.project_id == p,
                     (S.creative_canvases.c.episode_id.is_(None) | S.creative_canvases.c.episode_id.not_in(hidden)))).scalar_one())
             profile = row.get('profile_id') or row.get('profile')
-            row['project_type'] = {'vsc.light-short': '短视频', 'vsc.series-pg': '连续短剧',
+            style = {'2d': '2D动漫', '3d': '3D动漫', 'live': '真人'}.get((row.get('profile_snapshot') or {}).get('character_style'))
+            row['project_type'] = style or {'vsc.light-short': '短视频', 'vsc.series-pg': '连续短剧',
                 'vsc.text-tools': '文本工具', 'vsc.creative-tools': '创作工具'}.get(profile)
             row['cover'] = media_cover(conn, p)
             result.append(row)

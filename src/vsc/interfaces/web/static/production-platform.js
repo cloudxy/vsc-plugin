@@ -125,15 +125,21 @@ export function createProductionPlatform(root,ctx){
     query.addEventListener('input',draw);project.addEventListener('change',readEpisodes);episode.addEventListener('change',draw);order.addEventListener('change',draw);draw();
   }
   function createProject(type,next={}){
-    const dialog=el('dialog',null,'platform-create');bindAttribute(dialog,'aria-label',msg("ui.new_work"));const form=el('form');
-    form.append(el('h2',type==='canvas'?msg("shell.new_canvas"):type==='short'?msg("ui.new_short_video"):msg("ui.create_a_serial_drama")));
-    const name=field(form,msg("ui.project_name"),el('input'));name.required=true;name.maxLength=200;const typeSelect=el('select');typeSelect.append(localizedOption('series',msg("ui.episodic_short_drama")),localizedOption('short',msg("ui.single_short_video")));typeSelect.value=type==='short'?'short':'series';if(type!=='canvas')field(form,msg("project.project_type"),typeSelect);
+    const canvas=type==='canvas',dialog=el('dialog',null,'platform-create');bindAttribute(dialog,'aria-label',canvas?msg("shell.new_canvas"):msg("project.create_project"));const form=el('form');
+    form.append(el('h2',canvas?msg("shell.new_canvas"):msg("project.create_project")));
+    const name=field(form,msg("ui.sky_project_name"),el('input'));name.required=true;name.maxLength=50;
+    const episodes=canvas?null:field(form,msg("ui.episode_count"),el('input'));if(episodes){episodes.type='number';episodes.required=true;episodes.min='1';episodes.max='500';episodes.value='1';}
+    const style=el('select');if(!canvas){style.append(localizedOption('2d',msg("ui.style_2d")),localizedOption('3d',msg("ui.style_3d")),localizedOption('live',msg("ui.style_live")));style.value='2d';field(form,msg("project.project_type"),style);}
     const message=el('p',null,'hint'),save=el('button',msg("ui.create_project"));save.type='submit';save.disabled=!session().actor||!session().writeAvailable;
     form.append(message,actions(save,button(msg("common.cancel"),()=>dialog.close())));dialog.append(form);root.append(dialog);dialog.showModal();
     const key=uid(),s=scope,t=ticket;let submitted=false;
     form.addEventListener('submit',async e=>{e.preventDefault();if(submitted)return;submitted=true;save.disabled=true;try{
-      const result=await ctx.api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{name:name.value.trim(),profile:type==='canvas'||typeSelect.value==='short'?'vsc.light-short':'vsc.series-pg'},idempotency_key:key})});
-      if(!same(t,s))return;dialog.close();await ctx.created(result.id,next.page||(type==='canvas'?'creative-canvas':'project'));if(next.options)await ctx.navigate(next.page,null,result.id,next.options);
+      const count=episodes?Math.min(500,Math.max(1,Math.trunc(Number(episodes.value)||1))):0;
+      const result=await ctx.api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{name:name.value.trim(),profile:canvas||count<=1?'vsc.light-short':'vsc.series-pg',...(canvas?{}:{character_style:style.value})},idempotency_key:key})});
+      if(!same(t,s))return;
+      let revision=result.revision??0;
+      for(let offset=0;offset<count;offset+=50){const titles=Array.from({length:Math.min(50,count-offset)},(_,index)=>'第'+(offset+index+1)+'集');const saved=await ctx.api('/api/v1/projects/'+encodeURIComponent(result.id)+'/episode-batches',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{titles,initial_shot_count:0},expected_revision:revision,idempotency_key:key+':episodes:'+offset})});revision=saved.revision??revision;}
+      dialog.close();ctx.notice(msg("ui.project_created"));await ctx.created(result.id,next.page||(canvas?'creative-canvas':'project'));if(next.options)await ctx.navigate(next.page,null,result.id,next.options);
     }catch(error){setText(message,error.message);save.disabled=false;submitted=false;}});
     dialog.addEventListener('close',()=>dialog.remove(),{once:true});name.focus();
   }
