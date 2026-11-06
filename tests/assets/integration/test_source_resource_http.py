@@ -119,6 +119,8 @@ class SourceResourceHTTP(ResourceStoreFixture, unittest.TestCase):
                 config.attributes["connection"] = conn
                 command.downgrade(config, "0009_role_memory")
                 self.assertEqual(conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one(), "0009_role_memory")
+            with engine.begin() as conn:
+                config.attributes["connection"] = conn
                 command.upgrade(config, "head")
                 self.assertEqual(conn.execute(text("SELECT count(*) FROM asset_categories WHERE parent_code IS NULL")).scalar_one(), 11)
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), metadata), [])
