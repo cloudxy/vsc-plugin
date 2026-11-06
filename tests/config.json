@@ -1478,6 +1478,15 @@
         "src/vsc/production/canvas_execution.py"
       ]
     },
+    "project.integration.test_empty_canvas_project": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/interfaces/web/app.py",
+        "src/vsc/interfaces/web/static/panel.js"
+      ]
+    },
     "project.integration.test_project_management": {
       "owner": "project",
       "layer": "integration",
