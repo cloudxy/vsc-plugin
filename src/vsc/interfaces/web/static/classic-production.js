@@ -496,10 +496,10 @@ export function createClassicProduction(root,ctx){
       const query=new URLSearchParams({section:'shots',limit:'100',...(value.objectId?{object_id:value.objectId}:value.episodeId?{object_id:value.episodeId}:{})});
       const listing=await ctx.api(base(s.projectId)+'/workbench?'+query);
       if(!alive(n,s))return;
-      const page=listing.sections.shots;
-      s.episodeId=value.episodeId||(listing.scope.kind==='episode'?listing.scope.id:listing.ancestors.find(row=>row.kind==='episode')?.id)||null;
-      s.shots=value.shots?.length?value.shots:page.items;
-      s.shotId=value.shotId||(listing.scope.kind==='shot'?listing.scope.id:page.items[0]?.id);
+      const scopeNode=listing.scope||null,ancestors=Array.isArray(listing.ancestors)?listing.ancestors:[],page=listing.sections?.shots||{items:[]};
+      s.episodeId=value.episodeId||(scopeNode?.kind==='episode'?scopeNode.id:ancestors.find(row=>row?.kind==='episode')?.id)||null;
+      s.shots=value.shots?.length?value.shots:(page.items||[]);
+      s.shotId=value.shotId||(scopeNode?.kind==='shot'?scopeNode.id:s.shots[0]?.id)||null;
       if(!s.shotId){renderEmpty(s,n);return;}
       const data=await ctx.api(base(s.projectId)+'/classic-production?shot_id='+encodeURIComponent(s.shotId));
       if(!alive(n,s))return;
