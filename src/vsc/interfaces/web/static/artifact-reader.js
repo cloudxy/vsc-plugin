@@ -84,32 +84,41 @@ function appendReadableText(parent, text, className) {
   more.addEventListener('click',next);next();
 }
 
-function screenplayLine(text) {
-  const line = text.trim();
-  if (!line) return null;
-  if (line.startsWith('△')) return ['sp-action', line.replace(/^△\s*/, '')];
-  if (/^（.+）$/.test(line)) return ['sp-paren', line];
-  if (/^\d+-\d+/.test(line)) return ['sp-slug', line];
-  if (line.startsWith('时长') || line.startsWith('出场') || line.includes('　')) return ['sp-meta', line];
-  if (line === '人物' || line.startsWith('第') && line.includes('集')) return ['sp-kicker', line];
-  if (!/[。，！？、：]/.test(line) && line.length <= 6) return ['sp-character', line];
-  if (line.startsWith('本集')) return ['sp-end', line];
-  return ['sp-dialogue', line];
+function appendScreenplay(sheet, text) {
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!lines.length) return false;
+  sheet.append(node('h1', 'sp-title', lines[0]));
+  const cast = [];
+  let scene = null;
+  const openScene = (title) => {
+    scene = node('section', 'sp-scene');
+    const head = node('header', 'sp-slug');
+    head.append(node('span', 'sp-slug-title', title));
+    scene.append(head);
+    sheet.append(scene);
+  };
+  for (const line of lines.slice(1)) {
+    if (line === '人物') continue;
+    if (line.startsWith('第') && line.includes('集')) { sheet.append(node('p', 'sp-kicker', line)); continue; }
+    if (/^\d+-\d+/.test(line)) { openScene(line); continue; }
+    if (line.startsWith('时长') && scene) { scene.querySelector('.sp-slug').append(node('span', 'sp-time', line.replace(/^时长\s*/, ''))); continue; }
+    if (line.startsWith('出场')) { if (scene) scene.append(node('p', 'sp-who', line.replace(/^出场\s*/, ''))); continue; }
+    if (line.includes('　') && !scene) { cast.push(line.split('　')[0]); continue; }
+    if (!scene) continue;
+    if (line.startsWith('△')) { scene.append(node('p', 'sp-action', line.replace(/^△\s*/, ''))); continue; }
+    if (/^（.+）$/.test(line)) { scene.append(node('p', 'sp-paren', line)); continue; }
+    if (line.startsWith('本集')) { sheet.append(node('p', 'sp-end', line)); continue; }
+    if (!/[。，！？、：]/.test(line) && line.length <= 6) { scene.append(node('p', 'sp-character', line)); continue; }
+    scene.append(node('p', 'sp-dialogue', line));
+  }
+  if (cast.length) sheet.insertBefore(node('p', 'sp-cast', cast.join('  ·  ')), sheet.querySelector('.sp-scene') || null);
+  return true;
 }
 
 export function renderScreenplay(doc) {
   const sheet = node('article', 'screenplay-page');
   const text = typeof doc?.body === 'string' ? doc.body.trim() : '';
-  const lines = text ? text.split('\n') : [];
-  if (lines.length) {
-    const title = lines[0].trim();
-    if (title) sheet.append(node('h1', 'sp-title', title));
-    for (const raw of lines.slice(1)) {
-      const kind = screenplayLine(raw);
-      if (kind) sheet.append(node('p', kind[0], kind[1]));
-    }
-    return sheet;
-  }
+  if (text && appendScreenplay(sheet, text)) return sheet;
   for (const scene of doc?.scenes || []) {
     const block = node('section', 'sp-scene');
     const seconds = Math.round((scene.estimated_duration_ms || 0) / 1000);
