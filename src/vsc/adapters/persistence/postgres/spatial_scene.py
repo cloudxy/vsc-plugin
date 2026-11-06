@@ -100,7 +100,9 @@ class SpatialSceneRepository:
             scene,version=self._spatial_version(conn,project["id"],required(payload,"spatial_scene_id"))
             if type(payload.get("scene_revision")) is not int or payload["scene_revision"]!=version["version"]:
                 raise Conflict("导出要求当前已保存场景版本","spatial_revision_conflict")
-            document=self._spatial_document(conn,project["id"],version);camera=required(payload,"camera_id")
+            document=self._spatial_document(conn,project["id"],version)
+            if not document["objects"]:raise ResourceError("空场景不能导出","spatial_export_empty")
+            camera=required(payload,"camera_id")
             if camera not in {c["id"] for c in document["cameras"]}:raise ResourceError("机位不属于固定场景")
             fmt=payload.get("format")
             if fmt not in {"png","glb","mp4"}:raise ResourceError("导出支持 PNG、GLB 或 MP4")
