@@ -30,3 +30,4 @@
 #production-platform .media-catalog-actions{pointer-events:none}
 #production-platform .media-catalog-actions a{pointer-events:auto}
 #production-platform .media-catalog-cover:has(video) .media-catalog-actions{bottom:38px}
+.platform-create button.danger{background:var(--danger,#ad3d2b);border-color:transparent;color:#fff}
