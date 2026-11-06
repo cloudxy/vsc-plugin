@@ -157,6 +157,22 @@ def render_png(document, camera_id, instant, maximum=None):
     return rasterize(document, scene_meshes(document, instant), camera_at(document, camera_id, instant), lights, maximum)
 
 
+# Measured still sizes from the reference previs: 16:9 video 960×540 becomes
+# PNG 1920×1080, and 9:16 video 540×960 becomes PNG 1080×1920. Other frame
+# sizes stay as stored; unmeasured aspect presets are not scaled here.
+STILL_FROM_VIDEO = {(960, 540): (1920, 1080), (540, 960): (1080, 1920)}
+
+
+def still_frame_size(width, height):
+    return STILL_FROM_VIDEO.get((width, height), (width, height))
+
+
+def render_still_png(document, camera_id, instant):
+    width, height = still_frame_size(document["width"], document["height"])
+    framed = document if (width, height) == (document["width"], document["height"]) else dict(document, width=width, height=height)
+    return render_png(framed, camera_id, instant)
+
+
 def export_glb(document, camera_id, instant, *, animated=False):
     """Export a fixed pose or editable scene animation using embedded media only."""
     if animated:return export_animated_glb(document,camera_id,instant)

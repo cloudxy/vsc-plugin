@@ -245,6 +245,16 @@ class SpatialSceneService:
         document = normalize_scene(required(payload, "document"))
         return render_png(self.prepare_spatial_scene(project_id, document), required(payload, "camera_id"), number(payload.get("time", 0), 0, document["duration"]), maximum=640)
 
+    def capture_spatial_viewport(self, project_id, payload):
+        """Download the current view. This writes no media, canvas node, or workflow reference."""
+        from vsc.post.spatial_export import render_still_png
+        self.store.get_project(project_id)
+        document = normalize_scene(required(payload, "document"))
+        if not document["objects"]:
+            raise ResourceError("空场景不能截取当前视窗", "spatial_viewport_empty")
+        prepared = self.prepare_spatial_scene(project_id, document)
+        return render_still_png(prepared, required(payload, "camera_id"), number(payload.get("time", 0), 0, document["duration"]))
+
     def import_spatial_glb(self, project_id, media_id):
         media = self.store.get_media(project_id, media_id)
         item = {"id": "import-1", "name": str(media.get("name") or "GLB 模型")[:200], "kind": "mesh", "media_id": media_id,

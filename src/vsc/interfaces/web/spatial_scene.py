@@ -31,6 +31,11 @@ def install_spatial_scene_routes(router,catalog,etag,actor):
         image=await run_in_threadpool(service(project_id).preview_spatial_scene,project_id,body)
         return Response(image,media_type="image/png")
 
+    @router.post("/{project_id}/spatial-viewport")
+    async def viewport(project_id:str,body:dict):
+        image=await run_in_threadpool(service(project_id).capture_spatial_viewport,project_id,body)
+        return Response(image,media_type="image/png")
+
     @router.post("/{project_id}/spatial-scene-validate")
     def validate(project_id:str,body:dict):
         service(project_id).get_project(project_id)
