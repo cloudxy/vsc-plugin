@@ -139,7 +139,7 @@ class AccessControlRepository:
                 try:checked_id(row['id'])
                 except ResourceError:
                     principal=current_principal()
-                    if not principal or principal.local or principal.local_read and not principal.identity_id and not principal.share_id:result.append(row)
+                    if not principal or principal.local or principal.local_read:result.append(row)
                     continue
                 try:scope=self._access_require(conn,row['id'])
                 except ResourceError as exc:

@@ -84,6 +84,27 @@ function appendReadableText(parent, text, className) {
   more.addEventListener('click',next);next();
 }
 
+export function renderScreenplay(doc) {
+  const sheet = node('article', 'screenplay-sheet');
+  const text = typeof doc?.body === 'string' ? doc.body.trim() : '';
+  if (text) {
+    sheet.append(node('pre', 'screenplay-body', text));
+    return sheet;
+  }
+  for (const scene of doc?.scenes || []) {
+    const block = node('section', 'screenplay-scene');
+    block.append(node('h2', 'screenplay-slug', scene.id || '场'));
+    for (const row of scene.actions || []) if (row.text) block.append(node('p', 'screenplay-action', row.text));
+    for (const row of scene.dialogue || []) if (row.text) {
+      block.append(node('p', 'screenplay-speaker', row.speaker || '人物'));
+      block.append(node('p', 'screenplay-line', row.text));
+    }
+    sheet.append(block);
+  }
+  if (!sheet.childElementCount) sheet.append(node('p', 'document-empty', '这部作品还没有剧本正文。'));
+  return sheet;
+}
+
 export function renderArtifactContent(content, {mimeType=''}={}) {
   const body = node('div', 'document-content');
   const mediaKind=/^(video|audio|image)\//.exec(mimeType)?.[1];
@@ -98,6 +119,10 @@ export function renderArtifactContent(content, {mimeType=''}={}) {
   if (!structured) {
     appendReadableText(body,content || '内容缺失或超过内置阅读限额。','readable');
     return {body, value: undefined};
+  }
+  if (value?.format === 'vsc.screenplay/v1') {
+    body.append(renderScreenplay(value));
+    return {body, value};
   }
   // An explicit stack keeps every field and array item, even in deeply nested documents.
   const pending = [{value, parent:body}];
