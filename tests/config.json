@@ -1339,6 +1339,8 @@
       "sources": [
         "src/vsc/interfaces/web/spatial_scene.py",
         "src/vsc/interfaces/web/static/spatial-scene.js",
+        "src/vsc/assets/spatial_scene.py",
+        "src/vsc/post/spatial_export.py",
         "src/vsc/post/spatial_gltf.py",
         "src/vsc/post/spatial_raster.py",
         "tests/support/fixtures/spatial_glb.py"

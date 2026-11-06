@@ -258,6 +258,40 @@ class SpatialSceneTests(ResourceStoreFixture, unittest.TestCase):
         bad=struct.pack("<III",0x46546c67,2,28+len(content))+struct.pack("<II",len(content),0x4e4f534a)+content+struct.pack("<II",0,0x004e4942)
         with self.assertRaises(ResourceError):import_glb(bad)
 
+    def test_viewport_capture_is_a_still_download_without_media_canvas_or_workflow(self):
+        from copy import deepcopy
+        from sqlalchemy import func, select
+        from PIL import Image
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.resource_service import ResourceError
+        from vsc.assets.spatial_scene import default_scene
+        wide=default_scene();wide.update(width=960,height=540)
+        wide["objects"].append({"id":"lamp","kind":"light","position":[0,2,1],"color":"#fff1c2"})
+        portrait=deepcopy(wide);portrait.update(width=540,height=960)
+        small=deepcopy(wide);small.update(width=320,height=180)
+        dark=deepcopy(small)
+        dark["objects"]=[item for item in dark["objects"] if item["kind"]!="light"]
+        empty={"objects":[],"cameras":wide["cameras"],"width":960,"height":540,"duration":5}
+        revision=self.service.get_project(self.p)["revision"]
+        with self.engine.connect() as conn:
+            before={name:conn.scalar(select(func.count()).select_from(table)) for name,table in (
+                ("exports",S.spatial_exports),("media",S.media_items),("canvases",S.creative_canvases),("workflows",S.intelligent_workflows))}
+        captured=self.service.capture_spatial_viewport(self.p,{"document":wide,"camera_id":"camera-a","time":0})
+        self.assertEqual(Image.open(io.BytesIO(captured)).size,(1920,1080))
+        self.assertEqual(Image.open(io.BytesIO(self.service.capture_spatial_viewport(self.p,{"document":portrait,"camera_id":"camera-a","time":0}))).size,(1080,1920))
+        near=self.service.capture_spatial_viewport(self.p,{"document":small,"camera_id":"camera-a","time":0})
+        far=self.service.capture_spatial_viewport(self.p,{"document":dark,"camera_id":"camera-a","time":0})
+        self.assertEqual(Image.open(io.BytesIO(near)).size,(320,180))
+        self.assertNotEqual(near,far)
+        with self.assertRaises(ResourceError) as empty_view:
+            self.service.capture_spatial_viewport(self.p,{"document":empty,"camera_id":"camera-a","time":0})
+        self.assertEqual(empty_view.exception.code,"spatial_viewport_empty")
+        self.assertEqual(self.service.get_project(self.p)["revision"],revision)
+        with self.engine.connect() as conn:
+            after={name:conn.scalar(select(func.count()).select_from(table)) for name,table in (
+                ("exports",S.spatial_exports),("media",S.media_items),("canvases",S.creative_canvases),("workflows",S.intelligent_workflows))}
+        self.assertEqual(before,after)
+
 @unittest.skipUnless(TEST_URL and HAS_DB,'requires isolated PostgreSQL')
 class SpatialPlannerTests(ResourceStoreFixture,unittest.TestCase):
     scene=SpatialSceneTests.scene
