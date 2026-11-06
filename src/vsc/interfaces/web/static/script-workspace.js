@@ -584,9 +584,10 @@ export function createScriptWorkspace(container, ctx) {
     const tools=el('details','script-edit-tools');tools.append(el('summary','',msg("ui.scene_and_version_actions")),toolbar);wrap.append(tools);
     const board = el('div', 'script-board');
     const content = draft.content || blank();
+    wrap.append(renderScreenplay(content));
     const fields = el('section', 'script-document-fields');
     const bodyLabel = el('label', '', msg("ui.script_body"));
-    const body = el('textarea', 'script-body screenplay-body'); body.value = content.body || ''; body.rows = Math.min(80, Math.max(28, (content.body || '').split('\n').length + 2));
+    const body = el('textarea', 'script-body'); body.value = content.body || ''; body.rows = 8;
     if (content.structured_source) {
       body.readOnly = true;
       bindAttribute(body,'aria-label',msg("ui.continuous_text_generated_from_scenes_and_dialogue"));
@@ -616,10 +617,10 @@ export function createScriptWorkspace(container, ctx) {
     fields.append(refs, addRefButton, el('p', 'script-dependencies hint', dependencies
       ? msg("ui.fixed_submission_prerequisites_value0_value1",{value0:(dependencies.dependencies || []).map(row => `${row.artifact_key || row.artifact_type || row.id} v${row.version} · ${row.sha256}`).join('；') || msg("ui.current_profile_has_no_prerequisites"),value1:dependencies.missing_dependency_types?.length ? msg("ui.approved_versions_missing_value0",{value0:dependencies.missing_dependency_types.join('、')}) : ''})
       : msg("ui.waiting_for_submission_prerequisite_facts_for_this_scope")));
-    const evidence=el('details','script-source-evidence');evidence.append(el('summary','',msg("ui.source_structure_and_submission_checks")),fields);wrap.append(evidence);
+    const evidence=el('details','script-source-evidence');evidence.append(el('summary','改正文和场次'),fields);
     for (const scene of content.scenes || []) board.append(sceneCard(scene));
     if (!(content.scenes || []).length) board.append(el('p', 'empty', msg("ui.no_scenes_yet_select_add_scene_to_start_writing")));
-    wrap.append(board);
+    evidence.append(board);wrap.append(evidence);
     return wrap;
   }
 
