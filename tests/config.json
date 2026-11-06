@@ -1287,6 +1287,7 @@
         "src/vsc/adapters/persistence/postgres/classic_production.py",
         "src/vsc/interfaces/web/classic_production.py",
         "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/interfaces/web/static/classic-production.css",
         "src/vsc/production/commerce_quote.py",
         "src/vsc/interfaces/web/static/run-scope-controls.js",
         "src/vsc/interfaces/web/static/reference-editor.js",
@@ -1526,7 +1527,25 @@
         "src/vsc/adapters/persistence/postgres/creative_canvas.py",
         "src/vsc/interfaces/web/creative_canvas.py",
         "src/vsc/adapters/persistence/postgres/copy_lineage.py",
-        "migrations/postgres/versions/0049_canvas_project_media.py"
+        "migrations/postgres/versions/0049_canvas_project_media.py",
+        "migrations/postgres/versions/0050_classic_frame_media.py"
+      ]
+    },
+    "project.integration.test_classic_frame_library": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/copy_lineage.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/adapters/persistence/postgres/schema_community.py",
+        "src/vsc/project/schema_review.py",
+        "src/vsc/interfaces/web/classic_production.py",
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/interfaces/web/static/classic-production.css",
+        "migrations/postgres/versions/0050_classic_frame_media.py"
       ]
     },
     "project.unit.test_canvas_placement_frontend": {
@@ -1617,7 +1636,8 @@
       "sources": [
         "src/vsc/adapters/persistence/postgres/copy_lineage.py",
         "src/vsc/adapters/persistence/postgres/schema_community.py",
-        "migrations/postgres/versions/0049_canvas_project_media.py"
+        "migrations/postgres/versions/0049_canvas_project_media.py",
+        "migrations/postgres/versions/0050_classic_frame_media.py"
       ]
     },
     "project.integration.test_task_center_progress": {

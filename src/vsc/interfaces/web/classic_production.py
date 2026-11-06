@@ -60,6 +60,10 @@ def install_classic_production_routes(router, catalog, etag, actor):
     async def save(project_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "save_classic_draft")
 
+    @router.post("/{project_id}/classic-production/frame-media")
+    async def frame_media(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "import_classic_frame_media")
+
     @router.post("/{project_id}/classic-production/run-proposals")
     async def propose(project_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "propose_classic_run")

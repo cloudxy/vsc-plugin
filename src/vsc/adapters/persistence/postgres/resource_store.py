@@ -1061,6 +1061,40 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             return None
         return link['source_project_id'], source['id'], receipt['revision']
 
+    def _frame_copy_parent(self, conn, p, media_id):
+        """Recover only the immutable classic-frame link committed by its receipt."""
+        link = conn.execute(select(S.classic_frame_media_links).where(
+            S.classic_frame_media_links.c.project_id == p,
+            S.classic_frame_media_links.c.target_media_id == media_id)).mappings().first()
+        if not link:
+            return None
+        revisions = list(conn.execute(select(S.project_revisions.c.revision, S.command_receipts.c.response)
+            .select_from(S.project_revisions.join(S.command_receipts, and_(
+                S.project_revisions.c.project_id == S.command_receipts.c.project_id,
+                S.project_revisions.c.command_key == S.command_receipts.c.idempotency_key)))
+            .where(S.project_revisions.c.project_id == p,
+                   S.project_revisions.c.command_key == link['command_key'],
+                   S.project_revisions.c.action == 'import_classic_frame_media')).mappings())
+        if len(revisions) != 1:
+            return None
+        receipt = revisions[0]; response = receipt['response']
+        if (not isinstance(response, dict) or response.get('revision') != receipt['revision']
+                or response.get('media_id') != media_id or response.get('shot_id') != link['shot_id']
+                or response.get('role') != link['role'] or response.get('source_project_id') != link['source_project_id']
+                or response.get('source_media_id') != link['source_media_id'] or response.get('sha256') != link['sha256']
+                or response.get('modality') != 'image'):
+            return None
+        source = self._media(conn, link['source_project_id'], link['source_media_id'])
+        target = self._media(conn, p, media_id)
+        if (source['blob_id'] != link['blob_id'] or target['blob_id'] != link['blob_id']
+                or source['sha256'] != link['sha256'] or target['sha256'] != link['sha256']):
+            return None
+        return link['source_project_id'], source['id'], receipt['revision']
+
+    def _identical_byte_copy_parent(self, conn, p, media_id):
+        """A canvas node or classic frame that registered the same source bytes."""
+        return self._canvas_copy_parent(conn, p, media_id) or self._frame_copy_parent(conn, p, media_id)
+
     def _unknown_inheritance_source(self, conn, p, media_id, rights, grid=None, grid_checked=False):
         """Only an original unknown decision may inherit a verified origin."""
         if not rights or rights['outcome'] != 'unknown':
@@ -1069,14 +1103,14 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             grid = self._grid_parent(conn, p, media_id)
         if grid and rights['based_on_revision'] == grid[1] - 1:
             return ('grid', p, grid[0])
-        copied = self._canvas_copy_parent(conn, p, media_id)
+        copied = self._identical_byte_copy_parent(conn, p, media_id)
         if (copied and rights['based_on_revision'] == copied[2] - 1
                 and self._has_verified_grid_ancestor(conn, copied[0], copied[1])):
             return ('canvas', copied[0], copied[1])
         return None
 
     def _has_verified_grid_ancestor(self, conn, p, media_id):
-        """A canvas reference alone does not grant unknown source rights."""
+        """An identical-byte reference alone does not grant unknown source rights."""
         seen = set()
         while len(seen) < 64:
             identity = (str(p), str(media_id))
@@ -1085,7 +1119,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             seen.add(identity)
             if self._grid_parent(conn, p, media_id):
                 return True
-            copied = self._canvas_copy_parent(conn, p, media_id)
+            copied = self._identical_byte_copy_parent(conn, p, media_id)
             if not copied:
                 return False
             p, media_id = copied[0], copied[1]

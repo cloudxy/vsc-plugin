@@ -9,7 +9,7 @@ import {MESSAGES} from './i18n-messages.js';
 // Source-page labels stay local to this view; execution models still come from the API.
 const replicaLabels={single:['单图','Single image'],text:['文本','Text'],multi:['多图','Multiple images'],reference:['参考图','Reference images'],upload_result:['上传视频','Upload video'],first_missing:['首帧图片不能为空','Add a first-frame image'],multi_upload:['至少添加2张参考图','Add at least two reference images'],first_upload:['添加首帧图','Add first frame'],last_upload:['添加尾帧图','Add last frame'],library:['资料库','Media library'],portrait:['数字人形象','Digital human image'],portrait_upload:['上传形象','Upload image'],speech:['上传角色音频','Driving audio'],speech_upload:['上传音频','Upload audio'],character:['目标图片','Target image'],character_upload:['上传图片','Upload image'],motion:['模板视频','Motion video'],all_storyboards:['所有分镜','All storyboards'],missing_storyboard:['分镜不存在','No storyboard image'],upload_image:['本地上传图片','Upload image'],performance:['角色表演提示词','Character performance prompt'],avatar_hint:['数字人用于“照片/角色 + 上传音频”生成口播视频，适合角色介绍、剧情旁白、商品讲解和账号人设视频。','Use a portrait and audio for character introductions, narration, or presentations.'],motion_hint:['上传 1 张目标图片和 1 段模板视频，让图片中的主体模仿模板视频里的动作、表情和口型。','Upload a target image and motion video to guide movement, expressions, and lip motion.'],avatar_step1:['1. 选择数字人形象','1. Choose an image'],avatar_step1_body:['上传头像、半身照，或从项目角色里导入。','Upload a portrait or import a project character.'],avatar_step2:['2. 选择讲话主体','2. Choose the speaking subject'],avatar_step2_body:['添加形象后可手绘主体，或预览报价并确认识别。','After adding an image, draw the subject or review and confirm detection usage.'],avatar_step3:['3. 上传驱动音频','3. Add driving audio'],avatar_step3_body:['用户上传已有音频，用音频驱动口型和表情节奏。','Use uploaded audio to drive speech and expression timing.'],motion_step1:['1. 上传目标图片','1. Upload a target image'],motion_step1_body:['选择要被驱动的人物、动漫角色或宠物图片。','Choose a person, illustrated character, or pet.'],motion_step2:['2. 上传模板视频','2. Upload a motion video'],motion_step2_body:['模板视频提供动作、表情和口型参考。','The video guides movement, expressions, and lip motion.'],motion_step3:['3. 开始生成','3. Generate'],motion_step3_body:['生成完成后可在右侧预览并加入当前视频。','Preview the generated result on the right before selecting it.'],import:['导入图片','Import image'],import_result:['导入资产','Import media'],single_hint:['当前使用分镜图片，请描述动作、镜头运动和画面变化','Describe the action, camera movement, and changes to the storyboard image.'],text_hint:['当前不使用分镜图片，请描述画面主体、动作、场景和风格','Describe the subject, action, scene, and style.'],prompt_hint:['输入@符号激活图片引用','Type @ to reference an image'],video_prompt_hint:['输入@符号激活资源引用','Type @ to reference media'],performance_hint:['例如：角色自然看向镜头、轻微点头、表情温和、半身中景、背景保持不变…','For example: look at the camera, nod gently, keep a relaxed expression and the same background…'],sound:['声音','Sound'],advanced_edit:['高级编辑','Advanced editing'],upload_drop:['点击或拖拽文件到此处上传','Click or drop files here to upload'],batch_drop:['支持 PNG、JPG、JPEG 格式，可多选','PNG, JPG, or JPEG; multiple files allowed'],upload_progress:['已完成 {done}/{total}；输入与回执已保留。','Completed {done}/{total}; inputs and receipts are preserved.'],create_count:['单次新增{noun}{count}张','Add {count} {noun} items'],collapse:['收起镜头列表','Collapse shot list'],expand:['展开镜头列表','Expand shot list'],subject_manual:['检测或手动确认讲话主体','Detect or manually confirm the speaking subject'],single_image:['单张图片','One image'],single_audio:['单个音频','One audio'],motion_image_hint:['需上传 1 张图片','Upload one image'],motion_video_hint:['选择动作清晰的模板视频','Choose a video with clear movement'],characters:['{count}/{limit}','{count}/{limit}'],avatar_characters:['{count} / 300，仅支持中英日韩等语言','{count} / 300; Chinese, English, Japanese, or Korean']};
 replicaLabels.output_limit=['输出时长','Output duration'];replicaLabels.upload=['上传','Upload'];replicaLabels.retry_reuse=['重试读取配置','Retry loading configuration'];
-Object.assign(replicaLabels,{search_models:['搜索模型','Search models'],reuse_loading:['正在读取原候选配置…','Loading the original candidate configuration…'],reuse_loaded:['已复用候选配置，原草稿已保留。','Candidate configuration loaded. Your previous draft is preserved.'],restore_draft:['还原原草稿','Restore previous draft'],reuse_cancelled:['已取消复用，原草稿已保留。','Reuse cancelled. Your draft is preserved.'],reuse_changed:['读取配置期间输入已改变，请再次复用；当前稿件已保留。','Inputs changed while loading. Your draft is preserved; open reuse again.'],reuse_readonly:['此会话只读，无法复用配置；原草稿已保留。','This session is read-only. The original draft is preserved.'],thumbnail_unavailable:['缩略图暂时不可用','Thumbnail unavailable']});
+Object.assign(replicaLabels,{search_models:['搜索模型','Search models'],reuse_loading:['正在读取原候选配置…','Loading the original candidate configuration…'],reuse_loaded:['已复用候选配置，原草稿已保留。','Candidate configuration loaded. Your previous draft is preserved.'],restore_draft:['还原原草稿','Restore previous draft'],reuse_cancelled:['已取消复用，原草稿已保留。','Reuse cancelled. Your draft is preserved.'],reuse_changed:['读取配置期间输入已改变，请再次复用；当前稿件已保留。','Inputs changed while loading. Your draft is preserved; open reuse again.'],reuse_readonly:['此会话只读，无法复用配置；原草稿已保留。','This session is read-only. The original draft is preserved.'],thumbnail_unavailable:['缩略图暂时不可用','Thumbnail unavailable'],frame_library_note:['跨项目图片会登记到当前项目，不创建资产卡。','A cross-project image is registered on this project and does not create an asset card.'],frame_library_empty:['该项目没有可选用的图片','This project has no image to use.'],frame_library_check:['已加入当前帧。生成前仍需完成媒体检查。','Added to this frame. A media check is still required before generation.']});
 for(const [key,[zh,en]]of Object.entries(replicaLabels))MESSAGES['classic_replica.'+key]={'zh-cn':zh,en};
 const replica=(key,values)=>msg('classic_replica.'+key,values);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)setText(n,text);if(cls)n.className=cls;return n;};
@@ -37,6 +37,16 @@ export function createClassicProduction(root,ctx){
   function field(form,title,input){const label=el('label',title);bindAttribute(input,'aria-label',title);label.append(input);form.append(label);return input;}
   function newDraft(s,m){return {shot_id:s.shotId,mode:m,model_id:'',purpose:'',prompt:'',duration_ms:5000,width:['image_inpaint','image_watermark'].includes(m)?1024:1080,height:['image_inpaint','image_watermark'].includes(m)?1024:1920,count:1,params:{},references:[],...(options?.modes[m]?.image_tool?{purpose:'image_edit',tool_settings:clone(options.modes[m].tool_defaults)}:{})};}
   function entry(m=mode){const k=key(scope,m);if(!drafts.has(k)){const stored=options.drafts.find(row=>row.document.mode===m);const restored=retained.get('vsc-classic-draft:'+k);drafts.set(k,restored?.document?restored:{document:stored?clone(stored.document):newDraft(scope,m),saved:stored||null,dirty:false});}return drafts.get(k);}
+  function applyImportedFrame(result){
+    if(!result?.media_id||!result.sha256||!['first_frame','last_frame'].includes(result.role))return;
+    if(result.shot_id&&result.shot_id!==scope?.shotId)return;
+    const current=entry();
+    if(current.document.mode!=='first_last')return;
+    current.document.references=current.document.references.filter(ref=>ref.role!==result.role);
+    current.document.references.push({role:result.role,media_id:result.media_id,sha256:result.sha256});
+    if(!options.media.some(row=>row.id===result.media_id))options.media.push({id:result.media_id,name:result.name,sha256:result.sha256,modality:result.modality||'image'});
+    current.dirty=true;remember(current);editNo++;
+  }
   function stopReuse(){if(activeReuse){activeReuse.cancelled=true;activeReuse.banner?.remove();activeReuse.controller.abort();activeReuse=null;}}
   function consumeReuseRoute(mediaId){if(!globalThis.location?.href)return;const route=new URL(location.href);if(route.searchParams.get('reuse_media')===mediaId){route.searchParams.delete('reuse_media');history.replaceState(null,'',route);}}
   function readShotVisual(s,shotId,kind){
@@ -255,6 +265,53 @@ export function createClassicProduction(root,ctx){
         if(!current())return;const target=buffer.items.at(-1)?.shot_id;retained.put(storageKey,null);e.batchUpload=null;dialog.close();if(target)await load({...s,shotId:target,objectId:target,shots:null});
       }catch(error){if(current())setText(status,error.message+'；文件与已完成回执已保留，重试会恢复原操作。');}finally{buffer.busy=false;for(const update of buffer.listeners||[])update();}});buffer.listeners||=new Set();buffer.listeners.add(draw);draw();dialog.addEventListener('close',()=>{buffer.listeners.delete(draw);dialog.remove();});dialog.showModal();
     }
+    async function openFrameLibrary(role){
+      closeDialogs();
+      const dialog=el('dialog',null,'classic-upload-dialog classic-frame-library');bindAttribute(dialog,'aria-label',replica('library'));
+      const header=el('header');header.append(el('strong',replica('library')),button('×',()=>dialog.close()));
+      const filters=el('div',null,'classic-frame-filters'),project=el('select'),kind=el('select'),search=el('input'),grid=el('div',null,'classic-frame-grid'),status=el('p','','classic-upload-status');
+      search.type='search';bindAttribute(project,'aria-label','资产项目');bindAttribute(kind,'aria-label','资产类型');bindAttribute(search,'aria-label','搜索资产');bindAttribute(search,'placeholder','搜索资产');
+      for(const [value,title] of [['blocking','站位'],['','全部'],['character','人设'],['location','场景'],['prop','道具']])kind.append(localizedOption(value,title));
+      kind.value='blocking';filters.append(project,kind,search);dialog.append(header,el('p',replica('frame_library_note'),'hint'),filters,grid,status);root.append(dialog);dialog.addEventListener('close',()=>dialog.remove());dialog.showModal();
+      let request=0,query='',offset=0;
+      const listedProjects=await ctx.api('/api/v1/projects');if(!alive(n,s)||dialog.isConnected===false)return;
+      for(const item of (Array.isArray(listedProjects)?listedProjects:listedProjects.items||[]).filter(row=>!row.unavailable))project.append(localizedOption(item.id,item.name||item.id));
+      if([...project.options].some(option=>option.value===s.projectId))project.value=s.projectId;
+      async function show(){
+        const read=++request,listed=project.value,selectedKind=kind.value,q=query;if(!listed){grid.replaceChildren();return;}
+        const params=new URLSearchParams({query:q,asset_kind:selectedKind,include_blocking:'true',offset:String(offset),limit:'24',favorites:'false',...(selectedKind==='prop'?{include_object:'true'}:{})});
+        const data=await ctx.api(base(listed)+'/asset-cards?'+params);if(!alive(n,s)||dialog.isConnected===false||read!==request)return;grid.replaceChildren();
+        for(const card of data.items||[]){
+          const forms=card.forms?.length?card.forms:[{name:'',media_id:card.record_kind==='blocking'?card.preview?.media_id:null,version_id:null}];
+          for(const form of forms){
+            if(!form.media_id)continue;
+            const source=card.record_kind==='blocking'&&card.source&&form.media_id===card.source.media_id?{kind:'blocking',workflow_id:card.source.workflow_id,version_id:card.source.version_id,episode_id:card.source.episode_id,unit_key:card.source.unit_key,media_id:card.source.media_id,spatial_export_id:card.source.spatial_export_id??null}:form.version_id&&form.media_id?{kind:'asset_form',asset_id:card.id,form_version_id:form.version_id,media_id:form.media_id}:null;
+            const title=card.name+((card.forms?.length||0)>1&&form.name?' · '+form.name:'');
+            const item=el('button',null,'classic-frame-card');item.type='button';const img=el('img');img.src=base(listed)+'/media/'+encodeURIComponent(form.media_id)+'/content';img.alt=title;img.addEventListener('error',()=>{img.hidden=true;});item.append(img,el('span',title));
+            item.addEventListener('click',async()=>{try{await choose(listed,source,form,title);}catch(error){if(dialog.isConnected!==false)setText(status,error.message);}});grid.append(item);
+          }
+        }
+        if(data.next_offset!=null||offset>0){const pages=el('div',null,'classic-frame-pages');if(offset>0)pages.append(button('上一页',()=>{offset=Math.max(0,offset-24);return show();}));if(data.next_offset!=null)pages.append(button('下一页',()=>{offset=data.next_offset;return show();}));grid.append(pages);}
+        if(!grid.querySelector('.classic-frame-card'))grid.append(el('p',replica('frame_library_empty')));
+      }
+      async function choose(listed,source,form,title){
+        if(listed===s.projectId){
+          let media=options.media.find(row=>row.id===form.media_id&&row.sha256);
+          if(!media)media=await ctx.api(base(s.projectId)+'/media/'+encodeURIComponent(form.media_id));
+          if(!alive(n,s)||dialog.isConnected===false)return;
+          if(media.modality!=='image'||!media.sha256)throw new Error('请选择当前项目中的图片');
+          applyImportedFrame({role,media_id:media.id,sha256:media.sha256,name:media.name||title,modality:'image',shot_id:s.shotId});mark();dialog.close();renderReferences();return;
+        }
+        if(!source)throw new Error('请选择固定的资产形态或站位图');
+        const result=await write('/classic-production/frame-media',{shot_id:s.shotId,role,source_project_id:listed,source},s,n,m);
+        if(!alive(n,s))return;applyImportedFrame(result);if(result?.byte_check&&result.byte_check.checked===false)ctx.notice(replica('frame_library_check'));mark();dialog.close();renderReferences();
+      }
+      const reload=()=>{offset=0;return show().catch(error=>{if(dialog.isConnected!==false)setText(status,error.message);});};
+      project.addEventListener('change',()=>reload());
+      kind.addEventListener('change',()=>reload());
+      search.addEventListener('input',()=>{query=search.value;offset=0;clearTimeout(dialog.searchTimer);dialog.searchTimer=setTimeout(()=>show().catch(error=>{if(dialog.isConnected!==false)setText(status,error.message);}),250);});
+      await show();
+    }
     function renderReferences(){
       subjectSelector?.dispose();
       references.replaceChildren();advanced.querySelector('.classic-reference-manual')?.remove();if(m==='digital_human'){const speech=doc.references.find(r=>r.role==='speech'),audio=options.media.find(row=>row.id===speech?.media_id);if(audio?.duration_ms){doc.duration_ms=audio.duration_ms;numbers.duration_ms.input.value=String(audio.duration_ms/1000);}}
@@ -283,7 +340,7 @@ export function createClassicProduction(root,ctx){
           const remove=button('×',()=>{const removed=doc.references.splice(index,1);if(role==='portrait')clearSubject();if(['inpaint','watermark'].includes(definition.image_tool)){doc.references=doc.references.filter(r=>r.role!=='operation_mask');doc.tool_settings=clone(definition.tool_defaults);}if(media?.modality==='video'){removed.push(...doc.references.filter(r=>r.annotation_source_id===ref.media_id));doc.references=doc.references.filter(r=>r.annotation_source_id!==ref.media_id);}for(const item of removed){if(item.prompt_mention)doc.prompt=doc.prompt.split(item.prompt_mention).join('');doc.prompt=doc.prompt.split('[[ref:'+item.media_id+']]').join('');}doc.prompt=doc.prompt.trim();if(m!=='digital_human')prompt.value=doc.prompt;mark();renderReferences();});bindAttribute(remove,'aria-label',msg("ui.remove_value0",{value0:roles[role]||msg("ui.this_reference")}));thumb.append(remove);if(role==='operation_source'&&imageMode)thumb.append(button(msg("ui.paint_modification_area"),()=>openEditor(media||{id:ref.media_id})));box.append(thumb);}
         if(role==='operation_mask'){slots.append(box);continue;}
         const chooser=el('details',null,'classic-reference-chooser'),toggle=el('summary');toggle.append(['first_last','multi','single'].includes(m)?imageGlyph():el('span','＋','classic-plus'),el('span',m==='first_last'?replica(role==='first_frame'?'first_upload':'last_upload'):m==='multi'&&role==='first_frame'?replica('multi_upload'):m==='single'?replica('upload_image'):['portrait','speech','character','motion_video'].includes(role)?replica(role==='portrait'?'portrait_upload':role==='speech'?'speech_upload':role==='character'?'character_upload':'upload_result'):msg("common.reference_media_add")));chooser.append(toggle);
-        const menu=el('div',null,'classic-reference-menu'),imports=el('details',null,'classic-reference-imports');imports.append(el('summary',msg('agent.import_asset')));menu.append(button(msg("common.local_upload"),()=>{chooser.open=false;openUpload(role,type);}),imports);chooser.append(menu);
+        const menu=el('div',null,'classic-reference-menu'),imports=el('details',null,'classic-reference-imports');imports.append(el('summary',msg('agent.import_asset')));menu.append(button(msg("common.local_upload"),()=>{chooser.open=false;openUpload(role,type);}));if(m==='first_last')menu.append(button(replica('library'),()=>{chooser.open=false;return openFrameLibrary(role);}));menu.append(imports);chooser.append(menu);
         const select=el('select');bindAttribute(select,'aria-label',roles[role]||role);select.append(localizedOption('',msg("ui.choose_registered_value0",{value0:type})));
         for(const media of options.media.filter(row=>row.modality===type))select.append(localizedOption(media.id,media.name||media.id));
         imports.append(select,button(msg("ui.add_value0",{value0:roles[role]||role}),()=>{
@@ -295,7 +352,7 @@ export function createClassicProduction(root,ctx){
           doc.references.push({role,media_id:media.id,sha256:media.sha256});mark();renderReferences();
         }));box.append(chooser);slots.append(box);
         if(['portrait','character'].includes(role)){const shortcut=button(replica(role==='portrait'?'import_result':'import'),()=>{chooser.open=true;imports.open=true;});shortcut.className='classic-reference-import-tile';box.append(shortcut);}
-        if(['first_last','multi'].includes(m)){const quick=el('div',null,'classic-reference-quick');quick.append(button(msg('common.local_upload'),()=>openUpload(role,type)),button(replica('library'),()=>chooser.open=!chooser.open));box.append(quick);}
+        if(['first_last','multi'].includes(m)){const quick=el('div',null,'classic-reference-quick');quick.append(button(msg('common.local_upload'),()=>openUpload(role,type)),button(replica('library'),()=>m==='first_last'?openFrameLibrary(role):(chooser.open=!chooser.open)));box.append(quick);}
       }
       if(m==='multi'&&!doc.references.some(ref=>ref.role==='first_frame')){const extra=[...slots.children].find(box=>box.dataset.role==='reference_image');if(extra)extra.hidden=true;}
       if(m==='single'){
@@ -363,6 +420,7 @@ export function createClassicProduction(root,ctx){
       const result=await write(operation.action,operation.payload,s,n,m);
       if(operation.action==='prompt-assist'&&e.assist){e.assist.value=result;remember(e,s,m);}
       if(operation.action==='drafts'){e.saved={...result,document:operation.payload.document};e.dirty=JSON.stringify(e.document)!==JSON.stringify(operation.payload.document);}
+      if(operation.action==='/classic-production/frame-media')applyImportedFrame(result);
       if(alive(n,s)){if(operation.action==='generate'){e.lastGeneration=result;remember(e,s,m);}render();}
     });
     const refresh=button(msg("ui.reload_version_and_preserve_inputs"),async()=>{

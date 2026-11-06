@@ -439,3 +439,77 @@ console.log('PASS catalog reuse, full params/references, original draft restore,
         result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
                                 capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_frame_library_uses_project_media_and_recovers_the_same_request(self):
+        import shutil
+        import subprocess
+        from support.paths import ROOT
+        if not shutil.which('node'):
+            self.skipTest('requires Node')
+        source = r"""
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+const require=createRequire(import.meta.url),{Document,Element}=require('./tests/support/fixtures/frontend/panel_dom.cjs');
+globalThis.document=new Document('');
+globalThis.Option=function(label,value){const n=document.createElement('option');n.textContent=label;n.value=value;return n;};
+const storage=new Map();globalThis.sessionStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
+Object.defineProperty(Element.prototype,'isConnected',{get(){return !!this.parentElement;}});
+Element.prototype.showModal=function(){this.open=true;};Element.prototype.close=function(){this.open=false;this.dispatch('close');};
+const root=document.createElement('section');document.body.append(root);
+const {createClassicProduction}=await import(pathToFileURL(process.cwd()+'/src/vsc/interfaces/web/static/classic-production.js'));
+const sha='a'.repeat(64),posts=[],notes=[];let revision=4,lose=true;
+const modes={first_last:{label:'首尾帧',modality:'video',slots:{first_frame:'image',last_frame:'image'}},multi:{label:'多图参考',modality:'video',slots:{first_frame:'image',reference_image:'image'}}};
+const api=async(url,opts)=>{
+ if(url==='/api/v1/projects')return [{id:'p',name:'当前项目'},{id:'other',name:'其他项目'}];
+ if(url.includes('/asset-cards?')){const project=url.split('/projects/')[1].split('/')[0];
+  if(project==='other')return {items:[{id:'station',name:'第2集-站位图2',record_kind:'blocking',preview:{media_id:'src-media'},source:{workflow_id:'w',version_id:'v',episode_id:'e',unit_key:'station',media_id:'src-media',spatial_export_id:null},forms:[]}]};
+  return {items:[{id:'local-card',name:'本项目图',record_kind:'asset',forms:[{name:'默认',media_id:'local-media',version_id:'form-1'}]}]};}
+ if(url.includes('/media/')&&!url.includes('/content'))return {id:url.split('/media/')[1],name:'本项目图',sha256:sha,modality:'image'};
+ if(opts?.method==='POST'&&url.endsWith('/classic-production/frame-media')){const body=JSON.parse(opts.body);posts.push(body);if(lose){lose=false;throw new Error('lost frame receipt');}
+  return {media_id:'copied-'+body.payload.role,sha256:sha,name:'第2集-站位图2',modality:'image',role:body.payload.role,shot_id:body.payload.shot_id,source_project_id:body.payload.source_project_id,source_media_id:body.payload.source.media_id,revision:++revision};}
+ if(url.includes('section=shots'))return {scope:{kind:'shot',id:'shot'},ancestors:[{kind:'episode',id:'episode'}],sections:{shots:{items:[{id:'shot',title:'第2集'}]}}};
+ if(url.includes('/classic-production?'))return {shot:{id:'shot',title:'第2集',parent_id:'group'},sibling_shots:[{id:'shot',title:'第2集'}],revision,drafts:[],models:[],media:[{id:'local-media',name:'本项目图',modality:'image'}],media_total:1,modes};
+ if(url.includes('/execution-authorizations'))return {items:[]};
+ if(url.includes('/working-candidates'))return {items:[],total:0};
+ return {items:[],total:0};
+};
+const ctx={api,session:()=>({actor:'human',csrf:'x',revision,writable:true}),setRevision:value=>revision=value,notice:value=>notes.push(String(value)),onShot(){},navigate(){},media(){}};
+const buttonIn=(node,title)=>[...node.querySelectorAll('button')].find(row=>row.textContent===title);
+const slot=role=>[...root.querySelectorAll('.classic-reference-slot')].find(node=>node.dataset.role===role);
+let app=createClassicProduction(root,ctx);
+await app.load({projectId:'p',objectId:'shot',shotId:'shot',productionKind:'video',mode:'first_last'});
+await buttonIn(slot('first_frame'),'资料库').click();
+const opened=root.querySelector('.classic-frame-library');
+assert.equal(opened.getAttribute('aria-label'),'资料库');
+assert.ok(buttonIn(opened,'本项目图'),'library text: '+opened.textContent);
+await buttonIn(opened,'本项目图').click();
+assert.equal(posts.length,0);assert.equal(root.querySelector('.classic-frame-library'),null);
+assert.ok(slot('first_frame').querySelector('img').src.includes('/projects/p/media/local-media/content'));
+await buttonIn(slot('first_frame'),'资料库').click();
+const dialog=root.querySelector('.classic-frame-library'),project=dialog.querySelector('select');
+project.value='other';await project.dispatch('change');
+await buttonIn(dialog,'第2集-站位图2').click();
+assert.equal(posts.length,1);assert.equal(posts[0].payload.role,'first_frame');assert.equal(posts[0].payload.source.kind,'blocking');
+assert.equal(posts[0].payload.source.spatial_export_id,null);assert.ok(dialog.textContent.includes('lost frame receipt'));
+assert.ok([...storage.keys()].some(key=>key.includes('vsc-classic-request:')));
+app.suspend();app=createClassicProduction(root,ctx);
+await app.load({projectId:'p',objectId:'shot',shotId:'shot',productionKind:'video',mode:'first_last'});
+await buttonIn(root,'恢复上次请求').click();
+assert.equal(posts.length,2);assert.equal(posts[0].idempotency_key,posts[1].idempotency_key);
+assert.ok(slot('first_frame').querySelector('img').src.includes('/media/copied-first_frame/content'));
+assert.equal(root.querySelector('.classic-frame-library'),null);
+await buttonIn(slot('last_frame'),'资料库').click();
+const again=root.querySelector('.classic-frame-library');again.querySelector('select').value='other';await again.querySelector('select').dispatch('change');
+await buttonIn(again,'第2集-站位图2').click();
+assert.equal(posts.length,3);assert.equal(posts[2].payload.role,'last_frame');assert.equal(posts[2].payload.source_project_id,'other');
+assert.ok(slot('last_frame').querySelector('img').src.includes('/media/copied-last_frame/content'));
+assert.ok(!posts.some(row=>String(row.url||'').includes('/drafts')));
+const modeButton=name=>[...root.querySelectorAll('button')].find(row=>row.getAttribute('aria-label')===name);
+await modeButton('多图参考').click();await buttonIn(slot('first_frame'),'资料库').click();
+assert.equal(root.querySelector('.classic-frame-library'),null);app.suspend();
+console.log('PASS classic frame library project switch and request recovery');
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', source], cwd=ROOT,
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
