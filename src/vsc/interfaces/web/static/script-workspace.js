@@ -364,6 +364,12 @@ export function createScriptWorkspace(container, ctx) {
         setText(frozen,msg("ui.the_frozen_body_or_checksum_does_not_match_its")); return;
       }
       frozen.replaceChildren(renderScreenplay(parsed));
+      const bindings=el('details','frozen-bindings');
+      bindings.append(el('summary','','完整字段、适用范围与上游版本'),
+        el('p','hint','适用范围：'+(artifact.project_wide?'整个项目':(artifact.object_ids||[]).join('、')||'未登记')),
+        el('p','hint','上游版本：'+((artifact.dependency_ids||[]).join('、')||'无')),
+        el('pre','structured',content));
+      frozen.append(bindings);
       reviewed = true; approve.disabled = !pending; reject.disabled = !pending;
     }).catch(error => { if (sameSession(target)) setText(frozen,msg("ui.frozen_text_could_not_be_loaded_value0",{value0:error.message})); });
     approve.addEventListener('click', async () => {

@@ -39,7 +39,8 @@
       "sources": [
         "src/vsc/interfaces/web/static/production-platform.js",
         "src/vsc/interfaces/web/static/panel.js",
-        "tests/project/unit/production_platform_recovery.test.mjs"
+        "tests/project/unit/production_platform_recovery.test.mjs",
+        "tests/project/unit/marketing_studio.test.mjs"
       ]
     },
     "assets.integration.test_edit_preview": {
@@ -2100,6 +2101,14 @@
         "tests/project/unit/intelligent_races.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs",
         "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
+    },
+    "project.integration.test_marketing_studio": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/marketing_studio.py",
+        "src/vsc/interfaces/web/marketing_studio.py"
       ]
     }
   },

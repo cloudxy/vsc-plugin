@@ -33,6 +33,7 @@ from vsc.interfaces.web.edit_preview import install_edit_preview_routes
 from vsc.interfaces.web.editor_workspace import install_editor_workspace_routes
 from vsc.interfaces.web.production_platform import install_production_platform_routes
 from vsc.interfaces.web.creative_canvas import install_creative_canvas_routes
+from vsc.interfaces.web.marketing_studio import install_marketing_studio_routes
 from vsc.interfaces.web.production_batch import install_production_batch_routes
 from vsc.interfaces.web.project_management import install_project_management_routes, management_http_guard
 from vsc.interfaces.web.classic_production import install_classic_production_routes
@@ -442,6 +443,7 @@ def create_app(config=None, catalog=None, service=None):
     install_editor_workspace_routes(router, catalog, etag, actor)
     install_production_platform_routes(router, catalog, etag)
     install_creative_canvas_routes(router, catalog, etag, actor)
+    install_marketing_studio_routes(router, catalog, etag, actor)
     install_production_batch_routes(router, catalog, etag, actor)
     install_classic_production_routes(router, catalog, etag, actor)
     install_project_management_routes(app, router, catalog, etag, actor, read_actor)

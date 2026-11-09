@@ -6,8 +6,8 @@ const entry = new URLSearchParams(typeof window === 'undefined' ? '' : window.lo
 const currentEntry=()=>new URLSearchParams(typeof window==='undefined'?'':window.location.search);
 const platformViews=['home','projects','project','production','tasks','assets','settings','maintenance'];
 const mainViews = ['desk','collection','trash'];
-const customViews=['project-management','creative-canvas','editing','classic-production','blocking','previs','creative-tools','text-tools','media-imports','access','access-share','team-review','commerce','asset-center','service-operations','community','intelligent-creation','intelligent-storyboard'];
-const navViews = ['home','community','asset-center','project-management','intelligent-creation','intelligent-storyboard','projects','tasks','assets','settings','desk','collection','trash'];
+const customViews=['project-management','marketing-studio','creative-canvas','editing','classic-production','blocking','previs','creative-tools','text-tools','media-imports','access','access-share','team-review','commerce','asset-center','service-operations','community','intelligent-creation','intelligent-storyboard'];
+const navViews = ['marketing-studio','home','community','asset-center','project-management','intelligent-creation','intelligent-storyboard','projects','tasks','assets','settings','desk','collection','trash'];
 const specialistViews=['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'];
 const initialView = [...mainViews,...platformViews,...customViews,...specialistViews].includes(entry.get('page')) ? entry.get('page') : 'home';
 const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writeAvailable: false, writable: false, comparisons: new Map(),projectRows:new Map(), previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:mainViews.includes(initialView)?initialView:'project', view: typeof window === 'undefined' ? 'workbench' : initialView};
@@ -58,7 +58,7 @@ let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, sc
 let sourceIntake = null, designWorkspace = null, resourceLibrary = null;
 let localProduction = null;
 let assistedDesk = null;
-let productionPlatform=null,creativeCanvasPanel=null,editWorkspace=null,classicProduction=null,spatialScenePanel=null,creativeTools=null,textTools=null,mediaImports=null,accessControl=null,teamReview=null,commerce=null,assetCenter=null,serviceOperations=null,intelligentProduction=null,projectManagement=null,community=null;
+let productionPlatform=null,marketingStudio=null,creativeCanvasPanel=null,editWorkspace=null,classicProduction=null,spatialScenePanel=null,creativeTools=null,textTools=null,mediaImports=null,accessControl=null,teamReview=null,commerce=null,assetCenter=null,serviceOperations=null,intelligentProduction=null,projectManagement=null,community=null;
 let accessControlLoading=null;
 async function ensureAccessControl(){if(accessControl)return accessControl;if(!accessControlLoading)accessControlLoading=(async()=>{const {createAccessControl}=await import('./access-control.js');accessControl=createAccessControl($('access-control-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,workspaceId:state.workspaceId}),onSession:async value=>{applySession(value);if(value.share_id&&!value.identity_id){state.view='access-share';await switchView('access-share');}else await loadProjects();},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}}); return accessControl;})();try{return await accessControlLoading;}finally{accessControlLoading=null;}}
 async function readAccountLocale(){const actor=state.actor,languageRevision=getLocaleRevision();if(!actor)return;try{const value=await api('/api/v1/access');if(state.actor===actor&&getLocaleRevision()===languageRevision&&value.identity?.preferences?.language)setLocale(value.identity.preferences.language);}catch{/* A read-only or shared session keeps its local interface preference. */}}
@@ -138,7 +138,10 @@ async function loadProductionPlatform(){
 }
 async function loadCustomView(view){
   const project=state.project,object=state.object,ticket=++customViewRequest;
-  if(view==='project-management'){
+  if(view==='marketing-studio'){
+    if(!marketingStudio){const {createMarketingStudio}=await import('./marketing-studio.js');marketingStudio=createMarketingStudio($('marketing-studio-view'),{api,notice,projects:()=>[...state.projectRows.values()],session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable,writeAvailable:state.writeAvailable}),setRevision:(value,p)=>{if(p===state.project&&value!=null)state.revision=value;},navigate:async(page,id,p=state.project,options={})=>{setEntryOptions(page,p,id,options);episodeScope=options.episode||null;state.view=page;await selectProject(p,{scope:id});}});}
+    if(ticket===customViewRequest&&view===state.view)await marketingStudio.load({project,episode:episodeScope});
+  }else if(view==='project-management'){
     if(!projectManagement){const {createProjectManagement}=await import('./project-management.js');projectManagement=createProjectManagement($('project-management-view'),{api,notice,onScope:(p,row)=>{state.project=p;state.object=null;episodeScope=null;$('tree').replaceChildren();state.treeNodes=[];if(p&&!state.projectRows.has(p))$('projects').append(localizedOption(p,msg("ui.value0_in_trash",{value0:row?.name||msg("common.project")})));if(p)$('projects').value=p;else{$('projects').prepend(localizedOption('',msg("ui.select_a_project_extra_2")));$('projects').value='';}syncRoute();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},onProjectsChanged:async()=>{const listing=await api('/api/v1/projects');state.projectRows=new Map(listing.items.map(r=>[r.id,r]));$('projects').replaceChildren();for(const row of listing.items){const option=localizedOption(row.id,row.name);$('projects').append(option);}if(state.projectRows.has(state.project))$('projects').value=state.project;else if(state.project){$('projects').append(localizedOption(state.project,msg("ui.current_project_is_recycled")));$('projects').value=state.project;}},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});},media:openMedia});}
     if(ticket===customViewRequest&&view===state.view)await projectManagement.load({project});
   }else if(view==='creative-canvas'){
@@ -373,9 +376,11 @@ async function switchView(view, focus = null) {
   if(view!=='community')community?.suspend();
   if(view!=='project-management')projectManagement?.suspend();
   if(view!=='asset-center')assetCenter?.suspend();
+  if(view!=='marketing-studio')marketingStudio?.suspend();
   const platform=platformViews.includes(view),custom=customViews.includes(view);
-  const skip=document.querySelectorAll('.skip-link')[0];if(skip)skip.href=platform?'#production-platform':'#assisted-desk';
+  const skip=document.querySelectorAll('.skip-link')[0];if(skip)skip.href=platform?'#production-platform':view==='marketing-studio'?'#marketing-studio-view':'#assisted-desk';
   $('project-management-view').hidden=view!=='project-management';$('community-view').hidden=view!=='community';
+  $('marketing-studio-view').hidden=view!=='marketing-studio';
   $('production-platform').hidden=!platform;$('creative-canvas-view').hidden=view!=='creative-canvas';$('edit-workspace-view').hidden=view!=='editing';$('classic-production-view').hidden=view!=='classic-production';$('intelligent-production-view').hidden=!['intelligent-creation','intelligent-storyboard'].includes(view);
   $('spatial-scene-view').hidden=!['blocking','previs'].includes(view);$('creative-tools-view').hidden=view!=='creative-tools';$('text-tools-view').hidden=view!=='text-tools';$('media-imports-view').hidden=view!=='media-imports';$('access-control-view').hidden=!['access','access-share'].includes(view);$('team-review-view').hidden=view!=='team-review';$('commerce-view').hidden=view!=='commerce';$('service-operations-view').hidden=view!=='service-operations';$('asset-center-view').hidden=view!=='asset-center';
   document.querySelectorAll('.layout').forEach(n=>n.classList.toggle('platform-mode',platform));
@@ -385,7 +390,7 @@ async function switchView(view, focus = null) {
   loadTaskNotifications().catch(error=>notice(error.message));
   if(view!=='collection')sharedLibrary?.suspend();
   const assisted=mainViews.includes(view);
-  if(assisted||platform||['intelligent-creation','intelligent-storyboard','asset-center','project-management','community'].includes(view))state.primary=view;else assistedDesk?.suspend();
+  if(assisted||platform||['marketing-studio','intelligent-creation','intelligent-storyboard','asset-center','project-management','community'].includes(view))state.primary=view;else assistedDesk?.suspend();
   $('assisted-desk').hidden=!assisted;
   $('specialist-tabs').hidden=assisted||platform||custom;$('specialist-heading').hidden=assisted||platform||custom;
   document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('assisted-mode',assisted||platform||custom));
@@ -413,7 +418,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
@@ -444,17 +449,17 @@ async function loadProjects() {
     const option = el('option', '', project.name + (project.unavailable ? ' · 权威不可用' : ''));
     option.value = project.id; $('projects').append(option);
   }
-  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','project-management','text-tools','creative-tools'].includes(state.view)?state.view:'projects');return; }
+  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','project-management','text-tools','creative-tools','marketing-studio'].includes(state.view)?state.view:'projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
   if(['text-tools','creative-tools'].includes(state.view)&&!state.project){$('projects').prepend(localizedOption('',msg("ui.standalone_tools_no_film_project_selected")));$('projects').value='';await switchView(state.view);syncRoute();return;}
-  if(['home','projects','collection','project-management','asset-center'].includes(state.view)){await switchView(state.view);syncRoute();return;}
+  if(['home','projects','collection','project-management','asset-center','marketing-studio'].includes(state.view)){await switchView(state.view);syncRoute();return;}
   await selectProject($('projects').value);
 }
 async function selectProject(id,{scope}={}) {
   editWorkspace?.suspend?.();
   if(!id){state.project=null;state.object=null;await switchView(state.view);return;}
   if (state.project !== id) {
-    productionPlatform?.suspend();creativeCanvasPanel?.suspend();classicProduction?.suspend();spatialScenePanel?.suspend();creativeTools?.suspend();textTools?.suspend();mediaImports?.suspend();accessControl?.suspend();teamReview?.suspend();commerce?.suspend();assetCenter?.suspend();serviceOperations?.suspend();community?.suspend();intelligentProduction?.suspend();projectManagement?.suspend();episodeScope=currentEntry().get('project')===id?currentEntry().get('episode'):null;
+    productionPlatform?.suspend();marketingStudio?.suspend();creativeCanvasPanel?.suspend();classicProduction?.suspend();spatialScenePanel?.suspend();creativeTools?.suspend();textTools?.suspend();mediaImports?.suspend();accessControl?.suspend();teamReview?.suspend();commerce?.suspend();assetCenter?.suspend();serviceOperations?.suspend();community?.suspend();intelligentProduction?.suspend();projectManagement?.suspend();episodeScope=currentEntry().get('project')===id?currentEntry().get('episode'):null;
     assistedDesk?.suspend();
     sourceIntake?.suspend();designWorkspace?.suspend();resourceLibrary?.suspend();
     state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});
