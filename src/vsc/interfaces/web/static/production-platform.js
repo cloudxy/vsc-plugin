@@ -11,7 +11,7 @@ const uid=()=>crypto.randomUUID();
 export const quickViews=[['script','制作方案'],['assets','资产准备'],['production','镜头制作'],['editing','成片修补'],['delivery','交付']];
 export function createProductionPlatform(root,ctx){
   let ticket=0,scope=null,data=null,offset=0,busy=false,poll=null,assetCards=null;
-  const drafts=new Map(),pending=new Map();
+  const drafts=new Map(),pending=new Map(),creationFiles=new Map();let closeCreation=null;
   const remember=(key,value)=>{try{if(value==null)sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify(value));}catch{}},recall=key=>{try{return JSON.parse(sessionStorage.getItem(key)||'null');}catch{return null;}},episodeDraft=p=>'vsc-platform-episode:'+session().actor+':'+p;
   const endpoint=(p,suffix)=>`/api/v1/projects/${encodeURIComponent(p)}/${suffix}`;
   const same=(t,s=scope)=>t===ticket&&s===scope;
@@ -60,7 +60,18 @@ export function createProductionPlatform(root,ctx){
     for(const [title,desc,page,tool,icon,tag]of [[msg("home.creation_ai_video_generation_title"),msg("home.creation_ai_video_generation_description"),'classic-production','video','video',msg("home.creation_tag_tool")],[msg("home.creation_ai_storyboard_title"),msg("home.creation_ai_storyboard_description"),'classic-production','image','image',msg("home.creation_tag_tool")],[msg("ui.script_breakdown"),msg("ui.reconstruct_dialogue_and_shots_frame_by_frame_to_create"),'text-tools','breakdown','breakdown','Agent'],[msg("home.creation_agent_creation_title"),msg("home.creation_agent_creation_description"),'intelligent-creation','','agent','Agent'],[msg("nav.script_scoring"),msg("home.creation_script_scoring_description"),'text-tools','scoring','scoring','Agent'],[msg("nav.novel_parser"),msg("home.creation_novel_parser_description"),'text-tools','novel','novel','Agent'],[msg("nav.script_translation"),msg("home.creation_script_translation_description"),'text-tools','translation','translation','Agent'],[msg("nav.video_quality_check"),msg("ui.check_video_subtitle_and_content_issues"),'text-tools','qc','qc','Agent']]){
       const card=page==='classic-production'||page==='intelligent-creation'?button('',()=>openCreation(page,page==='classic-production'?{kind:tool}:{})):link('',page,null,null,{tool});card.className='home-tool';card.append(artwork(icon+'.svg'),el('small',tag,'home-tool-tag'));const copy=el('div');copy.append(el('h3',title),el('p',desc));card.append(copy);grid.append(card);
     }root.append(grid);
-    const footer=el('footer',null,'home-footer');footer.append(el('span',msg("ui.vsc_creative_workbench")),link(msg("ui.resource_and_model_settings"),'settings',null),link(msg("shell.tasks"),'tasks'),link(msg("ui.workspace_maintenance"),'maintenance',null));root.append(footer);await mountDiscovery(root,ctx,{isCurrent:()=>same(t)});
+    const footer=el('footer',null,'home-footer');footer.append(el('span',msg("ui.vsc_creative_workbench")),link(msg("ui.resource_and_model_settings"),'settings',null),link(msg("shell.tasks"),'tasks'),link(msg("ui.workspace_maintenance"),'maintenance',null));root.append(footer);await homeDiscovery(t);
+  }
+  async function homeDiscovery(t){
+    const region=el('section',null,'home-discovery');bindAttribute(region,'aria-label',msg('home.recent_creations'));root.append(region);
+    async function refresh(){
+      const identity=session().actor,current=()=>same(t)&&identity===session().actor;
+      if(!current())return;const loading=el('p',msg('ui.loading_recent_creations'),'hint');region.replaceChildren(loading);region.setAttribute('aria-busy','true');
+      try{await mountDiscovery(region,ctx,{isCurrent:current});if(current())loading.remove();}
+      catch(error){if(current()){const heading=el('div',null,'home-section-heading');heading.append(el('h2',msg('home.recent_creations')));region.replaceChildren(heading,el('p',error.status===403?msg('ui.start_a_session_to_see_recent_creations'):error.message,'hint'),button(msg('ui.reload'),refresh));}}
+      finally{if(current())region.removeAttribute('aria-busy');}
+    }
+    await refresh();
   }
   async function skillCatalog(t){
     const data=await ctx.api('/api/v1/discovery',{headers:{'X-CSRF-Token':session().csrf}});if(!same(t))return;
@@ -125,23 +136,98 @@ export function createProductionPlatform(root,ctx){
     query.addEventListener('input',draw);project.addEventListener('change',readEpisodes);episode.addEventListener('change',draw);order.addEventListener('change',draw);draw();
   }
   function createProject(type,next={}){
-    const canvas=type==='canvas',dialog=el('dialog',null,'platform-create');bindAttribute(dialog,'aria-label',canvas?msg("shell.new_canvas"):msg("project.create_project"));const form=el('form');
-    form.append(el('h2',canvas?msg("shell.new_canvas"):msg("project.create_project")));
-    const name=field(form,msg("ui.sky_project_name"),el('input'));name.required=true;name.maxLength=50;
-    const episodes=canvas?null:field(form,msg("ui.episode_count"),el('input'));if(episodes){episodes.type='number';episodes.required=true;episodes.min='1';episodes.max='500';episodes.value='1';}
-    const style=el('select');if(!canvas){style.append(localizedOption('2d',msg("ui.style_2d")),localizedOption('3d',msg("ui.style_3d")),localizedOption('live',msg("ui.style_live")));style.value='2d';field(form,msg("project.project_type"),style);}
-    const message=el('p',null,'hint'),save=el('button',msg("ui.create_project"));save.type='submit';save.disabled=!session().actor||!session().writeAvailable;
-    form.append(message,actions(save,button(msg("common.cancel"),()=>dialog.close())));dialog.append(form);root.append(dialog);dialog.showModal();
-    const key=uid(),s=scope,t=ticket;let submitted=false;
-    form.addEventListener('submit',async e=>{e.preventDefault();if(submitted)return;submitted=true;save.disabled=true;try{
-      const count=episodes?Math.min(500,Math.max(1,Math.trunc(Number(episodes.value)||1))):0;
-      const result=await ctx.api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{name:name.value.trim(),profile:canvas||count<=1?'vsc.light-short':'vsc.series-pg',...(canvas?{}:{character_style:style.value})},idempotency_key:key})});
-      if(!same(t,s))return;
-      let revision=result.revision??0;
-      for(let offset=0;offset<count;offset+=50){const titles=Array.from({length:Math.min(50,count-offset)},(_,index)=>'第'+(offset+index+1)+'集');const saved=await ctx.api('/api/v1/projects/'+encodeURIComponent(result.id)+'/episode-batches',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{titles,initial_shot_count:0},expected_revision:revision,idempotency_key:key+':episodes:'+offset})});revision=saved.revision??revision;}
-      dialog.close();ctx.notice(msg("ui.project_created"));await ctx.created(result.id,next.page||(canvas?'creative-canvas':'project'));if(next.options)await ctx.navigate(next.page,null,result.id,next.options);
-    }catch(error){setText(message,error.message);save.disabled=false;submitted=false;}});
-    dialog.addEventListener('close',()=>dialog.remove(),{once:true});name.focus();
+    closeCreation?.();
+    const canvas=type==='canvas',dialog=el('dialog',null,'platform-create'+(canvas?'':' project-create-dialog'));bindAttribute(dialog,'aria-label',canvas?msg("shell.new_canvas"):msg("project.create_project"));const form=el('form');
+    const s=scope,t=ticket,identity=session().actor,requestKey='vsc-platform-create:'+identity+':'+type;
+    let request=recall(requestKey),submitted=false,closed=false,selecting=false,fileTicket=0,previewUrl=null,selected=creationFiles.get(requestKey)||null;
+    const current=()=>same(t,s)&&identity===session().actor&&!closed;
+    if(request?.cover&&selected?.sha256!==request.cover.sha256)selected=null;
+    const heading=el('header',null,'project-create-heading');heading.append(el('h2',canvas?msg('shell.new_canvas'):msg('project.create_project')));
+    const close=button('×',()=>dialog.close());close.className='project-create-close';bindAttribute(close,'aria-label',msg('common.close'));heading.append(close);form.append(heading);
+    const body=el('div',null,'project-create-body'),nameLabel=el('label',null,'project-create-field'),nameText=el('span','名称'),required=el('span','*','project-create-required');required.setAttribute('aria-hidden','true');nameText.append(required);nameLabel.append(nameText);
+    const nameWrap=el('div',null,'project-name-input'),name=el('input'),count=el('span','0 / 50','project-name-count');name.required=true;name.maxLength=50;name.placeholder='请输入名称';bindAttribute(name,'aria-label',msg('ui.sky_project_name'));nameWrap.append(name,count);nameLabel.append(nameWrap);body.append(nameLabel);
+    const showCount=()=>setText(count,`${name.value.length} / 50`);name.addEventListener('input',showCount);
+    let episodes=null;const styles=[],steps=[];
+    if(!canvas){
+      const episodeLabel=el('label',null,'project-create-field'),title=el('span',msg('ui.episode_count'));title.append(el('span','*','project-create-required'));episodeLabel.append(title);
+      const wrap=el('div',null,'project-count-input');episodes=el('input');episodes.type='number';episodes.required=true;episodes.min='1';episodes.max='500';episodes.step='1';episodes.value='1';bindAttribute(episodes,'aria-label',msg('ui.episode_count'));
+      const adjust=delta=>{if(!episodes.disabled)episodes.value=String(Math.min(500,Math.max(1,Math.trunc(Number(episodes.value)||1)+delta)));};
+      const stepper=el('div',null,'project-count-steps');for(const [delta,title,glyph]of [[1,'增加集数','⌃'],[-1,'减少集数','⌄']]){const b=button(glyph,()=>adjust(delta));bindAttribute(b,'aria-label',title);steps.push(b);stepper.append(b);}wrap.append(episodes,stepper);episodeLabel.append(wrap);body.append(episodeLabel);
+      const kinds=el('fieldset',null,'project-create-field project-type-options');kinds.append(el('legend',msg('project.project_type')));const group=el('div'),groupName='project-style-'+uid();
+      for(const [value,title]of [['2d',msg('ui.style_2d')],['3d',msg('ui.style_3d')],['live',msg('ui.style_live')]]){const label=el('label'),radio=el('input');radio.type='radio';radio.name=groupName;radio.value=value;radio.checked=value==='live';bindAttribute(radio,'aria-label',title);styles.push(radio);label.append(radio,el('span',title));group.append(label);}kinds.append(group);body.append(kinds);
+    }
+    const coverSection=el('div',null,'project-cover-field'),coverLabel=el('p','上传封面'),coverHint=el('p','封面图建议正方形尺寸，大小不超过5MB','project-cover-hint'),upload=el('label',null,'project-cover-upload'),fileInput=el('input'),preview=el('div',null,'project-cover-preview'),fileNotice=el('p',null,'project-cover-feedback');
+    fileNotice.setAttribute('role','status');fileInput.type='file';fileInput.accept='image/*';bindAttribute(fileInput,'aria-label','上传封面');upload.append(preview,fileInput);const remove=button('移除封面',()=>{fileTicket++;selecting=false;selected=null;creationFiles.delete(requestKey);fileInput.value='';setText(fileNotice,'');drawCover();});remove.className='project-cover-remove';coverSection.append(coverLabel,coverHint,upload,remove,fileNotice);if(!canvas)body.append(coverSection);
+    const message=el('p',null,'hint project-create-status');message.setAttribute('role','status');const save=el('button',canvas?msg('ui.create_project'):'确定');save.type='submit';save.className='project-create-confirm';
+    const footer=el('footer',null,'project-create-footer');footer.append(button(msg('common.cancel'),()=>dialog.close()),save);form.append(body,message,footer);
+    if(canvas){form.replaceChildren(el('h2',msg('shell.new_canvas')));field(form,msg('ui.sky_project_name'),name);form.append(message,actions(save,button(msg('common.cancel'),()=>dialog.close())));}
+    dialog.append(form);root.append(dialog);
+    const lock=()=>{for(const input of [name,episodes,...styles,...steps])if(input)input.disabled=Boolean(request);fileInput.disabled=selecting||Boolean(request&&(!request.cover||selected||request.cover.applied));remove.disabled=Boolean(request);save.disabled=submitted||selecting||!identity||!session().writeAvailable;};
+    function drawCover(){
+      if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null;}preview.replaceChildren();
+      if(selected){previewUrl=URL.createObjectURL(selected.file);const image=el('img');image.src=previewUrl;image.alt='封面预览';preview.append(image);}else if(request?.cover?.content_url){const image=el('img');image.src=request.cover.content_url;image.alt='封面预览';preview.append(image);}else preview.append(el('span','+','project-cover-plus'),el('span',request?.cover?'重新选择原封面':'上传图片'));
+      remove.hidden=!selected||Boolean(request);lock();
+    }
+    fileInput.addEventListener('change',async()=>{
+      const file=fileInput.files?.[0],token=++fileTicket;if(!file)return;selecting=true;lock();setText(fileNotice,'正在读取封面…');
+      try{
+        if(file.size>5*1024*1024)throw new Error('封面大小不能超过5MB');if(!file.size)throw new Error('请选择有效的图像文件');
+        const image=await createImageBitmap(file);const valid=image.width>0&&image.height>0;image.close();if(!valid)throw new Error('请选择有效的图像文件');
+        const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),n=>n.toString(16).padStart(2,'0')).join('');
+        if(!current()||token!==fileTicket)return;if(request?.cover&&sha256!==request.cover.sha256)throw new Error('请重新选择上次的原封面文件；文件内容不能更换');
+        selected={file,filename:file.name,size_bytes:file.size,sha256};creationFiles.set(requestKey,selected);setText(fileNotice,'');drawCover();
+      }catch(error){if(current()&&token===fileTicket){fileInput.value='';setText(fileNotice,error.name==='InvalidStateError'?'请选择可读取的图像文件':error.message);}}
+      finally{if(current()&&token===fileTicket){selecting=false;lock();}}
+    });
+    if(request){name.value=request.payload.name;if(episodes)episodes.value=String(request.count);for(const radio of styles)radio.checked=radio.value===(request.payload.character_style||'live');setText(message,request.phase==='readback'?'项目已创建，重试将继续打开已创建项目。':msg('ui.the_previous_receipt_is_unconfirmed_retrying_will_recover_the'));}
+    showCount();drawCover();dialog.showModal();const closeThis=()=>dialog.close();closeCreation=closeThis;
+    form.addEventListener('submit',async e=>{
+      e.preventDefault();if(submitted||selecting||!current()||!identity||!session().writeAvailable)return;submitted=true;save.disabled=true;
+      try{
+        if(!request){const count=episodes?Math.min(500,Math.max(1,Math.trunc(Number(episodes.value)||1))):0;request={payload:{name:name.value.trim(),profile:canvas||count<=1?'vsc.light-short':'vsc.series-pg',...(canvas?{}:{character_style:styles.find(r=>r.checked)?.value||'live'})},count,idempotency_key:uid(),offset:0,phase:'write',next,...(!canvas&&selected?{cover:{filename:selected.filename,size_bytes:selected.size_bytes,sha256:selected.sha256}}:{})};remember(requestKey,request);lock();}
+        if(!request.project_id){
+          const result=await ctx.api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:request.payload,idempotency_key:request.idempotency_key})});
+          request.project_id=result.id;request.revision=result.revision??0;remember(requestKey,request);if(!current())return;
+        }
+        while(request.offset<request.count){
+          const start=request.offset,titles=Array.from({length:Math.min(50,request.count-start)},(_,index)=>'第'+(start+index+1)+'集');
+          const saved=await ctx.api('/api/v1/projects/'+encodeURIComponent(request.project_id)+'/episode-batches',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{titles,initial_shot_count:0},expected_revision:request.revision,idempotency_key:request.idempotency_key+':episodes:'+start})});
+          request.revision=saved.revision??request.revision;request.offset=start+titles.length;remember(requestKey,request);if(!current())return;
+        }
+        if(request.cover&&!await uploadProjectCover(request,{current,retain:()=>remember(requestKey,request),file:()=>creationFiles.get(requestKey)?.file,progress:text=>{if(current())setText(message,text);}}))return;
+        request.phase='readback';remember(requestKey,request);
+        await ctx.refreshProjects({isCurrent:current});if(!current())return;
+        const target=request.next||{};
+        ctx.notice(msg('ui.project_created'));
+        await ctx.navigate(target.page||(canvas?'creative-canvas':'project'),null,request.project_id,target.options||{});
+        remember(requestKey,null);creationFiles.delete(requestKey);if(!closed)dialog.close();
+      }catch(error){
+        if(!request?.project_id&&error.status>=400&&error.status<500&&error.status!==409){request=null;remember(requestKey,null);}
+        if(current()){lock();setText(message,request?.phase==='readback'?'项目已创建，打开未完成。重试将继续打开已创建项目。 '+error.message:error.message+(request?'；原创建操作已保留，重试将继续该项目。':''));}
+      }finally{if(current()){submitted=false;lock();}else if(!closed)dialog.close();}
+    });
+    dialog.addEventListener('close',()=>{closed=true;fileTicket++;if(previewUrl)URL.revokeObjectURL(previewUrl);if(closeCreation===closeThis)closeCreation=null;dialog.remove();},{once:true});name.focus();
+  }
+  async function uploadProjectCover(request,{current,retain,file,progress}){
+    const cover=request.cover,p=request.project_id,base=endpoint(p,'media-imports'),headers=()=>({'Content-Type':'application/json','X-CSRF-Token':session().csrf});
+    const post=(path,body)=>ctx.api(path,{method:'POST',headers:headers(),body:JSON.stringify(body)});
+    if(!current())return false;if(cover.applied)return true;request.phase='cover';progress('正在保存项目封面…');retain();
+    if(!cover.batch_id){
+      cover.batch_request||={payload:{title:'项目封面',rights:'unknown',files:[{filename:cover.filename,size_bytes:cover.size_bytes,sha256:cover.sha256}]},expected_revision:request.revision,idempotency_key:request.idempotency_key+':cover-import'};retain();
+      const result=await post(base,cover.batch_request);cover.batch_id=result.id;request.revision=result.revision??request.revision;retain();if(!current())return false;
+    }
+    let batch=await ctx.api(base+'/'+encodeURIComponent(cover.batch_id));if(!current())return false;request.revision=batch.revision;let item=batch.items[0];cover.item_id=item.id;cover.media_id=item.media_id||cover.media_id;retain();
+    if(!item.has_upload&&!cover.media_id){
+      const original=file();if(!original)throw new Error('请重新选择上次的原封面文件继续上传；已创建项目和分集已保留');
+      const result=await ctx.api(base+'/'+encodeURIComponent(cover.batch_id)+'/items/'+encodeURIComponent(item.id)+'/upload?offset='+item.uploaded_bytes,{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':session().csrf},body:original.slice(item.uploaded_bytes)});request.revision=result.revision??request.revision;retain();if(!current())return false;
+      batch=await ctx.api(base+'/'+encodeURIComponent(cover.batch_id));if(!current())return false;request.revision=batch.revision;item=batch.items[0];cover.media_id=item.media_id||cover.media_id;retain();
+    }
+    if(!cover.media_id){
+      cover.process_request||={payload:{batch_id:cover.batch_id,item_id:cover.item_id},expected_revision:request.revision,idempotency_key:request.idempotency_key+':cover-process'};retain();
+      const result=await post(base+'/process',cover.process_request);cover.media_id=result.media_id;request.revision=result.revision??request.revision;retain();if(!current())return false;
+    }
+    cover.selection_request||={payload:{media_id:cover.media_id},expected_revision:request.revision,idempotency_key:request.idempotency_key+':cover-selection'};retain();
+    const selected=await post(endpoint(p,'cover'),cover.selection_request);if(selected.selection?.media_id!==cover.media_id||!selected.cover?.content_url)throw new Error('封面结果尚未读回，请重试恢复原操作');cover.applied=true;cover.content_url=selected.cover.content_url;request.revision=selected.revision??request.revision;retain();return current();
   }
   async function episodes(t){
     const value=await read(endpoint(scope.project,'production-platform?'+new URLSearchParams({offset:String(offset),limit:'24'})),t);if(!value)return;data=value;ctx.setRevision(value.revision,scope.project);
@@ -250,6 +336,6 @@ export function createProductionPlatform(root,ctx){
     for(const output of value.outputs||[])dialog.append(button(msg("ui.review_outputs"),()=>ctx.media(output.media_id)));for(const event of value.events||[])dialog.append(el('p',joinMessages(["",event.created_at||''," · ",event.event_type,""]),'hint'));dialog.append(button(msg("common.close"),()=>dialog.close()));root.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}
   async function settings(t){header(msg("ui.settings_and_maintenance"),msg("ui.configuration_applies_to_future_tasks_fixed_tasks_retain_original"));root.append(actions(button(msg("ui.models_default_purposes_and_updates"),ctx.settings),button(msg("ui.role_memory"),ctx.memory),button(msg("settings.local_management_credential"),ctx.account),link(msg("ui.runtime_and_connection_diagnostics"),'maintenance'),link(msg("common.route_recycle_bin"),'trash')));const value=await read('/api/v1/resource-settings',t);if(!value)return;const grid=el('div',null,'platform-grid');for(const row of value.configurations||[]){const box=card(row.name||row.model_key);box.append(el('p',joinMessages(["",row.model_key," · ",row.model_version,""]),'hint'),el('p',joinMessages(["",row.enabled?msg("common.enabled"):msg("ui.disabled")," · ",typeof row.connection_status==='object'?(row.connection_status.message||row.connection_status.status):row.connection_status||msg("ui.not_verified_online_yet"),""])),button(msg("ui.view_and_edit_configuration"),ctx.settings));grid.append(box);}if(!value.configurations?.length)grid.append(empty(msg("ui.no_model_configurations"),msg("ui.open_models_default_purposes_and_updates_to_configure_routes")));root.append(grid);}
   async function maintenance(t){header(msg("ui.workspace_maintenance"),msg("ui.service_status_and_connection_settings_come_from_the_local"));root.append(actions(link(msg("ui.back_to_project"),'projects',null),link(msg("ui.models_and_settings"),'settings'),button(msg("ui.refresh_diagnostics"),reload)));const values=await Promise.all([ctx.api('/api/v1/execution'),ctx.api('/api/v1/resource-settings')]);if(!same(t))return;const [execution,settings]=values;const diagnostic={execution,configuration_available:settings.available!==false,configuration_count:settings.configurations?.length||0};root.append(el('p',execution.message,'hint'),el('pre',text(diagnostic),'platform-diagnostic'));root.append(button(msg("ui.download_redacted_diagnostics"),()=>{const blob=new Blob([JSON.stringify(diagnostic,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='vsc-diagnostic.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}));}
-  async function load(options){assetCards?.suspend();assetCards=null;clearTimeout(poll);poll=null;ticket++;const t=ticket;scope={...options};offset=options.offset||0;busy=false;data=null;root.replaceChildren(el('p',msg("ui.loading"),'hint'));root.setAttribute('aria-busy','true');try{root.replaceChildren();root.classList.remove('platform-home','platform-projects','platform-episodes','platform-assets','platform-media');if(scope.page==='home')await home(t);else if(scope.page==='projects')await projects(t);else if(scope.page==='settings')await settings(t);else if(scope.page==='maintenance')await maintenance(t);else if(!scope.project)root.append(empty(msg("ui.select_a_project_first_dynamic_76"),msg("ui.create_or_open_a_project_from_the_project_list")));else if(scope.page==='project')await episodes(t);else if(scope.page==='production')await production(t);else if(scope.page==='assets')await assets(t);else if(scope.page==='tasks')await tasks(t);if(options.create==='canvas'){if(typeof window!=='undefined'){const q=new URLSearchParams(window.location.search);q.delete('create');window.history.replaceState(null,'','?'+q);}createProject('canvas');}}catch(error){if(same(t)){root.append(empty(msg("ui.loading_incomplete"),error.message),button(msg("ui.reload"),reload));ctx.notice(error.message);}}finally{if(same(t))root.removeAttribute('aria-busy');}}
-  return {load,suspend(){assetCards?.suspend();ticket++;clearTimeout(poll);poll=null;}};
+  async function load(options){closeCreation?.();assetCards?.suspend();assetCards=null;clearTimeout(poll);poll=null;ticket++;const t=ticket;scope={...options};offset=options.offset||0;busy=false;data=null;root.replaceChildren(el('p',msg("ui.loading"),'hint'));root.setAttribute('aria-busy','true');try{root.replaceChildren();root.classList.remove('platform-home','platform-projects','platform-episodes','platform-assets','platform-media');if(scope.page==='home')await home(t);else if(scope.page==='projects')await projects(t);else if(scope.page==='settings')await settings(t);else if(scope.page==='maintenance')await maintenance(t);else if(!scope.project)root.append(empty(msg("ui.select_a_project_first_dynamic_76"),msg("ui.create_or_open_a_project_from_the_project_list")));else if(scope.page==='project')await episodes(t);else if(scope.page==='production')await production(t);else if(scope.page==='assets')await assets(t);else if(scope.page==='tasks')await tasks(t);if(options.create==='canvas'){if(typeof window!=='undefined'){const q=new URLSearchParams(window.location.search);q.delete('create');window.history.replaceState(null,'','?'+q);}createProject('canvas');}}catch(error){if(same(t)){root.append(empty(msg("ui.loading_incomplete"),error.message),button(msg("ui.reload"),reload));ctx.notice(error.message);}}finally{if(same(t))root.removeAttribute('aria-busy');}}
+  return {load,suspend(){closeCreation?.();assetCards?.suspend();ticket++;clearTimeout(poll);poll=null;}};
 }

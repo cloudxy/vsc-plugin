@@ -1,10 +1,38 @@
 """Discover original creative objects and templates within current access grants."""
 from urllib.parse import urlencode
-from sqlalchemy import select,literal
+from sqlalchemy import select,literal,case,func,tuple_
+from vsc.assets.classic_production import DRAFT_TYPE,MODES
 from . import schema as S
 from .values import clean
 from .project_presentation import present_recent
 from .project_management import hidden_object_ids
+
+
+def _classic_recent_query(project_ids, hidden):
+    """One latest saved draft per visible episode and image/video workspace."""
+    a,scope,shot,sequence,scene,obj = (S.artifact_versions,S.artifact_object_scopes,
+        S.shots,S.sequences,S.scenes,S.creative_objects)
+    mode=func.split_part(a.c.artifact_key,':',3)
+    kinds={name:spec['modality'] for name,spec in MODES.items()
+        if spec['modality'] in {'image','video'} and not spec.get('internal')}
+    heads=select(a.c.project_id,shot.c.id.label('target_id'),scene.c.parent_id.label('episode_id'),
+        obj.c.title,a.c.id.label('version_id'),a.c.version,a.c.sha256,a.c.created_at,
+        mode.label('mode'),case(kinds,value=mode).label('production_kind')).select_from(a).join(scope,
+            (scope.c.project_id==a.c.project_id)&(scope.c.artifact_id==a.c.id)).join(shot,
+            (shot.c.project_id==scope.c.project_id)&(shot.c.id==scope.c.object_id)).join(sequence,
+            (sequence.c.project_id==shot.c.project_id)&(sequence.c.id==shot.c.parent_id)).join(scene,
+            (scene.c.project_id==sequence.c.project_id)&(scene.c.id==sequence.c.parent_id)).join(obj,
+            (obj.c.project_id==shot.c.project_id)&(obj.c.id==shot.c.id)).where(
+                a.c.project_id.in_(project_ids),a.c.artifact_type==DRAFT_TYPE,mode.in_(kinds),
+                a.c.artifact_key==func.concat('classic:',shot.c.id,':',mode),
+                tuple_(shot.c.project_id,shot.c.id).not_in([(p,i) for p,items in hidden.items() for i in items]))
+    # Saved drafts are unapproved working versions; current_artifact_versions is an approval pointer.
+    heads=heads.distinct(a.c.project_id,a.c.artifact_key).order_by(
+        a.c.project_id,a.c.artifact_key,a.c.version.desc()).subquery('classic_draft_heads')
+    ranked=select(heads,func.row_number().over(
+        partition_by=(heads.c.project_id,heads.c.episode_id,heads.c.production_kind),
+        order_by=(heads.c.created_at.desc(),heads.c.version_id.desc())).label('recent_rank')).subquery('classic_recent')
+    return select(*(ranked.c[name] for name in heads.c.keys())).where(ranked.c.recent_rank==1)
 
 
 def discover(store,limit=24):
@@ -22,7 +50,10 @@ def discover(store,limit=24):
                 params={'page':page,'project':row['project_id'],target:row['target_id']}
                 if row.get('episode_id'):params['episode']=row['episode_id']
                 if tool:params['tool']=row[tool]
+                if row.get('production_kind'):
+                    params.update(kind=row['production_kind'],mode=row['mode'])
                 rows.append({**row,'kind':kind,'project_name':names[row['project_id']],'href':'/?'+urlencode(params)})
+        add(_classic_recent_query(ids,hidden),'classic','classic-production','scope')
         c,v=S.creative_canvases,S.creative_canvas_versions
         add(select(c.c.project_id,c.c.id.label('target_id'),c.c.episode_id,v.c.title,v.c.created_at).join(v,(v.c.project_id==c.c.project_id)&(v.c.id==c.c.current_version_id)).where(c.c.project_id.in_(ids)),'canvas','creative-canvas')
         u,a=S.text_tool_units,S.artifact_versions

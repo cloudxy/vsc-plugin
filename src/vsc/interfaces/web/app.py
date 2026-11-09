@@ -50,6 +50,7 @@ from vsc.interfaces.web.asset_center import install_asset_center_routes
 from vsc.interfaces.web.asset_cards import install_asset_card_routes
 from vsc.interfaces.web.task_notifications import install_task_notification_routes
 from vsc.interfaces.web.community import install_community_routes
+from vsc.interfaces.web.project_cover import install_project_cover_routes
 from vsc.assets.access_control import set_principal,reset_principal,Principal
 
 
@@ -449,6 +450,7 @@ def create_app(config=None, catalog=None, service=None):
     install_creative_tools_routes(router, catalog, etag, actor)
     install_standalone_creative_tool_routes(app,catalog,actor)
     install_media_import_routes(router, catalog, etag, actor)
+    install_project_cover_routes(router, catalog, etag, actor)
     install_text_tools_routes(router, catalog, etag, actor)
     install_standalone_text_tool_routes(app, catalog, actor)
     install_access_routes(app, router, catalog, etag, actor, origin, new_session, sessions)

@@ -48,7 +48,8 @@ def project_cards(store, projects):
             style = {'2d': '2D动漫', '3d': '3D动漫', 'live': '真人'}.get((row.get('profile_snapshot') or {}).get('character_style'))
             row['project_type'] = style or {'vsc.light-short': '短视频', 'vsc.series-pg': '连续短剧',
                 'vsc.text-tools': '文本工具', 'vsc.creative-tools': '创作工具'}.get(profile)
-            row['cover'] = media_cover(conn, p)
+            from .project_cover import project_cover
+            row['cover'] = project_cover(conn, p)
             result.append(row)
     return clean(result)
 
@@ -73,6 +74,11 @@ def present_recent(conn, row):
             (S.edit_workspaces.c.current_version_id == S.edit_revision_media.c.edit_version_id)).where(
                 S.edit_workspaces.c.project_id == p, S.edit_workspaces.c.episode_id == episode,
                 S.edit_revision_media.c.track == 'clips')
+    elif kind == 'classic':
+        ids = select(S.classic_draft_media.c.media_id).where(
+            S.classic_draft_media.c.project_id == p,
+            S.classic_draft_media.c.draft_version_id == row['version_id'])
     row['cover'] = media_cover(conn, p, ids)
-    row['kind_label'] = {'canvas': '画布', 'editing': '剪辑', 'intelligent': 'Agent 工作流', 'text': '文字创作'}.get(kind, '创作')
+    row['kind_label'] = ({'video': '视频', 'image': '分镜'}.get(row.get('production_kind'))
+        if kind == 'classic' else {'canvas': '画布', 'editing': '剪辑', 'intelligent': 'Agent', 'text': '文字创作'}.get(kind, '创作'))
     return row

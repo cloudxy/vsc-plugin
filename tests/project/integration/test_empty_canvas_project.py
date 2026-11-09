@@ -17,7 +17,7 @@ class EmptyCanvasProjectTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(created, again)
         self.assertEqual(created["project_name"], "未命名项目")
         self.assertEqual(created["episode_name"], "第一集")
-        self.assertEqual(created["canvas_name"], "画布")
+        self.assertEqual(created["canvas_name"], "未命名画布")
         project = self.service.get_project(created["project_id"])
         self.assertEqual(project["profile"], "vsc.light-short")
         episodes = self.service.get_production_episodes(created["project_id"])
