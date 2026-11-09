@@ -132,6 +132,7 @@ from vsc.assets.community import CommunityServiceMixin
 from vsc.assets.canvas_templates import CanvasTemplatesServiceMixin
 from vsc.assets.episode_work import EpisodeWorkService
 from vsc.assets.project_cover import ProjectCoverServiceMixin
+from vsc.assets.marketing_studio import MarketingStudioServiceMixin
 
 
 class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
@@ -139,7 +140,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                       ProductionPlatformServiceMixin, ProjectManagementServiceMixin, CreativeCanvasService, ClassicProductionServiceMixin, WorkingStateService, IntelligentProductionServiceMixin,
                       SpatialSceneService, CreativeToolsService, MediaImportService, TextToolsServiceMixin,
                       AssetCenterService, AssetCardsServiceMixin, TaskCenterService, AccessControlServiceMixin, AuthenticationServiceMixin, PromptAssistServiceMixin, TeamReviewServiceMixin, CommerceService,
-                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin, EpisodeWorkService, ProjectCoverServiceMixin):
+                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin, EpisodeWorkService, ProjectCoverServiceMixin, MarketingStudioServiceMixin):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester

@@ -15,29 +15,32 @@ class Element {
  removeAttribute(k){delete this.attrs[k];}
  setAttribute(k,v){this.attrs[k]=v;} getAttribute(k){return this.attrs[k]??null;}
  matches(selector){if(selector[0]==='.')return this.classList.contains(selector.slice(1));if(selector[0]==='['){const match=selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);return match&&(match[2]==null?this.attrs[match[1]]!=null:this.attrs[match[1]]===match[2]);}return this.tagName===selector.toUpperCase();}
- querySelectorAll(selector){const values=this.children.flatMap(c=>[c,...c.querySelectorAll('*')]);if(selector==='*')return values;return values.filter(c=>selector.split(',').some(x=>c.matches(x.trim())));}
+ querySelectorAll(selector){if(selector.startsWith(':scope > '))return this.children.filter(c=>c.matches(selector.slice(9)));const values=this.children.flatMap(c=>[c,...c.querySelectorAll('*')]);if(selector==='*')return values;return values.filter(c=>selector.split(',').some(x=>c.matches(x.trim())));}
  querySelector(selector){return this.querySelectorAll(selector)[0]||null;}closest(selector){for(let node=this;node;node=node.parentElement)if(selector.split(',').some(part=>node.matches(part.trim())))return node;return null;}
  getBoundingClientRect(){return {left:0,top:0,width:1200,height:800};}
  addEventListener(k,v){(this.listeners[k]??=[]).push(v);}
  get options(){return this.children.filter(x=>x.tagName==='OPTION');}
  get isConnected(){return this.parentElement!==null;}
  async fire(type,properties={}){const event={target:this,preventDefault(){},...properties};if(this['on'+type])await this['on'+type](event);for(const f of this.listeners[type]||[])await f(event);if(['input','change'].includes(type)&&this.parentElement)await this.parentElement.fire(type,{...properties,target:event.target});}
- focus(){this.ownerDocument.activeElement=this;}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
+ focus(){this.ownerDocument.activeElement=this;}scrollIntoView(){}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
 }
-async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null,projects=null,denyProjectStorage=false}={}) {
+async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null,projects=null,denyProjectStorage=false,store=new Map(),actor='test',search=''}={}) {
   const document={createElement:t=>{const n=new Element(t);n.ownerDocument=document;if(t==='canvas')n.getContext=()=>({drawImage(){},getImageData(){return {data:new Uint8ClampedArray(32)};}});return n;},createElementNS:(ns,t)=>{const n=document.createElement(t);n.namespaceURI=ns;return n;},createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;},documentElement:{}};
   const images=[];class FakeImage{constructor(){images.push(this);}}
-  const store=new Map(),sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(denyProjectStorage&&k.startsWith('vsc-canvas-project-node:'))throw Error('storage disabled');store.set(k,v);},removeItem:k=>store.delete(k)};
-  const listeners=new Map(),window={addEventListener(type,fn){(listeners.get(type)||listeners.set(type,new Set()).get(type)).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},fire(type,event={}){for(const fn of [...listeners.get(type)||[]])fn(event);}},location={search:''};
+  const sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(denyProjectStorage&&k.startsWith('vsc-canvas-project-node:'))throw Error('storage disabled');store.set(k,v);},removeItem:k=>store.delete(k)};
+  const listeners=new Map(),window={addEventListener(type,fn){(listeners.get(type)||listeners.set(type,new Set()).get(type)).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},fire(type,event={}){for(const fn of [...listeners.get(type)||[]])fn(event);}},location={search};
   const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:()=>0,clearTimeout:()=>{}});
   const root=document.createElement('main');
-  const ctx={session:()=>({actor:'test',csrf:'test',revision:1}),setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:{items:[],revision:1};}};
+  const session={actor,csrf:'test',revision:1};
+  const ctx={session:()=>session,setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:path.endsWith('/creative-canvas-agent-options')?{revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[],nodes:[]}:{items:[],revision:1};}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
-  return {root,canvas,store,images,document,window,FakeImage,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
+  return {root,canvas,store,images,document,window,FakeImage,session,location,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
+const browserKey=(prefix,{actor='test',project='p1',canvas='c1',shared=false,episode=null,slot=null}={})=>prefix+':v2:'+JSON.stringify([actor,shared,project,canvas,canvas?null:episode,slot]);
+const canvasDraftKey=(scope={})=>browserKey('vsc-creative-canvas',scope);
 function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.textContent==='添加图片');assert.ok(action);return action.fire('click');}
-function savedNode(store){return JSON.parse(store.get('vsc-creative-canvas:p1:c1')).document.nodes.at(-1);}
+function savedNode(store){return JSON.parse(store.get(canvasDraftKey())).document.nodes.at(-1);}
 async function selectGrid(a,cells=[[1,1],[1,2],[2,1],[2,2]]){await a.root.querySelectorAll('button').find(b=>b.textContent==='4宫格（2×2）').fire('click');for(const [r,c]of cells)await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']===`宫格 ${r}行${c}列`).fire('click');}
 function generateGrid(a){return a.root.querySelectorAll('button').find(b=>b.textContent==='生成图片').fire('click');}
 async function openCrossProject(a){await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');const pick=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='资产项目');pick.value='p2';await pick.fire('change');}
@@ -79,7 +82,7 @@ test('cross-project drop retains edits made while the original request runs',asy
  await openCrossProject(a);const transfer={value:'',types:['application/x-vsc-canvas-asset'],setData(_type,value){this.value=value;},getData(){return this.value;}};
  await a.root.querySelector('.cc-asset-open').fire('dragstart',{dataTransfer:transfer});const pending=a.stage.fire('drop',{dataTransfer:transfer,clientX:300,clientY:180});
  await new Promise(resolve=>setImmediate(resolve));await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);resolveRequest({id:'c1',version_id:'version2',canvas_revision:2,revision:2,node_id:'cross1',media_id:'target1'});await pending;
- assert.equal(request.payload.x,220);assert.equal(request.payload.y,132);const saved=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1')).document;assert.equal(saved.nodes.length,2);assert.ok(saved.nodes.some(n=>n.media_id==='target1'));assert.ok(saved.nodes.some(n=>n.media_id===null));a.canvas.suspend();
+ assert.equal(request.payload.x,220);assert.equal(request.payload.y,132);const saved=JSON.parse(a.store.get(canvasDraftKey())).document;assert.equal(saved.nodes.length,2);assert.ok(saved.nodes.some(n=>n.media_id==='target1'));assert.ok(saved.nodes.some(n=>n.media_id===null));a.canvas.suspend();
 });
 
 test('cross-project reference is not submitted if its recovery receipt cannot be stored',async()=>{
@@ -141,24 +144,24 @@ test('image clicks and keyboard selection update the selected node without chang
   assert.ok(cards[0].classList.contains('selected'));assert.ok(cards[1].classList.contains('selected'));
   await cards[1].fire('keydown',{key:'Enter'});cards=a.root.querySelectorAll('.cc-node');
   assert.equal(cards[0].classList.contains('selected'),false);assert.ok(cards[1].classList.contains('selected'));
-  assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+  assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('selected image exposes preview and original download without editing canvas data',async()=>{
  const node={id:'image1',type:'image',title:'参考图',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};
  const a=await fixture({nodes:[node],viewport:{x:0,y:0,zoom:.5}});let card=a.root.querySelector('.cc-node');assert.equal(a.root.querySelector('.cc-image-node-tools'),null);
- const image=card.querySelector('img');image.naturalWidth=3840;image.naturalHeight=2160;await image.fire('load');assert.equal(card.querySelector('.cc-node-resolution').textContent,'3840 × 2160');assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
+ const image=card.querySelector('img');image.naturalWidth=3840;image.naturalHeight=2160;await image.fire('load');assert.equal(card.querySelector('.cc-node-resolution').textContent,'3840 × 2160');assert.equal(a.store.has(canvasDraftKey()),false);
  await card.fire('click',{target:card.querySelector('img')});card=a.root.querySelector('.cc-node');const toolbar=card.querySelector('.cc-image-node-tools');assert.ok(toolbar);assert.equal(toolbar.style.transform,'scale(2) translateX(-50%)');
  const link=toolbar.querySelector('a');assert.equal(link.href,'/api/v1/projects/p1/media/media1/content?download=true');
- await card.fire('click',{target:link});assert.equal(a.root.querySelector('.cc-node'),card);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
+ await card.fire('click',{target:link});assert.equal(a.root.querySelector('.cc-node'),card);assert.equal(a.store.has(canvasDraftKey()),false);
  await toolbar.querySelectorAll('button').find(b=>b.textContent==='预览').fire('click');const dialog=a.root.querySelector('.cc-image-preview');assert.ok(dialog.open);assert.equal(dialog.querySelector('img').src,'/api/v1/projects/p1/media/media1/content');
- await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-image-preview'),null);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-image-preview'),null);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('panorama viewer opens inline for the selected image and closes without editing',async()=>{
  const node={id:'image1',type:'image',title:'全景参考',x:100,y:100,text:'',params:{},media_id:'media1',job_id:null,group:''};const a=await fixture({nodes:[node]});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
- await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');card=a.root.querySelector('.cc-node');const viewer=card.querySelector('.cc-panorama-viewer');assert.ok(viewer);assert.equal(a.images[0].src,'/api/v1/projects/p1/media/media1/content');a.images[0].naturalWidth=16;a.images[0].naturalHeight=9;a.images[0].onload();assert.ok(viewer.querySelector('canvas'));assert.doesNotMatch(viewer.querySelector('p').textContent,/2:1/);assert.equal(card.querySelector('.cc-node-resolution').textContent,'16 × 9');assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);
- const late=a.images[0].onload;await card.querySelectorAll('button').find(b=>b.attrs['aria-label']==='退出全景预览').fire('click');assert.equal(a.root.querySelector('.cc-panorama-viewer'),null);assert.ok(a.root.querySelector('.cc-node').querySelector('img'));late();assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='进入全景').fire('click');card=a.root.querySelector('.cc-node');const viewer=card.querySelector('.cc-panorama-viewer');assert.ok(viewer);assert.equal(a.images[0].src,'/api/v1/projects/p1/media/media1/content');a.images[0].naturalWidth=16;a.images[0].naturalHeight=9;a.images[0].onload();assert.ok(viewer.querySelector('canvas'));assert.doesNotMatch(viewer.querySelector('p').textContent,/2:1/);assert.equal(card.querySelector('.cc-node-resolution').textContent,'16 × 9');assert.equal(a.store.has(canvasDraftKey()),false);
+ const late=a.images[0].onload;await card.querySelectorAll('button').find(b=>b.attrs['aria-label']==='退出全景预览').fire('click');assert.equal(a.root.querySelector('.cc-panorama-viewer'),null);assert.ok(a.root.querySelector('.cc-node').querySelector('img'));late();assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('classic panorama viewer still rejects a non-2:1 source',async()=>{
@@ -191,7 +194,7 @@ test('grid split preserves edits made while the request is running',async()=>{
  const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
  await selectGrid(a);const pending=generateGrid(a);await new Promise(resolve=>setImmediate(resolve));
  await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);finish();await pending;
- assert.equal(a.root.querySelectorAll('.cc-node').length,6);const draft=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1'));assert.equal(draft.dirty,true);assert.equal(draft.document.nodes.length,6);assert.equal(draft.document.edges.length,4);a.canvas.suspend();
+ assert.equal(a.root.querySelectorAll('.cc-node').length,6);const draft=JSON.parse(a.store.get(canvasDraftKey()));assert.equal(draft.dirty,true);assert.equal(draft.document.nodes.length,6);assert.equal(draft.document.edges.length,4);a.canvas.suspend();
 });
 
 test('grid receipt lost after server save is recovered after reopening without duplicate nodes',async()=>{
@@ -221,7 +224,7 @@ test('grid selection follows click order and exiting does not edit the canvas',a
  const card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});await selectGrid(a,[[2,2],[1,1]]);
  await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 2行2列').fire('click');await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='宫格 2行2列').fire('click');await generateGrid(a);
  assert.deepEqual(request.payload.cells,[{row:1,column:1},{row:2,column:2}]);await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='退出宫格切分').fire('click');
- assert.equal(a.root.querySelector('.cc-grid-overlay'),null);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ assert.equal(a.root.querySelector('.cc-grid-overlay'),null);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('dragging across a grid selects the covered rectangle',async()=>{
@@ -237,7 +240,7 @@ test('closing an image tool leaves its source and document untouched',async()=>{
  const angle={preset:'custom',yaw:0,pitch:0,roll:0,zoom:1,include_instructions:true};
  const a=await fixture({nodes:[node],runOptions:{revision:1,nodes:[],models:[],image_tools:{angle}}});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
  await a.root.querySelector('.cc-node-head').fire('click');assert.equal(a.root.querySelector('.cc-inspector').hidden,false);await a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');const panel=a.root.querySelector('.cc-image-tool-panel');assert.ok(panel);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);
- await panel.querySelectorAll('button').find(b=>b.attrs['aria-label']==='关闭').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,false);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ await panel.querySelectorAll('button').find(b=>b.attrs['aria-label']==='关闭').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,false);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('switching images through the minimap clears image-specific panels',async()=>{
@@ -245,7 +248,7 @@ test('switching images through the minimap clears image-specific panels',async()
  const a=await fixture({nodes:[node('first',100),node('second',400)],runOptions:{revision:1,nodes:[],models:[],image_tools:{angle}}});let cards=a.root.querySelectorAll('.cc-node');await cards[0].querySelector('.cc-node-head').fire('click');assert.equal(a.root.querySelector('.cc-inspector').hidden,false);
  await a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');assert.ok(a.root.querySelector('.cc-image-tool-panel'));
  await a.root.querySelector('.cc-minimap').querySelectorAll('button').find(b=>b.title==='second').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);
- await a.root.querySelector('.cc-minimap').querySelectorAll('button').find(b=>b.title==='first').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ await a.root.querySelector('.cc-minimap').querySelectorAll('button').find(b=>b.title==='first').fire('click');assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.root.querySelector('.cc-inspector').hidden,true);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('canvas image tool fixes source, settings and extra prompt before opening generation',async()=>{
@@ -259,7 +262,7 @@ test('canvas image tool fixes source, settings and extra prompt before opening g
  const prompt=inputs.find(n=>n.attrs['aria-label']==='提示词');assert.equal(prompt.checked,false);prompt.checked=true;await prompt.fire('change');
  const extra=panel.querySelector('textarea');extra.value='保持服装';await extra.fire('input');
  await panel.querySelectorAll('button').find(b=>b.attrs['aria-label']==='继续生成').fire('click');
- const doc=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1')).document,target=doc.nodes.find(n=>n.id!=='source');
+ const doc=JSON.parse(a.store.get(canvasDraftKey())).document,target=doc.nodes.find(n=>n.id!=='source');
  assert.equal(target.params.vsc_image_tool,'angle');assert.equal(JSON.parse(target.params.vsc_image_tool_settings).yaw,-45);assert.equal(JSON.parse(target.params.vsc_image_tool_settings).include_instructions,true);assert.equal(target.text,'保持服装');
  assert.deepEqual(doc.edges.map(e=>[e.source,e.target,e.port]),[['source',target.id,'reference']]);assert.ok(a.root.querySelector('.cc-run-form'));a.canvas.suspend();
 });
@@ -270,7 +273,7 @@ test('image generation presets fix the original reference before opening generat
  for(const [tool,label] of [['three_view','角色三视图'],['headshot','生成大头照'],['face_views','角色脸部三视图']]){
   const a=await fixture({nodes:[node],runOptions:{revision:1,nodes:[],models:[{id:'model1',enabled:true,modality:'image',model_key:'编辑模型',model_version:'1',capabilities:{purposes:['image_edit']}}],image_tools}});let card=a.root.querySelector('.cc-node');await card.fire('click',{target:card.querySelector('img')});
   const menu=a.root.querySelector('.cc-image-generate-menu--presets');assert.ok(menu);assert.equal(menu.querySelectorAll('button').find(b=>b.textContent==='剧情推进四格').disabled,true);
-  await menu.querySelectorAll('button').find(b=>b.textContent===label).fire('click');const doc=JSON.parse(a.store.get('vsc-creative-canvas:p1:c1')).document,target=doc.nodes.find(n=>n.id!=='source');
+  await menu.querySelectorAll('button').find(b=>b.textContent===label).fire('click');const doc=JSON.parse(a.store.get(canvasDraftKey())).document,target=doc.nodes.find(n=>n.id!=='source');
   assert.equal(target.params.vsc_image_tool,tool);assert.deepEqual(JSON.parse(target.params.vsc_image_tool_settings),image_tools[tool]);assert.deepEqual(doc.edges.map(e=>[e.source,e.target,e.port]),[['source',target.id,'reference']]);assert.ok(a.root.querySelector('.cc-run-form'));a.canvas.suspend();
  }
 });
@@ -280,7 +283,7 @@ test('late image tool options do not reopen the panel for a different selection'
  const a=await fixture({nodes:[node('first',100),node('second',400)],runOptions:waiting});let cards=a.root.querySelectorAll('.cc-node');await cards[0].fire('click',{target:cards[0].querySelector('img')});
  const opening=a.root.querySelectorAll('button').find(b=>b.textContent==='多角度').fire('click');cards=a.root.querySelectorAll('.cc-node');await cards[1].fire('click',{target:cards[1].querySelector('img')});
  resolve({revision:1,nodes:[],models:[],image_tools:{angle:{preset:'custom',yaw:0,pitch:0,roll:0,zoom:1,include_instructions:true}}});await opening;
- assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ assert.equal(a.root.querySelector('.cc-image-tool-panel'),null);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 
 test('late image preset options do not create a node for a different selection',async()=>{
@@ -288,5 +291,73 @@ test('late image preset options do not create a node for a different selection',
  const a=await fixture({nodes:[node('first',100),node('second',400)],runOptions:waiting});let cards=a.root.querySelectorAll('.cc-node');await cards[0].fire('click',{target:cards[0].querySelector('img')});
  const opening=a.root.querySelectorAll('button').find(b=>b.textContent==='角色三视图').fire('click');cards=a.root.querySelectorAll('.cc-node');await cards[1].fire('click',{target:cards[1].querySelector('img')});
  resolve({revision:1,nodes:[],models:[],image_tools:{three_view:{layout:'front_side_back'}}});await opening;
- assert.equal(a.root.querySelectorAll('.cc-node').length,2);assert.equal(a.store.has('vsc-creative-canvas:p1:c1'),false);a.canvas.suspend();
+ assert.equal(a.root.querySelectorAll('.cc-node').length,2);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
+});
+
+test('canvas drafts restore for their actor while another actor on the same canvas sees only the server version',async()=>{
+ const a=await fixture();await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);
+ const original=a.store.get(canvasDraftKey());assert.ok(original);await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelectorAll('.cc-node').length,1);
+ a.session.actor='other';await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelectorAll('.cc-node').length,0);assert.equal(a.store.has(canvasDraftKey({actor:'other'})),false);
+ await a.root.querySelector('.cc-stage').fire('dblclick',{clientX:300,clientY:180});await addImage(a.root.querySelector('.cc-create-menu'));
+ const other=JSON.parse(a.store.get(canvasDraftKey({actor:'other'})));assert.equal(other.document.nodes.length,1);assert.notEqual(other.document.nodes[0].id,JSON.parse(original).document.nodes[0].id);
+ a.session.actor='test';await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelector('.cc-node').dataset.nodeId,JSON.parse(original).document.nodes[0].id);a.canvas.suspend();
+});
+
+test('same actor draft survives a component restart and project or episode navigation without crossing projects',async()=>{
+ const a=await fixture();await a.stage.fire('dblclick',{clientX:510,clientY:280});await addImage(a.menu);const id=savedNode(a.store).id;a.canvas.suspend();
+ const b=await fixture({store:a.store});assert.equal(b.root.querySelector('.cc-node').dataset.nodeId,id);
+ await b.canvas.load(b.root,'p2','episode-two','c1');assert.equal(b.root.querySelectorAll('.cc-node').length,0);
+ await b.canvas.load(b.root,'p1','episode-one','c1');assert.equal(b.root.querySelector('.cc-node').dataset.nodeId,id);b.canvas.suspend();
+});
+
+test('shared drafts stay separate from private canvases and retain their own actor recovery',async()=>{
+ const a=await fixture(),shared={project_id:'p1',canvas_id:'c1',mode:'edit',project_revision:1,version:1,title:'Shared',media_ids:[],document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]}};
+ await a.canvas.loadShared(a.root,shared);await a.root.querySelectorAll('button').find(n=>n.textContent==='添加文本').fire('click');assert.ok(a.store.has(canvasDraftKey({shared:true})));
+ await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelectorAll('.cc-node').length,0);
+ await a.canvas.loadShared(a.root,shared);assert.equal(a.root.querySelectorAll('.cc-node').length,1);
+ a.session.actor='other';await a.canvas.loadShared(a.root,shared);assert.equal(a.root.querySelectorAll('.cc-node').length,0);a.canvas.suspend();
+});
+
+const marketingNodes=()=>[
+ {id:'marketing-brief',type:'text',title:'营销需求',text:'服务器原始营销需求',params:{},x:80,y:80,group:''},
+ {id:'marketing-method',type:'text',title:'营销方法',text:'服务器固定方法',params:{},x:360,y:80,group:''},
+ {id:'marketing-material-fixed',type:'image',title:'商品参考',text:'',params:{},x:640,y:80,media_id:'fixed',job_id:null,group:''}
+];
+const agentMessage=a=>a.root.querySelector('.cc-agent-composer').querySelector('textarea');
+const agentSend=a=>a.root.querySelector('.cc-agent-send');
+const marketingSearch='?marketing=1&skill=image-generation';
+
+test('legacy identity-free canvas, chat, attachment and Agent request entries remain intact but never replace marketing handoff',async()=>{
+ const legacy=new Map([
+  ['vsc-creative-canvas:p1:c1',JSON.stringify({document:{viewport:{x:0,y:0,zoom:1},nodes:[{...marketingNodes()[0],text:'旧身份画布秘密'}],edges:[]},title:'Old',version:1})],
+  ['vsc-canvas-chat:p1:c1',JSON.stringify({message:'旧身份消息秘密'})],
+  ['vsc-creative-canvas:p1:c1:agent-attachments',JSON.stringify([{id:'old',name:'旧身份附件秘密'}])],
+  ['vsc-canvas-operation:p1:c1:agent-send',JSON.stringify({path:'/old',method:'POST',body:{payload:{message:'旧身份请求秘密'},expected_revision:1,idempotency_key:'old-key'}})]
+ ]),original=new Map(legacy),requests=[];
+ const a=await fixture({store:legacy,nodes:marketingNodes(),search:marketingSearch,apiOverride:async(path,options)=>{if(path.endsWith('/agent-turns')){requests.push(JSON.parse(options.body));throw Error('response lost');}}});
+ assert.ok(a.root.querySelector('.cc-agent'));assert.equal(agentMessage(a).value,'服务器原始营销需求');assert.doesNotMatch(a.root.querySelector('.cc-agent').textContent,/旧身份附件秘密/);
+ assert.equal(a.root.querySelectorAll('.cc-node').filter(n=>n.classList.contains('selected')).length,3);
+ await agentSend(a).fire('click');assert.equal(requests.length,1);assert.equal(requests[0].payload.message,'服务器原始营销需求');assert.deepEqual(requests[0].payload.node_ids,['marketing-brief','marketing-method','marketing-material-fixed']);assert.notEqual(requests[0].idempotency_key,'old-key');
+ for(const [key,value]of original)assert.equal(a.store.get(key),value);a.canvas.suspend();
+});
+
+test('Agent messages restore for the same actor across restart and marketing prefill ignores another actor message',async()=>{
+ const a=await fixture({nodes:marketingNodes(),search:marketingSearch});agentMessage(a).value='身份A未发送消息';await agentMessage(a).fire('input');a.canvas.suspend();
+ const b=await fixture({store:a.store,nodes:marketingNodes(),search:marketingSearch});assert.equal(agentMessage(b).value,'身份A未发送消息');
+ b.session.actor='other';await b.canvas.load(b.root,'p1',null,'c1');assert.equal(agentMessage(b).value,'服务器原始营销需求');
+ agentMessage(b).value='身份B未发送消息';await agentMessage(b).fire('input');
+ b.session.actor='test';await b.canvas.load(b.root,'p1',null,'c1');assert.equal(agentMessage(b).value,'身份A未发送消息');assert.equal(JSON.parse(b.store.get(browserKey('vsc-canvas-chat',{actor:'other'}))).message,'身份B未发送消息');b.canvas.suspend();
+});
+
+test('Agent request recovery keeps the same actor original receipt and another actor sends its own fixed payload',async()=>{
+ const requests=[];let fail=true;const a=await fixture({nodes:marketingNodes(),search:marketingSearch,apiOverride:async(path,options)=>{
+  if(path.endsWith('/agent-turns')){requests.push(JSON.parse(options.body));if(fail)throw Error('lost receipt');return {id:'turn',session_id:'session'};}
+ }});
+ agentMessage(a).value='身份A固定请求';await agentMessage(a).fire('input');const oldSend=agentSend(a);await oldSend.fire('click');assert.equal(requests.length,1);
+ const aKey=browserKey('vsc-canvas-operation',{slot:'agent-send'});assert.ok(a.store.has(aKey));
+ a.session.actor='other';await a.canvas.load(a.root,'p1',null,'c1');await oldSend.fire('click');assert.equal(requests.length,1);
+ agentMessage(a).value='身份B自己的请求';await agentMessage(a).fire('input');await agentSend(a).fire('click');assert.equal(requests.length,2);assert.equal(requests[1].payload.message,'身份B自己的请求');assert.notEqual(requests[1].idempotency_key,requests[0].idempotency_key);assert.ok(a.store.has(aKey));
+ const bKey=browserKey('vsc-canvas-operation',{actor:'other',slot:'agent-send'});const bReceipt=a.store.get(bKey);
+ a.session.actor='test';await a.canvas.load(a.root,'p1',null,'c1');assert.equal(agentMessage(a).value,'身份A固定请求');fail=false;await agentSend(a).fire('click');
+ assert.equal(requests.length,3);assert.deepEqual(requests[2],requests[0]);assert.equal(a.store.has(aKey),false);assert.equal(a.store.get(bKey),bReceipt);a.canvas.suspend();
 });
