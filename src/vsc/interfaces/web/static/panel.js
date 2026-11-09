@@ -80,7 +80,7 @@ function setEntryOptions(page,project,scope,options={}){
 }
 function openedCreativeTarget(id,project,episode){
   if(project!==state.project||typeof window==='undefined')return;
-  episodeScope=episode||null;const route=currentEntry();if(id)route.set('task_target',id);else route.delete('task_target');if(episode)route.set('episode',episode);else route.delete('episode');window.history.replaceState(null,'','?'+route);updateShell(state.view);
+  episodeScope=episode||null;const route=currentEntry();if(route.get('task_target')!==id)route.delete('agent_turn');if(id)route.set('task_target',id);else route.delete('task_target');if(episode)route.set('episode',episode);else route.delete('episode');window.history.replaceState(null,'','?'+route);updateShell(state.view);
 }
 function updateShell(view){
   const full=['creative-canvas','classic-production','intelligent-creation','intelligent-storyboard','editing','blocking','previs','library','assets','access-share','text-tools'].includes(view);
@@ -146,7 +146,7 @@ async function loadCustomView(view){
     if(ticket===customViewRequest&&view===state.view)await projectManagement.load({project});
   }else if(view==='creative-canvas'){
     if(!creativeCanvasPanel){const {createCreativeCanvasPanel}=await import('./creative-canvas.js');creativeCanvasPanel=createCreativeCanvasPanel({opened:openedCreativeTarget,api,projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
-    if(ticket===customViewRequest&&view===state.view)await creativeCanvasPanel.load($('creative-canvas-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),currentEntry().get('task_target'));
+    if(ticket===customViewRequest&&view===state.view)await creativeCanvasPanel.load($('creative-canvas-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),currentEntry().get('task_target'),currentEntry().get('agent_turn'));
   }else if(view==='blocking'||view==='previs'){
     if(!spatialScenePanel){const {createSpatialScenePanel}=await import('./spatial-scene.js');spatialScenePanel=createSpatialScenePanel({api,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await spatialScenePanel.load($('spatial-scene-view'),project,view==='blocking'?'blocking':'previs',currentEntry().get('task_target'));
@@ -418,7 +418,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {

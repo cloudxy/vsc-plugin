@@ -10,6 +10,10 @@ from datetime import datetime, timezone
 from vsc.assets.resource_service import ResourceError
 from vsc.assets.script_ai import _run_bounded,host_environment
 
+# Local planning transport budget after thumbnail/base64 encoding; not a
+# provider capability or the marketing studio's material-count limit.
+REFERENCE_PAYLOAD_MAX_BYTES=20*1024*1024
+
 SKILLS={"vsc-script":{"name":"文字与分镜建议","role":"screenwriter","description":"补问创作目标，在画布追加可编辑文字。"},
     "vsc-assets":{"name":"素材与图像创作","role":"asset-director","description":"复用固定参考，创建图片、音频或视频节点，再确认原任务报价。"},
     "vsc-direct":{"name":"镜头运行准备","role":"director","description":"核对视频节点、镜头和模型偏好，准备原运行待审草稿。"}}
@@ -144,11 +148,28 @@ class GrokBuildCanvasAgent:
 
 def prepare_attachments(service,p,turn):
     from vsc.production.spatial_planner import reference_blocks
-    result=dict(turn);texts=[];images=[]
+    result=dict(turn);texts=[];images=[];image_by_sha={};image_shas={};basis=[]
+    def fixed_media(media_id,sha,code):
+        if not isinstance(media_id,str) or not media_id or not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha):
+            raise ResourceError('固定参考缺少媒体或完整摘要',code)
+        media=service.get_media(p,media_id)
+        if media.get('project_id',p)!=p:raise ResourceError('固定参考不属于当前项目','canvas_reference_scope')
+        if media['sha256']!=sha:raise ResourceError('固定参考与媒体摘要不符',code)
+        return media
+    def add_image(media,sha):
+        media_id=media['id']
+        if media_id in image_shas and image_shas[media_id]!=sha:raise ResourceError('同一参考媒体出现不同摘要','canvas_reference_changed')
+        image_shas[media_id]=sha
+        if sha not in image_by_sha:
+            image_by_sha[sha]=media_id;images.append(dict(id=media_id,sha256=sha))
+        elif image_by_sha[sha]!=media_id:
+            # Byte aliases still have to be readable in this project before
+            # their repeated image block can be omitted.
+            service._verify_media(p,media_id,expected_sha=sha,snapshot=media)
+        return image_by_sha[sha]
     for attached in turn.get('attachments',[]):
-        media=service.get_media(p,attached['id'])
-        if media['sha256']!=attached['fixed_sha256']:raise ResourceError('会话附件与固定摘要不符','canvas_attachment_changed')
-        if media['modality']=='image':images.append(dict(id=media['id'],sha256=media['sha256']))
+        media=fixed_media(attached['id'],attached['fixed_sha256'],'canvas_attachment_changed')
+        if media['modality']=='image':add_image(media,attached['fixed_sha256'])
         elif media['modality'] in {'text','document','other'} and (media.get('mime_type','').startswith('text/') or str(media.get('name','')).lower().endswith(('.txt','.md'))):
             service._verify_media(p,media['id']);location=next((v for v in media['locations'] if v['storage']=='local' and v.get('available')),None)
             if not location or service.storage is None:raise ResourceError('会话文本附件不可读','media_unavailable')
@@ -157,7 +178,27 @@ def prepare_attachments(service,p,turn):
             try:value=raw.decode('utf-8-sig')
             except UnicodeError as exc:raise ResourceError('文本附件须为UTF-8 TXT或Markdown','canvas_attachment_encoding') from exc
             texts.append(dict(media_id=media['id'],sha256=media['sha256'],text=value[:20000],excerpt=len(value)>20000))
+    for node in turn.get('referenced_nodes',[]):
+        params=node.get('params',{});role=params.get('marketing_role')
+        if role in {'brief','method'}:
+            if node.get('text_excerpt') or not isinstance(node.get('text'),str):
+                raise ResourceError('营销原始需求和固定方法必须提供完整正文，请重读原规划','canvas_reference_text_incomplete')
+            if role=='method' and hashlib.sha256(node['text'].encode('utf-8')).hexdigest()!=params.get('method_sha256'):
+                raise ResourceError('固定营销方法正文与摘要不符','canvas_reference_changed')
+        if role!='material':continue
+        media=fixed_media(node.get('media_id'),params.get('source_sha256'),'canvas_reference_changed')
+        if node.get('type') not in {'image','video'} or media['modality']!=node['type']:
+            raise ResourceError('营销固定素材类型与原媒体不符','canvas_reference_type')
+        source=dict(node_id=node['id'],media_id=media['id'],sha256=media['sha256'])
+        if media['modality']=='image':
+            source.update(image_media_id=add_image(media,params['source_sha256']),basis='图片字节已随固定参考图提供给宿主；使用缩略图，原始SHA保留。')
+        else:
+            source['basis']='仅固定视频引用；未观看、未取样、未听取，不能声称已完成视频分析。'
+        basis.append(source)
     result['attachment_texts']=texts;result['_media_blocks']=reference_blocks(service,p,{'reference_media':images})
+    if len(json.dumps(result['_media_blocks'],ensure_ascii=False).encode('utf-8'))>REFERENCE_PAYLOAD_MAX_BYTES:
+        raise ResourceError('本机规划的编码图片上下文超过20MiB；请减少本轮引用或缩小图片后建立新一轮，不会省略图片','canvas_reference_limit')
+    result['reference_basis']=basis
     result['attachment_basis']='Image bytes and UTF-8 text supplied; video/audio attachments are fixed references only, not perceived.'
     return result
 

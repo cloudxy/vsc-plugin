@@ -35,18 +35,26 @@ class GrokBuildSpatialPlanner:
 
 def reference_blocks(service,p,task):
     from PIL import Image
-    import io
+    import io,warnings
     blocks=[]
     for ref in task.get('reference_media',[]):
         media=service.get_media(p,ref['id'])
+        if media.get('project_id',p)!=p:raise ResourceError('参考图不属于当前项目','spatial_reference_scope')
+        if media['modality']!='image':raise ResourceError('固定参考需要真实图片','spatial_reference_type')
         if media['sha256']!=ref['sha256']:raise ResourceError('参考图摘要已变化','spatial_reference_changed')
         service._verify_media(p,ref['id']);location=next((r for r in media['locations'] if r['storage']=='local' and r.get('available')),None)
         if not location or service.storage is None:raise ResourceError('参考图字节不可读取','media_unavailable')
         raw=service.storage.read(location['object_key'],ref['sha256'])
         if len(raw)>20*1024*1024:raise ResourceError('参考图超过20MiB','spatial_reference_limit')
-        with Image.open(io.BytesIO(raw)) as image:
-            image.thumbnail((1024,1024));image=image.convert('RGB');out=io.BytesIO();image.save(out,format='JPEG',quality=88)
-        blocks.extend([{'type':'text','text':'固定场景参考图 '+ref['id']+' SHA256 '+ref['sha256']},{'type':'image','mimeType':'image/jpeg','data':base64.b64encode(out.getvalue()).decode()}])
+        if hashlib.sha256(raw).hexdigest()!=ref['sha256']:raise ResourceError('参考图字节与固定摘要不符','spatial_reference_changed')
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error',Image.DecompressionBombWarning)
+                with Image.open(io.BytesIO(raw)) as image:
+                    image.thumbnail((1024,1024));image=image.convert('RGB');out=io.BytesIO();image.save(out,format='JPEG',quality=88)
+        except (OSError,ValueError,Image.DecompressionBombError,Image.DecompressionBombWarning) as exc:
+            raise ResourceError('固定参考图无法安全解码，请修复或重选图片','spatial_reference_decode') from exc
+        blocks.extend([{'type':'text','text':'固定参考图 '+ref['id']+' SHA256 '+ref['sha256']},{'type':'image','mimeType':'image/jpeg','data':base64.b64encode(out.getvalue()).decode()}])
     return blocks
 
 def execute(service,p,identifier):

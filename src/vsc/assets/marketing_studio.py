@@ -167,7 +167,108 @@ def _request(payload, *, validate_method=True):
     return fixed, method, sha
 
 
+def marketing_start_key(prepare_key):
+    from vsc.assets.resource_service import ResourceError
+    if not isinstance(prepare_key, str) or not prepare_key.strip() or len(prepare_key) > 200 or "\x00" in prepare_key:
+        raise ResourceError("需要原营销准备操作标识", "invalid_marketing_prepare_key")
+    return "marketing-start:" + hashlib.sha256(prepare_key.encode("utf-8")).hexdigest()
+
+
+def marketing_start_request(payload):
+    """Canonical intent only; current catalog/deadline checks belong to a new turn."""
+    from vsc.assets.resource_service import ResourceError
+    fields = {"canvas_id", "prepare_key", "canvas_revision", "canvas_sha256", "model_ids", "mode", "execution_settings"}
+    if set(payload) != fields:
+        raise ResourceError("开始创作只接受准备回执、固定画布版本、模型顺序和执行范围", "invalid_marketing_start")
+    marketing_start_key(payload["prepare_key"])
+    revision, sha = payload["canvas_revision"], payload["canvas_sha256"]
+    if type(revision) is not int or revision < 1 or not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+        raise ResourceError("需要固定画布版本与完整摘要", "invalid_marketing_start")
+    models, settings = payload["model_ids"], payload["execution_settings"]
+    if not isinstance(models, list) or len(models) > 8 or any(not isinstance(item, str) for item in models):
+        raise ResourceError("最多选择8个不重复模型并保留顺序", "invalid_marketing_start")
+    try:
+        canvas_id = str(uuid.UUID(payload["canvas_id"]))
+        models = [str(uuid.UUID(item)) for item in models]
+    except (ValueError, AttributeError, TypeError) as error:
+        raise ResourceError("画布或模型标识无效", "invalid_id") from error
+    if len(set(models)) != len(models) or not isinstance(payload["mode"], str) or payload["mode"] not in {"manual", "auto_drafts"}:
+        raise ResourceError("请选择有效模式与不重复模型", "invalid_marketing_start")
+    allowed_settings = {"duration_ms", "execution_policy", "commerce_account_actor", "purpose", "script_line_ids",
+                        "voice_media_id", "width", "height", "count", "auto_media"}
+    if not isinstance(settings, dict) or set(settings) - allowed_settings:
+        raise ResourceError("执行范围包含未支持字段", "invalid_marketing_start")
+    if "auto_media" in settings:
+        automatic = settings["auto_media"]
+        if not isinstance(automatic, dict) or type(automatic.get("max_credits")) is not int or automatic["max_credits"] < 0:
+            raise ResourceError("营销自动媒体需要显式非负商业额度上限", "canvas_auto_scope")
+    return dict(payload, canvas_id=canvas_id, model_ids=models, execution_settings=deepcopy(settings))
+
+
+def marketing_preparation_snapshot(canvas):
+    """Derive the first message/skill/refs from a verified original preparation."""
+    from vsc.assets.resource_service import Conflict
+    def invalid():
+        raise Conflict("原营销准备快照结构或摘要不符", "marketing_preparation_mismatch")
+    nodes = canvas["document"]["nodes"]
+    if canvas["document"]["edges"] or not nodes or len(nodes) > 17:
+        invalid()
+    brief = nodes[0]
+    if brief["id"] != "marketing-brief" or brief["type"] != "text" or brief["params"].get("marketing_role") != "brief":
+        invalid()
+    skill = brief["params"].get("skill_id")
+    if not isinstance(skill, str) or not skill:
+        invalid()
+    method = nodes[1] if len(nodes) > 1 and nodes[1]["id"] == "marketing-method" else None
+    if method and (method["type"] != "text" or method["params"].get("marketing_role") != "method" or
+            method["params"].get("skill_id") != skill or
+            hashlib.sha256(method["text"].encode("utf-8")).hexdigest() != method["params"].get("method_sha256")):
+        invalid()
+    materials = nodes[2 if method else 1:]
+    if len(materials) > MEDIA_MAX_COUNT:
+        invalid()
+    for node in materials:
+        media_id, source_sha = node.get("media_id"), node["params"].get("source_sha256")
+        if (not isinstance(media_id, str) or node["id"] != "marketing-material-" + hashlib.sha256(media_id.encode()).hexdigest()[:24] or
+                node["type"] not in {"image", "video"} or node["params"].get("marketing_role") != "material" or
+                not isinstance(source_sha, str) or len(source_sha) != 64 or any(c not in "0123456789abcdef" for c in source_sha)):
+            invalid()
+    payload = dict(prompt=brief["text"], episode_id=canvas["episode_id"], media_ids=[node["media_id"] for node in materials],
+        method_id=method["params"].get("method_id") if method else None,
+        method_version=method["params"].get("method_version") if method else None,
+        method_sha256=method["params"].get("method_sha256") if method else None)
+    _, _, request_sha = _request(payload, validate_method=False)
+    if brief["params"].get("marketing_request_sha256") != request_sha:
+        invalid()
+    return dict(message=brief["text"], skill_id=skill, node_ids=[node["id"] for node in nodes], materials=materials)
+
+
 class MarketingStudioServiceMixin:
+    def start_marketing_canvas(self, project_id, payload, **kw):
+        from vsc.assets.resource_service import ResourceError
+        self._validate_write(payload, **kw)
+        fixed = marketing_start_request(payload)
+        if kw["idempotency_key"] != marketing_start_key(fixed["prepare_key"]):
+            raise ResourceError("开始标识必须由原准备标识固定派生", "marketing_start_key_mismatch", 409)
+        self.authorize_access(project_id, "edit")
+        self.authorize_access(project_id, "execute")
+        receipt = self.get_operation_receipt(project_id, kw["idempotency_key"], actor=kw["actor"])
+        if not receipt["found"]:
+            try:
+                canvas = self.store.get_creative_canvas(project_id, fixed["canvas_id"], fixed["canvas_revision"])
+                snapshot = marketing_preparation_snapshot(canvas)
+                for node in snapshot["materials"]:
+                    self._verify_media(project_id, node["media_id"], expected_sha=node["params"]["source_sha256"])
+            except ResourceError as preflight_error:
+                # A matching S may have committed after the unlocked precheck.
+                # Let the original project lock/request SHA decide: recover its
+                # receipt, reject another intent, or rethrow without a new turn.
+                def reject_new_start(conn, project):
+                    raise preflight_error
+                return self.store._mutate(project_id, "start_marketing_canvas", fixed,
+                    callback=reject_new_start, **kw)
+        return self.store.start_marketing_canvas(project_id, fixed, **kw)
+
     def marketing_options(self, project_id):
         options = self.canvas_agent_options(project_id)
         return dict(methods=marketing_methods(), episodes=[deepcopy(node) for node in options["nodes"] if node["kind"] == "episode"],
