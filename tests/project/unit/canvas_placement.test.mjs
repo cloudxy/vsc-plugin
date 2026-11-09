@@ -30,12 +30,12 @@ async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOv
   const images=[];class FakeImage{constructor(){images.push(this);}}
   const sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(denyProjectStorage&&k.startsWith('vsc-canvas-project-node:'))throw Error('storage disabled');store.set(k,v);},removeItem:k=>store.delete(k)};
   const listeners=new Map(),window={addEventListener(type,fn){(listeners.get(type)||listeners.set(type,new Set()).get(type)).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},fire(type,event={}){for(const fn of [...listeners.get(type)||[]])fn(event);}},location={search};
-  const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:()=>0,clearTimeout:()=>{}});
+  const timeouts=[];const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:(fn,delay)=>{timeouts.push({fn,delay});return timeouts.length;},clearTimeout:()=>{}});
   const root=document.createElement('main');
   const session={actor,csrf:'test',revision:1};
   const ctx={session:()=>session,setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:path.endsWith('/creative-canvas-agent-options')?{revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[],nodes:[]}:{items:[],revision:1};}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
-  return {root,canvas,store,images,document,window,FakeImage,session,location,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
+  return {root,canvas,store,images,document,window,FakeImage,session,location,timeouts,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
 const browserKey=(prefix,{actor='test',project='p1',canvas='c1',shared=false,episode=null,slot=null}={})=>prefix+':v2:'+JSON.stringify([actor,shared,project,canvas,canvas?null:episode,slot]);
 const canvasDraftKey=(scope={})=>browserKey('vsc-creative-canvas',scope);
@@ -360,4 +360,59 @@ test('Agent request recovery keeps the same actor original receipt and another a
  const bKey=browserKey('vsc-canvas-operation',{actor:'other',slot:'agent-send'});const bReceipt=a.store.get(bKey);
  a.session.actor='test';await a.canvas.load(a.root,'p1',null,'c1');assert.equal(agentMessage(a).value,'身份A固定请求');fail=false;await agentSend(a).fire('click');
  assert.equal(requests.length,3);assert.deepEqual(requests[2],requests[0]);assert.equal(a.store.has(aKey),false);assert.equal(a.store.get(bKey),bReceipt);a.canvas.suspend();
+});
+
+const targetTurn=(status='needs_input',extra={})=>({id:'t',project_id:'p1',canvas_id:'c1',canvas_revision:1,episode_id:null,session_id:'session1',skill_id:'image-generation',status,message:'服务器原始营销需求',model_ids:['second-model','first-model'],mode:'manual',plan:{message:'请先补充商品实拍图',questions:['商品图片在哪里？'],actions:[{kind:'none',text:'等待真实图片'}]},...extra});
+const targetOptions=()=>({revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[{id:'first-model',model_key:'第一模型',modality:'image',enabled:true},{id:'second-model',model_key:'第二模型',modality:'video',enabled:true}],nodes:[]});
+function targetApi({get=()=>targetTurn(),posts=[],missingSession=()=>false}={}){
+ return async(path,options)=>{
+  if(options?.method==='POST'){posts.push({path,body:options.body?JSON.parse(options.body):null});return {id:'followup',session_id:'session1',status:'needs_input'};}
+  if(path.endsWith('/creative-canvas-agent-options'))return targetOptions();
+  if(path.endsWith('/creative-canvas-agent-turns/t'))return get();
+  if(path.endsWith('/agent-sessions'))return {revision:1,items:missingSession()?[]:[{id:'other-session',title:'其他会话',turns:[]},{id:'session1',title:'营销首轮',turns:[get()]}]};
+ };
+}
+
+test('loading agent_turn selects the original session and model order without prefill, sending or executing',async()=>{
+ const posts=[],a=await fixture({nodes:marketingNodes(),search:'?marketing=1&agent_turn=t',apiOverride:targetApi({posts})});
+ assert.equal(agentMessage(a).value,'');assert.equal(posts.length,0);assert.equal(a.root.querySelectorAll('.cc-agent-session')[0].dataset.sessionId,'session1');assert.match(a.root.querySelector('.cc-agent-turn-target').textContent,/请先补充商品实拍图/);
+ const order=a.root.querySelectorAll('p').find(n=>n.textContent==='1. 第二模型 → 2. 第一模型');assert.ok(order);assert.equal(a.root.querySelectorAll('input').filter(n=>n.attrs['aria-label']?.startsWith('优先模型')&&n.checked).length,2);
+ await a.canvas.load(a.root,'p1',null,'c1','t');assert.equal(agentMessage(a).value,'');assert.equal(posts.length,0);await agentSend(a).fire('click');assert.equal(posts.length,0);a.canvas.suspend();
+});
+
+test('only a new reply creates a successor turn in the original session with its fixed model order',async()=>{
+ const posts=[],a=await fixture({nodes:marketingNodes(),search:'?marketing=1&agent_turn=t',apiOverride:targetApi({posts})});
+ agentMessage(a).value='我会补充商品实拍图';await agentMessage(a).fire('input');await agentSend(a).fire('click');
+ const sends=posts.filter(p=>p.path.endsWith('/agent-turns'));assert.equal(sends.length,1);assert.equal(sends[0].body.payload.message,'我会补充商品实拍图');assert.equal(sends[0].body.payload.session_id,'session1');assert.equal(sends[0].body.payload.parent_turn_id,'t');assert.deepEqual(sends[0].body.payload.model_ids,['second-model','first-model']);assert.equal(sends[0].body.payload.message===targetTurn().message,false);a.canvas.suspend();
+});
+
+test('target loading suppresses an already-sent first-message draft but restores this actor unsent new reply',async()=>{
+ const store=new Map([[browserKey('vsc-canvas-chat'),JSON.stringify({message:targetTurn().message})]]),posts=[],a=await fixture({store,nodes:marketingNodes(),search:'?marketing=1&agent_turn=t',apiOverride:targetApi({posts})});
+ assert.equal(agentMessage(a).value,'');agentMessage(a).value='新的未发补充';await agentMessage(a).fire('input');await a.canvas.load(a.root,'p1',null,'c1','t');assert.equal(agentMessage(a).value,'新的未发补充');
+ a.session.actor='other';await a.canvas.load(a.root,'p1',null,'c1','t');assert.equal(agentMessage(a).value,'');assert.equal(posts.length,0);a.canvas.suspend();
+});
+
+test('target followup never adopts an older identity-scoped generic agent-send request',async()=>{
+ const generic=browserKey('vsc-canvas-operation',{slot:'agent-send'}),old=JSON.stringify({path:'/old-agent-turns',method:'POST',body:{payload:{message:'旧首句请求'},expected_revision:1,idempotency_key:'old'}}),store=new Map([[generic,old]]),posts=[];
+ const a=await fixture({store,nodes:marketingNodes(),search:'?marketing=1&agent_turn=t',apiOverride:targetApi({posts})});agentMessage(a).value='本轮补充';await agentMessage(a).fire('input');await agentSend(a).fire('click');assert.equal(posts.filter(p=>p.path.endsWith('/agent-turns'))[0].body.payload.message,'本轮补充');assert.equal(store.get(generic),old);a.canvas.suspend();
+});
+
+test('queued, running, unknown and bounded automatic targets stay read-only on load and expose readable image limits',async()=>{
+ for(const status of ['queued','running','submission_unknown','planned']){
+  const posts=[],get=()=>targetTurn(status,{mode:'auto_drafts',error:'canvas_reference_limit',action_results:[{run_artifact_id:'run'}]});
+  const api=targetApi({get,posts}),a=await fixture({nodes:marketingNodes(),search:'?marketing=1&agent_turn=t',apiOverride:async(path,options)=>{if(path.endsWith('/creative-canvases/c1')&&!options?.method)return {revision:1,canvas_revision:1,title:'Marketing',episode_id:null,document:{viewport:{x:0,y:0,zoom:1},nodes:marketingNodes(),edges:[]},jobs:{},runs:[],execution_steps:[{run_artifact_id:'run',jobs:[{status:'running'}]}]};return api(path,options);}});
+  assert.equal(posts.length,0);assert.equal(a.timeouts.some(t=>t.delay===500),false);assert.match(a.root.querySelector('.cc-agent-turn-target').textContent,/减少本轮引用或缩小图片/);a.canvas.suspend();
+ }
+});
+
+test('a foreign target or missing session retains T for read-only retry without prefill or another first message',async()=>{
+ for(const cause of ['foreign','missing']){
+  let fixed=false;const posts=[],a=await fixture({nodes:marketingNodes(),search:'?marketing=1&agent_turn=t',apiOverride:targetApi({posts,get:()=>targetTurn('needs_input',cause==='foreign'&&!fixed?{canvas_id:'foreign'}:{}),missingSession:()=>cause==='missing'&&!fixed})});
+  const retry=a.root.querySelectorAll('button').find(n=>n.textContent==='重读原规划');assert.ok(retry);fixed=true;await retry.fire('click');assert.equal(agentMessage(a).value,'');assert.equal(posts.length,0);assert.ok(a.root.querySelector('.cc-agent-turn-target'));a.canvas.suspend();
+ }
+});
+
+test('a late target GET after actor switch cannot replace the new actor canvas',async()=>{
+ let finish;const hold=new Promise(r=>finish=r),posts=[],api=targetApi({posts}),a=await fixture({nodes:marketingNodes(),apiOverride:async(path,options)=>path.endsWith('/creative-canvas-agent-turns/t')?hold:api(path,options)});
+ const pending=a.canvas.load(a.root,'p1',null,'c1','t');await new Promise(r=>setImmediate(r));a.session.actor='other';a.location.search='';await a.canvas.load(a.root,'p1',null,'c1');finish(targetTurn());await pending;assert.equal(a.root.querySelector('.cc-agent'),null);assert.equal(posts.length,0);a.canvas.suspend();
 });

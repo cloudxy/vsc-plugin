@@ -84,6 +84,7 @@ class CreativeCanvasRepository:
 
     def _canvas_agent_turn(self,conn,project,turn_id):
         row=self._one(conn,S.canvas_agent_turns,project["id"],turn_id);version=self._one(conn,S.creative_canvas_versions,project["id"],row["version_id"])
+        canvas=self._one(conn,S.creative_canvases,project["id"],version["canvas_id"])
         document=self._canvas_document(conn,project["id"],version)
         refs=set(conn.execute(select(S.canvas_agent_refs.c.node_key).where(S.canvas_agent_refs.c.project_id==project["id"],S.canvas_agent_refs.c.turn_id==row["id"])).scalars())
         models=list(conn.execute(select(S.canvas_agent_models.c.model_id).where(S.canvas_agent_models.c.project_id==project["id"],S.canvas_agent_models.c.turn_id==row["id"]).order_by(S.canvas_agent_models.c.ordinal)).scalars())
@@ -92,7 +93,10 @@ class CreativeCanvasRepository:
         prior=json.loads(bytes(self._one(conn,S.artifact_versions,project["id"],parent["plan_artifact_id"])["document"])) if parent and parent["plan_artifact_id"] else None
         row["action_results"]=[dict(r) for r in conn.execute(select(S.canvas_agent_action_results).where(S.canvas_agent_action_results.c.project_id==project["id"],S.canvas_agent_action_results.c.turn_id==row["id"]).order_by(S.canvas_agent_action_results.c.ordinal)).mappings()]
         row['attachments']=[dict(self._media(conn,project['id'],ref['media_id']),fixed_sha256=ref['blob_sha256']) for ref in conn.execute(select(S.canvas_agent_attachments).where(S.canvas_agent_attachments.c.project_id==project['id'],S.canvas_agent_attachments.c.turn_id==row['id']).order_by(S.canvas_agent_attachments.c.ordinal)).mappings()]
-        return clean(dict(row,canvas_id=version["canvas_id"],canvas_revision=version["version"],referenced_nodes=[dict(n,text=n["text"][:6000],text_excerpt=len(n["text"])>6000) for n in document["nodes"] if n["id"] in refs],model_ids=models,plan=plan,previous_plan=prior,revision=project["revision"],provider_submitted=False))
+        def reference(node):
+            complete=node['params'].get('marketing_role') in {'brief','method'}
+            return dict(node,text=node['text'] if complete else node['text'][:6000],text_excerpt=not complete and len(node['text'])>6000)
+        return clean(dict(row,canvas_id=version["canvas_id"],episode_id=canvas["episode_id"],canvas_revision=version["version"],referenced_nodes=[reference(n) for n in document["nodes"] if n["id"] in refs],model_ids=models,plan=plan,previous_plan=prior,revision=project["revision"],provider_submitted=False))
 
     def list_canvas_agent_sessions(self,project_id,canvas_id):
         with self.engine.connect() as conn:
@@ -169,6 +173,57 @@ class CreativeCanvasRepository:
             for ordinal,model in enumerate(models):conn.execute(insert(S.canvas_agent_models).values(project_id=project["id"],turn_id=identifier,ordinal=ordinal,model_id=model))
             return {"id":identifier,"session_id":session["id"],"status":"queued","dispatch_id":dispatch["dispatch_id"],"provider_submitted":False}
         return self._mutate(project_id,"create_canvas_agent_turn",payload,actor=actor,callback=work,**kw)
+
+    def start_marketing_canvas(self, project_id, payload, actor, **kw):
+        """One original transaction owns the first turn and its durable start receipt."""
+        from vsc.assets.marketing_studio import marketing_preparation_snapshot, marketing_start_key, marketing_start_request
+        from .media_recycle import recycled_ids
+        payload = marketing_start_request(payload)
+        if kw.get("idempotency_key") != marketing_start_key(payload["prepare_key"]):
+            raise Conflict("开始标识必须由原准备标识固定派生", "marketing_start_key_mismatch")
+        def work(conn, project):
+            p = project["id"]
+            receipt = conn.execute(select(S.command_receipts).join(S.project_revisions,
+                (S.command_receipts.c.project_id == S.project_revisions.c.project_id) &
+                (S.command_receipts.c.idempotency_key == S.project_revisions.c.command_key)).where(
+                    S.command_receipts.c.project_id == p, S.command_receipts.c.idempotency_key == payload["prepare_key"],
+                    S.project_revisions.c.actor == actor, S.project_revisions.c.action == "create_creative_canvas")).mappings().first()
+            if receipt is None:
+                raise ResourceError("找不到当前身份的原营销准备回执", "marketing_prepare_receipt_missing", 409)
+            prepared = receipt["response"]
+            if (prepared.get("id") != payload["canvas_id"] or prepared.get("canvas_revision") != payload["canvas_revision"] or
+                    prepared.get("sha256") != payload["canvas_sha256"]):
+                raise Conflict("开始请求与原营销准备回执不符", "marketing_preparation_mismatch")
+            canvas, version = self._canvas_version(conn, project, payload["canvas_id"], payload["canvas_revision"])
+            if version["id"] != prepared.get("version_id") or canvas["current_version_id"] != version["id"]:
+                raise Conflict("准备后画布已变化，请回原画布处理", "canvas_revision_conflict")
+            document = self._canvas_document(conn, p, version)
+            if digest({"title": version["title"], "document": document}) != version["sha256"] or version["sha256"] != payload["canvas_sha256"]:
+                raise Conflict("原准备画布固定摘要不符", "canvas_integrity_mismatch")
+            original = dict(title=version["title"], episode_id=canvas["episode_id"], document=document)
+            if receipt["request_sha256"] != digest(dict(action="create_creative_canvas", payload=original, actor=actor)):
+                raise Conflict("原准备操作摘要不符", "marketing_preparation_mismatch")
+            snapshot = marketing_preparation_snapshot(dict(original, episode_id=canvas["episode_id"]))
+            recycled = set(conn.execute(recycled_ids(p)).scalars())
+            for node in snapshot["materials"]:
+                media = self._media(conn, p, node["media_id"])
+                if node["media_id"] in recycled:
+                    raise ResourceError("请先恢复已回收营销素材", "marketing_media_recycled", 409)
+                if media["modality"] != node["type"] or media["sha256"] != node["params"]["source_sha256"]:
+                    raise Conflict("原准备素材类型或摘要已改变", "marketing_preparation_mismatch")
+            automatic = payload["execution_settings"].get("auto_media")
+            if automatic is not None and (type(automatic.get("max_credits")) is not int or automatic["max_credits"] < 0):
+                raise ResourceError("营销自动媒体需要显式商业额度上限", "canvas_auto_scope")
+            turn_payload = dict(canvas_id=canvas["id"], canvas_revision=version["version"], message=snapshot["message"],
+                skill_id=snapshot["skill_id"], node_ids=snapshot["node_ids"], attachment_media_ids=[],
+                model_ids=payload["model_ids"], mode=payload["mode"], execution_settings=payload["execution_settings"])
+            turn = self.create_canvas_agent_turn(p, turn_payload, actor=actor, expected_revision=project["revision"],
+                idempotency_key="marketing-agent-internal", _transaction=(conn, project))
+            return dict(canvas_id=canvas["id"], episode_id=canvas["episode_id"], prepare_key=payload["prepare_key"],
+                start_key=marketing_start_key(payload["prepare_key"]), canvas_revision=version["version"], canvas_sha256=version["sha256"],
+                turn_id=turn["id"], session_id=turn["session_id"], dispatch_id=turn["dispatch_id"],
+                turn_status_at_commit="queued", provider_submitted=False)
+        return self._mutate(project_id, "start_marketing_canvas", payload, actor=actor, callback=work, **kw)
 
     def claim_canvas_agent_turn(self,project_id,turn_id):
         from vsc.assets.access_control import current_principal

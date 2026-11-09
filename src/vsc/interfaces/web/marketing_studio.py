@@ -21,3 +21,14 @@ def install_marketing_studio_routes(router, catalog, etag, actor):
         return await run_in_threadpool(service(project_id).create_marketing_canvas,
             project_id, body["payload"], expected_revision=body.get("expected_revision"),
             idempotency_key=body.get("idempotency_key"), actor=identity)
+
+    @router.post("/{project_id}/marketing-canvases/{canvas_id}/start")
+    async def start(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        if set(body) != {"payload", "expected_revision", "idempotency_key"} or not isinstance(body.get("payload"), dict):
+            raise HTTPException(422, "需要固定开始请求；身份来自当前会话")
+        if "canvas_id" in body["payload"]:
+            raise HTTPException(422, "画布身份由路径固定")
+        return await run_in_threadpool(service(project_id).start_marketing_canvas, project_id,
+            dict(body["payload"], canvas_id=canvas_id), expected_revision=body["expected_revision"],
+            idempotency_key=body["idempotency_key"], actor=identity)
