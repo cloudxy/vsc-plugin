@@ -37,3 +37,44 @@
 #production-platform .media-catalog-actions a{pointer-events:auto}
 #production-platform .media-catalog-cover:has(video) .media-catalog-actions{bottom:38px}
 .platform-create button.danger{background:var(--danger,#ad3d2b);border-color:transparent;color:#fff}
+
+/* The project dialog is scoped so episode, rename and recovery dialogs keep their layout. */
+dialog.project-create-dialog{box-sizing:border-box;width:560px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 112px);position:fixed;inset:80px auto auto 50%;transform:translateX(-50%);margin:0;padding:24px 24px 20px;border:1px solid #494949;border-radius:8px;background:#131313;box-shadow:none}
+.project-create-dialog form{display:flex;flex-direction:column;gap:0;min-width:0}
+.project-create-dialog .project-create-heading{display:flex;align-items:center;justify-content:space-between;min-height:24px;margin:0 0 24px}
+.project-create-dialog .project-create-heading h2{font-size:18px;line-height:24px;font-weight:600;margin:0}
+.project-create-dialog .project-create-close{width:24px;min-height:24px;padding:0;font-size:27px;font-weight:300;line-height:20px;color:#aaa;background:none;border:0;border-radius:4px}
+.project-create-dialog .project-create-body{max-height:460px;overflow:auto;scrollbar-width:thin;scrollbar-color:#444 transparent;min-height:0}
+.project-create-dialog .project-create-field{display:block;margin:0 0 32px;padding:0;border:0;min-width:0;font-size:16px;line-height:20px;font-weight:400}
+.project-create-dialog .project-create-field>span,.project-create-dialog legend{display:block;margin:0 0 12px;padding:0;font-size:16px;line-height:20px;color:#ededed}
+.project-create-dialog .project-create-required{color:#ff4d4f;margin-left:2px}
+.project-create-dialog .project-name-input,.project-create-dialog .project-count-input{position:relative;display:flex;height:40px;border:1px solid #444;border-radius:8px;background:#2a2a2a;box-sizing:border-box}
+.project-create-dialog .project-name-input:focus-within,.project-create-dialog .project-count-input:focus-within{border-color:#888}
+.project-create-dialog .project-name-input input,.project-create-dialog .project-count-input input{width:100%;min-width:0;height:38px;box-sizing:border-box;padding:0 12px;border:0;border-radius:8px;background:transparent;outline:none;box-shadow:none;font-size:14px;color:#eee}
+.project-create-dialog .project-name-input input{padding-right:72px}
+.project-create-dialog .project-name-count{position:absolute;right:12px;top:0;line-height:38px;font-size:12px;color:#999;pointer-events:none}
+.project-create-dialog .project-count-input input{padding-right:28px;appearance:textfield}
+.project-create-dialog .project-count-input input::-webkit-inner-spin-button{appearance:none;margin:0}
+.project-create-dialog .project-count-steps{position:absolute;right:8px;top:0;display:flex;flex-direction:column;height:38px;width:20px}
+.project-create-dialog .project-count-steps button{min-height:0;height:19px;line-height:16px;padding:0;border:0;background:none;color:#aaa;font-size:15px}
+.project-create-dialog .project-type-options>div{display:flex;gap:18px;align-items:center;min-height:24px}
+.project-create-dialog .project-type-options label{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:400;cursor:pointer}
+.project-create-dialog .project-type-options input{appearance:none;box-sizing:border-box;flex:none;width:16px;height:16px;min-width:16px;min-height:16px;max-height:16px;padding:0;margin:0;border:1px solid #999;border-radius:50%;background:none}
+.project-create-dialog .project-type-options input:checked{background:#80ff48;border-color:#80ff48}
+.project-create-dialog .project-type-options input:checked:after{content:'✓';display:block;text-align:center;font-size:12px;line-height:14px;color:#142000}
+.project-create-dialog .project-cover-field>p{margin:0;font-size:16px;line-height:20px}
+.project-create-dialog .project-cover-field .project-cover-hint{margin-top:4px;color:#999;font-size:14px;line-height:20px}
+.project-create-dialog .project-cover-upload{position:relative;display:block;box-sizing:border-box;width:160px;height:160px;margin-top:12px;background:#292929;border:1px dashed #555;border-radius:8px;overflow:hidden;cursor:pointer}
+.project-create-dialog .project-cover-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0}
+.project-create-dialog .project-cover-preview{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:14px;color:#eee}
+.project-create-dialog .project-cover-plus{font-size:28px;font-weight:300;line-height:28px}
+.project-create-dialog .project-cover-preview img{width:100%;height:100%;object-fit:cover}
+.project-create-dialog .project-cover-remove{margin-top:8px;font-size:12px}
+.project-create-dialog .project-cover-field .project-cover-feedback{font-size:13px;color:#edbd70;margin-top:8px;overflow-wrap:anywhere}
+.project-create-dialog .project-cover-feedback:empty,.project-create-dialog .project-create-status:empty{display:none}
+.project-create-dialog .project-create-status{font-size:13px;line-height:20px;white-space:pre-wrap;color:#edbd70;margin:12px 0 0}
+.project-create-dialog .project-create-footer{display:flex;justify-content:flex-end;gap:16px;margin-top:20px}
+.project-create-dialog .project-create-footer button{width:120px;height:44px;padding:0 16px;font-size:16px;border:0;border-radius:8px;background:#292929;color:#eee}
+.project-create-dialog .project-create-footer .project-create-confirm{background:linear-gradient(100deg,#e3ff72,#7eff43);color:#111}
+@media(max-height:700px){dialog.project-create-dialog{inset-block-start:24px;max-height:calc(100dvh - 48px)}.project-create-dialog .project-create-body{max-height:calc(100dvh - 208px)}}
+@media(max-width:600px){dialog.project-create-dialog{inset-block-start:24px;padding:20px}.project-create-dialog .project-type-options>div{gap:14px}.project-create-dialog .project-create-footer button{width:112px}}

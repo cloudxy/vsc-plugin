@@ -33,6 +33,15 @@
         "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
+    "project.unit.test_production_platform_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/production-platform.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "tests/project/unit/production_platform_recovery.test.mjs"
+      ]
+    },
     "assets.integration.test_edit_preview": {
       "owner": "assets",
       "layer": "integration",
@@ -1789,6 +1798,20 @@
         "src/vsc/adapters/providers/volc_ark/sample.py",
         "src/vsc/adapters/providers/volc_ark/provider.py",
         "src/vsc/adapters/providers/volc_ark/resource_factory.py"
+      ]
+    },
+    "project.integration.test_project_cover": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/schema_project_cover.py",
+        "src/vsc/adapters/persistence/postgres/project_cover.py",
+        "src/vsc/adapters/persistence/postgres/project_presentation.py",
+        "src/vsc/assets/project_cover.py",
+        "src/vsc/interfaces/web/project_cover.py",
+        "src/vsc/interfaces/web/app.py",
+        "src/vsc/interfaces/web/media_imports.py",
+        "migrations/postgres/versions/0051_project_cover_versions.py"
       ]
     },
     "project.integration.test_project_presentation": {

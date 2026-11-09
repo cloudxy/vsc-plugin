@@ -39,6 +39,7 @@ from .working_state import WorkingStateRepository
 from .intelligent_production import IntelligentProductionRepository
 from .access_control import AccessControlRepository
 from .authentication import AuthenticationRepository
+from .project_cover import ProjectCoverRepository
 from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CURRENT_REVISION
 
 
@@ -58,7 +59,7 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                             ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository,
                             SourceIntakeRepository, ResourceModelRepository, ProductionPlatformRepository, ProjectManagementRepository,
                             CreativeCanvasRepository, ClassicProductionRepository, ClassicPreferencesRepository, WorkingStateRepository, IntelligentProductionRepository, SpatialSceneRepository, TextToolsRepository,
-                            AccessControlRepository, AuthenticationRepository):
+                            AccessControlRepository, AuthenticationRepository, ProjectCoverRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:
             raise ResourceError("PostgreSQL 连接未配置", "database_not_configured", 503)

@@ -131,6 +131,7 @@ from vsc.assets.commerce import CommerceService
 from vsc.assets.community import CommunityServiceMixin
 from vsc.assets.canvas_templates import CanvasTemplatesServiceMixin
 from vsc.assets.episode_work import EpisodeWorkService
+from vsc.assets.project_cover import ProjectCoverServiceMixin
 
 
 class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelService, ReviewService,
@@ -138,7 +139,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                       ProductionPlatformServiceMixin, ProjectManagementServiceMixin, CreativeCanvasService, ClassicProductionServiceMixin, WorkingStateService, IntelligentProductionServiceMixin,
                       SpatialSceneService, CreativeToolsService, MediaImportService, TextToolsServiceMixin,
                       AssetCenterService, AssetCardsServiceMixin, TaskCenterService, AccessControlServiceMixin, AuthenticationServiceMixin, PromptAssistServiceMixin, TeamReviewServiceMixin, CommerceService,
-                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin, EpisodeWorkService):
+                      ServiceOperationsService, CommunityServiceMixin, CanvasTemplatesServiceMixin, EpisodeWorkService, ProjectCoverServiceMixin):
     def __init__(self, store, storage=None, script_suggester=None):
         self.store, self.storage = store, storage
         self.script_suggester = script_suggester
@@ -186,7 +187,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         current = self.get_project(project_id)
         episode = self.create_episode_batch(project_id, {"titles": ["第一集"], "initial_shot_count": 0}, actor=actor, expected_revision=current["revision"], idempotency_key="empty-canvas-episode:" + idempotency_key)
         current = self.get_project(project_id)
-        canvas = self.create_creative_canvas(project_id, {"episode_id": episode["items"][0]["id"], "title": "画布", "document": {"nodes": [], "edges": []}}, actor=actor, expected_revision=current["revision"], idempotency_key="empty-canvas:" + idempotency_key)
+        canvas = self.create_creative_canvas(project_id, {"episode_id": episode["items"][0]["id"], "title": "未命名画布", "document": {"nodes": [], "edges": []}}, actor=actor, expected_revision=current["revision"], idempotency_key="empty-canvas:" + idempotency_key)
         item = episode["items"][0]
         return {"project_id": project_id, "project_name": project["name"], "episode_id": item["id"], "episode_name": item["title"], "canvas_id": canvas["id"], "canvas_name": canvas["title"], "revision": canvas["revision"]}
 
