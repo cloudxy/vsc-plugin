@@ -178,6 +178,147 @@ class ProductionPlatformTests(ResourceStoreFixture, unittest.TestCase):
                 self.assertIn('production-platform.css', client.get('/').text)
 
 
+    def test_episode_save_500_shots_and_original_batch_contract(self):
+        from vsc.assets.resource_service import ResourceError
+        saved=self.write('save_episode',{'title':'集'*50,'shot_count':500})
+        self.assertEqual(saved['episode']['shot_count'],500)
+        self.assertEqual(saved['episode_index'],0)
+        self.assertEqual(self.service.get_production_episodes(self.p)['items'][0]['shot_count'],500)
+        revision=self.rev
+        for payload in ({'title':'集'*51,'shot_count':1},{'title':'','shot_count':1},
+                        {'title':'集','shot_count':0},{'title':'集','shot_count':501},
+                        {'title':'集','shot_count':True},{'title':'集','shot_count':1.5},
+                        {'title':'集','shot_count':1,'episode_id':''},
+                        {'title':'集','shot_count':1,'position':True}):
+            with self.subTest(payload=payload),self.assertRaises(ResourceError):self.write('save_episode',payload)
+        with self.assertRaises(ResourceError):self.write('create_episode_batch',{'titles':['旧批量限制'],'initial_shot_count':201})
+        self.assertEqual(self.service.get_project(self.p)['revision'],revision)
+
+    def test_episode_edit_preserves_original_hierarchy_selections_and_receipt(self):
+        objects=self.hierarchy();media=self.media()
+        candidate=self.write('propose_binding',{'target_object_id':objects['shot'],'media_id':media,'role':'first_frame','slot_key':'workbench'})
+        self.write('save_working_selection',{'shot_id':objects['shot'],'candidate_id':candidate['candidate_id'],'output_kind':'image','base_version_id':None})
+        other=self.write('create_episode_batch',{'titles':['另一集'],'parent_id':objects['work']})['items'][0]['id']
+        original={row['id'] for row in self.service.get_project_tree(self.p)['nodes']}
+        payload={'episode_id':objects['episode'],'title':'修改名称','shot_count':3,'position':2};key=uuid.uuid4().hex;before=self.rev
+        result=self.write('save_episode',payload,idempotency_key=key)
+        replay=self.service.save_episode(self.p,payload,expected_revision=before,idempotency_key=key,actor='test-human')
+        self.assertEqual(result,replay);self.assertEqual(result['episode']['position'],2)
+        tree=self.service.get_project_tree(self.p)['nodes'];self.assertTrue(original.issubset({row['id'] for row in tree}))
+        shots=[row for row in tree if row['kind']=='shot'];self.assertEqual(len(shots),3)
+        self.assertEqual({row['parent_id'] for row in shots},{objects['sequence']})
+        self.assertEqual([row['id'] for row in self.service.get_production_episodes(self.p)['items']],[other,objects['episode']])
+        self.assertEqual(self.service.list_working_selections(self.p,shot_id=objects['shot'])['items'][0]['media_id'],media)
+
+    def test_episode_reduction_and_stale_revision_reject_all_changes(self):
+        from vsc.assets.resource_service import Conflict,ResourceError
+        saved=self.write('save_episode',{'title':'原名','shot_count':3})
+        episode=saved['episode_id'];revision=self.rev
+        with self.assertRaises(ResourceError) as error:
+            self.write('save_episode',{'episode_id':episode,'title':'不应改名','shot_count':2,'position':1})
+        self.assertEqual(error.exception.code,'episode_shot_reduction')
+        with self.assertRaises(Conflict):
+            self.service.save_episode(self.p,{'episode_id':episode,'title':'旧稿','shot_count':4},expected_revision=revision-1,idempotency_key=uuid.uuid4().hex,actor='test-human')
+        read=self.service.get_episode_editor(self.p,episode)
+        self.assertEqual((read['revision'],read['episode']['title'],read['episode']['shot_count']),(revision,'原名',3))
+
+    def test_episode_hidden_slots_counts_and_hierarchy_are_preserved(self):
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.resource_service import ResourceError
+        batch=self.write('create_episode_batch',{'titles':['甲','隐藏','乙'],'initial_shot_count':1})
+        first,hidden,last=[row['id'] for row in batch['items']]
+        self.write('management_command',{'operation':'trash','target_type':'object','target_id':hidden,'reason':'合成测试回收'})
+        with self.engine.connect() as conn:
+            scope=self.store._descendant_ids(conn,self.p,last)
+            shot=conn.execute(select(S.shots.c.id).where(S.shots.c.project_id==self.p,S.shots.c.id.in_(scope))).scalar_one()
+        self.write('management_command',{'operation':'trash','target_type':'object','target_id':shot,'reason':'合成测试镜头回收'})
+        self.assertEqual(self.service.get_episode_editor(self.p,last)['episode']['shot_count'],0)
+        self.assertEqual(next(row for row in self.service.get_production_episodes(self.p)['items'] if row['id']==last)['shot_count'],0)
+        self.write('save_episode',{'episode_id':last,'title':'移动乙','shot_count':2,'position':1})
+        with self.engine.connect() as conn:
+            ids=list(conn.execute(select(S.episodes.c.id).where(S.episodes.c.project_id==self.p).order_by(S.episodes.c.ordinal)).scalars())
+            self.assertEqual(ids,[last,hidden,first])
+            self.assertIsNotNone(conn.execute(select(S.shots.c.id).where(S.shots.c.id==shot)).first())
+        with self.assertRaises(ResourceError):self.service.get_episode_editor(self.p,hidden)
+        with self.assertRaises(ResourceError):self.service.get_episode_entry(self.p,hidden,'test-human')
+        self.write('management_command',{'operation':'trash','target_type':'object','target_id':batch['parent_id'],'reason':'合成测试整部回收'})
+        with self.assertRaises(ResourceError):self.write('save_episode',{'title':'不应新建','shot_count':1})
+
+    def test_episode_create_and_edit_enforce_work_project_and_profile_scope(self):
+        from vsc.assets.resource_service import ResourceError
+        batch=self.write('create_episode_batch',{'titles':['空集']});episode=batch['items'][0]['id']
+        foreign=self.write('create_object',{'kind':'work','title':'另一部','display_code':'SECOND','ordinal':1})['id']
+        self.assertTrue(self.service.get_episode_editor(self.p)['needs_parent'])
+        for payload in ({'title':'未选部','shot_count':1},{'episode_id':episode,'parent_id':foreign,'title':'转部','shot_count':1},
+                        {'title':'越界排序','parent_id':foreign,'shot_count':1,'position':2}):
+            with self.assertRaises(ResourceError):self.write('save_episode',payload)
+        saved=self.write('save_episode',{'title':'指定部','parent_id':foreign,'shot_count':1,'position':1})
+        self.assertEqual(saved['parent_id'],foreign)
+        # An original empty episode gains the same typed scene/sequence/shot hierarchy.
+        edited=self.write('save_episode',{'episode_id':episode,'title':'补镜','shot_count':2})
+        self.assertEqual(edited['parent_id'],batch['parent_id']);self.assertEqual(edited['episode']['shot_count'],2)
+        other=self.service.create_project({'name':'外部项目'},actor='test-human')['id']
+        with self.assertRaises(ResourceError):self.service.get_episode_editor(other,episode)
+        with self.assertRaises(ResourceError):self.service.get_episode_entry(other,episode,'test-human')
+        light=self.service.create_project({'name':'固定单集','profile':'vsc.light-short'},actor='test-human')['id']
+        first=self.service.save_episode(light,{'title':'单集','shot_count':1},expected_revision=0,idempotency_key=uuid.uuid4().hex,actor='test-human')
+        with self.assertRaises(ResourceError):self.service.save_episode(light,{'title':'不可扩集','shot_count':1},expected_revision=first['revision'],idempotency_key=uuid.uuid4().hex,actor='test-human')
+        self.assertEqual(self.service.get_production_episodes(light)['total'],1)
+
+    def test_episode_concurrent_saves_share_original_project_lock(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from vsc.assets.resource_service import Conflict
+        saved=self.write('save_episode',{'title':'原名','shot_count':1});revision=self.rev;barrier=Barrier(2)
+        def attempt(title):
+            barrier.wait()
+            try:return self.service.save_episode(self.p,{'episode_id':saved['episode_id'],'title':title,'shot_count':2},expected_revision=revision,idempotency_key=uuid.uuid4().hex,actor='test-human')
+            except Conflict:return None
+        with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(attempt,['并发甲','并发乙']))
+        self.assertEqual(sum(result is not None for result in results),1)
+        read=self.service.get_episode_editor(self.p,saved['episode_id']);self.assertEqual(read['revision'],revision+1);self.assertEqual(read['episode']['shot_count'],2)
+
+    def test_episode_entry_selects_my_latest_version_and_rejects_hidden_scope(self):
+        from vsc.assets.resource_service import ResourceError
+        batch=self.write('create_episode_batch',{'titles':['甲','乙']});episode,other=[row['id'] for row in batch['items']]
+        self.assertIsNone(self.service.get_episode_entry(self.p,episode,'test-human')['canvas'])
+        def canvas(title,target=episode,actor='test-human'):
+            return self.write('create_creative_canvas',{'episode_id':target,'title':title,'document':{'nodes':[],'edges':[]}},actor=actor)
+        oldest=canvas('旧创建');canvas('新创建')
+        self.write('save_creative_canvas',{'canvas_id':oldest['id'],'canvas_revision':1,'title':'最近修改','document':{'nodes':[],'edges':[]}})
+        canvas('别人的最新',actor='another-human');canvas('别集的最新',target=other)
+        entry=self.service.get_episode_entry(self.p,episode,'test-human')
+        self.assertEqual(entry['canvas']['id'],oldest['id']);self.assertEqual(entry['canvas']['title'],'最近修改');self.assertTrue(entry['canvas']['updated_at'])
+        self.write('management_command',{'operation':'trash','target_type':'object','target_id':episode,'reason':'合成测试回收'})
+        with self.assertRaises(ResourceError):self.service.get_episode_entry(self.p,episode,'test-human')
+
+    def test_episode_http_save_editor_and_entry_use_trusted_session(self):
+        if not all(importlib.util.find_spec(name) for name in ('fastapi','httpx')):self.skipTest('requires web dependencies')
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test','human_identity':'test-human'},catalog=ResourceCatalog(root,service=self.service))
+            with TestClient(app) as client:
+                path='/api/v1/projects/'+self.p;request={'payload':{'title':'API剧集','shot_count':2},'expected_revision':0,'idempotency_key':uuid.uuid4().hex}
+                self.assertEqual(client.post(path+'/episode-save',json=request).status_code,403)
+                login=client.post('/api/v1/session',json={'token':'test'},headers={'origin':'http://testserver'}).json()
+                headers={'origin':'http://testserver','x-csrf-token':login['csrf_token']}
+                response=client.post(path+'/episode-save',json=request,headers=headers);self.assertEqual(response.status_code,200,response.text)
+                result=response.json();episode=result['episode_id'];self.rev=result['revision']
+                self.assertEqual(client.post(path+'/episode-save',json=request,headers=headers).json(),result)
+                editor=client.get(path+'/production-platform/episode-editor',params={'episode_id':episode});self.assertEqual(editor.status_code,200,editor.text)
+                self.assertEqual(editor.json()['episode']['shot_count'],2)
+                own=self.write('create_creative_canvas',{'episode_id':episode,'title':'自己的','document':{'nodes':[],'edges':[]}})
+                self.write('create_creative_canvas',{'episode_id':episode,'title':'他人的','document':{'nodes':[],'edges':[]}},actor='forged')
+                entry=client.get(path+'/production-platform/episode-entry',params={'episode_id':episode,'actor':'forged'})
+                self.assertEqual(entry.status_code,200,entry.text);self.assertEqual(entry.json()['canvas']['id'],own['id'])
+                invalid=client.get(path+'/production-platform/episode-entry',params={'episode_id':str(uuid.uuid4())})
+                self.assertEqual(invalid.status_code,404)
+
+
 class ProductionPlatformFrontendTests(unittest.TestCase):
     def test_old_page_failures_and_write_retries_preserve_scope_and_request(self):
         import shutil
@@ -208,14 +349,14 @@ const old=platform.load({page:'project',project:'old'});
 active='new';await platform.load({page:'project',project:'new'});
 first.reject(new Error('old failure'));await old;
 assert.ok(root.textContent.includes('new'));assert.ok(!root.textContent.includes('old failure'));assert.equal(notices.length,0);
-await root.querySelectorAll('button').find(n=>n.textContent==='+ 创建剧集').click();
+await root.querySelector('.episode-project-tools').querySelector('button').click();
 let form=root.querySelector('form'),titles=form.querySelector('textarea');titles.value='第一集';await titles.dispatch('input');
 await form.dispatch('submit');assert.equal(titles.value,'第一集');
 await form.dispatch('submit');
 const writes=calls.filter(c=>c.opts?.method==='POST').map(c=>JSON.parse(c.opts.body));
 assert.equal(writes.length,2);assert.equal(writes[0].idempotency_key,writes[1].idempotency_key);
 assert.equal(writes[0].expected_revision,4);assert.equal(writes[1].expected_revision,4);
-await root.querySelectorAll('button').find(n=>n.textContent==='+ 创建剧集').click();
+await root.querySelector('.episode-project-tools').querySelector('button').click();
 form=root.querySelector('form');titles=form.querySelector('textarea');titles.value='旧集保稿';await titles.dispatch('input');
 const pending=form.dispatch('submit');await Promise.resolve();
 active='next';await platform.load({page:'project',project:'next'});

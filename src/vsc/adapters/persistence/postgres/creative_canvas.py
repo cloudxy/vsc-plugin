@@ -34,11 +34,13 @@ class CreativeCanvasRepository:
             return list(conn.execute(select(S.creative_canvas_nodes.c.media_id).where(S.creative_canvas_nodes.c.project_id==project_id,S.creative_canvas_nodes.c.version_id==version_id,S.creative_canvas_nodes.c.media_id.is_not(None)).distinct()).scalars())
 
     def list_canvas_templates(self,project_id,actor):
-        with self.engine.connect() as conn:
+        from .project_management import filter_management_rows
+        with self.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
             project=self._project(conn,project_id)
             rows=conn.execute(select(S.canvas_templates,S.creative_canvas_versions.c.version).join(S.creative_canvas_versions,(S.creative_canvas_versions.c.project_id==S.canvas_templates.c.project_id)&(S.creative_canvas_versions.c.id==S.canvas_templates.c.version_id)).where(S.canvas_templates.c.project_id==project["id"]).order_by(S.canvas_templates.c.created_at.desc())).mappings()
             favorites=set(conn.execute(select(S.canvas_template_favorites.c.template_id).where(S.canvas_template_favorites.c.project_id==project["id"],S.canvas_template_favorites.c.actor==actor,S.canvas_template_favorites.c.active.is_(True))).scalars())
-            return clean({"items":[dict(row,favorite=row["id"] in favorites) for row in rows],"revision":project["revision"]})
+            items=filter_management_rows(conn,project['id'],S.canvas_templates,[dict(row) for row in rows])
+            return clean({"items":[dict(row,favorite=row["id"] in favorites) for row in items],"revision":project["revision"]})
 
     def get_canvas_template(self,project_id,template_id):
         with self.engine.connect() as conn:return clean(self._one(conn,S.canvas_templates,checked_id(project_id),template_id))
@@ -55,15 +57,22 @@ class CreativeCanvasRepository:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         def work(conn,project):
             template=self._one(conn,S.canvas_templates,project["id"],payload.get("template_id"));active=payload.get("active")
+            from .project_management import management_canvas_guard
+            version=self._one(conn,S.creative_canvas_versions,project['id'],template['version_id'])
+            management_canvas_guard(conn,project['id'],version['canvas_id'])
             if type(active) is not bool:raise ResourceError("收藏状态需要明确选择")
             conn.execute(pg_insert(S.canvas_template_favorites).values(project_id=project["id"],template_id=template["id"],actor=actor,active=active).on_conflict_do_update(index_elements=["project_id","template_id","actor"],set_={"active":active}))
             return {"id":template["id"],"favorite":active}
         return self._mutate(project_id,"favorite_canvas_template",payload,actor=actor,callback=work,**kw)
 
     def copy_canvas_template(self,project_id,payload,actor,**kw):
+        source=checked_id(payload.get('source_project_id',project_id))
         def work(conn,project):
-            source=checked_id(payload.get("source_project_id",project["id"]));template=self._one(conn,S.canvas_templates,source,payload.get("template_id"))
+            self._access_require(conn,source,'read')
+            template=self._one(conn,S.canvas_templates,source,payload.get("template_id"))
             version=self._one(conn,S.creative_canvas_versions,source,template["version_id"]);document=self._canvas_document(conn,source,version)
+            from .project_management import management_canvas_guard
+            management_canvas_guard(conn,source,version['canvas_id'])
             mapping=payload.get("target_media_mapping",{})
             if not isinstance(mapping,dict):raise ResourceError("跨项目媒体映射需要对象")
             for node in document["nodes"]:
@@ -80,7 +89,8 @@ class CreativeCanvasRepository:
             result=self._insert_canvas_version(conn,project,canvas,{"title":payload.get("title",template["title"]+" · 副本"),"document":document},actor)
             conn.execute(insert(S.canvas_template_copies).values(project_id=project["id"],id=new_id(),source_project_id=source,template_id=template["id"],canvas_id=canvas["id"],created_by=actor))
             return dict(result,provider_submitted=False,source_version_id=version["id"])
-        return self._mutate(project_id,"copy_canvas_template",payload,actor=actor,callback=work,**kw)
+        return self._mutate(project_id,"copy_canvas_template",payload,actor=actor,callback=work,
+            _related_projects=(source,),**kw)
 
     def _canvas_agent_turn(self,conn,project,turn_id):
         row=self._one(conn,S.canvas_agent_turns,project["id"],turn_id);version=self._one(conn,S.creative_canvas_versions,project["id"],row["version_id"])
@@ -426,7 +436,8 @@ class CreativeCanvasRepository:
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
             query = select(S.creative_canvases, S.creative_canvas_versions.c.title,
-                S.creative_canvas_versions.c.version, S.creative_canvas_versions.c.node_count).join(
+                S.creative_canvas_versions.c.version, S.creative_canvas_versions.c.node_count,
+                S.creative_canvas_versions.c.created_at.label("updated_at")).join(
                 S.creative_canvas_versions, (S.creative_canvases.c.project_id == S.creative_canvas_versions.c.project_id) &
                 (S.creative_canvases.c.current_version_id == S.creative_canvas_versions.c.id)).where(
                 S.creative_canvases.c.project_id == project["id"])

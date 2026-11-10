@@ -97,8 +97,11 @@ class ProjectMediaCatalog:
         canvas_from = canvases.join(versions, and_(versions.c.project_id == canvases.c.project_id,
             versions.c.id == canvases.c.current_version_id)).join(nodes, and_(nodes.c.project_id == canvases.c.project_id,
                 nodes.c.version_id == versions.c.id))
-        canvas_active = ~exists(select(1).where(hidden.c.project_id == canvases.c.project_id,
-            hidden.c.object_id == canvases.c.episode_id))
+        canvas_active = and_(~exists(select(1).where(hidden.c.project_id == canvases.c.project_id,
+            hidden.c.object_id == canvases.c.episode_id)), ~exists(select(1).where(
+                S.management_canvas_states.c.project_id == canvases.c.project_id,
+                S.management_canvas_states.c.canvas_id == canvases.c.id,
+                S.management_canvas_states.c.state != 'active')))
         canvas_media = select(canvases.c.project_id, nodes.c.media_id, canvases.c.episode_id, _uuid_null().label('target_id'),
             canvases.c.id.label('canvas_id'), literal('canvas').label('source_type'), versions.c.created_at.label('touched_at'))\
             .select_from(canvas_from).where(nodes.c.media_id.is_not(None), canvas_active)

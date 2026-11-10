@@ -3,7 +3,7 @@ from sqlalchemy import select, func
 from . import schema as S
 from .values import clean
 from .media_recycle import recycled_ids
-from .project_management import hidden_object_ids
+from .project_management import hidden_object_ids, inactive_canvas_ids
 
 
 def visible_media(project_id):
@@ -43,6 +43,7 @@ def project_cards(store, projects):
                 images=counts.get('image', 0), videos=counts.get('video', 0),
                 canvases=conn.execute(select(func.count()).select_from(S.creative_canvases).where(
                     S.creative_canvases.c.project_id == p,
+                    S.creative_canvases.c.id.not_in(inactive_canvas_ids(p)),
                     (S.creative_canvases.c.episode_id.is_(None) | S.creative_canvases.c.episode_id.not_in(hidden)))).scalar_one())
             profile = row.get('profile_id') or row.get('profile')
             style = {'2d': '2D动漫', '3d': '3D动漫', 'live': '真人'}.get((row.get('profile_snapshot') or {}).get('character_style'))

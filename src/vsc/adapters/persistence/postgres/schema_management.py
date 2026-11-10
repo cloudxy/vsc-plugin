@@ -17,6 +17,10 @@ def declare_management(project_table, ref, uid, stamp):
             Column('actor',Text,nullable=False),Column('changed_at',DateTime(timezone=True),nullable=False),
             CheckConstraint("state IN ('active','trashed','purged')",name='state'),
             UniqueConstraint('project_id',*(['object_id'] if extra else []))))
+    tables.append(project_table('management_canvas_states',*ref('creative_canvases','canvas_id'),
+        Column('state',Text,nullable=False),Column('reason',Text,nullable=False),
+        Column('actor',Text,nullable=False),Column('changed_at',DateTime(timezone=True),nullable=False),
+        CheckConstraint("state IN ('active','trashed')",name='state'),UniqueConstraint('project_id','canvas_id')))
     tables.append(project_table('management_retention',Column('days',Integer),Column('actor',Text,nullable=False),stamp(),
         CheckConstraint('days IS NULL OR (days >= 1 AND days <= 36500)',name='days'),UniqueConstraint('project_id')))
     return {t.name:t for t in tables}

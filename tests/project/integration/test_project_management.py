@@ -210,3 +210,239 @@ class ProjectManagementTests(ResourceStoreFixture,unittest.TestCase):
         with self.assertRaises(ResourceError) as caught:self.store.claim_spatial_export(self.p,job['id'])
         self.assertEqual(caught.exception.code,'object_recycled')
         self.assertEqual(self.store.get_spatial_export(self.p,job['id'])['status'],'failed')
+
+    def test_canvas_recycle_preserves_versions_media_replays_and_filters_entries(self):
+        from vsc.assets.resource_service import ResourceError
+        from vsc.adapters.persistence.postgres.discovery import discover
+        from vsc.adapters.persistence.postgres.project_presentation import project_cards
+        from unittest.mock import patch
+        o=self.hierarchy();media=self.media('画布原图')
+        document={'nodes':[{'id':'image','type':'image','media_id':media}],'edges':[]}
+        first=self.write('create_creative_canvas',dict(episode_id=o['episode'],title='仍可创作',document=document))
+        canvas=self.write('create_creative_canvas',dict(episode_id=o['episode'],title='回收画布',document=document))
+        template=self.write('publish_canvas_template',dict(canvas_id=canvas['id'],canvas_revision=1,title='固定模板'))
+        self.assertEqual(self.service.get_episode_entry(self.p,o['episode'],'test-human')['canvas']['id'],canvas['id'])
+        before=self.service.creative_canvas_history(self.p,canvas['id'])['items'];key=uuid.uuid4().hex
+        payload=dict(operation='trash',target_type='canvas',target_id=canvas['id'],reason='稍后恢复')
+        result=self.write('management_command',payload,idempotency_key=key)
+        self.assertEqual(result,self.service.management_command(self.p,payload,actor='test-human',expected_revision=0,idempotency_key=key))
+        self.assertEqual(self.service.get_operation_receipt(self.p,key,actor='test-human')['response'],result)
+        self.assertEqual([r['id'] for r in self.service.list_creative_canvases(self.p)['items']],[first['id']])
+        self.assertEqual(self.service.get_episode_entry(self.p,o['episode'],'test-human')['canvas']['id'],first['id'])
+        self.assertEqual(project_cards(self.store,[self.service.get_project(self.p)])[0]['counts']['canvases'],1)
+        with patch.object(self.store,'access_snapshot',return_value={'projects':[self.service.get_project(self.p)],'identity':{'actor':'test-human'}}):
+            found=discover(self.store)
+        self.assertEqual([r['target_id'] for r in found['recent'] if r['kind']=='canvas'],[first['id']])
+        self.assertNotIn(template['id'],[r['id'] for r in found['templates']])
+        with self.assertRaises(ResourceError):self.service.get_creative_canvas(self.p,canvas['id'])
+        fixed=self.service.get_creative_canvas(self.p,canvas['id'],version=1)
+        self.assertEqual(fixed['document']['nodes'][0]['media_id'],media)
+        self.assertEqual(self.service.creative_canvas_history(self.p,canvas['id'])['items'],before)
+        self.assertEqual(self.service.get_media(self.p,media)['id'],media)
+        for method,body in [('save_creative_canvas',dict(canvas_id=canvas['id'],canvas_revision=1,document=document)),
+                            ('copy_creative_canvas',dict(canvas_id=canvas['id'],title='不能复制')),
+                            ('create_canvas_agent_turn',dict(canvas_id=canvas['id'],canvas_revision=1,message='不能运行',skill_id='vsc-script'))]:
+            with self.subTest(method=method),self.assertRaises(ResourceError):self.write(method,body)
+        for operation in ('purge','move'):
+            body=dict(target_type='canvas',target_id=canvas['id'])
+            body.update(dict(reason='不支持',confirm_name='回收画布') if operation=='purge' else dict(folder_id=None))
+            with self.subTest(operation=operation),self.assertRaises(ResourceError) as caught:self.command(operation,**body)
+            self.assertEqual(caught.exception.code,'canvas_lifecycle_operation')
+        row=next(r for r in self.service.management_recycle_items(kind='canvas')['items'] if r['target_id']==canvas['id'])
+        self.assertEqual(row['target_type'],'canvas');self.assertTrue(row['can_restore'])
+        self.assertTrue(any(r['id']==canvas['id'] and r['type']=='canvas' for r in self.service.management_snapshot(self.p,kind='trashed')['items']))
+        self.command('restore',target_type='canvas',target_id=canvas['id'],reason='恢复原画布')
+        self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['version_id'],canvas['version_id'])
+        self.assertEqual(self.service.get_episode_entry(self.p,o['episode'],'test-human')['canvas']['id'],canvas['id'])
+        self.assertEqual(self.service.creative_canvas_history(self.p,canvas['id'])['items'],before)
+        self.assertFalse(any(r['target_id']==canvas['id'] for r in self.service.management_recycle_items(kind='canvas')['items']))
+
+    def test_canvas_restore_requires_project_and_every_ancestor(self):
+        from vsc.assets.resource_service import ResourceError
+        o=self.hierarchy();canvas=self.write('create_creative_canvas',dict(episode_id=o['episode'],document={'nodes':[],'edges':[]}))
+        self.command('trash',target_type='canvas',target_id=canvas['id'],reason='回收')
+        for typ,identifier in [('object',o['episode']),('object',o['work']),('project',self.p)]:
+            self.command('trash',target_type=typ,target_id=identifier,reason='父级回收')
+            row=next(r for r in self.service.management_recycle_items(kind='canvas')['items'] if r['target_id']==canvas['id'])
+            self.assertFalse(row['can_restore'])
+            self.assertTrue(row['blocked_by_project'] if typ=='project' else row['blocked_by_ancestor'])
+            with self.assertRaises(ResourceError) as caught:self.command('restore',target_type='canvas',target_id=canvas['id'],reason='不能绕过父级')
+            self.assertEqual(caught.exception.code,'restore_parent_first')
+            self.command('restore',target_type=typ,target_id=identifier,reason='恢复父级')
+        self.command('restore',target_type='canvas',target_id=canvas['id'],reason='最后恢复画布')
+        self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['id'],canvas['id'])
+
+    def test_canvas_inflight_agent_protection_and_two_transaction_revision_conflict(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from vsc.assets.resource_service import Conflict
+        canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        other=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        turn=self.write('create_canvas_agent_turn',dict(canvas_id=canvas['id'],canvas_revision=1,message='固定计划',skill_id='vsc-script'))
+        protected=self.command('trash',target_type='canvas',target_id=canvas['id'],reason='运行中')
+        self.assertEqual(protected['status'],'protected');self.assertEqual(protected['state'],'active')
+        self.assertTrue(any(r['table']=='canvas_agent_turns' and r['id']==turn['id'] for r in protected['reasons']))
+        # Another canvas is not owned by that in-flight turn.
+        self.command('trash',target_type='canvas',target_id=other['id'],reason='独立画布')
+        self.write('decide_canvas_agent_turn',dict(turn_id=turn['id'],outcome='stop',reason='停止合成规划'))
+        revision=self.rev;start=Barrier(2)
+        def change(number):
+            start.wait()
+            try:
+                if number==1:return self.service.management_command(self.p,dict(operation='trash',target_type='canvas',target_id=canvas['id'],reason='并发回收'),actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex)
+                return self.service.save_creative_canvas(self.p,dict(canvas_id=canvas['id'],canvas_revision=1,title='并发保存',document={'nodes':[],'edges':[]}),actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex)
+            except Conflict:return 'conflict'
+        with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(change,[1,2]))
+        self.assertEqual(results.count('conflict'),1);self.assertEqual(self.service.get_project(self.p)['revision'],revision+1)
+
+    def test_canvas_lifecycle_typed_constraints_and_viewer_permissions(self):
+        from sqlalchemy import insert,select
+        from sqlalchemy.exc import IntegrityError
+        from datetime import datetime,timezone
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.access_control import Principal,set_principal,reset_principal
+        from vsc.assets.resource_service import ResourceError
+        canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        other=self.service.create_project({'name':'另一个隔离项目'},actor='test-human')['id']
+        values=dict(project_id=self.p,id=str(uuid.uuid4()),canvas_id=canvas['id'],state='trashed',reason='test',actor='test-human',changed_at=datetime.now(timezone.utc))
+        for change in ({'project_id':other},{'state':'purged'}):
+            with self.subTest(change=change),self.assertRaises(IntegrityError),self.engine.begin() as conn:conn.execute(insert(S.management_canvas_states).values(dict(values,**change)))
+        self.command('trash',target_type='canvas',target_id=canvas['id'],reason='测试回收')
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:conn.execute(insert(S.management_canvas_states).values(values))
+        identity,workspace=[str(uuid.uuid4()) for _ in range(2)];actor='viewer:'+identity
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.access_identities).values(id=identity,subject_key='remote:'+identity,actor=actor,display_name='viewer',preferences={},active=True))
+            conn.execute(insert(S.access_workspaces).values(id=workspace,name='隔离工作室',kind='studio',created_by=identity))
+            conn.execute(insert(S.access_projects).values(project_id=self.p,workspace_id=workspace,assigned_by=identity,review_lanes=[]))
+            conn.execute(insert(S.access_project_members).values(project_id=self.p,identity_id=identity,role='viewer',active=True))
+        token=set_principal(Principal(identity_id=identity,actor=actor))
+        try:
+            row=next(r for r in self.service.management_recycle_items(kind='canvas')['items'] if r['target_id']==canvas['id'])
+            self.assertFalse(row['can_restore'])
+            with self.assertRaises(ResourceError) as caught:self.write('management_command',dict(operation='restore',target_type='canvas',target_id=canvas['id'],reason='无管理权'),actor=actor)
+            self.assertEqual(caught.exception.code,'access_denied')
+        finally:reset_principal(token)
+        with self.engine.connect() as conn:self.assertEqual(conn.execute(select(S.management_canvas_states.c.state).where(S.management_canvas_states.c.project_id==self.p)).scalar_one(),'trashed')
+
+    def test_canvas_migration_roundtrip_and_refuses_loss_of_lifecycle_facts(self):
+        from alembic import command
+        from alembic.config import Config
+        from alembic.autogenerate import compare_metadata
+        from alembic.migration import MigrationContext
+        from sqlalchemy import text
+        from sqlalchemy.exc import DBAPIError
+        from support.paths import ROOT
+        from support.fixtures.postgres import isolated_postgres
+        from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
+        from vsc.assets.resource_service import ResourceService
+        from vsc.adapters.persistence.postgres import schema as S
+        with isolated_postgres(os.environ['VSC_TEST_DATABASE_URL']) as engine:
+            service=ResourceService(PostgresResourceStore(engine=engine));p=service.create_project({'name':'迁移回退夹具'},actor='test-human')['id']
+            canvas=service.create_creative_canvas(p,dict(document={'nodes':[],'edges':[]}),actor='test-human',expected_revision=0,idempotency_key='migration-canvas')
+            cfg=Config(str(ROOT/'migrations/postgres/alembic.ini'))
+            with engine.begin() as conn:cfg.attributes['connection']=conn;command.downgrade(cfg,'0051_project_cover_versions')
+            with engine.connect() as conn:
+                self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),'0051_project_cover_versions')
+                self.assertIsNone(conn.execute(text("SELECT to_regclass('management_canvas_states')")).scalar_one())
+                self.assertEqual(conn.execute(text('SELECT count(*) FROM creative_canvas_versions')).scalar_one(),1)
+            with engine.begin() as conn:cfg.attributes['connection']=conn;command.upgrade(cfg,'head')
+            with engine.connect() as conn:self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
+            service.management_command(p,dict(operation='trash',target_type='canvas',target_id=canvas['id'],reason='保全新事实'),actor='test-human',expected_revision=1,idempotency_key='migration-trash')
+            with self.assertRaises(DBAPIError),engine.begin() as conn:cfg.attributes['connection']=conn;command.downgrade(cfg,'0051_project_cover_versions')
+            self.assertEqual(service.management_recycle_items(kind='canvas')['items'][0]['target_id'],canvas['id'])
+            result=service.management_command(p,dict(operation='restore',target_type='canvas',target_id=canvas['id'],reason='显式恢复'),actor='test-human',expected_revision=2,idempotency_key='migration-restore')
+            self.assertEqual(result['state'],'active');self.assertEqual(service.get_creative_canvas(p,canvas['id'])['version_id'],canvas['version_id'])
+
+    def test_canvas_typed_draft_and_generation_job_cannot_escape_lifecycle(self):
+        from vsc.assets.resource_service import ResourceError
+        o=self.hierarchy();provider='canvas_lifecycle_'+uuid.uuid4().hex
+        self.service.register_provider(dict(id=provider,base_url='https://example.invalid',auth_ref='OFFLINE_TEST_KEY'),actor='test-admin')
+        model=self.service.register_model(dict(provider_id=provider,model_key='video',model_version='offline',modality='video',capabilities=dict(purposes=['text_to_video','video_clip'],first_frame=True)),actor='test-admin')
+        canvas=self.write('create_creative_canvas',dict(episode_id=o['episode'],document={'nodes':[dict(id='out',type='video',text='合成固定输入')],'edges':[]}))
+        draft=self.write('prepare_canvas_work_input',dict(canvas_id=canvas['id'],canvas_revision=1,node_id='out',shot_id=o['shot'],model_id=model['id']))
+        self.command('trash',target_type='canvas',target_id=canvas['id'],reason='草稿已固定后回收')
+        with self.assertRaises(ResourceError) as caught:self.write('generate_canvas_work',dict(request={'draft_version_id':draft['draft_version_id']},preview_sha256='0'*64))
+        self.assertEqual(caught.exception.code,'object_recycled')
+        self.command('restore',target_type='canvas',target_id=canvas['id'],reason='恢复后检查原任务')
+        self.artifact(objects=[o['shot']]);self.artifact('state','scene-state',[o['scene']],{'state_versions':[{'scene_id':o['scene']}]})
+        import io
+        from PIL import Image
+        content=io.BytesIO();Image.new('RGB',(8,8),'green').save(content,format='PNG')
+        staged=self.service.storage.stage_upload(io.BytesIO(content.getvalue()),'lifecycle.png')
+        image=self.write('register_media',dict(staged_upload=staged['staged_upload'],rights='owned',source={'kind':'test','content':'synthetic owned image'}))['id']
+        self.write('record_media_check',dict(media_id=image,checker='test-probe',criteria_version='1',outcome='pass'))
+        self.select(self.candidate(o['shot'],image))
+        request={'prompt':'固定画面','params':{},'first_frame_media_id':image};run=self.production_run(o['shot'],request)
+        context=self.service.compile_shot_context(self.p,o['shot'],'video_clip')
+        job=self.write('create_generation_job',dict(run_version_id=run,shot_id=o['shot'],purpose='video_clip',modality='video',model_id=model['id'],context_sha256=context['sha256'],request_payload=request))
+        self.write('save_creative_canvas',dict(canvas_id=canvas['id'],canvas_revision=1,document={'nodes':[dict(id='out',type='video',job_id=job['id'])],'edges':[]}))
+        protected=self.command('trash',target_type='canvas',target_id=canvas['id'],reason='在途任务不能回收')
+        self.assertEqual(protected['status'],'protected');self.assertTrue(any(r['table']=='generation_jobs' for r in protected['reasons']))
+        self.write('update_generation_job',dict(job_id=job['id'],status='failed',raw_response={'synthetic':'terminal local failure'}))
+        self.command('trash',target_type='canvas',target_id=canvas['id'],reason='任务结束后可回收')
+        self.assertEqual(self.service.get_generation_job(self.p,job['id'])['status'],'failed')
+        self.assertEqual(self.service.get_artifact_version(self.p,run)['id'],run)
+
+    def test_canvas_http_recycle_restore_and_current_readback(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        with tempfile.TemporaryDirectory() as root:
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'browser-test','background_enabled':False},catalog=ResourceCatalog(root,self.service),service=self.service)
+            with TestClient(app) as client:
+                login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
+                headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
+                endpoint='/api/v1/projects/'+self.p+'/management';revision=self.rev
+                for operation in ('trash','restore'):
+                    body={'payload':dict(operation=operation,target_type='canvas',target_id=canvas['id'],reason='HTTP生命周期'),'expected_revision':revision,'idempotency_key':uuid.uuid4().hex}
+                    result=client.post(endpoint,json=body,headers=headers);self.assertEqual(result.status_code,200,result.text)
+                    self.assertEqual(client.post(endpoint,json=body,headers=headers).json(),result.json());revision=result.json()['revision']
+                    page=client.get('/api/v1/project-management/recycle-items?kind=canvas',headers=headers)
+                    self.assertEqual(page.status_code,200,page.text)
+                    self.assertEqual(any(r['target_id']==canvas['id'] for r in page.json()['items']),operation=='trash')
+                self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['version_id'],canvas['version_id'])
+
+    def test_canvas_identity_does_not_share_the_creative_object_namespace(self):
+        from unittest.mock import patch
+        o=self.hierarchy()
+        with patch('vsc.adapters.persistence.postgres.creative_canvas.new_id',side_effect=[o['shot'],str(uuid.uuid4())]):
+            canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        self.assertEqual(canvas['id'],o['shot'])
+        self.command('trash',target_type='object',target_id=o['shot'],reason='仅回收创作对象')
+        self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['id'],canvas['id'])
+        self.command('restore',target_type='object',target_id=o['shot'],reason='恢复对象')
+        self.command('trash',target_type='canvas',target_id=canvas['id'],reason='仅回收画布')
+        self.assertIn(o['shot'],[r['id'] for r in self.service.get_project_tree(self.p)['nodes']])
+        artifact=self.write('create_artifact',dict(artifact_type='memo',artifact_key='object-still-active',document='独立对象仍可写',object_ids=[o['shot']]))
+        self.assertTrue(artifact['id'])
+
+    def test_template_consumers_enforce_lifecycle_but_preserve_history_and_receipt_replay(self):
+        from vsc.assets.resource_service import ResourceError
+        o=self.hierarchy();canvas=self.write('create_creative_canvas',dict(episode_id=o['episode'],title='模板原画布',document={'nodes':[],'edges':[]}))
+        template=self.write('publish_canvas_template',dict(canvas_id=canvas['id'],canvas_revision=1,title='固定模板'))
+        payload=dict(source_project_id=self.p,template_id=template['id'],episode_id=None,title='有效副本')
+        favorite=dict(template_id=template['id'],active=True)
+        prior={}
+        for method,body in [('copy_canvas_template',payload),('copy_fixed_canvas_template',payload),('favorite_canvas_template',favorite)]:
+            key=uuid.uuid4().hex;prior[method]=(body,key,self.write(method,body,idempotency_key=key))
+        for typ,identifier in [('canvas',canvas['id']),('object',o['episode']),('object',o['work']),('project',self.p)]:
+            with self.subTest(source=typ,identifier=identifier):
+                self.command('trash',target_type=typ,target_id=identifier,reason='模板来源暂停')
+                if typ=='project':
+                    with self.assertRaises(ResourceError):self.service.list_canvas_templates(self.p,'test-human')
+                else:self.assertNotIn(template['id'],[r['id'] for r in self.service.list_canvas_templates(self.p,'test-human')['items']])
+                for method,body in [('copy_canvas_template',payload),('copy_fixed_canvas_template',payload),('favorite_canvas_template',favorite)]:
+                    with self.subTest(method=method),self.assertRaises(ResourceError):self.write(method,body)
+                    original,key,result=prior[method]
+                    replay=getattr(self.service,method)(self.p,original,actor='test-human',expected_revision=0,idempotency_key=key)
+                    self.assertEqual(replay,result)
+                with self.assertRaises(ResourceError):self.service.preview_canvas_template_copy(self.p,payload)
+                self.assertEqual(self.service.get_creative_canvas_version(self.p,canvas['version_id'])['id'],canvas['version_id'])
+                self.assertEqual(self.store.get_canvas_template(self.p,template['id'])['version_id'],canvas['version_id'])
+                self.command('restore',target_type=typ,target_id=identifier,reason='恢复原来源')
+                self.assertIn(template['id'],[r['id'] for r in self.service.list_canvas_templates(self.p,'test-human')['items']])
+                self.assertEqual(self.service.preview_canvas_template_copy(self.p,payload)['source_sha256'],canvas['sha256'])
+        for method in ('copy_canvas_template','copy_fixed_canvas_template'):
+            copied=self.write(method,payload)
+            self.assertEqual(copied['source_version_id'],canvas['version_id']);self.assertNotEqual(copied['id'],canvas['id'])

@@ -122,3 +122,17 @@ test('video restore uses the original media endpoint and recovers the same reque
  assert.equal(posts[0].url,'/api/v1/projects/p1/recycle-actions');assert.equal(posts[0].body.confirmed,true);assert.deepEqual(posts[0].body.payload,{media_ids:['v1'],action:'restore',reason:'恢复视频'});
  assert.deepEqual(scopes,['p1',null]);assert.match(root.textContent,/暂无数据/);panel.suspend();
 });
+
+test('canvas category restores the typed canvas and only refreshes the recycle list',async()=>{
+ let rows=[{...recycleItem('c1','canvas'),target_type:'canvas'}],revision=8;const posts=[],root=new Node('main',document),scopes=[];
+ const ctx={session:()=>({actor:'test',csrf:'t'}),notice(){},setRevision(){},onScope:p=>scopes.push(p),api:async(url,options)=>{
+  if(options?.method==='POST'){posts.push({url,body:JSON.parse(options.body)});rows=[];return {revision:++revision,state:'active',target_type:'canvas',target_id:'c1'};}
+  if(url==='/api/v1/projects')return {items:[{id:'p1',name:'项目'}]};if(url==='/api/v1/project-management/recycled')return {items:[]};
+  if(url.startsWith('/api/v1/project-management/recycle-items?'))return {items:rows,next_cursor:null};
+  if(url.startsWith('/api/v1/projects/p1/management?'))return {project:{id:'p1',name:'项目'},state:'active',revision,folders:[],items:[],total:0,next_offset:null};throw Error(url);
+ }};
+ const panel=createProjectManagement(root,ctx);await panel.load({project:null});await find(root,'BUTTON','画布').onclick();assert.doesNotMatch(root.textContent,/暂未接入/);
+ await find(root,'BUTTON','恢复').onclick();const dialog=root.querySelector('dialog'),form=dialog.walk().find(n=>n.tagName==='FORM');dialog.walk().find(n=>n.tagName==='INPUT').value='恢复原画布';await form.onsubmit({preventDefault(){}});
+ assert.equal(posts.length,1);assert.equal(posts[0].url,'/api/v1/projects/p1/management');assert.deepEqual(posts[0].body.payload,{operation:'restore',target_type:'canvas',target_id:'c1',reason:'恢复原画布'});
+ assert.deepEqual(scopes,['p1',null]);assert.match(root.textContent,/暂无数据/);panel.suspend();
+});

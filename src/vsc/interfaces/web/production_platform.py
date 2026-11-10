@@ -16,6 +16,17 @@ def install_production_platform_routes(router, catalog, etag):
     def query(project_id: str, request: Request, episode_id: str = None, offset: int = 0, limit: int = 24):
         return etag(request, platform.query(project_id, episode_id=episode_id, offset=offset, limit=limit))
 
+    @router.get('/{project_id}/production-platform/episode-editor')
+    def episode_editor(project_id: str, request: Request, episode_id: str = None, parent_id: str = None):
+        return etag(request,service(project_id).get_episode_editor(project_id,episode_id,parent_id))
+
+    @router.get('/{project_id}/production-platform/episode-entry')
+    def episode_entry(project_id: str, request: Request, episode_id: str):
+        from vsc.assets.access_control import current_principal
+        principal=current_principal()
+        if principal is None or not principal.actor:raise HTTPException(403,'请先建立操作会话')
+        return etag(request,service(project_id).get_episode_entry(project_id,episode_id,principal.actor))
+
     @router.post("/{project_id}/shot-batch/preview")
     def preview(project_id: str, request: Request, body: dict):
         if catalog._reader(project_id) is not None or catalog.service is None:

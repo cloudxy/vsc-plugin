@@ -11,7 +11,7 @@ const uid=()=>crypto.randomUUID();
 export const quickViews=[['script','制作方案'],['assets','资产准备'],['production','镜头制作'],['editing','成片修补'],['delivery','交付']];
 export function createProductionPlatform(root,ctx){
   let ticket=0,scope=null,data=null,offset=0,busy=false,poll=null,assetCards=null;
-  const drafts=new Map(),pending=new Map(),creationFiles=new Map();let closeCreation=null,homeOpening=null;
+  const drafts=new Map(),pending=new Map(),creationFiles=new Map();let closeCreation=null,homeOpening=null,episodeOpening=null;
   const remember=(key,value)=>{try{if(value==null)sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify(value));}catch{}},recall=key=>{try{return JSON.parse(sessionStorage.getItem(key)||'null');}catch{return null;}},episodeDraft=p=>'vsc-platform-episode:'+session().actor+':'+p;
   const endpoint=(p,suffix)=>`/api/v1/projects/${encodeURIComponent(p)}/${suffix}`;
   const same=(t,s=scope)=>t===ticket&&s===scope;
@@ -296,15 +296,103 @@ export function createProductionPlatform(root,ctx){
     cover.selection_request||={payload:{media_id:cover.media_id},expected_revision:request.revision,idempotency_key:request.idempotency_key+':cover-selection'};retain();
     const selected=await post(endpoint(p,'cover'),cover.selection_request);if(selected.selection?.media_id!==cover.media_id||!selected.cover?.content_url)throw new Error('封面结果尚未读回，请重试恢复原操作');cover.applied=true;cover.content_url=selected.cover.content_url;request.revision=selected.revision??request.revision;retain();return current();
   }
+  async function openEpisodeTool(row,page,options={}){
+    const s=scope,t=ticket,identity=homeIdentity();if(episodeOpening?.current())return;
+    const operation={current:()=>same(t,s)&&identity===homeIdentity()};episodeOpening=operation;
+    const controls=[...root.querySelectorAll('.episode-tool')];for(const control of controls)control.disabled=true;
+    const key='vsc-episode-canvas:'+identity+':'+s.project+':'+row.id;let request=page==='creative-canvas'?recall(key):null;
+    try{
+      if(!session().actor)throw new Error('请先建立操作会话');
+      let entry=null;
+      // An unconfirmed create must reconcile its receipt before another empty-list decision.
+      if(!request){entry=await ctx.api(endpoint(s.project,'production-platform/episode-entry?'+new URLSearchParams({episode_id:row.id})));if(!operation.current())return;
+        if(entry.project_id!==s.project||entry.episode_id!==row.id)throw new Error('剧集范围已改变，请刷新当前项目');
+        if(page==='creative-canvas'){
+          if(entry.canvas!==null&&(!entry.canvas||typeof entry.canvas.id!=='string'||!entry.canvas.id))throw new Error('画布列表读取不完整，请重新读取当前剧集');
+          if(entry.canvas===null){if(!writable())throw new Error('当前剧集没有可用画布，且没有创建权限');request={payload:{episode_id:row.id,title:'未命名画布',document:{nodes:[],edges:[]}},expected_revision:entry.revision,idempotency_key:uid()};remember(key,request);}
+        }
+      }
+      const target={...options,episode:row.id};
+      if(page==='creative-canvas'){
+        if(request){
+          if(!request.canvas_id){const result=await ctx.api(endpoint(s.project,'creative-canvases'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:request.payload,expected_revision:request.expected_revision,idempotency_key:request.idempotency_key})});if(!result.id)throw new Error('画布回执缺少身份，请重试原操作');request.canvas_id=result.id;remember(key,request);if(!operation.current())return;}
+          else{const saved=await ctx.api(endpoint(s.project,'creative-canvases/'+encodeURIComponent(request.canvas_id)));if(!operation.current())return;if(saved.id!==request.canvas_id||saved.episode_id!==row.id)throw new Error('画布不属于当前剧集，请重新读取');}
+          target.task_target=request.canvas_id;
+        }
+        else target.task_target=entry.canvas.id;
+      }
+      await ctx.navigate(page,null,s.project,target);if(page==='creative-canvas')remember(key,null);
+    }catch(error){
+      if(request&&[400,404,409,422].includes(error.status)){remember(key,null);request=null;}
+      if(operation.current())ctx.notice(error.message+(request?'；重试将恢复原画布请求。':''));
+    }finally{if(episodeOpening===operation)episodeOpening=null;if(operation.current())for(const control of controls)control.disabled=false;}
+  }
   async function episodes(t){
-    const value=await read(endpoint(scope.project,'production-platform?'+new URLSearchParams({offset:String(offset),limit:'24'})),t);if(!value)return;data=value;ctx.setRevision(value.revision,scope.project);
-    root.classList.add('platform-episodes');const heading=header(ctx.projectName()||msg("ui.project_episode_list"),msg("ui.manage_episodes_in_this_project_choose_an_episode_to"));heading.querySelector('h1').prepend(link(msg("project.all_projects"),'projects',null,null),el('span',' / ','episode-breadcrumb'));
-    const toolbar=el('div',null,'episode-toolbar'),more=el('details',null,'episode-project-tools');more.append(el('summary',msg("ui.project_tools")),actions(link(msg("ui.project_assets_and_requirements"),'assets',null),link(msg("ui.project_tasks"),'tasks',null),link(msg("ui.sources_and_scripts"),'source',null)));toolbar.append(more,el('span',msg("ui.value0_episodes",{value0:value.episodes.total}),'hint'));
-    if(!value.read_only){const create=button(msg("ui.create_episode"),()=>{const dialog=el('dialog',null,'platform-create'),form=episodeForm(value);form.open=true;bindAttribute(dialog,'aria-label',msg("project.create_episode"));dialog.append(el('h2',msg("project.create_episode")),form,button(msg("common.cancel"),()=>dialog.close()));root.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();});create.className='primary';toolbar.append(create);}else toolbar.append(el('p',value.message,'hint'));root.append(toolbar);
-    const grid=el('div',null,'project-grid episode-index');for(const row of value.episodes.items){const {tile:box,cover}=projectCover(row,row.title||row.display_code||row.id,()=>ctx.navigate('script',row.id,scope.project,{episode:row.id}));box.dataset.episodeId=row.id;box.append(el('p',msg("ui.value0_storyboard_shots",{value0:row.shot_count??'—'}),'project-date'));
-      const controls=actions(link(msg("nav.canvas"),'creative-canvas',row.id,scope.project,{episode:row.id}),link(msg("common.route_storyboard"),'classic-production',row.id,scope.project,{kind:'image',episode:row.id}),link(msg("common.route_video"),'classic-production',row.id,scope.project,{kind:'video',episode:row.id}),link('Agent','intelligent-creation',row.id,scope.project,{episode:row.id}),link(msg("ui.production_progress"),'production',row.id));controls.classList.add('episode-actions');const frame=el('div',null,'episode-cover');cover.replaceWith(frame);frame.append(cover,controls);
-      if(!value.read_only){const menu=el('details',null,'episode-order');menu.append(el('summary',msg("ui.change_order")));for(const[title,direction]of [[msg("agent.overseas_remake_move_up"),'up'],[msg("agent.overseas_remake_move_down"),'down']])menu.append(button(title,async()=>{await write('episode-order',{episode_id:row.id,direction});if(same(t))await reload();},!writable()));controls.append(menu);}grid.append(box);}
-    if(!value.episodes.total)grid.append(empty(msg("ui.no_episodes_yet"),msg("ui.create_an_episode_or_import_a_script_to_start")));root.append(grid);if(value.episodes.total>24)root.append(pagination(value.episodes.total,value.episodes.next_offset,n=>load({...scope,offset:n})));
+    const value=await read(endpoint(scope.project,'production-platform?'+new URLSearchParams({offset:String(offset),limit:'24'})),t);if(!value)return;if(value.project_id!==scope.project)throw new Error('项目范围已改变，请重新读取');data=value;ctx.setRevision(value.revision,scope.project);
+    root.classList.add('platform-episodes');const heading=header(ctx.projectName()||msg('ui.project_episode_list'),msg('ui.manage_episodes_in_this_project_choose_an_episode_to'));heading.querySelector('h1').prepend(link(msg('project.all_projects'),'projects',null,null),el('span',' / ','episode-breadcrumb'));
+    const toolbar=el('div',null,'episode-toolbar'),more=el('details',null,'episode-project-tools'),projectTools=actions(link(msg('ui.project_assets_and_requirements'),'assets',null),link(msg('ui.project_tasks'),'tasks',null),link(msg('ui.sources_and_scripts'),'source',null));more.append(el('summary',msg('ui.project_tools')),projectTools);toolbar.append(more,el('span',msg('ui.value0_episodes',{value0:value.episodes.total}),'hint'));
+    if(!value.read_only){
+      projectTools.append(button(msg('ui.create_multiple_episodes'),()=>{const dialog=el('dialog',null,'platform-create'),form=episodeForm(value);form.open=true;bindAttribute(dialog,'aria-label',msg('ui.create_multiple_episodes'));dialog.append(el('h2',msg('ui.create_multiple_episodes')),form,button(msg('common.cancel'),()=>dialog.close()));root.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();},!writable()));
+      const create=button(msg('ui.create_episode'),()=>openEpisodeEditor(),!writable());create.className='primary';toolbar.append(create);
+    }else toolbar.append(el('p',value.message,'hint'));root.append(toolbar);
+    const grid=el('div',null,'project-grid episode-index');
+    for(const row of value.episodes.items){
+      const {tile:box,cover}=projectCover(row,row.title||row.display_code||row.id,()=>ctx.navigate('script',row.id,scope.project,{episode:row.id}));box.dataset.episodeId=row.id;
+      const controls=el('div',null,'episode-actions');
+      for(const [title,page,options]of [[msg('nav.canvas'),'creative-canvas',{}],[msg('nav.agent_workflow'),'intelligent-creation',{}],[msg('common.route_storyboard'),'classic-production',{kind:'image'}],[msg('common.route_video'),'classic-production',{kind:'video'}]]){
+        const control=button(title,()=>openEpisodeTool(row,page,options),!session().actor||value.read_only);control.className='episode-tool';controls.append(control);
+      }
+      const frame=el('div',null,'episode-cover');cover.replaceWith(frame);frame.append(cover,controls);
+      const footer=el('div',null,'episode-card-footer'),copy=el('div',null,'episode-card-copy'),title=box.querySelector('h3');copy.append(title,el('p',msg('ui.value0_storyboard_shots',{value0:row.shot_count??'—'}),'project-date'));footer.append(copy);
+      const menu=el('details',null,'episode-card-menu'),summary=el('summary','⋯');bindAttribute(summary,'aria-label',msg('ui.episode_actions'));const menuItems=actions(link(msg('ui.production_progress'),'production',row.id),link(msg('nav.script'),'script',row.id,scope.project,{episode:row.id}));menu.append(summary,menuItems);
+      if(!value.read_only){menuItems.prepend(button(msg('project.edit_episode'),()=>{menu.open=false;return openEpisodeEditor(row);},!writable()));for(const[title,direction]of [[msg('agent.overseas_remake_move_up'),'up'],[msg('agent.overseas_remake_move_down'),'down']])menuItems.append(button(title,async()=>{await write('episode-order',{episode_id:row.id,direction});if(same(t))await reload();},!writable()));}
+      footer.append(menu);box.append(footer);grid.append(box);
+    }
+    if(!value.episodes.total)grid.append(empty(msg('ui.no_episodes_yet'),msg('ui.create_an_episode_or_import_a_script_to_start')));root.append(grid);if(value.episodes.total>24)root.append(pagination(value.episodes.total,value.episodes.next_offset,n=>load({...scope,offset:n})));
+  }
+  async function openEpisodeEditor(row=null){
+    closeCreation?.();const s=scope,t=ticket,identity=homeIdentity(),key='vsc-episode-save:'+identity+':'+s.project+':'+(row?.id||'new'),draftKey=key+':draft';
+    let request=recall(key),baseline=null,loading=false,saving=false,closed=false,readToken=0,initialized=false;const retained=recall(draftKey);
+    const current=()=>same(t,s)&&identity===homeIdentity()&&!closed;
+    const dialog=el('dialog',null,'platform-create project-create-dialog episode-edit-dialog'),form=el('form'),heading=el('header',null,'project-create-heading'),title=row?msg('project.edit_episode'):msg('project.create_episode');bindAttribute(dialog,'aria-label',title);heading.append(el('h2',title));const close=button('×',()=>dialog.close());close.className='project-create-close';bindAttribute(close,'aria-label',msg('common.close'));heading.append(close);
+    const body=el('div',null,'project-create-body');
+    const nameLabel=el('label',null,'project-create-field'),nameCaption=el('span',msg('ui.episode_name'));nameCaption.append(el('span','*','project-create-required'));const nameWrap=el('div',null,'project-name-input'),name=el('input'),counter=el('span','0 / 50','project-name-count');name.required=true;name.maxLength=50;bindAttribute(name,'aria-label',msg('ui.episode_name'));nameWrap.append(name,counter);nameLabel.append(nameCaption,nameWrap);body.append(nameLabel);
+    const shots=el('input');shots.type='number';shots.required=true;shots.min='1';shots.max='500';shots.step='1';shots.value=String(Math.max(1,row?.shot_count||1));const shotField=field(body,msg('ui.storyboard_count'),shots);shotField.parentElement.className='project-create-field';
+    const parent=el('select'),parentField=el('label',msg('ui.parent_work'),'project-create-field');bindAttribute(parent,'aria-label',msg('ui.parent_work'));parentField.append(parent);parentField.hidden=true;body.append(parentField);
+    const position=el('input');position.type='text';position.inputMode='numeric';position.pattern='[0-9]*';bindAttribute(position,'aria-label',msg('ui.episode_position'));const positionField=field(body,msg('ui.episode_position'),position);positionField.parentElement.className='project-create-field';const positionHint=el('p',null,'episode-position-hint');positionField.parentElement.append(positionHint);
+    const message=el('p',null,'hint project-create-status');message.setAttribute('role','status');const save=el('button',msg('common.confirm'));save.type='submit';save.className='project-create-confirm';const footer=el('footer',null,'project-create-footer');footer.append(button(msg('common.cancel'),()=>dialog.close()),save);form.append(heading,body,message,footer);dialog.append(form);root.append(dialog);
+    const retain=()=>{if(!request)remember(draftKey,{title:name.value,shot_count:shots.value,parent_id:parent.value,position:position.value});};
+    const lock=()=>{const frozen=loading||saving||Boolean(request)||!baseline;for(const control of [name,shots,parent,position])control.disabled=frozen;save.disabled=loading||saving||!writable();};
+    const countName=()=>setText(counter,`${name.value.length} / 50`);name.addEventListener('input',countName);position.addEventListener('input',()=>{position.value=position.value.replace(/[^0-9]/g,'');});form.addEventListener('input',retain);form.addEventListener('change',retain);
+    name.value=row?.title||'';if(retained){name.value=retained.title;shots.value=retained.shot_count;position.value=retained.position||'';}
+    if(request){name.value=request.payload.title;shots.value=String(request.payload.shot_count);position.value=request.payload.position==null?'':String(request.payload.position);}
+    async function readEditor(preserve=false){
+      const token=++readToken;loading=true;lock();setText(message,msg('ui.loading'));
+      const chosen=parent.value||request?.payload.parent_id||(!initialized?retained?.parent_id:null),params=new URLSearchParams(row?{episode_id:row.id}:chosen?{parent_id:chosen}:{});
+      try{const value=await ctx.api(endpoint(s.project,'production-platform/episode-editor?'+params));if(!current()||token!==readToken)return;
+        if(value.project_id!==s.project||row&&value.episode?.id!==row.id)throw new Error('剧集范围已改变，请重新读取');baseline=value;
+        parent.replaceChildren(localizedOption('',msg('ui.default_parent_work')));for(const work of value.works||[])parent.append(localizedOption(work.id,work.title));parent.value=value.parent_id||'';parentField.hidden=Boolean(row)||(value.works||[]).length<=1;
+        if(!initialized&&!preserve&&!retained&&!request){name.value=value.episode?.title||'';shots.value=String(Math.max(1,value.episode?.shot_count||1));}
+        position.placeholder=value.episode?translate(msg('ui.episode_current_position',{position:value.episode.position})):'';setText(positionHint,msg('ui.episode_position_hint',{max:value.max_position}));initialized=true;countName();setText(message,request?.phase==='readback'?'剧集已保存，重试将刷新列表。':request?'原操作尚未确认，重试将恢复同一回执。':'');
+      }catch(error){if(current()&&token===readToken){baseline=null;setText(message,error.message+'；点击确定重新读取，输入已保留。');}}
+      finally{if(current()&&token===readToken){loading=false;lock();}}
+    }
+    parent.addEventListener('change',()=>{position.value='';retain();baseline=null;return readEditor(true);});
+    form.addEventListener('submit',async event=>{
+      event.preventDefault();if(!current()||loading||saving||!writable())return;if(!baseline&&!request){await readEditor(true);return;}saving=true;lock();
+      try{
+        if(!request){const title=name.value.trim(),count=Number(shots.value),place=position.value===''?null:Number(position.value);if(!title||name.value.length>50)throw new Error('剧集名称需为1至50字');if(!Number.isInteger(count)||count<1||count>500)throw new Error('分镜数需为1至500的整数');if(place!==null&&(!Number.isInteger(place)||place<1||place>baseline.max_position))throw new Error('排序位置不在当前所属部范围内');if(baseline.needs_parent)throw new Error('请先选择所属部');if(row&&count<baseline.episode.shot_count)throw new Error('减少分镜数需要明确选择要回收的镜头；当前编辑不会删除镜头');
+          request={payload:{title,shot_count:count,...(row?{episode_id:row.id}:parent.value?{parent_id:parent.value}:{}),...(place===null?{}:{position:place})},expected_revision:baseline.revision,idempotency_key:uid(),phase:'write'};remember(key,request);lock();
+        }
+        if(request.phase!=='readback'){const saved=await ctx.api(endpoint(s.project,'episode-save'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:request.payload,expected_revision:request.expected_revision,idempotency_key:request.idempotency_key})});if(!saved.episode_id)throw new Error('剧集回执缺少身份，请重试原操作');request.phase='readback';request.episode_id=saved.episode_id;request.episode_index=saved.episode_index;remember(key,request);if(!current())return;}
+        await ctx.refreshProjects?.({isCurrent:current});if(!current())return;
+        const nextOffset=Math.floor((request.episode_index||0)/24)*24;remember(key,null);remember(draftKey,null);ctx.notice(msg('ui.episode_saved'));dialog.close();await load({...s,offset:nextOffset});
+      }catch(error){
+        if(request?.phase!=='readback'&&[400,404,409,422].includes(error.status)){request=null;remember(key,null);retain();if(error.status===409||error.status===404)baseline=null;}
+        if(current())setText(message,error.message+(request?.phase==='readback'?'；剧集已保存，重试只刷新列表。':request?'；重试将恢复原操作回执。':!baseline?'；点击确定重新读取后再保存。':''));
+      }finally{if(current()){saving=false;lock();}else if(!closed)dialog.close();}
+    });
+    const closeThis=()=>dialog.close();closeCreation=closeThis;dialog.addEventListener('close',()=>{retain();closed=true;readToken++;if(closeCreation===closeThis)closeCreation=null;dialog.remove();},{once:true});countName();dialog.showModal();await readEditor();if(current())name.focus();
   }
   function episodeForm(value){
     const retained=recall(episodeDraft(scope.project))||{};const details=el('details',null,'platform-form');details.append(el('summary',msg("ui.create_multiple_episodes")));const form=el('form'),titles=el('textarea');titles.rows=4;bindAttribute(titles,"placeholder",msg("ui.episode_1_episode_2"));titles.value=retained.titles??drafts.get(scope.project)??'';field(form,msg("ui.episode_names_one_per_line_up_to_50"),titles);
