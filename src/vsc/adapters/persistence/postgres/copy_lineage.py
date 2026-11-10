@@ -20,6 +20,8 @@ _COPY_EDGES = """
  WHERE tv.reference_media_id IS NOT NULL AND sv.reference_media_id IS NOT NULL
  UNION
  SELECT project_id,target_media_id,source_project_id,source_media_id FROM template_copy_media
+ UNION
+ SELECT project_id,target_media_id,source_project_id,source_media_id FROM canvas_direct_copy_media
 """
 _EDGES = """WITH RECURSIVE copy_edges AS ("""+_COPY_EDGES+"""), edges AS (
  SELECT target_project,target_media,source_project,source_media,true AS copied,false AS canvas FROM copy_edges
@@ -89,6 +91,7 @@ def source_projects_for_copy(conn,project_id):
     sql="""WITH RECURSIVE copy_projects AS (
       SELECT project_id,source_project_id FROM asset_card_copy_sources
       UNION SELECT project_id,source_project_id FROM template_copy_media
+      UNION SELECT project_id,source_project_id FROM canvas_direct_copies
       UNION SELECT project_id,source_project_id FROM canvas_project_media_links
       UNION SELECT project_id,source_project_id FROM classic_frame_media_links
     ), projects(id) AS (

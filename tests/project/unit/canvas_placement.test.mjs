@@ -610,7 +610,7 @@ test('closing management refreshes the renamed canvas version before the next sa
   if(path.endsWith('/creative-canvases'))return {items:[{id:'c1'}],revision:3};
   if(managed&&path.endsWith('/creative-canvases/c1'))return {revision:3,canvas_revision:2,title:'Library rename',document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]}};
  }});
- assert.equal(a.canvas.isOpen('p1','c1'),true);assert.equal(a.canvas.isOpen('p2','c1'),false);
+ assert.equal(a.canvas.isOpen('p1','c1'),true);assert.equal(a.canvas.isOpen('p2','c1'),false);assert.equal(a.canvas.isOpen('p1','c1',null),true);assert.equal(a.canvas.isOpen('p1','c1','other-episode'),false);
  const opening=a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理').fire('click');
  await new Promise(resolve=>setImmediate(resolve));assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'Test');finish();await opening;
  assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'Library rename');

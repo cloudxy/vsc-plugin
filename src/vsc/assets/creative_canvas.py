@@ -182,6 +182,36 @@ def normalize_document(value):
 
 
 class CreativeCanvasService:
+    def _direct_canvas_copy_payload(self, project_id, payload):
+        from vsc.assets.access_control import current_principal, denied
+        from vsc.adapters.persistence.postgres.values import checked_id
+        from vsc.assets.service_operations import fields
+        fields(payload, 'source_project_id source_canvas_id source_version_id source_sha256 episode_id title')
+        principal = current_principal()
+        if principal and (principal.share_id or principal.api_key_id):
+            denied('完整画布复制需要项目会话权限')
+        result = dict(payload)
+        for key in ('source_project_id', 'source_canvas_id', 'source_version_id', 'episode_id'):
+            result[key] = checked_id(payload[key])
+        if not isinstance(payload['source_sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', payload['source_sha256']):
+            _fail('复制需要明确的源版本摘要', 'invalid_canvas_copy')
+        title = payload['title']
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 100 or '\x00' in title:
+            _fail('新画布名称须为 1–100 字', 'invalid_canvas_title')
+        result['title'] = title.strip()
+        return checked_id(project_id), result
+
+    def preview_direct_canvas_copy(self, project_id, payload):
+        from vsc.adapters.persistence.postgres.canvas_copy import DirectCanvasCopiesRepository
+        project_id, payload = self._direct_canvas_copy_payload(project_id, payload)
+        return DirectCanvasCopiesRepository(self.store).preview(project_id, payload)
+
+    def copy_direct_canvas(self, project_id, payload, **kw):
+        from vsc.adapters.persistence.postgres.canvas_copy import DirectCanvasCopiesRepository
+        self._validate_write(payload, **kw)
+        project_id, payload = self._direct_canvas_copy_payload(project_id, payload)
+        return DirectCanvasCopiesRepository(self.store).copy(project_id, payload, verify_media=self._verify_media, **kw)
+
     def canvas_library_options(self):
         from vsc.adapters.persistence.postgres.canvas_library import CanvasLibrary
         return CanvasLibrary(self.store).options()
