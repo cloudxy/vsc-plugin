@@ -15,6 +15,17 @@ const casePin=spec=>({id:spec.id,version:spec.version,sha256:spec.sha256});
 const samePin=(a,b)=>Boolean(a&&b&&a.id===b.id&&a.version===b.version&&a.sha256===b.sha256);
 const stable=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(k=>[k,item[k]])):item);
 const mediaURL=value=>{try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password?value:null;}catch{return null;}};
+// Public covers are display-only metadata from the locked source slug mapping.
+// The poster's embedded cover is intentionally represented by the same fallback.
+const METHOD_COVERS=Object.freeze({
+  'short-drama-commerce':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/short-drama-commerce-D7XRpKxL.webp',
+  'commercial-tvc':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/commercial-tvc-B8Swip98.webp',
+  'viral-video-clone':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/viral-video-clone-BUWhckxi.webp',
+  'ugc-commerce':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/ugc-commerce-X6YEkdpZ.webp',
+  'video-localization':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/video-localization-CJreqF5O.webp',
+  'viral-creative-variation':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/viral-creative-variation-Ld9ezmEL.jpg',
+  'product-visual-materials':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/product-visual-materials-BgEzR3ZB.jpg'
+});
 export async function marketingStartKey(prepareKey){return 'marketing-start:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(prepareKey))),n=>n.toString(16).padStart(2,'0')).join('');}
 
 export function createMarketingStudio(root,ctx){
@@ -58,6 +69,9 @@ export function createMarketingStudio(root,ctx){
     const selected=s.options?.methods?.find(m=>m.id===s.draft.method_id);
     s.prompt.placeholder=selected?.input_hint||genericHint;
     s.methodSummary.textContent=selected?selected.description||selected.name:'';
+    if(s.skillButton){s.skillButton.disabled=locked||!s.options;s.skillButton.setAttribute('aria-pressed',String(Boolean(s.draft.method_id)));}if(s.allMethods)s.allMethods.disabled=locked||!s.options;
+    if(locked)closeMethodPicker(s);else if(s.methodPicker?.open)syncMethodSelection(s);
+    s.methodChip.replaceChildren();if(s.draft.method_id){const chip=el('span',null,'marketing-selected-method'),remove=methodButton(s,'×',()=>selectMethod(s,'','chip'),'',()=>s.methodChip.contains(remove));remove.disabled=locked||!s.options;remove.setAttribute('aria-label','删除已选技能');chip.append(el('span',selected?.name||'已选技能'),remove);s.methodChip.append(chip);}
     s.materials.replaceChildren();
     for(const item of s.draft.media){
       const chip=el('span',null,'marketing-material-chip');chip.append(el('span',item.name||item.id));
@@ -77,6 +91,7 @@ export function createMarketingStudio(root,ctx){
   function draw(s){
     if(!live(s))return;
     s.upload?.suspend();s.upload=null;
+    closeMethodPicker(s);s.methodScope=caseScope(s);
     closePicker(s,false);
     stopPreview(s.cases);closeCase(s,false);
     s.runScope?.dispose();s.runScope=null;
@@ -84,23 +99,24 @@ export function createMarketingStudio(root,ctx){
     const heading=el('header',null,'marketing-heading');heading.append(el('h1','和营销 Agent 聊创意，助你轻松打造好广告'));root.append(heading);
     s.editables=[];s.methodButtons=new Map();
     const methods=el('nav',null,'marketing-methods');methods.setAttribute('aria-label','营销热门技能');
-    for(const item of [{id:'',name:'全部'},...(s.options?.methods||[])]){
-      const b=button(s,item.name,()=>{s.draft.method_id=s.draft.method_id===item.id?'':item.id;save(s);update(s);},'marketing-method');b.dataset.methodId=item.id;
+    for(const item of s.options?.methods||[]){
+      const b=methodButton(s,'',()=>selectMethod(s,item.id,'popular',b),'marketing-method',()=>s.methodButtons.get(item.id)===b);b.dataset.methodId=item.id;b.setAttribute('aria-label',item.name);b.append(methodCover(item,()=>s.methodButtons.get(item.id)===b&&methodAvailable(s)),el('span',item.name));
       if(item.description)b.title=item.description;methods.append(b);s.methodButtons.set(item.id,b);s.editables.push(b);
     }
     const form=el('form',null,'marketing-composer'),body=el('div',null,'marketing-input-row');
-    const add=button(s,'',()=>{s.materialPanel.hidden=!s.materialPanel.hidden;},'marketing-add');add.append(el('span','+','marketing-add-icon'),el('span','添加创作素材'),el('small','商品/参考图片、视频等'));s.editables.push(add);
+    const add=button(s,'',()=>toggleSurface(s,'material'),'marketing-add');add.append(el('span','+','marketing-add-icon'),el('span','添加创作素材'),el('small','商品/参考图片、视频等'));s.editables.push(add);
     s.prompt=el('textarea',null,'marketing-prompt');s.prompt.value=s.draft.prompt;s.prompt.rows=4;s.prompt.setAttribute('aria-label','广告创作需求');
     s.prompt.oninput=()=>{if(!live(s)||s.pending)return;s.draft.prompt=s.prompt.value;save(s);update(s);};
     for(const event of ['select','keyup','pointerup','blur'])s.prompt.addEventListener(event,()=>rememberPromptRange(s));
     s.prompt.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!e.isComposing){e.preventDefault();submit(s);}};
     s.editables.push(s.prompt);body.append(add,s.prompt);form.append(body);
-    s.materials=el('div',null,'marketing-materials');s.caseChip=el('div',null,'marketing-case-chip');form.append(s.caseChip,s.materials);
+    s.materials=el('div',null,'marketing-materials');s.caseChip=el('div',null,'marketing-case-chip');s.methodChip=el('div',null,'marketing-method-chip');form.append(s.methodChip,s.caseChip,s.materials);
     const footer=el('div',null,'marketing-toolbar'),tools=el('div',null,'marketing-tools');
-    const ref=button(s,'@',()=>{s.materialPanel.hidden=!s.materialPanel.hidden;},'marketing-icon');ref.title='引用素材';ref.setAttribute('aria-label','引用素材');
+    const ref=button(s,'@',()=>toggleSurface(s,'material'),'marketing-icon');ref.title='引用素材';ref.setAttribute('aria-label','引用素材');
+    const skill=methodButton(s,'▤',()=>openMethodPicker(s,skill,true),'marketing-icon marketing-skill-trigger',()=>s.skillButton===skill);s.skillButton=skill;skill.title='技能';skill.setAttribute('aria-label','技能');skill.setAttribute('aria-haspopup','dialog');skill.setAttribute('aria-expanded','false');
     s.creativeButton=button(s,'✧',()=>togglePicker(s),'marketing-icon marketing-creative-trigger');s.creativeButton.title='创意';s.creativeButton.setAttribute('aria-label','创意');s.creativeButton.setAttribute('aria-haspopup','dialog');s.creativeButton.setAttribute('aria-expanded','false');
-    const models=button(s,'◇',()=>{s.executionPanel.hidden=!s.executionPanel.hidden;},'marketing-icon');models.title='选择模型';models.setAttribute('aria-label','选择模型');tools.append(ref,s.creativeButton,models);s.editables.push(ref,models);
-    const mode=el('select',null,'marketing-mode');mode.setAttribute('aria-label','创作模式');mode.append(option('manual','手动模式'),option('auto_drafts','自动模式'));mode.value=s.draft.mode==='manual'?'manual':'auto_drafts';mode.onchange=()=>{if(!live(s)||s.pending)return;s.draft.mode=mode.value;save(s);update(s);if(mode.value!=='manual')s.executionPanel.hidden=false;};tools.append(mode);s.editables.push(mode);
+    const models=button(s,'◇',()=>toggleSurface(s,'model'),'marketing-icon');models.title='选择模型';models.setAttribute('aria-label','选择模型');tools.append(ref,s.skillButton,s.creativeButton,models);s.editables.push(ref,models);
+    const mode=el('select',null,'marketing-mode');mode.setAttribute('aria-label','创作模式');mode.append(option('manual','手动模式'),option('auto_drafts','自动模式'));mode.value=s.draft.mode==='manual'?'manual':'auto_drafts';mode.onchange=()=>{if(!live(s)||s.pending)return;s.draft.mode=mode.value;save(s);update(s);if(mode.value!=='manual'){prepareSurface(s,'model');s.executionPanel.hidden=false;}};tools.append(mode);s.editables.push(mode);
     s.counter=el('small',null,'marketing-count');tools.append(s.counter);
     const scope=el('div',null,'marketing-scope');s.projectSelect=el('select');s.projectSelect.append(option('','请选择归属项目'));
     for(const p of ctx.projects())s.projectSelect.append(option(p.id,p.name+(p.read_only?' · 只读':'')));
@@ -115,7 +131,7 @@ export function createMarketingStudio(root,ctx){
     s.status=el('p',null,'marketing-status');s.status.setAttribute('role','status');root.append(s.status);
     const explanation=el('p','开始后进入画布，查看 Agent 的补问或创作计划。手动模式先规划；自动媒体须填写本轮模型、额度和截止时间。','marketing-continuation');root.append(explanation);
     s.newCreation=button(s,'开始新创作',()=>{if(s.busy||!s.pending?.result)return;s.pending=null;remember(requestKey(s),null);save(s);draw(s);note(s,'可以修改需求并开始一次新的创作。');});root.append(s.newCreation);
-    const methodsHeading=el('div',null,'marketing-methods-heading');methodsHeading.append(el('p','引用热门技能，让 Agent 按专业方法创作'),methods.firstElementChild);root.append(methodsHeading,methods);
+    const all=methodButton(s,'全部',()=>openMethodPicker(s,all),'marketing-methods-all',()=>s.allMethods===all);s.allMethods=all;all.setAttribute('aria-label','全部技能');all.setAttribute('aria-haspopup','dialog');all.setAttribute('aria-expanded','false');const methodsHeading=el('div',null,'marketing-methods-heading');methodsHeading.append(el('p','引用热门技能，让 Agent 按专业方法创作'),all);root.append(methodsHeading,methods);
     s.materialPanel=el('section',null,'marketing-material-panel');s.materialPanel.hidden=true;s.materialPanel.setAttribute('aria-label','创作素材');
     const materialHeading=el('div',null,'marketing-material-heading');s.mediaCount=el('span');materialHeading.append(el('h2','创作素材'),s.mediaCount,button(s,'收起',()=>{s.materialPanel.hidden=true;}));s.materialPanel.append(materialHeading);
     if(s.project&&s.options){
@@ -156,9 +172,51 @@ export function createMarketingStudio(root,ctx){
   function caseButton(s,title,fn,cls=''){const b=button(s,title,fn,cls),handler=b.onclick;b.onclick=e=>{e?.stopPropagation?.();return handler();};return b;}
   function rememberPromptRange(s){if(live(s)&&Number.isInteger(s.prompt?.selectionStart))s.promptRange={start:s.prompt.selectionStart,end:s.prompt.selectionEnd,direction:s.prompt.selectionDirection||'none'};}
   function focusPrompt(s){if(!live(s)||s.prompt.disabled)return;const range=s.promptRange;s.prompt.focus?.({preventScroll:true});if(range)s.prompt.setSelectionRange?.(Math.min(range.start,s.prompt.value.length),Math.min(range.end,s.prompt.value.length),range.direction);}
+  const methodAvailable=(s,scope=s.methodScope)=>live(s)&&Boolean(s.options)&&!s.pending&&!s.busy&&caseScope(s)===scope;
+  function methodButton(s,title,fn,cls='',current=()=>true){const b=button(s,title,fn,cls),handler=b.onclick;b.onclick=e=>{if(!current())return;if(!methodAvailable(s)){closeMethodPicker(s);return;}return handler(e);};return b;}
+  function methodCover(item,current){
+    const box=el('span',null,'marketing-method-thumb');box.setAttribute('aria-hidden','true');const url=METHOD_COVERS[item.source_slug||item.id];if(!url){box.classList.add('is-fallback');return box;}
+    const image=el('img');image.alt='';image.loading='lazy';image.referrerPolicy='no-referrer';image.src=url;image.onerror=()=>{if(current()){image.hidden=true;box.classList.add('is-fallback');}};box.append(image);return box;
+  }
+  function prepareSurface(s,kind){
+    if(kind!=='method')closeMethodPicker(s);if(kind!=='case')closePicker(s,false);
+    for(const c of caseViews(s)){stopPreview(c);if(kind!=='case'){closeCase(s,false,c);if(caseViewLive(s,c)&&c.pager)renderCasePager(s,c);}}
+    if(kind!=='model'&&s.executionPanel)s.executionPanel.hidden=true;if(kind!=='material'&&s.materialPanel)s.materialPanel.hidden=true;
+  }
+  function toggleSurface(s,kind){const panel=kind==='model'?s.executionPanel:s.materialPanel;if(!panel)return;const open=panel.hidden;if(open)prepareSurface(s,kind);panel.hidden=!open;}
+  function closeMethodPicker(s,focus='none'){
+    const p=s?.methodPicker;if(!p?.open)return;const opener=p.opener,scope=p.scope;p.open=false;p.epoch++;p.cleanup?.();p.cleanup=null;p.element?.remove();p.element=null;
+    s.skillButton?.setAttribute('aria-expanded','false');s.allMethods?.setAttribute('aria-expanded','false');
+    if(!methodAvailable(s,scope))return;if(focus==='opener'&&opener?.isConnected)opener.focus?.({preventScroll:true});else if(focus==='prompt')focusPrompt(s);
+  }
+  function selectMethod(s,id,origin,node=null){
+    if(!methodAvailable(s)||id&&!s.options.methods.some(item=>item.id===id))return;rememberPromptRange(s);
+    const cancel=origin==='popular'&&s.draft.method_id===id;s.draft.method_id=cancel?'':id;save(s);closeMethodPicker(s);update(s);
+    if(cancel)node?.focus?.({preventScroll:true});else focusPrompt(s);
+  }
+  function syncMethodSelection(s){const p=s.methodPicker;if(!p?.active?.())return;for(const row of p.rows||[]){const selected=row.id===s.draft.method_id;row.button.setAttribute('aria-pressed',String(selected));row.check.hidden=!selected;}}
+  function renderMethodRows(s,p){
+    const active=p.active;if(!active())return;const render=++p.renderSeq,query=p.query.trim().toLocaleLowerCase();p.list.replaceChildren();p.rows=[];
+    for(const item of s.options.methods.filter(item=>[item.name,item.description,item.displayName].some(value=>String(value||'').toLocaleLowerCase().includes(query)))){
+      const current=()=>active()&&p.renderSeq===render,row=methodButton(s,'',()=>selectMethod(s,item.id,'directory'),'marketing-method-option',current);row.dataset.methodId=item.id;row.setAttribute('aria-label','选择技能 '+item.name);
+      const text=el('span',null,'marketing-method-option-copy');text.append(el('span',item.name,'marketing-method-option-name'),el('span',item.description||'','marketing-method-option-description'));const check=el('span','✓','marketing-method-option-check');check.setAttribute('aria-hidden','true');row.append(methodCover(item,current),text,check);p.list.append(row);p.rows.push({id:item.id,button:row,check});
+    }
+    if(!p.rows.length)p.list.append(el('p','没有匹配的技能','marketing-method-empty'));syncMethodSelection(s);p.position?.();
+  }
+  function openMethodPicker(s,opener,toggle=false){
+    if(!methodAvailable(s)){closeMethodPicker(s);return;}const p=s.methodPicker||(s.methodPicker={query:'',epoch:0,renderSeq:0});
+    if(p.open){if(!p.active())return;if(toggle){closeMethodPicker(s);return;}p.opener=opener;return;}
+    rememberPromptRange(s);prepareSurface(s,'method');p.open=true;p.opener=opener;p.scope=caseScope(s);const epoch=++p.epoch,element=el('section',null,'marketing-method-picker');p.element=element;element.setAttribute('role','dialog');element.setAttribute('aria-label','选择技能');
+    const owns=()=>s.methodPicker===p&&p.epoch===epoch&&p.element===element;p.active=()=>{if(!owns()||!p.open)return false;if(!methodAvailable(s,p.scope)){closeMethodPicker(s);return false;}return true;};const active=p.active;
+    const query=el('input',null,'marketing-method-search');p.search=query;query.type='search';query.placeholder='搜索技能';query.value=p.query;query.setAttribute('aria-label','搜索技能');query.oninput=()=>{if(active()&&p.search===query){p.query=query.value;renderMethodRows(s,p);}};
+    p.list=el('div',null,'marketing-method-options');element.append(query,p.list);root.append(element);s.skillButton.setAttribute('aria-expanded','true');s.allMethods.setAttribute('aria-expanded','true');
+    const position=()=>{if(!active())return;const box=s.skillButton.getBoundingClientRect(),width=globalThis.window?.innerWidth||globalThis.innerWidth||document.documentElement?.clientWidth||1024,height=globalThis.window?.innerHeight||globalThis.innerHeight||768,size=Math.min(407,Math.max(0,width-24)),limit=Math.max(0,Math.min(height*.7,height-24)),desired=Math.min(element.offsetHeight||432,limit),below=box.bottom+8,above=height-below-12<desired&&box.top-20>height-below-12;const top=Math.max(12,Math.min(height-12,above?box.top-desired-8:below));element.style.width=size+'px';element.style.left=Math.max(12,Math.min(box.left,width-size-12))+'px';element.style.top=top+'px';element.style.maxHeight=Math.max(0,Math.min(limit,above?box.top-20:height-top-12))+'px';};p.position=position;
+    const outside=e=>{if(active()&&!element.contains(e.target)&&!s.skillButton.contains(e.target)&&!s.allMethods.contains(e.target))closeMethodPicker(s);},escape=e=>{if(active()&&e.key==='Escape'){e.preventDefault();closeMethodPicker(s,'opener');}};
+    document.addEventListener?.('pointerdown',outside,true);document.addEventListener?.('keydown',escape);root.addEventListener?.('scroll',position,true);globalThis.window?.addEventListener?.('resize',position);p.cleanup=()=>{document.removeEventListener?.('pointerdown',outside,true);document.removeEventListener?.('keydown',escape);root.removeEventListener?.('scroll',position,true);globalThis.window?.removeEventListener?.('resize',position);};renderMethodRows(s,p);
+  }
   function closePicker(s,focus=true){const p=s?.picker;if(!p?.open)return;p.open=false;p.view.requestSeq++;p.view.activeRead=null;p.view.loading=false;clearTimeout(p.view.debounce);stopCaseObserver(p.view);for(const c of caseViews(s))stopPreview(c);clearCasePreviews(p.view);closeCase(s,false,p.view);p.view.masonry?.disconnect();p.cleanup?.();p.element?.remove();s.creativeButton?.setAttribute('aria-expanded','false');if(focus)focusPrompt(s);}
   function togglePicker(s){
-    if(!live(s)||s.pending||s.busy)return;if(s.picker?.open){closePicker(s);return;}rememberPromptRange(s);for(const c of caseViews(s)){stopPreview(c);closeCase(s,false,c);}
+    if(!live(s)||s.pending||s.busy)return;if(s.picker?.open){closePicker(s);return;}rememberPromptRange(s);prepareSurface(s,'case');for(const c of caseViews(s)){stopPreview(c);closeCase(s,false,c);}
     const p=s.picker||(s.picker={view:newCaseView(s,true)});p.open=true;const element=el('section',null,'marketing-creative-picker');p.element=element;element.setAttribute('role','dialog');element.setAttribute('aria-label','选择创意');
     root.append(element);s.creativeButton.setAttribute('aria-expanded','true');
     const active=()=>caseViewLive(s,p.view)&&p.element===element;
@@ -187,6 +245,7 @@ export function createMarketingStudio(root,ctx){
   }
   function renderCaseFilters(s,c=s.cases){if(!caseViewLive(s,c)||!c.filters)return;c.filters.replaceChildren();for(const category of [{category_name:'',category_label:'全部创意'},...c.categories]){const b=caseButton(s,category.category_label,()=>{if(!caseViewLive(s,c))return;clearTimeout(c.debounce);c.category=category.category_name;c.keyword=c.input.trim();remember(key(c.compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});return readCases(s,1,true,false,c);},'marketing-case-category');b.setAttribute('aria-pressed',String(c.category===category.category_name));b.dataset.category=category.category_name;if(!c.compact&&category.available_group_count!=null)b.append(el('small',String(category.available_group_count)));c.filters.append(b);}}
   function rebindCaseLocale(s){
+    closeMethodPicker(s);if(live(s))s.methodScope=caseScope(s);
     closePicker(s,false);
     if(!live(s)||!s.cases)return;const c=s.cases,reading=c.activeRead,keyword=c.input.trim(),changed=keyword!==c.keyword;
     clearTimeout(c.debounce);c.requestSeq++;c.activeRead=null;c.loading=false;stopCaseObserver(c);stopPreview(c);closeCase(s,false);
@@ -260,7 +319,7 @@ export function createMarketingStudio(root,ctx){
     const fit=(refresh=true)=>{if(!caseViewLive(s,c)||c.renderSeq!==render||caseScope(s)!==stamp)return;const cards=[...c.grid.children].filter(n=>n.className.split(' ').includes('marketing-case-card')),heights=cards.map(n=>n.offsetHeight||0);c.layoutPending=Boolean(cards.length)&&(!c.grid.clientWidth||heights.some(h=>h<=0));if(!c.layoutPending)cards.forEach((n,i)=>n.style.gridRowEnd='span '+Math.ceil((heights[i]+18)/8));if(refresh)renderCasePager(s,c);};fit(false);if(globalThis.ResizeObserver){c.masonry=new ResizeObserver(()=>fit());c.masonry.observe(c.grid);for(const card of c.grid.children)c.masonry.observe(card);}renderCasePager(s,c);
   }
   async function openCase(s,spec,{trigger=null,group=null,historical=false,view=s.cases}={}){
-    const c=view;if(!caseViewLive(s,c))return;if(!c.compact)closePicker(s,false);for(const owner of caseViews(s))stopPreview(owner);stopCaseObserver(c);closeCase(s,false,c);rememberPromptRange(s);const seq=++c.detailSeq,requestSeq=c.requestSeq,stamp=caseScope(s),H=c.H,render=c.renderSeq;c.trigger=trigger;
+    const c=view;if(!caseViewLive(s,c))return;prepareSurface(s,'case');if(!c.compact)closePicker(s,false);for(const owner of caseViews(s))stopPreview(owner);stopCaseObserver(c);closeCase(s,false,c);rememberPromptRange(s);const seq=++c.detailSeq,requestSeq=c.requestSeq,stamp=caseScope(s),H=c.H,render=c.renderSeq;c.trigger=trigger;
     const dialog=el('dialog',null,'marketing-case-dialog');c.dialog=dialog;dialog.setAttribute('aria-label',spec.group_name);const close=caseButton(s,'×',()=>closeCase(s,true,c),'marketing-case-dialog-close');close.setAttribute('aria-label','关闭创意详情');dialog.append(close,el('h2',spec.group_name));
     const v=visual(s,spec,c,render,stamp);dialog.append(v.cover,el('p',spec.group_description,'marketing-case-full-description'),el('p','仅选择创意参考，不会导入案例视频。','marketing-case-basis'));
     if(group?.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换详情案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.onchange=()=>{const selected=group.examples.find(item=>item.template_key===select.value);return openCase(s,selected,{trigger,group,view:c});};dialog.append(select);}
@@ -396,7 +455,7 @@ export function createMarketingStudio(root,ctx){
     const spec=Object.fromEntries(CASE_FIELDS.map(k=>[k,params['marketing_case_'+k]]));if(!samePin(spec,pending.request.payload.case_ref))return;
     pending.case_display=spec;s.draft.case=copy(spec);remember(requestKey(s),pending);save(s);update(s);
   }
-  function suspend(){if(!state)return;save(state);closePicker(state,false);for(const c of caseViews(state)){stopCaseObserver(c);clearCasePreviews(c);closeCase(state,false,c);clearTimeout(c.debounce);c.masonry?.disconnect();c.requestSeq++;}state.caseCleanup?.();state.disposed=true;state.upload?.suspend();state.runScope?.dispose();}
+  function suspend(){if(!state)return;save(state);closeMethodPicker(state);closePicker(state,false);for(const c of caseViews(state)){stopCaseObserver(c);clearCasePreviews(c);closeCase(state,false,c);clearTimeout(c.debounce);c.masonry?.disconnect();c.requestSeq++;}state.caseCleanup?.();state.disposed=true;state.upload?.suspend();state.runScope?.dispose();}
   async function load(scope={}){
     suspend();const actor=auth().actor||'',choice=recall(key('project',actor));
     const p=scope.project!==undefined?scope.project:(choice?.project||null),s={actor,project:p||null,disposed:false,sequence:++sequence,revision:null,options:null,busy:false,mediaSequence:0};state=s;
@@ -407,7 +466,7 @@ export function createMarketingStudio(root,ctx){
     if(s.pending){const payload=s.pending.request.payload,fixedCase=s.pending.case_display||s.draft.case;s.draft={...s.draft,prompt:payload.prompt,method_id:payload.method_id||'',episode_id:payload.episode_id||'',media:payload.media_ids.map(id=>s.draft.media.find(m=>m.id===id)||{id,name:id}),case:samePin(fixedCase,payload.case_ref)?fixedCase:null};}
     if(s.pending?.intent){s.draft.model_ids=[...s.pending.intent.model_ids];s.draft.mode=s.pending.intent.execution_settings.auto_media?'auto_media':s.pending.intent.mode;}
     remember(key('project',actor),{project:s.project});draw(s);
-    const hidden=()=>{for(const c of caseViews(s))if(document.hidden||document.visibilityState==='hidden'){stopCaseObserver(c);stopPreview(c);}else if(caseViewLive(s,c))renderCasePager(s,c);};const leaving=()=>{closePicker(s,false);for(const c of caseViews(s)){stopCaseObserver(c);stopPreview(c);closeCase(s,false,c);}},offLocale=onLocaleChange(()=>rebindCaseLocale(s));document.addEventListener?.('visibilitychange',hidden);globalThis.window?.addEventListener?.('pagehide',leaving);globalThis.window?.addEventListener?.('popstate',leaving);s.caseCleanup=()=>{offLocale();document.removeEventListener?.('visibilitychange',hidden);globalThis.window?.removeEventListener?.('pagehide',leaving);globalThis.window?.removeEventListener?.('popstate',leaving);};
+    const hidden=()=>{for(const c of caseViews(s))if(document.hidden||document.visibilityState==='hidden'){stopCaseObserver(c);stopPreview(c);}else if(caseViewLive(s,c))renderCasePager(s,c);};const leaving=()=>{closeMethodPicker(s);closePicker(s,false);for(const c of caseViews(s)){stopCaseObserver(c);stopPreview(c);closeCase(s,false,c);}},offLocale=onLocaleChange(()=>{rebindCaseLocale(s);update(s);});document.addEventListener?.('visibilitychange',hidden);globalThis.window?.addEventListener?.('pagehide',leaving);globalThis.window?.addEventListener?.('popstate',leaving);s.caseCleanup=()=>{offLocale();document.removeEventListener?.('visibilitychange',hidden);globalThis.window?.removeEventListener?.('pagehide',leaving);globalThis.window?.removeEventListener?.('popstate',leaving);};
     if(!s.project){note(s,'请选择归属项目后继续。');return;}
     note(s,'正在读取营销技能与项目…');
     try{

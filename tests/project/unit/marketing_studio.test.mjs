@@ -93,7 +93,7 @@ const executes=e=>e.calls.filter(c=>c.init?.method==='POST'&&c.url.endsWith('/ex
 test('selects the real method, episode and registered media, then reads the same canvas before Agent handoff',async()=>{
   storage.clear();const e=environment(url=>url.includes('/media?')?{items:[{id:'m',name:'商品原图',modality:'image'}],total:1}:undefined);
   await e.panel.load({project:'p'});await settle();
-  assert.equal(e.root.querySelectorAll('.marketing-method').length,9);
+  assert.equal(e.root.querySelectorAll('.marketing-method').length,8);
   await btn(e.root,'商品海报').onclick();assert.equal(control(e.root,'广告创作需求').placeholder,'提示：product-poster');
   await e.root.querySelector('.marketing-media-card').querySelector('button').onclick();control(e.root,'归属剧集').value='ep';control(e.root,'归属剧集').onchange();
   const raw='  保留这款瓶身，做春季海报。\n真实原文  ';prompt(e.root,raw);await send(e.root);
@@ -109,7 +109,7 @@ test('selects the real method, episode and registered media, then reads the same
 test('method is optional and model preferences are fixed in the original start request',async()=>{
   storage.clear();const e=environment();await e.panel.load({project:'p'});prompt(e.root,'只确认创意');await send(e.root);
   const body=JSON.parse(writes(e)[0].init.body);assert.equal(body.payload.method_id,null);assert.equal('method_version'in body.payload,false);assert.equal('model_ids'in body.payload,false);
-  assert.equal(e.root.querySelectorAll('.marketing-method').filter(n=>n.attributes['aria-pressed']==='true').length,1);
+  assert.equal(e.root.querySelectorAll('.marketing-method').filter(n=>n.attributes['aria-pressed']==='true').length,0);
   assert.deepEqual(JSON.parse(starts(e)[0].init.body).payload.model_ids,[]);await control(e.root,'选择模型').onclick();assert.equal(cls(e.root,'marketing-execution-panel').hidden,false);e.panel.suspend();
 });
 
@@ -778,5 +778,107 @@ test('picker positioning clamps its anchored width into a narrow viewport withou
   storage.clear();const previousWidth=globalThis.innerWidth,previousHeight=globalThis.innerHeight;globalThis.innerWidth=390;globalThis.innerHeight=500;const e=environment();
   try{
     await e.panel.load({project:'p'});await settle();const input=control(e.root,'广告创作需求');control(e.root,'创意').rect={left:350,right:378,top:160,bottom:188,width:28,height:28};const popup=await openPicker(e);assert.ok(parseFloat(popup.style.width)<=390-24);assert.ok(parseFloat(popup.style.left)>=12);assert.ok(parseFloat(popup.style.left)+parseFloat(popup.style.width)<=390-12);assert.ok(parseFloat(popup.style.maxHeight)<=500*.7);assert.ok(parseFloat(popup.style.top)+parseFloat(popup.style.maxHeight)<=500-12);assert.equal(control(e.root,'广告创作需求'),input);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();globalThis.innerWidth=previousWidth;globalThis.innerHeight=previousHeight;}
+});
+
+const methodPicker=e=>cls(e.root,'marketing-method-picker');
+const methodRows=e=>methodPicker(e)?.querySelectorAll('.marketing-method-option')||[];
+const methodRow=(e,id)=>methodRows(e).find(n=>n.dataset.methodId===id);
+const savedDraft=(actor='a',project='p')=>JSON.parse(storage.get('vsc-marketing:draft:'+JSON.stringify([actor,project])));
+async function openMethods(e,origin='toolbar'){const opener=control(e.root,origin==='toolbar'?'技能':'全部技能');opener.focus();await opener.onclick();return methodPicker(e);}
+function filterMethods(e,value){const search=control(e.root,'搜索技能');search.value=value;search.oninput();return search;}
+
+test('skill toolbar and All share local query, keep the toolbar anchor and leave focus on the actual opener',async()=>{
+  storage.clear();const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const calls=e.calls.length,toolbar=control(e.root,'技能'),all=control(e.root,'全部技能');toolbar.rect={left:180,right:210,top:160,bottom:190};all.rect={left:900,right:940,top:560,bottom:590};const popup=await openMethods(e);assert.equal(methodRows(e).length,8);assert.equal(document.activeElement,toolbar);assert.equal(popup.querySelector('header'),null);assert.equal(popup.querySelector('.marketing-case-count'),null);assert.equal(all.attributes['aria-pressed'],undefined);const left=popup.style.left,top=popup.style.top;
+    filterMethods(e,' 海报 ');assert.deepEqual(methodRows(e).map(n=>n.dataset.methodId),['product-poster']);all.focus();await all.onclick();assert.equal(methodPicker(e),popup);assert.equal(popup.style.left,left);assert.equal(popup.style.top,top);assert.equal(control(e.root,'搜索技能').value,' 海报 ');control(e.root,'搜索技能').focus();document.fire('keydown',{key:'Escape',preventDefault(){}});assert.equal(methodPicker(e),null);assert.equal(document.activeElement,all);
+    await openMethods(e);assert.equal(control(e.root,'搜索技能').value,' 海报 ');filterMethods(e,' no-such-skill-xh7 ');assert.equal(methodRows(e).length,0);assert.equal(cls(popup.parentElement||e.root,'marketing-method-empty')?.textContent,'没有匹配的技能');filterMethods(e,'');assert.equal(methodRows(e).length,8);filterMethods(e,'SHORT-DRAMA');assert.deepEqual(methodRows(e).map(n=>n.dataset.methodId),['short-drama-commerce']);filterMethods(e,' UGC ');await toolbar.onclick();await openMethods(e,'all');assert.equal(control(e.root,'搜索技能').value,' UGC ');assert.equal(methodRows(e).length,1);control(e.root,'搜索技能').focus();document.fire('keydown',{key:'Escape',preventDefault(){}});assert.equal(document.activeElement,all);assert.equal(e.calls.length,calls);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();}
+});
+
+test('directory same-selection retains the method, popular same-selection cancels, and an independent chip restores raw selection focus',async()=>{
+  storage.clear();const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const input=control(e.root,'广告创作需求'),raw=' 原文😀\n不混入方法标签 ';prompt(e.root,raw);input.setSelectionRange(2,9,'backward');const popular=btn(e.root,'商品海报');popular.focus();await popular.onclick();assert.equal(document.activeElement,input);assert.equal(popular.attributes['aria-pressed'],'true');assert.equal(cls(e.root,'marketing-method-chip').textContent,'商品海报×');assert.equal(input.placeholder,'提示：product-poster');assert.equal(cls(e.root,'marketing-method-summary').textContent,'方法：product-poster');
+    await openMethods(e,'all');assert.equal(savedDraft().method_id,'product-poster');assert.equal(methodRow(e,'product-poster').attributes['aria-pressed'],'true');await methodRow(e,'product-poster').onclick();assert.equal(methodPicker(e),null);assert.equal(savedDraft().method_id,'product-poster');assert.equal(input.value,raw);assert.equal(control(e.root,'广告创作需求'),input);assert.equal(document.activeElement,input);assert.deepEqual([input.selectionStart,input.selectionEnd,input.selectionDirection],[2,9,'backward']);
+    popular.focus();await popular.onclick();assert.equal(savedDraft().method_id,'');assert.equal(document.activeElement,popular);assert.equal(cls(e.root,'marketing-method-chip').textContent,'');await btn(e.root,'短剧带货').onclick();assert.equal(savedDraft().method_id,'short-drama-commerce');await control(e.root,'删除已选技能').onclick();assert.equal(savedDraft().method_id,'');assert.equal(document.activeElement,input);assert.equal(input.value,raw);assert.deepEqual([input.selectionStart,input.selectionEnd],[2,9]);assert.equal(control(e.root,'技能').attributes['aria-pressed'],'false');assert.equal(writes(e).length,0);assert.equal(starts(e).length,0);assert.equal(executes(e).length,0);
+    prompt(e.root,'');await openMethods(e);await methodRow(e,'product-poster').onclick();assert.equal(cls(e.root,'marketing-submit').disabled,true);await send(e.root);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();}
+});
+
+test('method directory selection keeps the case, fifteen materials, ordered models and original execution scope out of raw text',async()=>{
+  storage.clear();const e=environment(url=>url.includes('/media?')?{items:Array.from({length:15},(_,i)=>({id:'method-media-'+i,name:'商品'+i,modality:'image'})),total:15}:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();await chooseCase(e);for(const card of e.root.querySelectorAll('.marketing-media-card'))await card.querySelector('button').onclick();for(const name of ['视频模型','图片模型']){const n=control(e.root,'优先模型 '+name);n.checked=true;n.onchange();}const episode=control(e.root,'归属剧集');episode.value='ep';episode.onchange();const mode=control(e.root,'创作模式');mode.value='auto_drafts';mode.onchange();const scope=control(e.root,translate(msg('ui.production_authorization_scope'))),reason=control(e.root,translate(msg('ui.reason_for_the_new_batch')));scope.value='new_batch';reason.value='方法目录保留原范围';const raw=' 商品原始事实\n请先规划 ';prompt(e.root,raw);const before=savedDraft();await openMethods(e);await methodRow(e,'product-poster').onclick();const after=savedDraft();assert.equal(after.prompt,raw);assert.deepEqual(after.case,before.case);assert.deepEqual(after.media,before.media);assert.deepEqual(after.model_ids,before.model_ids);assert.equal(after.episode_id,'ep');assert.equal(after.mode,'auto_drafts');assert.equal(scope.value,'new_batch');assert.equal(reason.value,'方法目录保留原范围');assert.equal(writes(e).length,0);
+    await send(e.root);const p=JSON.parse(writes(e)[0].init.body).payload,start=JSON.parse(starts(e)[0].init.body).payload;assert.equal(p.prompt,raw);assert.deepEqual(p.case_ref,caseFixture.case_ref);assert.equal(p.method_id,'product-poster');assert.equal(p.method_version,'1.0');assert.equal(p.method_sha256,'sha-product-poster');assert.equal(p.media_ids.length,15);assert.deepEqual(start.model_ids,['video-model','image-model']);assert.equal(start.execution_settings.execution_policy.authorization.reason,'方法目录保留原范围');assert.equal('cover_url'in p,false);assert.equal('method_cover'in p,false);
+  }finally{e.panel.suspend();}
+});
+
+test('method, case, model, material and detail views exclude each other without deleting any chosen input',async()=>{
+  storage.clear();const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();await chooseCase(e);await btn(e.root,'商品海报').onclick();const before=savedDraft();await caseCards(e)[0].querySelector('.marketing-case-play').onclick();const video=caseCards(e)[0].querySelector('video');await openMethods(e);assert.ok(video.pauseCount>0);await openPicker(e);assert.equal(methodPicker(e),null);await openMethods(e);assert.equal(picker(e),null);await control(e.root,'选择模型').onclick();assert.equal(methodPicker(e),null);assert.equal(cls(e.root,'marketing-execution-panel').hidden,false);await openMethods(e);assert.equal(cls(e.root,'marketing-execution-panel').hidden,true);await control(e.root,'引用素材').onclick();assert.equal(methodPicker(e),null);assert.equal(cls(e.root,'marketing-material-panel').hidden,false);await openMethods(e);assert.equal(cls(e.root,'marketing-material-panel').hidden,true);await caseCards(e)[0].onclick();assert.equal(methodPicker(e),null);assert.ok(cls(e.root,'marketing-case-dialog'));await openMethods(e);assert.equal(cls(e.root,'marketing-case-dialog'),null);assert.equal(savedDraft().method_id,before.method_id);assert.deepEqual(savedDraft().case,before.case);assert.deepEqual(savedDraft().model_ids,before.model_ids);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();}
+});
+
+test('closed method menu unregisters all listeners and rejects old row, query, image, Escape and positioning callbacks after reopening',async()=>{
+  storage.clear();const previousWindow=globalThis.window,listeners=new Map();globalThis.window={innerWidth:1000,innerHeight:700,addEventListener:(t,f)=>{if(!listeners.has(t))listeners.set(t,new Set());listeners.get(t).add(f);},removeEventListener:(t,f)=>listeners.get(t)?.delete(f)};const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const keys=documentListeners.get('keydown')?.size||0,pointers=documentListeners.get('pointerdown')?.size||0;await openMethods(e);const oldRow=methodRows(e)[0],oldImage=oldRow.querySelector('img'),oldQuery=control(e.root,'搜索技能'),oldEscape=[...documentListeners.get('keydown')].at(-1),oldPosition=[...listeners.get('resize')].at(-1);assert.equal(documentListeners.get('keydown').size,keys+1);assert.equal(listeners.get('resize').size,1);await control(e.root,'技能').onclick();assert.equal(documentListeners.get('keydown').size,keys);assert.equal(documentListeners.get('pointerdown').size,pointers);assert.equal(listeners.get('resize').size,0);assert.equal(e.root.listeners.scroll.length,0);const current=await openMethods(e,'all'),focus=document.activeElement;await oldRow.onclick();oldQuery.value='obsolete';oldQuery.oninput();oldImage.onerror();oldEscape({key:'Escape',preventDefault(){assert.fail('stale Escape');}});oldPosition();assert.equal(methodPicker(e),current);assert.equal(document.activeElement,focus);assert.equal(control(e.root,'搜索技能').value,'');assert.equal(oldImage.hidden,false);assert.equal(savedDraft().method_id,'');const outside=control(e.root,'归属项目');outside.focus();document.fire('pointerdown',{target:outside});assert.equal(methodPicker(e),null);assert.equal(document.activeElement,outside);assert.equal(documentListeners.get('keydown').size,keys);assert.equal(listeners.get('resize').size,0);
+  }finally{e.panel.suspend();globalThis.window=previousWindow;}
+});
+
+test('method scope fences account, identity, actor, project, route, locale and destroyed instances without stealing focus',async()=>{
+  for(const change of ['account','identity','actor','project','route','locale','destroy']){
+    storage.clear();const locale=getLocale(),route=globalThis.location.search;setLocale('zh-cn',{persist:false});const e=environment();
+    try{
+      await e.panel.load({project:'p'});await settle();await openMethods(e);const row=methodRows(e)[0],image=row.querySelector('img'),escape=[...documentListeners.get('keydown')].at(-1),position=e.root.listeners.scroll.at(-1),search=control(e.root,'搜索技能'),all=control(e.root,'全部技能'),popular=btn(e.root,'短剧带货');
+      if(change==='account')e.session.account_id='other';else if(change==='identity')e.session.identityId='other';else if(change==='actor')e.session.actor='other';else if(change==='project')await e.panel.load({project:'q'});else if(change==='route')globalThis.location.search='?route=elsewhere';else if(change==='locale')setLocale('en',{persist:false});else e.panel.suspend();await (change==='account'?all:change==='identity'?popular:row).onclick();assert.equal(methodPicker(e),null);position();if(change!=='destroy')await e.panel.load({project:change==='project'?'q':'p'});else await e.panel.load({project:'p'});await settle();const current=await openMethods(e,'all'),focus=document.activeElement;await row.onclick();image.onerror();search.value='stale';search.oninput();escape({key:'Escape',preventDefault(){assert.fail('old scope Escape');}});position();assert.equal(methodPicker(e),current);assert.equal(document.activeElement,focus);assert.equal(image.hidden,false);assert.equal(control(e.root,'搜索技能').value,'');assert.equal(cls(e.root,'marketing-method-chip').textContent,'');assert.equal(writes(e).length,0);
+    }finally{e.panel.suspend();globalThis.location.search=route;setLocale(locale,{persist:false});}
+  }
+});
+
+test('hidden keeps a valid method menu and query while locale closes its old DOM and retains the page query',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const current=await openMethods(e);filterMethods(e,' 海报 ');document.hidden=true;document.fire('visibilitychange');assert.equal(methodPicker(e),current);assert.equal(control(e.root,'搜索技能').value,' 海报 ');document.hidden=false;document.fire('visibilitychange');assert.equal(methodPicker(e),current);setLocale('en',{persist:false});assert.equal(methodPicker(e),null);await openMethods(e,'all');assert.equal(control(e.root,'搜索技能').value,' 海报 ');assert.equal(methodRows(e).length,1);await methodRow(e,'product-poster').onclick();assert.equal(savedDraft().method_id,'product-poster');assert.equal(document.activeElement,control(e.root,'广告创作需求'));assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();document.hidden=false;setLocale(locale,{persist:false});}
+});
+
+test('a busy prepare closes and locks method UI before any stale selection can change the fixed request',async()=>{
+  storage.clear();let finish;const wait=new Promise(r=>finish=r),e=environment(url=>url.endsWith('marketing-canvases')?wait:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();await btn(e.root,'商品海报').onclick();prompt(e.root,'正在准备也不能改方法');await openMethods(e);const stale=methodRow(e,'commercial-tvc'),remove=control(e.root,'删除已选技能'),start=send(e.root);await tick();assert.equal(methodPicker(e),null);assert.equal(control(e.root,'技能').disabled,true);assert.equal(control(e.root,'全部技能').disabled,true);await stale.onclick();await remove.onclick();await btn(e.root,'短剧带货').onclick();await control(e.root,'全部技能').onclick();assert.equal(methodPicker(e),null);assert.equal(savedDraft().method_id,'product-poster');assert.equal(JSON.parse(writes(e)[0].init.body).payload.method_id,'product-poster');finish(prepared());await start;assert.equal(e.nav.at(-1)[3].agent_turn,'t');
+  }finally{e.panel.suspend();}
+});
+
+test('unknown R or S preserves the exact method pin and denies menu or stale chip changes until the same operation recovers',async()=>{
+  for(const phase of ['prepare','start']){
+    storage.clear();let fail=true;const e=environment(url=>fail&&(phase==='prepare'?url.endsWith('marketing-canvases'):url.endsWith('/start'))?Promise.reject(Error('lost method receipt')):undefined);
+    try{
+      await e.panel.load({project:'p'});await settle();await openMethods(e);await methodRow(e,'product-poster').onclick();prompt(e.root,'固定原方法');const remove=control(e.root,'删除已选技能');await openMethods(e);const stale=methodRow(e,'commercial-tvc');await send(e.root);const request=JSON.parse(storage.get('vsc-marketing:request:'+JSON.stringify(['a','p']))),body=writes(e)[0].init.body;await stale.onclick();await remove.onclick();await control(e.root,'技能').onclick();await control(e.root,'全部技能').onclick();assert.equal(methodPicker(e),null);assert.deepEqual(JSON.parse(storage.get('vsc-marketing:request:'+JSON.stringify(['a','p']))),request);assert.equal(request.request.payload.method_version,'1.0');assert.equal(request.request.payload.method_sha256,'sha-product-poster');fail=false;await send(e.root);assert.equal(writes(e).at(-1).init.body,body);assert.equal(e.nav.at(-1)[3].agent_turn,'t');
+    }finally{e.panel.suspend();}
+  }
+});
+
+test('lost execution keeps the original T and method while subsequent recovery only reads the same running turn',async()=>{
+  storage.clear();let executeAttempted=false;const e=environment(url=>{if(url.endsWith('/creative-canvas-agent-turns/t/execute')){executeAttempted=true;throw Error('execute response lost');}if(executeAttempted&&url.endsWith('/creative-canvas-agent-turns/t'))return turn('running');});
+  try{
+    await e.panel.load({project:'p'});await settle();await btn(e.root,'商品海报').onclick();prompt(e.root,'继续原T');await send(e.root);assert.equal(executes(e).length,1);await control(e.root,'技能').onclick();await btn(e.root,'短剧带货').onclick();await send(e.root);assert.equal(methodPicker(e),null);assert.equal(savedDraft().method_id,'product-poster');assert.equal(writes(e).length,1);assert.equal(starts(e).length,1);assert.equal(executes(e).length,1);assert.equal(e.nav.at(-1)[3].agent_turn,'t');
+  }finally{e.panel.suspend();}
+});
+
+test('popular and menu share only seven exact public decoration covers with poster and failed-image fallbacks',async()=>{
+  storage.clear();const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const popular=e.root.querySelectorAll('.marketing-method');assert.equal(popular.length,8);assert.equal(popular.filter(n=>n.querySelector('img')).length,7);for(const n of popular){assert.equal(n.attributes['aria-label'],methods.find(m=>m.id===n.dataset.methodId).name);assert.equal(n.textContent,n.attributes['aria-label']);}assert.ok(btn(e.root,'商品海报').querySelector('.marketing-method-thumb').className.includes('is-fallback'));const publicImage=popular[0].querySelector('img');assert.equal(publicImage.src,'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/short-drama-commerce-D7XRpKxL.webp');publicImage.onerror();assert.equal(publicImage.hidden,true);await openMethods(e);assert.equal(methodRows(e).filter(n=>n.querySelector('img')).length,7);assert.equal(methodRow(e,'product-poster').querySelector('img'),null);for(const row of methodRows(e)){const original=popular.find(n=>n.dataset.methodId===row.dataset.methodId)?.querySelector('img');if(original)assert.equal(row.querySelector('img').src,original.src);}const row=methodRows(e)[0],image=row.querySelector('img');image.onerror();assert.equal(image.hidden,true);assert.ok(row.querySelector('.marketing-method-thumb').className.includes('is-fallback'));await row.onclick();assert.equal(savedDraft().method_id,'short-drama-commerce');prompt(e.root,'只用原商品输入');await send(e.root);const payload=JSON.parse(writes(e)[0].init.body).payload;assert.deepEqual(payload.media_ids,[]);assert.equal(payload.prompt,'只用原商品输入');assert.equal(Object.keys(payload).some(k=>/cover|thumb|image/.test(k)),false);
+  }finally{e.panel.suspend();}
+});
+
+test('method anchor stays on the toolbar at 390px and uses measured natural menu height after filtering',async()=>{
+  storage.clear();const previousWidth=globalThis.innerWidth,previousHeight=globalThis.innerHeight;globalThis.innerWidth=390;globalThis.innerHeight=500;const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const toolbar=control(e.root,'技能'),all=control(e.root,'全部技能');toolbar.rect={left:350,right:378,top:430,bottom:458};all.rect={left:20,right:80,top:80,bottom:110};const popup=await openMethods(e,'all');assert.ok(parseFloat(popup.style.width)<=366);assert.ok(parseFloat(popup.style.left)>=12);assert.ok(parseFloat(popup.style.left)+parseFloat(popup.style.width)<=378);assert.ok(parseFloat(popup.style.top)+Math.min(popup.offsetHeight,parseFloat(popup.style.maxHeight))<=488);assert.equal(popup.style.height,undefined);filterMethods(e,'海报');popup.offsetHeight=108;await e.root.fire('scroll');assert.equal(methodRows(e).length,1);assert.ok(parseFloat(popup.style.top)>=toolbar.rect.top-108-8);assert.equal(document.activeElement,all);assert.equal(writes(e).length,0);
   }finally{e.panel.suspend();globalThis.innerWidth=previousWidth;globalThis.innerHeight=previousHeight;}
 });
