@@ -83,6 +83,19 @@ class ProjectMediaAuthorizationTests(ResourceStoreFixture, unittest.TestCase):
                             self.assertEqual(exc.code, 'access_denied')
                 self.assertEqual(projected, authoritative)
                 self.assertEqual(projected, expected)
+                # The shared projection must preserve each existing capability,
+                # including local read-only and ancestor-owner inheritance.
+                for capability in ('edit', 'manage'):
+                    with self.engine.connect() as conn:
+                        scoped = set(conn.execute(self.store._access_project_query(conn, capability)).scalars()) & projects
+                        actual = set()
+                        for identifier in projects:
+                            try:
+                                self.store._access_require(conn, identifier, capability)
+                                actual.add(identifier)
+                            except ResourceError as exc:
+                                self.assertEqual(exc.code, 'access_denied')
+                    self.assertEqual(scoped, actual, capability)
                 seen, offset = [], 0
                 while True:
                     page = self.service.list_project_media(query=marker, offset=offset, limit=1)

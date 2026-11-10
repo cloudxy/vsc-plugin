@@ -182,6 +182,34 @@ def normalize_document(value):
 
 
 class CreativeCanvasService:
+    def canvas_library_options(self):
+        from vsc.adapters.persistence.postgres.canvas_library import CanvasLibrary
+        return CanvasLibrary(self.store).options()
+
+    def list_canvas_library(self, *, project_id=None, episode_id=None, creator_filter='mine',
+                            creator_id=None, permission='all', order='updated_desc', query='', offset=0, limit=30):
+        from vsc.adapters.persistence.postgres.canvas_library import CanvasLibrary
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if (type(offset) is not int or not 0 <= offset <= 2147483647
+                or type(limit) is not int or not 1 <= limit <= 100):
+            raise ResourceError('分页要求 offset >= 0，1 <= limit <= 100', 'invalid_page')
+        if (not isinstance(creator_filter, str) or creator_filter not in {'mine','all','member'}
+                or not isinstance(permission, str) or permission not in {'all','edit','view'}
+                or not isinstance(order, str) or order not in {'updated_desc','updated_asc'}):
+            raise ResourceError('画布筛选或排序无效', 'invalid_canvas_filter')
+        if not isinstance(query, str) or len(query) > 200 or '\x00' in query:
+            raise ResourceError('画布搜索文字无效', 'invalid_canvas_filter')
+        if creator_id is not None and (not isinstance(creator_id, str) or not creator_id.strip()
+                or len(creator_id) > 200 or '\x00' in creator_id):
+            raise ResourceError('画布创建者无效', 'invalid_canvas_filter')
+        if (creator_filter == 'member') != bool(creator_id):
+            raise ResourceError('成员筛选需要明确创建者，其他筛选不能同时指定创建者', 'invalid_canvas_filter')
+        if episode_id and not project_id:
+            raise ResourceError('剧集筛选需要先指定项目', 'invalid_canvas_filter')
+        return CanvasLibrary(self.store).search(dict(project_id=checked_id(project_id) if project_id else None,
+            episode_id=checked_id(episode_id) if episode_id else None, creator_filter=creator_filter,
+            creator_id=creator_id, permission=permission, order=order, query=query.strip(), offset=offset, limit=limit))
+
     def preview_canvas_work_generation(self, project_id, payload):
         from vsc.production.quotes import fingerprint
         preview = self.preview_workbench_generation(project_id, payload)

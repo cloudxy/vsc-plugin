@@ -1,4 +1,5 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption,mountLocalePicker,getLocale,getLocaleRevision,setLocale} from './i18n.js';
+import {readCanvasLibraryPending} from './canvas-library.js';
 import {createTaskNotifications} from './task-notifications.js';
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
@@ -18,6 +19,7 @@ function el(tag, className, text) { const node = document.createElement(tag); if
 function notice(message) { setText($('notice'),message || ''); $('notice').hidden = !message; }
 function applySession(session) {
   const previousIdentity=state.identityId||state.actor;
+  if(previousIdentity!==(session.identity_id||session.actor)||state.workspaceId!==session.workspace_id)closeCanvasManagement();
   if((state.identityId||state.actor)!==(session.identity_id||session.actor))editWorkspace?.suspend?.();
   state.actor=session.actor;state.csrf=session.csrf_token;state.writeAvailable=session.write_available===true;state.identityId=session.identity_id;state.shareId=session.share_id;state.workspaceId=session.workspace_id;
   if(previousIdentity!==(state.identityId||state.actor))readAccountLocale();
@@ -131,6 +133,23 @@ function renderRecentProjects(rows){
   }).catch(()=>{if(ticket===recentRequest)recent.replaceChildren(el('p','hint',msg("ui.recent_creations_could_not_be_loaded")));});
 }
 
+let canvasManagement=null,canvasManagementTicket=0;
+function closeCanvasManagement(){canvasManagementTicket++;canvasManagement?.close();canvasManagement=null;}
+async function openCanvasManagement(project,episode){
+  closeCanvasManagement();const ticket=canvasManagementTicket,identity=JSON.stringify([state.actor,state.identityId,state.workspaceId]);
+  const current=()=>ticket===canvasManagementTicket&&identity===JSON.stringify([state.actor,state.identityId,state.workspaceId])&&state.view==='creative-canvas';
+  const {openCanvasLibraryDialog}=await import('./canvas-library.js');if(!current())return;
+  const handle=await openCanvasLibraryDialog({api,notice,
+    session:()=>({actor:state.actor,identityId:state.identityId,workspaceId:state.workspaceId,csrf:state.csrf,writeAvailable:state.writeAvailable}),
+    projects:async()=>{const value=await api('/api/v1/canvas-library/options');return {items:value.projects,creators:value.creators};},
+    episodes:async(p,{isCurrent=()=>true}={})=>{const items=[];let offset=0,revision;do{if(!isCurrent())return {items:[]};const value=await api('/api/v1/projects/'+encodeURIComponent(p)+'/production-platform?'+new URLSearchParams({offset:String(offset),limit:'100'}));if(!isCurrent())return {items:[]};const page=value.episodes;if(!page||!Array.isArray(page.items)||!(page.next_offset===null||Number.isInteger(page.next_offset)&&page.next_offset>offset))throw new Error(String(msg('canvas.library.invalid_response')));items.push(...page.items);revision=value.revision;offset=page.next_offset;}while(offset!=null);return {items,revision};},
+    setRevision:(value,p)=>{if(p===state.project)state.revision=value;},
+    onDialogReady:value=>{if(current())canvasManagement=value;else value.close();},
+    navigate:async(page,scope,p,options)=>{if(!current())throw new Error(String(msg('canvas.library.scope_changed')));const dialog=canvasManagement;if(dialog)dialog.navigating=true;try{setEntryOptions(page,p,scope,options);episodeScope=options.episode||null;state.view=page;await selectProject(p,{scope});if(!creativeCanvasPanel?.isOpen(p,options.task_target))throw new Error(String(msg('canvas.library.open_failed')));}finally{if(dialog)dialog.navigating=false;}},
+  },{projectId:project,episodeId:episode});
+  if(!current())handle.close();await handle.whenClosed;if(canvasManagement===handle)canvasManagement=null;
+}
+
 async function loadProductionPlatform(){
   if(state.view==='production'&&!episodeScope)episodeScope=state.object;
   if(!productionPlatform){const {createProductionPlatform}=await import('./production-platform.js');productionPlatform=createProductionPlatform($('production-platform'),{api,notice,createEmptyCanvasProject,projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,refreshProjects:async({isCurrent=()=>true}={})=>{const identity=state.actor;if(!isCurrent())return;const listing=await api('/api/v1/projects');if(identity!==state.actor||!isCurrent())return;state.projectRows=new Map(listing.items.map(r=>[r.id,r]));renderRecentProjects(listing.items);},session:()=>({actor:state.actor,identityId:state.identityId,workspaceId:state.workspaceId,csrf:state.csrf,revision:state.revision,writable:state.writable,writeAvailable:state.writeAvailable}),setRevision:(value,project)=>{if(project===state.project&&value!=null)state.revision=value;},navigate:async(page,scope=state.object,project=state.project,options={})=>{setEntryOptions(page,project,scope,options);if(options.episode)episodeScope=options.episode;if(['text-tools','creative-tools'].includes(page)&&!project){state.project=null;state.object=null;episodeScope=null;state.view=page;await loadProjects();return;}if(page==='production'||page==='tasks')episodeScope=scope;if(page==='project')episodeScope=null;state.view=page;await selectProject(project,{scope});},created:async(id,page='project')=>{state.project=id;state.object=null;state.view=page;await loadProjects();},media:openMedia,artifact:async id=>{await switchView('artifacts');await openArtifact(id);},settings:openResourceSettings,memory:openRoleMemory,account:()=>$('session-dialog').showModal()});}
@@ -138,6 +157,7 @@ async function loadProductionPlatform(){
 }
 async function loadCustomView(view){
   const project=state.project,object=state.object,ticket=++customViewRequest;
+  if(canvasManagement&&!canvasManagement.navigating)closeCanvasManagement();
   if(view==='marketing-studio'){
     if(!marketingStudio){const {createMarketingStudio}=await import('./marketing-studio.js');marketingStudio=createMarketingStudio($('marketing-studio-view'),{api,notice,projects:()=>[...state.projectRows.values()],session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable,writeAvailable:state.writeAvailable}),setRevision:(value,p)=>{if(p===state.project&&value!=null)state.revision=value;},navigate:async(page,id,p=state.project,options={})=>{setEntryOptions(page,p,id,options);episodeScope=options.episode||null;state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await marketingStudio.load({project,episode:episodeScope});
@@ -145,7 +165,7 @@ async function loadCustomView(view){
     if(!projectManagement){const {createProjectManagement}=await import('./project-management.js');projectManagement=createProjectManagement($('project-management-view'),{api,notice,onScope:(p,row)=>{state.project=p;state.object=null;episodeScope=null;$('tree').replaceChildren();state.treeNodes=[];if(p&&!state.projectRows.has(p))$('projects').append(localizedOption(p,msg("ui.value0_in_trash",{value0:row?.name||msg("common.project")})));if(p)$('projects').value=p;else{$('projects').prepend(localizedOption('',msg("ui.select_a_project_extra_2")));$('projects').value='';}syncRoute();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},onProjectsChanged:async()=>{const listing=await api('/api/v1/projects');state.projectRows=new Map(listing.items.map(r=>[r.id,r]));$('projects').replaceChildren();for(const row of listing.items){const option=localizedOption(row.id,row.name);$('projects').append(option);}if(state.projectRows.has(state.project))$('projects').value=state.project;else if(state.project){$('projects').append(localizedOption(state.project,msg("ui.current_project_is_recycled")));$('projects').value=state.project;}},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});},media:openMedia});}
     if(ticket===customViewRequest&&view===state.view)await projectManagement.load({project});
   }else if(view==='creative-canvas'){
-    if(!creativeCanvasPanel){const {createCreativeCanvasPanel}=await import('./creative-canvas.js');creativeCanvasPanel=createCreativeCanvasPanel({opened:openedCreativeTarget,canvasContext:()=>$('production-canvas-context'),openCanvasManagement:async(project,episode)=>{setEntryOptions('projects',project,null,{tab:'canvases',...(episode?{episode}:{})});state.view='projects';await selectProject(project,{scope:null});},api,projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
+    if(!creativeCanvasPanel){const {createCreativeCanvasPanel}=await import('./creative-canvas.js');creativeCanvasPanel=createCreativeCanvasPanel({opened:openedCreativeTarget,canvasContext:()=>$('production-canvas-context'),openCanvasManagement,libraryPending:project=>readCanvasLibraryPending(state,project),api,projects:()=>[...state.projectRows.values()],projectName:()=>state.projectRows.get(state.project)?.name,session:()=>({actor:state.actor,identityId:state.identityId,workspaceId:state.workspaceId,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await creativeCanvasPanel.load($('creative-canvas-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),currentEntry().get('task_target'),currentEntry().get('agent_turn'));
   }else if(view==='blocking'||view==='previs'){
     if(!spatialScenePanel){const {createSpatialScenePanel}=await import('./spatial-scene.js');spatialScenePanel=createSpatialScenePanel({api,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
@@ -359,6 +379,7 @@ async function loadCanvas(focus = null) {
   if (state.view === 'canvas') await resourceCanvas.load({projectId: state.project, objectId: state.object, userId: state.actor || 'reader', focus,overview:!state.object&&!focus});
 }
 async function switchView(view, focus = null) {
+  if(view!=='creative-canvas')closeCanvasManagement();
   if(view==='production'){const node=state.treeNodes.find(r=>r.id===state.object);if(episodeScope&&node?.kind!=='episode')state.object=episodeScope;else if(node?.kind==='episode')episodeScope=node.id;}
   if(!platformViews.includes(view))productionPlatform?.suspend();
   if(view!=='creative-canvas'){creativeCanvasPanel?.suspend();customViewRequest++;}
