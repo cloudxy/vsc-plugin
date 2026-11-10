@@ -3,6 +3,19 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 
+def install_marketing_case_routes(app, etag):
+    from vsc.assets.marketing_cases import list_cases, get_case
+
+    @app.get("/api/v1/marketing-cases")
+    def cases(request: Request, category_name: str = None, keyword: str = "", page: int = 1,
+              page_size: int = 20, catalog_sha256: str = None):
+        return etag(request, list_cases(category_name, keyword, page, page_size, catalog_sha256))
+
+    @app.get("/api/v1/marketing-cases/{case_id}")
+    def detail(case_id: str, request: Request, version: int, sha256: str):
+        return etag(request, get_case(dict(id=case_id, version=version, sha256=sha256)))
+
+
 def install_marketing_studio_routes(router, catalog, etag, actor):
     def service(project_id):
         if catalog._reader(project_id) is not None or catalog.service is None:

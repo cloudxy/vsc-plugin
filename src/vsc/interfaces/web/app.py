@@ -33,7 +33,7 @@ from vsc.interfaces.web.edit_preview import install_edit_preview_routes
 from vsc.interfaces.web.editor_workspace import install_editor_workspace_routes
 from vsc.interfaces.web.production_platform import install_production_platform_routes
 from vsc.interfaces.web.creative_canvas import install_creative_canvas_routes
-from vsc.interfaces.web.marketing_studio import install_marketing_studio_routes
+from vsc.interfaces.web.marketing_studio import install_marketing_studio_routes, install_marketing_case_routes
 from vsc.interfaces.web.production_batch import install_production_batch_routes
 from vsc.interfaces.web.project_management import install_project_management_routes, management_http_guard
 from vsc.interfaces.web.classic_production import install_classic_production_routes
@@ -114,7 +114,7 @@ def create_app(config=None, catalog=None, service=None):
             if token is not None:reset_principal(token)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -444,6 +444,7 @@ def create_app(config=None, catalog=None, service=None):
     install_production_platform_routes(router, catalog, etag)
     install_creative_canvas_routes(router, catalog, etag, actor)
     install_marketing_studio_routes(router, catalog, etag, actor)
+    install_marketing_case_routes(app, etag)
     install_production_batch_routes(router, catalog, etag, actor)
     install_classic_production_routes(router, catalog, etag, actor)
     install_project_management_routes(app, router, catalog, etag, actor, read_actor)

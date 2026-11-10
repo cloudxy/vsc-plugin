@@ -3,31 +3,53 @@ import {test} from 'node:test';
 import {webcrypto} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 
 // Component self-checks exercise request ownership and recovery. This small DOM
 // does not stand in for the browser, authenticated HTTP, PostgreSQL or providers.
 class Element {
-  constructor(tag,doc){this.tagName=tag.toUpperCase();this.ownerDocument=doc;this.children=[];this.parentElement=null;this.attributes={};this.dataset={};this.className='';this.disabled=false;this.hidden=false;this.value='';this.isConnected=true;this.classList={add:(v)=>{this.className+=' '+v;},remove:(...values)=>{this.className=this.className.split(' ').filter(v=>!values.includes(v)).join(' ');}};}
-  append(...nodes){for(const node of nodes)if(node instanceof Element){node.parentElement=this;this.children.push(node);}}
+  constructor(tag,doc){this.tagName=tag.toUpperCase();this.ownerDocument=doc;this.children=[];this.parentElement=null;this.attributes={};this.dataset={};this.className='';this.style={};this.clientWidth=Element.layoutWidth??1024;this.offsetHeight=560;this.disabled=false;this.hidden=false;this.value='';this.isConnected=true;this.classList={add:(v)=>{this.className+=' '+v;},remove:(...values)=>{this.className=this.className.split(' ').filter(v=>!values.includes(v)).join(' ');}};}
+  append(...nodes){for(const node of nodes)if(node instanceof Element){if(node.parentElement)node.parentElement.children=node.parentElement.children.filter(n=>n!==node);node.parentElement=this;this.children.push(node);}}
+  get firstElementChild(){return this.children[0]||null;}
   replaceChildren(...nodes){this.children=[];this._text=null;this.append(...nodes);}
   setAttribute(k,v){this.attributes[k]=String(v);}
   removeAttribute(k){delete this.attributes[k];}
-  get textContent(){return this._text??this.children.map(n=>n.textContent).join('');}
+  get textContent(){return (this._text??'')+this.children.map(n=>n.textContent).join('');}
   set textContent(value){this.children=[];this._text=String(value);}
   walk(){return this.children.flatMap(n=>[n,...n.walk()]);}
   querySelectorAll(selector){return this.walk().filter(n=>selector.startsWith('.')?n.className.split(' ').includes(selector.slice(1)):selector==='[role=status]'?n.attributes.role==='status':n.tagName===selector.toUpperCase());}
   querySelector(selector){return this.querySelectorAll(selector)[0]||null;}
   addEventListener(type,fn){this.listeners??={};(this.listeners[type]??=[]).push(fn);}
   async fire(type,event={}){await this['on'+type]?.(event);for(const fn of this.listeners?.[type]||[])await fn(event);}
+  showModal(){this.open=true;}close(){this.open=false;this.onclose?.();}remove(){if(this.parentElement)this.parentElement.children=this.parentElement.children.filter(n=>n!==this);this.parentElement=null;this.isConnected=false;}focus(){this.ownerDocument.activeElement=this;}play(){this.playCount=(this.playCount||0)+1;return this.playResult||Promise.resolve();}pause(){this.pauseCount=(this.pauseCount||0)+1;}
 }
 const document={documentElement:{},createElement(tag){return new Element(tag,this);},createTextNode(text){const n=new Element('#text',this);n.textContent=text;return n;},querySelector(){return null;}};
 document.head=new Element('head',document);globalThis.document=document;
+const documentListeners=new Map();document.addEventListener=(type,fn)=>{if(!documentListeners.has(type))documentListeners.set(type,new Set());documentListeners.get(type).add(fn);};document.removeEventListener=(type,fn)=>documentListeners.get(type)?.delete(fn);document.fire=type=>{for(const fn of documentListeners.get(type)||[])fn();};
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
 globalThis.location={search:'',href:''};
 const storage=new Map();globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+// Export fixtures from the owning pure catalogue. No PostgreSQL, HTTP, host or
+// temporary developer fixture is needed when this checked-in test runs in CI.
+const caseFixture=JSON.parse(execFileSync('python3',['-B','-c',`import json,sys
+sys.path.insert(0,sys.argv[1])
+from vsc.assets.marketing_cases import list_cases,get_case,case_spec_to_params
+pages=[]
+page=1
+while page:
+    value=list_cases(page=page)
+    pages.append(value)
+    page=value['next_page']
+specs=[e for p in pages for g in p['items'] for e in g['examples']]
+pin=lambda s:{k:s[k] for k in ('id','version','sha256')}
+observed=next(s for s in specs if s['template_key']=='approved_7135edbbae7c4181')
+print(json.dumps(dict(pages=pages,detail=get_case(pin(observed)),case=specs[0],case_ref=pin(specs[0]),params=case_spec_to_params(specs[0]),second_case=specs[1],second_case_ref=pin(specs[1]),catalog_sha256=pages[0]['catalog_sha256']),ensure_ascii=False))`,fileURLToPath(new URL('../../../src',import.meta.url))],{encoding:'utf8',maxBuffer:2*1024*1024}));
+const allCaseGroups=caseFixture.pages.flatMap(page=>page.items);
+const listCases=(url)=>{const p=new URL(url,'http://test').searchParams,category=p.get('category_name'),keyword=(p.get('keyword')||'').trim().toLocaleLowerCase(),page=Number(p.get('page')||1);const items=allCaseGroups.filter(g=>(!category||g.category_name===category)&&(!keyword||[g.group_name,g.group_description,g.category_label,...g.examples.map(e=>e.video_name)].some(v=>v.toLocaleLowerCase().includes(keyword))));return {...caseFixture.pages[0],page,total_available:items.length,next_page:page*20<items.length?page+1:null,items:items.slice((page-1)*20,page*20)};};
 const {createMarketingStudio,marketingStartKey}=await import('../../../src/vsc/interfaces/web/static/marketing-studio.js');
 const {createProductionPlatform}=await import('../../../src/vsc/interfaces/web/static/production-platform.js');
-const {translate,msg}=await import('../../../src/vsc/interfaces/web/static/i18n.js');
+const {translate,msg,setLocale,getLocale}=await import('../../../src/vsc/interfaces/web/static/i18n.js');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settle(){for(let i=0;i<12;i++)await tick();}
 const methods=['short-drama-commerce','product-poster','viral-video-clone','commercial-tvc','ugc-commerce','viral-creative-variation','product-visual-materials','video-localization'].map((id,i)=>({id,name:['短剧带货','商品海报','爆款视频复刻','TVC广告片','UGC种草与带货','爆款素材裂变','商品视觉物料','视频翻译与渠道适配'][i],version:'1.0',sha256:'sha-'+id,skill_id:i===1?'image-generation':'video-generation',description:'方法：'+id,input_hint:'提示：'+id}));
@@ -47,6 +69,8 @@ function environment(handler=()=>undefined){
   const ctx={projects:()=>projects,session:()=>session,notice(){},setRevision:(r,p)=>revisions.push([r,p]),navigate:async(...args)=>{nav.push(args);},api:async(url,init)=>{
     calls.push({url,init});const handled=await handler(url,init);if(handled!==undefined)return handled;
     if(url.endsWith('marketing-options'))return options();
+    if(url.startsWith('/api/v1/marketing-cases?'))return listCases(url);
+    if(url.startsWith('/api/v1/marketing-cases/')){const id=decodeURIComponent(url.split('/').at(-1).split('?')[0]),spec=allCaseGroups.flatMap(g=>g.examples).find(e=>e.id===id);return {catalog_version:caseFixture.pages[0].catalog_version,catalog_sha256:caseFixture.catalog_sha256,case:spec,detail_coverage:{basis:'list_projection',observed_source_detail:spec?.id===caseFixture.detail.case.id}};}
     if(url.endsWith('execution-authorizations'))return {items:[],revision:7};
     if(url.includes('/media?'))return {items:[],total:0};
     if(url.endsWith('marketing-canvases'))return prepared();
@@ -302,4 +326,332 @@ test('shell routing preserves agent_turn for its canvas and clears it when openi
   vm.createContext(context);vm.runInContext(functions,context);context.setEntryOptions('creative-canvas','p',null,{task_target:'c',episode:'ep',marketing:'1',agent_turn:'t'});context.syncRoute();assert.equal(new URLSearchParams(win.location.search).get('agent_turn'),'t');
   context.openedCreativeTarget('c','p','ep');assert.equal(new URLSearchParams(win.location.search).get('agent_turn'),'t');context.openedCreativeTarget('other','p','ep');assert.equal(new URLSearchParams(win.location.search).has('agent_turn'),false);
   context.setEntryOptions('creative-canvas','p',null,{task_target:'c',agent_turn:'t'});context.state.project='q';context.syncRoute();assert.equal(new URLSearchParams(win.location.search).has('agent_turn'),false);
+});
+
+const caseCards=e=>e.root.querySelectorAll('.marketing-case-card');
+const caseLists=e=>e.calls.filter(c=>c.url.startsWith('/api/v1/marketing-cases?'));
+const caseDetails=e=>e.calls.filter(c=>c.url.startsWith('/api/v1/marketing-cases/'));
+const category=(e,name)=>e.root.querySelectorAll('.marketing-case-category').find(n=>n.dataset.category===name);
+const chooseCase=(e,index=0)=>caseCards(e)[index].querySelector('.marketing-case-select').onclick({stopPropagation(){}});
+const clone=value=>JSON.parse(JSON.stringify(value));
+
+test('real packaged catalogue exposes all 114 groups across six pinned pages with the eleven category counts',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();assert.equal(caseCards(e).length,20);assert.equal(e.root.querySelectorAll('.marketing-case-category').length,12);
+  for(const row of caseFixture.pages[0].categories)assert.match(category(e,row.category_name).textContent,new RegExp(String(row.available_group_count)+'$'));
+  const sizes=[20];while(btn(e.root,'加载更多创意')){await btn(e.root,'加载更多创意').onclick();sizes.push(caseCards(e).length);}
+  assert.deepEqual(sizes,[20,40,60,80,100,114]);assert.equal(new Set(caseCards(e).map(n=>n.dataset.groupKey)).size,114);
+  assert.deepEqual(caseLists(e).map(c=>new URL(c.url,'http://test').searchParams.get('page')),['1','2','3','4','5','6']);
+  for(const c of caseLists(e).slice(1))assert.equal(new URL(c.url,'http://test').searchParams.get('catalog_sha256'),caseFixture.catalog_sha256);
+  assert.equal(Object.keys(caseFixture.case).length,18);assert.equal(writes(e).length,0);assert.equal(starts(e).length,0);e.panel.suspend();
+});
+
+test('category filtering uses real names and available totals while retaining the selected case',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();await chooseCase(e);const name=cls(e.root,'marketing-case-chip').textContent;
+  for(const row of caseFixture.pages[0].categories){await category(e,row.category_name).onclick();while(btn(e.root,'加载更多创意'))await btn(e.root,'加载更多创意').onclick();assert.equal(caseCards(e).length,row.available_group_count);assert.equal(cls(e.root,'marketing-case-chip').textContent,name);}
+  assert.equal(writes(e).length,0);e.panel.suspend();
+});
+
+test('search waits 300 ms and sends only the final trimmed keyword without rewriting raw prompt',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();prompt(e.root,' 原需求\n  ');const count=caseLists(e).length,input=control(e.root,'搜索营销创意');input.value='风';input.oninput();input.value='  复古  ';input.oninput();
+  await settle();assert.equal(caseLists(e).length,count);await new Promise(r=>setTimeout(r,340));await settle();assert.equal(caseLists(e).length,count+1);
+  assert.equal(new URL(caseLists(e).at(-1).url,'http://test').searchParams.get('keyword'),'复古');assert.equal(control(e.root,'广告创作需求').value,' 原需求\n  ');assert.ok(caseCards(e).length>0);e.panel.suspend();
+});
+
+test('selecting, reselecting, replacing and deleting a case are zero-write operations independent of all other inputs',async()=>{
+  storage.clear();const e=environment(url=>url.includes('/media?')?{items:Array.from({length:15},(_,i)=>({id:'product-'+i,name:'商品图'+i,modality:'image'})),total:15}:undefined);
+  await e.panel.load({project:'p'});await settle();const raw='  商品事实原文\n保持换行  ';prompt(e.root,raw);await btn(e.root,'商品海报').onclick();for(const card of e.root.querySelectorAll('.marketing-media-card'))await card.querySelector('button').onclick();
+  for(const name of ['视频模型','图片模型']){const c=control(e.root,'优先模型 '+name);c.checked=true;c.onchange();}const mode=control(e.root,'创作模式');mode.value='auto_drafts';mode.onchange();
+  const scope=control(e.root,translate(msg('ui.production_authorization_scope'))),reason=control(e.root,translate(msg('ui.reason_for_the_new_batch')));scope.value='new_batch';reason.value='原有执行范围';
+  await chooseCase(e);await chooseCase(e);assert.equal(e.root.querySelectorAll('.marketing-selected-case').length,1);await chooseCase(e,1);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.second_case.group_name));
+  await control(e.root,'删除已选创意').onclick();assert.equal(cls(e.root,'marketing-case-chip').textContent,'');assert.equal(writes(e).length,0);assert.equal(starts(e).length,0);
+  await send(e.root);const p=JSON.parse(writes(e)[0].init.body).payload,s=JSON.parse(starts(e)[0].init.body).payload;assert.equal('case_ref'in p,false);assert.equal(p.prompt,raw);assert.equal(p.method_id,'product-poster');assert.equal(p.media_ids.length,15);assert.deepEqual(s.model_ids,['video-model','image-model']);assert.equal(s.execution_settings.execution_policy.authorization.reason,'原有执行范围');e.panel.suspend();
+});
+
+test('a case alone cannot start; a real selection adds exactly its three-field pin to prepare and nothing to start',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();await chooseCase(e);await send(e.root);assert.equal(writes(e).length,0);
+  prompt(e.root,' 与案例独立的真实需求 ');await send(e.root);const p=JSON.parse(writes(e)[0].init.body).payload,s=JSON.parse(starts(e)[0].init.body).payload;
+  assert.deepEqual(p.case_ref,caseFixture.case_ref);assert.deepEqual(Object.keys(p.case_ref).sort(),['id','sha256','version']);assert.equal(p.prompt,' 与案例独立的真实需求 ');assert.equal('case_ref'in s,false);assert.equal('video_url'in p,false);e.panel.suspend();
+});
+
+test('unknown prepare or start locks the original case and resumes the same body and canvas/turn',async()=>{
+  for(const phase of ['prepare','start']){
+    storage.clear();let fail=true;const e=environment((url)=>{if(fail&&(phase==='prepare'?url.endsWith('marketing-canvases'):url.endsWith('/start')))throw Error('response lost');});
+    await e.panel.load({project:'p'});await settle();await chooseCase(e);prompt(e.root,'原案例需求');await send(e.root);const original=JSON.parse(writes(e)[0].init.body),chip=cls(e.root,'marketing-case-chip').textContent;
+    await chooseCase(e,1);await control(e.root,'删除已选创意').onclick();assert.equal(cls(e.root,'marketing-case-chip').textContent,chip);assert.equal(control(e.root,'删除已选创意').disabled,true);
+    fail=false;await e.panel.load({project:'p'});await send(e.root);assert.deepEqual(JSON.parse(writes(e)[0].init.body),original);if(phase==='prepare')assert.equal(writes(e)[0].init.body,writes(e)[1].init.body);assert.equal(e.nav[0][3].agent_turn,'t');assert.deepEqual(JSON.parse(writes(e).at(-1).init.body).payload.case_ref,caseFixture.case_ref);e.panel.suspend();
+  }
+});
+
+test('history keeps the original display snapshot when the current catalogue upgrades or disappears',async()=>{
+  storage.clear();let unavailable=false;const e=environment((url)=>{if(unavailable&&url.startsWith('/api/v1/marketing-cases'))throw Object.assign(Error('new catalogue unavailable'),{status:404});});
+  await e.panel.load({project:'p'});await settle();await chooseCase(e);prompt(e.root,'历史需求');await send(e.root);e.panel.suspend();unavailable=true;await e.panel.load({project:'p'});await settle();
+  assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));const prior=caseDetails(e).length;await cls(e.root,'marketing-case-chip-open').onclick();assert.equal(caseDetails(e).length,prior);assert.equal(cls(e.root,'marketing-case-full-description').textContent,caseFixture.case.group_description);
+  await send(e.root);assert.equal(writes(e).length,1);assert.equal(starts(e).length,1);assert.equal(e.nav.at(-1)[3].agent_turn,'t');e.panel.suspend();
+});
+
+test('missing historical display restores only from the fixed brief params, never today catalogue',async()=>{
+  storage.clear();let lostDisplay=false;const e=environment(url=>lostDisplay&&url.endsWith('creative-canvases/c?version=1')?{id:'c',canvas_revision:1,sha256:'canvas-sha',revision:9,document:{nodes:[{id:'marketing-brief',params:caseFixture.params}]}}:lostDisplay&&url.startsWith('/api/v1/marketing-cases')?Promise.reject(Error('catalogue offline')):undefined);
+  await e.panel.load({project:'p'});await settle();await chooseCase(e);prompt(e.root,'从原brief恢复');await send(e.root);e.panel.suspend();
+  const key='vsc-marketing:request:'+JSON.stringify(['a','p']),r=JSON.parse(storage.get(key));delete r.case_display;storage.set(key,JSON.stringify(r));const dkey='vsc-marketing:draft:'+JSON.stringify(['a','p']),draft=JSON.parse(storage.get(dkey));delete draft.case;storage.set(dkey,JSON.stringify(draft));lostDisplay=true;
+  const f=environment(url=>url.endsWith('creative-canvases/c?version=1')?{id:'c',canvas_revision:1,sha256:'canvas-sha',revision:9,document:{nodes:[{id:'marketing-brief',params:caseFixture.params}]}}:url.startsWith('/api/v1/marketing-cases')?Promise.reject(Error('catalogue offline')):undefined);
+  await f.panel.load({project:'p'});assert.match(cls(f.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));assert.deepEqual(JSON.parse(storage.get(key)).case_display,caseFixture.case);assert.equal(writes(f).length,0);f.panel.suspend();
+});
+
+test('later-page failure retains successful cards and retries the exact page and catalogue SHA',async()=>{
+  storage.clear();let fail=true;const e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('page')==='2'&&fail?Promise.reject(Error('page lost')):undefined);
+  await e.panel.load({project:'p'});await settle();await btn(e.root,'加载更多创意').onclick();assert.equal(caseCards(e).length,20);const failed=caseLists(e).at(-1).url;fail=false;await btn(e.root,'重试读取创意').onclick();assert.equal(caseLists(e).at(-1).url,failed);assert.equal(caseCards(e).length,40);e.panel.suspend();
+});
+
+test('duplicate groups deduplicate but conflicting content or a new catalogue never mixes into existing pages',async()=>{
+  for(const variant of ['same','conflict','new-H']){
+    storage.clear();const e=environment(url=>{if(url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('page')==='2'){const data=clone(caseFixture.pages[1]);data.items[0]=clone(caseFixture.pages[0].items[0]);if(variant==='conflict')data.items[0].group_description='changed';if(variant==='new-H')data.catalog_sha256='f'.repeat(64);return data;}});
+    await e.panel.load({project:'p'});await settle();await btn(e.root,'加载更多创意').onclick();assert.equal(caseCards(e).length,variant==='same'?39:20);if(variant!=='same')assert.ok(btn(e.root,'重新载入目录'));e.panel.suspend();
+  }
+});
+
+test('catalogue-change retry drops only H, retaining a historical selected pin and name',async()=>{
+  storage.clear();let changed=false;const e=environment(url=>{if(changed&&url.startsWith('/api/v1/marketing-cases?')){const p=new URL(url,'http://test').searchParams;if(p.has('catalog_sha256'))throw Object.assign(Error('catalogue changed'),{status:409,code:'marketing_catalog_changed'});return {...listCases(url),catalog_sha256:'f'.repeat(64)};}});
+  await e.panel.load({project:'p'});await settle();await chooseCase(e);changed=true;await btn(e.root,'加载更多创意').onclick();await btn(e.root,'重新载入目录').onclick();assert.equal(new URL(caseLists(e).at(-1).url,'http://test').searchParams.has('catalog_sha256'),false);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));assert.equal(writes(e).length,0);e.panel.suspend();
+});
+
+test('late filter success and error cannot overwrite the newest category or choose a detached card',async()=>{
+  storage.clear();let finish;const old=new Promise(r=>finish=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('category_name')==='视觉吸睛'?old:undefined);
+  await e.panel.load({project:'p'});await settle();const detached=caseCards(e)[0].querySelector('.marketing-case-select');const pending=category(e,'视觉吸睛').onclick();await category(e,'品牌心智').onclick();finish(listCases('/api/v1/marketing-cases?category_name=视觉吸睛'));await pending;
+  assert.equal(caseCards(e).length,6);await detached.onclick();assert.equal(cls(e.root,'marketing-case-chip').textContent,'');assert.equal(category(e,'品牌心智').attributes['aria-pressed'],'true');e.panel.suspend();
+});
+
+test('case data is isolated by actor/project, while a projectless choice seeds only its first project',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:null});await settle();await chooseCase(e);control(e.root,'归属项目').value='p';await control(e.root,'归属项目').onchange();await settle();assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));
+  await e.panel.load({project:'q'});assert.equal(cls(e.root,'marketing-case-chip').textContent,'');await e.panel.load({project:'p'});assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));e.session.actor='other';await e.panel.load({project:'p'});assert.equal(cls(e.root,'marketing-case-chip').textContent,'');e.panel.suspend();
+});
+
+test('closing or switching details fences late replies and Escape returns focus without selection',async()=>{
+  storage.clear();let finish;const wait=new Promise(r=>finish=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases/'+encodeURIComponent(caseFixture.case.id)+'?')?wait:undefined);
+  await e.panel.load({project:'p'});await settle();const first=caseCards(e)[0],pending=first.onclick();await caseCards(e)[1].onclick();const title=cls(e.root,'marketing-case-dialog').attributes['aria-label'];finish({...caseFixture.detail,case:caseFixture.case});await pending;assert.equal(cls(e.root,'marketing-case-dialog').attributes['aria-label'],title);
+  const dialog=cls(e.root,'marketing-case-dialog'),trigger=caseCards(e)[1];await dialog.oncancel({preventDefault(){}});assert.equal(cls(e.root,'marketing-case-dialog'),null);assert.equal(document.activeElement,trigger);assert.equal(cls(e.root,'marketing-case-chip').textContent,'');e.panel.suspend();
+});
+
+test('single explicit preview uses original public URL without proxies and pauses on error, filtering, hiding and suspend',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();let stopped=false;const first=caseCards(e)[0],video=first.querySelector('video');await first.querySelector('.marketing-case-play').onclick({stopPropagation(){stopped=true;}});assert.equal(stopped,true);assert.equal(caseDetails(e).length,0);assert.equal(video.src,caseFixture.case.video_url);assert.equal(video.crossOrigin,'anonymous');assert.equal(video.preload,'none');assert.equal(video.muted,true);assert.equal(video.playsInline,true);
+  const second=caseCards(e)[1],v2=second.querySelector('video');await second.querySelector('.marketing-case-play').onclick();assert.ok(video.pauseCount>0);v2.onerror();assert.match(second.querySelector('.marketing-case-play').textContent,/暂不可用/);
+  await first.querySelector('.marketing-case-play').onclick();document.hidden=true;document.fire('visibilitychange');document.hidden=false;assert.ok(video.pauseCount>=2);await first.querySelector('.marketing-case-play').onclick();await category(e,'品牌心智').onclick();assert.ok(video.pauseCount>=3);
+  const active=caseCards(e)[0].querySelector('video');await caseCards(e)[0].querySelector('.marketing-case-play').onclick();e.panel.suspend();assert.ok(active.pauseCount>0);assert.equal(e.calls.some(c=>c.url.startsWith('https:')),false);
+});
+
+test('hover honours pointer and reduced-motion settings while keyboard/touch playback remains explicit',async()=>{
+  storage.clear();const prior=globalThis.matchMedia;globalThis.matchMedia=q=>({matches:q.includes('hover')});const e=environment();await e.panel.load({project:'p'});await settle();const card=caseCards(e)[0],video=card.querySelector('video');card.onpointerenter({pointerType:'mouse'});assert.equal(video.playCount,1);card.onpointerleave();assert.equal(video.pauseCount,1);
+  globalThis.matchMedia=()=>({matches:true});card.onpointerenter({pointerType:'mouse'});assert.equal(video.playCount,1);await card.querySelector('.marketing-case-play').onclick();assert.equal(video.playCount,2);card.onpointerleave();card.onpointerenter({pointerType:'touch'});assert.equal(video.playCount,2);e.panel.suspend();globalThis.matchMedia=prior;
+});
+
+test('late preview resolution and detail errors after suspend never revive media or a dialog',async()=>{
+  storage.clear();let resolve,reject;const play=new Promise(r=>resolve=r),detail=new Promise((_r,r)=>reject=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases/')?detail:undefined);
+  await e.panel.load({project:'p'});await settle();const card=caseCards(e)[0],video=card.querySelector('video');video.playResult=play;await card.querySelector('.marketing-case-play').onclick();const pending=card.onclick();e.panel.suspend();resolve();reject(Error('late detail'));await pending;await settle();assert.equal(cls(e.root,'marketing-case-dialog'),null);assert.ok(video.pauseCount>=1);
+});
+
+test('synthetic multi-example groups switch the real selected example and fence the old detail',async()=>{
+  storage.clear();const group=clone(caseFixture.pages[0].items[0]),second={...clone(caseFixture.second_case),group_key:group.group_key,group_name:group.group_name,video_name:'合成多例测试二'};group.examples.push(second);let resolve;const late=new Promise(r=>resolve=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')?{...caseFixture.pages[0],items:[group],total_available:1,next_page:null}:url.startsWith('/api/v1/marketing-cases/'+encodeURIComponent(caseFixture.case.id)+'?')?late:url.startsWith('/api/v1/marketing-cases/')?{...caseFixture.detail,case:second}:undefined);
+  await e.panel.load({project:'p'});await settle();const pending=caseCards(e)[0].onclick(),select=control(e.root,'切换详情案例');select.value=second.template_key;await select.onchange();resolve({...caseFixture.detail,case:caseFixture.case});await pending;assert.equal(control(e.root,'切换详情案例').value,second.template_key);await cls(e.root,'marketing-case-detail-select').onclick();assert.equal(JSON.parse(storage.get('vsc-marketing:draft:'+JSON.stringify(['a','p']))).case.id,second.id);assert.equal(writes(e).length,0);e.panel.suspend();
+});
+
+test('late catalogue responses are fenced by actor, project, account, locale and route',async()=>{
+  for(const change of ['actor','project','account','locale','route']){
+    storage.clear();let finish;const wait=new Promise(r=>finish=r),beforeLang=document.documentElement.lang,beforeRoute=location.search,e=environment(url=>url.startsWith('/api/v1/marketing-cases?')?wait:undefined);
+    await e.panel.load({project:'p'});if(change==='actor'){e.session.actor='b';await e.panel.load({project:'p'});}else if(change==='project')await e.panel.load({project:'q'});else if(change==='account')e.session.account_id='other-account';else if(change==='locale')document.documentElement.lang='different-locale';else location.search='?page=other';
+    finish(caseFixture.pages[0]);await settle();if(change==='actor'||change==='project')assert.equal(caseCards(e).length,20);else assert.equal(caseCards(e).length,0);
+    assert.equal(writes(e).length,0);e.panel.suspend();document.documentElement.lang=beforeLang;location.search=beforeRoute;
+  }
+});
+
+test('an obsolete catalogue error cannot replace the newest successful category',async()=>{
+  storage.clear();let reject;const wait=new Promise((_r,r)=>reject=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('category_name')==='视觉吸睛'?wait:undefined);
+  await e.panel.load({project:'p'});await settle();const pending=category(e,'视觉吸睛').onclick();await category(e,'品牌心智').onclick();reject(Error('obsolete error'));await pending;assert.equal(caseCards(e).length,6);assert.doesNotMatch(cls(e.root,'marketing-case-feedback').textContent,/obsolete error/);e.panel.suspend();
+});
+
+test('actual setLocale keeps visible case selection, details and preview usable without changing the composer',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();prompt(e.root,' 原文\n不随语言变化 ');const composer=control(e.root,'广告创作需求');
+    setLocale('en',{persist:false});assert.equal(caseCards(e).length,20);await chooseCase(e);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));
+    await caseCards(e)[0].onclick();assert.equal(caseDetails(e).length,1);await control(e.root,'关闭创意详情').onclick();const video=caseCards(e)[0].querySelector('video');await caseCards(e)[0].querySelector('.marketing-case-play').onclick();assert.equal(video.playCount,1);
+    assert.equal(control(e.root,'广告创作需求'),composer);assert.equal(composer.value,' 原文\n不随语言变化 ');assert.equal(writes(e).length,0);assert.equal(starts(e).length,0);
+  }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+});
+
+test('actual locale change automatically restarts an unfinished catalogue and rejects old success or error',async()=>{
+  for(const outcome of ['success','error']){
+    storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});let resolve,reject,count=0;const wait=new Promise((a,b)=>{resolve=a;reject=b;}),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&++count===1?wait:undefined);
+    try{
+      await e.panel.load({project:'p'});assert.equal(caseCards(e).length,0);setLocale('en',{persist:false});await settle();assert.equal(caseCards(e).length,20);assert.equal(caseLists(e).length,2);
+      if(outcome==='success')resolve({...caseFixture.pages[0],items:[]});else reject(Error('old-language error'));await settle();assert.equal(caseCards(e).length,20);assert.doesNotMatch(cls(e.root,'marketing-case-feedback').textContent,/old-language error/);
+      await chooseCase(e);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));assert.equal(writes(e).length,0);
+    }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+  }
+});
+
+test('locale change during page two preserves page one, rebinds its buttons and resumes the same page/H',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});let finish,count=0;const old=new Promise(r=>finish=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('page')==='2'&&++count===1?old:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();const loading=btn(e.root,'加载更多创意').onclick();assert.equal(caseCards(e).length,20);await chooseCase(e);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));
+    setLocale('en',{persist:false});await settle();assert.equal(caseCards(e).length,40);const reads=caseLists(e).filter(c=>new URL(c.url,'http://test').searchParams.get('page')==='2');assert.equal(reads.length,2);assert.equal(reads[0].url,reads[1].url);
+    finish({...caseFixture.pages[1],items:[]});await loading;assert.equal(caseCards(e).length,40);await chooseCase(e,1);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.second_case.group_name));
+  }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+});
+
+test('locale change closes old details and pauses preview without letting late media or detail callbacks affect the new view',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});let failOld,resolvePlay,detailCount=0;const detail=new Promise((_r,r)=>failOld=r),playing=new Promise(r=>resolvePlay=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases/')&&++detailCount===1?detail:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();const oldCard=caseCards(e)[0],oldVideo=oldCard.querySelector('video');oldVideo.playResult=playing;await oldCard.querySelector('.marketing-case-play').onclick();const reading=oldCard.onclick();assert.ok(cls(e.root,'marketing-case-dialog'));
+    setLocale('en',{persist:false});assert.equal(cls(e.root,'marketing-case-dialog'),null);assert.ok(oldVideo.pauseCount>0);const video=caseCards(e)[1].querySelector('video');await caseCards(e)[1].querySelector('.marketing-case-play').onclick();assert.equal(video.playCount,1);
+    failOld(Error('obsolete detail'));resolvePlay();await reading;await settle();assert.equal(cls(e.root,'marketing-case-dialog'),null);assert.equal(video.pauseCount||0,0);assert.doesNotMatch(cls(e.root,'marketing-case-feedback').textContent,/obsolete detail/);
+    await caseCards(e)[1].onclick();assert.equal(caseDetails(e).length,2);assert.equal(cls(e.root,'marketing-case-detail-status').textContent,'');
+  }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+});
+
+test('language change retains selected case, raw prompt, method, fifteen media, model order and original scope through unknown R or S',async()=>{
+  for(const phase of ['prepare','start']){
+    storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});let fail=true;const e=environment(url=>url.includes('/media?')?{items:Array.from({length:15},(_,i)=>({id:'locale-product-'+i,name:'原图'+i,modality:'image'})),total:15}:fail&&(phase==='prepare'?url.endsWith('marketing-canvases'):url.endsWith('/start'))?Promise.reject(Error('unknown response')):undefined);
+    try{
+      await e.panel.load({project:'p'});await settle();const raw=' 原商品事实\n不改空格 ';prompt(e.root,raw);await btn(e.root,'商品海报').onclick();for(const card of e.root.querySelectorAll('.marketing-media-card'))await card.querySelector('button').onclick();
+      for(const name of ['视频模型','图片模型']){const check=control(e.root,'优先模型 '+name);check.checked=true;check.onchange();}const mode=control(e.root,'创作模式');mode.value='auto_drafts';mode.onchange();const scope=control(e.root,translate(msg('ui.production_authorization_scope'))),reason=control(e.root,translate(msg('ui.reason_for_the_new_batch')));scope.value='new_batch';reason.value='语言切换前固定范围';await chooseCase(e);await send(e.root);
+      const first=writes(e)[0].init.body,original=JSON.parse(storage.get('vsc-marketing:request:'+JSON.stringify(['a','p']))),chip=cls(e.root,'marketing-case-chip').textContent,composer=control(e.root,'广告创作需求'),counts=[writes(e).length,starts(e).length,executes(e).length];
+      setLocale('en',{persist:false});await settle();assert.deepEqual([writes(e).length,starts(e).length,executes(e).length],counts);assert.equal(composer,control(e.root,'广告创作需求'));assert.equal(composer.value,raw);assert.equal(scope.value,'new_batch');assert.equal(reason.value,'语言切换前固定范围');assert.equal(cls(e.root,'marketing-case-chip').textContent,chip);await chooseCase(e,1);await control(e.root,'删除已选创意').onclick();assert.equal(cls(e.root,'marketing-case-chip').textContent,chip);
+      const after=JSON.parse(storage.get('vsc-marketing:request:'+JSON.stringify(['a','p'])));assert.deepEqual(after,original);fail=false;await send(e.root);if(phase==='prepare')assert.equal(writes(e)[1].init.body,first);else assert.equal(starts(e)[0].init.body,starts(e)[1].init.body);
+      const preparedBody=JSON.parse(writes(e)[0].init.body),started=JSON.parse(starts(e)[0].init.body);assert.equal(preparedBody.payload.media_ids.length,15);assert.equal(preparedBody.payload.method_id,'product-poster');assert.deepEqual(preparedBody.payload.case_ref,caseFixture.case_ref);assert.deepEqual(started.payload.model_ids,['video-model','image-model']);assert.equal(started.payload.execution_settings.execution_policy.authorization.reason,'语言切换前固定范围');assert.equal(e.nav.at(-1)[3].agent_turn,'t');
+    }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+  }
+});
+
+test('language change neither sends a new turn nor executes an unknown original T',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});let status='queued';const e=environment(url=>url.endsWith('/creative-canvas-agent-turns/t')?turn(status):url.endsWith('/execute')?(status='submission_unknown',Promise.reject(Error('execute response lost'))):undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();await chooseCase(e);prompt(e.root,'已有T');await send(e.root);const old=JSON.parse(storage.get('vsc-marketing:request:'+JSON.stringify(['a','p'])));setLocale('en',{persist:false});await settle();assert.equal(writes(e).length,1);assert.equal(starts(e).length,1);assert.equal(executes(e).length,1);await send(e.root);assert.equal(executes(e).length,1);assert.equal(e.nav.at(-1)[3].agent_turn,old.startResult.turn_id);
+  }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+});
+
+test('a language change applies the current debounced search once instead of stranding its pending timer',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const input=control(e.root,'搜索营销创意'),initial=caseLists(e).length;input.value=' 复古 ';input.oninput();setLocale('en',{persist:false});await settle();assert.equal(caseLists(e).length,initial+1);assert.equal(new URL(caseLists(e).at(-1).url,'http://test').searchParams.get('keyword'),'复古');await new Promise(r=>setTimeout(r,340));assert.equal(caseLists(e).length,initial+1);await chooseCase(e);assert.ok(cls(e.root,'marketing-case-chip').textContent);
+  }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+});
+
+test('suspending unsubscribes locale work and a reloaded catalogue restores exactly one current subscription',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});let calls=0,finish;const wait=new Promise(r=>finish=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&++calls===2?wait:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();e.panel.suspend();const grid=cls(e.root,'marketing-case-grid'),before=grid.textContent,first=caseCards(e)[0],reads=caseLists(e).length;setLocale('en',{persist:false});await settle();assert.equal(cls(e.root,'marketing-case-grid'),grid);assert.equal(grid.textContent,before);assert.equal(caseCards(e)[0],first);assert.equal(caseLists(e).length,reads);
+    await e.panel.load({project:'p'});setLocale('zh-cn',{persist:false});await settle();assert.equal(caseLists(e).length,reads+2);assert.equal(caseCards(e).length,20);finish(caseFixture.pages[0]);await settle();await chooseCase(e);assert.ok(cls(e.root,'marketing-case-chip').textContent);
+  }finally{e.panel.suspend();setLocale(locale,{persist:false});}
+});
+
+test('locale rebinding disconnects stale masonry observers and preserves measured card reflow',async()=>{
+  storage.clear();const locale=getLocale(),previousObserver=globalThis.ResizeObserver,observers=[];setLocale('zh-cn',{persist:false});globalThis.ResizeObserver=class {constructor(fn){this.fn=fn;observers.push(this);}observe(){}disconnect(){this.disconnected=true;}};const e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const old=observers.at(-1);setLocale('en',{persist:false});const current=observers.at(-1);assert.notEqual(old,current);assert.equal(old.disconnected,true);const card=caseCards(e)[0],before=card.style.gridRowEnd;card.offsetHeight=80;old.fn();assert.equal(card.style.gridRowEnd,before);current.fn();assert.ok(Number(card.style.gridRowEnd.split(' ').at(-1))<Number(before.split(' ').at(-1)));assert.equal(caseCards(e).length,20);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();globalThis.ResizeObserver=previousObserver;setLocale(locale,{persist:false});}
+});
+
+function scrollObservers({width=1024,intersection=true}={}){
+  const previousIO=globalThis.IntersectionObserver,previousRO=globalThis.ResizeObserver,previousWidth=Element.layoutWidth,intersections=[],layouts=[];Element.layoutWidth=width;
+  class IO{constructor(fn,options){this.fn=fn;this.options=options;intersections.push(this);}observe(target){this.target=target;}disconnect(){this.disconnected=true;}enter(isIntersecting=true){return this.fn([{target:this.target,isIntersecting}]);}}
+  globalThis.IntersectionObserver=intersection?IO:undefined;globalThis.ResizeObserver=class {constructor(fn){this.fn=fn;layouts.push(this);}observe(){}disconnect(){this.disconnected=true;}};
+  return {intersections,layouts,active:()=>intersections.findLast(o=>!o.disconnected&&o.target),restore(){globalThis.IntersectionObserver=previousIO;globalThis.ResizeObserver=previousRO;Element.layoutWidth=previousWidth;}};
+}
+
+test('intersecting the sentinel uses the scroll root and loads the next pinned page once while busy callbacks cannot repeat it',async()=>{
+  storage.clear();const o=scrollObservers();let finish;const hold=new Promise(r=>finish=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('page')==='2'?hold:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();const observer=o.active();assert.ok(observer);assert.equal(observer.options.root,e.root);assert.equal(observer.options.rootMargin,'160px');assert.equal(observer.options.threshold,0);assert.equal(observer.target.attributes['aria-hidden'],'true');const initial=caseLists(e).length;observer.enter(false);assert.equal(caseLists(e).length,initial);
+    const pending=observer.enter();observer.enter();assert.equal(observer.disconnected,true);assert.equal(o.active(),undefined);assert.equal(btn(e.root,'加载更多创意').disabled,true);await btn(e.root,'加载更多创意').onclick();assert.equal(caseLists(e).length,initial+1);
+    const request=new URL(caseLists(e).at(-1).url,'http://test');assert.equal(request.searchParams.get('page'),'2');assert.equal(request.searchParams.get('catalog_sha256'),caseFixture.catalog_sha256);finish(caseFixture.pages[1]);await pending;assert.equal(caseCards(e).length,40);assert.ok(o.active());assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('unmeasured masonry defers sentinel observation until container and card measurements are ready',async()=>{
+  storage.clear();const o=scrollObservers({width:0}),e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();assert.equal(caseCards(e).length,20);assert.equal(o.active(),undefined);assert.equal(btn(e.root,'加载更多创意').disabled,true);const reads=caseLists(e).length;await btn(e.root,'加载更多创意').onclick();assert.equal(caseLists(e).length,reads);
+    const grid=cls(e.root,'marketing-case-grid');grid.clientWidth=900;caseCards(e)[0].offsetHeight=0;o.layouts.at(-1).fn();assert.equal(o.active(),undefined);
+    for(const card of caseCards(e))card.offsetHeight=240;o.layouts.at(-1).fn();assert.ok(o.active());assert.equal(btn(e.root,'加载更多创意').disabled,false);await o.active().enter();assert.equal(caseCards(e).length,40);
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('rerendering measurements, filtering and locale changes disconnect obsolete sentinels without breaking current observation',async()=>{
+  storage.clear();const locale=getLocale();setLocale('zh-cn',{persist:false});const o=scrollObservers(),e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const first=o.active();o.layouts.at(-1).fn();assert.equal(first.disconnected,true);const measured=o.active(),reads=caseLists(e).length;first.enter();assert.equal(caseLists(e).length,reads);
+    await category(e,'视觉吸睛').onclick();assert.equal(measured.disconnected,true);const filtered=o.active();assert.ok(filtered);const after=caseLists(e).length;measured.enter();assert.equal(caseLists(e).length,after);
+    setLocale('en',{persist:false});assert.equal(filtered.disconnected,true);const rebound=o.active();filtered.enter();assert.equal(o.active(),rebound);assert.equal(caseLists(e).length,after);
+    const search=control(e.root,'搜索营销创意');search.value='新筛选';search.oninput();assert.equal(rebound.disconnected,true);rebound.enter();assert.equal(caseLists(e).length,after);
+  }finally{e.panel.suspend();o.restore();setLocale(locale,{persist:false});}
+});
+
+test('late sentinel callbacks cannot load under another actor/project/account/route or after suspend',async()=>{
+  for(const change of ['actor','project','account','route','suspend']){
+    storage.clear();const route=location.search,o=scrollObservers(),e=environment();
+    try{
+      await e.panel.load({project:'p'});await settle();const old=o.active();if(change==='actor'){e.session.actor='other';await e.panel.load({project:'p'});}else if(change==='project')await e.panel.load({project:'q'});else if(change==='account')e.session.account_id='different';else if(change==='route')location.search='?page=other';else e.panel.suspend();
+      await settle();const current=o.active(),reads=caseLists(e).length;old.enter();assert.equal(caseLists(e).length,reads);assert.equal(old.disconnected,true);if(change==='actor'||change==='project')assert.equal(o.active(),current);
+    }finally{e.panel.suspend();o.restore();location.search=route;}
+  }
+});
+
+test('automatic loading ends at the real filtered tail and never asks for a seventh source page',async()=>{
+  storage.clear();const o=scrollObservers(),e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();let final;while(o.active()){final=o.active();await final.enter();}
+    assert.equal(caseCards(e).length,114);assert.deepEqual(caseLists(e).map(c=>new URL(c.url,'http://test').searchParams.get('page')),['1','2','3','4','5','6']);assert.equal(cls(e.root,'marketing-case-sentinel'),null);assert.equal(btn(e.root,'加载更多创意'),undefined);const reads=caseLists(e).length;final.enter();final.enter();assert.equal(caseLists(e).length,reads);
+    await category(e,'视觉吸睛').onclick();await o.active().enter();assert.equal(caseCards(e).length,27);assert.equal(o.active(),undefined);assert.equal(btn(e.root,'加载更多创意'),undefined);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('automatic page failures stop observation and explicit retry retains the exact page and H',async()=>{
+  storage.clear();const o=scrollObservers();let fail=true;const e=environment(url=>fail&&url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('page')==='2'?Promise.reject(Error('page transport error')):undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();const old=o.active();await old.enter();assert.equal(caseCards(e).length,20);assert.equal(o.active(),undefined);const reads=caseLists(e).length,url=caseLists(e).at(-1).url;old.enter();assert.equal(caseLists(e).length,reads);fail=false;await btn(e.root,'重试读取创意').onclick();assert.equal(caseLists(e).at(-1).url,url);assert.equal(caseCards(e).length,40);assert.ok(o.active());
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('manual loading remains available and bounded when IntersectionObserver is not supported',async()=>{
+  storage.clear();const o=scrollObservers({intersection:false}),e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();assert.equal(cls(e.root,'marketing-case-sentinel'),null);const manual=btn(e.root,'加载更多创意');assert.equal(manual.tagName,'BUTTON');assert.equal(manual.type,'button');assert.equal(manual.disabled,false);while(btn(e.root,'加载更多创意'))await btn(e.root,'加载更多创意').onclick();assert.equal(caseCards(e).length,114);assert.equal(caseLists(e).length,6);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('a total already reached or an empty next page cannot manufacture further observation or pseudo pages',async()=>{
+  for(const variant of ['total','empty']){
+    storage.clear();const o=scrollObservers(),e=environment(url=>{if(!url.startsWith('/api/v1/marketing-cases?'))return;const page=new URL(url,'http://test').searchParams.get('page');if(variant==='total'&&page==='1')return {...caseFixture.pages[0],total_available:20,next_page:2};if(variant==='empty'&&page==='2')return {...caseFixture.pages[1],items:[],next_page:3};});
+    try{
+      await e.panel.load({project:'p'});await settle();if(variant==='empty')await o.active().enter();assert.equal(o.active(),undefined);assert.equal(btn(e.root,'加载更多创意'),undefined);assert.equal(caseLists(e).length,variant==='total'?1:2);
+    }finally{e.panel.suspend();o.restore();}
+  }
+});
+
+test('hidden or leaving pages disconnect the observer and a visible current view can safely resume',async()=>{
+  storage.clear();const previousWindow=globalThis.window,listeners=new Map();globalThis.window={addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);}};const o=scrollObservers(),e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const old=o.active();document.hidden=true;document.fire('visibilitychange');assert.equal(old.disconnected,true);assert.equal(o.active(),undefined);const reads=caseLists(e).length;old.enter();assert.equal(caseLists(e).length,reads);document.hidden=false;document.fire('visibilitychange');assert.ok(o.active());const visible=o.active();
+    for(const fn of listeners.get('popstate'))fn();assert.equal(visible.disconnected,true);visible.enter();assert.equal(caseLists(e).length,reads);
+  }finally{e.panel.suspend();document.hidden=false;o.restore();globalThis.window=previousWindow;}
+});
+
+test('a busy original marketing write prevents auto or manual paging and resumes only read-only continuation afterwards',async()=>{
+  storage.clear();const o=scrollObservers();let finish;const hold=new Promise(r=>finish=r),e=environment((url,init)=>init?.method==='POST'&&url.endsWith('marketing-canvases')?hold:undefined);
+  try{
+    await e.panel.load({project:'p'});await settle();await chooseCase(e);prompt(e.root,'固定原意图');const old=o.active(),reads=caseLists(e).length,pending=send(e.root);await tick();assert.equal(old.disconnected,true);assert.equal(o.active(),undefined);old.enter();await btn(e.root,'加载更多创意').onclick();assert.equal(caseLists(e).length,reads);finish(prepared());await pending;assert.equal(writes(e).length,1);assert.equal(starts(e).length,1);assert.equal(executes(e).length,1);await o.active().enter();assert.equal(caseCards(e).length,40);assert.equal(writes(e).length,1);assert.equal(e.nav[0][3].agent_turn,'t');
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('an obsolete catalogue-H observer cannot continue after an explicit directory reload',async()=>{
+  storage.clear();const o=scrollObservers();let changed=false;const nextH='f'.repeat(64),e=environment(url=>{if(changed&&url.startsWith('/api/v1/marketing-cases?')){const p=new URL(url,'http://test').searchParams;if(p.get('catalog_sha256')===caseFixture.catalog_sha256)throw Object.assign(Error('catalogue changed'),{status:409,code:'marketing_catalog_changed'});return {...listCases(url),catalog_sha256:nextH};}});
+  try{
+    await e.panel.load({project:'p'});await settle();await chooseCase(e);const old=o.active();changed=true;await old.enter();assert.equal(o.active(),undefined);await btn(e.root,'重新载入目录').onclick();const current=o.active(),reads=caseLists(e).length;assert.ok(current);old.enter();assert.equal(o.active(),current);assert.equal(caseLists(e).length,reads);await current.enter();assert.equal(new URL(caseLists(e).at(-1).url,'http://test').searchParams.get('catalog_sha256'),nextH);assert.match(cls(e.root,'marketing-case-chip').textContent,new RegExp(caseFixture.case.group_name));assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();o.restore();}
+});
+
+test('automatic paging pauses while details are open and rearms only after the user closes them',async()=>{
+  storage.clear();const o=scrollObservers(),e=environment();
+  try{
+    await e.panel.load({project:'p'});await settle();const old=o.active();await caseCards(e)[0].onclick();assert.equal(old.disconnected,true);assert.equal(o.active(),undefined);const reads=caseLists(e).length;old.enter();assert.equal(caseLists(e).length,reads);assert.ok(cls(e.root,'marketing-case-dialog'));await control(e.root,'关闭创意详情').onclick();assert.ok(o.active());await o.active().enter();assert.equal(caseCards(e).length,40);assert.equal(writes(e).length,0);
+  }finally{e.panel.suspend();o.restore();}
 });

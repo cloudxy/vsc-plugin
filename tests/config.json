@@ -40,7 +40,9 @@
         "src/vsc/interfaces/web/static/production-platform.js",
         "src/vsc/interfaces/web/static/panel.js",
         "tests/project/unit/production_platform_recovery.test.mjs",
-        "tests/project/unit/marketing_studio.test.mjs"
+        "tests/project/unit/marketing_studio.test.mjs",
+        "src/vsc/assets/marketing_cases.py",
+        "src/vsc/assets/marketing-cases.json"
       ]
     },
     "assets.integration.test_edit_preview": {
@@ -2127,6 +2129,24 @@
       "sources": [
         "src/vsc/production/canvas_agent.py",
         "src/vsc/production/spatial_planner.py"
+      ]
+    },
+    "production.unit.test_canvas_marketing_cases": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/canvas_agent.py",
+        "src/vsc/assets/marketing_cases.py"
+      ]
+    },
+    "assets.unit.test_marketing_cases": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/marketing_cases.py",
+        "src/vsc/assets/marketing-cases.json",
+        "src/vsc/assets/marketing_studio.py",
+        "src/vsc/interfaces/web/marketing_studio.py"
       ]
     }
   },

@@ -79,11 +79,13 @@ class MarketingStartTests(ResourceStoreFixture, unittest.TestCase):
         previous_backend = getattr(self.service, "canvas_agent_backend", None)
         self.addCleanup(setattr, self.service, "canvas_agent_backend", previous_backend)
 
-    def prepare(self, method=None, media_ids=None, episode_id=None, prompt=" \n仅补问，不生成媒体。🛍\n "):
+    def prepare(self, method=None, media_ids=None, episode_id=None, prompt=" \n仅补问，不生成媒体。🛍\n ", case_ref=None):
         root = str(uuid.uuid4())
         payload = dict(prompt=prompt, media_ids=media_ids or [], episode_id=episode_id)
         if method:
             payload.update(method_id=method["id"], method_version=method["version"], method_sha256=method["sha256"])
+        if case_ref is not None:
+            payload["case_ref"] = case_ref
         prepared = self.write("create_marketing_canvas", payload, idempotency_key=root)
         return prepared, root
 
@@ -166,15 +168,19 @@ class MarketingStartTests(ResourceStoreFixture, unittest.TestCase):
 
     def test_fifteen_images_seventeen_refs_full_method_and_catalog_upgrade(self):
         import hashlib
+        from vsc.assets.marketing_cases import list_cases, case_spec_from_params
+        case = list_cases()["items"][0]["examples"][0]
+        case_ref = {key: case[key] for key in ("id", "version", "sha256")}
         images = [self.actual_image("product-" + str(i)) for i in range(15)]
         methods = marketing_methods()
         method = methods[0]
         method["text"] += "\n固定完整方法正文" * 800
         method["sha256"] = hashlib.sha256(method["text"].encode()).hexdigest()
         with patch("vsc.assets.marketing_studio.marketing_methods", return_value=methods):
-            prepared, root = self.prepare(method, images)
+            prepared, root = self.prepare(method, images, case_ref=case_ref)
         body = self.body(prepared, root)
-        with patch("vsc.assets.marketing_studio.marketing_methods", side_effect=AssertionError("start must use pinned method")):
+        with patch("vsc.assets.marketing_studio.marketing_methods", side_effect=AssertionError("start must use pinned method")), \
+                patch("vsc.assets.marketing_cases.load_catalog", side_effect=AssertionError("start must use pinned case")):
             response = self.post(prepared, body)
         self.assertEqual(response.status_code, 200, response.text)
         turn = self.service.get_canvas_agent_turn(self.p, response.json()["turn_id"])
@@ -185,6 +191,7 @@ class MarketingStartTests(ResourceStoreFixture, unittest.TestCase):
         self.assertGreater(len(fixed_method["text"]), 6000)
         self.assertEqual(fixed_method["text"], method["text"])
         self.assertFalse(fixed_method["text_excerpt"])
+        self.assertEqual(case_spec_from_params(turn["referenced_nodes"][0]["params"]), case)
         media = self.service.get_media(self.p, images[0])
         self.service.storage.resolve(media["locations"][0]["object_key"]).unlink()
         replay = self.post(prepared, body)
