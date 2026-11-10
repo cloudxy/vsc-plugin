@@ -147,8 +147,9 @@ class GrokBuildCanvasAgent:
 
 
 def prepare_attachments(service,p,turn):
+    from vsc.assets.marketing_cases import case_spec_from_params
     from vsc.production.spatial_planner import reference_blocks
-    result=dict(turn);texts=[];images=[];image_by_sha={};image_shas={};basis=[]
+    result=dict(turn);texts=[];images=[];image_by_sha={};image_shas={};basis=[];marketing_case=None;brief_count=0
     def fixed_media(media_id,sha,code):
         if not isinstance(media_id,str) or not media_id or not isinstance(sha,str) or len(sha)!=64 or any(c not in '0123456789abcdef' for c in sha):
             raise ResourceError('固定参考缺少媒体或完整摘要',code)
@@ -185,6 +186,10 @@ def prepare_attachments(service,p,turn):
                 raise ResourceError('营销原始需求和固定方法必须提供完整正文，请重读原规划','canvas_reference_text_incomplete')
             if role=='method' and hashlib.sha256(node['text'].encode('utf-8')).hexdigest()!=params.get('method_sha256'):
                 raise ResourceError('固定营销方法正文与摘要不符','canvas_reference_changed')
+        if role=='brief':
+            brief_count+=1
+            fixed_case=case_spec_from_params(params)
+            if fixed_case is not None:marketing_case=fixed_case
         if role!='material':continue
         media=fixed_media(node.get('media_id'),params.get('source_sha256'),'canvas_reference_changed')
         if node.get('type') not in {'image','video'} or media['modality']!=node['type']:
@@ -195,6 +200,11 @@ def prepare_attachments(service,p,turn):
         else:
             source['basis']='仅固定视频引用；未观看、未取样、未听取，不能声称已完成视频分析。'
         basis.append(source)
+    if marketing_case is not None and brief_count!=1:
+        raise ResourceError('固定营销案例需要唯一的原始需求引用，请重读原规划','canvas_marketing_case_reference')
+    result['marketing_case']=marketing_case
+    result['case_basis']=('留存外部目录元数据；源私有方法未知；案例视频未观看、未取样、未听取。'
+        '案例URL仅作元数据，不代表已提供参考图或生成输入。' if marketing_case is not None else '本轮未固定营销创意案例。')
     result['attachment_texts']=texts;result['_media_blocks']=reference_blocks(service,p,{'reference_media':images})
     if len(json.dumps(result['_media_blocks'],ensure_ascii=False).encode('utf-8'))>REFERENCE_PAYLOAD_MAX_BYTES:
         raise ResourceError('本机规划的编码图片上下文超过20MiB；请减少本轮引用或缩小图片后建立新一轮，不会省略图片','canvas_reference_limit')

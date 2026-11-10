@@ -1,6 +1,8 @@
 """Marketing preparation → original canvas/receipt → real media and Agent refs."""
 from copy import deepcopy
 import hashlib
+import json
+from pathlib import Path
 import shutil
 import tempfile
 import unittest
@@ -120,6 +122,261 @@ class MarketingStudioHTTPTests(ResourceStoreFixture, unittest.TestCase):
             rights="owned", source=dict(kind="test-owned", content="Synthetic marketing media")))
         self.assertEqual(media.status_code, 200, media.text)
         return media.json()["id"], content
+
+    def test_case_http_catalog_projection_prepare_and_recovery_without_current_catalog(self):
+        from urllib.parse import quote
+        from vsc.assets.marketing_cases import case_spec_from_params
+        pages = []
+        catalog_sha = None
+        for number in range(1, 7):
+            response = self.client.get("/api/v1/marketing-cases", params=dict(page=number, **({"catalog_sha256": catalog_sha} if catalog_sha else {})))
+            self.assertEqual(response.status_code, 200, response.text)
+            page = response.json()
+            catalog_sha = page["catalog_sha256"]
+            pages.append(page)
+        self.assertEqual([len(page["items"]) for page in pages], [20, 20, 20, 20, 20, 14])
+        cases = [case for page in pages for group in page["items"] for case in group["examples"]]
+        selected, alternate = cases[:2]
+        ref = lambda case: {key: case[key] for key in ("id", "version", "sha256")}
+        observed = next(case for case in cases if case["template_key"] == "approved_7135edbbae7c4181")
+        detail = self.client.get("/api/v1/marketing-cases/" + quote(observed["id"], safe=""), params={k: observed[k] for k in ("version", "sha256")})
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.json()["case"], observed)
+        self.assertTrue(detail.json()["detail_coverage"]["observed_source_detail"])
+        Path("/private/tmp/marketing-cases-http-fixture.json").write_text(json.dumps(dict(pages=pages, detail=detail.json(),
+            case=selected, case_ref=ref(selected), second_case=alternate, second_case_ref=ref(alternate), catalog_sha256=catalog_sha), ensure_ascii=False, indent=2) + "\n")
+        for query, status in ((dict(catalog_sha256="0" * 64), 409), (dict(category_name="unknown"), 422), (dict(page_size=21), 422)):
+            with self.subTest(query=query):
+                self.assertEqual(self.client.get("/api/v1/marketing-cases", params=query).status_code, status)
+        unknown = self.client.get("/api/v1/marketing-cases/skyproduction:unknown", params=dict(version=1, sha256="0" * 64))
+        self.assertEqual(unknown.status_code, 404, unknown.text)
+        image, _ = self.actual_media()
+        method = marketing_methods()[1]
+        raw = " \n原商品海报需求🛍\n "
+        payload = dict(prompt=raw, case_ref=ref(selected), method_id=method["id"], method_version=method["version"],
+            method_sha256=method["sha256"], media_ids=[image])
+        before = self.rev
+        prepared = self.command("/marketing-canvases", payload, key="selected-case")
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        original = prepared.json()
+        canvas = self.client.get(self.base + "/creative-canvases/" + original["canvas_id"]).json()
+        self.assertEqual(len(canvas["document"]["nodes"]), 3)
+        brief, fixed_method = canvas["document"]["nodes"][:2]
+        self.assertEqual(brief["text"], raw)
+        self.assertEqual(fixed_method["text"], method["text"])
+        self.assertEqual(len(brief["params"]), 21)
+        self.assertEqual(case_spec_from_params(brief["params"]), selected)
+        from vsc.assets.marketing_studio import marketing_start_key
+        start_input = dict(prepare_key="selected-case", canvas_revision=original["canvas_revision"], canvas_sha256=original["sha256"],
+            model_ids=[], mode="manual", execution_settings={})
+        started = self.command("/marketing-canvases/" + original["canvas_id"] + "/start", start_input, key=marketing_start_key("selected-case"))
+        self.assertEqual(started.status_code, 200, started.text)
+        start_result = started.json()
+        with patch("vsc.assets.marketing_cases.load_catalog", side_effect=AssertionError("historical R/S/T must be self contained")):
+            replay = self.command("/marketing-canvases", payload, expected=before, key="selected-case")
+            self.assertEqual(replay.status_code, 200, replay.text)
+            self.assertEqual(replay.json(), original)
+            for changed in (dict(payload, case_ref=ref(alternate)), dict(payload, case_ref=None),
+                            {k: v for k, v in payload.items() if k != "case_ref"}):
+                with self.subTest(changed=changed):
+                    conflict = self.command("/marketing-canvases", changed, expected=before, key="selected-case")
+                    self.assertEqual(conflict.status_code, 409, conflict.text)
+                    self.assertEqual(conflict.json()["error"], "idempotency_conflict")
+            replay_start = self.command("/marketing-canvases/" + original["canvas_id"] + "/start", start_input,
+                expected=start_result["revision"] - 1, key=marketing_start_key("selected-case"))
+            self.assertEqual(replay_start.json(), start_result)
+            turn = self.client.get(self.base + "/creative-canvas-agent-turns/" + start_result["turn_id"]).json()
+            self.assertEqual(turn["message"], raw)
+            self.assertEqual(case_spec_from_params(turn["referenced_nodes"][0]["params"]), selected)
+        self.rev = self.service.get_project(self.p)["revision"]
+        for bad in (dict(payload, case_ref=dict(ref(selected), version=2)), dict(payload, case_ref=selected), dict(payload, prompt="")):
+            with self.subTest(bad=bad):
+                rejected = self.command("/marketing-canvases", bad)
+                self.assertIn(rejected.status_code, {409, 422}, rejected.text)
+
+    def test_real_legacy_030_receipt_accepts_omitted_or_null_case_without_changing_document(self):
+        # Literal 0.47.30 golden, captured before case support; deliberately
+        # register via the original canvas command, never new prepare helpers.
+        golden = {"title": "营销工作室 · 通用需求", "episode_id": None, "document": {"edges": [], "nodes": [
+            {"group": "", "id": "marketing-brief", "job_id": None, "media_id": None,
+             "params": {"marketing_request_sha256": "5aed26603b8d084949126662607430db194af4f10fea51ee336e7eb101632b62",
+                        "marketing_role": "brief", "skill_id": "vsc-assets"},
+             "text": "  旧版原始需求🛍\n", "title": "营销原始需求", "type": "text", "x": 80.0, "y": 80.0}],
+            "viewport": {"x": 0.0, "y": 0.0, "zoom": 1.0}}}
+        old = self.write("create_creative_canvas", golden, idempotency_key="legacy-before-case")
+        expected = dict(old, canvas_id=old["id"], episode_id=None, provider_submitted=False, brief_node_id="marketing-brief",
+            method_node_id=None, material_node_ids=[], agent_handoff=dict(skill_id="vsc-assets", node_ids=["marketing-brief"], message="  旧版原始需求🛍\n"))
+        with patch("vsc.assets.marketing_cases.load_catalog", side_effect=AssertionError("legacy must not read current catalog")):
+            for extra in ({}, {"case_ref": None}):
+                with self.subTest(extra=extra):
+                    restored = self.command("/marketing-canvases", dict(prompt="  旧版原始需求🛍\n", **extra), expected=0, key="legacy-before-case")
+                    self.assertEqual(restored.status_code, 200, restored.text)
+                    self.assertEqual(restored.json(), expected)
+        document = self.service.get_creative_canvas(self.p, old["id"])["document"]
+        self.assertEqual(document, golden["document"])
+        from vsc.assets.marketing_cases import list_cases
+        case = list_cases()["items"][0]["examples"][0]
+        conflict = self.command("/marketing-canvases", dict(prompt="  旧版原始需求🛍\n", case_ref={k: case[k] for k in ("id", "version", "sha256")}),
+            expected=0, key="legacy-before-case")
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        self.assertEqual(conflict.json()["error"], "idempotency_conflict")
+
+    def test_case_pg_turn_reaches_original_prompt_file_with_fifteen_image_refs(self):
+        import base64
+        import io
+        import os
+        from PIL import Image
+        from sqlalchemy import func, select
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.marketing_cases import case_spec_from_params
+        from vsc.assets.marketing_studio import marketing_start_key
+        from vsc.production.canvas_agent import GrokBuildCanvasAgent
+
+        # Fifteen registrations deliberately contain five distinct byte hashes.
+        # Fixed refs remain fifteen; host image blocks must honor byte aliases.
+        media_ids, shas = [], {}
+        for index in range(15):
+            data = io.BytesIO()
+            color = index % 5
+            Image.new("RGB", (12, 9), (color * 31, color * 19, color * 13)).save(data, format="PNG")
+            raw_image = data.getvalue()
+            uploaded = self.client.post(self.base + "/uploads", content=raw_image,
+                headers=dict(self.headers, **{"X-Filename": "integrated-" + str(index) + ".png"}))
+            self.assertEqual(uploaded.status_code, 200, uploaded.text)
+            registered = self.command("/media", dict(staged_upload=uploaded.json()["staged_upload"], name="合成商品图" + str(index),
+                rights="owned", source=dict(kind="test-owned", content="Synthetic integrated planning bytes")))
+            self.assertEqual(registered.status_code, 200, registered.text)
+            identifier = registered.json()["id"]
+            media_ids.append(identifier)
+            shas[identifier] = hashlib.sha256(raw_image).hexdigest()
+        case = self.client.get("/api/v1/marketing-cases").json()["items"][0]["examples"][0]
+        method = marketing_methods()[1]
+        raw_prompt = " \n真实PG原始首句🛍；只补问，不执行媒体。\r\n "
+        root = str(uuid.uuid4())
+        request = dict(prompt=raw_prompt, case_ref={k: case[k] for k in ("id", "version", "sha256")}, media_ids=media_ids,
+            method_id=method["id"], method_version=method["version"], method_sha256=method["sha256"])
+        prepared = self.command("/marketing-canvases", request, key=root)
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        fixed = prepared.json()
+        started = self.command("/marketing-canvases/" + fixed["canvas_id"] + "/start", dict(prepare_key=root,
+            canvas_revision=fixed["canvas_revision"], canvas_sha256=fixed["sha256"], model_ids=[], mode="manual", execution_settings={}),
+            key=marketing_start_key(root))
+        self.assertEqual(started.status_code, 200, started.text)
+        receipt = started.json()
+        path = self.base + "/creative-canvas-agent-turns/" + receipt["turn_id"]
+        before = self.client.get(path).json()
+        self.assertEqual(before["status"], "queued")
+        self.assertEqual(len(before["referenced_nodes"]), 17)
+        self.assertEqual(before["attachments"], [])
+        self.assertEqual(case_spec_from_params(before["referenced_nodes"][0]["params"]), case)
+        captures, claims = [], []
+        original_claim = self.store.claim_canvas_agent_turn
+
+        def claim(*args, **kwargs):
+            result = original_claim(*args, **kwargs)
+            claims.append(result["claimed"])
+            return result
+
+        class PromptCaptureProcess:
+            """OS pipes exercise the real bounded runner without spawning a process."""
+            returncode = 0
+            pid = None
+
+            def __init__(self, command, **kwargs):
+                prompt = Path(command[command.index("--prompt-file") + 1])
+                text = prompt.read_text(encoding="utf-8")
+                blocks = json.loads(text)
+                first = blocks[0]["text"]
+                payload = json.loads(first[first.index('{"role_context"'):])
+                captures.append(dict(command=list(command), blocks=blocks, payload=payload,
+                    prompt_file_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest()))
+                plan = dict(message="离线集成补问", questions=["请补充商品事实。"],
+                    actions=[dict(kind="none", title="", text="", source_node_id="")])
+                self.stdout = self.pipe(json.dumps(plan, ensure_ascii=False).encode("utf-8"))
+                self.stderr = self.pipe(b"")
+
+            @staticmethod
+            def pipe(data):
+                read_fd, write_fd = os.pipe()
+                try:
+                    if data:
+                        os.write(write_fd, data)
+                finally:
+                    os.close(write_fd)
+                return os.fdopen(read_fd, "rb", buffering=0)
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def poll(self):
+                return self.returncode
+
+        previous = getattr(self.service, "canvas_agent_backend", None)
+        self.addCleanup(setattr, self.service, "canvas_agent_backend", previous)
+        backend = GrokBuildCanvasAgent(executable="synthetic-no-cli")
+        self.service.canvas_agent_backend = backend
+        # generate(), role_planner, prompt-file creation and _run_bounded stay
+        # real. Only process construction is replaced; no CLI can be launched.
+        with patch.object(backend, "available", return_value=True), \
+                patch("vsc.assets.script_ai.subprocess.Popen", side_effect=PromptCaptureProcess) as process, \
+                patch("vsc.assets.script_ai.os.killpg", side_effect=AssertionError("no real process group exists")) as kill, \
+                patch.object(self.store, "claim_canvas_agent_turn", side_effect=claim):
+            executed = self.client.post(path + "/execute", headers=self.headers)
+            self.assertEqual(executed.status_code, 200, executed.text)
+            self.assertEqual(executed.json()["status"], "needs_input", executed.text)
+            repeated = self.client.post(path + "/execute", headers=self.headers)
+            self.assertEqual(repeated.status_code, 200, repeated.text)
+            self.assertEqual(repeated.json()["id"], receipt["turn_id"])
+            self.assertEqual(repeated.json()["status"], "needs_input")
+            reread = self.client.get(path)
+            self.assertEqual(reread.status_code, 200, reread.text)
+            self.assertEqual(reread.json()["id"], receipt["turn_id"])
+            self.assertEqual(process.call_count, 1)
+            kill.assert_not_called()
+        self.assertEqual(claims, [True, False])
+        self.assertEqual(len(captures), 1)
+        capture = captures[0]
+        payload, blocks = capture["payload"], capture["blocks"]
+        source = payload["input"]
+        self.assertEqual(payload["role_context"]["project"]["project_id"], self.p)
+        self.assertEqual(payload["role_context"]["dispatch"]["id"], receipt["dispatch_id"])
+        self.assertEqual(source["id"], receipt["turn_id"])
+        self.assertEqual(source["message"], raw_prompt)
+        self.assertEqual(source["marketing_case"], case)
+        self.assertEqual(len(source["marketing_case"]), 18)
+        self.assertEqual(source["referenced_nodes"], before["referenced_nodes"])
+        self.assertEqual(source["referenced_nodes"][0]["text"], raw_prompt)
+        self.assertEqual(source["referenced_nodes"][1]["text"], method["text"])
+        self.assertEqual(source["referenced_nodes"][1]["params"]["method_sha256"], method["sha256"])
+        self.assertEqual(len(source["referenced_nodes"]), 17)
+        self.assertEqual(len(source["reference_basis"]), 15)
+        self.assertEqual({ref["media_id"]: ref["sha256"] for ref in source["reference_basis"]}, shas)
+        self.assertEqual(source["attachments"], [])
+        self.assertIn("外部目录元数据", source["case_basis"])
+        self.assertIn("私有方法未知", source["case_basis"])
+        self.assertIn("未观看", source["case_basis"])
+        images = [block for block in blocks if block["type"] == "image"]
+        self.assertEqual(len(set(shas.values())), 5)
+        self.assertEqual(len(images), len(set(shas.values())))
+        for block in images:
+            with Image.open(io.BytesIO(base64.b64decode(block["data"]))) as image:
+                image.load()
+                self.assertEqual(image.format, "JPEG")
+        self.assertNotIn(case["video_url"], json.dumps(images))
+        self.assertNotIn(case["cover_url"], json.dumps(images))
+        command = capture["command"]
+        self.assertEqual(command[command.index("--tools") + 1], "")
+        self.assertIn("--no-subagents", command)
+        self.assertIn("--disable-web-search", command)
+        with self.engine.connect() as conn:
+            for table, count in ((S.canvas_agent_turns, 1), (S.canvas_agent_sessions, 1), (S.role_dispatches, 1),
+                                 (S.dispatch_consumptions, 1), (S.dispatch_returns, 1), (S.generation_jobs, 0), (S.artifact_decisions, 0)):
+                self.assertEqual(conn.scalar(select(func.count()).select_from(table).where(table.c.project_id == self.p)), count)
+        capture["checks"] = dict(project_id=self.p, canvas_id=fixed["canvas_id"], turn_id=receipt["turn_id"],
+            claim_flags=claims, registered_images=15, fixed_refs=17, distinct_image_sha256=len(set(shas.values())),
+            image_blocks=len(images), runner_calls=1, media_jobs=0, repeated_execute_and_get_same_turn=True)
+        Path("/private/tmp/marketing-cases-integrated-pg-capture-" + receipt["turn_id"] + ".json").write_text(
+            json.dumps(capture, ensure_ascii=False, indent=2) + "\n")
 
     def test_all_eight_methods_real_media_readback_and_original_agent_material(self):
         from sqlalchemy import func, select

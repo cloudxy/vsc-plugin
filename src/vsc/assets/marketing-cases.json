@@ -1,0 +1,2293 @@
+{
+  "format": "vsc.marketing-case-catalog/v1",
+  "catalog_version": "2026-11-09.1",
+  "metadata": {
+    "categories": [
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "template_count": 6
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "template_count": 27
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "template_count": 10
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "template_count": 28
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "template_count": 13
+      },
+      {
+        "category_name": "痛点转化",
+        "category_label": "痛点转化",
+        "template_count": 5
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "template_count": 9
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "template_count": 10
+      },
+      {
+        "category_name": "卖点组合",
+        "category_label": "卖点组合",
+        "template_count": 2
+      },
+      {
+        "category_name": "版本适配",
+        "category_label": "版本适配",
+        "template_count": 2
+      },
+      {
+        "category_name": "活动促销",
+        "category_label": "活动促销",
+        "template_count": 2
+      }
+    ],
+    "groups": [
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "group_key": "approved_092da543e904e7ca",
+        "group_name": "屏幕里的复古时装广告",
+        "group_description": "将时装广告嵌入电视播放画面，用片中片结构赋予品牌复古经典感。",
+        "examples": [
+          {
+            "template_key": "approved_092da543e904e7ca",
+            "video_name": "屏幕里的复古时装广告",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_092da543e904e7ca.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_092da543e904e7ca.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "group_key": "approved_6639a6293dedca6f",
+        "group_name": "品牌主张情绪叙事",
+        "group_description": "以电影化画面和声音表现品牌的重要时刻，通过有情感的叙事传递价值认同。",
+        "examples": [
+          {
+            "template_key": "approved_6639a6293dedca6f",
+            "video_name": "品牌主张情绪叙事",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6639a6293dedca6f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6639a6293dedca6f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "group_key": "approved_322e51560f7542e3",
+        "group_name": "云海幻境奢品片",
+        "group_description": "让奢侈品置身漂浮岛屿、粉紫云层与奇幻建筑，形成梦境般的展示。",
+        "examples": [
+          {
+            "template_key": "approved_322e51560f7542e3",
+            "video_name": "云海幻境奢品片",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_322e51560f7542e3.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_322e51560f7542e3.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "group_key": "approved_42ea3604be957991",
+        "group_name": "经典TVC品牌叙事",
+        "group_description": "用电视广告式构图、旁白、音乐与片尾品牌画面，在约30秒内形成明确记忆点。",
+        "examples": [
+          {
+            "template_key": "approved_42ea3604be957991",
+            "video_name": "经典TVC品牌叙事",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_42ea3604be957991.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_42ea3604be957991.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "group_key": "approved_16166ff7862b806c",
+        "group_name": "风景旅程情感短片",
+        "group_description": "让产品伴随壮丽风景与浪漫行程出现，用审美与情绪建立品牌吸引力。",
+        "examples": [
+          {
+            "template_key": "approved_16166ff7862b806c",
+            "video_name": "风景旅程情感短片",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16166ff7862b806c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16166ff7862b806c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "品牌心智",
+        "category_label": "品牌心智",
+        "group_key": "approved_6deb4f28001779ce",
+        "group_name": "星际光影奢品展示",
+        "group_description": "以宇宙星光与超现实环境衬托产品，营造奢华精致的品牌氛围。",
+        "examples": [
+          {
+            "template_key": "approved_6deb4f28001779ce",
+            "video_name": "星际光影奢品展示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6deb4f28001779ce.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6deb4f28001779ce.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_b4e43868dd486562",
+        "group_name": "地标级产品奇景",
+        "group_description": "将商品放大到城市地标般的尺度，以强烈的体量反差制造视觉冲击。",
+        "examples": [
+          {
+            "template_key": "approved_b4e43868dd486562",
+            "video_name": "地标级产品奇景",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b4e43868dd486562.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b4e43868dd486562.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_8726bf919da9a7b5",
+        "group_name": "画中人物焕新记",
+        "group_description": "让经典画作中的人物走出画框，使用现代商品完成外貌或状态的意外改变。",
+        "examples": [
+          {
+            "template_key": "approved_8726bf919da9a7b5",
+            "video_name": "画中人物焕新记",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_8726bf919da9a7b5.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_8726bf919da9a7b5.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_fcab75214d9e0e3c",
+        "group_name": "线条成形创意展示",
+        "group_description": "以手绘笔触勾勒商品及其特点，再让线条转为可见的实体形态。",
+        "examples": [
+          {
+            "template_key": "approved_fcab75214d9e0e3c",
+            "video_name": "线条成形创意展示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_fcab75214d9e0e3c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_fcab75214d9e0e3c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_f9cdb415c15c2369",
+        "group_name": "未来感人物产品片",
+        "group_description": "从一张商品图片出发，制作以赛博人物与潮流视觉为记忆点的宣传短片。",
+        "examples": [
+          {
+            "template_key": "approved_f9cdb415c15c2369",
+            "video_name": "未来感人物产品片",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f9cdb415c15c2369.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f9cdb415c15c2369.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_853689c02d779c9c",
+        "group_name": "立体出屏海报",
+        "group_description": "让平面海报中的主体以三维形式突出画面，形成动态展示。",
+        "examples": [
+          {
+            "template_key": "approved_853689c02d779c9c",
+            "video_name": "立体出屏海报",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_853689c02d779c9c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_853689c02d779c9c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_ab5c0f7cedd0233b",
+        "group_name": "高速运动视觉秀",
+        "group_description": "结合快速运镜和飞散、爆发的元素，为普通商品营造强烈的大片动感。",
+        "examples": [
+          {
+            "template_key": "approved_ab5c0f7cedd0233b",
+            "video_name": "高速运动视觉秀",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ab5c0f7cedd0233b.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ab5c0f7cedd0233b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_79416855e7bc1800",
+        "group_name": "重庆漫游·解放碑广场",
+        "group_description": "提供产品的纯白背景图片，即可制作对应场景的视频。",
+        "examples": [
+          {
+            "template_key": "approved_79416855e7bc1800",
+            "video_name": "重庆漫游·解放碑广场",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_79416855e7bc1800.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_79416855e7bc1800.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_f6933500ece1b668",
+        "group_name": "轻点切换多款",
+        "group_description": "用手指触碰触发颜色或款式变化，短时间内呈现多个SKU。",
+        "examples": [
+          {
+            "template_key": "approved_f6933500ece1b668",
+            "video_name": "轻点切换多款",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f6933500ece1b668.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f6933500ece1b668.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_5841c39870152691",
+        "group_name": "潮流拼贴动态视觉",
+        "group_description": "用撕纸、贴纸和波点等元素配合节拍切换，将产品组织成有动感的潮流海报。",
+        "examples": [
+          {
+            "template_key": "approved_5841c39870152691",
+            "video_name": "潮流拼贴动态视觉",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5841c39870152691.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5841c39870152691.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_2987f267268bad5a",
+        "group_name": "虚拟户外巨型装置",
+        "group_description": "把CGI巨型商品融入真实城市地标，以近似实拍的超现实效果引发讨论。",
+        "examples": [
+          {
+            "template_key": "approved_2987f267268bad5a",
+            "video_name": "虚拟户外巨型装置",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2987f267268bad5a.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2987f267268bad5a.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_a25a766bae6703f0",
+        "group_name": "手绘饰品实体化",
+        "group_description": "先用涂鸦线条描出饰品轮廓，再让绘画转成真实物件。",
+        "examples": [
+          {
+            "template_key": "approved_a25a766bae6703f0",
+            "video_name": "手绘饰品实体化",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a25a766bae6703f0.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a25a766bae6703f0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_c9dad4647593bae0",
+        "group_name": "流动材质化形",
+        "group_description": "让织物、液体或金属经过流动和变形组成产品，突出触感与高级质地。",
+        "examples": [
+          {
+            "template_key": "approved_c9dad4647593bae0",
+            "video_name": "流动材质化形",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c9dad4647593bae0.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c9dad4647593bae0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_81714776c7fbd6ee",
+        "group_name": "微缩场景工艺故事",
+        "group_description": "在小比例世界中展示商品，以微距和定格般的质感讲述节日或制作主题。",
+        "examples": [
+          {
+            "template_key": "approved_81714776c7fbd6ee",
+            "video_name": "微缩场景工艺故事",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_81714776c7fbd6ee.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_81714776c7fbd6ee.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_9ef94959bfed64a3",
+        "group_name": "空中失重与下坠展示",
+        "group_description": "把观众放进参与者的高空身体体验，用出发点、失重和人物即时反应建立尺度，再在商品可辨的一拍完成亮相，并用开伞或回到本人回扣。",
+        "examples": [
+          {
+            "template_key": "approved_9ef94959bfed64a3",
+            "video_name": "空中失重与下坠展示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef94959bfed64a3.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef94959bfed64a3.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_5af5166fb485edb1",
+        "group_name": "贴地贴浪疾行展示",
+        "group_description": "让近处人物/商品与快速掠过的雪面、浪壁或街道形成距离反差，再在同一次运动中切出清楚的商品展示；速度感与识别感缺一不可。",
+        "examples": [
+          {
+            "template_key": "approved_5af5166fb485edb1",
+            "video_name": "贴地贴浪疾行展示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5af5166fb485edb1.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5af5166fb485edb1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_4fbb3f7e4924f712",
+        "group_name": "手作材质定格",
+        "group_description": "用可辨的积木、黏土或毛毡等手作形体构建角色和空间，让商品进入一个具体使用动作或生活过程；材质触感和有因果的动作共同成立。",
+        "examples": [
+          {
+            "template_key": "approved_4fbb3f7e4924f712",
+            "video_name": "手作材质定格",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4fbb3f7e4924f712.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4fbb3f7e4924f712.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_48fbe616ea63c609",
+        "group_name": "重庆漫游·落地签创意",
+        "group_description": "以产品白底图为输入，生成该主题的动态展示内容。",
+        "examples": [
+          {
+            "template_key": "approved_48fbe616ea63c609",
+            "video_name": "重庆漫游·落地签创意",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_48fbe616ea63c609.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_48fbe616ea63c609.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_26a2e551fbf25c8b",
+        "group_name": "复古对称童话美学",
+        "group_description": "运用韦斯·安德森式的规整对称、柔甜配色和复古质感，构建有童话秩序感的产品场景。",
+        "examples": [
+          {
+            "template_key": "approved_26a2e551fbf25c8b",
+            "video_name": "复古对称童话美学",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_26a2e551fbf25c8b.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_26a2e551fbf25c8b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_709817c52fe2db9e",
+        "group_name": "近耳细节解压体验",
+        "group_description": "以极近距离画面配合清晰的拍打、揭膜和摩擦声，突出触感与听觉满足。",
+        "examples": [
+          {
+            "template_key": "approved_709817c52fe2db9e",
+            "video_name": "近耳细节解压体验",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_709817c52fe2db9e.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_709817c52fe2db9e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_6e162503026dc8b6",
+        "group_name": "静态画面动态演绎",
+        "group_description": "让海报里的图形与主体产生运动，增强社交平台上的视觉吸引力。",
+        "examples": [
+          {
+            "template_key": "approved_6e162503026dc8b6",
+            "video_name": "静态画面动态演绎",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6e162503026dc8b6.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6e162503026dc8b6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_97f688368e1c53bc",
+        "group_name": "实景中的超大商品",
+        "group_description": "把超常尺度的产品放进真实环境，用体量反差和视觉奇观吸引停留。",
+        "examples": [
+          {
+            "template_key": "approved_97f688368e1c53bc",
+            "video_name": "实景中的超大商品",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_97f688368e1c53bc.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_97f688368e1c53bc.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_1c3915bbfa30c1d6",
+        "group_name": "都市巨型产品来访",
+        "group_description": "将商品变成降临城市的超现实巨物，以宏大尺度制造吸睛场面。",
+        "examples": [
+          {
+            "template_key": "approved_1c3915bbfa30c1d6",
+            "video_name": "都市巨型产品来访",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1c3915bbfa30c1d6.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1c3915bbfa30c1d6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_4bf2b2a633e0ed73",
+        "group_name": "速度节奏品牌影像",
+        "group_description": "以快速镜头运动和紧凑剪辑，强化产品性能与科技感的视觉表达。",
+        "examples": [
+          {
+            "template_key": "approved_4bf2b2a633e0ed73",
+            "video_name": "速度节奏品牌影像",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4bf2b2a633e0ed73.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4bf2b2a633e0ed73.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_2dd6c3c2a58705ed",
+        "group_name": "古典画境遇见现代商品",
+        "group_description": "将当代商品带入古典艺术场景，以时代错位形成趣味和购买吸引力。",
+        "examples": [
+          {
+            "template_key": "approved_2dd6c3c2a58705ed",
+            "video_name": "古典画境遇见现代商品",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2dd6c3c2a58705ed.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2dd6c3c2a58705ed.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_99115ab883c3dbb4",
+        "group_name": "城市霓虹绘动画",
+        "group_description": "让发光手绘图形覆盖城市与地标街区，将熟悉地点转化为动画宣传场景。",
+        "examples": [
+          {
+            "template_key": "approved_99115ab883c3dbb4",
+            "video_name": "城市霓虹绘动画",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_99115ab883c3dbb4.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_99115ab883c3dbb4.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_b06e20512b1f44a1",
+        "group_name": "连续穿梭质感镜头",
+        "group_description": "以固定视觉锚点衔接推进与穿越镜头，流畅展示商品的材质与品质感。",
+        "examples": [
+          {
+            "template_key": "approved_b06e20512b1f44a1",
+            "video_name": "连续穿梭质感镜头",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b06e20512b1f44a1.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b06e20512b1f44a1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "视觉吸睛",
+        "category_label": "视觉吸睛",
+        "group_key": "approved_5d193eb226cd9d6c",
+        "group_name": "工作模式启动仪式",
+        "group_description": "对照开始工作前后的状态，以带仪式感的转场让商品成为行动的触发点。",
+        "examples": [
+          {
+            "template_key": "approved_5d193eb226cd9d6c",
+            "video_name": "工作模式启动仪式",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5d193eb226cd9d6c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5d193eb226cd9d6c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_3c54a10c407bc67b",
+        "group_name": "未知惊喜拆盒",
+        "group_description": "围绕尚未揭晓的盒内物品安排开盒仪式，以悬念和揭晓维持关注。",
+        "examples": [
+          {
+            "template_key": "approved_3c54a10c407bc67b",
+            "video_name": "未知惊喜拆盒",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3c54a10c407bc67b.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3c54a10c407bc67b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_d01164d206bba114",
+        "group_name": "达人逛购与拆箱分享",
+        "group_description": "串联购物、拆包和试穿体验，展现多种选择，带动观众的购买兴趣。",
+        "examples": [
+          {
+            "template_key": "approved_d01164d206bba114",
+            "video_name": "达人逛购与拆箱分享",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d01164d206bba114.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d01164d206bba114.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_c941ae5c0eca3f87",
+        "group_name": "门后的商品奇境",
+        "group_description": "通过推开一扇门进入由产品构成的特别空间，用场景揭示迅速抓住注意力。",
+        "examples": [
+          {
+            "template_key": "approved_c941ae5c0eca3f87",
+            "video_name": "门后的商品奇境",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c941ae5c0eca3f87.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c941ae5c0eca3f87.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_796d4315e25929f8",
+        "group_name": "第一视角拆包时光",
+        "group_description": "从使用者视角记录拆包细节，以收获新物品的满足感营造沉浸体验。",
+        "examples": [
+          {
+            "template_key": "approved_796d4315e25929f8",
+            "video_name": "第一视角拆包时光",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_796d4315e25929f8.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_796d4315e25929f8.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_470bc3973db7b3bb",
+        "group_name": "听觉细节拆箱",
+        "group_description": "放大开箱过程中纸张、包装和物件的声音，让拆封动作成为听觉吸引点。",
+        "examples": [
+          {
+            "template_key": "approved_470bc3973db7b3bb",
+            "video_name": "听觉细节拆箱",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_470bc3973db7b3bb.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_470bc3973db7b3bb.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_29b3935768966a5d",
+        "group_name": "购物收获逐件展示",
+        "group_description": "集中展示购物袋，再依次拆包、试穿与评价，形成完整的购物分享体验。",
+        "examples": [
+          {
+            "template_key": "approved_29b3935768966a5d",
+            "video_name": "购物收获逐件展示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29b3935768966a5d.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29b3935768966a5d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_c52496bafd1c54ee",
+        "group_name": "意外用途揭晓·跨境生活多用",
+        "group_description": "从不常见的使用方法制造悬念，再揭示商品的新用途，激发看完与分享的兴趣。",
+        "examples": [
+          {
+            "template_key": "approved_c52496bafd1c54ee",
+            "video_name": "意外用途揭晓·跨境生活多用",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c52496bafd1c54ee.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c52496bafd1c54ee.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_6b7a4d44bf7083dd",
+        "group_name": "意外用途揭晓·开箱隐藏结构",
+        "group_description": "开场揭示少有人知的使用窍门，用具体实用的信息吸引观众继续观看。",
+        "examples": [
+          {
+            "template_key": "approved_6b7a4d44bf7083dd",
+            "video_name": "意外用途揭晓·开箱隐藏结构",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6b7a4d44bf7083dd.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6b7a4d44bf7083dd.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_5a403f605d453c7e",
+        "group_name": "意外动作转场揭品",
+        "group_description": "用即将发生的掉落、碰撞或失衡建立开场预期，让动作方向和落点直接接到商品揭晓，最后给同一件商品一个清楚的结果镜头。",
+        "examples": [
+          {
+            "template_key": "approved_5a403f605d453c7e",
+            "video_name": "意外动作转场揭品",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5a403f605d453c7e.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5a403f605d453c7e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "悬念引流",
+        "category_label": "悬念引流",
+        "group_key": "approved_7135edbbae7c4181",
+        "group_name": "偶然发现心仪单品",
+        "group_description": "通过意外发现商品时的自然惊喜与反应，把推荐融入偶遇过程。",
+        "examples": [
+          {
+            "template_key": "approved_7135edbbae7c4181",
+            "video_name": "偶然发现心仪单品",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7135edbbae7c4181.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7135edbbae7c4181.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_889be55e17d2465f",
+        "group_name": "日常整套造型记录",
+        "group_description": "在自然生活环境里展示完整穿搭，用轻松、不刻意的表现呈现造型效果。",
+        "examples": [
+          {
+            "template_key": "approved_889be55e17d2465f",
+            "video_name": "日常整套造型记录",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_889be55e17d2465f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_889be55e17d2465f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_0de067b53d60c7ee",
+        "group_name": "面对面好物推荐",
+        "group_description": "由达人直面镜头分享体验，以朋友聊天般的语气传递可信的推荐理由。",
+        "examples": [
+          {
+            "template_key": "approved_0de067b53d60c7ee",
+            "video_name": "面对面好物推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_0de067b53d60c7ee.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_0de067b53d60c7ee.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_ce1b1a14ca3ab6a9",
+        "group_name": "拿在手里讲体验",
+        "group_description": "达人近距离持物讲解，结合产品细节与使用感受说明推荐原因。",
+        "examples": [
+          {
+            "template_key": "approved_ce1b1a14ca3ab6a9",
+            "video_name": "拿在手里讲体验",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ce1b1a14ca3ab6a9.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ce1b1a14ca3ab6a9.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_efd3903051d34f4d",
+        "group_name": "跟拍点切换造型",
+        "group_description": "跟随音乐重音连续切换穿搭，以干脆剪辑和时尚造型激发模仿兴趣。",
+        "examples": [
+          {
+            "template_key": "approved_efd3903051d34f4d",
+            "video_name": "跟拍点切换造型",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_efd3903051d34f4d.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_efd3903051d34f4d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_626c1182b7db3a4b",
+        "group_name": "飞物过镜变装",
+        "group_description": "借抛出物品掠过画面的瞬间衔接新造型，用动作制造换装惊喜。",
+        "examples": [
+          {
+            "template_key": "approved_626c1182b7db3a4b",
+            "video_name": "飞物过镜变装",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_626c1182b7db3a4b.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_626c1182b7db3a4b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_e7955dfc6898853a",
+        "group_name": "用户体验随手分享",
+        "group_description": "采用自然、少表演痕迹的用户叙述，弱化推销感，突出实际体验的可信度。",
+        "examples": [
+          {
+            "template_key": "approved_e7955dfc6898853a",
+            "video_name": "用户体验随手分享",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e7955dfc6898853a.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e7955dfc6898853a.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_343a9e96526e4db5",
+        "group_name": "双人举衣试搭",
+        "group_description": "两位朋友用举起的衣物遮住镜头，在遮挡切换中连续展示不同穿着效果。",
+        "examples": [
+          {
+            "template_key": "approved_343a9e96526e4db5",
+            "video_name": "双人举衣试搭",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_343a9e96526e4db5.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_343a9e96526e4db5.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_56ca68350f78e1c8",
+        "group_name": "单品多风格搭配",
+        "group_description": "围绕同一件商品组合多套造型，表现其搭配空间和不同场景下的穿着价值。",
+        "examples": [
+          {
+            "template_key": "approved_56ca68350f78e1c8",
+            "video_name": "单品多风格搭配",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_56ca68350f78e1c8.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_56ca68350f78e1c8.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_c0d1ccd44dfcba4f",
+        "group_name": "路遇好物问答",
+        "group_description": "以街头持麦询问购买来源的方式，结合路人反应与醒目单品形成推荐。",
+        "examples": [
+          {
+            "template_key": "approved_c0d1ccd44dfcba4f",
+            "video_name": "路遇好物问答",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c0d1ccd44dfcba4f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c0d1ccd44dfcba4f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_e0e65924b3b98cd6",
+        "group_name": "双人心头好推荐",
+        "group_description": "通过情侣互相推荐喜爱商品，结合甜蜜互动与两人的体验视角增加好感。",
+        "examples": [
+          {
+            "template_key": "approved_e0e65924b3b98cd6",
+            "video_name": "双人心头好推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e0e65924b3b98cd6.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e0e65924b3b98cd6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_b075b0cd525a81d3",
+        "group_name": "下班归家舒缓片段",
+        "group_description": "把商品嵌入结束工作后的回家流程，用自然生活细节传达放松与治愈感。",
+        "examples": [
+          {
+            "template_key": "approved_b075b0cd525a81d3",
+            "video_name": "下班归家舒缓片段",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b075b0cd525a81d3.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b075b0cd525a81d3.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_ae3bcda55a5cc747",
+        "group_name": "手机随拍体验分享",
+        "group_description": "采用手持手机视角与自然口播，降低广告表演感，建立用户分享的亲近感。",
+        "examples": [
+          {
+            "template_key": "approved_ae3bcda55a5cc747",
+            "video_name": "手机随拍体验分享",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ae3bcda55a5cc747.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ae3bcda55a5cc747.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_28f5703e848d880b",
+        "group_name": "使用后自拍感言",
+        "group_description": "用自拍记录刚用完商品的即时感受，以随手分享的口吻传达口碑。",
+        "examples": [
+          {
+            "template_key": "approved_28f5703e848d880b",
+            "video_name": "使用后自拍感言",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28f5703e848d880b.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28f5703e848d880b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_ecc3f28f9a02dafc",
+        "group_name": "双人生活好物体验",
+        "group_description": "借情侣共同使用、互动与自然反馈，表现商品在日常陪伴中的作用。",
+        "examples": [
+          {
+            "template_key": "approved_ecc3f28f9a02dafc",
+            "video_name": "双人生活好物体验",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ecc3f28f9a02dafc.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ecc3f28f9a02dafc.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_09ce29db144f24a2",
+        "group_name": "直面镜头坦诚推荐",
+        "group_description": "用一句明确结论开场，再自然带入商品，以近似朋友聊天的方式说明体验。",
+        "examples": [
+          {
+            "template_key": "approved_09ce29db144f24a2",
+            "video_name": "直面镜头坦诚推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_09ce29db144f24a2.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_09ce29db144f24a2.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_844cb431b2384583",
+        "group_name": "忍不住再用的好物",
+        "group_description": "通过连续、多次使用商品的行为，表达它融入日常和再次购买的吸引力。",
+        "examples": [
+          {
+            "template_key": "approved_844cb431b2384583",
+            "video_name": "忍不住再用的好物",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_844cb431b2384583.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_844cb431b2384583.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_29135e17cb17b93d",
+        "group_name": "情侣居家片段推荐",
+        "group_description": "通过亲密自然的双人日常，把居家用品融入共同生活的温暖氛围。",
+        "examples": [
+          {
+            "template_key": "approved_29135e17cb17b93d",
+            "video_name": "情侣居家片段推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29135e17cb17b93d.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29135e17cb17b93d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_b24fda7260cb1a67",
+        "group_name": "持续回购使用记录",
+        "group_description": "以反复取用、持续使用的动作表达偏爱，传达再次购买的意愿。",
+        "examples": [
+          {
+            "template_key": "approved_b24fda7260cb1a67",
+            "video_name": "持续回购使用记录",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b24fda7260cb1a67.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b24fda7260cb1a67.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_b0cbe50fb19dd7c8",
+        "group_name": "拆包到上身体验",
+        "group_description": "串联开包、穿戴与深蹲、转身或拉伸动作，直观观察版型和活动表现。",
+        "examples": [
+          {
+            "template_key": "approved_b0cbe50fb19dd7c8",
+            "video_name": "拆包到上身体验",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b0cbe50fb19dd7c8.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b0cbe50fb19dd7c8.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_bcf9f005c3c0a034",
+        "group_name": "生活片段自然安利·跨境日常分享",
+        "group_description": "把商品放入通勤、居家、养宠或咖啡时光，通过日常记录传达朋友式推荐。",
+        "examples": [
+          {
+            "template_key": "approved_bcf9f005c3c0a034",
+            "video_name": "生活片段自然安利·跨境日常分享",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_bcf9f005c3c0a034.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_bcf9f005c3c0a034.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_16db90ba12533436",
+        "group_name": "生活片段自然安利·晨间通勤记录",
+        "group_description": "让商品随晨间、通勤与咖啡日常自然出现，以轻松的生活记录减少推销感。",
+        "examples": [
+          {
+            "template_key": "approved_16db90ba12533436",
+            "video_name": "生活片段自然安利·晨间通勤记录",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16db90ba12533436.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16db90ba12533436.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_73fe077b7d230476",
+        "group_name": "现场记者式产品报道",
+        "group_description": "借记者在街头连线报道的视角，以纪实表达介绍商品的主要特点。",
+        "examples": [
+          {
+            "template_key": "approved_73fe077b7d230476",
+            "video_name": "现场记者式产品报道",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_73fe077b7d230476.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_73fe077b7d230476.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_e5d95903b05ed15f",
+        "group_name": "逛店试用沉浸推荐",
+        "group_description": "串联到店、浏览和试吃体验，在探索过程中呈现食品或线下商品的特点。",
+        "examples": [
+          {
+            "template_key": "approved_e5d95903b05ed15f",
+            "video_name": "逛店试用沉浸推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e5d95903b05ed15f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e5d95903b05ed15f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_34ff1522612301db",
+        "group_name": "两人居家试用交流",
+        "group_description": "在家庭环境中安排情侣共同体验商品，以互动反馈形成温暖自然的推荐。",
+        "examples": [
+          {
+            "template_key": "approved_34ff1522612301db",
+            "video_name": "两人居家试用交流",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_34ff1522612301db.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_34ff1522612301db.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_27dd37d3a5dda499",
+        "group_name": "随手自拍第一感受",
+        "group_description": "以刚完成使用时的自拍反应为主，让体验表达简洁、直接且贴近日常。",
+        "examples": [
+          {
+            "template_key": "approved_27dd37d3a5dda499",
+            "video_name": "随手自拍第一感受",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_27dd37d3a5dda499.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_27dd37d3a5dda499.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_28491de6038674af",
+        "group_name": "数字模特上身展示",
+        "group_description": "生成模特穿着商品的时装画面，用近似秀场的视觉质感展示服装。",
+        "examples": [
+          {
+            "template_key": "approved_28491de6038674af",
+            "video_name": "数字模特上身展示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28491de6038674af.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28491de6038674af.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_ef64fa72a3b06242",
+        "group_name": "自然试穿推荐",
+        "group_description": "以贴近实拍的穿着展示说明上身效果，减少生硬推销感，方便观众参考搭配。",
+        "examples": [
+          {
+            "template_key": "approved_ef64fa72a3b06242",
+            "video_name": "自然试穿推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ef64fa72a3b06242.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ef64fa72a3b06242.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "场景种草",
+        "category_label": "场景种草",
+        "group_key": "approved_3f4efff01f52619f",
+        "group_name": "真人播客与访谈",
+        "group_description": "让商品进入主持人与嘉宾的一次有来有回的交流：提问建立顾虑，回答给出具体体验，追问顺着上句展开，实物或细节镜头接住关键回答。",
+        "examples": [
+          {
+            "template_key": "approved_3f4efff01f52619f",
+            "video_name": "真人播客与访谈",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3f4efff01f52619f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3f4efff01f52619f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_7d1ecbfa3869d0ac",
+        "group_name": "棚拍质感细节秀",
+        "group_description": "采用摄影棚式布光与微距镜头，集中展示产品材质、光泽和关键特点。",
+        "examples": [
+          {
+            "template_key": "approved_7d1ecbfa3869d0ac",
+            "video_name": "棚拍质感细节秀",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7d1ecbfa3869d0ac.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7d1ecbfa3869d0ac.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_57d01b43970e9bb2",
+        "group_name": "评论提问驱动演示回答",
+        "group_description": "以一条具体评论问题建立观看任务，让同一讲述者先回应，再用实拍细节或应用画面提供对应证据，最后回到原问题完成回答。",
+        "examples": [
+          {
+            "template_key": "approved_57d01b43970e9bb2",
+            "video_name": "评论提问驱动演示回答",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_57d01b43970e9bb2.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_57d01b43970e9bb2.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_c6b01e828a8e304c",
+        "group_name": "商品图片转电商首页短片",
+        "group_description": "以单张商品图生成适用于亚马逊等电商首页的视频，减少另行拍摄的需求。",
+        "examples": [
+          {
+            "template_key": "approved_c6b01e828a8e304c",
+            "video_name": "商品图片转电商首页短片",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c6b01e828a8e304c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c6b01e828a8e304c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_5c4fdc87ab3c63e9",
+        "group_name": "轻松上手实用窍门",
+        "group_description": "把商品操作整理成容易记住的小技巧，增强收藏、分享和使用意愿。",
+        "examples": [
+          {
+            "template_key": "approved_5c4fdc87ab3c63e9",
+            "video_name": "轻松上手实用窍门",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5c4fdc87ab3c63e9.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5c4fdc87ab3c63e9.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_9b7f2c9bc235c22e",
+        "group_name": "真人上手重点测试",
+        "group_description": "以真人出镜开场，把主要篇幅留给实际操作，在短时间里说明产品特点。",
+        "examples": [
+          {
+            "template_key": "approved_9b7f2c9bc235c22e",
+            "video_name": "真人上手重点测试",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9b7f2c9bc235c22e.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9b7f2c9bc235c22e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_1239cd7a3400c361",
+        "group_name": "零散物品归位收装",
+        "group_description": "从散乱摆放开始，逐一分类并装入收纳工具，用有序过程表现产品用途。",
+        "examples": [
+          {
+            "template_key": "approved_1239cd7a3400c361",
+            "video_name": "零散物品归位收装",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1239cd7a3400c361.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1239cd7a3400c361.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_43c0c9a7e8cf8107",
+        "group_name": "冷门技巧与用途分享",
+        "group_description": "介绍商品容易被忽略的用法和知识，以实用发现吸引观众关注。",
+        "examples": [
+          {
+            "template_key": "approved_43c0c9a7e8cf8107",
+            "video_name": "冷门技巧与用途分享",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_43c0c9a7e8cf8107.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_43c0c9a7e8cf8107.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_f4fc6c20748d8e57",
+        "group_name": "实物告示传话",
+        "group_description": "把主要消息写在角色实际举起、翻动或贴出的载体上，由载体的动作控制阅读顺序。观众先被角色与场景吸引，再在牌面上读懂商品或活动。",
+        "examples": [
+          {
+            "template_key": "approved_f4fc6c20748d8e57",
+            "video_name": "实物告示传话",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f4fc6c20748d8e57.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f4fc6c20748d8e57.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_051882f0174cac67",
+        "group_name": "微型团队功能演示",
+        "group_description": "让缩小的人物团队在产品表面操作，以尺度对照突出功能细节。",
+        "examples": [
+          {
+            "template_key": "approved_051882f0174cac67",
+            "video_name": "微型团队功能演示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_051882f0174cac67.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_051882f0174cac67.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_1a88e417e7fc8cb6",
+        "group_name": "产品操作分步示范",
+        "group_description": "逐步展示商品的使用方式，帮助观众理解操作方法与实际用途。",
+        "examples": [
+          {
+            "template_key": "approved_1a88e417e7fc8cb6",
+            "video_name": "产品操作分步示范",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1a88e417e7fc8cb6.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1a88e417e7fc8cb6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_488fbaf3ea8e06f1",
+        "group_name": "正确用法逐步讲解",
+        "group_description": "按操作顺序介绍产品使用方法和实用技巧，提供便于保存回看的教程内容。",
+        "examples": [
+          {
+            "template_key": "approved_488fbaf3ea8e06f1",
+            "video_name": "正确用法逐步讲解",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_488fbaf3ea8e06f1.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_488fbaf3ea8e06f1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_9ef920ce43da232e",
+        "group_name": "真人举屏介绍应用",
+        "group_description": "让真实使用者与目标应用的可读页面同框，用自然口述和指向屏幕的动作，把一个推荐理由落到观众正在看的界面上。",
+        "examples": [
+          {
+            "template_key": "approved_9ef920ce43da232e",
+            "video_name": "真人举屏介绍应用",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef920ce43da232e.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef920ce43da232e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点讲解",
+        "category_label": "卖点讲解",
+        "group_key": "approved_5cfe00dd31051727",
+        "group_name": "任务驱动的应用演示",
+        "group_description": "先建立一个具体生活任务或使用期待，再把相关应用页面和人的实际行动交叉呈现，让功能参与这次任务，最后用本人反应或完成状态回扣。",
+        "examples": [
+          {
+            "template_key": "approved_5cfe00dd31051727",
+            "video_name": "任务驱动的应用演示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5cfe00dd31051727.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5cfe00dd31051727.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "痛点转化",
+        "category_label": "痛点转化",
+        "group_key": "approved_d2e12822d1936d54",
+        "group_name": "生活难题解决示范",
+        "group_description": "从日常不便开始，呈现商品介入后的变化，把功能优势转化为明确的购买理由。",
+        "examples": [
+          {
+            "template_key": "approved_d2e12822d1936d54",
+            "video_name": "生活难题解决示范",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d2e12822d1936d54.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d2e12822d1936d54.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "痛点转化",
+        "category_label": "痛点转化",
+        "group_key": "approved_415c4ab45f811209",
+        "group_name": "日常难题快速化解",
+        "group_description": "开场立即呈现熟悉的不便，再用商品带来的解围反差突出购买理由。",
+        "examples": [
+          {
+            "template_key": "approved_415c4ab45f811209",
+            "video_name": "日常难题快速化解",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_415c4ab45f811209.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_415c4ab45f811209.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "痛点转化",
+        "category_label": "痛点转化",
+        "group_key": "approved_768f3360343d5e16",
+        "group_name": "好物化解尴尬时刻",
+        "group_description": "先还原生活中的困扰，再展示商品出场后的明显反差，强化解围的满足感。",
+        "examples": [
+          {
+            "template_key": "approved_768f3360343d5e16",
+            "video_name": "好物化解尴尬时刻",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_768f3360343d5e16.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_768f3360343d5e16.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "痛点转化",
+        "category_label": "痛点转化",
+        "group_key": "approved_a934bdb2af4d3b28",
+        "group_name": "突发状况救场测试·即时解围",
+        "group_description": "以临时遇到的麻烦或尴尬开场，展示商品迅速派上用场的过程。",
+        "examples": [
+          {
+            "template_key": "approved_a934bdb2af4d3b28",
+            "video_name": "突发状况救场测试·即时解围",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a934bdb2af4d3b28.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a934bdb2af4d3b28.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "痛点转化",
+        "category_label": "痛点转化",
+        "group_key": "approved_4ccc78636abf3dc5",
+        "group_name": "突发状况救场测试·棘手问题化解",
+        "group_description": "先呈现令人抓狂的现实难题，再演示商品如何及时化解困境。",
+        "examples": [
+          {
+            "template_key": "approved_4ccc78636abf3dc5",
+            "video_name": "突发状况救场测试·棘手问题化解",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4ccc78636abf3dc5.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4ccc78636abf3dc5.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_d786efce249c42b9",
+        "group_name": "极限条件耐用挑战",
+        "group_description": "以冰冻、挤压、跌落、受热或摩擦等严苛条件测试产品，突出测试后的工作状态。",
+        "examples": [
+          {
+            "template_key": "approved_d786efce249c42b9",
+            "video_name": "极限条件耐用挑战",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d786efce249c42b9.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d786efce249c42b9.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_785f44844bd3fb02",
+        "group_name": "瞬间整理焕新",
+        "group_description": "先呈现脏乱状态，再用迅速转换展示整洁结果，突出使用后的变化。",
+        "examples": [
+          {
+            "template_key": "approved_785f44844bd3fb02",
+            "video_name": "瞬间整理焕新",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_785f44844bd3fb02.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_785f44844bd3fb02.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_6ef1c94756c3c438",
+        "group_name": "清洁整理全过程",
+        "group_description": "展示环境从污乱到清爽的实际变化，以过程的解压感和最终结果呈现作用。",
+        "examples": [
+          {
+            "template_key": "approved_6ef1c94756c3c438",
+            "video_name": "清洁整理全过程",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6ef1c94756c3c438.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6ef1c94756c3c438.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_68755e4b3d54db82",
+        "group_name": "使用效果直观对照",
+        "group_description": "直接并置或切换使用前后的画面，让观众迅速看出差异。",
+        "examples": [
+          {
+            "template_key": "approved_68755e4b3d54db82",
+            "video_name": "使用效果直观对照",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_68755e4b3d54db82.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_68755e4b3d54db82.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_46b8f5f6e7cc8305",
+        "group_name": "整理前后一镜切换",
+        "group_description": "用一次快速切换对照污乱与整洁，突出清洁、收纳或修复后的满足感。",
+        "examples": [
+          {
+            "template_key": "approved_46b8f5f6e7cc8305",
+            "video_name": "整理前后一镜切换",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46b8f5f6e7cc8305.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46b8f5f6e7cc8305.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_c61605ae50554865",
+        "group_name": "效果变化画面演示",
+        "group_description": "将美白、遮瑕或淡纹等效果的前后差别直接呈现，以可见变化说明主张。",
+        "examples": [
+          {
+            "template_key": "approved_c61605ae50554865",
+            "video_name": "效果变化画面演示",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c61605ae50554865.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c61605ae50554865.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_4c4a2d748bd9ddb1",
+        "group_name": "路人即时造型焕新",
+        "group_description": "随机邀请路人进行形象调整，以改造前后的显著差别带出推荐商品。",
+        "examples": [
+          {
+            "template_key": "approved_4c4a2d748bd9ddb1",
+            "video_name": "路人即时造型焕新",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4c4a2d748bd9ddb1.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4c4a2d748bd9ddb1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_ad18b5910ac1ec04",
+        "group_name": "同场景效果对照",
+        "group_description": "保持场景一致，展示使用商品前后的差别，使原有问题与改善结果清晰可见。",
+        "examples": [
+          {
+            "template_key": "approved_ad18b5910ac1ec04",
+            "video_name": "同场景效果对照",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ad18b5910ac1ec04.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ad18b5910ac1ec04.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "效果证明",
+        "category_label": "效果证明",
+        "group_key": "approved_7f3c47d349b671a0",
+        "group_name": "同价位商品并排比较",
+        "group_description": "让相近价格的商品在同一画面接受比较，配合可读数据说明选择差异。",
+        "examples": [
+          {
+            "template_key": "approved_7f3c47d349b671a0",
+            "video_name": "同价位商品并排比较",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7f3c47d349b671a0.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7f3c47d349b671a0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_b46262f65a2b677c",
+        "group_name": "末日职场反转广告",
+        "group_description": "以末日背景下员工放飞自我、反抗老板的夸张故事开场，最后转折到商品推荐。",
+        "examples": [
+          {
+            "template_key": "approved_b46262f65a2b677c",
+            "video_name": "末日职场反转广告",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b46262f65a2b677c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b46262f65a2b677c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_46acba176332bac7",
+        "group_name": "心动剧情植入",
+        "group_description": "以暧昧互动和情绪转折推进故事，让商品承载角色间的关心与偏爱。",
+        "examples": [
+          {
+            "template_key": "approved_46acba176332bac7",
+            "video_name": "心动剧情植入",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46acba176332bac7.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46acba176332bac7.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_2f933f0e89162024",
+        "group_name": "果味角色反转剧场",
+        "group_description": "把商品的口味、原料、配色或不同款式转化为拟人角色，借戏剧冲突和意外转折完成产品植入。",
+        "examples": [
+          {
+            "template_key": "approved_2f933f0e89162024",
+            "video_name": "果味角色反转剧场",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2f933f0e89162024.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2f933f0e89162024.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_f262023d401f97a4",
+        "group_name": "仙侠宝物觉醒剧",
+        "group_description": "将商品设为主角觉醒后获得的法宝，用仙侠视效和逆袭情节强化吸引力。",
+        "examples": [
+          {
+            "template_key": "approved_f262023d401f97a4",
+            "video_name": "仙侠宝物觉醒剧",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f262023d401f97a4.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f262023d401f97a4.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_6aad9f47595e6c2d",
+        "group_name": "萌宠侠客动作剧",
+        "group_description": "让猫狗穿上武侠装束参与打斗，以可爱造型与爽快动作承接商品剧情。",
+        "examples": [
+          {
+            "template_key": "approved_6aad9f47595e6c2d",
+            "video_name": "萌宠侠客动作剧",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6aad9f47595e6c2d.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6aad9f47595e6c2d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_d4e10e305a8cafd6",
+        "group_name": "商品化身棋子或球员",
+        "group_description": "让商品直接占据棋子或球员的位置，按观众能理解的规则落子、列阵或竞技，以关键一手/一球和胜出结果完成商品亮相。",
+        "examples": [
+          {
+            "template_key": "approved_d4e10e305a8cafd6",
+            "video_name": "商品化身棋子或球员",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d4e10e305a8cafd6.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d4e10e305a8cafd6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_ac7d744e1fe6e6a4",
+        "group_name": "追逐目标商品",
+        "group_description": "让商品或明确代表它的包装持续处于近景目标位置，由人或动物的目光、伸手和追近表达想得到它；持续缩短的距离就是剧情。",
+        "examples": [
+          {
+            "template_key": "approved_ac7d744e1fe6e6a4",
+            "video_name": "追逐目标商品",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ac7d744e1fe6e6a4.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ac7d744e1fe6e6a4.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_2cd339bde0ae6ffb",
+        "group_name": "手绘与平面动画叙事",
+        "group_description": "选定一种手绘/平面表现规则，用人物处境、商品参与的动作和结果讲清一个故事。画法贯穿角色、空间和关键道具，不能只把真人广告加成绘画滤镜。",
+        "examples": [
+          {
+            "template_key": "approved_2cd339bde0ae6ffb",
+            "video_name": "手绘与平面动画叙事",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2cd339bde0ae6ffb.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2cd339bde0ae6ffb.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_58d1f70e9801be5f",
+        "group_name": "虚拟角色双人访谈",
+        "group_description": "保留两个非人角色的外形与身份，让它们像认真做节目一样轮流提问、回答和追问；商品话题通过角色间的交流进入，幽默来自非人身份与日常讨论的反差。",
+        "examples": [
+          {
+            "template_key": "approved_58d1f70e9801be5f",
+            "video_name": "虚拟角色双人访谈",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58d1f70e9801be5f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58d1f70e9801be5f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "故事情绪",
+        "category_label": "故事情绪",
+        "group_key": "approved_5b23c850a2e56af0",
+        "group_name": "萌宠化身推荐官",
+        "group_description": "让猫狗具备人物式行为与说话能力，以拟人主播形象介绍商品。",
+        "examples": [
+          {
+            "template_key": "approved_5b23c850a2e56af0",
+            "video_name": "萌宠化身推荐官",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5b23c850a2e56af0.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5b23c850a2e56af0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点组合",
+        "category_label": "卖点组合",
+        "group_key": "approved_58e9ae5da69b4334",
+        "group_name": "多场景需求推荐",
+        "group_description": "为同一商品配置不同使用情境，面向各类需求人群制作投放内容。",
+        "examples": [
+          {
+            "template_key": "approved_58e9ae5da69b4334",
+            "video_name": "多场景需求推荐",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58e9ae5da69b4334.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58e9ae5da69b4334.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "卖点组合",
+        "category_label": "卖点组合",
+        "group_key": "approved_b2d77444f3aa702c",
+        "group_name": "多类用户场景示范",
+        "group_description": "将同一商品放进多种实际使用环境，以具体操作呈现它对不同用户的价值。",
+        "examples": [
+          {
+            "template_key": "approved_b2d77444f3aa702c",
+            "video_name": "多类用户场景示范",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b2d77444f3aa702c.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b2d77444f3aa702c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "版本适配",
+        "category_label": "版本适配",
+        "group_key": "approved_d96006c380223257",
+        "group_name": "X来主题角色改编",
+        "group_description": "替换原有角色为指定主体，延展同一“X来”结构下的创意版本。",
+        "examples": [
+          {
+            "template_key": "approved_d96006c380223257",
+            "video_name": "X来主题角色改编",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d96006c380223257.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d96006c380223257.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "版本适配",
+        "category_label": "版本适配",
+        "group_key": "approved_3d307e41c6ff595f",
+        "group_name": "多族裔出镜版本对照",
+        "group_description": "让不同族裔的模特展示同一件商品，形成可用于素材对比测试的多个版本。",
+        "examples": [
+          {
+            "template_key": "approved_3d307e41c6ff595f",
+            "video_name": "多族裔出镜版本对照",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3d307e41c6ff595f.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3d307e41c6ff595f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "活动促销",
+        "category_label": "活动促销",
+        "group_key": "approved_1ea4702340a7620e",
+        "group_name": "真人反应揭晓优惠",
+        "group_description": "先让真实人物对商品或发现产生可信反应，再让具体优惠解释这份惊喜；推荐理由与活动信息分成两拍，使折扣成为揭晓，而不是从头铺满屏。",
+        "examples": [
+          {
+            "template_key": "approved_1ea4702340a7620e",
+            "video_name": "真人反应揭晓优惠",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1ea4702340a7620e.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1ea4702340a7620e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      },
+      {
+        "category_name": "活动促销",
+        "category_label": "活动促销",
+        "group_key": "approved_6d6c9620331480ad",
+        "group_name": "节庆促销主视觉",
+        "group_description": "在短促动态海报中，把节日主题、真实优惠、正确商品和行动入口组织成一眼可读的层级；动效帮助阅读，商品始终稳居视觉中心。",
+        "examples": [
+          {
+            "template_key": "approved_6d6c9620331480ad",
+            "video_name": "节庆促销主视觉",
+            "video_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6d6c9620331480ad.mp4",
+            "cover_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6d6c9620331480ad.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+            "width": 720,
+            "height": 1280
+          }
+        ]
+      }
+    ]
+  },
+  "metadata_sha256": "e4adaf87308d379755295f25ed558941a58d221f3b9677f4359fe90b3851af99",
+  "case_versions": {
+    "approved_092da543e904e7ca": 1,
+    "approved_6639a6293dedca6f": 1,
+    "approved_322e51560f7542e3": 1,
+    "approved_42ea3604be957991": 1,
+    "approved_16166ff7862b806c": 1,
+    "approved_6deb4f28001779ce": 1,
+    "approved_b4e43868dd486562": 1,
+    "approved_8726bf919da9a7b5": 1,
+    "approved_fcab75214d9e0e3c": 1,
+    "approved_f9cdb415c15c2369": 1,
+    "approved_853689c02d779c9c": 1,
+    "approved_ab5c0f7cedd0233b": 1,
+    "approved_79416855e7bc1800": 1,
+    "approved_f6933500ece1b668": 1,
+    "approved_5841c39870152691": 1,
+    "approved_2987f267268bad5a": 1,
+    "approved_a25a766bae6703f0": 1,
+    "approved_c9dad4647593bae0": 1,
+    "approved_81714776c7fbd6ee": 1,
+    "approved_9ef94959bfed64a3": 1,
+    "approved_5af5166fb485edb1": 1,
+    "approved_4fbb3f7e4924f712": 1,
+    "approved_48fbe616ea63c609": 1,
+    "approved_26a2e551fbf25c8b": 1,
+    "approved_709817c52fe2db9e": 1,
+    "approved_6e162503026dc8b6": 1,
+    "approved_97f688368e1c53bc": 1,
+    "approved_1c3915bbfa30c1d6": 1,
+    "approved_4bf2b2a633e0ed73": 1,
+    "approved_2dd6c3c2a58705ed": 1,
+    "approved_99115ab883c3dbb4": 1,
+    "approved_b06e20512b1f44a1": 1,
+    "approved_5d193eb226cd9d6c": 1,
+    "approved_3c54a10c407bc67b": 1,
+    "approved_d01164d206bba114": 1,
+    "approved_c941ae5c0eca3f87": 1,
+    "approved_796d4315e25929f8": 1,
+    "approved_470bc3973db7b3bb": 1,
+    "approved_29b3935768966a5d": 1,
+    "approved_c52496bafd1c54ee": 1,
+    "approved_6b7a4d44bf7083dd": 1,
+    "approved_5a403f605d453c7e": 1,
+    "approved_7135edbbae7c4181": 1,
+    "approved_889be55e17d2465f": 1,
+    "approved_0de067b53d60c7ee": 1,
+    "approved_ce1b1a14ca3ab6a9": 1,
+    "approved_efd3903051d34f4d": 1,
+    "approved_626c1182b7db3a4b": 1,
+    "approved_e7955dfc6898853a": 1,
+    "approved_343a9e96526e4db5": 1,
+    "approved_56ca68350f78e1c8": 1,
+    "approved_c0d1ccd44dfcba4f": 1,
+    "approved_e0e65924b3b98cd6": 1,
+    "approved_b075b0cd525a81d3": 1,
+    "approved_ae3bcda55a5cc747": 1,
+    "approved_28f5703e848d880b": 1,
+    "approved_ecc3f28f9a02dafc": 1,
+    "approved_09ce29db144f24a2": 1,
+    "approved_844cb431b2384583": 1,
+    "approved_29135e17cb17b93d": 1,
+    "approved_b24fda7260cb1a67": 1,
+    "approved_b0cbe50fb19dd7c8": 1,
+    "approved_bcf9f005c3c0a034": 1,
+    "approved_16db90ba12533436": 1,
+    "approved_73fe077b7d230476": 1,
+    "approved_e5d95903b05ed15f": 1,
+    "approved_34ff1522612301db": 1,
+    "approved_27dd37d3a5dda499": 1,
+    "approved_28491de6038674af": 1,
+    "approved_ef64fa72a3b06242": 1,
+    "approved_3f4efff01f52619f": 1,
+    "approved_7d1ecbfa3869d0ac": 1,
+    "approved_57d01b43970e9bb2": 1,
+    "approved_c6b01e828a8e304c": 1,
+    "approved_5c4fdc87ab3c63e9": 1,
+    "approved_9b7f2c9bc235c22e": 1,
+    "approved_1239cd7a3400c361": 1,
+    "approved_43c0c9a7e8cf8107": 1,
+    "approved_f4fc6c20748d8e57": 1,
+    "approved_051882f0174cac67": 1,
+    "approved_1a88e417e7fc8cb6": 1,
+    "approved_488fbaf3ea8e06f1": 1,
+    "approved_9ef920ce43da232e": 1,
+    "approved_5cfe00dd31051727": 1,
+    "approved_d2e12822d1936d54": 1,
+    "approved_415c4ab45f811209": 1,
+    "approved_768f3360343d5e16": 1,
+    "approved_a934bdb2af4d3b28": 1,
+    "approved_4ccc78636abf3dc5": 1,
+    "approved_d786efce249c42b9": 1,
+    "approved_785f44844bd3fb02": 1,
+    "approved_6ef1c94756c3c438": 1,
+    "approved_68755e4b3d54db82": 1,
+    "approved_46b8f5f6e7cc8305": 1,
+    "approved_c61605ae50554865": 1,
+    "approved_4c4a2d748bd9ddb1": 1,
+    "approved_ad18b5910ac1ec04": 1,
+    "approved_7f3c47d349b671a0": 1,
+    "approved_b46262f65a2b677c": 1,
+    "approved_46acba176332bac7": 1,
+    "approved_2f933f0e89162024": 1,
+    "approved_f262023d401f97a4": 1,
+    "approved_6aad9f47595e6c2d": 1,
+    "approved_d4e10e305a8cafd6": 1,
+    "approved_ac7d744e1fe6e6a4": 1,
+    "approved_2cd339bde0ae6ffb": 1,
+    "approved_58d1f70e9801be5f": 1,
+    "approved_5b23c850a2e56af0": 1,
+    "approved_58e9ae5da69b4334": 1,
+    "approved_b2d77444f3aa702c": 1,
+    "approved_d96006c380223257": 1,
+    "approved_3d307e41c6ff595f": 1,
+    "approved_1ea4702340a7620e": 1,
+    "approved_6d6c9620331480ad": 1
+  },
+  "source_origin": "https://api-v6.skyproduction.cn",
+  "provenance": {
+    "evidence_id": "ev_ed3d5933ac43c48a05edab5a180e992d887fbf67a112773ca5746bad07504288",
+    "har_sha256": "24443225790589737be6675c531ab7597846f108ec20d80835ea8f2cbbd36a0d",
+    "observation_window": {
+      "first": "2026-11-09T12:17:49.877Z",
+      "last": "2026-11-09T12:20:10.642Z"
+    },
+    "body_digest_scope": "HAR producer-decoded Unicode text re-encoded as UTF-8; no encoding declaration, original wire/body bytes unknown"
+  },
+  "pages": [
+    {
+      "page": 1,
+      "returned_group_count": 20,
+      "response_body_text_utf8_sha256": "b63f65822884093ca67a060293d775a88525d1bdc8d25d4ac48f7e1ebb165806"
+    },
+    {
+      "page": 2,
+      "returned_group_count": 20,
+      "response_body_text_utf8_sha256": "a136e36cbe1463ae3cfdae03a297494b20b148bc01ef46cead1892033f7b356c"
+    },
+    {
+      "page": 3,
+      "returned_group_count": 20,
+      "response_body_text_utf8_sha256": "eecdd9f06a7f923d4a55c0d60b436675df2e516f98fa6cf404a2b53938fb718c"
+    },
+    {
+      "page": 4,
+      "returned_group_count": 20,
+      "response_body_text_utf8_sha256": "f2924699fa6ce3dde5dcf46ecdd49168451ad72ccf59474f7990f5c92aeac0f1"
+    },
+    {
+      "page": 5,
+      "returned_group_count": 20,
+      "response_body_text_utf8_sha256": "06abe17fd51e846c1e25080d558457980098ce9dec298b82d9314bf7d4ded423"
+    },
+    {
+      "page": 6,
+      "returned_group_count": 14,
+      "response_body_text_utf8_sha256": "26256d2009b21104756ddb533f77b7aeffb4d17645882fce9b150fdfc4046d52"
+    }
+  ],
+  "group_sources": {
+    "approved_092da543e904e7ca": 1,
+    "approved_6639a6293dedca6f": 1,
+    "approved_322e51560f7542e3": 1,
+    "approved_42ea3604be957991": 1,
+    "approved_16166ff7862b806c": 1,
+    "approved_6deb4f28001779ce": 1,
+    "approved_b4e43868dd486562": 1,
+    "approved_8726bf919da9a7b5": 1,
+    "approved_fcab75214d9e0e3c": 1,
+    "approved_f9cdb415c15c2369": 1,
+    "approved_853689c02d779c9c": 1,
+    "approved_ab5c0f7cedd0233b": 1,
+    "approved_79416855e7bc1800": 1,
+    "approved_f6933500ece1b668": 1,
+    "approved_5841c39870152691": 1,
+    "approved_2987f267268bad5a": 1,
+    "approved_a25a766bae6703f0": 1,
+    "approved_c9dad4647593bae0": 1,
+    "approved_81714776c7fbd6ee": 1,
+    "approved_9ef94959bfed64a3": 1,
+    "approved_5af5166fb485edb1": 2,
+    "approved_4fbb3f7e4924f712": 2,
+    "approved_48fbe616ea63c609": 2,
+    "approved_26a2e551fbf25c8b": 2,
+    "approved_709817c52fe2db9e": 2,
+    "approved_6e162503026dc8b6": 2,
+    "approved_97f688368e1c53bc": 2,
+    "approved_1c3915bbfa30c1d6": 2,
+    "approved_4bf2b2a633e0ed73": 2,
+    "approved_2dd6c3c2a58705ed": 2,
+    "approved_99115ab883c3dbb4": 2,
+    "approved_b06e20512b1f44a1": 2,
+    "approved_5d193eb226cd9d6c": 2,
+    "approved_3c54a10c407bc67b": 2,
+    "approved_d01164d206bba114": 2,
+    "approved_c941ae5c0eca3f87": 2,
+    "approved_796d4315e25929f8": 2,
+    "approved_470bc3973db7b3bb": 2,
+    "approved_29b3935768966a5d": 2,
+    "approved_c52496bafd1c54ee": 2,
+    "approved_6b7a4d44bf7083dd": 3,
+    "approved_5a403f605d453c7e": 3,
+    "approved_7135edbbae7c4181": 3,
+    "approved_889be55e17d2465f": 3,
+    "approved_0de067b53d60c7ee": 3,
+    "approved_ce1b1a14ca3ab6a9": 3,
+    "approved_efd3903051d34f4d": 3,
+    "approved_626c1182b7db3a4b": 3,
+    "approved_e7955dfc6898853a": 3,
+    "approved_343a9e96526e4db5": 3,
+    "approved_56ca68350f78e1c8": 3,
+    "approved_c0d1ccd44dfcba4f": 3,
+    "approved_e0e65924b3b98cd6": 3,
+    "approved_b075b0cd525a81d3": 3,
+    "approved_ae3bcda55a5cc747": 3,
+    "approved_28f5703e848d880b": 3,
+    "approved_ecc3f28f9a02dafc": 3,
+    "approved_09ce29db144f24a2": 3,
+    "approved_844cb431b2384583": 3,
+    "approved_29135e17cb17b93d": 3,
+    "approved_b24fda7260cb1a67": 4,
+    "approved_b0cbe50fb19dd7c8": 4,
+    "approved_bcf9f005c3c0a034": 4,
+    "approved_16db90ba12533436": 4,
+    "approved_73fe077b7d230476": 4,
+    "approved_e5d95903b05ed15f": 4,
+    "approved_34ff1522612301db": 4,
+    "approved_27dd37d3a5dda499": 4,
+    "approved_28491de6038674af": 4,
+    "approved_ef64fa72a3b06242": 4,
+    "approved_3f4efff01f52619f": 4,
+    "approved_7d1ecbfa3869d0ac": 4,
+    "approved_57d01b43970e9bb2": 4,
+    "approved_c6b01e828a8e304c": 4,
+    "approved_5c4fdc87ab3c63e9": 4,
+    "approved_9b7f2c9bc235c22e": 4,
+    "approved_1239cd7a3400c361": 4,
+    "approved_43c0c9a7e8cf8107": 4,
+    "approved_f4fc6c20748d8e57": 4,
+    "approved_051882f0174cac67": 4,
+    "approved_1a88e417e7fc8cb6": 5,
+    "approved_488fbaf3ea8e06f1": 5,
+    "approved_9ef920ce43da232e": 5,
+    "approved_5cfe00dd31051727": 5,
+    "approved_d2e12822d1936d54": 5,
+    "approved_415c4ab45f811209": 5,
+    "approved_768f3360343d5e16": 5,
+    "approved_a934bdb2af4d3b28": 5,
+    "approved_4ccc78636abf3dc5": 5,
+    "approved_d786efce249c42b9": 5,
+    "approved_785f44844bd3fb02": 5,
+    "approved_6ef1c94756c3c438": 5,
+    "approved_68755e4b3d54db82": 5,
+    "approved_46b8f5f6e7cc8305": 5,
+    "approved_c61605ae50554865": 5,
+    "approved_4c4a2d748bd9ddb1": 5,
+    "approved_ad18b5910ac1ec04": 5,
+    "approved_7f3c47d349b671a0": 5,
+    "approved_b46262f65a2b677c": 5,
+    "approved_46acba176332bac7": 5,
+    "approved_2f933f0e89162024": 6,
+    "approved_f262023d401f97a4": 6,
+    "approved_6aad9f47595e6c2d": 6,
+    "approved_d4e10e305a8cafd6": 6,
+    "approved_ac7d744e1fe6e6a4": 6,
+    "approved_2cd339bde0ae6ffb": 6,
+    "approved_58d1f70e9801be5f": 6,
+    "approved_5b23c850a2e56af0": 6,
+    "approved_58e9ae5da69b4334": 6,
+    "approved_b2d77444f3aa702c": 6,
+    "approved_d96006c380223257": 6,
+    "approved_3d307e41c6ff595f": 6,
+    "approved_1ea4702340a7620e": 6,
+    "approved_6d6c9620331480ad": 6
+  },
+  "coverage": {
+    "status": "complete_within_retained_har",
+    "source_reported_total": 114,
+    "available_group_count": 114,
+    "available_example_count": 114,
+    "category_count": 11,
+    "detail_sample_count": 1,
+    "source_snapshot_atomic": false,
+    "source_filter_behavior_verified": false,
+    "preview_bytes_verified": false
+  },
+  "observed_detail_keys": [
+    "approved_7135edbbae7c4181"
+  ],
+  "catalog_sha256": "3574def15e6793d988c9c788ff1c3814ad879ab96677abeae84f7493e11becd9"
+}

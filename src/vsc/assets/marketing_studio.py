@@ -123,7 +123,8 @@ def marketing_methods():
 
 def _request(payload, *, validate_method=True):
     from vsc.assets.resource_service import ResourceError
-    fields = {"prompt", "episode_id", "method_id", "method_version", "method_sha256", "media_ids"}
+    from vsc.assets.marketing_cases import validate_case_ref
+    fields = {"prompt", "episode_id", "method_id", "method_version", "method_sha256", "media_ids", "case_ref"}
     if set(payload) - fields:
         raise ResourceError("营销准备包含未支持的字段", "invalid_marketing_payload")
     prompt = payload.get("prompt")
@@ -163,6 +164,9 @@ def _request(payload, *, validate_method=True):
             raise ResourceError("营销方法版本或摘要已改变，请刷新后重试", "marketing_method_mismatch", 409)
     fixed = dict(prompt=prompt, episode_id=episode, media_ids=list(media), method_id=method_id,
                  method_version=version, method_sha256=sha256)
+    case_ref = validate_case_ref(payload.get("case_ref"))
+    if case_ref is not None:
+        fixed["case_ref"] = case_ref
     sha = hashlib.sha256(json.dumps(fixed, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return fixed, method, sha
 
@@ -208,6 +212,7 @@ def marketing_start_request(payload):
 def marketing_preparation_snapshot(canvas):
     """Derive the first message/skill/refs from a verified original preparation."""
     from vsc.assets.resource_service import Conflict
+    from vsc.assets.marketing_cases import case_spec_from_params
     def invalid():
         raise Conflict("原营销准备快照结构或摘要不符", "marketing_preparation_mismatch")
     nodes = canvas["document"]["nodes"]
@@ -237,6 +242,9 @@ def marketing_preparation_snapshot(canvas):
         method_id=method["params"].get("method_id") if method else None,
         method_version=method["params"].get("method_version") if method else None,
         method_sha256=method["params"].get("method_sha256") if method else None)
+    case = case_spec_from_params(brief["params"])
+    if case is not None:
+        payload["case_ref"] = {key: case[key] for key in ("id", "version", "sha256")}
     _, _, request_sha = _request(payload, validate_method=False)
     if brief["params"].get("marketing_request_sha256") != request_sha:
         invalid()
@@ -278,18 +286,22 @@ class MarketingStudioServiceMixin:
 
     def create_marketing_canvas(self, project_id, payload, **kw):
         from vsc.assets.resource_service import Conflict, ResourceError
+        from vsc.assets.marketing_cases import resolve_case, case_spec_to_params
         self._validate_write(payload, **kw)
         receipt = self.get_operation_receipt(project_id, kw["idempotency_key"], actor=kw["actor"])
         if receipt["found"]:
             # An existing operation is bound to its submitted method pin, not
             # the deployed catalog. Never let a later upgrade block recovery.
-            fixed, _, request_sha = _request(payload, validate_method=False)
             saved = receipt["response"]
             if not saved.get("canvas_revision") or not saved.get("id"):
                 raise Conflict("同一幂等键已用于不同操作", "idempotency_conflict")
             # Recover the immutable preparation version, even after later edits.
             canvas = self.store.get_creative_canvas(project_id, saved["id"], saved["canvas_revision"])
             document = canvas["document"]
+            # Validate the embedded historical case and its original request
+            # digest without consulting today's catalog, then compare intent.
+            marketing_preparation_snapshot(canvas)
+            fixed, _, request_sha = _request(payload, validate_method=False)
             brief = next((node for node in document["nodes"] if node["id"] == "marketing-brief"), None)
             if not brief or brief["params"].get("marketing_request_sha256") != request_sha:
                 raise Conflict("同一幂等键已用于不同营销输入", "idempotency_conflict")
@@ -300,6 +312,8 @@ class MarketingStudioServiceMixin:
             skill_id = method["skill_id"] if method else "vsc-assets"
             nodes = [dict(id="marketing-brief", type="text", title="营销原始需求", x=80, y=80,
                 text=fixed["prompt"], params=dict(marketing_request_sha256=request_sha, marketing_role="brief", skill_id=skill_id))]
+            if fixed.get("case_ref") is not None:
+                nodes[0]["params"].update(case_spec_to_params(resolve_case(fixed["case_ref"])))
             if method:
                 nodes.append(dict(id="marketing-method", type="text", title=method["name"] + " · 方法 " + method["version"],
                     x=560, y=80, text=method["text"], params=dict(marketing_role="method", method_id=method["id"],

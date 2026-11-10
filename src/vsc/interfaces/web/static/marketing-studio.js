@@ -1,5 +1,6 @@
 import {createMediaUpload} from './media-upload.js';
 import {createRunScopeControls} from './run-scope-controls.js';
+import {onLocaleChange} from './i18n.js';
 
 // One explicit intent prepares a canvas and starts its original Agent turn.
 // Recovery follows the fixed prepare/start receipts and never sends a new turn.
@@ -9,6 +10,11 @@ const copy=value=>JSON.parse(JSON.stringify(value));
 const endpoint=(p,path)=>`/api/v1/projects/${encodeURIComponent(p)}/${path}`;
 const genericHint='上传创作素材或引用项目素材，描述你想创作的广告内容、核心卖点或创意想法…';
 const length=value=>Array.from(value).length;
+const CASE_FIELDS=['schema','id','version','sha256','source_origin','template_key','group_key','category_name','category_label','group_name','group_description','video_name','cover_url','video_url','width','height','evidence_id','evidence_body_sha256'];
+const casePin=spec=>({id:spec.id,version:spec.version,sha256:spec.sha256});
+const samePin=(a,b)=>Boolean(a&&b&&a.id===b.id&&a.version===b.version&&a.sha256===b.sha256);
+const stable=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(k=>[k,item[k]])):item);
+const mediaURL=value=>{try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password?value:null;}catch{return null;}};
 export async function marketingStartKey(prepareKey){return 'marketing-start:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(prepareKey))),n=>n.toString(16).padStart(2,'0')).join('');}
 
 export function createMarketingStudio(root,ctx){
@@ -22,6 +28,8 @@ export function createMarketingStudio(root,ctx){
   const project=s=>ctx.projects().find(p=>p.id===s.project);
   const writable=s=>Boolean(live(s)&&s.actor&&auth().writeAvailable&&project(s)?.storage_policy==='postgres-series-v1'&&!project(s)?.read_only&&!project(s)?.unavailable);
   const draftKey=s=>key('draft',s.actor,s.project),requestKey=s=>key('request',s.actor,s.project);
+  const caseScope=s=>JSON.stringify([s.actor,s.project,auth().account_id??auth().identityId??null,document.documentElement?.lang||'',globalThis.location?.search||'']);
+  const caseLive=(s,c,seq,stamp)=>live(s)&&s.cases===c&&c.requestSeq===seq&&caseScope(s)===stamp;
   function save(s){if(live(s))remember(draftKey(s),s.draft);}
   function revision(s,value){if(live(s)&&value!=null){s.revision=value;ctx.setRevision(value,s.project);}}
   function note(s,text){if(live(s)&&s.status)s.status.textContent=text;}
@@ -53,16 +61,20 @@ export function createMarketingStudio(root,ctx){
       const chip=el('span',null,'marketing-material-chip');chip.append(el('span',item.name||item.id));
       const remove=button(s,'×',()=>{s.draft.media=s.draft.media.filter(m=>m.id!==item.id);save(s);update(s);});remove.disabled=locked;remove.setAttribute('aria-label','移除素材 '+(item.name||item.id));chip.append(remove);s.materials.append(chip);
     }
+    if(s.caseChip){s.caseChip.replaceChildren();const pin=s.pending?.request.payload.case_ref||s.draft.case&&casePin(s.draft.case);if(pin){const spec=s.pending?.case_display||s.draft.case,chip=el('span',null,'marketing-selected-case');chip.append(button(s,spec?.group_name||'已选创意',()=>{if(spec)openCase(s,spec,{historical:true});},'marketing-case-chip-open'));const remove=button(s,'×',()=>{if(s.pending||s.busy)return;s.draft.case=null;save(s);update(s);});remove.disabled=locked;remove.setAttribute('aria-label','删除已选创意');chip.append(remove);s.caseChip.append(chip);}}
     s.mediaCount.textContent=`已选 ${s.draft.media.length} / 15`;
     if(s.modelOrder)s.modelOrder.textContent=s.draft.model_ids.map((id,i)=>`${i+1}. ${s.options?.models?.find(m=>m.id===id)?.model_key||id}`).join(' → ')||'由 Agent 先确认需求';
     if(s.autoLimits)s.autoLimits.hidden=s.draft.mode!=='auto_media';
     if(s.autoMediaCheck){s.autoMediaCheck.checked=s.draft.mode==='auto_media';s.autoMediaCheck.disabled=locked||s.draft.mode==='manual';}
     if(s.runFieldset)s.runFieldset.hidden=Boolean(s.pending)||s.draft.mode==='manual';
     if(s.frozenIntent){const intent=s.pending?.intent;s.frozenIntent.hidden=!intent;if(intent){const settings=intent.execution_settings,limits=settings.auto_media,policy=settings.execution_policy,authorization=policy?.authorization;s.frozenIntent.textContent=['本次固定范围：'+(limits?'有界自动媒体':intent.mode==='manual'?'手动规划':'自动编排'),s.modelOrder.textContent,limits?`最多${limits.max_jobs}个任务、${limits.max_images}张图片、${limits.max_video_ms/1000}秒视频；商业额度上限${limits.max_credits}`:'',policy?'停止新增任务：'+policy.stop_submitting_at:'',authorization?.mode==='new_batch'?'新批次原因：'+authorization.reason:authorization?.mode==='continue'?'继续原批次：'+authorization.run_version_id:''].filter(Boolean).join('；');}}
+    for(const n of s.cases?.selectButtons||[])n.disabled=locked;
+    if(s.cases?.pager)renderCasePager(s);
   }
   function draw(s){
     if(!live(s))return;
     s.upload?.suspend();s.upload=null;
+    stopPreview(s.cases);closeCase(s,false);
     s.runScope?.dispose();s.runScope=null;
     root.replaceChildren();root.classList.add('marketing-studio');
     const heading=el('header',null,'marketing-heading');heading.append(el('h1','和营销 Agent 聊创意，助你轻松打造好广告'));root.append(heading);
@@ -78,7 +90,7 @@ export function createMarketingStudio(root,ctx){
     s.prompt.oninput=()=>{if(!live(s)||s.pending)return;s.draft.prompt=s.prompt.value;save(s);update(s);};
     s.prompt.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!e.isComposing){e.preventDefault();submit(s);}};
     s.editables.push(s.prompt);body.append(add,s.prompt);form.append(body);
-    s.materials=el('div',null,'marketing-materials');form.append(s.materials);
+    s.materials=el('div',null,'marketing-materials');s.caseChip=el('div',null,'marketing-case-chip');form.append(s.caseChip,s.materials);
     const footer=el('div',null,'marketing-toolbar'),tools=el('div',null,'marketing-tools');
     const ref=button(s,'@',()=>{s.materialPanel.hidden=!s.materialPanel.hidden;},'marketing-icon');ref.title='引用素材';ref.setAttribute('aria-label','引用素材');
     const models=button(s,'◇',()=>{s.executionPanel.hidden=!s.executionPanel.hidden;},'marketing-icon');models.title='选择模型';models.setAttribute('aria-label','选择模型');tools.append(ref,models);s.editables.push(ref,models);
@@ -124,12 +136,105 @@ export function createMarketingStudio(root,ctx){
       readMedia(s);
     }else s.materialPanel.append(el('p','先选择项目，再引用素材或上传文件。'));
     root.append(s.materialPanel);
-    const ideas=el('section',null,'marketing-ideas');ideas.append(el('h2','全部创意'),el('p','创意案例暂未接入。可直接描述创意，或选择上方技能继续。','marketing-ideas-empty'));root.append(ideas);
+    mountCases(s);
     if(!ctx.projects().length)root.append(button(s,'查看或新建项目',()=>ctx.navigate('projects',null,null)));
     update(s);
     if(s.error)note(s,s.error);
     else if(s.pending)note(s,s.pending.startResult?'原规划已建立；继续只查询并打开同一规划。':s.pending.result?'准备画布已保留；继续将沿原请求开始创作。':'上次操作回执待确认。需求与素材已保留，恢复时使用原请求。');
     else if(s.project&&!writable(s))note(s,'当前项目不可写，请选择可写项目或建立操作会话。');
+  }
+  function stopPreview(c){if(!c?.preview)return;const p=c.preview;c.preview=null;p.video.pause?.();p.video.hidden=true;if(p.poster)p.poster.hidden=false;if(p.button)p.button.textContent='播放预览';}
+  function stopCaseObserver(c){if(!c)return;c.observerEpoch=(c.observerEpoch||0)+1;c.moreObserver?.disconnect();c.moreObserver=null;c.sentinel=null;}
+  function closeCase(s,focus=true){const c=s?.cases;if(!c)return;c.detailSeq++;stopPreview(c);if(c.dialog){const d=c.dialog;c.dialog=null;d.close?.();d.remove?.();}if(focus&&c.trigger?.isConnected)c.trigger.focus?.();c.trigger=null;if(focus&&live(s)&&c.pager)renderCasePager(s);}
+  function caseButton(s,title,fn,cls=''){const b=button(s,title,fn,cls),handler=b.onclick;b.onclick=e=>{e?.stopPropagation?.();return handler();};return b;}
+  function selectCase(s,spec){
+    if(!live(s)||s.pending||s.busy)return;
+    if(!samePin(s.draft.case,spec)){s.draft.case=copy(spec);save(s);update(s);}closeCase(s);note(s,'已选择创意参考：'+spec.group_name);
+  }
+  function mountCases(s){
+    let c=s.cases;if(!c){const pref=recall(key('case-browser',s.actor,s.project));c=s.cases={requestSeq:0,detailSeq:0,renderSeq:0,category:pref?.category||'',keyword:pref?.keyword||'',input:pref?.keyword||'',H:null,items:[],categories:[],next:1,total:0,loading:false,loaded:false,examples:new Map(),selectButtons:[]};}
+    c.selectButtons=[];const section=el('section',null,'marketing-ideas'),head=el('div',null,'marketing-cases-heading');c.filters=el('nav',null,'marketing-case-categories');c.filters.setAttribute('aria-label','创意分类');
+    const query=el('input',null,'marketing-case-search');query.type='search';query.value=c.input;query.placeholder='搜索名称、描述或分类';query.setAttribute('aria-label','搜索营销创意');
+    query.oninput=()=>{if(!live(s))return;const stamp=caseScope(s);clearTimeout(c.debounce);c.input=query.value;c.requestSeq++;stopCaseObserver(c);stopPreview(c);closeCase(s,false);c.debounce=setTimeout(()=>{if(!live(s)||caseScope(s)!==stamp)return;c.keyword=c.input.trim();remember(key('case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});readCases(s,1,true);},300);};
+    head.append(c.filters,query);c.summary=el('p',null,'marketing-case-count');c.grid=el('div',null,'marketing-case-grid');c.feedback=el('div',null,'marketing-case-feedback');c.feedback.setAttribute('role','status');c.pager=el('div',null,'marketing-case-pager');section.append(head,c.summary,c.grid,c.feedback,c.pager);root.append(section);
+    renderCaseFilters(s);renderCases(s);if(!c.loaded&&!c.loading)readCases(s,1,true);
+  }
+  function renderCaseFilters(s){const c=s.cases;if(!live(s)||!c.filters)return;c.filters.replaceChildren();for(const category of [{category_name:'',category_label:'全部创意'},...c.categories]){const b=caseButton(s,category.category_label,()=>{clearTimeout(c.debounce);c.category=category.category_name;c.keyword=c.input.trim();remember(key('case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});return readCases(s,1,true);},'marketing-case-category');b.setAttribute('aria-pressed',String(c.category===category.category_name));b.dataset.category=category.category_name;if(category.available_group_count!=null)b.append(el('small',String(category.available_group_count)));c.filters.append(b);}}
+  function rebindCaseLocale(s){
+    if(!live(s)||!s.cases)return;const c=s.cases,reading=c.activeRead,keyword=c.input.trim(),changed=keyword!==c.keyword;
+    clearTimeout(c.debounce);c.requestSeq++;c.activeRead=null;c.loading=false;stopCaseObserver(c);stopPreview(c);closeCase(s,false);
+    if(changed){c.keyword=keyword;remember(key('case-browser',s.actor,s.project),{category:c.category,keyword});}
+    // Rebind only the catalogue. Rebuilding the composer would lose values in
+    // the original run-scope controls or disturb an in-flight R/S/T intent.
+    renderCaseFilters(s);
+    if(changed||!c.loaded)readCases(s,1,true,reading?.fresh===true);
+    else if(reading)readCases(s,reading.page,reading.reset,reading.fresh);
+    else renderCases(s);
+  }
+  async function readCases(s,page,reset=false,fresh=false){
+    if(!live(s))return;const c=s.cases,seq=++c.requestSeq,stamp=caseScope(s);clearTimeout(c.debounce);stopCaseObserver(c);closeCase(s,false);stopPreview(c);if(fresh)c.H=null;
+    if(reset){c.items=[];c.loaded=false;c.next=1;c.total=0;}c.activeRead={page,reset,fresh};c.loading=true;c.failed=false;renderCases(s);c.feedback.replaceChildren(el('p','正在读取创意…'));renderCasePager(s);
+    const params=new URLSearchParams({page:String(page),page_size:'20'});if(c.H)params.set('catalog_sha256',c.H);if(c.category)params.set('category_name',c.category);if(c.keyword)params.set('keyword',c.keyword);
+    try{
+      const data=await ctx.api('/api/v1/marketing-cases?'+params);if(!caseLive(s,c,seq,stamp))return;
+      if(!data.catalog_sha256||c.H&&c.H!==data.catalog_sha256||data.page!==page||data.page_size!==20)throw Object.assign(Error('创意目录版本或分页不一致，请重新载入目录'),{code:'marketing_catalog_changed'});
+      const merged=new Map(c.items.map(item=>[item.group_key,item]));for(const group of data.items){const prior=merged.get(group.group_key);if(prior&&stable(prior)!==stable(group))throw Object.assign(Error('创意目录出现不一致内容，请重新载入目录'),{code:'marketing_catalog_changed'});if(!prior)merged.set(group.group_key,group);}
+      c.H=data.catalog_sha256;c.categories=data.categories;c.items=[...merged.values()];c.next=data.next_page;c.total=data.total_available;c.lastPageCount=data.items.length;c.loaded=true;c.feedback.replaceChildren();renderCaseFilters(s);renderCases(s);
+    }catch(error){if(caseLive(s,c,seq,stamp)){c.failed=true;c.feedback.replaceChildren(el('p',error.message));const changed=error.code==='marketing_catalog_changed'||error.status===409;c.feedback.append(caseButton(s,changed?'重新载入目录':'重试读取创意',()=>readCases(s,changed?1:page,changed||reset,changed)));}}
+    finally{if(caseLive(s,c,seq,stamp)){c.loading=false;c.activeRead=null;renderCasePager(s);}}
+  }
+  function renderCasePager(s){
+    const c=s.cases;if(!live(s)||!c.pager)return;stopCaseObserver(c);c.pager.replaceChildren();c.summary.textContent=c.loaded?`已显示 ${c.items.length} / ${c.total} 个创意`:'';
+    if(!c.loaded||c.next==null||!c.lastPageCount||c.items.length>=c.total)return;
+    const page=c.next,H=c.H,seq=c.requestSeq,render=c.renderSeq,stamp=caseScope(s),epoch=c.observerEpoch;
+    const current=()=>caseLive(s,c,seq,stamp)&&c.renderSeq===render&&c.next===page&&c.H===H&&c.observerEpoch===epoch;
+    const loadNext=()=>{if(current()&&!c.loading&&!s.busy&&!c.layoutPending)return readCases(s,page);};
+    const b=caseButton(s,'加载更多创意',loadNext);b.disabled=c.loading||s.busy||c.layoutPending;c.pager.append(b);
+    // Keep the keyboard/manual path even where observation is unsupported.
+    if(c.loading||s.busy||c.failed||c.layoutPending||c.dialog||document.hidden||document.visibilityState==='hidden'||!globalThis.IntersectionObserver)return;
+    const sentinel=el('div',null,'marketing-case-sentinel');sentinel.setAttribute('aria-hidden','true');c.sentinel=sentinel;c.pager.append(sentinel);
+    const observer=new IntersectionObserver(entries=>{
+      if(c.moreObserver!==observer||c.sentinel!==sentinel)return;
+      if(!current()){stopCaseObserver(c);return;}
+      if(!document.hidden&&entries.some(entry=>entry.target===sentinel&&entry.isIntersecting))return loadNext();
+    },{root,rootMargin:'160px',threshold:0});c.moreObserver=observer;observer.observe(sentinel);
+  }
+  function preview(s,video,poster,b,c,stamp,render,explicit=false){
+    if(!live(s)||caseScope(s)!==stamp||c.renderSeq!==render||!video.src||b.disabled)return;
+    if(c.preview?.video===video){if(explicit)stopPreview(c);return;}
+    stopPreview(c);video.hidden=false;if(poster)poster.hidden=true;b.textContent='暂停预览';c.preview={video,poster,button:b};
+    try{Promise.resolve(video.play?.()).then(()=>{if(!live(s)||caseScope(s)!==stamp||c.renderSeq!==render||c.preview?.video!==video)video.pause?.();}).catch(()=>{if(c.preview?.video===video){stopPreview(c);b.textContent='预览暂不可用';}});}catch{stopPreview(c);b.textContent='预览暂不可用';}
+  }
+  function visual(s,spec,c,render,stamp){
+    const requestSeq=c.requestSeq;
+    const cover=el('div',null,'marketing-case-cover'),image=el('img'),url=mediaURL(spec.cover_url);image.alt=spec.video_name||spec.group_name;image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';if(url)image.src=url;else image.hidden=true;cover.append(image);
+    cover.style.aspectRatio=`${spec.width} / ${spec.height}`;const video=el('video'),play=caseButton(s,'播放预览',()=>{if(c.requestSeq===requestSeq)preview(s,video,image,play,c,stamp,render,true);},'marketing-case-play');video.muted=true;video.loop=true;video.playsInline=true;video.preload='none';video.crossOrigin='anonymous';video.hidden=true;
+    const source=mediaURL(spec.video_url);if(source)video.src=source;else play.disabled=true;video.onerror=()=>{if(live(s)&&c.renderSeq===render&&caseScope(s)===stamp){if(c.preview?.video===video)stopPreview(c);play.textContent='预览暂不可用';}};image.onerror=()=>{if(live(s)&&c.renderSeq===render&&caseScope(s)===stamp){image.hidden=true;cover.append(el('span','封面暂不可用','marketing-case-unavailable'));}};cover.append(video,play);return {cover,video,image,play};
+  }
+  function renderCases(s){
+    const c=s.cases;if(!live(s)||!c.grid)return;stopCaseObserver(c);stopPreview(c);c.masonry?.disconnect();c.layoutPending=true;const render=++c.renderSeq,requestSeq=c.requestSeq,stamp=caseScope(s);c.grid.replaceChildren();c.selectButtons=[];
+    for(const group of c.items){
+      const spec=group.examples.find(item=>item.template_key===c.examples.get(group.group_key))||group.examples[0];if(!spec)continue;
+      const card=el('article',null,'marketing-case-card');card.dataset.groupKey=group.group_key;card.dataset.caseId=spec.id;card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','查看 '+group.group_name+' 的创意详情');
+      const v=visual(s,spec,c,render,stamp);card.append(v.cover,el('h3',group.group_name),el('p',group.group_description,'marketing-case-description'));
+      const current=()=>live(s)&&c.requestSeq===requestSeq&&c.renderSeq===render&&caseScope(s)===stamp;card.onclick=()=>{if(current())return openCase(s,spec,{trigger:card,group});};card.onkeydown=e=>{if(current()&&e.target===card&&['Enter',' '].includes(e.key)){e.preventDefault();return openCase(s,spec,{trigger:card,group});}};
+      const choose=caseButton(s,'复刻',()=>{if(current())selectCase(s,spec);},'marketing-case-select');choose.disabled=Boolean(s.pending||s.busy);c.selectButtons.push(choose);card.append(choose);
+      if(group.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换 '+group.group_name+' 的案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.onclick=e=>e.stopPropagation();select.onchange=e=>{e?.stopPropagation?.();c.examples.set(group.group_key,select.value);closeCase(s,false);renderCases(s);};card.append(select);}
+      card.onpointerenter=e=>{if(current()&&(!e.pointerType||e.pointerType==='mouse')&&globalThis.matchMedia?.('(hover: hover) and (pointer: fine)').matches&&!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)preview(s,v.video,v.image,v.play,c,stamp,render);};card.onpointerleave=()=>{if(c.preview?.video===v.video)stopPreview(c);};c.grid.append(card);
+    }
+    if(c.loaded&&!c.items.length)c.grid.append(el('p','暂无匹配创意，请调整分类或关键词。','marketing-ideas-empty'));
+    const fit=(refresh=true)=>{if(!live(s)||c.renderSeq!==render||caseScope(s)!==stamp)return;const cards=[...c.grid.children].filter(n=>n.className==='marketing-case-card'),heights=cards.map(n=>n.offsetHeight||0);c.layoutPending=Boolean(cards.length)&&(!c.grid.clientWidth||heights.some(h=>h<=0));if(!c.layoutPending)cards.forEach((n,i)=>n.style.gridRowEnd='span '+Math.ceil((heights[i]+18)/8));if(refresh)renderCasePager(s);};fit(false);if(globalThis.ResizeObserver){c.masonry=new ResizeObserver(()=>fit());c.masonry.observe(c.grid);for(const card of c.grid.children)c.masonry.observe(card);}renderCasePager(s);
+  }
+  async function openCase(s,spec,{trigger=null,group=null,historical=false}={}){
+    const c=s.cases;if(!live(s)||!c)return;stopCaseObserver(c);closeCase(s,false);const seq=++c.detailSeq,requestSeq=c.requestSeq,stamp=caseScope(s),H=c.H,render=c.renderSeq;c.trigger=trigger;
+    const dialog=el('dialog',null,'marketing-case-dialog');c.dialog=dialog;dialog.setAttribute('aria-label',spec.group_name);const close=caseButton(s,'×',()=>closeCase(s),'marketing-case-dialog-close');close.setAttribute('aria-label','关闭创意详情');dialog.append(close,el('h2',spec.group_name));
+    const v=visual(s,spec,c,render,stamp);dialog.append(v.cover,el('p',spec.group_description,'marketing-case-full-description'),el('p','仅选择创意参考，不会导入案例视频。','marketing-case-basis'));
+    if(group?.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换详情案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.onchange=()=>{const selected=group.examples.find(item=>item.template_key===select.value);c.examples.set(group.group_key,selected.template_key);return openCase(s,selected,{trigger,group});};dialog.append(select);}
+    const feedback=el('p',historical?'已保留所选创意内容。':'正在读取创意详情…','marketing-case-detail-status');dialog.append(feedback);const choose=caseButton(s,'选择此创意',()=>{if(c.dialog===dialog&&c.detailSeq===seq&&c.requestSeq===requestSeq&&caseScope(s)===stamp)selectCase(s,spec);},'marketing-case-detail-select');choose.disabled=Boolean(s.pending||s.busy);c.selectButtons.push(choose);dialog.append(choose);dialog.oncancel=e=>{e.preventDefault();closeCase(s);};dialog.onclose=()=>{if(c.dialog===dialog)closeCase(s);};root.append(dialog);dialog.showModal();
+    if(historical)return;
+    try{const data=await ctx.api('/api/v1/marketing-cases/'+encodeURIComponent(spec.id)+'?'+new URLSearchParams({version:String(spec.version),sha256:spec.sha256}));if(!live(s)||c.dialog!==dialog||c.detailSeq!==seq||c.requestSeq!==requestSeq||caseScope(s)!==stamp||c.H!==H)return;
+      if(data.catalog_sha256!==H||stable(data.case)!==stable(spec))throw Error('创意目录已变化，当前选择内容已保留，请重新载入目录后再选。');feedback.textContent='';
+    }catch(error){if(live(s)&&c.dialog===dialog&&c.detailSeq===seq&&c.requestSeq===requestSeq&&caseScope(s)===stamp){feedback.textContent=error.message;choose.disabled=true;}}
   }
   function executionControls(s){
     const panel=el('section',null,'marketing-execution-panel');panel.hidden=true;s.executionPanel=panel;panel.setAttribute('aria-label','模型与创作范围');
@@ -195,8 +300,8 @@ export function createMarketingStudio(root,ctx){
         if(!prompt.trim()||length(prompt)>2000)throw Error('请输入1至2000字的广告创作需求');
         if(s.draft.media.length>15)throw Error('最多选择15项素材');
         if(s.draft.method_id&&!method)throw Error('所选技能已变化，请重新选择');
-        const payload={prompt,episode_id:s.draft.episode_id||null,method_id:method?.id||null,...(method?{method_version:method.version,method_sha256:method.sha256}:{}),media_ids:s.draft.media.map(m=>m.id)};
-        s.pending={actor:s.actor,project:s.project,intent:freezeIntent(s),request:{payload,expected_revision:s.revision,idempotency_key:crypto.randomUUID()}};remember(requestKey(s),s.pending);
+        const payload={prompt,episode_id:s.draft.episode_id||null,method_id:method?.id||null,...(method?{method_version:method.version,method_sha256:method.sha256}:{}),media_ids:s.draft.media.map(m=>m.id),...(s.draft.case?{case_ref:casePin(s.draft.case)}:{})};
+        s.pending={actor:s.actor,project:s.project,intent:freezeIntent(s),...(s.draft.case?{case_display:copy(s.draft.case)}:{}),request:{payload,expected_revision:s.revision,idempotency_key:crypto.randomUUID()}};remember(requestKey(s),s.pending);
       }
       // Upgrading a confirmed preparation still requires this explicit click.
       // Its new start intent is frozen once, without changing the original R.
@@ -216,6 +321,7 @@ export function createMarketingStudio(root,ctx){
         const canvas=await ctx.api(endpoint(s.project,'creative-canvases/'+encodeURIComponent(id)+'?version='+encodeURIComponent(result.canvas_revision)));if(!live(s))return;
         if(canvas.id!==id&&canvas.canvas?.id!==id)throw Error('画布读回标识不一致，请重试打开');
         if(canvas.canvas_revision!==result.canvas_revision||canvas.sha256!==result.sha256||!result.sha256)throw Error('准备画布固定版本或摘要不一致，原画布已保留');
+        restoreCaseDisplay(s,pending,canvas);
         const startKey=await marketingStartKey(pending.request.idempotency_key);if(!live(s))return;
         pending.startRequest={payload:{prepare_key:pending.request.idempotency_key,canvas_revision:result.canvas_revision,canvas_sha256:result.sha256,...copy(pending.intent)},expected_revision:canvas.revision,idempotency_key:startKey};remember(requestKey(s),pending);revision(s,canvas.revision);
       }
@@ -250,17 +356,24 @@ export function createMarketingStudio(root,ctx){
     if(turn.id!==start.turn_id||turn.project_id!==s.project||turn.canvas_id!==start.canvas_id||turn.canvas_revision!==start.canvas_revision||turn.session_id!==start.session_id||(turn.episode_id||null)!==(start.episode_id||null))throw Error('原规划读回归属不一致，请重读原规划');
     revision(s,turn.revision);return turn;
   }
-  function suspend(){if(!state)return;save(state);state.disposed=true;state.upload?.suspend();state.runScope?.dispose();}
+  function restoreCaseDisplay(s,pending,canvas){
+    if(!pending.request.payload.case_ref||pending.case_display)return;
+    const params=canvas.document?.nodes?.find(n=>n.id==='marketing-brief')?.params;if(!params||!CASE_FIELDS.every(k=>Object.hasOwn(params,'marketing_case_'+k)))return;
+    const spec=Object.fromEntries(CASE_FIELDS.map(k=>[k,params['marketing_case_'+k]]));if(!samePin(spec,pending.request.payload.case_ref))return;
+    pending.case_display=spec;s.draft.case=copy(spec);remember(requestKey(s),pending);save(s);update(s);
+  }
+  function suspend(){if(!state)return;save(state);stopCaseObserver(state.cases);stopPreview(state.cases);closeCase(state,false);clearTimeout(state.cases?.debounce);state.cases?.masonry?.disconnect();if(state.cases)state.cases.requestSeq++;state.caseCleanup?.();state.disposed=true;state.upload?.suspend();state.runScope?.dispose();}
   async function load(scope={}){
     suspend();const actor=auth().actor||'',choice=recall(key('project',actor));
     const p=scope.project!==undefined?scope.project:(choice?.project||null),s={actor,project:p||null,disposed:false,sequence:++sequence,revision:null,options:null,busy:false,mediaSequence:0};state=s;
-    const draft=recall(draftKey(s))||scope.seed,date=mins=>{const now=new Date(Date.now()+mins*60000);return new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,16);};s.draft={prompt:draft?.prompt||'',method_id:draft?.method_id||'',episode_id:scope.episode??draft?.episode_id??'',media:Array.isArray(draft?.media)?draft.media:[],model_ids:draft?.model_ids||[],mode:draft?.mode||'manual',execution:{duration:'5',first_due:date(60),stop_at:date(120),max_jobs:'2',max_images:'2',max_video_seconds:'10',max_credits:'0',...draft?.execution}};
+    const draft=recall(draftKey(s))||scope.seed,date=mins=>{const now=new Date(Date.now()+mins*60000);return new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,16);};s.draft={prompt:draft?.prompt||'',method_id:draft?.method_id||'',episode_id:scope.episode??draft?.episode_id??'',media:Array.isArray(draft?.media)?draft.media:[],case:draft?.case||null,model_ids:draft?.model_ids||[],mode:draft?.mode||'manual',execution:{duration:'5',first_due:date(60),stop_at:date(120),max_jobs:'2',max_images:'2',max_video_seconds:'10',max_credits:'0',...draft?.execution}};
     s.pending=recall(requestKey(s))||null;
     if(s.pending?.actor!==actor||s.pending?.project!==s.project)s.pending=null;
     if(s.pending&&!s.pending.result&&s.pending.uncertain===undefined){s.pending.uncertain=true;remember(requestKey(s),s.pending);}
-    if(s.pending){const payload=s.pending.request.payload;s.draft={...s.draft,prompt:payload.prompt,method_id:payload.method_id||'',episode_id:payload.episode_id||'',media:payload.media_ids.map(id=>s.draft.media.find(m=>m.id===id)||{id,name:id})};}
+    if(s.pending){const payload=s.pending.request.payload,fixedCase=s.pending.case_display||s.draft.case;s.draft={...s.draft,prompt:payload.prompt,method_id:payload.method_id||'',episode_id:payload.episode_id||'',media:payload.media_ids.map(id=>s.draft.media.find(m=>m.id===id)||{id,name:id}),case:samePin(fixedCase,payload.case_ref)?fixedCase:null};}
     if(s.pending?.intent){s.draft.model_ids=[...s.pending.intent.model_ids];s.draft.mode=s.pending.intent.execution_settings.auto_media?'auto_media':s.pending.intent.mode;}
     remember(key('project',actor),{project:s.project});draw(s);
+    const hidden=()=>{if(document.hidden||document.visibilityState==='hidden'){stopCaseObserver(s.cases);stopPreview(s.cases);}else if(live(s))renderCasePager(s);};const leaving=()=>{stopCaseObserver(s.cases);stopPreview(s.cases);closeCase(s,false);},offLocale=onLocaleChange(()=>rebindCaseLocale(s));document.addEventListener?.('visibilitychange',hidden);globalThis.window?.addEventListener?.('pagehide',leaving);globalThis.window?.addEventListener?.('popstate',leaving);s.caseCleanup=()=>{offLocale();document.removeEventListener?.('visibilitychange',hidden);globalThis.window?.removeEventListener?.('pagehide',leaving);globalThis.window?.removeEventListener?.('popstate',leaving);};
     if(!s.project){note(s,'请选择归属项目后继续。');return;}
     note(s,'正在读取营销技能与项目…');
     try{
@@ -268,6 +381,7 @@ export function createMarketingStudio(root,ctx){
       s.options=options;revision(s,options.revision);
       if(!s.pending){if(!options.methods.some(m=>m.id===s.draft.method_id))s.draft.method_id='';if(!options.episodes.some(e=>e.id===s.draft.episode_id))s.draft.episode_id='';s.draft.model_ids=s.draft.model_ids.filter(id=>options.models.some(m=>m.id===id&&m.enabled));save(s);}
       draw(s);
+      if(s.pending?.request.payload.case_ref&&!s.pending.case_display&&s.pending.result){const pending=s.pending,result=pending.result,canvas=await ctx.api(endpoint(s.project,'creative-canvases/'+encodeURIComponent(result.canvas_id||result.id)+'?version='+encodeURIComponent(result.canvas_revision)));if(!live(s)||s.pending!==pending)return;if(canvas.canvas_revision===result.canvas_revision&&canvas.sha256===result.sha256)restoreCaseDisplay(s,pending,canvas);}
     }catch(error){if(live(s)){s.error=error.message;draw(s);s.status.append(button(s,'重试读取项目',()=>load({project:s.project})));}}
   }
   return {load,suspend};
