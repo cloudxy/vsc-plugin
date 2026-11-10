@@ -29,7 +29,9 @@ export function createMarketingStudio(root,ctx){
   const writable=s=>Boolean(live(s)&&s.actor&&auth().writeAvailable&&project(s)?.storage_policy==='postgres-series-v1'&&!project(s)?.read_only&&!project(s)?.unavailable);
   const draftKey=s=>key('draft',s.actor,s.project),requestKey=s=>key('request',s.actor,s.project);
   const caseScope=s=>JSON.stringify([s.actor,s.project,auth().account_id??auth().identityId??null,document.documentElement?.lang||'',globalThis.location?.search||'']);
-  const caseLive=(s,c,seq,stamp)=>live(s)&&s.cases===c&&c.requestSeq===seq&&caseScope(s)===stamp;
+  const caseViews=s=>[s.cases,s.picker?.view].filter(Boolean);
+  const caseViewLive=(s,c)=>live(s)&&Boolean(c)&&(c===s.cases||s.picker?.open&&c===s.picker.view);
+  const caseLive=(s,c,seq,stamp)=>caseViewLive(s,c)&&c.requestSeq===seq&&caseScope(s)===stamp;
   function save(s){if(live(s))remember(draftKey(s),s.draft);}
   function revision(s,value){if(live(s)&&value!=null){s.revision=value;ctx.setRevision(value,s.project);}}
   function note(s,text){if(live(s)&&s.status)s.status.textContent=text;}
@@ -68,12 +70,14 @@ export function createMarketingStudio(root,ctx){
     if(s.autoMediaCheck){s.autoMediaCheck.checked=s.draft.mode==='auto_media';s.autoMediaCheck.disabled=locked||s.draft.mode==='manual';}
     if(s.runFieldset)s.runFieldset.hidden=Boolean(s.pending)||s.draft.mode==='manual';
     if(s.frozenIntent){const intent=s.pending?.intent;s.frozenIntent.hidden=!intent;if(intent){const settings=intent.execution_settings,limits=settings.auto_media,policy=settings.execution_policy,authorization=policy?.authorization;s.frozenIntent.textContent=['本次固定范围：'+(limits?'有界自动媒体':intent.mode==='manual'?'手动规划':'自动编排'),s.modelOrder.textContent,limits?`最多${limits.max_jobs}个任务、${limits.max_images}张图片、${limits.max_video_ms/1000}秒视频；商业额度上限${limits.max_credits}`:'',policy?'停止新增任务：'+policy.stop_submitting_at:'',authorization?.mode==='new_batch'?'新批次原因：'+authorization.reason:authorization?.mode==='continue'?'继续原批次：'+authorization.run_version_id:''].filter(Boolean).join('；');}}
-    for(const n of s.cases?.selectButtons||[])n.disabled=locked;
-    if(s.cases?.pager)renderCasePager(s);
+    if(s.creativeButton){s.creativeButton.disabled=locked;s.creativeButton.setAttribute('aria-pressed',String(Boolean(s.pending?.request.payload.case_ref||s.draft.case)));}
+    if(locked&&s.picker?.open)closePicker(s,false);
+    for(const c of caseViews(s))if(caseViewLive(s,c)){syncCaseSelection(s,c);for(const n of c.selectButtons||[])n.disabled=locked||n.caseReady===false;if(c.pager)renderCasePager(s,c);}
   }
   function draw(s){
     if(!live(s))return;
     s.upload?.suspend();s.upload=null;
+    closePicker(s,false);
     stopPreview(s.cases);closeCase(s,false);
     s.runScope?.dispose();s.runScope=null;
     root.replaceChildren();root.classList.add('marketing-studio');
@@ -88,12 +92,14 @@ export function createMarketingStudio(root,ctx){
     const add=button(s,'',()=>{s.materialPanel.hidden=!s.materialPanel.hidden;},'marketing-add');add.append(el('span','+','marketing-add-icon'),el('span','添加创作素材'),el('small','商品/参考图片、视频等'));s.editables.push(add);
     s.prompt=el('textarea',null,'marketing-prompt');s.prompt.value=s.draft.prompt;s.prompt.rows=4;s.prompt.setAttribute('aria-label','广告创作需求');
     s.prompt.oninput=()=>{if(!live(s)||s.pending)return;s.draft.prompt=s.prompt.value;save(s);update(s);};
+    for(const event of ['select','keyup','pointerup','blur'])s.prompt.addEventListener(event,()=>rememberPromptRange(s));
     s.prompt.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!e.isComposing){e.preventDefault();submit(s);}};
     s.editables.push(s.prompt);body.append(add,s.prompt);form.append(body);
     s.materials=el('div',null,'marketing-materials');s.caseChip=el('div',null,'marketing-case-chip');form.append(s.caseChip,s.materials);
     const footer=el('div',null,'marketing-toolbar'),tools=el('div',null,'marketing-tools');
     const ref=button(s,'@',()=>{s.materialPanel.hidden=!s.materialPanel.hidden;},'marketing-icon');ref.title='引用素材';ref.setAttribute('aria-label','引用素材');
-    const models=button(s,'◇',()=>{s.executionPanel.hidden=!s.executionPanel.hidden;},'marketing-icon');models.title='选择模型';models.setAttribute('aria-label','选择模型');tools.append(ref,models);s.editables.push(ref,models);
+    s.creativeButton=button(s,'✧',()=>togglePicker(s),'marketing-icon marketing-creative-trigger');s.creativeButton.title='创意';s.creativeButton.setAttribute('aria-label','创意');s.creativeButton.setAttribute('aria-haspopup','dialog');s.creativeButton.setAttribute('aria-expanded','false');
+    const models=button(s,'◇',()=>{s.executionPanel.hidden=!s.executionPanel.hidden;},'marketing-icon');models.title='选择模型';models.setAttribute('aria-label','选择模型');tools.append(ref,s.creativeButton,models);s.editables.push(ref,models);
     const mode=el('select',null,'marketing-mode');mode.setAttribute('aria-label','创作模式');mode.append(option('manual','手动模式'),option('auto_drafts','自动模式'));mode.value=s.draft.mode==='manual'?'manual':'auto_drafts';mode.onchange=()=>{if(!live(s)||s.pending)return;s.draft.mode=mode.value;save(s);update(s);if(mode.value!=='manual')s.executionPanel.hidden=false;};tools.append(mode);s.editables.push(mode);
     s.counter=el('small',null,'marketing-count');tools.append(s.counter);
     const scope=el('div',null,'marketing-scope');s.projectSelect=el('select');s.projectSelect.append(option('','请选择归属项目'));
@@ -143,24 +149,45 @@ export function createMarketingStudio(root,ctx){
     else if(s.pending)note(s,s.pending.startResult?'原规划已建立；继续只查询并打开同一规划。':s.pending.result?'准备画布已保留；继续将沿原请求开始创作。':'上次操作回执待确认。需求与素材已保留，恢复时使用原请求。');
     else if(s.project&&!writable(s))note(s,'当前项目不可写，请选择可写项目或建立操作会话。');
   }
-  function stopPreview(c){if(!c?.preview)return;const p=c.preview;c.preview=null;p.video.pause?.();p.video.hidden=true;if(p.poster)p.poster.hidden=false;if(p.button)p.button.textContent='播放预览';}
+  function stopPreview(c){if(!c?.preview)return;const p=c.preview;c.preview=null;p.video.pause?.();p.video.hidden=true;if(p.poster)p.poster.hidden=false;if(p.button)p.button.textContent='播放预览';if(p.container)p.container.hidden=true;}
+  function clearCasePreviews(c){stopPreview(c);for(const box of c?.previewBoxes||[])box.remove();if(c)c.previewBoxes=[];}
   function stopCaseObserver(c){if(!c)return;c.observerEpoch=(c.observerEpoch||0)+1;c.moreObserver?.disconnect();c.moreObserver=null;c.sentinel=null;}
-  function closeCase(s,focus=true){const c=s?.cases;if(!c)return;c.detailSeq++;stopPreview(c);if(c.dialog){const d=c.dialog;c.dialog=null;d.close?.();d.remove?.();}if(focus&&c.trigger?.isConnected)c.trigger.focus?.();c.trigger=null;if(focus&&live(s)&&c.pager)renderCasePager(s);}
+  function closeCase(s,focus=true,c=s?.cases){if(!c)return;c.detailSeq++;stopPreview(c);if(c.dialog){const d=c.dialog;c.dialog=null;d.close?.();d.remove?.();}c.detailChoice=null;if(focus&&c.trigger?.isConnected)c.trigger.focus?.();c.trigger=null;if(focus&&caseViewLive(s,c)&&c.pager)renderCasePager(s,c);}
   function caseButton(s,title,fn,cls=''){const b=button(s,title,fn,cls),handler=b.onclick;b.onclick=e=>{e?.stopPropagation?.();return handler();};return b;}
+  function rememberPromptRange(s){if(live(s)&&Number.isInteger(s.prompt?.selectionStart))s.promptRange={start:s.prompt.selectionStart,end:s.prompt.selectionEnd,direction:s.prompt.selectionDirection||'none'};}
+  function focusPrompt(s){if(!live(s)||s.prompt.disabled)return;const range=s.promptRange;s.prompt.focus?.({preventScroll:true});if(range)s.prompt.setSelectionRange?.(Math.min(range.start,s.prompt.value.length),Math.min(range.end,s.prompt.value.length),range.direction);}
+  function closePicker(s,focus=true){const p=s?.picker;if(!p?.open)return;p.open=false;p.view.requestSeq++;p.view.activeRead=null;p.view.loading=false;clearTimeout(p.view.debounce);stopCaseObserver(p.view);for(const c of caseViews(s))stopPreview(c);clearCasePreviews(p.view);closeCase(s,false,p.view);p.view.masonry?.disconnect();p.cleanup?.();p.element?.remove();s.creativeButton?.setAttribute('aria-expanded','false');if(focus)focusPrompt(s);}
+  function togglePicker(s){
+    if(!live(s)||s.pending||s.busy)return;if(s.picker?.open){closePicker(s);return;}rememberPromptRange(s);for(const c of caseViews(s)){stopPreview(c);closeCase(s,false,c);}
+    const p=s.picker||(s.picker={view:newCaseView(s,true)});p.open=true;const element=el('section',null,'marketing-creative-picker');p.element=element;element.setAttribute('role','dialog');element.setAttribute('aria-label','选择创意');
+    root.append(element);s.creativeButton.setAttribute('aria-expanded','true');
+    const active=()=>caseViewLive(s,p.view)&&p.element===element;
+    const position=()=>{if(!active())return;const box=s.creativeButton.getBoundingClientRect(),width=globalThis.window?.innerWidth||globalThis.innerWidth||document.documentElement?.clientWidth||1024,height=globalThis.window?.innerHeight||globalThis.innerHeight||768,size=Math.min(407,Math.max(0,width-24)),below=box.bottom+8;const top=below+220>height&&box.top>height-box.bottom?Math.max(12,box.top-Math.min(432,height*.7,box.top-24)):Math.max(12,below);element.style.width=size+'px';element.style.left=Math.max(12,Math.min(box.left,width-size-12))+'px';element.style.top=top+'px';element.style.maxHeight=Math.max(0,Math.min(432,height*.7,height-top-12))+'px';};
+    const outside=e=>{if(active()&&!element.contains(e.target)&&!s.creativeButton.contains(e.target))closePicker(s,false);},escape=e=>{if(active()&&e.key==='Escape'){e.preventDefault();closePicker(s);}};
+    document.addEventListener?.('pointerdown',outside,true);document.addEventListener?.('keydown',escape);root.addEventListener?.('scroll',position,true);globalThis.window?.addEventListener?.('resize',position);p.cleanup=()=>{document.removeEventListener?.('pointerdown',outside,true);document.removeEventListener?.('keydown',escape);root.removeEventListener?.('scroll',position,true);globalThis.window?.removeEventListener?.('resize',position);};
+    mountCases(s,{view:p.view,compact:true,host:element});position();p.view.query.focus?.();
+  }
+  function syncCaseSelection(s,c){
+    const pin=s.pending?.request.payload.case_ref||s.draft.case;
+    if(!c.compact&&c.displayed&&c.items.some(group=>(group.examples.find(item=>samePin(item,pin))||group.examples[0])?.template_key!==c.displayed.get(group.group_key))){renderCases(s,c);return;}
+    for(const entry of c.choices||[]){const selected=entry.group?entry.group.examples.some(item=>samePin(item,pin)):samePin(entry.spec,pin);entry.node.classList[selected?'add':'remove']('is-selected');entry.button.setAttribute('aria-pressed',String(selected));if(entry.label)entry.button.textContent=selected?'已选':entry.label;if(entry.check)entry.check.hidden=!selected;}
+    if(c.detailChoice)c.detailChoice.button.textContent=samePin(c.detailChoice.spec,pin)?'已选':'选择此创意';
+  }
   function selectCase(s,spec){
     if(!live(s)||s.pending||s.busy)return;
-    if(!samePin(s.draft.case,spec)){s.draft.case=copy(spec);save(s);update(s);}closeCase(s);note(s,'已选择创意参考：'+spec.group_name);
+    rememberPromptRange(s);if(!samePin(s.draft.case,spec)){s.draft.case=copy(spec);save(s);update(s);}for(const c of caseViews(s))closeCase(s,false,c);closePicker(s,false);for(const c of caseViews(s))if(caseViewLive(s,c)&&c.pager)renderCasePager(s,c);focusPrompt(s);note(s,'已选择创意参考：'+spec.group_name);
   }
-  function mountCases(s){
-    let c=s.cases;if(!c){const pref=recall(key('case-browser',s.actor,s.project));c=s.cases={requestSeq:0,detailSeq:0,renderSeq:0,category:pref?.category||'',keyword:pref?.keyword||'',input:pref?.keyword||'',H:null,items:[],categories:[],next:1,total:0,loading:false,loaded:false,examples:new Map(),selectButtons:[]};}
-    c.selectButtons=[];const section=el('section',null,'marketing-ideas'),head=el('div',null,'marketing-cases-heading');c.filters=el('nav',null,'marketing-case-categories');c.filters.setAttribute('aria-label','创意分类');
-    const query=el('input',null,'marketing-case-search');query.type='search';query.value=c.input;query.placeholder='搜索名称、描述或分类';query.setAttribute('aria-label','搜索营销创意');
-    query.oninput=()=>{if(!live(s))return;const stamp=caseScope(s);clearTimeout(c.debounce);c.input=query.value;c.requestSeq++;stopCaseObserver(c);stopPreview(c);closeCase(s,false);c.debounce=setTimeout(()=>{if(!live(s)||caseScope(s)!==stamp)return;c.keyword=c.input.trim();remember(key('case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});readCases(s,1,true);},300);};
-    head.append(c.filters,query);c.summary=el('p',null,'marketing-case-count');c.grid=el('div',null,'marketing-case-grid');c.feedback=el('div',null,'marketing-case-feedback');c.feedback.setAttribute('role','status');c.pager=el('div',null,'marketing-case-pager');section.append(head,c.summary,c.grid,c.feedback,c.pager);root.append(section);
-    renderCaseFilters(s);renderCases(s);if(!c.loaded&&!c.loading)readCases(s,1,true);
+  function newCaseView(s,compact=false){const pref=recall(key(compact?'case-browser-compact':'case-browser',s.actor,s.project));return {compact,requestSeq:0,detailSeq:0,renderSeq:0,category:pref?.category||'',keyword:pref?.keyword||'',input:pref?.keyword||'',H:null,items:[],categories:[],next:1,total:0,loading:false,loaded:false,examples:new Map(),selectButtons:[]};}
+  function mountCases(s,{view=null,compact=false,host=root}={}){
+    const c=view||(s.cases||(s.cases=newCaseView(s)));c.selectButtons=[];const section=el('section',null,'marketing-ideas'+(compact?' marketing-ideas--compact':'')),head=el('div',null,'marketing-cases-heading');c.filters=el('nav',null,'marketing-case-categories');c.filters.setAttribute('aria-label',compact?'紧凑创意分类':'创意分类');
+    const query=c.query=el('input',null,'marketing-case-search');query.type='search';query.value=c.input;query.placeholder='搜索名称、描述或分类';query.setAttribute('aria-label',compact?'搜索紧凑创意':'搜索营销创意');
+    query.oninput=()=>{if(!caseViewLive(s,c))return;const stamp=caseScope(s);clearTimeout(c.debounce);c.input=query.value;c.requestSeq++;stopCaseObserver(c);stopPreview(c);closeCase(s,false,c);c.debounce=setTimeout(()=>{if(!caseViewLive(s,c)||caseScope(s)!==stamp)return;c.keyword=c.input.trim();remember(key(compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});readCases(s,1,true,false,c);},300);};
+    head.append(c.filters,query);c.summary=compact?null:el('p',null,'marketing-case-count');c.grid=el('div',null,compact?'marketing-case-options':'marketing-case-grid');c.feedback=el('div',null,'marketing-case-feedback');c.feedback.setAttribute('role','status');c.pager=el('div',null,'marketing-case-pager');const results=el('div',null,compact?'marketing-picker-results':'marketing-case-results');if(c.summary)results.append(c.summary);results.append(c.grid,c.feedback,c.pager);c.scrollRoot=compact?results:root;section.append(head,results);host.append(section);
+    const changed=c.input.trim()!==c.keyword;if(changed){c.keyword=c.input.trim();remember(key(compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});}renderCaseFilters(s,c);renderCases(s,c);if(changed||!c.loaded&&!c.loading)readCases(s,1,true,false,c);
   }
-  function renderCaseFilters(s){const c=s.cases;if(!live(s)||!c.filters)return;c.filters.replaceChildren();for(const category of [{category_name:'',category_label:'全部创意'},...c.categories]){const b=caseButton(s,category.category_label,()=>{clearTimeout(c.debounce);c.category=category.category_name;c.keyword=c.input.trim();remember(key('case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});return readCases(s,1,true);},'marketing-case-category');b.setAttribute('aria-pressed',String(c.category===category.category_name));b.dataset.category=category.category_name;if(category.available_group_count!=null)b.append(el('small',String(category.available_group_count)));c.filters.append(b);}}
+  function renderCaseFilters(s,c=s.cases){if(!caseViewLive(s,c)||!c.filters)return;c.filters.replaceChildren();for(const category of [{category_name:'',category_label:'全部创意'},...c.categories]){const b=caseButton(s,category.category_label,()=>{if(!caseViewLive(s,c))return;clearTimeout(c.debounce);c.category=category.category_name;c.keyword=c.input.trim();remember(key(c.compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});return readCases(s,1,true,false,c);},'marketing-case-category');b.setAttribute('aria-pressed',String(c.category===category.category_name));b.dataset.category=category.category_name;if(!c.compact&&category.available_group_count!=null)b.append(el('small',String(category.available_group_count)));c.filters.append(b);}}
   function rebindCaseLocale(s){
+    closePicker(s,false);
     if(!live(s)||!s.cases)return;const c=s.cases,reading=c.activeRead,keyword=c.input.trim(),changed=keyword!==c.keyword;
     clearTimeout(c.debounce);c.requestSeq++;c.activeRead=null;c.loading=false;stopCaseObserver(c);stopPreview(c);closeCase(s,false);
     if(changed){c.keyword=keyword;remember(key('case-browser',s.actor,s.project),{category:c.category,keyword});}
@@ -171,24 +198,24 @@ export function createMarketingStudio(root,ctx){
     else if(reading)readCases(s,reading.page,reading.reset,reading.fresh);
     else renderCases(s);
   }
-  async function readCases(s,page,reset=false,fresh=false){
-    if(!live(s))return;const c=s.cases,seq=++c.requestSeq,stamp=caseScope(s);clearTimeout(c.debounce);stopCaseObserver(c);closeCase(s,false);stopPreview(c);if(fresh)c.H=null;
-    if(reset){c.items=[];c.loaded=false;c.next=1;c.total=0;}c.activeRead={page,reset,fresh};c.loading=true;c.failed=false;renderCases(s);c.feedback.replaceChildren(el('p','正在读取创意…'));renderCasePager(s);
+  async function readCases(s,page,reset=false,fresh=false,c=s.cases){
+    if(!caseViewLive(s,c))return;const seq=++c.requestSeq,stamp=caseScope(s);clearTimeout(c.debounce);stopCaseObserver(c);closeCase(s,false,c);stopPreview(c);if(fresh)c.H=null;
+    if(reset){c.items=[];c.loaded=false;c.next=1;c.total=0;}c.activeRead={page,reset,fresh};c.loading=true;c.failed=false;renderCases(s,c);c.feedback.replaceChildren(el('p','正在读取创意…'));renderCasePager(s,c);
     const params=new URLSearchParams({page:String(page),page_size:'20'});if(c.H)params.set('catalog_sha256',c.H);if(c.category)params.set('category_name',c.category);if(c.keyword)params.set('keyword',c.keyword);
     try{
       const data=await ctx.api('/api/v1/marketing-cases?'+params);if(!caseLive(s,c,seq,stamp))return;
       if(!data.catalog_sha256||c.H&&c.H!==data.catalog_sha256||data.page!==page||data.page_size!==20)throw Object.assign(Error('创意目录版本或分页不一致，请重新载入目录'),{code:'marketing_catalog_changed'});
       const merged=new Map(c.items.map(item=>[item.group_key,item]));for(const group of data.items){const prior=merged.get(group.group_key);if(prior&&stable(prior)!==stable(group))throw Object.assign(Error('创意目录出现不一致内容，请重新载入目录'),{code:'marketing_catalog_changed'});if(!prior)merged.set(group.group_key,group);}
-      c.H=data.catalog_sha256;c.categories=data.categories;c.items=[...merged.values()];c.next=data.next_page;c.total=data.total_available;c.lastPageCount=data.items.length;c.loaded=true;c.feedback.replaceChildren();renderCaseFilters(s);renderCases(s);
-    }catch(error){if(caseLive(s,c,seq,stamp)){c.failed=true;c.feedback.replaceChildren(el('p',error.message));const changed=error.code==='marketing_catalog_changed'||error.status===409;c.feedback.append(caseButton(s,changed?'重新载入目录':'重试读取创意',()=>readCases(s,changed?1:page,changed||reset,changed)));}}
-    finally{if(caseLive(s,c,seq,stamp)){c.loading=false;c.activeRead=null;renderCasePager(s);}}
+      c.H=data.catalog_sha256;c.categories=data.categories;c.items=[...merged.values()];c.next=data.next_page;c.total=data.total_available;c.lastPageCount=data.items.length;c.loaded=true;c.feedback.replaceChildren();renderCaseFilters(s,c);renderCases(s,c);
+    }catch(error){if(caseLive(s,c,seq,stamp)){c.failed=true;c.feedback.replaceChildren(el('p',error.message));const changed=error.code==='marketing_catalog_changed'||error.status===409;c.feedback.append(caseButton(s,changed?'重新载入目录':'重试读取创意',()=>readCases(s,changed?1:page,changed||reset,changed,c)));}}
+    finally{if(caseLive(s,c,seq,stamp)){c.loading=false;c.activeRead=null;renderCasePager(s,c);}}
   }
-  function renderCasePager(s){
-    const c=s.cases;if(!live(s)||!c.pager)return;stopCaseObserver(c);c.pager.replaceChildren();c.summary.textContent=c.loaded?`已显示 ${c.items.length} / ${c.total} 个创意`:'';
+  function renderCasePager(s,c=s.cases){
+    if(!caseViewLive(s,c)||!c.pager)return;stopCaseObserver(c);c.pager.replaceChildren();if(c.summary)c.summary.textContent=c.loaded?`已显示 ${c.items.length} / ${c.total} 个创意`:'';
     if(!c.loaded||c.next==null||!c.lastPageCount||c.items.length>=c.total)return;
     const page=c.next,H=c.H,seq=c.requestSeq,render=c.renderSeq,stamp=caseScope(s),epoch=c.observerEpoch;
     const current=()=>caseLive(s,c,seq,stamp)&&c.renderSeq===render&&c.next===page&&c.H===H&&c.observerEpoch===epoch;
-    const loadNext=()=>{if(current()&&!c.loading&&!s.busy&&!c.layoutPending)return readCases(s,page);};
+    const loadNext=()=>{if(current()&&!c.loading&&!s.busy&&!c.layoutPending)return readCases(s,page,false,false,c);};
     const b=caseButton(s,'加载更多创意',loadNext);b.disabled=c.loading||s.busy||c.layoutPending;c.pager.append(b);
     // Keep the keyboard/manual path even where observation is unsupported.
     if(c.loading||s.busy||c.failed||c.layoutPending||c.dialog||document.hidden||document.visibilityState==='hidden'||!globalThis.IntersectionObserver)return;
@@ -197,44 +224,51 @@ export function createMarketingStudio(root,ctx){
       if(c.moreObserver!==observer||c.sentinel!==sentinel)return;
       if(!current()){stopCaseObserver(c);return;}
       if(!document.hidden&&entries.some(entry=>entry.target===sentinel&&entry.isIntersecting))return loadNext();
-    },{root,rootMargin:'160px',threshold:0});c.moreObserver=observer;observer.observe(sentinel);
+    },{root:c.scrollRoot||root,rootMargin:'160px',threshold:0});c.moreObserver=observer;observer.observe(sentinel);
   }
-  function preview(s,video,poster,b,c,stamp,render,explicit=false){
-    if(!live(s)||caseScope(s)!==stamp||c.renderSeq!==render||!video.src||b.disabled)return;
+  function preview(s,video,poster,b,c,stamp,render,explicit=false,container=null){
+    if(!caseViewLive(s,c)||document.hidden||document.visibilityState==='hidden'||caseScope(s)!==stamp||c.renderSeq!==render||!video.src||b.disabled)return;
     if(c.preview?.video===video){if(explicit)stopPreview(c);return;}
-    stopPreview(c);video.hidden=false;if(poster)poster.hidden=true;b.textContent='暂停预览';c.preview={video,poster,button:b};
+    for(const view of caseViews(s))stopPreview(view);video.hidden=false;if(poster)poster.hidden=true;if(container)container.hidden=false;b.textContent='暂停预览';c.preview={video,poster,button:b,container};
     try{Promise.resolve(video.play?.()).then(()=>{if(!live(s)||caseScope(s)!==stamp||c.renderSeq!==render||c.preview?.video!==video)video.pause?.();}).catch(()=>{if(c.preview?.video===video){stopPreview(c);b.textContent='预览暂不可用';}});}catch{stopPreview(c);b.textContent='预览暂不可用';}
   }
   function visual(s,spec,c,render,stamp){
     const requestSeq=c.requestSeq;
     const cover=el('div',null,'marketing-case-cover'),image=el('img'),url=mediaURL(spec.cover_url);image.alt=spec.video_name||spec.group_name;image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';if(url)image.src=url;else image.hidden=true;cover.append(image);
     cover.style.aspectRatio=`${spec.width} / ${spec.height}`;const video=el('video'),play=caseButton(s,'播放预览',()=>{if(c.requestSeq===requestSeq)preview(s,video,image,play,c,stamp,render,true);},'marketing-case-play');video.muted=true;video.loop=true;video.playsInline=true;video.preload='none';video.crossOrigin='anonymous';video.hidden=true;
-    const source=mediaURL(spec.video_url);if(source)video.src=source;else play.disabled=true;video.onerror=()=>{if(live(s)&&c.renderSeq===render&&caseScope(s)===stamp){if(c.preview?.video===video)stopPreview(c);play.textContent='预览暂不可用';}};image.onerror=()=>{if(live(s)&&c.renderSeq===render&&caseScope(s)===stamp){image.hidden=true;cover.append(el('span','封面暂不可用','marketing-case-unavailable'));}};cover.append(video,play);return {cover,video,image,play};
+    const source=mediaURL(spec.video_url);if(source)video.src=source;else play.disabled=true;video.onerror=()=>{if(caseViewLive(s,c)&&c.renderSeq===render&&caseScope(s)===stamp){if(c.preview?.video===video)stopPreview(c);play.textContent='预览暂不可用';}};image.onerror=()=>{if(caseViewLive(s,c)&&c.renderSeq===render&&caseScope(s)===stamp){image.hidden=true;cover.append(el('span','封面暂不可用','marketing-case-unavailable'));}};cover.append(video,play);return {cover,video,image,play};
   }
-  function renderCases(s){
-    const c=s.cases;if(!live(s)||!c.grid)return;stopCaseObserver(c);stopPreview(c);c.masonry?.disconnect();c.layoutPending=true;const render=++c.renderSeq,requestSeq=c.requestSeq,stamp=caseScope(s);c.grid.replaceChildren();c.selectButtons=[];
+  function renderCases(s,c=s.cases){
+    if(!caseViewLive(s,c)||!c.grid)return;stopCaseObserver(c);clearCasePreviews(c);c.masonry?.disconnect();c.layoutPending=true;const render=++c.renderSeq,requestSeq=c.requestSeq,stamp=caseScope(s),pin=s.pending?.request.payload.case_ref||s.draft.case;c.grid.replaceChildren();c.selectButtons=[];c.choices=[];c.displayed=new Map();
     for(const group of c.items){
-      const spec=group.examples.find(item=>item.template_key===c.examples.get(group.group_key))||group.examples[0];if(!spec)continue;
+      const spec=c.compact?group.examples[0]:group.examples.find(item=>samePin(item,pin))||group.examples[0];if(!spec)continue;c.displayed.set(group.group_key,spec.template_key);
+      if(c.compact){
+        const current=()=>caseViewLive(s,c)&&c.requestSeq===requestSeq&&c.renderSeq===render&&caseScope(s)===stamp,option=caseButton(s,'',()=>{if(current())selectCase(s,spec);},'marketing-case-option');option.setAttribute('aria-label','选择创意 '+group.group_name);option.dataset.groupKey=group.group_key;option.dataset.caseId=spec.id;
+        const image=el('img');image.alt='';image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';const url=mediaURL(spec.cover_url);if(url)image.src=url;const text=el('span',null,'marketing-case-option-copy');text.append(el('span',group.group_name,'marketing-case-option-name'),el('span',group.group_description,'marketing-case-option-description'));const check=el('span','✓','marketing-case-option-check');check.setAttribute('aria-hidden','true');option.append(image,text,check);option.disabled=Boolean(s.pending||s.busy);c.grid.append(option);c.selectButtons.push(option);c.choices.push({node:option,button:option,group,check});
+        let previewBox=null,media=null;const show=()=>{if(!current()||!mediaURL(spec.video_url)||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;if(!previewBox){previewBox=el('div',null,'marketing-picker-preview');media=visual(s,spec,c,render,stamp);previewBox.append(media.cover);previewBox.hidden=true;root.append(previewBox);c.previewBoxes.push(previewBox);}const box=option.getBoundingClientRect(),width=globalThis.window?.innerWidth||globalThis.innerWidth||1024,height=globalThis.window?.innerHeight||globalThis.innerHeight||768;previewBox.style.left=Math.max(12,Math.min(box.right+8,width-262))+'px';previewBox.style.top=Math.max(12,Math.min(box.top,height-460))+'px';preview(s,media.video,media.image,media.play,c,stamp,render,false,previewBox);};option.onpointerenter=e=>{if(e.pointerType==='mouse'&&globalThis.matchMedia?.('(hover: hover) and (pointer: fine)').matches)show();};option.onpointerleave=()=>stopPreview(c);option.onfocus=show;option.onblur=()=>stopPreview(c);continue;
+      }
       const card=el('article',null,'marketing-case-card');card.dataset.groupKey=group.group_key;card.dataset.caseId=spec.id;card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','查看 '+group.group_name+' 的创意详情');
       const v=visual(s,spec,c,render,stamp);card.append(v.cover,el('h3',group.group_name),el('p',group.group_description,'marketing-case-description'));
-      const current=()=>live(s)&&c.requestSeq===requestSeq&&c.renderSeq===render&&caseScope(s)===stamp;card.onclick=()=>{if(current())return openCase(s,spec,{trigger:card,group});};card.onkeydown=e=>{if(current()&&e.target===card&&['Enter',' '].includes(e.key)){e.preventDefault();return openCase(s,spec,{trigger:card,group});}};
+      const current=()=>caseViewLive(s,c)&&c.requestSeq===requestSeq&&c.renderSeq===render&&caseScope(s)===stamp;card.onclick=()=>{if(current())return openCase(s,spec,{trigger:card,group,view:c});};card.onkeydown=e=>{if(current()&&e.target===card&&['Enter',' '].includes(e.key)){e.preventDefault();return openCase(s,spec,{trigger:card,group,view:c});}};
       const choose=caseButton(s,'复刻',()=>{if(current())selectCase(s,spec);},'marketing-case-select');choose.disabled=Boolean(s.pending||s.busy);c.selectButtons.push(choose);card.append(choose);
-      if(group.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换 '+group.group_name+' 的案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.onclick=e=>e.stopPropagation();select.onchange=e=>{e?.stopPropagation?.();c.examples.set(group.group_key,select.value);closeCase(s,false);renderCases(s);};card.append(select);}
+      c.choices.push({node:card,button:choose,spec,label:'复刻'});
+      if(group.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换 '+group.group_name+' 的案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.disabled=Boolean(s.pending||s.busy);c.selectButtons.push(select);select.onclick=e=>e.stopPropagation();select.onchange=e=>{e?.stopPropagation?.();if(!current()||s.pending||s.busy){select.value=spec.template_key;return;}const selected=group.examples.find(item=>item.template_key===select.value);if(selected)selectCase(s,selected);};card.append(select);}
       card.onpointerenter=e=>{if(current()&&(!e.pointerType||e.pointerType==='mouse')&&globalThis.matchMedia?.('(hover: hover) and (pointer: fine)').matches&&!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)preview(s,v.video,v.image,v.play,c,stamp,render);};card.onpointerleave=()=>{if(c.preview?.video===v.video)stopPreview(c);};c.grid.append(card);
     }
+    syncCaseSelection(s,c);if(c.compact){c.layoutPending=false;if(c.loaded&&!c.items.length)c.grid.append(el('p','暂无匹配创意，请调整分类或关键词。','marketing-ideas-empty'));renderCasePager(s,c);return;}
     if(c.loaded&&!c.items.length)c.grid.append(el('p','暂无匹配创意，请调整分类或关键词。','marketing-ideas-empty'));
-    const fit=(refresh=true)=>{if(!live(s)||c.renderSeq!==render||caseScope(s)!==stamp)return;const cards=[...c.grid.children].filter(n=>n.className==='marketing-case-card'),heights=cards.map(n=>n.offsetHeight||0);c.layoutPending=Boolean(cards.length)&&(!c.grid.clientWidth||heights.some(h=>h<=0));if(!c.layoutPending)cards.forEach((n,i)=>n.style.gridRowEnd='span '+Math.ceil((heights[i]+18)/8));if(refresh)renderCasePager(s);};fit(false);if(globalThis.ResizeObserver){c.masonry=new ResizeObserver(()=>fit());c.masonry.observe(c.grid);for(const card of c.grid.children)c.masonry.observe(card);}renderCasePager(s);
+    const fit=(refresh=true)=>{if(!caseViewLive(s,c)||c.renderSeq!==render||caseScope(s)!==stamp)return;const cards=[...c.grid.children].filter(n=>n.className.split(' ').includes('marketing-case-card')),heights=cards.map(n=>n.offsetHeight||0);c.layoutPending=Boolean(cards.length)&&(!c.grid.clientWidth||heights.some(h=>h<=0));if(!c.layoutPending)cards.forEach((n,i)=>n.style.gridRowEnd='span '+Math.ceil((heights[i]+18)/8));if(refresh)renderCasePager(s,c);};fit(false);if(globalThis.ResizeObserver){c.masonry=new ResizeObserver(()=>fit());c.masonry.observe(c.grid);for(const card of c.grid.children)c.masonry.observe(card);}renderCasePager(s,c);
   }
-  async function openCase(s,spec,{trigger=null,group=null,historical=false}={}){
-    const c=s.cases;if(!live(s)||!c)return;stopCaseObserver(c);closeCase(s,false);const seq=++c.detailSeq,requestSeq=c.requestSeq,stamp=caseScope(s),H=c.H,render=c.renderSeq;c.trigger=trigger;
-    const dialog=el('dialog',null,'marketing-case-dialog');c.dialog=dialog;dialog.setAttribute('aria-label',spec.group_name);const close=caseButton(s,'×',()=>closeCase(s),'marketing-case-dialog-close');close.setAttribute('aria-label','关闭创意详情');dialog.append(close,el('h2',spec.group_name));
+  async function openCase(s,spec,{trigger=null,group=null,historical=false,view=s.cases}={}){
+    const c=view;if(!caseViewLive(s,c))return;if(!c.compact)closePicker(s,false);for(const owner of caseViews(s))stopPreview(owner);stopCaseObserver(c);closeCase(s,false,c);rememberPromptRange(s);const seq=++c.detailSeq,requestSeq=c.requestSeq,stamp=caseScope(s),H=c.H,render=c.renderSeq;c.trigger=trigger;
+    const dialog=el('dialog',null,'marketing-case-dialog');c.dialog=dialog;dialog.setAttribute('aria-label',spec.group_name);const close=caseButton(s,'×',()=>closeCase(s,true,c),'marketing-case-dialog-close');close.setAttribute('aria-label','关闭创意详情');dialog.append(close,el('h2',spec.group_name));
     const v=visual(s,spec,c,render,stamp);dialog.append(v.cover,el('p',spec.group_description,'marketing-case-full-description'),el('p','仅选择创意参考，不会导入案例视频。','marketing-case-basis'));
-    if(group?.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换详情案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.onchange=()=>{const selected=group.examples.find(item=>item.template_key===select.value);c.examples.set(group.group_key,selected.template_key);return openCase(s,selected,{trigger,group});};dialog.append(select);}
-    const feedback=el('p',historical?'已保留所选创意内容。':'正在读取创意详情…','marketing-case-detail-status');dialog.append(feedback);const choose=caseButton(s,'选择此创意',()=>{if(c.dialog===dialog&&c.detailSeq===seq&&c.requestSeq===requestSeq&&caseScope(s)===stamp)selectCase(s,spec);},'marketing-case-detail-select');choose.disabled=Boolean(s.pending||s.busy);c.selectButtons.push(choose);dialog.append(choose);dialog.oncancel=e=>{e.preventDefault();closeCase(s);};dialog.onclose=()=>{if(c.dialog===dialog)closeCase(s);};root.append(dialog);dialog.showModal();
+    if(group?.examples.length>1){const select=el('select');select.setAttribute('aria-label','切换详情案例');for(const item of group.examples)select.append(option(item.template_key,item.video_name));select.value=spec.template_key;select.onchange=()=>{const selected=group.examples.find(item=>item.template_key===select.value);return openCase(s,selected,{trigger,group,view:c});};dialog.append(select);}
+    let resolved=historical?spec:null;const feedback=el('p',historical?'已保留所选创意内容。':'正在读取创意详情…','marketing-case-detail-status');dialog.append(feedback);const choose=caseButton(s,'选择此创意',()=>{if(resolved&&choose.caseReady&&c.dialog===dialog&&c.detailSeq===seq&&c.requestSeq===requestSeq&&caseScope(s)===stamp)selectCase(s,resolved);},'marketing-case-detail-select');choose.caseReady=historical;choose.disabled=!choose.caseReady||Boolean(s.pending||s.busy);c.detailChoice={button:choose,spec};c.selectButtons.push(choose);dialog.append(choose);dialog.oncancel=e=>{e.preventDefault();closeCase(s,true,c);};dialog.onclose=()=>{if(c.dialog===dialog)closeCase(s,true,c);};root.append(dialog);dialog.showModal();syncCaseSelection(s,c);
     if(historical)return;
-    try{const data=await ctx.api('/api/v1/marketing-cases/'+encodeURIComponent(spec.id)+'?'+new URLSearchParams({version:String(spec.version),sha256:spec.sha256}));if(!live(s)||c.dialog!==dialog||c.detailSeq!==seq||c.requestSeq!==requestSeq||caseScope(s)!==stamp||c.H!==H)return;
-      if(data.catalog_sha256!==H||stable(data.case)!==stable(spec))throw Error('创意目录已变化，当前选择内容已保留，请重新载入目录后再选。');feedback.textContent='';
-    }catch(error){if(live(s)&&c.dialog===dialog&&c.detailSeq===seq&&c.requestSeq===requestSeq&&caseScope(s)===stamp){feedback.textContent=error.message;choose.disabled=true;}}
+    try{const data=await ctx.api('/api/v1/marketing-cases/'+encodeURIComponent(spec.id)+'?'+new URLSearchParams({version:String(spec.version),sha256:spec.sha256}));if(!caseViewLive(s,c)||c.dialog!==dialog||c.detailSeq!==seq||c.requestSeq!==requestSeq||caseScope(s)!==stamp||c.H!==H)return;
+      if(data.catalog_sha256!==H||stable(data.case)!==stable(spec))throw Error('创意目录已变化，当前选择内容已保留，请重新载入目录后再选。');resolved=data.case;choose.caseReady=true;choose.disabled=Boolean(s.pending||s.busy);feedback.textContent='';
+    }catch(error){if(caseViewLive(s,c)&&c.dialog===dialog&&c.detailSeq===seq&&c.requestSeq===requestSeq&&caseScope(s)===stamp){resolved=null;choose.caseReady=false;feedback.textContent=error.message;choose.disabled=true;}}
   }
   function executionControls(s){
     const panel=el('section',null,'marketing-execution-panel');panel.hidden=true;s.executionPanel=panel;panel.setAttribute('aria-label','模型与创作范围');
@@ -362,7 +396,7 @@ export function createMarketingStudio(root,ctx){
     const spec=Object.fromEntries(CASE_FIELDS.map(k=>[k,params['marketing_case_'+k]]));if(!samePin(spec,pending.request.payload.case_ref))return;
     pending.case_display=spec;s.draft.case=copy(spec);remember(requestKey(s),pending);save(s);update(s);
   }
-  function suspend(){if(!state)return;save(state);stopCaseObserver(state.cases);stopPreview(state.cases);closeCase(state,false);clearTimeout(state.cases?.debounce);state.cases?.masonry?.disconnect();if(state.cases)state.cases.requestSeq++;state.caseCleanup?.();state.disposed=true;state.upload?.suspend();state.runScope?.dispose();}
+  function suspend(){if(!state)return;save(state);closePicker(state,false);for(const c of caseViews(state)){stopCaseObserver(c);clearCasePreviews(c);closeCase(state,false,c);clearTimeout(c.debounce);c.masonry?.disconnect();c.requestSeq++;}state.caseCleanup?.();state.disposed=true;state.upload?.suspend();state.runScope?.dispose();}
   async function load(scope={}){
     suspend();const actor=auth().actor||'',choice=recall(key('project',actor));
     const p=scope.project!==undefined?scope.project:(choice?.project||null),s={actor,project:p||null,disposed:false,sequence:++sequence,revision:null,options:null,busy:false,mediaSequence:0};state=s;
@@ -373,7 +407,7 @@ export function createMarketingStudio(root,ctx){
     if(s.pending){const payload=s.pending.request.payload,fixedCase=s.pending.case_display||s.draft.case;s.draft={...s.draft,prompt:payload.prompt,method_id:payload.method_id||'',episode_id:payload.episode_id||'',media:payload.media_ids.map(id=>s.draft.media.find(m=>m.id===id)||{id,name:id}),case:samePin(fixedCase,payload.case_ref)?fixedCase:null};}
     if(s.pending?.intent){s.draft.model_ids=[...s.pending.intent.model_ids];s.draft.mode=s.pending.intent.execution_settings.auto_media?'auto_media':s.pending.intent.mode;}
     remember(key('project',actor),{project:s.project});draw(s);
-    const hidden=()=>{if(document.hidden||document.visibilityState==='hidden'){stopCaseObserver(s.cases);stopPreview(s.cases);}else if(live(s))renderCasePager(s);};const leaving=()=>{stopCaseObserver(s.cases);stopPreview(s.cases);closeCase(s,false);},offLocale=onLocaleChange(()=>rebindCaseLocale(s));document.addEventListener?.('visibilitychange',hidden);globalThis.window?.addEventListener?.('pagehide',leaving);globalThis.window?.addEventListener?.('popstate',leaving);s.caseCleanup=()=>{offLocale();document.removeEventListener?.('visibilitychange',hidden);globalThis.window?.removeEventListener?.('pagehide',leaving);globalThis.window?.removeEventListener?.('popstate',leaving);};
+    const hidden=()=>{for(const c of caseViews(s))if(document.hidden||document.visibilityState==='hidden'){stopCaseObserver(c);stopPreview(c);}else if(caseViewLive(s,c))renderCasePager(s,c);};const leaving=()=>{closePicker(s,false);for(const c of caseViews(s)){stopCaseObserver(c);stopPreview(c);closeCase(s,false,c);}},offLocale=onLocaleChange(()=>rebindCaseLocale(s));document.addEventListener?.('visibilitychange',hidden);globalThis.window?.addEventListener?.('pagehide',leaving);globalThis.window?.addEventListener?.('popstate',leaving);s.caseCleanup=()=>{offLocale();document.removeEventListener?.('visibilitychange',hidden);globalThis.window?.removeEventListener?.('pagehide',leaving);globalThis.window?.removeEventListener?.('popstate',leaving);};
     if(!s.project){note(s,'请选择归属项目后继续。');return;}
     note(s,'正在读取营销技能与项目…');
     try{
