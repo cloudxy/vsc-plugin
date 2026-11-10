@@ -2176,6 +2176,28 @@
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/canvas_library.test.mjs"
       ]
+    },
+    "assets.integration.test_direct_canvas_copy_constraints": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/schema_canvas.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/project/schema_review.py",
+        "migrations/postgres/versions/0053_canvas_direct_copies.py"
+      ]
+    },
+    "project.integration.test_direct_canvas_copy": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/canvas_copy.py",
+        "src/vsc/adapters/persistence/postgres/canvas_templates.py",
+        "src/vsc/adapters/persistence/postgres/copy_lineage.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/assets/access_control.py",
+        "src/vsc/interfaces/web/creative_canvas.py"
+      ]
     }
   },
   "dependencies": {

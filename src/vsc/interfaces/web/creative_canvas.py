@@ -113,6 +113,17 @@ def install_creative_canvas_routes(router, catalog, etag, actor):
     async def create(project_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "create_creative_canvas")
 
+    @router.post("/{project_id}/canvas-copies")
+    async def direct_copy(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "copy_direct_canvas")
+
+    @router.post("/{project_id}/canvas-copies/preview")
+    def direct_copy_preview(project_id: str, request: Request, body: dict):
+        payload = body.get('payload')
+        if not isinstance(payload, dict) or 'actor' in body:
+            raise HTTPException(422, '需要固定画布与目标分集')
+        return etag(request, service(project_id).preview_direct_canvas_copy(project_id, payload))
+
     @router.put("/{project_id}/creative-canvases/{canvas_id}")
     async def save(project_id: str, canvas_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "save_creative_canvas", canvas_id)
