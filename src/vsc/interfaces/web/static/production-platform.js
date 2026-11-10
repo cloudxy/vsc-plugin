@@ -60,9 +60,10 @@ export function createProductionPlatform(root,ctx){
   async function openHomeCreation(page,options={}){
     const t=ticket,s=scope,identity=homeIdentity();if(homeOpening?.current())return;
     const operation={current:()=>same(t,s)&&identity===homeIdentity()};homeOpening=operation;
-    const controls=[...root.querySelectorAll('.home-tool'),...root.querySelectorAll('.home-canvas-card')].filter(node=>node.tagName==='BUTTON');
+    const controls=[...root.querySelectorAll('.home-tool'),...root.querySelectorAll('.home-canvas-card'),...root.querySelectorAll('.home-feature')].filter(node=>node.tagName==='BUTTON');
     for(const control of controls)control.disabled=true;
     try{
+      if(options.ai_mv==='1'){if(!session().actor||!session().writeAvailable)throw new Error('当前会话不能创建项目。');await ctx.createEmptyCanvasProject({isCurrent:operation.current,aiMv:true});return;}
       const context=await homeContext(operation.current);if(!operation.current())return;
       if(context.empty){if(!session().actor||!session().writeAvailable)throw new Error('当前会话不能创建项目。');if(page==='creative-canvas')await ctx.createEmptyCanvasProject({isCurrent:operation.current});else createProject('series',{page,options,homeDefault:true});return;}
       let target={...options,episode:context.episode.id};
@@ -99,7 +100,7 @@ export function createProductionPlatform(root,ctx){
     main.append(artwork('canvas.svg'),el('span',msg("ui.connect_your_creative_ideas_on_one_canvas"),'home-canvas-slogan'),el('span',msg("ui.open_intelligent_canvas"),'home-canvas-action'));hero.append(main);
     const features=el('div',null,'home-feature-grid');
     for(const [title,desc,file,tool,badges]of [[msg('replica.commerce_skills_title'),msg('replica.commerce_skills_description'),'commerce-skills.webp','skills',['Agent']],['AI MV',msg("ui.upload_music_and_let_ai_direct_your_mv"),'aimv.jpg','mv',['Agent',msg('replica.skill_tag')]],[msg("home.creation_segment_remake_title"),msg("home.creation_segment_remake_description"),'remake.jpg','segment_remake',['SD 2.5',msg('replica.official_example')]],[msg("home.creation_video_depth_title"),msg("home.creation_video_depth_description"),'motion.jpg','breakdown',['SD 2.5',msg('replica.official_example')]]]){
-      const card=tool==='skills'?link('', 'marketing-studio',null,null):link('', 'creative-tools',null,null,{tool});card.className='home-feature';const tags=el('small',null,'home-feature-badge');for(const badge of badges)tags.append(el('span',badge));card.append(artwork(file),tags);if(tool==='skills')card.append(el('span','NEW','home-feature-new'));const copy=el('div',null,'home-feature-copy');copy.append(el('h3',title),el('p',desc));card.append(copy);features.append(card);
+      const card=tool==='skills'?link('', 'marketing-studio',null,null):tool==='mv'?button('',()=>openHomeCreation('creative-canvas',{ai_mv:'1'})):link('', 'creative-tools',null,null,{tool});card.className='home-feature';const tags=el('small',null,'home-feature-badge');for(const badge of badges)tags.append(el('span',badge));card.append(artwork(file),tags);if(tool==='skills')card.append(el('span','NEW','home-feature-new'));const copy=el('div',null,'home-feature-copy');copy.append(el('h3',title),el('p',desc));card.append(copy);features.append(card);
     }hero.append(features);root.append(hero,el('h2',msg("ui.start_creating_with_agent_tools"),'home-tool-heading'));
     const grid=el('div',null,'home-tools');
     for(const [title,desc,page,tool,icon,tag]of [[msg("home.creation_ai_video_generation_title"),msg("home.creation_ai_video_generation_description"),'classic-production','video','video',msg("home.creation_tag_tool")],[msg("home.creation_ai_storyboard_title"),msg("home.creation_ai_storyboard_description"),'classic-production','image','image',msg("home.creation_tag_tool")],[msg("ui.script_breakdown"),msg("ui.reconstruct_dialogue_and_shots_frame_by_frame_to_create"),'text-tools','breakdown','breakdown','Agent'],[msg("home.creation_agent_creation_title"),msg("home.creation_agent_creation_description"),'intelligent-creation','','agent','Agent'],[msg("nav.script_scoring"),msg("home.creation_script_scoring_description"),'text-tools','scoring','scoring','Agent'],[msg("nav.novel_parser"),msg("home.creation_novel_parser_description"),'text-tools','novel','novel','Agent'],[msg("nav.script_translation"),msg("home.creation_script_translation_description"),'text-tools','translation','translation','Agent'],[msg("nav.video_quality_check"),msg("ui.check_video_subtitle_and_content_issues"),'text-tools','qc','qc','Agent']]){
@@ -148,6 +149,7 @@ export function createProductionPlatform(root,ctx){
     project.addEventListener('change',()=>{episodeRequest++;episode.value='';readEpisodes();draw();});for(const control of [episode,modality,after,before,order])control.addEventListener('change',()=>draw());query.addEventListener('input',()=>draw());await draw();
   }
   async function manageCard(row,operation){
+    if(operation==='rename')return createProject('series',{edit:row});
     const removing=operation==='trash',t=ticket,identity=session().actor,dialog=el('dialog',null,'platform-create'),form=el('form');
     bindAttribute(dialog,'aria-label',operation==='rename'?msg("ui.rename_project"):msg("ui.tip"));
     form.append(el('h2',operation==='rename'?msg("ui.rename_project"):msg("ui.tip")));
@@ -175,14 +177,14 @@ export function createProductionPlatform(root,ctx){
     async function readEpisodes(){const token=++episodeRequest,p=project.value;episode.replaceChildren(localizedOption('',msg('replica.all_episodes')));episode.disabled=true;draw();if(!p)return;try{let next=0;do{const data=await ctx.api(endpoint(p,'production-platform?'+new URLSearchParams({offset:String(next),limit:'100'})));if(!same(t)||token!==episodeRequest||project.value!==p)return;for(const row of data.episodes.items)episode.append(localizedOption(row.id,row.title||row.display_code));next=data.episodes.next_offset;}while(next!=null);episode.disabled=false;}catch(error){if(same(t)&&token===episodeRequest)ctx.notice(error.message);}}
     query.addEventListener('input',draw);project.addEventListener('change',readEpisodes);episode.addEventListener('change',draw);order.addEventListener('change',draw);draw();
   }
-  function createProject(type,next={}){
+  async function createProject(type,next={}){
     closeCreation?.();
-    const canvas=type==='canvas',dialog=el('dialog',null,'platform-create'+(canvas?'':' project-create-dialog'));bindAttribute(dialog,'aria-label',canvas?msg("shell.new_canvas"):msg("project.create_project"));const form=el('form');
-    const s=scope,t=ticket,identity=session().actor,requestKey='vsc-platform-create:'+identity+':'+type;
-    let request=recall(requestKey),submitted=false,closed=false,selecting=false,fileTicket=0,previewUrl=null,selected=creationFiles.get(requestKey)||null;
-    const current=()=>same(t,s)&&identity===session().actor&&!closed;
+    const editing=next.edit,canvas=type==='canvas',dialog=el('dialog',null,'platform-create'+(canvas?'':' project-create-dialog'));bindAttribute(dialog,'aria-label',editing?msg('project.edit_project'):canvas?msg("shell.new_canvas"):msg("project.create_project"));const form=el('form');
+    const s=scope,t=ticket,identity=session().actor,identityKey=homeIdentity(),requestKey=editing?'vsc-platform-edit:'+identityKey+':'+editing.id:'vsc-platform-create:'+identity+':'+type,draftKey=requestKey+':draft';
+    let request=recall(requestKey),submitted=false,closed=false,selecting=false,fileTicket=0,previewUrl=null,selected=creationFiles.get(requestKey)||null,editBaseline=null,editLoading=Boolean(editing),baseCover=editing?.cover||null,coverSelection=null,clearCover=false;
+    const current=()=>same(t,s)&&identityKey===homeIdentity()&&!closed;
     if(request?.cover&&selected?.sha256!==request.cover.sha256)selected=null;
-    const heading=el('header',null,'project-create-heading');heading.append(el('h2',canvas?msg('shell.new_canvas'):msg('project.create_project')));
+    const heading=el('header',null,'project-create-heading');heading.append(el('h2',editing?msg('project.edit_project'):canvas?msg('shell.new_canvas'):msg('project.create_project')));
     const close=button('×',()=>dialog.close());close.className='project-create-close';bindAttribute(close,'aria-label',msg('common.close'));heading.append(close);form.append(heading);
     const body=el('div',null,'project-create-body'),nameLabel=el('label',null,'project-create-field'),nameText=el('span','名称'),required=el('span','*','project-create-required');required.setAttribute('aria-hidden','true');nameText.append(required);nameLabel.append(nameText);
     const nameWrap=el('div',null,'project-name-input'),name=el('input'),count=el('span','0 / 50','project-name-count');name.required=true;name.maxLength=50;name.placeholder='请输入名称';bindAttribute(name,'aria-label',msg('ui.sky_project_name'));nameWrap.append(name,count);nameLabel.append(nameWrap);body.append(nameLabel);
@@ -197,16 +199,16 @@ export function createProductionPlatform(root,ctx){
       for(const [value,title]of [['2d',msg('ui.style_2d')],['3d',msg('ui.style_3d')],['live',msg('ui.style_live')]]){const label=el('label'),radio=el('input');radio.type='radio';radio.name=groupName;radio.value=value;radio.checked=value==='live';bindAttribute(radio,'aria-label',title);styles.push(radio);label.append(radio,el('span',title));group.append(label);}kinds.append(group);body.append(kinds);
     }
     const coverSection=el('div',null,'project-cover-field'),coverLabel=el('p','上传封面'),coverHint=el('p','封面图建议正方形尺寸，大小不超过5MB','project-cover-hint'),upload=el('label',null,'project-cover-upload'),fileInput=el('input'),preview=el('div',null,'project-cover-preview'),fileNotice=el('p',null,'project-cover-feedback');
-    fileNotice.setAttribute('role','status');fileInput.type='file';fileInput.accept='image/*';bindAttribute(fileInput,'aria-label','上传封面');upload.append(preview,fileInput);const remove=button('移除封面',()=>{fileTicket++;selecting=false;selected=null;creationFiles.delete(requestKey);fileInput.value='';setText(fileNotice,'');drawCover();});remove.className='project-cover-remove';coverSection.append(coverLabel,coverHint,upload,remove,fileNotice);if(!canvas)body.append(coverSection);
+    fileNotice.setAttribute('role','status');fileInput.type='file';fileInput.accept='image/*';bindAttribute(fileInput,'aria-label','上传封面');upload.append(preview,fileInput);const remove=button('移除封面',()=>{fileTicket++;selecting=false;if(editing&&!selected)clearCover=true;selected=null;creationFiles.delete(requestKey);fileInput.value='';setText(fileNotice,'');drawCover();retainDraft();});remove.className='project-cover-remove';coverSection.append(coverLabel,coverHint,upload,remove,fileNotice);if(!canvas)body.append(coverSection);
     const message=el('p',null,'hint project-create-status');message.setAttribute('role','status');const save=el('button',canvas?msg('ui.create_project'):'确定');save.type='submit';save.className='project-create-confirm';
     const footer=el('footer',null,'project-create-footer');footer.append(button(msg('common.cancel'),()=>dialog.close()),save);form.append(body,message,footer);
     if(canvas){form.replaceChildren(el('h2',msg('shell.new_canvas')));field(form,msg('ui.sky_project_name'),name);form.append(message,actions(save,button(msg('common.cancel'),()=>dialog.close())));}
     dialog.append(form);root.append(dialog);
-    const lock=()=>{for(const input of [name,episodes,...styles,...steps])if(input)input.disabled=Boolean(request);fileInput.disabled=selecting||Boolean(request&&(!request.cover||selected||request.cover.applied));remove.disabled=Boolean(request);save.disabled=submitted||selecting||!identity||!session().writeAvailable;};
+    const lock=()=>{const frozen=submitted||editLoading||Boolean(editing&&!editBaseline)||Boolean(request);for(const input of [name,episodes,...styles,...steps])if(input)input.disabled=frozen;fileInput.disabled=editLoading||submitted||Boolean(editing&&!editBaseline)||selecting||Boolean(request&&(!request.cover||selected||request.cover.applied));remove.disabled=frozen;save.disabled=submitted||editLoading||selecting||!identity||!session().writeAvailable;};
     function drawCover(){
       if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null;}preview.replaceChildren();
-      if(selected){previewUrl=URL.createObjectURL(selected.file);const image=el('img');image.src=previewUrl;image.alt='封面预览';preview.append(image);}else if(request?.cover?.content_url){const image=el('img');image.src=request.cover.content_url;image.alt='封面预览';preview.append(image);}else preview.append(el('span','+','project-cover-plus'),el('span',request?.cover?'重新选择原封面':'上传图片'));
-      remove.hidden=!selected||Boolean(request);lock();
+      if(selected){previewUrl=URL.createObjectURL(selected.file);const image=el('img');image.src=previewUrl;image.alt='封面预览';preview.append(image);}else if(request?.cover?.content_url||editing&&!clearCover&&baseCover?.content_url){const image=el('img');image.src=request?.cover?.content_url||baseCover.content_url;image.alt='封面预览';preview.append(image);}else preview.append(el('span','+','project-cover-plus'),el('span',request?.cover?'重新选择原封面':'上传图片'));
+      remove.hidden=(!selected&&!(editing&&coverSelection?.media_id&&!clearCover))||Boolean(request);setText(remove,editing&&!selected?msg('ui.restore_automatic_cover'):'移除封面');lock();
     }
     fileInput.addEventListener('change',async()=>{
       const file=fileInput.files?.[0],token=++fileTicket;if(!file)return;selecting=true;lock();setText(fileNotice,'正在读取封面…');
@@ -215,39 +217,63 @@ export function createProductionPlatform(root,ctx){
         const image=await createImageBitmap(file);const valid=image.width>0&&image.height>0;image.close();if(!valid)throw new Error('请选择有效的图像文件');
         const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),n=>n.toString(16).padStart(2,'0')).join('');
         if(!current()||token!==fileTicket)return;if(request?.cover&&sha256!==request.cover.sha256)throw new Error('请重新选择上次的原封面文件；文件内容不能更换');
-        selected={file,filename:file.name,size_bytes:file.size,sha256};creationFiles.set(requestKey,selected);setText(fileNotice,'');drawCover();
+        selected={file,filename:file.name,size_bytes:file.size,sha256};clearCover=false;creationFiles.set(requestKey,selected);setText(fileNotice,'');drawCover();
       }catch(error){if(current()&&token===fileTicket){fileInput.value='';setText(fileNotice,error.name==='InvalidStateError'?'请选择可读取的图像文件':error.message);}}
       finally{if(current()&&token===fileTicket){selecting=false;lock();}}
     });
-    if(request){name.value=request.payload.name;if(episodes)episodes.value=String(request.count);for(const radio of styles)radio.checked=radio.value===(request.payload.character_style||'live');setText(message,request.phase==='readback'?'项目已创建，重试将继续打开已创建项目。':msg('ui.the_previous_receipt_is_unconfirmed_retrying_will_recover_the'));}
+    if(editing){name.value=editing.name;episodes.value=String(editing.counts?.episodes||1);for(const radio of styles)radio.checked=radio.value===(editing.profile_snapshot?.character_style||'live');}
+    const draft=editing?recall(draftKey):null;if(draft){name.value=draft.name;episodes.value=draft.count;for(const radio of styles)radio.checked=radio.value===draft.style;clearCover=Boolean(draft.clearCover);}
+    const retainDraft=()=>{if(editing&&!request)remember(draftKey,{name:name.value,count:episodes.value,style:styles.find(r=>r.checked)?.value||'live',clearCover});};
+    if(editing){form.addEventListener('input',retainDraft);form.addEventListener('change',retainDraft);}
+    if(request){clearCover=Boolean(request.clearCover);name.value=request.payload.name||request.payload.title;if(episodes)episodes.value=String(request.count??request.payload.episode_count);for(const radio of styles)radio.checked=radio.value===(request.payload.character_style||'live');setText(message,request.phase==='readback'?(editing?'项目已保存，重试将刷新项目列表。':'项目已创建，重试将继续打开已创建项目。'):msg('ui.the_previous_receipt_is_unconfirmed_retrying_will_recover_the'));}
     showCount();drawCover();dialog.showModal();const closeThis=()=>dialog.close();closeCreation=closeThis;
+    async function loadEditBaseline(preserve=false){
+      editLoading=true;lock();setText(message,msg('ui.loading'));
+      try{const [latest,cover]=await Promise.all([ctx.api(endpoint(editing.id,'management?limit=1')),ctx.api(endpoint(editing.id,'cover'))]);if(!current())return;
+        editBaseline=latest;coverSelection=cover.selection;baseCover=cover.cover;if(!preserve&&!request&&!draft){name.value=latest.project.name;episodes.value=String(Math.max(1,latest.episode_count));for(const radio of styles)radio.checked=radio.value===(latest.project.profile_snapshot?.character_style||'live');}
+        setText(message,request?request.phase==='readback'?'项目已保存，重试将刷新项目列表。':'原编辑操作已保留，重试将恢复同一操作。':'');showCount();drawCover();
+      }catch(error){if(current())setText(message,error.message+'；点击确定重新读取，未保存的编辑已保留。');}
+      finally{if(current()){editLoading=false;lock();}}
+    }
     form.addEventListener('submit',async e=>{
-      e.preventDefault();if(submitted||selecting||!current()||!identity||!session().writeAvailable)return;submitted=true;save.disabled=true;
+      e.preventDefault();if(editing&&!editBaseline&&!request){if(!editLoading&&current())await loadEditBaseline(true);return;}if(submitted||selecting||!current()||!identity||!session().writeAvailable)return;submitted=true;save.disabled=true;
       try{
-        if(!request){const count=episodes?Math.min(500,Math.max(1,Math.trunc(Number(episodes.value)||1))):0;request={payload:{name:name.value.trim(),profile:canvas||count<=1?'vsc.light-short':'vsc.series-pg',...(canvas?{}:{character_style:styles.find(r=>r.checked)?.value||'live'})},count,idempotency_key:uid(),offset:0,phase:'write',next,...(!canvas&&selected?{cover:{filename:selected.filename,size_bytes:selected.size_bytes,sha256:selected.sha256}}:{})};remember(requestKey,request);lock();}
+        if(!request){
+          if(editing){const total=Number(episodes.value);if(!name.value.trim()||name.value.length>50)throw new Error('项目名称需为1至50字');if(!Number.isInteger(total)||total<1||total>500)throw new Error('项目集数需为1至500的整数');if(total<editBaseline.episode_count)throw new Error('减少集数需在项目管理中明确选择要回收的剧集；当前编辑不会删除剧集');}
+          const count=episodes?Math.min(500,Math.max(1,Math.trunc(Number(episodes.value)||1))):0;request={payload:{name:name.value.trim(),profile:canvas||count<=1?'vsc.light-short':'vsc.series-pg',...(canvas?{}:{character_style:styles.find(r=>r.checked)?.value||'live'})},count,idempotency_key:uid(),offset:0,phase:'write',next,...(!canvas&&selected?{cover:{filename:selected.filename,size_bytes:selected.size_bytes,sha256:selected.sha256}}:{})};if(editing)request={payload:{operation:'edit',title:name.value.trim(),episode_count:count,character_style:styles.find(r=>r.checked)?.value||'live'},project_id:editing.id,expected_revision:editBaseline.revision,revision:editBaseline.revision,idempotency_key:request.idempotency_key,phase:'write',...(request.cover?{cover:request.cover}:{}),clearCover};remember(requestKey,request);lock();}
+        if(editing&&request.rebaseCover){const latest=await ctx.api(endpoint(request.project_id,'cover'));if(!current())return;request.revision=latest.revision;
+          if(request.cover){if(!request.cover.batch_id)delete request.cover.batch_request;if(!request.cover.media_id)delete request.cover.process_request;if(!request.cover.applied)delete request.cover.selection_request;}
+          if(!request.coverCleared)delete request.clearRequest;request.rebaseCover=false;remember(requestKey,request);
+        }
+        if(editing&&!request.saved){const result=await ctx.api(endpoint(request.project_id,'management'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:request.payload,expected_revision:request.expected_revision,idempotency_key:request.idempotency_key})});request.saved=true;request.revision=result.revision;remember(requestKey,request);if(!current())return;}
         if(!request.project_id){
           const result=await ctx.api('/api/v1/projects',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:request.payload,idempotency_key:request.idempotency_key})});
           request.project_id=result.id;request.revision=result.revision??0;remember(requestKey,request);if(!current())return;
         }
-        while(request.offset<request.count){
+        while(!editing&&request.offset<request.count){
           const start=request.offset,titles=Array.from({length:Math.min(50,request.count-start)},(_,index)=>'第'+(start+index+1)+'集');
           const saved=await ctx.api('/api/v1/projects/'+encodeURIComponent(request.project_id)+'/episode-batches',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{titles,initial_shot_count:0},expected_revision:request.revision,idempotency_key:request.idempotency_key+':episodes:'+start})});
           request.revision=saved.revision??request.revision;request.offset=start+titles.length;remember(requestKey,request);if(!current())return;
         }
         if(request.cover&&!await uploadProjectCover(request,{current,retain:()=>remember(requestKey,request),file:()=>creationFiles.get(requestKey)?.file,progress:text=>{if(current())setText(message,text);}}))return;
+        if(editing&&request.clearCover&&!request.coverCleared){request.clearRequest||={payload:{media_id:null},expected_revision:request.revision,idempotency_key:request.idempotency_key+':cover-clear'};remember(requestKey,request);const cleared=await ctx.api(endpoint(request.project_id,'cover'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify(request.clearRequest)});request.coverCleared=true;request.revision=cleared.revision;remember(requestKey,request);if(!current())return;}
         request.phase='readback';remember(requestKey,request);
         await ctx.refreshProjects({isCurrent:current});if(!current())return;
+        if(editing){remember(requestKey,null);remember(draftKey,null);creationFiles.delete(requestKey);ctx.notice(msg('ui.project_saved'));dialog.close();await reload();return;}
         const target=request.next||{};let targetOptions=target.options||{};
         if(target.homeDefault){const result=await ctx.api(endpoint(request.project_id,'production-platform?offset=0&limit=1'));if(!current())return;const first=result.episodes.items[0];if(!first)throw new Error('已创建项目中没有可用剧集，请重新读取原项目。');targetOptions={...targetOptions,episode:first.id};}
         ctx.notice(msg('ui.project_created'));
         await ctx.navigate(target.page||(canvas?'creative-canvas':'project'),null,request.project_id,targetOptions);
         remember(requestKey,null);creationFiles.delete(requestKey);if(!closed)dialog.close();
       }catch(error){
+        if(editing&&request?.saved&&request.phase!=='readback'&&error.status===409){request.rebaseCover=true;remember(requestKey,request);}
+        if(editing&&!request?.saved&&error.status>=400&&error.status<500){request=null;remember(requestKey,null);retainDraft();if(error.status===409)editBaseline=null;}
         if(!request?.project_id&&error.status>=400&&error.status<500&&error.status!==409){request=null;remember(requestKey,null);}
-        if(current()){lock();setText(message,request?.phase==='readback'?'项目已创建，打开未完成。重试将继续打开已创建项目。 '+error.message:error.message+(request?'；原创建操作已保留，重试将继续该项目。':''));}
+        if(current()){lock();setText(message,editing?(request?.phase==='readback'?'项目已保存，刷新未完成；重试只会重新读取。 '+error.message:error.message+(request?.rebaseCover?'；原编辑已保存。重试会读取最新版本，再继续原封面选择。':request?'；原编辑操作已保留，重试将恢复同一操作。':!editBaseline?'；点击确定读取最新版本后再保存。':'')):request?.phase==='readback'?'项目已创建，打开未完成。重试将继续打开已创建项目。 '+error.message:error.message+(request?'；原创建操作已保留，重试将继续该项目。':''));}
       }finally{if(current()){submitted=false;lock();}else if(!closed)dialog.close();}
     });
-    dialog.addEventListener('close',()=>{closed=true;fileTicket++;if(previewUrl)URL.revokeObjectURL(previewUrl);if(closeCreation===closeThis)closeCreation=null;dialog.remove();},{once:true});name.focus();
+    dialog.addEventListener('close',()=>{retainDraft();closed=true;fileTicket++;if(previewUrl)URL.revokeObjectURL(previewUrl);if(closeCreation===closeThis)closeCreation=null;dialog.remove();},{once:true});name.focus();
+    if(editing)await loadEditBaseline();
   }
   async function uploadProjectCover(request,{current,retain,file,progress}){
     const cover=request.cover,p=request.project_id,base=endpoint(p,'media-imports'),headers=()=>({'Content-Type':'application/json','X-CSRF-Token':session().csrf});
@@ -259,7 +285,7 @@ export function createProductionPlatform(root,ctx){
     }
     let batch=await ctx.api(base+'/'+encodeURIComponent(cover.batch_id));if(!current())return false;request.revision=batch.revision;let item=batch.items[0];cover.item_id=item.id;cover.media_id=item.media_id||cover.media_id;retain();
     if(!item.has_upload&&!cover.media_id){
-      const original=file();if(!original)throw new Error('请重新选择上次的原封面文件继续上传；已创建项目和分集已保留');
+      const original=file();if(!original)throw new Error('请重新选择上次的原封面文件继续上传；已保存的项目和分集已保留');
       const result=await ctx.api(base+'/'+encodeURIComponent(cover.batch_id)+'/items/'+encodeURIComponent(item.id)+'/upload?offset='+item.uploaded_bytes,{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':session().csrf},body:original.slice(item.uploaded_bytes)});request.revision=result.revision??request.revision;retain();if(!current())return false;
       batch=await ctx.api(base+'/'+encodeURIComponent(cover.batch_id));if(!current())return false;request.revision=batch.revision;item=batch.items[0];cover.media_id=item.media_id||cover.media_id;retain();
     }

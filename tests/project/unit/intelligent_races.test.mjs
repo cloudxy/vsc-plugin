@@ -11,33 +11,36 @@ Element.prototype.pause=function(){this.paused=true;};
 Element.prototype.play=async function(){this.paused=false;};
 Element.prototype.scrollIntoView=function(){};
 
-async function fixture({interleaved=false,emptyWorkflow=false,delayPreview=false,withWarnings=false,historical=false,legacyAsset=false}={}){
+async function fixture({interleaved=false,emptyWorkflow=false,delayPreview=false,withWarnings=false,historical=false,legacyAsset=false,initialTarget='w',initialEpisode='e',autoLoad=true,configure,intercept}={}){
  const document=new Document(''),root=document.createElement('section');document.body.append(root);
- const memory=new Map(),requests=[],pending={prepare:[],quote:[],save:[],preview:[]};
+ const memory=new Map(),requests=[],opened=[],revisions=[],pending={prepare:[],quote:[],save:[],preview:[]};
  const sessionStorage={getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v),removeItem:k=>memory.delete(k),get length(){return memory.size;},key:i=>[...memory.keys()][i]};
  const stages=['source','assets','blocking','template','script','video','preview'].map(key=>({key,title:key}));
  const unit=(key,kind='shot')=>({unit_key:key,kind,title:key,description:'提示词 '+key,duration_ms:7000,segments:[],skip_reason:'',lineart_purpose:'none',shot_id:key,professional:{narrative_purpose:'目的',entry_state:'入',exit_state:'出',bridge:'桥',sound_route:'native'}});
  const workflow={workflow:{id:'w',episode_id:'e',title:'流程'},version:{id:'v',version:1},history:[{id:'v',version:1}],definition:{stages},state:{route:'creation',document:{script_text:'剧本',notes:'',template_key:'cinematic',template_text:'模板'},assets:[],units:interleaved?[unit('s1'),unit('b','blocking'),unit('s2')]:[unit('s1'),unit('s2'),unit('b','blocking')],media:[],dependencies:[],blocking_mode:'2d'},episode_assets:[],tasks:[],runs:[],asset_runs:[],batches:[],working_selections:[],revision:1};
  if(emptyWorkflow)workflow.state.units=[];if(historical)workflow.history=[{id:'v-current',version:2},...workflow.history];if(legacyAsset)workflow.episode_assets=[{id:'legacy',asset_key:'asset:legacy',asset_kind:'object',name:'旧物件',revision:1,forms:[{form_key:'master',name:'默认',current_version_id:'form-v1',media_id:null}]}];
  const options={definition:{stages},routes:{creation:'智能创作'},templates:{cinematic:{title:'电影叙事',text:'电影模板'}},nodes:[{id:'e',kind:'episode',title:'第1集'}],models:[{id:'model-a',modality:'video',enabled:true,adapter_available:true,name:'A'},{id:'model-b',modality:'video',enabled:true,adapter_available:true,name:'B'}],media:[],host_available:false,revision:1};
+ configure?.({workflow,options,memory});
  const api=async(path,init={})=>{
   requests.push({path,init});
+  const override=intercept?.(path,init,{workflow,options});if(override!==undefined)return override;
   if(path.endsWith('/intelligent-change-preview')){if(delayPreview)return new Promise(resolve=>pending.preview.push(resolve));return {sha256:'impact',changes:[],warnings:withWarnings?[{message:'需要审阅'}]:[],retained_selected_media:[],retained_runs:[],revision:1};}
   if(path.endsWith('/intelligent-workflows/w')&&init.method==='PUT')return new Promise((resolve,reject)=>pending.save.push({resolve,reject}));
   if(path.endsWith('/intelligent-drafts'))return new Promise((resolve,reject)=>pending.prepare.push({resolve,reject}));
   if(path.endsWith('/classic-production/quote'))return new Promise((resolve,reject)=>pending.quote.push({resolve,reject}));
   if(path.endsWith('/intelligent-options'))return structuredClone(options);
   if(path.endsWith('/intelligent-workflows/w'))return structuredClone(workflow);
+  if(/\/intelligent-workflows(?:\?|$)/.test(path))return {items:[{id:'w',title:'流程',episode_id:'e'}],revision:1};
   if(path.includes('/execution-authorizations'))return {items:[]};
   if(path.includes('/working-candidates'))return {items:[],total:0,next_offset:null,revision:1};
   if(path.includes('/working-selections?'))return {items:[],revision:1};
   throw new Error('Unexpected '+path);
  };
  const {createIntelligentProductionPanel}=await loadModule('intelligent-production.js',{document,window:{addEventListener(){}},sessionStorage,crypto:webcrypto,URLSearchParams,setTimeout,clearTimeout,queueMicrotask});
- const panel=createIntelligentProductionPanel({api,session:()=>({csrf:'csrf',revision:1,actor:'actor',writable:true}),setRevision(){}});
- await panel.load(root,'p','e','creation','w');
+ const panel=createIntelligentProductionPanel({api,session:()=>({csrf:'csrf',revision:1,actor:'actor',writable:true}),setRevision:(value,project)=>revisions.push({value,project}),opened:(...args)=>opened.push(args)});
+ if(autoLoad)await panel.load(root,'p',initialEpisode,'creation',initialTarget);
  const stage=key=>root.querySelector('.ip-stages').querySelectorAll('button').find(button=>button.dataset.stage===key);
- return {root,panel,requests,pending,stage};
+ return {root,panel,requests,pending,stage,memory,opened,revisions,workflow};
 }
 async function waitFor(predicate){for(let i=0;i<100;i++){if(predicate())return;await new Promise(setImmediate);}throw new Error('timed out waiting for controlled request');}
 const quoteResult={revision:1,ready:true,generation_quote:{native_units:{},all_prices_known:true,known_subtotals:{}}};
@@ -154,5 +157,125 @@ test('legacy object appears in episode prop column while retaining its type',asy
  try{
   await stage('assets').click();const columns=root.querySelectorAll('.ip-asset-column');assert.equal(columns.length,3);
   const card=columns[2].querySelector('.ip-asset-card');assert.ok(card);assert.match(card.textContent,/旧物件/);assert.equal(card.querySelector('select').value,'object');assert.equal(root.querySelector('.ip-other-assets').hidden,true);
+ }finally{panel.suspend();}
+});
+
+test('default episode entry resumes its only workflow with server route, definition and local step',async()=>{
+ const {root,panel,requests,opened}=await fixture({initialTarget:null,configure({workflow,options,memory}){
+  workflow.state.route='storyboard';options.routes.storyboard='智能分镜';
+  workflow.definition.stages=workflow.definition.stages.filter(stage=>['source','template','preview'].includes(stage.key));
+  memory.set('vsc-intelligent-draft:p:w:stage',JSON.stringify('template'));
+ }});
+ try{
+  assert.deepEqual(opened,[['w','p','e']]);assert.equal(root.dataset.stage,'template');
+  assert.deepEqual(root.querySelector('.ip-stages').querySelectorAll('button').map(button=>button.dataset.stage),['source','template','preview']);
+  assert.equal(JSON.parse(root.querySelector('.ip-advanced').querySelector('textarea').value).route,'storyboard');
+  assert.equal(root.querySelector('.ip-create'),null);assert.equal(root.querySelector('.ip-list'),null);
+  assert.ok(requests.some(row=>row.path.endsWith('/intelligent-workflows?episode_id=e')));
+  assert.equal(requests.some(row=>row.init.method),false);
+ }finally{panel.suspend();}
+});
+
+test('explicit target opens directly without choosing from the episode list',async()=>{
+ const {root,panel,requests,opened}=await fixture();
+ try{
+  assert.deepEqual(opened,[['w','p','e']]);assert.equal(root.dataset.stage,'source');
+  assert.equal(requests.some(row=>/\/intelligent-workflows(?:\?|$)/.test(row.path)),false);
+ }finally{panel.suspend();}
+});
+
+test('empty episode shows the creation first step only after a successful empty list',async()=>{
+ let resolveList;const {root,panel,requests,opened,workflow}=await fixture({autoLoad:false,intercept(path,init){
+  if(path.endsWith('/intelligent-workflows?episode_id=e'))return new Promise(resolve=>{resolveList=resolve;});
+  if(path.endsWith('/intelligent-workflows')&&init.method==='POST')return {id:'w',revision:2};
+ }});
+ try{
+  const loading=panel.load(root,'p','e');await waitFor(()=>resolveList);
+  assert.equal(root.querySelector('.ip-create'),null);assert.equal(root.querySelector('.ip-stages'),null);
+  resolveList({items:[],revision:1});await loading;
+  const form=root.querySelector('.ip-create');assert.ok(form);
+  assert.equal(root.querySelector('.ip-stages').querySelector('button').getAttribute('aria-current'),'step');
+  assert.equal(requests.some(row=>row.init.method),false);
+  const script=form.querySelector('textarea');script.value='新的整集剧本';
+  await form.querySelector('button').click();
+  const writes=requests.filter(row=>row.init.method==='POST');assert.equal(writes.length,1);
+  const payload=JSON.parse(writes[0].init.body).payload;
+  assert.equal(payload.episode_id,'e');assert.equal(payload.route,'creation');assert.equal(payload.script_text,'新的整集剧本');
+  assert.deepEqual(opened,[['w','p','e']]);assert.equal(workflow.state.document.script_text,'剧本');
+ }finally{panel.suspend();}
+});
+
+for(const failure of ['list','detail'])test(`${failure} failure offers read retry without creation or fallback`,async()=>{
+ let attempts=0;const {root,panel,requests,opened}=await fixture({initialTarget:null,configure({workflow,memory}){
+  const state=structuredClone(workflow.state);state.document.script_text='失败重试前的未保存稿';
+  memory.set('vsc-intelligent-draft:p:w',JSON.stringify({version:'v',state,stage:'source'}));
+ },intercept(path){
+  const matches=failure==='list'?path.endsWith('/intelligent-workflows?episode_id=e'):path.endsWith('/intelligent-workflows/w');
+  if(matches&&attempts++===0)throw new Error('连接暂时失败');
+ }});
+ try{
+  assert.match(root.textContent,/连接暂时失败/);assert.equal(root.querySelector('.ip-create'),null);
+  assert.equal(root.querySelector('.ip-list'),null);assert.equal(opened.length,0);
+  await root.querySelector('button').click();assert.deepEqual(opened,[['w','p','e']]);
+  assert.equal(root.querySelector('.ip-script-stage').querySelector('textarea').value,'失败重试前的未保存稿');
+  assert.equal(requests.some(row=>row.init.method),false);
+ }finally{panel.suspend();}
+});
+
+test('multiple episode workflows require a choice and preserve the explicit creation entry',async()=>{
+ const {root,panel,requests,opened}=await fixture({initialTarget:null,intercept(path,init,{workflow}){
+  if(path.endsWith('/intelligent-workflows?episode_id=e'))return {items:[{id:'w',title:'最近创建'},{id:'older',title:'明确选择'}],revision:1};
+  if(path.endsWith('/intelligent-workflows/older'))return {...structuredClone(workflow),workflow:{id:'older',title:'明确选择',episode_id:'e'}};
+ }});
+ try{
+  assert.equal(opened.length,0);assert.equal(root.querySelector('.ip-create'),null);assert.equal(root.querySelector('.ip-stages'),null);
+  const list=root.querySelector('.ip-list');assert.equal(list.querySelectorAll('article').length,2);
+  const create=root.children.find(node=>node.tagName==='BUTTON');assert.ok(create);await create.click();
+  assert.ok(root.querySelector('.ip-create'));assert.equal(requests.some(row=>row.init.method),false);
+  await root.children.find(node=>node.tagName==='BUTTON').click();
+  await root.querySelector('.ip-list').querySelectorAll('button')[1].click();
+  assert.deepEqual(opened,[['older','p','e']]);assert.equal(root.querySelector('h1').textContent,'明确选择');
+ }finally{panel.suspend();}
+});
+
+test('back to workflow list does not automatically reopen its only row',async()=>{
+ const {root,panel,opened}=await fixture({initialTarget:null});
+ try{
+  const back=root.querySelectorAll('button').find(button=>button.textContent.includes('返回流程列表'));assert.ok(back);await back.click();
+  assert.ok(root.querySelector('.ip-list'));assert.equal(root.querySelector('.ip-create'),null);assert.equal(opened.length,1);
+  await root.children.find(node=>node.tagName==='BUTTON').click();assert.ok(root.querySelector('.ip-create'));
+ }finally{panel.suspend();}
+});
+
+test('project-wide entry does not infer an episode from a single workflow',async()=>{
+ const {root,panel,opened}=await fixture({initialTarget:null,initialEpisode:null});
+ try{assert.ok(root.querySelector('.ip-list'));assert.equal(opened.length,0);assert.equal(root.querySelector('.ip-create'),null);}
+ finally{panel.suspend();}
+});
+
+for(const phase of ['options','list','detail'])for(const outcome of ['success','failure'])test(`late ${phase} ${outcome} cannot replace another project entry`,async()=>{
+ let delayed;const {root,panel,opened,revisions}=await fixture({autoLoad:false,intercept(path,init,{workflow,options}){
+  if(path.startsWith('/api/v1/projects/new/')&&path.endsWith('/intelligent-workflows/w'))return {...structuredClone(workflow),workflow:{id:'w',episode_id:'new-e',title:'当前流程'},revision:9};
+  const matches=phase==='options'?path.endsWith('/intelligent-options'):phase==='list'?path.endsWith('/intelligent-workflows?episode_id=e'):path.endsWith('/intelligent-workflows/w');
+  if(path.startsWith('/api/v1/projects/p/')&&matches)return new Promise((resolve,reject)=>{delayed={resolve,reject,value:phase==='options'?structuredClone(options):phase==='list'?{items:[{id:'w'}],revision:1}:structuredClone(workflow)};});
+ }});
+ try{
+  const previous=panel.load(root,'p','e');await waitFor(()=>delayed);
+  await panel.load(root,'new','new-e','creation','w');const current=root.textContent,revisionCount=revisions.length;
+  if(outcome==='failure')delayed.reject(new Error('旧范围读取失败'));else delayed.resolve(delayed.value);
+  await previous;assert.equal(root.textContent,current);assert.equal(revisions.length,revisionCount);
+  assert.deepEqual(opened,[['w','new','new-e']]);assert.equal(root.querySelector('.ip-create'),null);
+ }finally{panel.suspend();}
+});
+
+test('resuming preserves the local draft while rejecting an obsolete cached step',async()=>{
+ const {root,panel,requests}=await fixture({initialTarget:null,configure({workflow,memory}){
+  const state=structuredClone(workflow.state);state.document.script_text='尚未保存的剧本';
+  memory.set('vsc-intelligent-draft:p:w',JSON.stringify({version:'v',state,stage:'removed-step'}));
+  memory.set('vsc-intelligent-draft:p:w:stage',JSON.stringify('removed-step'));
+ }});
+ try{
+  assert.equal(root.dataset.stage,'source');assert.equal(root.querySelector('.ip-script-stage').querySelector('textarea').value,'尚未保存的剧本');
+  assert.match(root.querySelector('.ip-status').textContent,/本机草稿/);assert.equal(requests.some(row=>row.init.method),false);
  }finally{panel.suspend();}
 });

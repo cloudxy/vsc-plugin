@@ -15,6 +15,6 @@ class ProjectManagementServiceMixin:
     def management_command(self,project_id,payload,**kw):
         from vsc.assets.resource_service import ResourceError
         self._validate_write(payload,**kw)
-        if payload.get('operation') not in {'rename','folder_create','folder_update','folder_move','folder_order','folder_remove','move','trash','restore','purge','retention'}:
+        if payload.get('operation') not in {'rename','edit','folder_create','folder_update','folder_move','folder_order','folder_remove','move','trash','restore','purge','retention'}:
             raise ResourceError('请选择有效的项目管理操作','management_operation')
         return self.store.management_command(project_id,payload,**kw)

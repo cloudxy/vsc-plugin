@@ -35,6 +35,24 @@ class CanvasAgentTests(ResourceStoreFixture,unittest.TestCase):
         result=self.service.execute_canvas_agent_turn(self.p,turn["id"]);self.rev=self.service.get_project(self.p)["revision"];return result
     def decide(self,turn,outcome="confirm",**kw):return self.write("decide_canvas_agent_turn",{"turn_id":turn["id"],"outcome":outcome,"reason":"合成工程明确决定"},**kw)
 
+    def test_mv_skill_uses_installed_direction_materials_and_original_text_consumer(self):
+        from sqlalchemy import select, func
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.production.canvas_agent import SKILLS
+        catalog = SKILLS["ai-mv-production"]
+        self.assertEqual(catalog["source_skill"], "vsc-direct")
+        self.assertEqual(catalog["role"], "director")
+        turn = self.turn(skill_id="ai-mv-production", message="根据已选音乐和歌词规划镜头节奏，先补问缺失信息。")
+        ready = self.execute(turn, plan(text="合成 MV 分镜计划：0–4 秒建立场景。"))
+        self.assertEqual(ready["status"], "planned")
+        self.assertEqual(self.service.canvas_agent_backend.packets[0]["role"]["id"], "director")
+        result = self.decide(turn)
+        self.assertFalse(result["provider_submitted"])
+        document = self.service.get_creative_canvas(self.p, self.canvas["id"])["document"]
+        self.assertEqual(document["nodes"][-1]["text"], "合成 MV 分镜计划：0–4 秒建立场景。")
+        with self.engine.connect() as connection:
+            self.assertEqual(connection.execute(select(func.count()).select_from(S.generation_jobs)).scalar_one(), 0)
+
     def test_clarify_reply_reject_confirm_original_role_returns_and_fixed_nodes(self):
         from sqlalchemy import select,func
         from vsc.adapters.persistence.postgres import schema as S

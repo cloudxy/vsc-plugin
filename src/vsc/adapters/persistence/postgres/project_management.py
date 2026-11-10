@@ -10,7 +10,7 @@ from .values import checked_id, clean, new_id
 OBJECT_TABLES={'creative_objects','works','episodes','scenes','sequences','shots','asset_identities'}
 ACTIVE_TASKS={'created','queued','submitted','running','polling','submission_unknown','awaiting_upload','uploaded'}
 TASK_TABLES={'spatial_plan_tasks','generation_jobs','preview_jobs','edit_render_jobs','spatial_exports','media_import_items','text_tool_attempts','canvas_agent_turns','intelligent_tasks','script_suggestion_runs','parse_attempts','edit_preview_jobs','edit_preview_attempts'}
-MANAGEMENT_ACTIONS={'management_'+x for x in ('rename','folder_create','folder_update','folder_move','folder_order','folder_remove','move','trash','restore','purge','retention')}
+MANAGEMENT_ACTIONS={'management_'+x for x in ('rename','edit','folder_create','folder_update','folder_move','folder_order','folder_remove','move','trash','restore','purge','retention')}
 
 
 def inactive_project_ids():
@@ -243,7 +243,8 @@ class ProjectManagementRepository:
             for row in items:
                 if row.get('changed_at') and days:row['due_at']=row['changed_at']+timedelta(days=days);row['expired']=row['due_at']<=datetime.now(timezone.utc)
             items.sort(key=lambda r:(r['type'],str(r.get('created_at','')),r['id']))
-            return clean(dict(project=project,project_id=p,revision=project['revision'],state=project_state(conn,p),folders=folders,items=items[offset:offset+limit],total=len(items),offset=offset,next_offset=offset+limit if offset+limit<len(items) else None,retention_days=days,automatic_deletion=False,physical_delete_available=False,released_bytes=0))
+            episode_count=conn.execute(select(func.count()).select_from(S.episodes).where(S.episodes.c.project_id==p,S.episodes.c.id.not_in(hidden))).scalar_one()
+            return clean(dict(project=project,episode_count=episode_count,project_id=p,revision=project['revision'],state=project_state(conn,p),folders=folders,items=items[offset:offset+limit],total=len(items),offset=offset,next_offset=offset+limit if offset+limit<len(items) else None,retention_days=days,automatic_deletion=False,physical_delete_available=False,released_bytes=0))
 
     def _management_targets(self,conn,p,table,row,seen=None):
         seen=set(seen or ());token=(table.name,tuple(row.get(c.name) for c in table.primary_key.columns))
@@ -284,7 +285,7 @@ class ProjectManagementRepository:
 
     def management_command(self,project_id,payload,actor,**kw):
         op=payload.get('operation')
-        fields={'rename':{'title'},'folder_create':{'title','parent_id'},'folder_update':{'folder_id','title'},'folder_move':{'folder_id','parent_id'},'folder_order':{'parent_id','folder_ids'},'folder_remove':{'folder_id'},'move':{'target_type','target_id','folder_id'},'trash':{'target_type','target_id','reason'},'restore':{'target_type','target_id','reason'},'purge':{'target_type','target_id','reason','confirm_name'},'retention':{'days'}}
+        fields={'rename':{'title'},'edit':{'title','character_style','episode_count'},'folder_create':{'title','parent_id'},'folder_update':{'folder_id','title'},'folder_move':{'folder_id','parent_id'},'folder_order':{'parent_id','folder_ids'},'folder_remove':{'folder_id'},'move':{'target_type','target_id','folder_id'},'trash':{'target_type','target_id','reason'},'restore':{'target_type','target_id','reason'},'purge':{'target_type','target_id','reason','confirm_name'},'retention':{'days'}}
         if op not in fields or set(payload)-({'operation'}|fields[op]):raise ResourceError('管理字段不合法','management_payload')
         def apply(conn,project):
             p=project['id'];state=project_state(conn,p)
@@ -296,6 +297,32 @@ class ProjectManagementRepository:
                 return value.strip()
             def folder(identifier):
                 return self._one(conn,S.management_folders,p,checked_id(identifier)) if identifier else None
+            if op=='edit':
+                name=payload.get('title');style=payload.get('character_style');count=payload.get('episode_count')
+                if not isinstance(name,str) or not name.strip() or len(name)>50:
+                    raise ResourceError('项目名称需为1至50字','invalid_project_name')
+                if not isinstance(style,str) or style not in {'2d','3d','live'}:
+                    raise ResourceError('项目类型须为2D动漫、3D动漫或真人','invalid_project_style')
+                if type(count) is not int or not 1<=count<=500:
+                    raise ResourceError('项目集数需为1至500的整数','invalid_project_episode_count')
+                hidden=hidden_object_ids(conn,p)
+                current=conn.execute(select(func.count()).select_from(S.episodes).where(
+                    S.episodes.c.project_id==p,S.episodes.c.id.not_in(hidden))).scalar_one()
+                if count<current:
+                    raise ResourceError('减少集数需在项目管理中明确选择要回收的剧集；当前编辑不会删除剧集','project_episode_reduction')
+                added=[]
+                if count>current:
+                    works=list(conn.execute(select(S.works.c.id).where(S.works.c.project_id==p)).scalars())
+                    if len(works)>1:
+                        raise ResourceError('项目包含多部，请从剧集管理选择所属部后新增剧集','work_required')
+                    if works and works[0] in hidden:
+                        raise ResourceError('请先恢复所属部，再新增剧集','object_recycled',409)
+                    added=self._create_episode_batch(conn,dict(project,name=name.strip()),
+                        {'titles':['第%d集' % number for number in range(current+1,count+1)],'initial_shot_count':0})['items']
+                snapshot=dict(project['profile_snapshot']);snapshot['character_style']=style
+                conn.execute(update(S.projects).where(S.projects.c.id==p).values(name=name.strip(),profile_snapshot=snapshot))
+                return {'project_id':p,'name':name.strip(),'character_style':style,'episode_count':count,
+                    'created_episode_ids':[row['id'] for row in added]}
             if op=='rename':
                 conn.execute(update(S.projects).where(S.projects.c.id==p).values(name=title()));return {'name':title()}
             if op=='retention':

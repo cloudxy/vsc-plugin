@@ -30,6 +30,7 @@ for _id,_name,_source,_role,_description,_actions in (
     ('video-generation','视频生成','vsc-produce','generation-producer','使用已选模型与参考，创建视频候选并跟踪原任务。',['create_video_node','prepare_run']),
     ('async-media','异步媒体工作流','vsc-produce','generation-producer','按固定输入准备图像、视频、声音任务，恢复原任务查询与结果。',['create_image_node','create_video_node','create_audio_node','prepare_run']),
     ('storyboard-reuse','故事板提示词复用视频','vsc-direct','director','从固定故事板文字或图像建立视频节点及依赖边。',['create_video_node','prepare_run']),
+    ('ai-mv-production','AI MV Production','vsc-direct','director','依据已上传音乐、歌词和角色场景参考，规划节奏、画幅与视觉风格，准备可编辑分镜和媒体任务；信息不足先补问。',['append_text','reuse_media','create_image_node','create_video_node','create_audio_node','prepare_run']),
     ('sound-plan','声音与音乐规划','vsc-sound','music-supervisor','按场景给出声音计划或创建描述音频工作节点。',['append_text','create_audio_node','prepare_run']),
 ):
     SKILLS[_id]=dict(name=_name,source_skill=_source,role=_role,description=_description,actions=_actions)

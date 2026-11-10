@@ -40,6 +40,7 @@
         "src/vsc/interfaces/web/static/production-platform.js",
         "src/vsc/interfaces/web/static/panel.js",
         "tests/project/unit/production_platform_recovery.test.mjs",
+        "tests/project/unit/project_edit.test.mjs",
         "tests/project/unit/marketing_studio.test.mjs",
         "src/vsc/assets/marketing_cases.py",
         "src/vsc/assets/marketing-cases.json"
@@ -1578,6 +1579,7 @@
       "layer": "unit",
       "sources": [
         "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/media-upload.js",
         "tests/project/unit/canvas_placement.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs"
       ]
