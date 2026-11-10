@@ -11,6 +11,28 @@ from support.fixtures.resource_store import HAS_DB_DEPS, TEST_URL, ResourceStore
 
 @unittest.skipUnless(TEST_URL and HAS_DB_DEPS, 'requires isolated PostgreSQL')
 class ProjectMediaAuthorizationTests(ResourceStoreFixture, unittest.TestCase):
+    def test_recycled_canvas_removes_active_source_link_but_keeps_media(self):
+        media = self.media('retained canvas media')
+        canvas = self.write('create_creative_canvas', {'title': 'source canvas',
+            'document': {'nodes': [{'id': 'image', 'type': 'image', 'media_id': media}], 'edges': []}})
+
+        def item():
+            return next(row for row in self.service.list_project_media(project_id=self.p)['items']
+                if row['id'] == media)
+
+        original = item()
+        self.assertIn(canvas['id'], original['source_href'])
+        self.write('management_command', {'operation': 'trash', 'target_type': 'canvas',
+            'target_id': canvas['id'], 'reason': 'test inactive source'})
+        recycled = item()
+        self.assertEqual(recycled['id'], media)
+        self.assertEqual(recycled['content_url'], original['content_url'])
+        self.assertIsNone(recycled['source_href'])
+        self.assertIsNone(recycled['reuse_href'])
+        self.write('management_command', {'operation': 'restore', 'target_type': 'canvas',
+            'target_id': canvas['id'], 'reason': 'test original source recovery'})
+        self.assertEqual(item()['source_href'], original['source_href'])
+
     def test_full_project_grants_and_paged_media_match_authoritative_access(self):
         from sqlalchemy import delete, insert, update
         from vsc.adapters.persistence.postgres import schema as S

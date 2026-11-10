@@ -5,7 +5,7 @@ from vsc.assets.classic_production import DRAFT_TYPE,MODES
 from . import schema as S
 from .values import clean
 from .project_presentation import present_recent
-from .project_management import hidden_object_ids
+from .project_management import hidden_object_ids, inactive_canvas_ids
 
 
 def _classic_recent_query(project_ids, hidden):
@@ -55,7 +55,7 @@ def discover(store,limit=24):
                 rows.append({**row,'kind':kind,'project_name':names[row['project_id']],'href':'/?'+urlencode(params)})
         add(_classic_recent_query(ids,hidden),'classic','classic-production','scope')
         c,v=S.creative_canvases,S.creative_canvas_versions
-        add(select(c.c.project_id,c.c.id.label('target_id'),c.c.episode_id,v.c.title,v.c.created_at).join(v,(v.c.project_id==c.c.project_id)&(v.c.id==c.c.current_version_id)).where(c.c.project_id.in_(ids)),'canvas','creative-canvas')
+        add(select(c.c.project_id,c.c.id.label('target_id'),c.c.episode_id,v.c.title,v.c.created_at).join(v,(v.c.project_id==c.c.project_id)&(v.c.id==c.c.current_version_id)).where(c.c.project_id.in_(ids),c.c.id.not_in(inactive_canvas_ids(c.c.project_id)),tuple_(c.c.project_id,c.c.episode_id).not_in([(p,i) for p,items in hidden.items() for i in items]) | c.c.episode_id.is_(None)),'canvas','creative-canvas')
         u,a=S.text_tool_units,S.artifact_versions
         add(select(u.c.project_id,u.c.id.label('target_id'),u.c.title,u.c.tool,a.c.created_at).join(a,(a.c.project_id==u.c.project_id)&(a.c.id==u.c.current_version_id)).where(u.c.project_id.in_(ids)),'text','text-tools',tool='tool')
         w,v=S.edit_workspaces,S.edit_revisions
@@ -72,4 +72,7 @@ def discover(store,limit=24):
         for row in templates:
             row['favorite']=row['id'] in favorites
             row['href']='/?'+urlencode({'page':'creative-canvas','project':row['project_id'],'task_target':row['canvas_id']})
+        # Fixed template records remain available through their history APIs.
+        from .project_management import filter_management_rows
+        templates=[row for row in templates if filter_management_rows(conn,row['project_id'],S.canvas_templates,[row])]
         return clean({'recent':[present_recent(conn,row) for row in rows[:limit]],'templates':templates,'projects':projects})

@@ -40,6 +40,22 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
             self.rev = response.json()["revision"]
         return response
 
+    def test_canvas_list_projects_current_version_title_time_and_creator_after_rename(self):
+        created = self.command("/creative-canvases", {"title": "First title", "document": {"nodes": [], "edges": []}})
+        self.assertEqual(created.status_code, 200, created.text)
+        canvas = created.json()["id"]
+        before = self.client.get(self.base + "/creative-canvases").json()["items"][0]
+        changed = self.command("/creative-canvases/" + canvas, {"title": "Renamed", "canvas_revision": 1,
+            "document": {"nodes": [], "edges": []}}, method="PUT")
+        self.assertEqual(changed.status_code, 200, changed.text)
+        row = self.client.get(self.base + "/creative-canvases").json()["items"][0]
+        self.assertEqual(row["id"], canvas)
+        self.assertEqual(row["title"], "Renamed")
+        self.assertEqual(row["version"], 2)
+        self.assertEqual(row["created_by"], before["created_by"])
+        self.assertEqual(row["created_at"], before["created_at"])
+        self.assertGreater(row["updated_at"], before["updated_at"])
+
     def test_actual_upload_reference_save_reopen_history_conflict_and_auth(self):
         def chunk(kind, data):
             return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)

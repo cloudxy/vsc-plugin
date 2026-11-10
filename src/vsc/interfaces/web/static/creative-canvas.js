@@ -38,7 +38,7 @@ export function createCreativeCanvasPanel(ctx){
   const notice=(s,text)=>{if(live(s)&&s.status)setText(s.status,text);};
   function button(s,label,fn){const b=el('button',label);b.type='button';b.addEventListener('click',async()=>{try{await fn();}catch(error){notice(s,error.message);}});return b;}
   function remember(s){if(!s.id)return;const prior=localRead(cacheKey(s));if(!live(s)&&prior?.owner!==s.owner)return;if(s.dirty||s.pending){if(!localWrite(cacheKey(s),{owner:s.owner,document:s.document,title:s.title,version:s.version,revision:s.revision,pending:s.pending,dirty:s.dirty}))notice(s,msg("ui.browser_draft_storage_is_unavailable_keep_this_page_open"));}else localWrite(cacheKey(s),null);}
-  function edited(s){if(s.readOnly)return;s.dirty=true;s.saveButton?.setAttribute('data-sync','pending');s.editSeq++;remember(s);clearTimeout(s.syncTimer);notice(s,s.pending?msg("ui.pending_sync_original_save_request_is_unconfirmed"):msg("ui.pending_sync_local_edits_preserved"));if(!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending&&!s.projectPreparing)s.syncTimer=setTimeout(()=>{if(live(s)&&!s.saving)save(s);},1000);}
+  function edited(s){if(s.readOnly)return;s.dirty=true;s.saveButton?.setAttribute('data-sync','pending');s.editSeq++;remember(s);clearTimeout(s.syncTimer);notice(s,s.pending?msg("ui.pending_sync_original_save_request_is_unconfirmed"):msg("ui.pending_sync_local_edits_preserved"));if(!s.selectorMutating&&!localRead(browserKey('vsc-canvas-selector',s))&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending&&!s.projectPreparing)s.syncTimer=setTimeout(()=>{if(live(s)&&!s.saving)save(s);},1000);}
   function checkpoint(s){s.undo.push(copy({document:s.document,title:s.title}));if(s.undo.length>50)s.undo.shift();s.redo=[];}
   function change(s,fn){if(!live(s)||s.readOnly)return;checkpoint(s);fn();edited(s);draw(s);}
   function revision(s,value){s.revision=value;if(live(s))ctx.setRevision?.(value,s.project);}
@@ -51,6 +51,7 @@ export function createCreativeCanvasPanel(ctx){
   }
   async function save(s){
     if(s.readOnly)return false;
+    if(s.selectorMutating||localRead(browserKey('vsc-canvas-selector',s))){notice(s,msg("replica.canvas_operation_pending"));return false;}
     if(s.gridPending){notice(s,'宫格切分请求尚未读回，请先恢复原请求；本地修改已保留。');return false;}
     if(s.libraryPending){notice(s,'官方引用请求尚未读回，请先恢复原引用；本地修改已保留。');return false;}
     if(s.projectPending){notice(s,'项目素材引用尚未读回，请先恢复原请求；本地修改已保留。');return false;}
@@ -63,7 +64,7 @@ export function createCreativeCanvasPanel(ctx){
       const result=await write(s,null,null,null,submitted);
       s.version=result.canvas_revision;s.pending=null;s.syncBlocked=false;
       const unchanged=JSON.stringify(s.document)===JSON.stringify(submitted.body.payload.document)&&s.title===submitted.body.payload.title;
-      s.dirty=!unchanged;remember(s);
+      s.dirty=!unchanged;remember(s);if(live(s)&&s.selectorLabel)setText(s.selectorLabel,s.title);
       if(live(s)){s.saveButton?.setAttribute('data-sync',unchanged?'saved':'pending');setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));notice(s,unchanged?msg("ui.saved_to_project"):msg("ui.previous_request_saved_continue_saving_current_edits"));}
       return unchanged;
     }catch(error){s.syncBlocked=true;if(live(s))s.saveButton?.setAttribute('data-sync','error');const rejected=error.status>=400&&error.status<500&&error.status!==409;if(rejected)s.pending=null;remember(s);notice(s,rejected?msg("ui.value0_local_draft_preserved_correct_the_issue_and_save",{value0:error.message}):msg("ui.value0_local_draft_and_original_request_preserved_recover_the",{value0:error.message}));return false;}
@@ -114,10 +115,10 @@ export function createCreativeCanvasPanel(ctx){
     const populate=()=>{sources.replaceChildren();const types=[TYPES[node.type].ports[ports.value]].flat();for(const n of s.document.nodes)if(n.id!==node.id&&types.includes(n.type))sources.append(localizedOption(n.id,n.title));};ports.addEventListener('change',populate);populate();if(ports.options.length)s.inspector.append(ports,sources,button(s,msg("ui.connect_to_this_node"),()=>{if(!sources.value)throw new Error('没有兼容的输入节点');change(s,()=>s.document.edges.push({id:crypto.randomUUID(),source:sources.value,target:node.id,port:ports.value}));}));
     for(const edge of s.document.edges.filter(e=>e.target===node.id))s.inspector.append(button(s,msg("ui.remove_input_connection_value0",{value0:PORTS[edge.port]}),()=>change(s,()=>{s.document.edges=s.document.edges.filter(e=>e.id!==edge.id);})));
   }
-  async function open(prior,id){
+  async function open(prior,id,onOpened=null){
     if(!live(prior))return;remember(prior);for(const control of prior.runScopes||[])control.dispose();epoch++;
-    prior.assetCenter?.suspend();for(const upload of prior.uploads||[])upload.suspend();clearTimeout(prior.agentPoll);clearTimeout(prior.assetSearchTimer);clearTimeout(prior.syncTimer);
-    const s={root:prior.root,project:prior.project,episode:prior.episode,id,actor:prior.actor,aiMv:Boolean(prior.aiMv&&(!prior.id||prior.id===id)),requestedSkill:prior.requestedSkill,requestedTurn:!prior.id||prior.id===id?prior.requestedTurn:null,epoch,owner:crypto.randomUUID(),revision:prior.revision,selected:new Set(),undo:[],redo:[],dirty:false,pending:null,editSeq:0,saving:null};active=s;
+    prior.selector?.remove();prior.assetCenter?.suspend();for(const upload of prior.uploads||[])upload.suspend();clearTimeout(prior.agentPoll);clearTimeout(prior.assetSearchTimer);clearTimeout(prior.syncTimer);
+    const s={root:prior.root,project:prior.project,episode:prior.episode,id,onOpened:onOpened||(prior.id===id?prior.onOpened:null),actor:prior.actor,aiMv:Boolean(prior.aiMv&&(!prior.id||prior.id===id)),requestedSkill:!prior.id||prior.id===id?prior.requestedSkill:null,requestedTurn:!prior.id||prior.id===id?prior.requestedTurn:null,epoch,owner:crypto.randomUUID(),revision:prior.revision,selected:new Set(),undo:[],redo:[],dirty:false,pending:null,editSeq:0,saving:null};active=s;
     s.root.replaceChildren();s.status=el('p',msg("ui.opening"),'cc-status');s.status.setAttribute('role','status');s.root.append(s.status);
     try{const data=await ctx.api(url(s));if(!live(s))return;
       s.episode=data.episode_id;s.version=data.canvas_revision;s.title=data.title;s.document=cleanDocument(data.document);s.jobs=data.jobs||{};s.runs=data.runs||[];s.steps=data.execution_steps||[];s.preparations=data.preparations||[];revision(s,data.revision);
@@ -132,7 +133,7 @@ export function createCreativeCanvasPanel(ctx){
         if(turn.id!==s.requestedTurn||turn.project_id!==s.project||turn.canvas_id!==s.id||(turn.episode_id||null)!==(s.episode||null)||!turn.session_id)throw new Error('原规划不属于当前画布或剧集，请重读原规划。');
         s.targetTurn=turn;s.agentSession=turn.session_id;s.agentParent=['needs_input','planned','applied'].includes(turn.status)?turn.id:null;revision(s,turn.revision);
       }
-      s.libraryPending=localRead(libraryKey(s));s.gridPending=localRead(gridKey(s));s.projectPending=localRead(projectReferenceKey(s));editor(s);ctx.opened?.(s.id,s.project,s.episode);notice(s,s.gridPending?'宫格切分请求尚未读回，请在恢复菜单中继续原请求。':s.libraryPending?'官方引用请求尚未读回，请在资产面板恢复原引用。':s.projectPending?'项目素材引用尚未读回，请在资产面板恢复原请求。':recovered?msg("ui.local_draft_recovered_based_on_version_value0_server_version",{value0:s.version,value1:data.canvas_revision}):msg("ui.fixed_canvas_version_loaded_from_the_project"));const skill=s.targetTurn?.skill_id||s.requestedSkill||new URLSearchParams(location.search).get('skill');if(skill||s.requestedTurn)await agentPanel(s,skill);
+      s.libraryPending=localRead(libraryKey(s));s.gridPending=localRead(gridKey(s));s.projectPending=localRead(projectReferenceKey(s));editor(s);ctx.opened?.(s.id,s.project,s.episode);s.onOpened?.();s.onOpened=null;notice(s,s.gridPending?'宫格切分请求尚未读回，请在恢复菜单中继续原请求。':s.libraryPending?'官方引用请求尚未读回，请在资产面板恢复原引用。':s.projectPending?'项目素材引用尚未读回，请在资产面板恢复原请求。':recovered?msg("ui.local_draft_recovered_based_on_version_value0_server_version",{value0:s.version,value1:data.canvas_revision}):msg("ui.fixed_canvas_version_loaded_from_the_project"));const skill=s.targetTurn?.skill_id||s.requestedSkill;if(skill||s.requestedTurn)await agentPanel(s,skill);return true;
     }catch(error){notice(s,error.message);if(live(s))s.root.append(button(s,s.requestedTurn?'重读原规划':msg("ui.retry_opening"),()=>open(s,id)));}
   }
   function cleanDocument(document){return {viewport:document.viewport,nodes:document.nodes.map(({preview_url,...node})=>node),edges:document.edges};}
@@ -160,7 +161,53 @@ export function createCreativeCanvasPanel(ctx){
     s.root.append(el('p',msg("ui.execution_preparation_fixes_current_node_inputs_agent_can_ask"),'cc-limit'));
     s.stage.addEventListener('dragover',event=>{if([...event.dataTransfer?.types||[]].includes('application/x-vsc-canvas-asset')){event.preventDefault();event.dataTransfer.dropEffect='copy';}});
     s.stage.addEventListener('drop',async event=>{const raw=event.dataTransfer?.getData('application/x-vsc-canvas-asset');if(!raw)return;event.preventDefault();try{const value=JSON.parse(raw),point=canvasPoint(s,event);if(value.kind==='library')await libraryReference(s,value,point);else if(value.kind==='project'){if(value.project_id===s.project)addProjectForm(s,value,point);else await projectReference(s,value,point);}}catch(error){notice(s,error.message);}});
-    arrangeEditor(s,toolbar,actions,recovery);draw(s);
+    arrangeEditor(s,toolbar,actions,recovery);canvasSelector(s,toolbar);draw(s);
+  }
+  function canvasSelector(s,toolbar){
+    const selector=el('details',null,'cc-selector'),summary=el('summary',s.title),menu=el('div',null,'cc-selector-menu'),head=el('header'),list=el('div',null,'cc-selector-list'),status=el('p','','cc-selector-status');
+    s.selector=selector;s.selectorLabel=summary;bindAttribute(summary,'aria-label',msg('replica.current_canvas'));selector.append(summary,menu);
+    const management=button(s,'⚙',async()=>{if(await save(s)&&live(s))await ctx.openCanvasManagement?.(s.project,s.episode);});bindAttribute(management,'aria-label',msg('replica.canvas_management'));
+    const add=button(s,'＋',()=>operate('create'));bindAttribute(add,'aria-label',msg('ui.new_canvas'));add.disabled=ctx.session().writable===false;
+    head.append(el('strong',msg('nav.canvas')),management,add);const controls=el('div',null,'cc-selector-controls'),search=input(msg('replica.search_canvases')),order=button(s,msg('replica.updated_desc'),()=>{ascending=!ascending;setText(order,msg(ascending?'replica.updated_asc':'replica.updated_desc'));paint();});search.type='search';bindAttribute(search,'placeholder',msg('replica.search_canvases'));controls.append(search,order);
+    const tabs=el('nav',null,'cc-selector-tabs');let creator='mine',ascending=false,rows=[],request=0,loaded=false,busy=false;
+    for(const [id,label]of [['mine',msg('replica.created_by_me')],['others',msg('replica.collaborative')],['all',msg('common.all')]]){const tab=button(s,label,()=>{creator=id;paint();});tab.dataset.creator=id;tabs.append(tab);}
+    menu.append(head,controls,tabs,status,list);search.addEventListener('input',paint);
+    const key=browserKey('vsc-canvas-selector',s),pending=()=>localRead(key);
+    const writable=()=>live(s)&&ctx.session().writable!==false;
+    function showStatus(value){if(live(s))setText(status,value);}
+    function retain(value){if(!localWrite(key,value))throw new Error('无法保存画布操作恢复信息，请保持当前页面并恢复浏览器存储。');}
+    function paint(){if(!live(s))return;list.replaceChildren();for(const b of tabs.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.creator===creator));
+      const recovery=pending();if(recovery)list.append(button(s,msg('replica.resume_canvas_operation'),()=>operate(recovery.action,recovery.row,recovery.title)));
+      const matches=rows.filter(row=>(creator==='all'||(row.created_by===s.actor)===(creator==='mine'))&&row.title.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())).sort((a,b)=>((new Date(a.updated_at||a.created_at)-new Date(b.updated_at||b.created_at))||a.id.localeCompare(b.id))*(ascending?1:-1));
+      for(const row of matches){const item=el('div',null,'cc-selector-row'),openButton=button(s,'',async()=>{if(busy)return;if(!await save(s)||!live(s))return;await open(s,row.id);});openButton.className='cc-selector-open';openButton.append(el('span','▦','cc-selector-thumb'));const info=el('span',null,'cc-selector-info');info.append(el('strong',row.title),el('small',[row.updated_at||row.created_at?new Date(row.updated_at||row.created_at).toLocaleString():String(msg('ui.saved_version_value0',{value0:row.version})),row.created_by||''].filter(Boolean).join(' | ')));openButton.append(info);if(row.id===s.id){item.classList.add('selected');openButton.append(el('span','✓','cc-selector-check'));openButton.setAttribute('aria-current','true');}item.append(openButton);
+        if(writable()){const more=el('details',null,'cc-selector-actions');more.append(el('summary','•••'));const actions=el('div');for(const [action,label]of [['rename',msg('common.rename')],['copy',msg('replica.create_canvas_copy')],['trash',msg('ui.delete')]])actions.append(button(s,label,()=>ask(action,row)));more.append(actions);item.append(more);}list.append(item);
+      }if(loaded&&!matches.length)list.append(el('p',msg('replica.no_matching_canvases'),'cc-selector-empty'));
+    }
+    async function refresh(){const ticket=++request;showStatus(msg('ui.loading_canvas'));try{const data=await ctx.api(`${base(s)}/creative-canvases${s.episode?'?episode_id='+encodeURIComponent(s.episode):''}`);if(!live(s)||ticket!==request)return false;rows=data.items;revision(s,data.revision);loaded=true;showStatus('');paint();return true;}catch(error){if(live(s)&&ticket===request){showStatus(error.message);list.replaceChildren(button(s,msg('ui.reload'),refresh));}return false;}}
+    function ask(action,row){if(busy)return;const old=pending();if(old){showStatus(msg('replica.resume_canvas_first'));paint();return;}
+      const dialog=el('dialog',null,'cc-selector-dialog'),form=el('form'),title=action==='rename'?input(msg('ui.canvas_name'),row.title):null,error=el('p'),confirm=el('button',msg('common.confirm')),cancel=button(s,msg('common.cancel'),()=>dialog.close());
+      form.append(el('h3',action==='rename'?msg('common.rename'):action==='copy'?msg('replica.create_canvas_copy'):msg('ui.delete')),el('p',row.title));if(title){title.required=true;title.maxLength=100;form.append(title);}confirm.type='submit';form.append(error,cancel,confirm);dialog.append(form);s.root.append(dialog);dialog.addEventListener('close',()=>dialog.remove());dialog.addEventListener('cancel',event=>{if(confirm.disabled)event.preventDefault();});
+      form.addEventListener('submit',async event=>{event.preventDefault();if(confirm.disabled)return;const name=title?.value.trim();if(title&&(!name||[...name].length>100)){setText(error,msg('replica.canvas_name_limit'));return;}confirm.disabled=true;cancel.disabled=true;if(title)title.disabled=true;try{await operate(action,row,name);if(live(s)&&pending())setText(error,msg('replica.resume_canvas_first'));else dialog.close();}catch(e){setText(error,e.message);}finally{if(live(s)){confirm.disabled=false;cancel.disabled=false;if(title)title.disabled=false;}}});dialog.showModal();
+    }
+    async function operate(action,row=null,title=null){if(!writable()||busy)return;busy=true;add.disabled=true;
+      try{let record=pending();if(record)record.uncertain=true;
+        if(!record){if(!await save(s)||!live(s))return;s.selectorMutating=true;let path=`${base(s)}/creative-canvases`,method='POST',payload;
+          if(action==='create'){const fresh=await ctx.api(path+(s.episode?'?episode_id='+encodeURIComponent(s.episode):''));if(!live(s))return;revision(s,fresh.revision);payload={title:'未命名画布',episode_id:s.episode,document:{nodes:[],edges:[]}};}
+          else{const fixed=await ctx.api(path+'/'+encodeURIComponent(row.id));if(!live(s))return;revision(s,fixed.revision);if(action==='rename'){method='PUT';path+='/'+encodeURIComponent(row.id);payload={canvas_revision:fixed.canvas_revision,title,document:cleanDocument(fixed.document)};}else if(action==='copy'){path+='/'+encodeURIComponent(row.id)+'/copy';payload={canvas_revision:fixed.canvas_revision,title:fixed.title+' Copy'};}else{path=`${base(s)}/management`;payload={operation:'trash',target_type:'canvas',target_id:row.id,reason:'从画布列表移入回收站'};}}
+          record={action,row,title,baseTitle:s.title,request:{path,method,body:{payload,expected_revision:s.revision,idempotency_key:crypto.randomUUID()}}};retain(record);
+        }
+        s.selectorMutating=true;clearTimeout(s.syncTimer);
+        if(!record.result){try{const result=await write(s,null,null,null,record.request);if(!live(s))return;record.result=result;retain(record);}catch(error){if(live(s)){if(!record.uncertain&&error.status>=400&&error.status<500)retain(null);else{record.uncertain=true;retain(record);}}throw error;}}
+        if(!live(s))return;const result=record.result;
+        if(record.action==='create'||record.action==='copy'){await open(s,result.id,()=>localWrite(key,null));return;}
+        if(record.action==='trash'&&record.row.id===s.id){retain(null);await load(s.root,s.project,s.episode);return;}
+        if(record.action==='rename'&&record.row.id===s.id){if(s.title===(record.baseTitle??record.row.title))s.title=result.title;s.version=result.canvas_revision;setText(summary,s.title);setText(s.versionLabel,msg('ui.saved_version_value0',{value0:s.version}));const field=s.root.querySelector('input[aria-label="'+String(msg('ui.canvas_name'))+'"]');if(field)field.value=s.title;remember(s);}
+        if(await refresh()){retain(null);paint();}
+      }catch(error){showStatus(error.message);if(live(s))paint();throw error;}finally{busy=false;s.selectorMutating=false;if(live(s)){add.disabled=!writable();if(s.dirty&&!s.pending&&!s.syncBlocked&&!pending())s.syncTimer=setTimeout(()=>save(s),1000);}}
+    }
+    selector.addEventListener('toggle',()=>{if(selector.open&&live(s))refresh();});
+    const host=ctx.canvasContext?.();if(host){host.replaceChildren(selector);const field=toolbar.querySelector('input'),oldList=[...toolbar.querySelectorAll(':scope > button')].find(b=>b.textContent===String(msg('ui.canvas_list'))),more=toolbar.querySelector('.cc-more-menu');if(field){field.maxLength=100;more.prepend(field);}if(oldList)more.prepend(oldList);}else toolbar.prepend(selector);
+    paint();
   }
   function arrangeEditor(s,toolbar,actions,recovery){
     s.root.classList.add('cc-editor');
@@ -552,7 +599,7 @@ export function createCreativeCanvasPanel(ctx){
   function boxSelect(s,event){if(event.button!==0)return;const rect=s.stage.getBoundingClientRect(),start={x:event.clientX,y:event.clientY},zoom=s.document.viewport.zoom,box=el('div',null,'cc-selection-box');box.style.position='fixed';s.root.append(box);let moved=false;const move=e=>{if(!live(s))return;moved=true;const x=Math.min(start.x,e.clientX),y=Math.min(start.y,e.clientY),w=Math.abs(start.x-e.clientX),h=Math.abs(start.y-e.clientY);Object.assign(box.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px'});s.selected=new Set(s.document.nodes.filter(n=>{const nx=rect.left+(n.x+(s.displayOffset?.x||0))*zoom-s.stage.scrollLeft,ny=rect.top+(n.y+(s.displayOffset?.y||0))*zoom-s.stage.scrollTop;return nx<x+w&&nx+240*zoom>x&&ny<y+h&&ny+180*zoom>y;}).map(n=>n.id));draw(s);};const up=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);box.remove();if(live(s))s.ignoreStageClick=moved;};window.addEventListener('pointermove',move);window.addEventListener('pointerup',up,{once:true});}
   function drawMinimap(s,width,height){if(!s.minimap)return;s.minimap.replaceChildren();for(const n of s.document.nodes){const dot=button(s,n.title,()=>{s.selected=new Set([n.id]);s.stage.scrollLeft=Math.max(0,(n.x+(s.displayOffset?.x||0))*s.document.viewport.zoom-100);s.stage.scrollTop=Math.max(0,(n.y+(s.displayOffset?.y||0))*s.document.viewport.zoom-100);draw(s);});dot.title=n.title;setText(dot,'');Object.assign(dot.style,{left:100*(n.x+(s.displayOffset?.x||0))/width+'%',top:100*(n.y+(s.displayOffset?.y||0))/height+'%',width:Math.max(3,100*240/width)+'%',height:Math.max(3,100*170/height)+'%'});s.minimap.append(dot);}}
 
-  function suspend(){if(active){remember(active);closeAssetSurface(active);active.panorama?.controller?.dispose();clearTimeout(active.syncTimer);for(const control of active.runScopes||[])control.dispose();clearTimeout(active.agentPoll);for(const upload of active.uploads||[])upload.suspend();active.root?.querySelectorAll('video,audio').forEach(m=>m.pause());active.root?.querySelectorAll('dialog').forEach(d=>d.close());}epoch++;active=null;}
+  function suspend(){if(active){remember(active);active.selector?.remove();closeAssetSurface(active);active.panorama?.controller?.dispose();clearTimeout(active.syncTimer);for(const control of active.runScopes||[])control.dispose();clearTimeout(active.agentPoll);for(const upload of active.uploads||[])upload.suspend();active.root?.querySelectorAll('video,audio').forEach(m=>m.pause());active.root?.querySelectorAll('dialog').forEach(d=>d.close());}epoch++;active=null;}
   window.addEventListener('beforeunload',event=>{if(active?.dirty||active?.pending){remember(active);event.preventDefault();event.returnValue='';}});
   return {load,loadShared,async beforeContextSwitch(){const s=active;if(!s?.id||(!s.dirty&&!s.pending))return {ready:true};if(await save(s))return {ready:true};remember(s);const cached=localRead(cacheKey(s));return {ready:JSON.stringify(cached?.document)===JSON.stringify(s.document)&&cached?.title===s.title,message:'未同步的画布已保留在原范围；返回后可恢复。'};},suspend};
 }

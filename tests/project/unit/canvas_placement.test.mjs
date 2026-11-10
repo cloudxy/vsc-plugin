@@ -517,3 +517,86 @@ test('AI MV in-flight manifest survives reload and temporary permission rejectio
  assert.equal(x.db.batches.length,1);assert.equal(x.db.keys[0],x.db.keys[1]);assert.equal(x.db.document.nodes.length,1);
  a.canvas.suspend();
 });
+
+async function openSelector(a){const selector=a.root.querySelector('.cc-selector');selector.open=true;await selector.fire('toggle');return selector;}
+const selectorRows=[{id:'c1',title:'Older canvas',created_by:'test',version:1,updated_at:'2026-11-10T01:00:00Z'},{id:'c2',title:'Newer canvas',created_by:'test',version:1,updated_at:'2026-11-10T02:00:00Z'},{id:'c3',title:'Team canvas',created_by:'member',version:1,updated_at:'2026-11-10T03:00:00Z'}];
+test('canvas selector filters by creator and name, sorts updated time and preserves current canvas',async()=>{
+ const a=await fixture({apiOverride:async path=>path.endsWith('/creative-canvases')?{items:selectorRows,revision:1}:undefined});const selector=await openSelector(a);
+ assert.deepEqual(selector.querySelectorAll('.cc-selector-info').map(n=>n.children[0].textContent),['Newer canvas','Older canvas']);
+ await selector.querySelectorAll('button').find(n=>n.textContent==='↓ 更新时间').fire('click');assert.deepEqual(selector.querySelectorAll('.cc-selector-info').map(n=>n.children[0].textContent),['Older canvas','Newer canvas']);
+ await selector.querySelectorAll('button').find(n=>n.dataset.creator==='others').fire('click');assert.equal(selector.querySelectorAll('.cc-selector-info')[0].children[0].textContent,'Team canvas');
+ const search=selector.querySelector('input');search.value='missing';await search.fire('input');assert.equal(selector.querySelectorAll('.cc-selector-row').length,0);assert.ok(selector.textContent.includes('暂无画布'));a.canvas.suspend();assert.equal(a.root.querySelector('.cc-selector'),null);
+});
+test('canvas selector new action recovers one original create after refresh and temporary rejection',async()=>{
+ const posts=[];let created=false;
+ const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,options)=>{
+  if(path.endsWith('/creative-canvases')){if(options?.method==='POST'){posts.push(JSON.parse(options.body));created=true;if(posts.length===1)throw Error('lost create receipt');if(posts.length===2){const error=Error('temporary denial');error.status=403;throw error;}return {id:'c2',revision:2};}return {items:selectorRows.slice(0,2),revision:created?2:1};}
+  if(path.endsWith('/creative-canvases/c2'))return {revision:2,canvas_revision:1,title:'未命名画布',episode_id:null,document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]},jobs:{},runs:[]};
+ }});
+ await openSelector(a);await a.root.querySelectorAll('button').find(n=>n.attrs['aria-label']==='+ 新建画布').fire('click');assert.equal(posts.length,1);await a.canvas.load(a.root,'p1',null,'c1');await openSelector(a);
+ await a.root.querySelectorAll('button').find(n=>n.textContent==='恢复原画布操作').fire('click');assert.equal(posts.length,2);assert.ok([...a.store.keys()].some(k=>k.startsWith('vsc-canvas-selector:')));
+ await a.root.querySelectorAll('button').find(n=>n.textContent==='恢复原画布操作').fire('click');assert.equal(posts.length,3);assert.deepEqual(posts[0],posts[1]);assert.deepEqual(posts[0],posts[2]);assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'未命名画布');assert.equal(a.root.querySelector('.cc-mv-guide'),null);assert.equal([...a.store.keys()].some(k=>k.startsWith('vsc-canvas-selector:')),false);a.canvas.suspend();
+});
+test('canvas selector list errors never create and a late old identity list cannot paint',async()=>{
+ let calls=0,reads=0,release;const wait=new Promise(resolve=>release=resolve);
+ const a=await fixture({apiOverride:async(path,options)=>{if(options?.method){calls++;return;}if(path.endsWith('/creative-canvases'))return ++reads===1?{items:[],revision:1}:wait;}});
+ const selector=a.root.querySelector('.cc-selector');selector.open=true;const pending=selector.fire('toggle');a.session.actor='another';release({items:selectorRows,revision:2});await pending;
+ assert.equal(selector.querySelectorAll('.cc-selector-row').length,0);assert.equal(calls,0);a.canvas.suspend();
+ reads=0;const b=await fixture({apiOverride:async(path,options)=>{if(options?.method)calls++;if(path.endsWith('/creative-canvases')){if(++reads===1)return {items:[],revision:1};throw Error('offline');}}});await openSelector(b);assert.equal(calls,0);assert.ok(b.root.querySelector('.cc-selector').textContent.includes('offline'));assert.ok(b.root.querySelector('.cc-selector').querySelectorAll('button').some(n=>n.textContent==='重新读取'));b.canvas.suspend();
+});
+test('canvas selector rename uses original document and validates the hundred-character name',async()=>{
+ let renamed=null;const nodes=[{id:'t1',type:'text',title:'Text',text:'Keep text',x:20,y:20,params:{},media_id:null,job_id:null,group:''}];
+ const a=await fixture({nodes,apiOverride:async(path,options)=>{if(path.endsWith('/creative-canvases'))return {items:[selectorRows[0]],revision:renamed?2:1};if(path.endsWith('/creative-canvases/c1')&&options?.method==='PUT'){renamed=JSON.parse(options.body);return {title:renamed.payload.title,canvas_revision:2,revision:2};}}});await openSelector(a);
+ await a.root.querySelector('.cc-selector-actions').querySelectorAll('button').find(n=>n.textContent==='重命名').fire('click');let dialog=a.root.querySelector('.cc-selector-dialog');dialog.querySelector('input').value='x'.repeat(101);await dialog.querySelector('form').fire('submit');assert.equal(renamed,null);
+ dialog.querySelector('input').value='Renamed canvas';await dialog.querySelector('form').fire('submit');assert.equal(renamed.payload.title,'Renamed canvas');assert.deepEqual(renamed.payload.document.nodes,nodes);assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'Renamed canvas');a.canvas.suspend();
+});
+
+async function selectorRename(a,name){await openSelector(a);await a.root.querySelector('.cc-selector-actions').querySelectorAll('button').find(b=>b.textContent==='重命名').fire('click');const d=a.root.querySelector('.cc-selector-dialog');d.querySelector('input').value=name;await d.querySelector('form').fire('submit');}
+
+for(const laterTitle of [null,'Later local title'])test('canvas selector uncertain rename retains later edits until original version is recovered'+(laterTitle?' including a later title':''),async()=>{
+const empty=()=>({viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]});
+const db={title:'Test',version:1,revision:1,document:empty()},writes=[],receipts=new Map();let lost=true;
+const a=await fixture({apiOverride:async(path,options)=>{
+ if(path.endsWith('/creative-canvases'))return {revision:db.revision,items:[{id:'c1',title:db.title,created_by:'test',version:db.version,updated_at:'2026-11-10T01:00:00Z'}]};
+ if(path.endsWith('/creative-canvases/c1')){
+  if(options?.method==='PUT'){
+   const body=JSON.parse(options.body);writes.push(body);if(receipts.has(body.idempotency_key))return receipts.get(body.idempotency_key);
+   if(body.payload.canvas_revision!==db.version){const e=Error('画布已有新版本');e.status=409;throw e;}
+   db.document=structuredClone(body.payload.document);db.title=body.payload.title;db.version++;db.revision++;
+   const result={id:'c1',title:db.title,canvas_revision:db.version,revision:db.revision};receipts.set(body.idempotency_key,result);
+   if(lost){lost=false;throw Error('rename committed, receipt lost');}return result;
+  }
+  return {revision:db.revision,canvas_revision:db.version,title:db.title,episode_id:null,document:structuredClone(db.document),jobs:{},runs:[],execution_steps:[]};
+ }
+}});
+await selectorRename(a,'Renamed');if(laterTitle){const field=a.root.querySelectorAll('input').find(n=>n.attrs['aria-label']==='画布名称');field.value=laterTitle;await field.fire('change');}assert.equal(db.version,2);assert.ok([...a.store.keys()].find(k=>k.startsWith('vsc-canvas-selector:')));
+await a.stage.fire('dblclick',{clientX:510,clientY:280});await a.menu.querySelectorAll('button').find(b=>b.textContent==='添加图片').fire('click');
+await a.root.querySelector('.cc-save').fire('click');
+const draftKey=[...a.store.keys()].find(k=>k.startsWith('vsc-creative-canvas:'));let draft=JSON.parse(a.store.get(draftKey));assert.equal(draft.pending,null);assert.equal(draft.document.nodes.length,1);
+await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原画布操作').fire('click');
+await a.root.querySelector('.cc-save').fire('click');
+assert.equal(db.document.nodes.length,1);assert.equal(a.store.has(draftKey),false);assert.equal(db.title,laterTitle||'Renamed');assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,laterTitle||'Renamed');assert.equal(writes.length,3);assert.equal(writes[0].idempotency_key,writes[1].idempotency_key);
+a.canvas.suspend();
+});
+
+test('canvas selector detail retry completes the creation receipt before a later new canvas',async()=>{
+const empty=()=>({viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]});
+let posts=0,detailFails=true;const requests=[];
+const a=await fixture({apiOverride:async(path,options)=>{
+ if(path.endsWith('/creative-canvases')){if(options?.method==='POST'){posts++;requests.push(JSON.parse(options.body));return {id:'c2',revision:2};}return {items:[{id:'c1',title:'Source',created_by:'test',version:1}],revision:2};}
+ if(path.endsWith('/creative-canvases/c2')){if(detailFails)throw Error('target detail temporarily unavailable');return {revision:2,canvas_revision:1,title:'Created canvas',episode_id:null,document:empty(),jobs:{},runs:[],execution_steps:[]};}
+}});
+await openSelector(a);await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='+ 新建画布').fire('click');assert.equal(posts,1);const key=[...a.store.keys()].find(k=>k.startsWith('vsc-canvas-selector:'));assert.ok(key);
+detailFails=false;const retry=a.root.querySelectorAll('button').find(b=>b.textContent==='重试打开');assert.ok(retry);await retry.fire('click');
+assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'Created canvas');assert.equal(a.store.has(key),false);
+await a.canvas.load(a.root,'p1',null,'c1');await openSelector(a);await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='+ 新建画布').fire('click');
+assert.equal(posts,2);assert.notEqual(requests[0].idempotency_key,requests[1].idempotency_key);
+a.canvas.suspend();
+});
+
+
+test('canvas selector title follows a normal save from the original name field',async()=>{
+ let saved;const a=await fixture({apiOverride:async(path,options)=>{if(options?.method==='PUT'){saved=JSON.parse(options.body).payload.title;return {revision:2,canvas_revision:2};}}});
+ const field=a.root.querySelectorAll('input').find(n=>n.attrs['aria-label']==='画布名称');field.value='Name via original field';await field.fire('change');await a.root.querySelector('.cc-save').fire('click');
+ assert.equal(saved,'Name via original field');assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,saved);a.canvas.suspend();
+});

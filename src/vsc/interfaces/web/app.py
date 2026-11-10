@@ -382,7 +382,7 @@ def create_app(config=None, catalog=None, service=None):
             stream.seek(0)
             return await run_in_threadpool(storage.stage_upload, stream, filename)
 
-    actions = {"episode-batches": "create_episode_batch", "episode-order": "reorder_episodes",
+    actions = {"episode-batches": "create_episode_batch", "episode-order": "reorder_episodes", "episode-save": "save_episode",
                "first-production/proposals": "propose_first_production",
                "production-budgets": "configure_budget",
                "source-workspace/sources": "create_source_intake",

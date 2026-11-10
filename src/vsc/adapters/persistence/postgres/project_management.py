@@ -8,13 +8,18 @@ from . import schema as S
 from .values import checked_id, clean, new_id
 
 OBJECT_TABLES={'creative_objects','works','episodes','scenes','sequences','shots','asset_identities'}
-ACTIVE_TASKS={'created','queued','submitted','running','polling','submission_unknown','awaiting_upload','uploaded'}
+ACTIVE_TASKS={'created','queued','submitted','running','polling','submission_unknown','awaiting_upload','uploaded','result_ready'}
 TASK_TABLES={'spatial_plan_tasks','generation_jobs','preview_jobs','edit_render_jobs','spatial_exports','media_import_items','text_tool_attempts','canvas_agent_turns','intelligent_tasks','script_suggestion_runs','parse_attempts','edit_preview_jobs','edit_preview_attempts'}
 MANAGEMENT_ACTIONS={'management_'+x for x in ('rename','edit','folder_create','folder_update','folder_move','folder_order','folder_remove','move','trash','restore','purge','retention')}
 
 
 def inactive_project_ids():
     return select(S.management_project_states.c.project_id).where(S.management_project_states.c.state!='active')
+
+
+def inactive_canvas_ids(project_id):
+    return select(S.management_canvas_states.c.canvas_id).where(
+        S.management_canvas_states.c.project_id==project_id,S.management_canvas_states.c.state!='active')
 
 
 def project_state(conn,p):
@@ -39,6 +44,18 @@ def management_object_guard(conn,p,identifier):
     if checked_id(identifier) in hidden_object_ids(conn,p):raise ResourceError('此对象或其父级已回收，请先恢复原关系','object_recycled',409)
 
 
+def management_canvas_guard(conn,p,identifier):
+    """Active consumers must check the source canvas inside their transaction."""
+    management_project_guard(conn,p)
+    canvas=conn.execute(select(S.creative_canvases.c.episode_id).where(
+        S.creative_canvases.c.project_id==p,S.creative_canvases.c.id==checked_id(identifier))).first()
+    if canvas is None:raise ResourceError('画布不存在','not_found',404)
+    if conn.execute(select(S.management_canvas_states.c.id).where(
+        S.management_canvas_states.c.project_id==p,S.management_canvas_states.c.canvas_id==identifier,
+        S.management_canvas_states.c.state!='active')).first() or canvas.episode_id in hidden_object_ids(conn,p):
+        raise ResourceError('画布或其父级已回收，请先恢复原关系','object_recycled',409)
+
+
 def management_transaction_guard(conn,p,action,payload):
     if action in MANAGEMENT_ACTIONS:return
     # Verified settlement of an existing order must survive project recycling.
@@ -46,13 +63,14 @@ def management_transaction_guard(conn,p,action,payload):
         from vsc.assets.commerce import is_verified_commerce_notification
         if is_verified_commerce_notification(p,payload):return
     management_project_guard(conn,p)
-    hidden=hidden_object_ids(conn,p)
+    hidden=hidden_object_ids(conn,p)|{('canvas',i) for i in conn.execute(inactive_canvas_ids(p)).scalars()}
     if not hidden:return
     keys={'object_id','object_ids','shot_id','shot_ids','asset_id','episode_id','episode_ids','scene_id','sequence_id','target_object_id','scope_object_id','parent_id','scope'}
     found=set()
     typed={'edit_version_id':'edit_revisions','run_version_id':'artifact_versions','draft_version_id':'artifact_versions','artifact_id':'artifact_versions','source_artifact_id':'artifact_versions','canvas_id':'creative_canvases','spatial_scene_id':'spatial_scenes','spatial_version_id':'spatial_scene_versions','workflow_id':'intelligent_workflows','job_id':'generation_jobs','candidate_id':'binding_candidates','slot_id':'binding_slots','unit_id':'text_tool_units'}
     contextual={'job_id':'edit_render_jobs' if 'edit_export' in action else None,'version_id': 'intelligent_versions' if 'intelligent' in action else 'creative_canvas_versions' if 'canvas' in action else 'spatial_scene_versions' if 'spatial' in action else None,'task_id':'intelligent_tasks' if 'intelligent' in action else 'spatial_plan_tasks' if 'spatial' in action else None,'turn_id':'canvas_agent_turns' if 'canvas' in action else None,'export_id':'spatial_exports' if 'spatial' in action else 'edit_render_jobs' if 'edit' in action else None,'restore_version_id':'edit_revisions' if 'edit_workspace' in action else None}
     typed.update({k:v for k,v in contextual.items() if v})
+    typed.update({'canvas_version_id':'creative_canvas_versions','step_id':'canvas_execution_steps'})
     resolver=ProjectManagementRepository()
     def visit(value,key=None):
         if isinstance(value,dict):
@@ -71,7 +89,7 @@ def management_transaction_guard(conn,p,action,payload):
 
 def filter_management_rows(conn,p,table,rows):
     management_project_guard(conn,p)
-    hidden=hidden_object_ids(conn,p)
+    hidden=hidden_object_ids(conn,p)|{('canvas',i) for i in conn.execute(inactive_canvas_ids(p)).scalars()}
     if not hidden:return rows
     resolver=ProjectManagementRepository()
     return [row for row in rows if not (resolver._management_targets(conn,p,table,dict(row)) & hidden)]
@@ -110,7 +128,7 @@ class ProjectManagementRepository:
 
     def management_recycle_items(self, kind='all', limit=24, cursor=None):
         """Read direct tombstones only, within the session's full-project grants."""
-        if kind not in {'all', 'project', 'episode', 'asset', 'video'} or type(limit) is not int or not 1 <= limit <= 100:
+        if kind not in {'all', 'project', 'episode', 'asset', 'video', 'canvas'} or type(limit) is not int or not 1 <= limit <= 100:
             raise ResourceError('回收列表筛选或分页范围不合法', 'invalid_page')
         boundary = None
         if cursor is not None:
@@ -121,7 +139,7 @@ class ProjectManagementRepository:
                 if not isinstance(data, list) or len(data) != 5 or data[0] != kind:
                     raise ValueError()
                 at = datetime.fromisoformat(data[1])
-                if at.tzinfo is None or data[3] not in {'project', 'episode', 'asset', 'video'}:
+                if at.tzinfo is None or data[3] not in {'project', 'episode', 'asset', 'video', 'canvas'}:
                     raise ValueError()
                 boundary = (at, checked_id(data[2]), data[3], checked_id(data[4]))
             except (ValueError, TypeError, UnicodeError, ResourceError):
@@ -164,7 +182,21 @@ class ProjectManagementRepository:
                 .outerjoin(ps, ps.c.project_id == projects.c.id)).where(projects.c.id.in_(select(allowed.c.id)),
                     media.c.modality == 'video', ranked.c.rank == 1, ranked.c.outcome == 'deprecate', recorded,
                     func.coalesce(ps.c.state, 'active') != 'purged')
-            rows = union_all(project_rows, object_rows, video_rows).subquery('recycle_items')
+            canvas, cv, cs = S.creative_canvases, S.creative_canvas_versions, S.management_canvas_states
+            canvas_parent = exists(select(1).select_from(episodes.join(os, and_(
+                os.c.project_id == episodes.c.project_id, os.c.object_id.in_((episodes.c.id, episodes.c.parent_id)))))
+                .where(episodes.c.project_id == canvas.c.project_id, episodes.c.id == canvas.c.episode_id,
+                    os.c.state != 'active'))
+            canvas_rows = select(projects.c.id.label('project_id'), canvas.c.id.label('target_id'),
+                literal('canvas').label('kind'), cv.c.title, cs.c.changed_at, cs.c.reason, projects.c.revision,
+                (func.coalesce(ps.c.state, 'active') != 'active').label('blocked_by_project'),
+                canvas_parent.label('blocked_by_ancestor')).select_from(canvas.join(cs, and_(
+                    cs.c.project_id == canvas.c.project_id, cs.c.canvas_id == canvas.c.id))
+                .join(cv, and_(cv.c.project_id == canvas.c.project_id, cv.c.id == canvas.c.current_version_id))
+                .join(projects, projects.c.id == canvas.c.project_id).outerjoin(ps, ps.c.project_id == projects.c.id))\
+                .where(projects.c.id.in_(select(allowed.c.id)), cs.c.state == 'trashed',
+                    func.coalesce(ps.c.state, 'active') != 'purged')
+            rows = union_all(project_rows, object_rows, video_rows, canvas_rows).subquery('recycle_items')
             query = select(rows)
             if kind != 'all':
                 query = query.where(rows.c.kind == kind)
@@ -189,7 +221,7 @@ class ProjectManagementRepository:
                         if exc.code != 'access_denied':
                             raise
                         permissions[p] = False
-                row['target_type'] = 'project' if row['kind'] == 'project' else 'media' if row['kind'] == 'video' else 'object'
+                row['target_type'] = row['kind'] if row['kind'] in {'project','canvas'} else 'media' if row['kind'] == 'video' else 'object'
                 row['can_restore'] = permissions[p] and not row['blocked_by_project'] and not row['blocked_by_ancestor']
             next_cursor = None
             if more:
@@ -232,6 +264,15 @@ class ProjectManagementRepository:
                 trashed=row['id'] in hidden
                 if (kind=='trashed')!=trashed:continue
                 items.append(dict(row,type='object',state=current if current!='active' else 'parent_trashed' if trashed else 'active',changed_at=state.get('changed_at'),reason=state.get('reason'),folder_id=memberships.get(('object',row['id']))))
+            if kind not in {'object','media'}:
+                c,v,cs=S.creative_canvases,S.creative_canvas_versions,S.management_canvas_states
+                for row in conn.execute(select(c.c.id,c.c.episode_id,c.c.created_at,v.c.title,cs.c.state,cs.c.changed_at,cs.c.reason)
+                    .join(v,and_(v.c.project_id==c.c.project_id,v.c.id==c.c.current_version_id))
+                    .outerjoin(cs,and_(cs.c.project_id==c.c.project_id,cs.c.canvas_id==c.c.id)).where(c.c.project_id==p)).mappings():
+                    if row['episode_id'] in purged:continue
+                    current=row['state'] or 'active';parent_hidden=row['episode_id'] in hidden
+                    if (kind=='trashed')!=(current=='trashed' or parent_hidden):continue
+                    items.append(dict(row,type='canvas',kind='canvas',state=current if current!='active' else 'parent_trashed' if parent_hidden else 'active',folder_id=None))
             from .media_recycle import recycled_ids
             recycled=set(conn.execute(recycled_ids(p)).scalars())
             if kind not in {'object','trashed'}:
@@ -251,7 +292,17 @@ class ProjectManagementRepository:
         if token in seen or len(seen)>16:return set()
         seen.add(token);targets=set()
         if table.name in OBJECT_TABLES and row.get('id'):targets.add(row['id'])
-        if table.name=='artifact_versions':targets.update(conn.execute(select(S.artifact_object_scopes.c.object_id).where(S.artifact_object_scopes.c.project_id==p,S.artifact_object_scopes.c.artifact_id==row['id'])).scalars())
+        if table.name=='creative_canvases' and row.get('id'):targets.add(('canvas',row['id']))
+        if table.name=='artifact_versions':
+            targets.update(conn.execute(select(S.artifact_object_scopes.c.object_id).where(S.artifact_object_scopes.c.project_id==p,S.artifact_object_scopes.c.artifact_id==row['id'])).scalars())
+            # Draft/run artifacts own a typed reverse link to the originating canvas.
+            for relation,key in ((S.canvas_generation_inputs,'draft_version_id'),(S.creative_canvas_runs,'artifact_id')):
+                for source in conn.execute(select(relation).where(relation.c.project_id==p,relation.c[key]==row['id'])).mappings():
+                    targets.update(self._management_targets(conn,p,relation,dict(source),seen))
+        if table.name=='generation_jobs':
+            for relation in (S.creative_canvas_nodes,S.creative_canvas_preparations):
+                for source in conn.execute(select(relation).where(relation.c.project_id==p,relation.c.job_id==row['id'])).mappings():
+                    targets.update(self._management_targets(conn,p,relation,dict(source),seen))
         for constraint in table.foreign_key_constraints:
             elements=list(constraint.elements)
             target=elements[0].column.table
@@ -358,11 +409,13 @@ class ProjectManagementRepository:
                     conn.execute(delete(S.management_folders).where(S.management_folders.c.project_id==p,S.management_folders.c.id==identifier))
                 return {'folder_id':identifier,'operation':op}
             typ=payload.get('target_type');identifier=payload.get('target_id')
-            if typ not in {'project','object','media'}:raise ResourceError('目标类型不合法')
+            if typ not in {'project','object','media','canvas'}:raise ResourceError('目标类型不合法')
+            if typ=='canvas' and op not in {'trash','restore'}:raise ResourceError('画布仅支持回收和恢复','canvas_lifecycle_operation')
             if typ=='project':
                 if identifier!=p:raise ResourceError('不能跨项目管理','management_scope')
                 row=project;ids=set(conn.execute(select(S.creative_objects.c.id).where(S.creative_objects.c.project_id==p)).scalars())
             elif typ=='object':row=self._one(conn,S.creative_objects,p,checked_id(identifier));ids=self._descendant_ids(conn,p,identifier)
+            elif typ=='canvas':row=self._one(conn,S.creative_canvases,p,checked_id(identifier));ids={('canvas',identifier)}
             else:row=self._one(conn,S.media_items,p,checked_id(identifier));ids=set()
             if op=='move':
                 if typ=='project':raise ResourceError('项目内目录不能跨项目移动项目')
@@ -375,11 +428,15 @@ class ProjectManagementRepository:
             if typ=='media':raise ResourceError('素材回收与恢复请使用原素材回收入口；物理清理尚不可用','use_media_recycle')
             reason=payload.get('reason')
             if not isinstance(reason,str) or not reason.strip() or len(reason)>2000:raise ResourceError('请填写操作原因，最多2000字')
-            table=S.management_project_states if typ=='project' else S.management_object_states
-            where=[table.c.project_id==p]+([table.c.object_id==identifier] if typ=='object' else [])
+            table={'project':S.management_project_states,'object':S.management_object_states,'canvas':S.management_canvas_states}[typ]
+            target_key={'object':'object_id','canvas':'canvas_id'}.get(typ)
+            where=[table.c.project_id==p]+([table.c[target_key]==identifier] if target_key else [])
             old=conn.execute(select(table).where(*where)).mappings().first();current=old['state'] if old else 'active'
             if current=='purged':raise ResourceError('此对象已永久停用','object_purged',409)
             desired={'trash':'trashed','restore':'active','purge':'purged'}[op]
+            if typ=='canvas':
+                if state!='active' or row['episode_id'] in hidden_object_ids(conn,p):
+                    raise ResourceError('请先恢复项目及全部父级关系','restore_parent_first',409)
             if current==desired:return {'target_id':identifier,'state':desired,'unchanged':True}
             if op=='restore' and typ=='object':
                 ancestors=self._descendant_ids(conn,p,identifier,include_ancestors=True)-ids
@@ -391,6 +448,6 @@ class ProjectManagementRepository:
             if op=='purge':conn.execute(delete(S.object_folder_memberships).where(S.object_folder_memberships.c.project_id==p,S.object_folder_memberships.c.object_id.in_(ids)))
             values={'state':desired,'reason':reason.strip(),'actor':actor,'changed_at':datetime.now(timezone.utc)}
             if old:conn.execute(update(table).where(*where).values(**values))
-            else:conn.execute(insert(table).values(project_id=p,id=new_id(),**({'object_id':identifier} if typ=='object' else {}),**values))
+            else:conn.execute(insert(table).values(project_id=p,id=new_id(),**({target_key:identifier} if target_key else {}),**values))
             return {'target_id':identifier,'target_type':typ,'state':desired,'previous_state':current,'reason':values['reason'],'changed_at':values['changed_at'],'released_bytes':0,'audit_retained':True}
         return self._mutate(project_id,'management_'+str(op),payload,actor=actor,callback=apply,**kw)

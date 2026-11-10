@@ -11,8 +11,10 @@ class CanvasTemplatesRepository:
     def __init__(self,store):self.store=store
     def __getattr__(self,name):return getattr(self.store,name)
     def _plan(self,c,target,payload):
+        from .project_management import management_canvas_guard,management_object_guard,management_project_guard
         source=checked_id(payload['source_project_id']);self._access_require(c,source,'read');self._access_require(c,target,'edit')
         template=self._one(c,S.canvas_templates,source,payload['template_id']);version=self._one(c,S.creative_canvas_versions,source,template['version_id']);canvas=self._one(c,S.creative_canvases,source,version['canvas_id']);doc=self._canvas_document(c,source,version)
+        management_canvas_guard(c,source,canvas['id']);management_project_guard(c,target)
         if digest({'title':version['title'],'document':doc})!=version['sha256']:raise Conflict('固定模板摘要不符')
         media=set();domains={};episodes=set()
         if canvas['episode_id']:episodes.add(canvas['episode_id'])
@@ -34,8 +36,12 @@ class CanvasTemplatesRepository:
         chosen=payload.get('episode_id')
         if chosen:
             self._one(c,S.episodes,target,chosen)
+            management_object_guard(c,target,chosen)
             if len(episodes)>1:raise ResourceError('此模板包含多集工具，请选择自动新建对应分集')
             if any(d['kind']=='edit' for d in domains.values()) and c.scalar(select(S.edit_workspaces.c.id).where(S.edit_workspaces.c.project_id==target,S.edit_workspaces.c.episode_id==chosen)):raise Conflict('目标分集已有剪辑稿，请选择新建对应分集，避免覆盖原稿')
+        elif episodes:
+            work_id=c.scalar(select(S.works.c.id).where(S.works.c.project_id==target).order_by(S.works.c.ordinal).limit(1))
+            if work_id:management_object_guard(c,target,work_id)
         items=[]
         for mid in sorted(media):
             from .copy_lineage import assert_copy_source
@@ -44,7 +50,7 @@ class CanvasTemplatesRepository:
             items.append(dict(id=mid,name=item.get('name') or item['modality'],modality=item['modality'],sha256=item['sha256']))
         return dict(source=source,template=template,version=version,canvas=canvas,document=doc,media=items,domains=domains,episodes=episodes)
     def preview(self,p,payload):
-        with self.engine.connect() as c:
+        with self.engine.connect().execution_options(isolation_level='REPEATABLE READ') as c:
             plan=self._plan(c,p,payload);return clean(dict(title=plan['template']['title'],source_version=plan['version']['version'],source_sha256=plan['version']['sha256'],media=plan['media'],domain_counts={kind:sum(d['kind']==kind for d in plan['domains'].values()) for kind in ('spatial','tool','edit')},new_episode_count=0 if payload.get('episode_id') else len(plan['episodes']),node_count=len(plan['document']['nodes']),revision=self._project(c,p)['revision']))
     def media_ids(self,source,template_id):
         # Read-only fixed dependency walk; target=source only requires the source read grant.

@@ -175,6 +175,103 @@ class CommunityTests(ResourceStoreFixture,unittest.TestCase):
         target_card=self.service.get_asset_card(target,copied['id'])
         with self.assertRaises(ResourceError):self.service.copy_asset_card(self.p,dict(source_project_id=target,source_asset_id=copied['id'],form_version_ids=[target_card['forms'][0]['version_id']]),expected_revision=self.rev,idempotency_key='revoked-recopy',actor='test-human')
 
+    def test_template_copy_checks_cross_project_source_and_parent_lifecycle(self):
+        from sqlalchemy import select,func
+        from vsc.adapters.persistence.postgres import schema as S
+        hierarchy=self.hierarchy()
+        canvas=self.write('create_creative_canvas',dict(episode_id=hierarchy['episode'],document={'nodes':[],'edges':[]}))
+        template=self.write('publish_canvas_template',dict(canvas_id=canvas['id'],canvas_revision=1,title='Cross-project lifecycle'))
+        target=self.service.create_project({'name':'Lifecycle target'},actor='test-human')['id'];self.assign(target)
+        revision=self.service.get_project(target)['revision'];payload=dict(source_project_id=self.p,template_id=template['id'],episode_id=None,title='Fresh copy')
+        for typ,identifier in [('canvas',canvas['id']),('object',hierarchy['episode']),('object',hierarchy['work']),('project',self.p)]:
+            with self.subTest(source=typ,identifier=identifier):
+                self.write('management_command',dict(operation='trash',target_type=typ,target_id=identifier,reason='Pause source'))
+                for method in ('copy_canvas_template','copy_fixed_canvas_template'):
+                    with self.subTest(method=method),self.assertRaises(ResourceError):
+                        getattr(self.service,method)(target,payload,actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex)
+                with self.assertRaises(ResourceError):self.service.preview_canvas_template_copy(target,payload)
+                self.assertEqual(self.service.get_project(target)['revision'],revision)
+                with self.engine.connect() as c:self.assertEqual(c.scalar(select(func.count()).select_from(S.creative_canvases).where(S.creative_canvases.c.project_id==target)),0)
+                self.assertEqual(self.service.get_creative_canvas_version(self.p,canvas['version_id'])['id'],canvas['version_id'])
+                self.write('management_command',dict(operation='restore',target_type=typ,target_id=identifier,reason='Resume source'))
+        for method in ('copy_canvas_template','copy_fixed_canvas_template'):
+            copied=getattr(self.service,method)(target,payload,actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex);revision=copied['revision']
+            self.assertEqual(copied['source_version_id'],canvas['version_id'])
+        # Preview must also honor a recycled destination, before any copy is proposed.
+        result=self.service.management_command(target,dict(operation='trash',target_type='project',target_id=target,reason='Pause target'),actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex)
+        with self.assertRaises(ResourceError):self.service.preview_canvas_template_copy(target,payload)
+        self.assertEqual(self.service.get_project(target)['revision'],result['revision'])
+
+    def test_template_copies_wait_for_source_recycle_transaction_and_recheck(self):
+        from concurrent.futures import ThreadPoolExecutor,TimeoutError
+        from threading import Event
+        from unittest.mock import patch
+        from sqlalchemy import select,func
+        from vsc.adapters.persistence.postgres import schema as S
+        canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        template=self.write('publish_canvas_template',dict(canvas_id=canvas['id'],canvas_revision=1,title='Concurrent source'))
+        targets=[]
+        for method in ('copy_canvas_template','copy_fixed_canvas_template'):
+            p=self.service.create_project({'name':method},actor='test-human')['id'];self.assign(p)
+            targets.append((method,p,self.service.get_project(p)['revision']))
+        locked,release=Event(),Event();original=self.store._management_protections;revision=self.rev
+        def hold(c,p,ids,**kw):
+            if p==self.p:
+                locked.set()
+                if not release.wait(10):raise RuntimeError('source recycle test timed out')
+            return original(c,p,ids,**kw)
+        def trash():
+            with self.identity(self.owner):
+                return self.service.management_command(self.p,dict(operation='trash',target_type='canvas',target_id=canvas['id'],reason='Concurrent source recycle'),actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex)
+        def copy(item):
+            method,target,rev=item
+            with self.identity(self.owner):
+                return getattr(self.service,method)(target,dict(source_project_id=self.p,template_id=template['id'],episode_id=None,title='Must wait'),actor='test-human',expected_revision=rev,idempotency_key=uuid.uuid4().hex)
+        with patch.object(self.store,'_management_protections',side_effect=hold),ThreadPoolExecutor(max_workers=3) as pool:
+            recycling=pool.submit(trash);self.assertTrue(locked.wait(10));copies=[pool.submit(copy,item) for item in targets]
+            try:
+                for pending in copies:
+                    with self.assertRaises(TimeoutError):pending.result(timeout=.2)
+            finally:release.set()
+            self.assertEqual(recycling.result(timeout=10)['state'],'trashed')
+            for pending in copies:
+                with self.assertRaises(ResourceError) as caught:pending.result(timeout=10)
+                self.assertEqual(caught.exception.code,'object_recycled')
+        for method,target,rev in targets:
+            self.assertEqual(self.service.get_project(target)['revision'],rev)
+            with self.engine.connect() as c:self.assertEqual(c.scalar(select(func.count()).select_from(S.creative_canvases).where(S.creative_canvases.c.project_id==target)),0)
+
+    def test_template_copy_holds_source_lock_until_target_commit(self):
+        from concurrent.futures import ThreadPoolExecutor,TimeoutError
+        from threading import Event
+        from unittest.mock import patch
+        canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
+        template=self.write('publish_canvas_template',dict(canvas_id=canvas['id'],canvas_revision=1,title='Copy before recycle'))
+        original=self.store._insert_canvas_version
+        for method in ('copy_canvas_template','copy_fixed_canvas_template'):
+            with self.subTest(method=method):
+                target=self.service.create_project({'name':'Locked copy target'},actor='test-human')['id'];self.assign(target)
+                target_revision=self.service.get_project(target)['revision'];source_revision=self.rev;locked,release=Event(),Event()
+                def hold(c,project,*args,**kw):
+                    if project['id']==target:
+                        locked.set()
+                        if not release.wait(10):raise RuntimeError('copy transaction test timed out')
+                    return original(c,project,*args,**kw)
+                def copy():
+                    with self.identity(self.owner):return getattr(self.service,method)(target,dict(source_project_id=self.p,template_id=template['id'],episode_id=None,title='Fixed before recycle'),actor='test-human',expected_revision=target_revision,idempotency_key=uuid.uuid4().hex)
+                def trash():
+                    with self.identity(self.owner):return self.service.management_command(self.p,dict(operation='trash',target_type='canvas',target_id=canvas['id'],reason='Wait for copy'),actor='test-human',expected_revision=source_revision,idempotency_key=uuid.uuid4().hex)
+                with patch.object(self.store,'_insert_canvas_version',side_effect=hold),ThreadPoolExecutor(max_workers=2) as pool:
+                    copying=pool.submit(copy);self.assertTrue(locked.wait(10));recycling=pool.submit(trash)
+                    try:
+                        with self.assertRaises(TimeoutError):recycling.result(timeout=.2)
+                    finally:release.set()
+                    result=copying.result(timeout=10);trashed=recycling.result(timeout=10)
+                self.assertEqual(result['source_version_id'],canvas['version_id']);self.assertEqual(trashed['state'],'trashed');self.rev=trashed['revision']
+                self.assertEqual(self.service.get_creative_canvas(target,result['id'])['id'],result['id'])
+                self.write('management_command',dict(operation='restore',target_type='canvas',target_id=canvas['id'],reason='Next independent race'))
+
+
 class DistributionPortTests(unittest.TestCase):
     def test_configured_json_port_fixed_key_and_safe_unknown(self):
         import os,httpx

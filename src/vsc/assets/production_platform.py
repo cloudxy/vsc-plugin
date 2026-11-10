@@ -111,6 +111,30 @@ class ProductionPlatformServiceMixin:
         if payload.get('insert_before_id') and payload.get('insert_after_id'):raise ResourceError('只能选择一个插入位置')
         return self._write("create_episode_batch", project_id, payload, **kw)
 
+    def get_episode_editor(self, project_id, episode_id=None, parent_id=None):
+        return self.store.get_episode_editor(project_id, episode_id, parent_id)
+
+    def get_episode_entry(self, project_id, episode_id, actor):
+        self._actor(actor)
+        return self.store.get_episode_entry(project_id, episode_id, actor)
+
+    def save_episode(self, project_id, payload, **kw):
+        from vsc.assets.resource_service import ResourceError
+        self._validate_write(payload, **kw)
+        allowed={'episode_id','parent_id','title','shot_count','position'}
+        if set(payload)-allowed or payload.get('episode_id') and 'parent_id' in payload:
+            raise ResourceError('剧集编辑不能改变所属部或提交额外字段','episode_payload')
+        if any(key in payload and (not isinstance(payload[key],str) or not payload[key]) for key in ('episode_id','parent_id')):
+            raise ResourceError('需要有效的剧集或所属部身份','episode_payload')
+        title=payload.get('title');count=payload.get('shot_count');position=payload.get('position')
+        if not isinstance(title,str) or not title.strip() or len(title)>50:
+            raise ResourceError('剧集名称需为1至50字','episode_title')
+        if type(count) is not int or not 1<=count<=500:
+            raise ResourceError('分镜数需为1至500的整数','episode_shot_count')
+        if position is not None and (type(position) is not int or position<1):
+            raise ResourceError('排序位置需为正整数，留空保持不变','episode_position')
+        return self._write('save_episode',project_id,payload,**kw)
+
     def reorder_episodes(self, project_id, payload, **kw):
         from vsc.assets.resource_service import ResourceError
         self._validate_write(payload, **kw)
