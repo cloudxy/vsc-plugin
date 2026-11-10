@@ -48,46 +48,48 @@ class ProductionPlatformRepository:
                 next_offset=offset + len(rows) if offset + len(rows) < total else None))
 
     def create_episode_batch(self, project_id, payload, **kw):
-        def apply(conn, project):
-            p = project["id"]
-            parent = payload.get("parent_id")
-            if parent:
-                parent = self._one(conn, S.works, p, checked_id(parent))["id"]
-            else:
-                works = list(conn.execute(select(S.works.c.id).where(S.works.c.project_id == p)).scalars())
-                if len(works) > 1:
-                    raise ResourceError("项目包含多部，请先选择所属部", "work_required")
-                parent = works[0] if works else self._create_object(conn, project,
-                    dict(kind="work", display_code="WORK", title=project["name"], ordinal=0))["id"]
-            siblings=list(conn.execute(select(S.episodes.c.id).where(S.episodes.c.project_id==p,S.episodes.c.parent_id==parent).order_by(S.episodes.c.ordinal,S.episodes.c.id)).scalars())
-            anchor=payload.get('insert_before_id') or payload.get('insert_after_id')
-            if anchor and anchor not in siblings:raise ResourceError('插入位置不属于所选部','episode_order_scope')
-            start = conn.execute(select(func.max(S.episodes.c.ordinal)).where(
-                S.episodes.c.project_id == p, S.episodes.c.parent_id == parent)).scalar_one()
-            ordinal = (start if start is not None else -1) + 1
-            codes = set(conn.execute(select(S.creative_objects.c.display_code)
-                .where(S.creative_objects.c.project_id == p)).scalars())
-            number, rows = 1, []
-            for title in payload["titles"]:
-                while "EP%03d" % number in codes:
-                    number += 1
-                code = "EP%03d" % number
-                codes.add(code)
-                rows.append(self._create_object(conn, project, dict(kind="episode",
-                    parent_id=parent, display_code=code, title=title.strip(), ordinal=ordinal)))
-                episode=rows[-1]
-                count=payload.get('initial_shot_count',0)
-                if count:
-                    from .values import new_id
-                    scene=self._create_object(conn,project,dict(kind='scene',parent_id=episode['id'],display_code='SC-'+new_id()[:8],title='场景1',ordinal=0))
-                    sequence=self._create_object(conn,project,dict(kind='sequence',parent_id=scene['id'],display_code='SQ-'+new_id()[:8],title='镜组1',ordinal=0))
-                    for index in range(count):self._create_object(conn,project,dict(kind='shot',parent_id=sequence['id'],display_code='SH-'+new_id()[:8],title='分镜'+str(index+1),ordinal=index))
-                ordinal += 1
-            if anchor:
-                position=siblings.index(anchor)+(1 if payload.get('insert_after_id') else 0)
-                self._set_episode_order(conn,p,parent,siblings[:position]+[r['id'] for r in rows]+siblings[position:])
-            return dict(items=rows, parent_id=parent)
-        return self._mutate(project_id, "create_episode_batch", payload, callback=apply, **kw)
+        return self._mutate(project_id, "create_episode_batch", payload,
+            callback=lambda conn, project: self._create_episode_batch(conn, project, payload), **kw)
+
+    def _create_episode_batch(self, conn, project, payload):
+        p = project["id"]
+        parent = payload.get("parent_id")
+        if parent:
+            parent = self._one(conn, S.works, p, checked_id(parent))["id"]
+        else:
+            works = list(conn.execute(select(S.works.c.id).where(S.works.c.project_id == p)).scalars())
+            if len(works) > 1:
+                raise ResourceError("项目包含多部，请先选择所属部", "work_required")
+            parent = works[0] if works else self._create_object(conn, project,
+                dict(kind="work", display_code="WORK", title=project["name"], ordinal=0))["id"]
+        siblings=list(conn.execute(select(S.episodes.c.id).where(S.episodes.c.project_id==p,S.episodes.c.parent_id==parent).order_by(S.episodes.c.ordinal,S.episodes.c.id)).scalars())
+        anchor=payload.get('insert_before_id') or payload.get('insert_after_id')
+        if anchor and anchor not in siblings:raise ResourceError('插入位置不属于所选部','episode_order_scope')
+        start = conn.execute(select(func.max(S.episodes.c.ordinal)).where(
+            S.episodes.c.project_id == p, S.episodes.c.parent_id == parent)).scalar_one()
+        ordinal = (start if start is not None else -1) + 1
+        codes = set(conn.execute(select(S.creative_objects.c.display_code)
+            .where(S.creative_objects.c.project_id == p)).scalars())
+        number, rows = 1, []
+        for title in payload["titles"]:
+            while "EP%03d" % number in codes:
+                number += 1
+            code = "EP%03d" % number
+            codes.add(code)
+            rows.append(self._create_object(conn, project, dict(kind="episode",
+                parent_id=parent, display_code=code, title=title.strip(), ordinal=ordinal)))
+            episode=rows[-1]
+            count=payload.get('initial_shot_count',0)
+            if count:
+                from .values import new_id
+                scene=self._create_object(conn,project,dict(kind='scene',parent_id=episode['id'],display_code='SC-'+new_id()[:8],title='场景1',ordinal=0))
+                sequence=self._create_object(conn,project,dict(kind='sequence',parent_id=scene['id'],display_code='SQ-'+new_id()[:8],title='镜组1',ordinal=0))
+                for index in range(count):self._create_object(conn,project,dict(kind='shot',parent_id=sequence['id'],display_code='SH-'+new_id()[:8],title='分镜'+str(index+1),ordinal=index))
+            ordinal += 1
+        if anchor:
+            position=siblings.index(anchor)+(1 if payload.get('insert_after_id') else 0)
+            self._set_episode_order(conn,p,parent,siblings[:position]+[r['id'] for r in rows]+siblings[position:])
+        return dict(items=rows, parent_id=parent)
 
     def reorder_episodes(self, project_id, payload, **kw):
         def apply(conn, project):

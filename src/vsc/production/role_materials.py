@@ -61,6 +61,7 @@ TASKS = {
     "video-generation": ("generation-producer", "vsc-produce", ("prompt-organization", "frame-pairing")),
     "async-media": ("generation-producer", "vsc-produce", ("negative-and-iteration", "consumer-check")),
     "storyboard-reuse": ("director", "vsc-direct", ("usable-shot", "frame-pairing")),
+    "ai-mv-production": ("director", "vsc-direct", ("usable-shot", "sound-bridge", "effect-action-sync")),
     "sound-plan": ("music-supervisor", "vsc-sound", ("sound-world", "sound-bridge")),
     "prompt-optimize": ("director", "vsc-direct", ("prompt-organization", "usable-shot")),
     "prompt-recognize": ("director", "vsc-direct", ("reference-structure",)),

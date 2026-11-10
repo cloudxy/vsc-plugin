@@ -22,6 +22,7 @@ class Element {
  get options(){return this.children.filter(x=>x.tagName==='OPTION');}
  get isConnected(){return this.parentElement!==null;}
  async fire(type,properties={}){const event={target:this,preventDefault(){},...properties};if(this['on'+type])await this['on'+type](event);for(const f of this.listeners[type]||[])await f(event);if(['input','change'].includes(type)&&this.parentElement)await this.parentElement.fire(type,{...properties,target:event.target});}
+ pause(){}
  focus(){this.ownerDocument.activeElement=this;}scrollIntoView(){}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
 }
@@ -30,9 +31,9 @@ async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOv
   const images=[];class FakeImage{constructor(){images.push(this);}}
   const sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(denyProjectStorage&&k.startsWith('vsc-canvas-project-node:'))throw Error('storage disabled');store.set(k,v);},removeItem:k=>store.delete(k)};
   const listeners=new Map(),window={addEventListener(type,fn){(listeners.get(type)||listeners.set(type,new Set()).get(type)).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},fire(type,event={}){for(const fn of [...listeners.get(type)||[]])fn(event);}},location={search};
-  const timeouts=[];const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},setTimeout:(fn,delay)=>{timeouts.push({fn,delay});return timeouts.length;},clearTimeout:()=>{}});
+  const timeouts=[];const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},fetch:async()=>({ok:true,text:async()=> '[00:01.20]合成歌词\n'}),setTimeout:(fn,delay)=>{if(delay===0)return setTimeout(fn,0);timeouts.push({fn,delay});return timeouts.length;},clearTimeout:()=>{}});
   const root=document.createElement('main');
-  const session={actor,csrf:'test',revision:1};
+  const session={actor,csrf:'test',revision:1,writable:true};
   const ctx={session:()=>session,setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:path.endsWith('/creative-canvas-agent-options')?{revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[],nodes:[]}:{items:[],revision:1};}};
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
   return {root,canvas,store,images,document,window,FakeImage,session,location,timeouts,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
@@ -415,4 +416,104 @@ test('a foreign target or missing session retains T for read-only retry without 
 test('a late target GET after actor switch cannot replace the new actor canvas',async()=>{
  let finish;const hold=new Promise(r=>finish=r),posts=[],api=targetApi({posts}),a=await fixture({nodes:marketingNodes(),apiOverride:async(path,options)=>path.endsWith('/creative-canvas-agent-turns/t')?hold:api(path,options)});
  const pending=a.canvas.load(a.root,'p1',null,'c1','t');await new Promise(r=>setImmediate(r));a.session.actor='other';a.location.search='';await a.canvas.load(a.root,'p1',null,'c1');finish(targetTurn());await pending;assert.equal(a.root.querySelector('.cc-agent'),null);assert.equal(posts.length,0);a.canvas.suspend();
+});
+
+test('AI MV route shows four empty-canvas actions without opening Agent or submitting work',async()=>{
+ const calls=[];const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,options)=>{calls.push({path,options});}});
+ const guide=a.root.querySelector('.cc-mv-guide');assert.ok(guide);assert.equal(guide.querySelectorAll('button').length,4);
+ const inputs=guide.querySelectorAll('input');assert.deepEqual(inputs.map(n=>[n.accept,n.multiple]),[['audio/*',false],['.lrc,.txt',false],['image/*',true]]);
+ assert.equal(a.root.querySelector('.cc-agent'),null);assert.ok(calls.every(call=>!call.options?.method));
+ for(const search of ['', '?ai_mv=0']){const plain=await fixture({search});assert.equal(plain.root.querySelector('.cc-mv-guide'),null);}
+});
+
+test('AI MV music creates and saves one fresh audio node before showing original music generation settings',async()=>{
+ const bodies=[],options={revision:2,nodes:[],models:[{id:'audio-model',model_key:'Configured music',model_version:'1',modality:'audio',enabled:true}]};
+ const a=await fixture({search:'?ai_mv=1',runOptions:options,apiOverride:async(path,request)=>{if(request?.method==='PUT'){bodies.push(JSON.parse(request.body));return {revision:2,canvas_revision:2};}}});
+ const create=a.root.querySelector('.cc-mv-guide').querySelectorAll('button')[1];await create.fire('click');await create.fire('click');
+ assert.equal(bodies.length,1);const node=bodies[0].payload.document.nodes[0];assert.equal(node.type,'audio');assert.equal(node.title,'音频1');assert.deepEqual(node.params,{});assert.equal(node.text,'');assert.equal(node.media_id,null);assert.equal(node.job_id,null);
+ assert.equal(a.root.querySelector('.cc-empty').hidden,true);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.ok(a.root.querySelector('.cc-run-form'));
+ assert.equal(a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='声音用途').value,'music');assert.equal(a.root.querySelector('.cc-agent'),null);
+ assert.ok(a.root.querySelectorAll('button').find(n=>n.textContent==='确认报价并生成').disabled);
+});
+
+test('AI MV music retains the original canvas save request after a lost response',async()=>{
+ const bodies=[];const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,request)=>{if(request?.method==='PUT'){bodies.push(JSON.parse(request.body));if(bodies.length===1)throw Error('save response lost');return {revision:2,canvas_revision:2};}}});
+ await a.root.querySelector('.cc-mv-guide').querySelectorAll('button')[1].fire('click');assert.equal(a.root.querySelector('.cc-run-form'),null);assert.equal(JSON.parse(a.store.get(canvasDraftKey())).document.nodes.length,1);
+ await a.root.querySelectorAll('button').find(n=>n.textContent==='恢复保存请求').fire('click');assert.deepEqual(bodies[0],bodies[1]);assert.equal(a.store.has(canvasDraftKey()),false);
+});
+
+test('opening Agent on AI MV selects the installed MV skill and preserves a manual selection on reopening',async()=>{
+ const writes=[];const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,request)=>{if(request?.method)writes.push({path,request});if(path.endsWith('/creative-canvas-agent-options'))return {revision:1,host_available:true,nodes:[],models:[],skills:[{id:'image-generation',name:'Image',description:''},{id:'ai-mv-production',name:'AI MV Production',description:''}]};}});
+ const agent=a.root.querySelectorAll('button').find(n=>n.attrs['aria-label']==='画布 Agent'||n.textContent==='画布 Agent');assert.ok(agent);await agent.fire('click');
+ let skill=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='画布技能');assert.equal(skill.value,'ai-mv-production');assert.equal(writes.length,0);
+ skill.value='image-generation';await skill.fire('change');await a.root.querySelectorAll('button').find(n=>n.attrs['aria-label']==='关闭 Agent').fire('click');await agent.fire('click');skill=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='画布技能');assert.equal(skill.value,'image-generation');assert.equal(writes.length,0);
+});
+
+function mvImportServer({kind='image',loseManifest=false,failMedia=null}={}){
+ const db={revision:1,canvasRevision:1,document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]},batches:[],keys:[],requests:[]};
+ const base='/api/v1/projects/p1/media-imports';
+ const api=async(path,options)=>{db.requests.push({path,method:options?.method});
+  if(path==='/api/v1/projects/p1/creative-canvases/c1'){
+   if(options?.method==='PUT'){db.document=structuredClone(JSON.parse(options.body).payload.document);return {revision:++db.revision,canvas_revision:++db.canvasRevision};}
+   return {revision:db.revision,canvas_revision:db.canvasRevision,title:'Test',episode_id:null,document:structuredClone(db.document),jobs:{},runs:[],execution_steps:[]};
+  }
+  if(path===base){
+   if(!options?.method)return {revision:db.revision,items:db.batches.map(b=>b.batch)};
+   const body=JSON.parse(options.body);db.keys.push(body.idempotency_key);
+   let found=db.batches.find(b=>b.key===body.idempotency_key);
+   if(!found){const id='batch'+(db.batches.length+1);found={key:body.idempotency_key,batch:{id,title:'导入',created_at:'2026-11-10T00:00:00Z'},items:body.payload.files.map((f,i)=>({...f,id:id+'item'+i,expected_sha256:f.sha256,uploaded_bytes:0,has_upload:false,status:'awaiting_upload',media_id:null}))};db.batches.push(found);db.revision++;}
+   if(loseManifest&&db.keys.length===1)throw Error('manifest committed but response lost');
+   return {id:found.batch.id,revision:db.revision};
+  }
+  if(path===base+'/process'){const b=JSON.parse(options.body).payload,item=db.batches.find(x=>x.batch.id===b.batch_id).items.find(x=>x.id===b.item_id);item.status='completed';item.media_id='media-'+item.id;return {revision:++db.revision};}
+  if(path.startsWith(base+'/')){const parts=path.slice((base+'/').length).split('/'),batch=db.batches.find(x=>x.batch.id===parts[0]);if(parts.length===1)return {...structuredClone(batch),revision:db.revision};const item=batch.items.find(x=>x.id===parts[2]);item.uploaded_bytes=Number(new URL('http://test'+path).searchParams.get('offset'))+options.body.size;item.has_upload=item.uploaded_bytes===item.size_bytes;return {uploaded_bytes:item.uploaded_bytes,revision:db.revision};}
+  if(path.startsWith('/api/v1/projects/p1/media/media-')){if(failMedia&&path.endsWith(failMedia))throw Error('media read interrupted');return {modality:kind,size_bytes:30,name:'合成素材'};}
+ };
+ return {db,api};
+}
+const file=(name,text='synthetic')=>Object.assign(new Blob([text]),{name});
+async function choose(a,kind,items){const pick=a.root.querySelector('.cc-mv-guide').querySelectorAll('input')[{audio:0,text:1,image:2}[kind]];pick.files=items;await pick.fire('change');}
+
+
+test('AI MV upload lost manifest receipt survives refresh with the exact original request',async()=>{
+ const x=mvImportServer({kind:'audio',loseManifest:true}),a=await fixture({search:'?ai_mv=1',apiOverride:x.api}),f=file('music.wav');
+ await choose(a,'audio',[f]);assert.equal(x.db.batches.length,1);
+ await a.canvas.load(a.root,'p1',null,'c1');await choose(a,'audio',[f]);
+ assert.equal(x.db.batches.length,1);assert.equal(x.db.keys.length,2);assert.equal(x.db.keys[0],x.db.keys[1]);assert.equal(x.db.document.nodes.length,1);
+ assert.equal([...a.store.keys()].some(k=>k.startsWith('vsc-mv-import:')),false);a.canvas.suspend();
+});
+test('AI MV partial multi-image import resumes from original batch after refresh',async()=>{
+ const x=mvImportServer({kind:'image',failMedia:'item1'});let blocked=true;
+ const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,options)=>{if(!blocked&&path.startsWith('/api/v1/projects/p1/media/media-'))return {modality:'image',name:'合成素材'};return x.api(path,options);}});
+ await choose(a,'image',[file('one.png'),file('two.png','second')]);assert.equal(x.db.document.nodes.length,1);
+ await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelector('.cc-mv-guide').hidden,true);blocked=false;
+ await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复 AI MV 文件导入').fire('click');
+ assert.equal(x.db.document.nodes.length,2);assert.equal(new Set(x.db.document.nodes.map(n=>n.id)).size,2);assert.equal(x.db.batches.length,1);assert.equal(x.db.keys.length,1);
+ assert.equal([...a.store.keys()].some(k=>k.startsWith('vsc-mv-import:')),false);a.canvas.suspend();
+});
+test('AI MV pending upload recovery is isolated from a different actor',async()=>{
+ const x=mvImportServer({kind:'audio',loseManifest:true}),a=await fixture({search:'?ai_mv=1',apiOverride:x.api});await choose(a,'audio',[file('music.wav')]);
+ a.session.actor='another';await a.canvas.load(a.root,'p1',null,'c1');assert.equal(a.root.querySelectorAll('button').some(b=>b.textContent==='恢复 AI MV 文件导入'),false);assert.equal(x.db.keys.length,1);a.canvas.suspend();
+});
+
+test('AI MV in-flight manifest survives reload and temporary permission rejection without a new batch',async()=>{
+ const x=mvImportServer({kind:'audio',loseManifest:true});let release,entered,posts=0;
+ const waiting=new Promise(r=>{release=r;}),ready=new Promise(r=>{entered=r;});
+ const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,options)=>{
+  if(path.endsWith('/media-imports')&&options?.method==='POST'){
+   posts++;
+   if(posts===1){try{return await x.api(path,options);}catch(e){entered();await waiting;throw e;}}
+   if(posts===2){const e=Error('temporary 403 on recovery');e.status=403;throw e;}
+  }
+  return x.api(path,options);
+ }});
+ const f=file('music.wav');const pending=choose(a,'audio',[f]);await ready;
+ await a.canvas.load(a.root,'p1',null,'c1');release();await pending;
+ const key=[...a.store.keys()].find(k=>k.startsWith('vsc-mv-import:'));
+ assert.ok(key);
+ await choose(a,'audio',[f]);
+ assert.equal(a.store.has(key),true);
+ await choose(a,'audio',[f]);
+ assert.equal(x.db.batches.length,1);assert.equal(x.db.keys[0],x.db.keys[1]);assert.equal(x.db.document.nodes.length,1);
+ a.canvas.suspend();
 });

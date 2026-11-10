@@ -80,7 +80,7 @@ function setEntryOptions(page,project,scope,options={}){
 }
 function openedCreativeTarget(id,project,episode){
   if(project!==state.project||typeof window==='undefined')return;
-  episodeScope=episode||null;const route=currentEntry();if(route.get('task_target')!==id)route.delete('agent_turn');if(id)route.set('task_target',id);else route.delete('task_target');if(episode)route.set('episode',episode);else route.delete('episode');window.history.replaceState(null,'','?'+route);updateShell(state.view);
+  episodeScope=episode||null;const route=currentEntry();if(route.get('task_target')!==id){route.delete('agent_turn');if(route.get('task_target'))route.delete('ai_mv');}if(id)route.set('task_target',id);else route.delete('task_target');if(episode)route.set('episode',episode);else route.delete('episode');window.history.replaceState(null,'','?'+route);updateShell(state.view);
 }
 function updateShell(view){
   const full=['creative-canvas','classic-production','intelligent-creation','intelligent-storyboard','editing','blocking','previs','library','assets','access-share','text-tools'].includes(view);
@@ -418,7 +418,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
@@ -849,17 +849,17 @@ $('help-guide')?.addEventListener('click',guard(async()=>{closeHelp();$('help-op
 $('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await switchView('service-operations');}));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));
 let emptyCanvasOpening=null;
-async function createEmptyCanvasProject({isCurrent=()=>true}={}){
+async function createEmptyCanvasProject({isCurrent=()=>true,aiMv=false}={}){
   const identity=state.identityId||state.actor,actor=state.actor,workspace=state.workspaceId,current=()=>isCurrent()&&identity===(state.identityId||state.actor)&&actor===state.actor&&workspace===state.workspaceId;
   if(!actor||!state.writeAvailable)throw new Error('当前会话不能创建项目');
   if(emptyCanvasOpening?.identity===identity)return;
   const operation={identity};emptyCanvasOpening=operation;const button=$('new-canvas-project');button.disabled=true;
-  const storageKey='vsc-empty-canvas:'+actor;let key='';try{key=sessionStorage.getItem(storageKey)||'';}catch{}
+  const storageKey='vsc-empty-canvas:'+actor+(aiMv?':ai-mv':'');let key='';try{key=sessionStorage.getItem(storageKey)||'';}catch{}
   if(!key){key=crypto.randomUUID();try{sessionStorage.setItem(storageKey,key);}catch{}}
   try{
     const result=await api('/api/v1/projects/empty-canvas',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{mode:'empty_canvas'},idempotency_key:key})});
     if(!current())return;
-    setEntryOptions('creative-canvas',result.project_id,null,{episode:result.episode_id,task_target:result.canvas_id});episodeScope=result.episode_id;state.object=null;state.view='creative-canvas';state.project=result.project_id;await loadProjects();
+    setEntryOptions('creative-canvas',result.project_id,null,{episode:result.episode_id,task_target:result.canvas_id,...(aiMv?{ai_mv:'1'}:{})});episodeScope=result.episode_id;state.object=null;state.view='creative-canvas';state.project=result.project_id;await loadProjects();
     if(identity===(state.identityId||state.actor)&&actor===state.actor&&workspace===state.workspaceId){try{sessionStorage.removeItem(storageKey);}catch{}}
   }finally{if(emptyCanvasOpening===operation){emptyCanvasOpening=null;button.disabled=false;}}
 }

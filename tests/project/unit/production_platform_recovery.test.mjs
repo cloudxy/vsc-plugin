@@ -334,3 +334,22 @@ test('quick canvas ignores duplicate clicks and cannot adopt a late receipt afte
     assert.equal(h.loads,change==='none'?1:0,change);assert.equal(h.entries.length,change==='none'?1:0,change);assert.equal(h.storage.size,change==='none'?0:1,change);assert.equal(h.button.disabled,false);
   }
 });
+
+test('AI MV always uses its dedicated quick creation entry even when recent projects exist',async()=>{
+ let quick=0;const h=setup({projects:[homeProject('existing')],createEmptyCanvasProject:async options=>{quick++;assert.equal(options.aiMv,true);assert.equal(options.isCurrent(),true);}});
+ await h.platform.load({page:'home'});const before=h.calls.length;await h.root.querySelectorAll('.home-feature')[1].click();assert.equal(quick,1);assert.equal(h.refreshes,0);assert.equal(h.calls.length,before);assert.equal(h.root.querySelector('dialog'),null);
+ h.session.writeAvailable=false;await h.root.querySelectorAll('.home-feature')[1].click();assert.equal(quick,1);assert.equal(h.notices.length,1);
+});
+
+test('AI MV quick creation keeps its recovery key separate and preserves ai_mv on navigation',async()=>{
+ const h=shellQuickCanvasFixture();h.storage.set('vsc-empty-canvas:actor','sidebar-pending');await h.create({aiMv:true});assert.notEqual(h.calls[0].body.idempotency_key,'sidebar-pending');assert.equal(h.storage.get('vsc-empty-canvas:actor'),'sidebar-pending');assert.equal(h.entries[0][3].ai_mv,'1');
+});
+
+test('shell route synchronization preserves AI MV for the same canvas and clears it on a new target or project',()=>{
+ const source=readFileSync(new URL('../../../src/vsc/interfaces/web/static/panel.js',import.meta.url),'utf8'),sync=source.slice(source.indexOf('function syncRoute(){'),source.indexOf('async function openResourceSettings()')),opened=source.slice(source.indexOf('function openedCreativeTarget('),source.indexOf('function updateShell('));
+ const location={search:'?page=creative-canvas&project=p&episode=e&task_target=c&ai_mv=1'},history={pushState(_a,_b,url){location.search=url;},replaceState(_a,_b,url){location.search=url;}},state={view:'creative-canvas',project:'p',object:null};
+ const context={state,window:{location,history},URLSearchParams,currentEntry:()=>new URLSearchParams(location.search),episodeScope:'e',restoringDeskRoute:false,deskRouteReady:true,updateShell(){}};
+ vm.runInNewContext(sync+'\n'+opened+';globalThis.sync=syncRoute;globalThis.opened=openedCreativeTarget;',context);
+ context.sync();assert.equal(new URLSearchParams(location.search).get('ai_mv'),'1');context.opened('c','p','e');assert.equal(new URLSearchParams(location.search).get('ai_mv'),'1');context.opened('c2','p','e');assert.equal(new URLSearchParams(location.search).has('ai_mv'),false);
+ location.search+='&ai_mv=1';state.project='other';context.sync();assert.equal(new URLSearchParams(location.search).has('ai_mv'),false);
+});

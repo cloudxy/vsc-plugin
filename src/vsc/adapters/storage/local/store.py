@@ -129,7 +129,7 @@ class LocalStorage:
             duration = raw.get("duration_seconds")
             if duration is not None:
                 metadata["duration_ms"] = round(duration * 1000)
-        elif suffix in {".txt", ".md", ".json", ".srt", ".vtt", ".csv"}:
+        elif suffix in {".txt", ".md", ".json", ".srt", ".vtt", ".lrc", ".csv"}:
             try:
                 path.read_text("utf-8")
             except UnicodeError:

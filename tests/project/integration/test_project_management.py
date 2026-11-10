@@ -17,6 +17,84 @@ class ProjectManagementTests(ResourceStoreFixture,unittest.TestCase):
 
     def command(self,operation,**payload):return self.write('management_command',dict(operation=operation,**payload))
 
+    def test_edit_project_preserves_existing_authorities_and_replays_atomic_episode_growth(self):
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.resource_service import ResourceError
+        from vsc.assets.access_control import action_capability
+        o=self.hierarchy();before=self.service.get_project(self.p);key=uuid.uuid4().hex
+        payload={'operation':'edit','title':'完整编辑','character_style':'3d','episode_count':3}
+        result=self.write('management_command',payload,idempotency_key=key)
+        self.assertEqual(result,self.service.management_command(self.p,payload,expected_revision=0,idempotency_key=key,actor='test-human'))
+        after=self.service.get_project(self.p);self.assertEqual(after['id'],before['id'])
+        self.assertEqual(after['profile_snapshot'],dict(before['profile_snapshot'],character_style='3d'))
+        self.assertEqual(after['name'],'完整编辑');self.assertEqual(action_capability('management_edit'),'manage')
+        episodes=self.service.get_production_episodes(self.p)
+        self.assertEqual(episodes['total'],3);self.assertEqual(episodes['items'][0]['id'],o['episode'])
+        self.assertEqual([r['title'] for r in episodes['items'][1:]],['第2集','第3集'])
+        self.assertEqual(self.service.management_snapshot(self.p)['episode_count'],3)
+        self.assertEqual(len(result['created_episode_ids']),2)
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(select(S.shots.c.id).where(S.shots.c.project_id==self.p)).scalar_one(),o['shot'])
+        for change in [{'episode_count':2},{'episode_count':0},{'episode_count':501},{'episode_count':True},{'episode_count':1.5},{'title':'x'*51},{'title':' '},{'character_style':'unknown'}]:
+            with self.subTest(change=change),self.assertRaises(ResourceError):self.write('management_command',dict(payload,**change))
+        self.assertEqual(self.service.get_project(self.p),after)
+        self.assertEqual(self.service.get_production_episodes(self.p)['total'],3)
+
+    def test_edit_multiple_works_and_stale_revision_do_not_partially_rename(self):
+        from vsc.assets.resource_service import ResourceError,Conflict
+        self.hierarchy();self.write('create_object',{'kind':'work','display_code':'WORK2','title':'第二部','ordinal':1})
+        before=self.service.get_project(self.p)
+        payload={'operation':'edit','title':'不得部分保存','character_style':'live','episode_count':2}
+        with self.assertRaises(ResourceError) as error:self.write('management_command',payload)
+        self.assertEqual(error.exception.code,'work_required');self.assertEqual(self.service.get_project(self.p),before)
+        with self.assertRaises(Conflict):self.service.management_command(self.p,dict(payload,episode_count=1),actor='test-human',expected_revision=self.rev-1,idempotency_key=uuid.uuid4().hex)
+        self.assertEqual(self.service.get_project(self.p),before)
+
+    def test_edit_preserves_fixed_single_episode_profile_limit(self):
+        from vsc.assets.resource_service import ResourceError
+        project=self.service.create_project({'name':'单集合同','profile':'vsc.light-short'},actor='test-human')
+        payload={'operation':'edit','title':'不可绕过Profile','character_style':'3d','episode_count':2}
+        with self.assertRaises(ResourceError) as error:
+            self.service.management_command(project['id'],payload,actor='test-human',expected_revision=0,idempotency_key=uuid.uuid4().hex)
+        self.assertEqual(error.exception.code,'episode_limit')
+        self.assertEqual(self.service.get_project(project['id']),project)
+        self.assertEqual(self.service.get_production_episodes(project['id'])['total'],0)
+
+    def test_concurrent_project_edits_share_original_project_lock(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from vsc.assets.resource_service import Conflict
+        self.hierarchy();revision=self.rev;start=Barrier(2)
+        def edit(number):
+            start.wait()
+            try:return self.service.management_command(self.p,{'operation':'edit','title':'并发编辑%d'%number,'character_style':'2d','episode_count':3},actor='test-human',expected_revision=revision,idempotency_key=uuid.uuid4().hex)
+            except Conflict:return 'conflict'
+        with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(edit,[1,2]))
+        self.assertEqual(results.count('conflict'),1);self.assertEqual(self.service.get_production_episodes(self.p)['total'],3)
+        self.assertEqual(self.service.get_project(self.p)['revision'],revision+1)
+
+    def test_http_edit_readback_keeps_project_identity_and_rejects_reduction(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        self.hierarchy()
+        with tempfile.TemporaryDirectory() as root:
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'browser-test','background_enabled':False},catalog=ResourceCatalog(root,self.service),service=self.service)
+            with TestClient(app) as client:
+                login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
+                headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
+                path='/api/v1/projects/'+self.p+'/management'
+                body={'payload':{'operation':'edit','title':'HTTP完整编辑','character_style':'live','episode_count':2},'expected_revision':self.rev,'idempotency_key':uuid.uuid4().hex}
+                result=client.post(path,json=body,headers=headers);self.assertEqual(result.status_code,200,result.text)
+                self.assertEqual(result.json(),client.post(path,json=body,headers=headers).json())
+                snapshot=client.get(path).json();self.assertEqual(snapshot['project']['name'],'HTTP完整编辑');self.assertEqual(snapshot['episode_count'],2)
+                card=next(r for r in client.get('/api/v1/projects').json()['items'] if r['id']==self.p)
+                self.assertEqual(card['counts']['episodes'],2);self.assertEqual(card['project_type'],'真人')
+                body['expected_revision']=result.json()['revision'];body['idempotency_key']=uuid.uuid4().hex;body['payload']['episode_count']=1
+                rejected=client.post(path,json=body,headers=headers);self.assertEqual(rejected.status_code,422,rejected.text)
+                self.assertEqual(client.get(path).json()['revision'],result.json()['revision'])
+
     def test_rename_folder_order_move_filter_scope_and_receipt(self):
         from vsc.assets.resource_service import ResourceError
         o=self.hierarchy();media=self.media('目录媒资')

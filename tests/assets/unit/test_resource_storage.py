@@ -14,6 +14,16 @@ from vsc.assets.resource_service import ResourceError
 
 
 class StorageTests(unittest.TestCase):
+    def test_lrc_keeps_timestamps_and_utf8_text_in_original_storage(self):
+        content = "[ar:合成验收]\n[00:01.50]第一行\n[00:04.20]第二行\n".encode()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = LocalStorage(directory)
+            upload = storage.stage_upload(BytesIO(content), "歌词.lrc")
+            stored = storage.commit_upload(upload["staged_upload"])
+            self.assertEqual(stored["modality"], "text")
+            self.assertEqual(stored["mime_type"], "text/plain")
+            self.assertEqual(storage.read(stored["object_key"], stored["sha256"]), content)
+
     def test_staging_is_durable_content_addressed_and_retryable(self):
         with tempfile.TemporaryDirectory() as directory:
             storage = LocalStorage(directory)
