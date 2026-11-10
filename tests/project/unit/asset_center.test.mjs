@@ -161,7 +161,7 @@ test('official and shared tabs query their own sources and restore from the URL'
   const root=new Element('main',document),panel=createAssetCenter(root,context([],api));await panel.load();
   assert.ok(root.querySelector('.center-workbench-official'));
   assert.deepEqual(root.querySelector('.center-official-kinds').walk().filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','站位','音频']);
-  assert.match(root.querySelector('.center-official-tags').textContent,/主角医生女青年/);
+  assert.match(root.querySelector('.center-official-tags').textContent,/主角青年女/);
   assert.ok(root.querySelector('.center-cover').querySelector('.center-actions'));
   assert.ok(calls[0].includes('source=official')&&calls[0].includes('media_only=true')&&!calls[0].includes('asset_kind='));
   await button(root,'场景').onclick();
