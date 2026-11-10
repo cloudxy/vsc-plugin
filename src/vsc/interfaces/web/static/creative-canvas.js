@@ -37,7 +37,9 @@ export function createCreativeCanvasPanel(ctx){
   const gridKey=s=>`vsc-canvas-grid:${s.actor}:${s.project}:${s.id}`;
   const notice=(s,text)=>{if(live(s)&&s.status)setText(s.status,text);};
   function button(s,label,fn){const b=el('button',label);b.type='button';b.addEventListener('click',async()=>{try{await fn();}catch(error){notice(s,error.message);}});return b;}
-  function remember(s){if(!s.id)return;const prior=localRead(cacheKey(s));if(!live(s)&&prior?.owner!==s.owner)return;if(s.dirty||s.pending){if(!localWrite(cacheKey(s),{owner:s.owner,document:s.document,title:s.title,version:s.version,revision:s.revision,pending:s.pending,dirty:s.dirty}))notice(s,msg("ui.browser_draft_storage_is_unavailable_keep_this_page_open"));}else localWrite(cacheKey(s),null);}
+  function remember(s){if(!s.id)return;const prior=localRead(cacheKey(s));if(!live(s)&&prior?.owner!==s.owner)return;if(s.dirty||s.pending||s.managementRecovery){if(!localWrite(cacheKey(s),{owner:s.owner,document:s.document,title:s.title,version:s.version,revision:s.revision,pending:s.pending,dirty:s.dirty,managementRecovery:s.managementRecovery||null}))notice(s,msg("ui.browser_draft_storage_is_unavailable_keep_this_page_open"));}else localWrite(cacheKey(s),null);}
+  function managementIdentity(){const value=ctx.session();return JSON.stringify([value.actor??null,value.identityId??null,value.workspaceId??null]);}
+  function pendingManagement(s){if(s.managementRecovery?.identity!==managementIdentity())s.managementRecovery=null;const pending=ctx.libraryPending?.(s.project);if(pending){s.managementRecovery=pending;remember(s);}return pending;}
   function edited(s){if(s.readOnly)return;s.dirty=true;s.saveButton?.setAttribute('data-sync','pending');s.editSeq++;remember(s);clearTimeout(s.syncTimer);notice(s,s.pending?msg("ui.pending_sync_original_save_request_is_unconfirmed"):msg("ui.pending_sync_local_edits_preserved"));if(!s.selectorMutating&&!localRead(browserKey('vsc-canvas-selector',s))&&!s.pending&&!s.syncBlocked&&!s.libraryPending&&!s.gridPending&&!s.projectPending&&!s.projectPreparing)s.syncTimer=setTimeout(()=>{if(live(s)&&!s.saving)save(s);},1000);}
   function checkpoint(s){s.undo.push(copy({document:s.document,title:s.title}));if(s.undo.length>50)s.undo.shift();s.redo=[];}
   function change(s,fn){if(!live(s)||s.readOnly)return;checkpoint(s);fn();edited(s);draw(s);}
@@ -50,7 +52,8 @@ export function createCreativeCanvasPanel(ctx){
     revision(s,result.revision);return result;
   }
   async function save(s){
-    if(s.readOnly)return false;
+    if(s.readOnly||s.managementReading)return false;
+    try{if(pendingManagement(s)||s.managementRecovery){notice(s,msg('canvas.library.recover_before_save'));remember(s);return false;}}catch(error){notice(s,error.message);remember(s);return false;}
     if(s.selectorMutating||localRead(browserKey('vsc-canvas-selector',s))){notice(s,msg("replica.canvas_operation_pending"));return false;}
     if(s.gridPending){notice(s,'宫格切分请求尚未读回，请先恢复原请求；本地修改已保留。');return false;}
     if(s.libraryPending){notice(s,'官方引用请求尚未读回，请先恢复原引用；本地修改已保留。');return false;}
@@ -123,7 +126,7 @@ export function createCreativeCanvasPanel(ctx){
     try{const data=await ctx.api(url(s));if(!live(s))return;
       s.episode=data.episode_id;s.version=data.canvas_revision;s.title=data.title;s.document=cleanDocument(data.document);s.jobs=data.jobs||{};s.runs=data.runs||[];s.steps=data.execution_steps||[];s.preparations=data.preparations||[];revision(s,data.revision);
       const cached=localRead(cacheKey(s));let recovered=false;
-      if(cached?.document){s.document=cached.document;s.title=cached.title;s.version=cached.version;s.pending=cached.pending;s.dirty=true;recovered=true;remember(s);}
+      if(cached?.document){s.document=cached.document;s.title=cached.title;s.version=cached.version;s.pending=cached.pending;s.managementRecovery=cached.managementRecovery?.identity===managementIdentity()?cached.managementRecovery:null;s.dirty=cached.dirty!==false;recovered=true;remember(s);}
       if(new URLSearchParams(location.search).get('marketing')==='1'){
         const brief=s.document.nodes.find(node=>node.id==='marketing-brief'&&node.type==='text');
         if(brief){if(!s.requestedTurn)s.marketingMessage=brief.text;s.selected=new Set(s.document.nodes.filter(node=>node.id==='marketing-brief'||node.id==='marketing-method'||node.id.startsWith('marketing-material-')).map(node=>node.id));}
@@ -133,7 +136,7 @@ export function createCreativeCanvasPanel(ctx){
         if(turn.id!==s.requestedTurn||turn.project_id!==s.project||turn.canvas_id!==s.id||(turn.episode_id||null)!==(s.episode||null)||!turn.session_id)throw new Error('原规划不属于当前画布或剧集，请重读原规划。');
         s.targetTurn=turn;s.agentSession=turn.session_id;s.agentParent=['needs_input','planned','applied'].includes(turn.status)?turn.id:null;revision(s,turn.revision);
       }
-      s.libraryPending=localRead(libraryKey(s));s.gridPending=localRead(gridKey(s));s.projectPending=localRead(projectReferenceKey(s));editor(s);ctx.opened?.(s.id,s.project,s.episode);s.onOpened?.();s.onOpened=null;notice(s,s.gridPending?'宫格切分请求尚未读回，请在恢复菜单中继续原请求。':s.libraryPending?'官方引用请求尚未读回，请在资产面板恢复原引用。':s.projectPending?'项目素材引用尚未读回，请在资产面板恢复原请求。':recovered?msg("ui.local_draft_recovered_based_on_version_value0_server_version",{value0:s.version,value1:data.canvas_revision}):msg("ui.fixed_canvas_version_loaded_from_the_project"));const skill=s.targetTurn?.skill_id||s.requestedSkill;if(skill||s.requestedTurn)await agentPanel(s,skill);return true;
+      s.libraryPending=localRead(libraryKey(s));s.gridPending=localRead(gridKey(s));s.projectPending=localRead(projectReferenceKey(s));editor(s);s.ready=true;ctx.opened?.(s.id,s.project,s.episode);s.onOpened?.();s.onOpened=null;notice(s,s.gridPending?'宫格切分请求尚未读回，请在恢复菜单中继续原请求。':s.libraryPending?'官方引用请求尚未读回，请在资产面板恢复原引用。':s.projectPending?'项目素材引用尚未读回，请在资产面板恢复原请求。':recovered?msg("ui.local_draft_recovered_based_on_version_value0_server_version",{value0:s.version,value1:data.canvas_revision}):msg("ui.fixed_canvas_version_loaded_from_the_project"));const skill=s.targetTurn?.skill_id||s.requestedSkill;if(skill||s.requestedTurn)await agentPanel(s,skill);return true;
     }catch(error){notice(s,error.message);if(live(s))s.root.append(button(s,s.requestedTurn?'重读原规划':msg("ui.retry_opening"),()=>open(s,id)));}
   }
   function cleanDocument(document){return {viewport:document.viewport,nodes:document.nodes.map(({preview_url,...node})=>node),edges:document.edges};}
@@ -166,7 +169,14 @@ export function createCreativeCanvasPanel(ctx){
   function canvasSelector(s,toolbar){
     const selector=el('details',null,'cc-selector'),summary=el('summary',s.title),menu=el('div',null,'cc-selector-menu'),head=el('header'),list=el('div',null,'cc-selector-list'),status=el('p','','cc-selector-status');
     s.selector=selector;s.selectorLabel=summary;bindAttribute(summary,'aria-label',msg('replica.current_canvas'));selector.append(summary,menu);
-    const management=button(s,'⚙',async()=>{if(await save(s)&&live(s))await ctx.openCanvasManagement?.(s.project,s.episode);});bindAttribute(management,'aria-label',msg('replica.canvas_management'));
+    const management=button(s,'⚙',async()=>{
+      if(s.managementReading)return;const pending=pendingManagement(s)||s.managementRecovery;if(!pending&&!await save(s))return;if(s.managementReading||!live(s))return;
+      s.managementReading=true;s.saveButton.disabled=true;
+      try{await ctx.openCanvasManagement?.(s.project,s.episode);if(!live(s))return;if(pendingManagement(s)){notice(s,msg('canvas.library.recover_before_save'));return;}
+        const listing=await ctx.api(`${base(s)}/creative-canvases${s.episode?'?episode_id='+encodeURIComponent(s.episode):''}`);if(!live(s))return;
+        if(listing.items.some(row=>row.id===s.id))await refreshCanvas(s,s.managementRecovery);else await load(s.root,s.project,s.episode);
+      }finally{s.managementReading=false;if(live(s))s.saveButton.disabled=false;}
+    });bindAttribute(management,'aria-label',msg('replica.canvas_management'));
     const add=button(s,'＋',()=>operate('create'));bindAttribute(add,'aria-label',msg('ui.new_canvas'));add.disabled=ctx.session().writable===false;
     head.append(el('strong',msg('nav.canvas')),management,add);const controls=el('div',null,'cc-selector-controls'),search=input(msg('replica.search_canvases')),order=button(s,msg('replica.updated_desc'),()=>{ascending=!ascending;setText(order,msg(ascending?'replica.updated_asc':'replica.updated_desc'));paint();});search.type='search';bindAttribute(search,'placeholder',msg('replica.search_canvases'));controls.append(search,order);
     const tabs=el('nav',null,'cc-selector-tabs');let creator='mine',ascending=false,rows=[],request=0,loaded=false,busy=false;
@@ -566,7 +576,19 @@ export function createCreativeCanvasPanel(ctx){
       if(turn.action_results?.some(a=>a.run_artifact_id))card.append(button(s,msg("ui.query_generation_tasks_and_results"),async()=>{await refreshCanvas(s);notice(s,msg("ui.view_the_original_task_on_its_node_or_continue"));}));box.append(card);}s.agentMessages.append(box);}clearTimeout(s.agentPoll);if(pending)s.agentPoll=setTimeout(()=>refreshAgent(s).catch(e=>notice(s,e.message)),900);}
   async function executeAgent(s,id){notice(s,msg("ui.consuming_the_original_role_task_to_generate_an_action"));s.agentPoll=setTimeout(()=>refreshAgent(s).catch(()=>{}),300);try{const result=await ctx.api(`${base(s)}/creative-canvas-agent-turns/${id}/execute`,{method:'POST',headers:headers()});if(live(s)){if((result.output_version_id||result.action_results?.length)&&!s.dirty&&!s.pending){const data=await ctx.api(url(s));if(live(s)&&!s.dirty&&!s.pending){s.document=cleanDocument(data.document);s.version=data.canvas_revision;s.runs=data.runs||[];s.jobs=data.jobs||{};s.steps=data.execution_steps||[];setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));revision(s,data.revision);draw(s);}}await refreshAgent(s);notice(s,msg("ui.original_planning_task_status_loaded"));}}catch(e){notice(s,msg("ui.value0_query_the_original_task_without_creating_a_duplicate",{value0:e.message}));if(live(s))await refreshAgent(s);}}
   async function decideAgent(s,turn,outcome){if(outcome==='confirm'&&(s.dirty||s.pending))throw new Error('本地有新修改；先保稿并基于新版本重新规划，旧计划不会覆盖它。');const result=await auxiliaryWrite(s,'agent-decision:'+turn.id+':'+outcome+':'+(turn.action_results?.length||0),`${base(s)}/creative-canvas-agent-turns/${turn.id}/decisions`,{outcome,action_index:turn.action_results?.length||0,...(s.agentQuotes?.[turn.id]?{preview_sha256:s.agentQuotes[turn.id]}:{}),reason:{confirm:'用户确认当前可读操作计划',reject:'用户拒绝当前操作计划',stop:'用户停止当前规划任务'}[outcome]});if(!live(s))return;if((result.output_version_id||result.action_results?.length)&&!s.dirty&&!s.pending){const data=await ctx.api(url(s));if(live(s)&&!s.dirty&&!s.pending){s.document=cleanDocument(data.document);s.version=data.canvas_revision;s.runs=data.runs||[];s.jobs=data.jobs||{};s.steps=data.execution_steps||[];setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));revision(s,data.revision);draw(s);}}if(result.run_artifact_id&&turn.mode==='auto_drafts'){await refreshCanvas(s);await executeAgent(s,turn.id);}await refreshAgent(s);notice(s,result.run_artifact_id?msg("ui.original_generation_task_registered_with_the_confirmed_quote_query"):outcome==='confirm'?msg("ui.action_result_saved"):outcome==='reject'?msg("ui.plan_rejected_canvas_preserved"):msg("ui.task_stopped_late_results_will_not_be_written_to"));}
-  async function refreshCanvas(s){const data=await ctx.api(url(s));if(!live(s))return;revision(s,data.revision);s.steps=data.execution_steps||[];s.runs=data.runs||[];s.jobs=data.jobs||{};if(!s.dirty&&!s.pending){s.document=cleanDocument(data.document);s.version=data.canvas_revision;setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));}draw(s);}
+  async function refreshCanvas(s,management=null){
+    const data=await ctx.api(url(s));if(!live(s))return;revision(s,data.revision);s.steps=data.execution_steps||[];s.runs=data.runs||[];s.jobs=data.jobs||{};
+    const remote=cleanDocument(data.document),rename=management?.action==='rename'&&management.row?.id===s.id;
+    const sameBase=rename&&management.request?.body?.payload?.document&&JSON.stringify(remote)===JSON.stringify(cleanDocument(management.request.body.payload.document));
+    if(!s.dirty&&!s.pending){s.document=remote;s.version=data.canvas_revision;s.title=data.title;s.managementRecovery=null;}
+    else if(management&&!s.pending&&(data.canvas_revision===s.version||sameBase)){
+      if(rename&&s.title===management.row.title)s.title=data.title;
+      s.version=data.canvas_revision;s.managementRecovery=null;s.syncBlocked=false;
+    }
+    if(management)notice(s,msg(s.managementRecovery?'canvas.library.changed_during_recovery':s.dirty?'ui.pending_sync_local_edits_preserved':'ui.saved_to_project'));
+    if(s.selectorLabel)setText(s.selectorLabel,s.title);const field=[...s.root.querySelectorAll('input')].find(n=>n.getAttribute('aria-label')===String(msg('ui.canvas_name')));if(field)field.value=s.title;
+    setText(s.versionLabel,msg('ui.saved_version_value0',{value0:s.version}));remember(s);draw(s);
+  }
   function navigate(s,page,target=null,extra={}){const path=new URL(location.href);path.search='';path.searchParams.set('page',page);path.searchParams.set('project',s.project);if(s.episode)path.searchParams.set('episode',s.episode);if(target)path.searchParams.set('task_target',target);for(const [k,v]of Object.entries(extra))if(v)path.searchParams.set(k,v);location.assign(path.href);}
   async function domainForm(s,type,source=null){
     if(!await save(s)||!live(s))return;const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);if(!live(s))return;revision(s,options.revision);const box=sidePanel(s,'cc-elements',msg("ui.add_value0",{value0:TYPES[type].label})),episode=input(msg("ui.owning_episode"),'','select'),scene=input(msg("ui.owning_scene"),'','select');episode.append(localizedOption('',msg("ui.canvas_episode_standalone_previs")));for(const n of options.nodes.filter(n=>n.kind==='episode'))episode.append(localizedOption(n.id,n.title||n.display_code));episode.value=s.episode||'';for(const n of options.nodes.filter(n=>n.kind==='scene'))scene.append(localizedOption(n.id,n.title||n.display_code));box.append(episode);if(type==='director')box.append(scene);
@@ -601,5 +623,5 @@ export function createCreativeCanvasPanel(ctx){
 
   function suspend(){if(active){remember(active);active.selector?.remove();closeAssetSurface(active);active.panorama?.controller?.dispose();clearTimeout(active.syncTimer);for(const control of active.runScopes||[])control.dispose();clearTimeout(active.agentPoll);for(const upload of active.uploads||[])upload.suspend();active.root?.querySelectorAll('video,audio').forEach(m=>m.pause());active.root?.querySelectorAll('dialog').forEach(d=>d.close());}epoch++;active=null;}
   window.addEventListener('beforeunload',event=>{if(active?.dirty||active?.pending){remember(active);event.preventDefault();event.returnValue='';}});
-  return {load,loadShared,async beforeContextSwitch(){const s=active;if(!s?.id||(!s.dirty&&!s.pending))return {ready:true};if(await save(s))return {ready:true};remember(s);const cached=localRead(cacheKey(s));return {ready:JSON.stringify(cached?.document)===JSON.stringify(s.document)&&cached?.title===s.title,message:'未同步的画布已保留在原范围；返回后可恢复。'};},suspend};
+  return {load,loadShared,isOpen:(project,id)=>Boolean(active&&live(active)&&active.ready&&active.project===project&&active.id===id),async beforeContextSwitch(){const s=active;if(!s?.id||(!s.dirty&&!s.pending))return {ready:true};if(await save(s))return {ready:true};remember(s);const cached=localRead(cacheKey(s));return {ready:JSON.stringify(cached?.document)===JSON.stringify(s.document)&&cached?.title===s.title,message:'未同步的画布已保留在原范围；返回后可恢复。'};},suspend};
 }

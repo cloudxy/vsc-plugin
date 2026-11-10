@@ -2153,6 +2153,29 @@
         "src/vsc/assets/marketing_studio.py",
         "src/vsc/interfaces/web/marketing_studio.py"
       ]
+    },
+    "project.integration.test_canvas_library": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/canvas_library.py",
+        "src/vsc/adapters/persistence/postgres/access_control.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/interfaces/web/app.py"
+      ]
+    },
+    "project.unit.test_canvas_library_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-library.js",
+        "src/vsc/interfaces/web/static/canvas-library.css",
+        "src/vsc/interfaces/web/static/production-platform.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_library.test.mjs"
+      ]
     }
   },
   "dependencies": {

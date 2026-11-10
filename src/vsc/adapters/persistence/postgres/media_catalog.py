@@ -9,7 +9,6 @@ from sqlalchemy import and_, case, cast, distinct, exists, false, func, literal,
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import Text
 
-from vsc.assets.access_control import CAPABILITIES, denied
 from vsc.assets.resource_service import ResourceError
 from . import schema as S
 from .access_control import authority_lock
@@ -25,40 +24,7 @@ class ProjectMediaCatalog:
         self.store, self.configuration = store, configuration
 
     def _readable_projects(self, conn):
-        principal, person, share = self.store._access_principal(conn)
-        projects, bindings = S.projects, S.access_projects
-        query = select(projects.c.id)
-        if principal is None:
-            return query
-        if principal.api_key_id:
-            denied('项目媒资目录不接受开放接口凭据')
-        if not person:
-            if principal.local_read and not share:
-                return query.where(~exists(select(1).where(bindings.c.project_id == projects.c.id)))
-            return query.where(false())
-        roles = [role for role, capabilities in CAPABILITIES.items() if 'read' in capabilities]
-        workspaces, members, project_members = S.access_workspaces, S.access_workspace_members, S.access_project_members
-        # Exactly the existing _workspace_roles rule: any direct role, ancestor
-        # owners only. UNION (not UNION ALL) also bounds malformed cycles.
-        ancestry = select(workspaces.c.id.label('workspace_id'), workspaces.c.id.label('ancestor_id')).cte('media_workspace_ancestry', recursive=True)
-        ancestry = ancestry.union(select(ancestry.c.workspace_id, workspaces.c.parent_id)
-            .join(workspaces, workspaces.c.id == ancestry.c.ancestor_id).where(workspaces.c.parent_id.is_not(None)))
-        workspace_grant = exists(select(1).select_from(ancestry.join(members, members.c.workspace_id == ancestry.c.ancestor_id))
-            .where(ancestry.c.workspace_id == bindings.c.workspace_id, members.c.identity_id == person['id'],
-                members.c.active.is_(True), or_(and_(ancestry.c.ancestor_id == ancestry.c.workspace_id,
-                    members.c.role.in_(roles)), members.c.role == 'owner')))
-        bound_grant = exists(select(1).where(bindings.c.project_id == projects.c.id, workspace_grant))
-        # Keep a direct project's membership check at the same nesting level as
-        # projects.  If it is nested inside bound_grant SQLAlchemy includes a
-        # second, uncorrelated projects table, turning one grant into access to
-        # every bound project.  The join also preserves _access_require's rule
-        # that project membership only applies to a project with a binding.
-        project_grant = exists(select(1).select_from(project_members.join(bindings,
-            bindings.c.project_id == project_members.c.project_id)).where(project_members.c.project_id == projects.c.id,
-            project_members.c.identity_id == person['id'], project_members.c.active.is_(True), project_members.c.role.in_(roles)))
-        unassigned = and_(literal(bool(principal.local and person['subject_key'].startswith('local:'))),
-            ~exists(select(1).where(bindings.c.project_id == projects.c.id)))
-        return query.where(or_(bound_grant, project_grant, unassigned))
+        return self.store._access_project_query(conn, 'read')
 
     @staticmethod
     def _references(allowed):

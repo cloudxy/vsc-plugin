@@ -26,7 +26,7 @@ class Element {
  focus(){this.ownerDocument.activeElement=this;}scrollIntoView(){}showModal(){this.open=true;}close(){this.open=false;return this.fire('close');}
  get selectedOptions(){return this.options.filter(node=>node.selected||node.value===this.value&&!this.multiple);}
 }
-async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null,projects=null,denyProjectStorage=false,store=new Map(),actor='test',search=''}={}) {
+async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOverride=null,projects=null,denyProjectStorage=false,store=new Map(),actor='test',search='',openCanvasManagement=null,libraryPending=null}={}) {
   const document={createElement:t=>{const n=new Element(t);n.ownerDocument=document;if(t==='canvas')n.getContext=()=>({drawImage(){},getImageData(){return {data:new Uint8ClampedArray(32)};}});return n;},createElementNS:(ns,t)=>{const n=document.createElement(t);n.namespaceURI=ns;return n;},createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;},documentElement:{}};
   const images=[];class FakeImage{constructor(){images.push(this);}}
   const sessionStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{if(denyProjectStorage&&k.startsWith('vsc-canvas-project-node:'))throw Error('storage disabled');store.set(k,v);},removeItem:k=>store.delete(k)};
@@ -35,6 +35,8 @@ async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOv
   const root=document.createElement('main');
   const session={actor,csrf:'test',revision:1,writable:true};
   const ctx={session:()=>session,setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:path.endsWith('/creative-canvas-agent-options')?{revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[],nodes:[]}:{items:[],revision:1};}};
+  if(openCanvasManagement)ctx.openCanvasManagement=openCanvasManagement;
+  if(libraryPending)ctx.libraryPending=libraryPending;
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');
   return {root,canvas,store,images,document,window,FakeImage,session,location,timeouts,stage:root.querySelector('.cc-stage'),menu:root.querySelector('.cc-create-menu')};
 }
@@ -599,4 +601,78 @@ test('canvas selector title follows a normal save from the original name field',
  let saved;const a=await fixture({apiOverride:async(path,options)=>{if(options?.method==='PUT'){saved=JSON.parse(options.body).payload.title;return {revision:2,canvas_revision:2};}}});
  const field=a.root.querySelectorAll('input').find(n=>n.attrs['aria-label']==='画布名称');field.value='Name via original field';await field.fire('change');await a.root.querySelector('.cc-save').fire('click');
  assert.equal(saved,'Name via original field');assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,saved);a.canvas.suspend();
+});
+
+test('closing management refreshes the renamed canvas version before the next save',async()=>{
+ let managed=false,saved,finish;const closed=new Promise(resolve=>{finish=resolve;});
+ const a=await fixture({openCanvasManagement:async()=>{await closed;managed=true;},apiOverride:async(path,options)=>{
+  if(options?.method==='PUT'){saved=JSON.parse(options.body);return {revision:4,canvas_revision:3};}
+  if(path.endsWith('/creative-canvases'))return {items:[{id:'c1'}],revision:3};
+  if(managed&&path.endsWith('/creative-canvases/c1'))return {revision:3,canvas_revision:2,title:'Library rename',document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]}};
+ }});
+ assert.equal(a.canvas.isOpen('p1','c1'),true);assert.equal(a.canvas.isOpen('p2','c1'),false);
+ const opening=a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理').fire('click');
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'Test');finish();await opening;
+ assert.equal(a.root.querySelector('.cc-selector').children[0].textContent,'Library rename');
+ const field=a.root.querySelectorAll('input').find(n=>n.attrs['aria-label']==='画布名称');assert.equal(field.value,'Library rename');field.value='Next edit';await field.fire('change');await a.root.querySelector('.cc-save').fire('click');
+ assert.equal(saved.payload.canvas_revision,2);assert.equal(saved.payload.title,'Next edit');a.canvas.suspend();assert.equal(a.canvas.isOpen('p1','c1'),false);
+});
+
+test('closing management after recycling the current canvas returns to its list',async()=>{
+ const a=await fixture({openCanvasManagement:async()=>{},apiOverride:async path=>path.endsWith('/creative-canvases')?{items:[],revision:2}:undefined});
+ await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理').fire('click');
+ assert.equal(a.canvas.isOpen('p1','c1'),false);assert.equal(a.root.querySelector('.cc-stage'),null);a.canvas.suspend();
+});
+
+test('a failed canvas detail cannot satisfy a successful navigation check',async()=>{
+ const a=await fixture({apiOverride:async path=>{if(path.endsWith('/creative-canvases/c1'))throw Error('detail unavailable');}});
+ assert.equal(a.canvas.isOpen('p1','c1'),false);a.canvas.suspend();
+});
+
+for(const laterTitle of [null,'Later local title'])test('unconfirmed library rename can recover before saving the retained local draft'+(laterTitle?' and title':''),async()=>{
+ const empty=()=>({viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]});let pending=null,committed=false,opens=0,saved;
+ const a=await fixture({libraryPending:()=>pending,openCanvasManagement:async()=>{opens++;if(opens===1)pending={identity:JSON.stringify(['test',null,null]),action:'rename',project:'p1',row:{id:'c1',title:'Test'},request:{body:{payload:{title:'Library title',document:empty()}}}};else pending=null;},apiOverride:async(path,options)=>{
+  if(options?.method==='PUT'){saved=JSON.parse(options.body);return {revision:3,canvas_revision:3};}
+  if(path.endsWith('/creative-canvases'))return {items:[{id:'c1'}],revision:committed?2:1};
+  if(committed&&path.endsWith('/creative-canvases/c1'))return {revision:2,canvas_revision:2,title:'Library title',document:empty()};
+ }});
+ const manage=()=>a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理');await manage().fire('click');committed=true;
+ await addImage(a.menu);if(laterTitle){const field=a.root.querySelectorAll('input').find(n=>n.attrs['aria-label']==='画布名称');field.value=laterTitle;await field.fire('change');}
+ await a.root.querySelector('.cc-save').fire('click');assert.equal(saved,undefined);assert.equal(JSON.parse(a.store.get(canvasDraftKey())).pending,null);
+ // Reloading the component must preserve the draft and its management receipt.
+ await a.canvas.load(a.root,'p1',null,'c1');await manage().fire('click');assert.equal(opens,2);assert.equal(a.root.querySelectorAll('.cc-node').length,1);
+ await a.root.querySelector('.cc-save').fire('click');assert.equal(saved.payload.canvas_revision,2);assert.equal(saved.expected_revision,2);assert.equal(saved.payload.title,laterTitle||'Library title');assert.equal(saved.payload.document.nodes.length,1);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
+});
+
+test('an unrelated server document cannot be silently rebased during library recovery',async()=>{
+ const empty=()=>({viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]});let pending=null,committed=false,opens=0,saves=0;
+ const a=await fixture({libraryPending:()=>pending,openCanvasManagement:async()=>{if(++opens===1)pending={identity:JSON.stringify(['test',null,null]),action:'rename',project:'p1',row:{id:'c1',title:'Test'},request:{body:{payload:{document:empty()}}}};else pending=null;},apiOverride:async(path,options)=>{
+  if(options?.method==='PUT'){saves++;throw Error('must not submit');}
+  if(path.endsWith('/creative-canvases'))return {items:[{id:'c1'}],revision:3};
+  if(committed&&path.endsWith('/creative-canvases/c1'))return {revision:3,canvas_revision:3,title:'Remote edit',document:{...empty(),nodes:[{id:'remote',type:'text',x:1,y:1,title:'Remote',text:'Another edit',params:{}}]}};
+ }});
+ const manage=()=>a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理');await manage().fire('click');await addImage(a.menu);committed=true;await manage().fire('click');await a.root.querySelector('.cc-save').fire('click');assert.equal(saves,0);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.ok(JSON.parse(a.store.get(canvasDraftKey())).managementRecovery);a.canvas.suspend();
+});
+
+test('library copy in the same project refreshes the project revision before retaining edits',async()=>{
+ let pending=null,opens=0,saved;
+ const a=await fixture({libraryPending:()=>pending,openCanvasManagement:async()=>{if(++opens===1)pending={identity:JSON.stringify(['test',null,null]),action:'copy',project:'p1',row:{id:'other'}};else pending=null;},apiOverride:async(path,options)=>{
+  if(options?.method==='PUT'){saved=JSON.parse(options.body);return {revision:4,canvas_revision:2};}
+  if(opens===2&&path.endsWith('/creative-canvases/c1'))return {revision:3,canvas_revision:1,title:'Test',document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]}};
+  if(path.endsWith('/creative-canvases'))return {items:[{id:'c1'}],revision:3};
+ }});
+ const manage=()=>a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理');await manage().fire('click');await addImage(a.menu);await a.root.querySelector('.cc-save').fire('click');assert.equal(saved,undefined);await manage().fire('click');await a.root.querySelector('.cc-save').fire('click');assert.equal(saved.expected_revision,3);assert.equal(saved.payload.canvas_revision,1);assert.equal(saved.payload.document.nodes.length,1);a.canvas.suspend();
+});
+
+test('a cached management receipt from another workspace does not block this workspace',async()=>{
+ const store=new Map(),key=canvasDraftKey();store.set(key,JSON.stringify({title:'Local title',version:1,dirty:true,pending:null,document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]},managementRecovery:{identity:JSON.stringify(['test','old-identity','old-workspace']),project:'p1',action:'rename'}}));let saved;
+ const a=await fixture({store,libraryPending:()=>null,apiOverride:async(path,options)=>{if(options?.method==='PUT'){saved=JSON.parse(options.body);return {revision:2,canvas_revision:2};}}});
+ await a.root.querySelector('.cc-save').fire('click');assert.equal(saved.payload.title,'Local title');assert.equal(store.has(key),false);a.canvas.suspend();
+});
+
+test('rapid management clicks cannot open competing dialogs after awaiting save',async()=>{
+ let opens=0,finish;const closing=new Promise(resolve=>finish=resolve);
+ const a=await fixture({openCanvasManagement:async()=>{opens++;await closing;},apiOverride:async path=>path.endsWith('/creative-canvases')?{items:[{id:'c1'}],revision:1}:undefined});
+ const manage=a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理'),first=manage.fire('click'),second=manage.fire('click');
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(opens,1);assert.equal(a.root.querySelector('.cc-save').disabled,true);finish();await Promise.all([first,second]);assert.equal(a.root.querySelector('.cc-save').disabled,false);a.canvas.suspend();
 });

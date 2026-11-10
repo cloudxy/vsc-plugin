@@ -3,6 +3,25 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 
+def install_canvas_library_routes(app, catalog, etag):
+    def service():
+        if catalog.service is None:
+            raise HTTPException(409, '画布库需要已连接的 PostgreSQL 权威')
+        return catalog.service
+
+    @app.get('/api/v1/canvas-library/options')
+    def options(request: Request):
+        return etag(request, service().canvas_library_options())
+
+    @app.get('/api/v1/canvas-library')
+    def library(request: Request, project_id: str = None, episode_id: str = None,
+                creator_filter: str = 'mine', creator_id: str = None, permission: str = 'all',
+                order: str = 'updated_desc', query: str = '', offset: int = 0, limit: int = 30):
+        return etag(request, service().list_canvas_library(project_id=project_id, episode_id=episode_id,
+            creator_filter=creator_filter, creator_id=creator_id, permission=permission,
+            order=order, query=query, offset=offset, limit=limit))
+
+
 def install_creative_canvas_routes(router, catalog, etag, actor):
     def service(project_id):
         if catalog._reader(project_id) is not None or catalog.service is None:
