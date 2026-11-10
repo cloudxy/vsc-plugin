@@ -171,11 +171,11 @@ export function createCreativeCanvasPanel(ctx){
     s.selector=selector;s.selectorLabel=summary;bindAttribute(summary,'aria-label',msg('replica.current_canvas'));selector.append(summary,menu);
     const management=button(s,'⚙',async()=>{
       if(s.managementReading)return;const pending=pendingManagement(s)||s.managementRecovery;if(!pending&&!await save(s))return;if(s.managementReading||!live(s))return;
-      s.managementReading=true;s.saveButton.disabled=true;
+      s.managementReading=true;s.saveButton.disabled=true;management.disabled=true;
       try{await ctx.openCanvasManagement?.(s.project,s.episode);if(!live(s))return;if(pendingManagement(s)){notice(s,msg('canvas.library.recover_before_save'));return;}
         const listing=await ctx.api(`${base(s)}/creative-canvases${s.episode?'?episode_id='+encodeURIComponent(s.episode):''}`);if(!live(s))return;
         if(listing.items.some(row=>row.id===s.id))await refreshCanvas(s,s.managementRecovery);else await load(s.root,s.project,s.episode);
-      }finally{s.managementReading=false;if(live(s))s.saveButton.disabled=false;}
+      }finally{s.managementReading=false;if(live(s)){s.saveButton.disabled=false;management.disabled=false;}}
     });bindAttribute(management,'aria-label',msg('replica.canvas_management'));
     const add=button(s,'＋',()=>operate('create'));bindAttribute(add,'aria-label',msg('ui.new_canvas'));add.disabled=ctx.session().writable===false;
     head.append(el('strong',msg('nav.canvas')),management,add);const controls=el('div',null,'cc-selector-controls'),search=input(msg('replica.search_canvases')),order=button(s,msg('replica.updated_desc'),()=>{ascending=!ascending;setText(order,msg(ascending?'replica.updated_asc':'replica.updated_desc'));paint();});search.type='search';bindAttribute(search,'placeholder',msg('replica.search_canvases'));controls.append(search,order);
