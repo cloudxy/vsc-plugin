@@ -674,5 +674,5 @@ test('rapid management clicks cannot open competing dialogs after awaiting save'
  let opens=0,finish;const closing=new Promise(resolve=>finish=resolve);
  const a=await fixture({openCanvasManagement:async()=>{opens++;await closing;},apiOverride:async path=>path.endsWith('/creative-canvases')?{items:[{id:'c1'}],revision:1}:undefined});
  const manage=a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理'),first=manage.fire('click'),second=manage.fire('click');
- await new Promise(resolve=>setImmediate(resolve));assert.equal(opens,1);assert.equal(a.root.querySelector('.cc-save').disabled,true);finish();await Promise.all([first,second]);assert.equal(a.root.querySelector('.cc-save').disabled,false);a.canvas.suspend();
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(opens,1);assert.equal(manage.disabled,true);assert.equal(a.root.querySelector('.cc-save').disabled,true);finish();await Promise.all([first,second]);assert.equal(manage.disabled,false);assert.equal(a.root.querySelector('.cc-save').disabled,false);a.canvas.suspend();
 });
