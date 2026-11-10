@@ -14,14 +14,14 @@ const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const tick=async()=>{for(let n=0;n<8;n++)await Promise.resolve();};
 const emptyDiscovery=()=>({recent:[],skills:[],templates:[],tutorials:[],projects:[]});
 
-function setup({storage=new Map(),api,refresh,navigate}={}){
+function setup({storage=new Map(),api,refresh,navigate,projects=[],createEmptyCanvasProject}={}){
   const document=new Document(''),root=document.createElement('section');document.body.append(root);
   globalThis.document=document;if(!globalThis.crypto)Object.defineProperty(globalThis,'crypto',{value:webcrypto});
   globalThis.Option=function(title,value){const n=document.createElement('option');n.textContent=title;n.value=value;return n;};
   globalThis.sessionStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
   const calls=[],routes=[],notices=[];let refreshes=0;
   const session={actor:'human',csrf:'csrf',revision:0,writable:true,writeAvailable:true};
-  const ctx={session:()=>session,projects:()=>[],projectName:()=>'',setRevision(){},notice:value=>notices.push(String(value)),
+  const ctx={session:()=>session,projects:()=>projects,createEmptyCanvasProject,projectName:()=>'',setRevision(){},notice:value=>notices.push(String(value)),
     refreshProjects:async(options)=>{refreshes++;await refresh?.(options);},
     navigate:async(...args)=>{routes.push(args);await navigate?.(...args);},
     api:async(url,options={})=>{const body=typeof options.body==='string'?JSON.parse(options.body):options.body||null;const call={url,options,body};calls.push(call);if(api)return api(call);if(url==='/api/v1/discovery')return emptyDiscovery();return url.includes('episode-batches')?{revision:2}:{id:'p-created',revision:1};}};
@@ -209,7 +209,7 @@ async function shellRefreshFixture(){
     api:async path=>{calls.push(path);return response.promise;},$:()=>({}),notice(){},
     createProductionPlatform:(_root,ctx)=>{injected=ctx;return {load:async()=>{}};},
     currentEntry:()=>new URLSearchParams(),renderRecentProjects:rows=>recent.push(rows),
-    setEntryOptions(){},loadProjects(){},selectProject(){},openMedia(){},switchView(){},openArtifact(){},openResourceSettings(){},openRoleMemory(){}};
+    createEmptyCanvasProject(){},setEntryOptions(){},loadProjects(){},selectProject(){},openMedia(){},switchView(){},openArtifact(){},openResourceSettings(){},openRoleMemory(){}};
   vm.runInNewContext(functionSource+';globalThis.load=loadProductionPlatform;',context);
   await context.load();return {state,response,recent,calls,refresh:injected.refreshProjects};
 }
@@ -231,4 +231,106 @@ test('the shell does not start a directory request for an already stale caller',
 test('the current actor directory still refreshes state and sidebar without optional arguments',async()=>{
   const h=await shellRefreshFixture();const pending=h.refresh();h.response.resolve({items:[{id:'current'}]});await pending;
   assert.equal(h.state.projectRows.has('kept'),false);assert.equal(h.state.projectRows.has('current'),true);assert.equal(h.recent.length,1);
+});
+
+const homeProject=id=>({id,name:id,storage_policy:'postgres-series-v1',profile:'vsc.light-short'});
+const homeTool=(h,index)=>h.root.querySelectorAll('.home-tool')[index];
+const homeCanvas=h=>h.root.querySelector('.home-canvas-card');
+const episodePage=(items,next_offset=null)=>({revision:4,episodes:{items,total:items.length,next_offset}});
+
+test('home video, storyboard, Agent and canvas enter the same recent project and episode without a selector',async()=>{
+  for(const [index,page,kind]of [[0,'classic-production','video'],[1,'classic-production','image'],[3,'intelligent-creation',null],[-1,'creative-canvas',null]]){
+    const h=setup({projects:[homeProject('p-first'),homeProject('p-recent')],api:async({url})=>{
+      if(url==='/api/v1/discovery')return {...emptyDiscovery(),recent:[{project_id:'missing',episode_id:'old'},{project_id:'p-recent',episode_id:'ep-late',kind:'canvas',target_id:'original-canvas'}]};
+      if(url.includes('/p-recent/production-platform?offset=0'))return episodePage([{id:'ep-first'}],100);
+      if(url.includes('/p-recent/production-platform?offset=100'))return episodePage([{id:'ep-late'}]);
+      if(url.endsWith('/creative-canvases?episode_id=ep-late'))return {revision:4,items:[{id:'other-canvas'},{id:'original-canvas'}]};
+      throw new Error('Unexpected '+url);
+    }});
+    await h.platform.load({page:'home'});await (index<0?homeCanvas(h):homeTool(h,index)).click();
+    assert.deepEqual(h.routes,[[page,null,'p-recent',{...(kind?{kind}:{}),episode:'ep-late',...(index<0?{task_target:'original-canvas'}:{})}]]);
+    assert.equal(h.root.querySelector('dialog'),null);assert.equal(h.posts().length,0);assert.equal(h.refreshes,1);
+  }
+});
+
+test('home falls back to the first eligible project and episode and ignores tool workspaces',async()=>{
+  const h=setup({projects:[{...homeProject('tools'),profile:'vsc.text-tools'},homeProject('p-first')],api:async({url})=>url==='/api/v1/discovery'?{...emptyDiscovery(),recent:[{project_id:'tools',episode_id:'tool-ep'}]}:episodePage([{id:'first'},{id:'second'}])});
+  await h.platform.load({page:'home'});await homeTool(h,0).click();assert.deepEqual(h.routes,[['classic-production',null,'p-first',{kind:'video',episode:'first'}]]);
+  const second=setup({projects:[homeProject('p')],api:async({url})=>url==='/api/v1/discovery'?{...emptyDiscovery(),recent:[{project_id:'p',episode_id:'deleted'}]}:episodePage([{id:'remaining'}])});
+  await second.platform.load({page:'home'});await homeTool(second,1).click();assert.equal(second.routes[0][3].episode,'remaining');
+});
+
+test('project, discovery and episode failures never become an empty-project creation path',async()=>{
+  for(const failure of ['projects','discovery','episodes','no-episode']){
+    let started=false;const h=setup({projects:[homeProject('p')],refresh:async()=>{started=true;if(failure==='projects')throw new Error('project read failed');},api:async({url})=>{
+      if(url==='/api/v1/discovery'){if(started&&failure==='discovery')throw new Error('recent read failed');return emptyDiscovery();}
+      if(failure==='episodes')throw new Error('episode read failed');return episodePage([]);
+    }});
+    await h.platform.load({page:'home'});await homeTool(h,0).click();assert.equal(h.routes.length,0);assert.equal(h.posts().length,0);assert.equal(h.root.querySelector('dialog'),null);assert.equal(h.notices.length,1);assert.equal(homeTool(h,0).disabled,false);
+  }
+});
+
+test('empty home entries open the original creation form while the canvas uses its direct creation consumer',async()=>{
+  let quick=0;const h=setup({createEmptyCanvasProject:async({isCurrent})=>{assert.ok(isCurrent());quick++;}});
+  await h.platform.load({page:'home'});await homeCanvas(h).click();assert.equal(quick,1);assert.equal(h.root.querySelector('dialog'),null);
+  await homeTool(h,0).click();assert.ok(h.root.querySelector('.project-create-dialog'));assert.equal(h.root.querySelectorAll('dialog').length,1);assert.equal(h.posts().length,0);
+  await h.root.querySelector('dialog').close();h.session.writeAvailable=false;await homeTool(h,3).click();assert.equal(h.root.querySelector('dialog'),null);assert.equal(h.notices.length,1);
+});
+
+test('home creation keeps the selected entry and first episode through the original project form',async()=>{
+  const h=setup({api:async({url})=>url==='/api/v1/discovery'?emptyDiscovery():url.includes('production-platform?')?episodePage([{id:'new-first'}]):url.includes('episode-batches')?{revision:2}:{id:'p-created',revision:1}});
+  await h.platform.load({page:'home'});await homeTool(h,1).click();const dialog=h.root.querySelector('dialog');fill(dialog);await submit(dialog);
+  assert.deepEqual(h.routes,[['classic-production',null,'p-created',{kind:'image',episode:'new-first'}]]);assert.equal(h.posts().length,2);
+});
+
+test('rapid home clicks share one entry operation and old identity or view responses cannot navigate',async()=>{
+  for(const change of ['none','actor','identity','workspace','view']){
+    const pause=deferred();let started=false;const h=setup({projects:[homeProject('p')],refresh:async()=>{started=true;await pause.promise;},api:async({url})=>url==='/api/v1/discovery'?emptyDiscovery():episodePage([{id:'ep'}])});
+    await h.platform.load({page:'home'});const click=homeTool(h,0).click();await tick();assert.ok(started);await homeTool(h,1).click();assert.equal(h.refreshes,1);
+    if(change==='actor')h.session.actor='other';if(change==='identity')h.session.identityId='other';if(change==='workspace')h.session.workspaceId='other';if(change==='view')await h.platform.load({page:'tasks'});
+    pause.resolve();await click;assert.equal(h.routes.length,change==='none'?1:0,change);assert.deepEqual(h.notices,[],change);assert.equal(h.posts().length,0,change);
+  }
+});
+
+test('a missing episode canvas is created in that project once and a lost response replays the same body',async()=>{
+  const bodies=[];let lost=true;const h=setup({projects:[homeProject('p')],api:async({url,options,body})=>{
+    if(url==='/api/v1/discovery')return emptyDiscovery();if(url.includes('production-platform?'))return episodePage([{id:'ep'}]);
+    if(options.method==='POST'){bodies.push(body);if(lost){lost=false;throw new Error('lost canvas response');}return {id:'canvas',revision:5};}
+    if(url.includes('creative-canvases?'))return {revision:4,items:[]};throw new Error('Unexpected '+url);
+  }});
+  await h.platform.load({page:'home'});await homeCanvas(h).click();assert.equal(h.routes.length,0);assert.equal(h.posts().length,1);
+  await homeCanvas(h).click();assert.deepEqual(bodies[0],bodies[1]);assert.deepEqual(bodies[0].payload,{episode_id:'ep',title:'未命名画布',document:{nodes:[],edges:[]}});
+  assert.deepEqual(h.routes,[['creative-canvas',null,'p',{episode:'ep',task_target:'canvas'}]]);assert.equal(h.storage.size,0);assert.ok(h.posts().every(call=>call.url==='/api/v1/projects/p/creative-canvases'));
+});
+
+function shellQuickCanvasFixture({api,load}={}){
+  const source=readFileSync(new URL('../../../src/vsc/interfaces/web/static/panel.js',import.meta.url),'utf8');
+  const start=source.indexOf('let emptyCanvasOpening=null;'),end=source.indexOf("$('new-canvas-project')?.addEventListener",start);
+  assert.ok(start>=0&&end>start);const storage=new Map(),calls=[],entries=[],button={disabled:false};let loads=0;
+  const state={actor:'actor',identityId:'identity',workspaceId:'workspace',writeAvailable:true,csrf:'csrf',view:'home',project:null};
+  const context={state,episodeScope:null,crypto:webcrypto,$:()=>button,sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
+    api:async(url,options)=>{const call={url,body:JSON.parse(options.body),headers:options.headers};calls.push(call);return api?api(call):{project_id:'new-project',episode_id:'first',canvas_id:'new-canvas'};},
+    setEntryOptions:(...args)=>entries.push(args),loadProjects:async()=>{loads++;await load?.();}};
+  vm.runInNewContext(source.slice(start,end)+';globalThis.create=createEmptyCanvasProject;',context);
+  return {state,storage,calls,entries,button,create:context.create,get loads(){return loads;}};
+}
+
+test('home and sidebar share the original quick-canvas request and keep its receipt until opening succeeds',async()=>{
+  let lost=true,failOpen=true;const h=shellQuickCanvasFixture({api:async()=>{if(lost){lost=false;throw new Error('lost quick response');}return {project_id:'new-project',episode_id:'first',canvas_id:'new-canvas'};},load:async()=>{if(failOpen){failOpen=false;throw new Error('opening failed');}}});
+  await assert.rejects(h.create(),/lost quick response/);assert.equal(h.storage.size,1);assert.equal(h.button.disabled,false);
+  await assert.rejects(h.create(),/opening failed/);assert.equal(h.storage.size,1);
+  await h.create();assert.equal(h.storage.size,0);assert.equal(h.loads,2);assert.equal(h.calls.length,3);
+  assert.ok(h.calls.every(call=>call.url==='/api/v1/projects/empty-canvas'&&call.headers['X-CSRF-Token']==='csrf'));
+  assert.deepEqual(h.calls.map(call=>call.body),[h.calls[0].body,h.calls[0].body,h.calls[0].body]);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.entries.at(-1))),['creative-canvas','new-project',null,{episode:'first',task_target:'new-canvas'}]);
+});
+
+test('quick canvas ignores duplicate clicks and cannot adopt a late receipt after identity, workspace or page changes',async()=>{
+  for(const change of ['none','actor','identity','workspace','view']){
+    const pause=deferred(),h=shellQuickCanvasFixture({api:()=>pause.promise});let active=true;
+    const pending=h.create({isCurrent:()=>active});await h.create();assert.equal(h.calls.length,1);assert.equal(h.button.disabled,true);
+    if(change==='actor')h.state.actor='other';if(change==='identity')h.state.identityId='other';if(change==='workspace')h.state.workspaceId='other';if(change==='view')active=false;
+    pause.resolve({project_id:'new-project',episode_id:'first',canvas_id:'new-canvas'});await pending;
+    assert.equal(h.loads,change==='none'?1:0,change);assert.equal(h.entries.length,change==='none'?1:0,change);assert.equal(h.storage.size,change==='none'?0:1,change);assert.equal(h.button.disabled,false);
+  }
 });

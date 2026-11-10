@@ -1,4 +1,4 @@
-"""Project creation recovery and local home-discovery failures over the real UI module."""
+"""Project creation, default home entries and recovery over the real UI modules."""
 from pathlib import Path
 import shutil
 import subprocess

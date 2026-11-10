@@ -11,7 +11,7 @@ const uid=()=>crypto.randomUUID();
 export const quickViews=[['script','制作方案'],['assets','资产准备'],['production','镜头制作'],['editing','成片修补'],['delivery','交付']];
 export function createProductionPlatform(root,ctx){
   let ticket=0,scope=null,data=null,offset=0,busy=false,poll=null,assetCards=null;
-  const drafts=new Map(),pending=new Map(),creationFiles=new Map();let closeCreation=null;
+  const drafts=new Map(),pending=new Map(),creationFiles=new Map();let closeCreation=null,homeOpening=null;
   const remember=(key,value)=>{try{if(value==null)sessionStorage.removeItem(key);else sessionStorage.setItem(key,JSON.stringify(value));}catch{}},recall=key=>{try{return JSON.parse(sessionStorage.getItem(key)||'null');}catch{return null;}},episodeDraft=p=>'vsc-platform-episode:'+session().actor+':'+p;
   const endpoint=(p,suffix)=>`/api/v1/projects/${encodeURIComponent(p)}/${suffix}`;
   const same=(t,s=scope)=>t===ticket&&s===scope;
@@ -40,6 +40,51 @@ export function createProductionPlatform(root,ctx){
   function professional(){const nav=el('nav',null,'platform-professional');bindAttribute(nav,'aria-label',msg("ui.full_specialist_entry"));for(const [p,title]of [['project-management',msg("shell.project_directory")],['source',msg("ui.source_parsing")],['script',msg("nav.script")],['designs',msg("ui.scene_and_shot_design")],['library',msg("ui.project_asset_library")],['classic-production',msg("ui.classic_production")],['candidates',msg("ui.generation_and_candidates")],['editing',msg("ui.edit_workspace")],['delivery',msg("ui.edit_delivery")],['workbench',msg("ui.scene_and_shot_relationships")],['media',msg("ui.media")],['artifacts',msg("ui.documents_and_versions")],['canvas',msg("ui.relationship_canvas")],['creative-canvas',msg("ui.creative_canvas")],['blocking',msg("ui.staging_design")],['previs',msg("ui.spatial_previs")],['creative-tools',msg("ui.music_and_video_tools")],['text-tools',msg("ui.script_and_analysis_tools")],['media-imports',msg("common.batch_import")]])nav.append(link(title,p));return nav;}
   function artwork(name,alt=''){const img=el('img');img.src='/static/workbench-art/'+name;bindAttribute(img,"alt",alt);img.loading='lazy';return img;}
   function createFlow(type='series'){createProject(type);}
+  const creationProjects=()=>ctx.projects().filter(row=>!row.unavailable&&row.storage_policy==='postgres-series-v1'&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id||row.profile)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind));
+  const homeIdentity=()=>JSON.stringify([session().actor,session().identityId,session().workspaceId]);
+  async function homeContext(current){
+    await ctx.refreshProjects({isCurrent:current});if(!current())return;
+    const projects=creationProjects();if(!projects.length)return {empty:true};
+    const discovery=await ctx.api('/api/v1/discovery',{headers:{'X-CSRF-Token':session().csrf}});if(!current())return;
+    const recent=discovery.recent.find(row=>projects.some(project=>project.id===row.project_id));
+    const project=projects.find(row=>row.id===recent?.project_id)||projects[0];
+    let first=null,episode=null,offset=0;
+    do{
+      const result=await ctx.api(endpoint(project.id,'production-platform?'+new URLSearchParams({offset:String(offset),limit:'100'})));if(!current())return;
+      const rows=result.episodes.items;first||=rows[0];episode=rows.find(row=>row.id===recent?.episode_id)||episode;
+      offset=result.episodes.next_offset;
+    }while(recent?.episode_id&&!episode&&offset!=null);
+    episode||=first;if(!episode)throw new Error('项目中没有可用剧集，请先在项目中创建剧集。');
+    return {project,episode,recent};
+  }
+  async function openHomeCreation(page,options={}){
+    const t=ticket,s=scope,identity=homeIdentity();if(homeOpening?.current())return;
+    const operation={current:()=>same(t,s)&&identity===homeIdentity()};homeOpening=operation;
+    const controls=[...root.querySelectorAll('.home-tool'),...root.querySelectorAll('.home-canvas-card')].filter(node=>node.tagName==='BUTTON');
+    for(const control of controls)control.disabled=true;
+    try{
+      const context=await homeContext(operation.current);if(!operation.current())return;
+      if(context.empty){if(!session().actor||!session().writeAvailable)throw new Error('当前会话不能创建项目。');if(page==='creative-canvas')await ctx.createEmptyCanvasProject({isCurrent:operation.current});else createProject('series',{page,options,homeDefault:true});return;}
+      let target={...options,episode:context.episode.id};
+      if(page==='creative-canvas'){
+        const p=context.project.id,e=context.episode.id,key='vsc-home-canvas:'+identity+':'+p+':'+e;
+        let request=recall(key);
+        if(!request){
+          const listing=await ctx.api(endpoint(p,'creative-canvases?episode_id='+encodeURIComponent(e)));if(!operation.current())return;
+          const recent=listing.items.find(row=>row.id===context.recent?.target_id&&context.recent?.kind==='canvas');
+          const canvas=recent||listing.items[0];
+          if(canvas)target.task_target=canvas.id;
+          else{
+            if(!session().writeAvailable||context.project.read_only)throw new Error('当前项目没有画布，且没有创建权限。');
+            request={payload:{episode_id:e,title:'未命名画布',document:{nodes:[],edges:[]}},expected_revision:listing.revision,idempotency_key:uid()};remember(key,request);
+          }
+        }
+        if(request){const saved=await ctx.api(endpoint(p,'creative-canvases'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify(request)});if(!operation.current())return;target.task_target=saved.id;}
+        await ctx.navigate(page,null,p,target);remember(key,null);
+      }else await ctx.navigate(page,null,context.project.id,target);
+    }catch(error){if(operation.current())ctx.notice(error.message);}
+    finally{if(homeOpening===operation)homeOpening=null;if(operation.current())for(const control of controls)control.disabled=false;}
+  }
   function openCreation(page,options={}){
     const rows=ctx.projects().filter(r=>!['vsc.text-tools','vsc.creative-tools'].includes(r.profile_id||r.profile));
     const dialog=el('dialog',null,'platform-create');bindAttribute(dialog,'aria-label',msg("ui.select_a_creative_project"));dialog.append(el('h2',msg("ui.select_a_creative_project")));
@@ -50,15 +95,15 @@ export function createProductionPlatform(root,ctx){
   async function home(t){
     root.classList.add('platform-home');header(msg("home.creation_hero_title"));
     const section=el('div',null,'home-section-heading');section.append(el('h2',msg("home.creation_canvas_subtitle")),link(msg("ui.view_existing_canvases"),'projects',null,null,{tab:'canvases'}));root.append(section);
-    const hero=el('div',null,'home-hero'),main=el('article',null,'home-canvas-card');
-    main.append(artwork('canvas.svg'),el('h2',msg("ui.connect_your_creative_ideas_on_one_canvas")),button(msg("ui.open_intelligent_canvas"),()=>openCreation('creative-canvas')));hero.append(main);
+    const hero=el('div',null,'home-hero'),main=button('',()=>openHomeCreation('creative-canvas'));main.className='home-canvas-card';
+    main.append(artwork('canvas.svg'),el('span',msg("ui.connect_your_creative_ideas_on_one_canvas"),'home-canvas-slogan'),el('span',msg("ui.open_intelligent_canvas"),'home-canvas-action'));hero.append(main);
     const features=el('div',null,'home-feature-grid');
     for(const [title,desc,file,tool,badges]of [[msg('replica.commerce_skills_title'),msg('replica.commerce_skills_description'),'commerce-skills.webp','skills',['Agent']],['AI MV',msg("ui.upload_music_and_let_ai_direct_your_mv"),'aimv.jpg','mv',['Agent',msg('replica.skill_tag')]],[msg("home.creation_segment_remake_title"),msg("home.creation_segment_remake_description"),'remake.jpg','segment_remake',['SD 2.5',msg('replica.official_example')]],[msg("home.creation_video_depth_title"),msg("home.creation_video_depth_description"),'motion.jpg','breakdown',['SD 2.5',msg('replica.official_example')]]]){
       const card=tool==='skills'?link('', 'marketing-studio',null,null):link('', 'creative-tools',null,null,{tool});card.className='home-feature';const tags=el('small',null,'home-feature-badge');for(const badge of badges)tags.append(el('span',badge));card.append(artwork(file),tags);if(tool==='skills')card.append(el('span','NEW','home-feature-new'));const copy=el('div',null,'home-feature-copy');copy.append(el('h3',title),el('p',desc));card.append(copy);features.append(card);
     }hero.append(features);root.append(hero,el('h2',msg("ui.start_creating_with_agent_tools"),'home-tool-heading'));
     const grid=el('div',null,'home-tools');
     for(const [title,desc,page,tool,icon,tag]of [[msg("home.creation_ai_video_generation_title"),msg("home.creation_ai_video_generation_description"),'classic-production','video','video',msg("home.creation_tag_tool")],[msg("home.creation_ai_storyboard_title"),msg("home.creation_ai_storyboard_description"),'classic-production','image','image',msg("home.creation_tag_tool")],[msg("ui.script_breakdown"),msg("ui.reconstruct_dialogue_and_shots_frame_by_frame_to_create"),'text-tools','breakdown','breakdown','Agent'],[msg("home.creation_agent_creation_title"),msg("home.creation_agent_creation_description"),'intelligent-creation','','agent','Agent'],[msg("nav.script_scoring"),msg("home.creation_script_scoring_description"),'text-tools','scoring','scoring','Agent'],[msg("nav.novel_parser"),msg("home.creation_novel_parser_description"),'text-tools','novel','novel','Agent'],[msg("nav.script_translation"),msg("home.creation_script_translation_description"),'text-tools','translation','translation','Agent'],[msg("nav.video_quality_check"),msg("ui.check_video_subtitle_and_content_issues"),'text-tools','qc','qc','Agent']]){
-      const card=page==='classic-production'||page==='intelligent-creation'?button('',()=>openCreation(page,page==='classic-production'?{kind:tool}:{})):link('',page,null,null,{tool});card.className='home-tool';card.append(artwork(icon+'.svg'),el('small',tag,'home-tool-tag'));const copy=el('div');copy.append(el('h3',title),el('p',desc));card.append(copy);grid.append(card);
+      const card=page==='classic-production'||page==='intelligent-creation'?button('',()=>openHomeCreation(page,page==='classic-production'?{kind:tool}:{})):link('',page,null,null,{tool});card.className='home-tool';card.append(artwork(icon+'.svg'),el('small',tag,'home-tool-tag'));const copy=el('div'),titleRow=el('div',null,'home-tool-title');titleRow.append(el('h3',title));if(tool==='breakdown')titleRow.append(el('span','NEW','home-tool-new'));copy.append(titleRow,el('p',desc));card.append(copy);grid.append(card);
     }root.append(grid);
     const footer=el('footer',null,'home-footer');footer.append(el('span',msg("ui.vsc_creative_workbench")),link(msg("ui.resource_and_model_settings"),'settings',null),link(msg("shell.tasks"),'tasks'),link(msg("ui.workspace_maintenance"),'maintenance',null));root.append(footer);await homeDiscovery(t);
   }
@@ -192,9 +237,10 @@ export function createProductionPlatform(root,ctx){
         if(request.cover&&!await uploadProjectCover(request,{current,retain:()=>remember(requestKey,request),file:()=>creationFiles.get(requestKey)?.file,progress:text=>{if(current())setText(message,text);}}))return;
         request.phase='readback';remember(requestKey,request);
         await ctx.refreshProjects({isCurrent:current});if(!current())return;
-        const target=request.next||{};
+        const target=request.next||{};let targetOptions=target.options||{};
+        if(target.homeDefault){const result=await ctx.api(endpoint(request.project_id,'production-platform?offset=0&limit=1'));if(!current())return;const first=result.episodes.items[0];if(!first)throw new Error('已创建项目中没有可用剧集，请重新读取原项目。');targetOptions={...targetOptions,episode:first.id};}
         ctx.notice(msg('ui.project_created'));
-        await ctx.navigate(target.page||(canvas?'creative-canvas':'project'),null,request.project_id,target.options||{});
+        await ctx.navigate(target.page||(canvas?'creative-canvas':'project'),null,request.project_id,targetOptions);
         remember(requestKey,null);creationFiles.delete(requestKey);if(!closed)dialog.close();
       }catch(error){
         if(!request?.project_id&&error.status>=400&&error.status<500&&error.status!==409){request=null;remember(requestKey,null);}
