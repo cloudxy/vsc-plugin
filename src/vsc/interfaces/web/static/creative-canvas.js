@@ -171,10 +171,10 @@ export function createCreativeCanvasPanel(ctx){
     s.selector=selector;s.selectorLabel=summary;bindAttribute(summary,'aria-label',msg('replica.current_canvas'));selector.append(summary,menu);
     const management=button(s,'⚙',async()=>{
       if(s.managementReading)return;const pending=pendingManagement(s)||s.managementRecovery;if(!pending&&!await save(s))return;if(s.managementReading||!live(s))return;
-      s.managementReading=true;s.saveButton.disabled=true;management.disabled=true;
+      const baseline={version:s.version,title:s.title,document:copy(s.document)};s.managementReading=true;s.saveButton.disabled=true;management.disabled=true;
       try{await ctx.openCanvasManagement?.(s.project,s.episode);if(!live(s))return;if(pendingManagement(s)){notice(s,msg('canvas.library.recover_before_save'));return;}
         const listing=await ctx.api(`${base(s)}/creative-canvases${s.episode?'?episode_id='+encodeURIComponent(s.episode):''}`);if(!live(s))return;
-        if(listing.items.some(row=>row.id===s.id))await refreshCanvas(s,s.managementRecovery);else await load(s.root,s.project,s.episode);
+        if(listing.items.some(row=>row.id===s.id))await refreshCanvas(s,s.managementRecovery,baseline);else await load(s.root,s.project,s.episode);
       }finally{s.managementReading=false;if(live(s)){s.saveButton.disabled=false;management.disabled=false;}}
     });bindAttribute(management,'aria-label',msg('replica.canvas_management'));
     const add=button(s,'＋',()=>operate('create'));bindAttribute(add,'aria-label',msg('ui.new_canvas'));add.disabled=ctx.session().writable===false;
@@ -576,13 +576,14 @@ export function createCreativeCanvasPanel(ctx){
       if(turn.action_results?.some(a=>a.run_artifact_id))card.append(button(s,msg("ui.query_generation_tasks_and_results"),async()=>{await refreshCanvas(s);notice(s,msg("ui.view_the_original_task_on_its_node_or_continue"));}));box.append(card);}s.agentMessages.append(box);}clearTimeout(s.agentPoll);if(pending)s.agentPoll=setTimeout(()=>refreshAgent(s).catch(e=>notice(s,e.message)),900);}
   async function executeAgent(s,id){notice(s,msg("ui.consuming_the_original_role_task_to_generate_an_action"));s.agentPoll=setTimeout(()=>refreshAgent(s).catch(()=>{}),300);try{const result=await ctx.api(`${base(s)}/creative-canvas-agent-turns/${id}/execute`,{method:'POST',headers:headers()});if(live(s)){if((result.output_version_id||result.action_results?.length)&&!s.dirty&&!s.pending){const data=await ctx.api(url(s));if(live(s)&&!s.dirty&&!s.pending){s.document=cleanDocument(data.document);s.version=data.canvas_revision;s.runs=data.runs||[];s.jobs=data.jobs||{};s.steps=data.execution_steps||[];setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));revision(s,data.revision);draw(s);}}await refreshAgent(s);notice(s,msg("ui.original_planning_task_status_loaded"));}}catch(e){notice(s,msg("ui.value0_query_the_original_task_without_creating_a_duplicate",{value0:e.message}));if(live(s))await refreshAgent(s);}}
   async function decideAgent(s,turn,outcome){if(outcome==='confirm'&&(s.dirty||s.pending))throw new Error('本地有新修改；先保稿并基于新版本重新规划，旧计划不会覆盖它。');const result=await auxiliaryWrite(s,'agent-decision:'+turn.id+':'+outcome+':'+(turn.action_results?.length||0),`${base(s)}/creative-canvas-agent-turns/${turn.id}/decisions`,{outcome,action_index:turn.action_results?.length||0,...(s.agentQuotes?.[turn.id]?{preview_sha256:s.agentQuotes[turn.id]}:{}),reason:{confirm:'用户确认当前可读操作计划',reject:'用户拒绝当前操作计划',stop:'用户停止当前规划任务'}[outcome]});if(!live(s))return;if((result.output_version_id||result.action_results?.length)&&!s.dirty&&!s.pending){const data=await ctx.api(url(s));if(live(s)&&!s.dirty&&!s.pending){s.document=cleanDocument(data.document);s.version=data.canvas_revision;s.runs=data.runs||[];s.jobs=data.jobs||{};s.steps=data.execution_steps||[];setText(s.versionLabel,msg("ui.saved_version_value0",{value0:s.version}));revision(s,data.revision);draw(s);}}if(result.run_artifact_id&&turn.mode==='auto_drafts'){await refreshCanvas(s);await executeAgent(s,turn.id);}await refreshAgent(s);notice(s,result.run_artifact_id?msg("ui.original_generation_task_registered_with_the_confirmed_quote_query"):outcome==='confirm'?msg("ui.action_result_saved"):outcome==='reject'?msg("ui.plan_rejected_canvas_preserved"):msg("ui.task_stopped_late_results_will_not_be_written_to"));}
-  async function refreshCanvas(s,management=null){
+  async function refreshCanvas(s,management=null,baseline=null){
     const data=await ctx.api(url(s));if(!live(s))return;revision(s,data.revision);s.steps=data.execution_steps||[];s.runs=data.runs||[];s.jobs=data.jobs||{};
     const remote=cleanDocument(data.document),rename=management?.action==='rename'&&management.row?.id===s.id;
     const sameBase=rename&&management.request?.body?.payload?.document&&JSON.stringify(remote)===JSON.stringify(cleanDocument(management.request.body.payload.document));
+    const sameReadback=baseline?.version===s.version&&JSON.stringify(remote)===JSON.stringify(cleanDocument(baseline.document));
     if(!s.dirty&&!s.pending){s.document=remote;s.version=data.canvas_revision;s.title=data.title;s.managementRecovery=null;}
-    else if(management&&!s.pending&&(data.canvas_revision===s.version||sameBase)){
-      if(rename&&s.title===management.row.title)s.title=data.title;
+    else if((management||baseline)&&!s.pending&&(data.canvas_revision===s.version||sameBase||sameReadback)){
+      if(rename&&s.title===management.row.title||sameReadback&&s.title===baseline.title)s.title=data.title;
       s.version=data.canvas_revision;s.managementRecovery=null;s.syncBlocked=false;
     }
     if(management)notice(s,msg(s.managementRecovery?'canvas.library.changed_during_recovery':s.dirty?'ui.pending_sync_local_edits_preserved':'ui.saved_to_project'));

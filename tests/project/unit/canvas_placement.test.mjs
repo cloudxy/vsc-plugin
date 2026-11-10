@@ -676,3 +676,14 @@ test('rapid management clicks cannot open competing dialogs after awaiting save'
  const manage=a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理'),first=manage.fire('click'),second=manage.fire('click');
  await new Promise(resolve=>setImmediate(resolve));assert.equal(opens,1);assert.equal(manage.disabled,true);assert.equal(a.root.querySelector('.cc-save').disabled,true);finish();await Promise.all([first,second]);assert.equal(manage.disabled,false);assert.equal(a.root.querySelector('.cc-save').disabled,false);a.canvas.suspend();
 });
+
+test('edits made while the closing management readback is pending retain the confirmed rename version',async()=>{
+ let closed=false,finish,saved;const readback=new Promise(resolve=>finish=resolve);
+ const a=await fixture({openCanvasManagement:async()=>{closed=true;},apiOverride:async(path,options)=>{
+  if(options?.method==='PUT'){saved=JSON.parse(options.body);return {revision:3,canvas_revision:3};}
+  if(path.endsWith('/creative-canvases'))return {items:[{id:'c1'}],revision:2};
+  if(closed&&path.endsWith('/creative-canvases/c1')){await readback;return {revision:2,canvas_revision:2,title:'Confirmed rename',document:{viewport:{x:0,y:0,zoom:1},nodes:[],edges:[]}};}
+ }});
+ const manage=a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='画布管理'),opening=manage.fire('click');await new Promise(resolve=>setImmediate(resolve));await addImage(a.menu);finish();await opening;
+ await a.root.querySelector('.cc-save').fire('click');assert.equal(saved.payload.canvas_revision,2);assert.equal(saved.payload.title,'Confirmed rename');assert.equal(saved.payload.document.nodes.length,1);a.canvas.suspend();
+});
