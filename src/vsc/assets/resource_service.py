@@ -208,11 +208,11 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         return self.store.list_resources(project_id, object_id=object_id, offset=offset,
                                          limit=limit, modality=modality, **filters)
 
-    def list_project_media(self, *, project_id=None, episode_id=None, modality=None, query='',
+    def list_project_media(self, *, project_id=None, episode_id=None, modality=None, category=None, query='',
                            created_after=None, created_before=None, order='created_desc', offset=0, limit=24):
         """Read original project media with SQL pagination and complete-project ACLs."""
         from datetime import datetime, timedelta, timezone
-        from vsc.adapters.persistence.postgres.media_catalog import ProjectMediaCatalog
+        from vsc.adapters.persistence.postgres.media_catalog import ProjectMediaCatalog, CATEGORIES
         from vsc.adapters.persistence.postgres.values import checked_id
         if (type(offset) is not int or not 0 <= offset <= 2147483647
                 or type(limit) is not int or not 1 <= limit <= 100):
@@ -220,6 +220,10 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         if (modality is not None and not isinstance(modality, str)
                 or modality not in {None, '', 'image', 'video', 'audio', 'text', 'document', 'other'}):
             raise ResourceError('媒资类型无效', 'invalid_media_filter')
+        if category is not None and (not isinstance(category, str) or category not in CATEGORIES | {''}):
+            raise ResourceError('媒资来源分类无效', 'invalid_media_filter')
+        if episode_id and not project_id:
+            raise ResourceError('剧集筛选需要先指定项目', 'invalid_media_filter')
         if not isinstance(query, str) or len(query) > 200 or '\x00' in query:
             raise ResourceError('媒资搜索文字无效', 'invalid_media_filter')
         if not isinstance(order, str) or order not in {'updated_desc', 'created_desc'}:
@@ -245,7 +249,19 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         return ProjectMediaCatalog(self.store, self.classic_candidate_configuration).search(dict(
             project_id=checked_id(project_id) if project_id else None,
             episode_id=checked_id(episode_id) if episode_id else None, modality=modality or None,
-            query=query.strip(), created_after=after, created_before=before, order=order, offset=offset, limit=limit))
+            category=category or None, query=query.strip(), created_after=after, created_before=before, order=order, offset=offset, limit=limit))
+
+    def get_project_media_detail(self, project_id, media_id):
+        """A complete-project read projection; never return provider payloads."""
+        from vsc.adapters.persistence.postgres.media_catalog import ProjectMediaCatalog
+        from vsc.adapters.persistence.postgres.values import checked_id
+        project_id, media_id = checked_id(project_id), checked_id(media_id)
+        result = ProjectMediaCatalog(self.store, self.classic_candidate_configuration).detail(project_id, media_id)
+        media = self.get_media(project_id, media_id)
+        result.update(availability=media['result_availability']['status'], integrity='unverified')
+        if result['availability'] == 'unavailable':
+            result['actions']['download'] = dict(available=False, reason_code='media_unavailable')
+        return result
 
     def get_media(self, project_id, media_id):
         from vsc.assets.media_availability import media_availability

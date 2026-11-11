@@ -167,10 +167,10 @@ def create_app(config=None, catalog=None, service=None):
 
     @app.get('/api/v1/project-media')
     def project_media(request: Request, project_id: str = None, episode_id: str = None,
-                      modality: str = None, query: str = '', created_after: str = None,
+                      modality: str = None, category: str = None, query: str = '', created_after: str = None,
                       created_before: str = None, order: str = 'created_desc', offset: int = 0, limit: int = 24):
         return etag(request, catalog.project_media(project_id=project_id, episode_id=episode_id,
-            modality=modality, query=query, created_after=created_after, created_before=created_before,
+            modality=modality, category=category, query=query, created_after=created_after, created_before=created_before,
             order=order, offset=offset, limit=limit))
 
     def new_session(binding=None):
@@ -317,6 +317,10 @@ def create_app(config=None, catalog=None, service=None):
     @router.get("/{project_id}/media/{media_id}")
     def media(project_id: str, media_id: str, request: Request):
         return etag(request, catalog.media(project_id, media_id))
+
+    @router.get("/{project_id}/media/{media_id}/catalog-detail")
+    def media_catalog_detail(project_id: str, media_id: str, request: Request):
+        return etag(request, catalog.media_catalog_detail(project_id, media_id))
 
     @router.get("/{project_id}/media/{media_id}/lineage")
     def lineage(project_id: str, media_id: str, request: Request):
