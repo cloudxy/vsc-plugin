@@ -1,5 +1,5 @@
 """Read-only, authorized canvas directory; original canvases remain authoritative."""
-from sqlalchemy import and_, exists, false, func, select, tuple_
+from sqlalchemy import and_, exists, false, func, literal, or_, select, tuple_
 
 from . import schema as S
 from .access_control import authority_lock
@@ -23,13 +23,16 @@ class CanvasLibrary:
     def _canvases(read):
         c, v, p, ep, obj, states = (S.creative_canvases, S.creative_canvas_versions, S.projects,
             S.episodes, S.creative_objects, S.management_object_states)
-        person = S.access_identities
+        person, ap, aw = S.access_identities, S.access_projects, S.access_workspaces
         return select(c.c.id, c.c.project_id, p.c.name.label('project_name'), c.c.episode_id,
             obj.c.title.label('episode_name'), v.c.title, v.c.version.label('canvas_revision'),
             v.c.id.label('version_id'), v.c.created_at.label('updated_at'),
+            c.c.collaboration_enabled, c.c.collab_seq.label('canvas_seq'),
             c.c.created_by.label('creator_id'), func.coalesce(person.c.display_name, c.c.created_by).label('creator_name'))\
             .select_from(c.join(v, and_(v.c.project_id == c.c.project_id, v.c.id == c.c.current_version_id))
                 .join(p, p.c.id == c.c.project_id)
+                .outerjoin(ap, ap.c.project_id == c.c.project_id)
+                .outerjoin(aw, aw.c.id == ap.c.workspace_id)
                 .outerjoin(ep, and_(ep.c.project_id == c.c.project_id, ep.c.id == c.c.episode_id))
                 .outerjoin(obj, and_(obj.c.project_id == ep.c.project_id, obj.c.id == ep.c.id))
                 .outerjoin(person, person.c.actor == c.c.created_by))\
@@ -95,7 +98,27 @@ class CanvasLibrary:
                 query = query.where(c.c.created_by == person['actor'] if person else false())
             elif filters['creator_filter'] == 'member':
                 query = query.where(c.c.created_by == filters['creator_id'])
-            can_edit = c.c.project_id.in_(select(edit.c.id))
+            if filters.get('collaboration_only'):
+                query = query.where(c.c.collaboration_enabled.is_(True))
+            aw = S.access_workspaces
+            in_edit = c.c.project_id.in_(select(edit.c.id))
+            in_manage = c.c.project_id.in_(select(manage.c.id))
+            is_studio = func.coalesce(aw.c.kind, 'personal') != 'personal'
+            if principal is None:
+                is_owner = literal(True)
+                is_studio_admin = literal(True)
+                can_edit = in_edit
+                can_manage_collab = literal(True)
+            elif person:
+                is_owner = and_(in_edit, c.c.created_by == person['actor'])
+                is_studio_admin = and_(in_manage, is_studio)
+                can_edit = and_(in_edit, or_(c.c.collaboration_enabled.is_(True), is_owner))
+                can_manage_collab = or_(is_owner, is_studio_admin)
+            else:
+                is_owner = false()
+                is_studio_admin = false()
+                can_edit = in_edit
+                can_manage_collab = false()
             if filters['permission'] == 'edit':
                 query = query.where(can_edit)
             elif filters['permission'] == 'view':
@@ -106,15 +129,40 @@ class CanvasLibrary:
             total = conn.scalar(select(func.count()).select_from(query.subquery()))
             at = S.creative_canvas_versions.c.created_at
             order = at.desc() if filters['order'] == 'updated_desc' else at.asc()
-            rows = [dict(r) for r in conn.execute(query.add_columns(can_edit.label('can_edit'),
-                c.c.project_id.in_(select(manage.c.id)).label('can_manage')).order_by(order, c.c.project_id, c.c.id)
-                .offset(filters['offset']).limit(filters['limit'])).mappings()]
+            rows = [dict(r) for r in conn.execute(query.add_columns(
+                can_edit.label('can_edit'),
+                in_edit.label('can_copy'),
+                in_manage.label('can_manage'),
+                can_manage_collab.label('can_manage_collaboration'),
+                is_owner.label('is_owner'),
+                is_studio_admin.label('is_studio_admin'),
+                (~is_studio).label('is_personal_workspace'),
+            ).order_by(order, c.c.project_id, c.c.id).offset(filters['offset']).limit(filters['limit'])).mappings()]
             covers = self._covers(conn, rows)
             for row in rows:
-                edit, manage = row.pop('can_edit'), row.pop('can_manage')
-                row['permissions'] = dict(can_read=True, can_edit=edit, can_rename=edit, can_copy=edit,
-                    can_delete=manage, can_manage_collaboration=False)
+                edit_flag = bool(row.pop('can_edit'))
+                copy_flag = bool(row.pop('can_copy'))
+                manage_flag = bool(row.pop('can_manage'))
+                manage_collab_flag = bool(row.pop('can_manage_collaboration'))
+                owner_flag = bool(row.pop('is_owner'))
+                admin_flag = bool(row.pop('is_studio_admin'))
+                personal_flag = bool(row.pop('is_personal_workspace'))
+                collab_flag = bool(row['collaboration_enabled'])
+                row['collaboration_enabled'] = collab_flag
+                row['canvas_seq'] = int(row['canvas_seq'])
+                row['permissions'] = dict(can_read=True, can_edit=edit_flag, can_rename=edit_flag,
+                    can_copy=copy_flag, can_delete=manage_flag, can_manage_collaboration=manage_collab_flag)
+                row['permission'] = dict(
+                    mode='manage' if manage_collab_flag else ('edit' if edit_flag else 'readonly'),
+                    can_edit=edit_flag,
+                    is_owner=owner_flag,
+                    is_studio_admin=admin_flag,
+                    can_manage_collaboration=manage_collab_flag,
+                    is_personal_workspace=personal_flag,
+                    collaboration_enabled=collab_flag,
+                )
                 row['cover_url'] = covers.get((row['project_id'], row['version_id']))
             following = filters['offset'] + len(rows)
             return clean(dict(items=rows, total=total, offset=filters['offset'], limit=filters['limit'],
-                next_offset=following if following < total else None))
+                next_offset=following if following < total else None,
+                capabilities=dict(collaboration=True, cross_episode_copy=True)))

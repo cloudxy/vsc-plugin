@@ -31,6 +31,7 @@ from .resource_model import ResourceModelRepository
 from .production_platform import ProductionPlatformRepository
 from .project_management import ProjectManagementRepository
 from .creative_canvas import CreativeCanvasRepository
+from .canvas_collaboration import CanvasCollaborationRepository
 from .spatial_scene import SpatialSceneRepository
 from .text_tools import TextToolsRepository
 from .classic_production import ClassicProductionRepository
@@ -58,7 +59,7 @@ from .values import checked_id, clean, canonical, digest, new_id, verify_sha, CU
 class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepository, SourceRepository,
                             ScriptWorkspaceRepository, RoleMemoryRepository, ScriptSuggestionRepository,
                             SourceIntakeRepository, ResourceModelRepository, ProductionPlatformRepository, ProjectManagementRepository,
-                            CreativeCanvasRepository, ClassicProductionRepository, ClassicPreferencesRepository, WorkingStateRepository, IntelligentProductionRepository, SpatialSceneRepository, TextToolsRepository,
+                            CreativeCanvasRepository, CanvasCollaborationRepository, ClassicProductionRepository, ClassicPreferencesRepository, WorkingStateRepository, IntelligentProductionRepository, SpatialSceneRepository, TextToolsRepository,
                             AccessControlRepository, AuthenticationRepository, ProjectCoverRepository):
     def __init__(self, database_url=None, engine=None):
         if engine is None and not database_url:

@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0053_canvas_direct_copies"
+SCHEMA_REVISION = "0054_canvas_collaboration"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -1111,6 +1111,7 @@ from .schema_task_notifications import declare_task_notifications
 from .schema_classic_preferences import declare_classic_preferences, CLASSIC_PREFERENCE_GUARD_DDL
 from .schema_professional_inputs import declare_professional_inputs, PROFESSIONAL_INPUT_IMMUTABLE, PROFESSIONAL_INPUT_GUARD_DDL
 from .schema_project_cover import declare_project_cover, PROJECT_COVER_GUARD_DDL
+from .schema_canvas_collaboration import declare_canvas_collaboration, CANVAS_COLLAB_IMMUTABLE
 globals().update(install_canvas_schema(metadata))
 globals().update(install_direct_copy_schema(metadata))
 globals().update(declare_editor(project_table, ref, uid, stamp))
@@ -1138,6 +1139,7 @@ globals().update(declare_task_notifications(project_table,ref,uid,stamp))
 globals().update(declare_classic_preferences(project_table,ref,uid,stamp))
 globals().update(declare_professional_inputs(metadata))
 globals().update(declare_project_cover(project_table,uid,stamp))
+globals().update(declare_canvas_collaboration(metadata,project_table,ref,uid,stamp))
 text_tool_batches.append_column(uid('materials_artifact_id', nullable=True))
 text_tool_batches.append_constraint(ForeignKeyConstraint(
     ['project_id', 'materials_artifact_id'],
@@ -1167,7 +1169,7 @@ intelligent_media.append_constraint(CheckConstraint(
 Index('ix_intelligent_media_working_selection', intelligent_media.c.project_id, intelligent_media.c.working_selection_version_id)
 Index('ix_intelligent_media_episode_form', intelligent_media.c.project_id, intelligent_media.c.episode_asset_form_version_id)
 
-APPEND_ONLY_TABLES = DIRECT_COPY_TABLES + PROFESSIONAL_INPUT_IMMUTABLE + AUTHENTICATION_IMMUTABLE + ("task_notification_events", "task_notification_reads") + COMMUNITY_IMMUTABLE + ASSET_CARD_IMMUTABLE + WORKSPACE_COMMERCE_IMMUTABLE + WORKING_STATE_IMMUTABLE + ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
+APPEND_ONLY_TABLES = CANVAS_COLLAB_IMMUTABLE + DIRECT_COPY_TABLES + PROFESSIONAL_INPUT_IMMUTABLE + AUTHENTICATION_IMMUTABLE + ("task_notification_events", "task_notification_reads") + COMMUNITY_IMMUTABLE + ASSET_CARD_IMMUTABLE + WORKSPACE_COMMERCE_IMMUTABLE + WORKING_STATE_IMMUTABLE + ("media_import_batches", "access_share_media", "text_tool_receipts", "text_tool_copies", "creative_tool_imports") + CANVAS_EXECUTION_IMMUTABLE + EDITOR_HANDOFF_IMMUTABLE + INTELLIGENT_IMMUTABLE + SERVICE_OPERATIONS_IMMUTABLE + ACCESS_IMMUTABLE + CANVAS_AGENT_IMMUTABLE + COMMERCE_IMMUTABLE + CENTER_IMMUTABLE + CANVAS_APPEND_ONLY + EDITOR_IMMUTABLE + SPATIAL_IMMUTABLE + CREATIVE_TABLES + MEMORY_TABLES + SOURCE_INTAKE_TABLES + RESOURCE_MODEL_TABLES + REVIEW_TABLES + (
     "project_cover_versions", "library_entry_versions", "library_version_media", "library_entry_decisions",
     "render_caption_inputs", "edit_preview_inputs", "edit_preview_outputs", "media_recycle_actions",
     "script_notes", "script_note_decisions", "script_suggestions", "script_suggestion_decisions",

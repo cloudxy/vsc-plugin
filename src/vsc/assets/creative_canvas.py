@@ -217,7 +217,7 @@ class CreativeCanvasService:
         return CanvasLibrary(self.store).options()
 
     def list_canvas_library(self, *, project_id=None, episode_id=None, creator_filter='mine',
-                            creator_id=None, permission='all', order='updated_desc', query='', offset=0, limit=30):
+                            creator_id=None, permission='all', collaboration_only=False, order='updated_desc', query='', offset=0, limit=30):
         from vsc.adapters.persistence.postgres.canvas_library import CanvasLibrary
         from vsc.adapters.persistence.postgres.values import checked_id
         if (type(offset) is not int or not 0 <= offset <= 2147483647
@@ -225,6 +225,7 @@ class CreativeCanvasService:
             raise ResourceError('分页要求 offset >= 0，1 <= limit <= 100', 'invalid_page')
         if (not isinstance(creator_filter, str) or creator_filter not in {'mine','all','member'}
                 or not isinstance(permission, str) or permission not in {'all','edit','view'}
+                or type(collaboration_only) is not bool
                 or not isinstance(order, str) or order not in {'updated_desc','updated_asc'}):
             raise ResourceError('画布筛选或排序无效', 'invalid_canvas_filter')
         if not isinstance(query, str) or len(query) > 200 or '\x00' in query:
@@ -238,7 +239,8 @@ class CreativeCanvasService:
             raise ResourceError('剧集筛选需要先指定项目', 'invalid_canvas_filter')
         return CanvasLibrary(self.store).search(dict(project_id=checked_id(project_id) if project_id else None,
             episode_id=checked_id(episode_id) if episode_id else None, creator_filter=creator_filter,
-            creator_id=creator_id, permission=permission, order=order, query=query.strip(), offset=offset, limit=limit))
+            creator_id=creator_id, permission=permission, collaboration_only=collaboration_only,
+            order=order, query=query.strip(), offset=offset, limit=limit))
 
     def preview_canvas_work_generation(self, project_id, payload):
         from vsc.production.quotes import fingerprint
@@ -370,8 +372,10 @@ class CreativeCanvasService:
             _fail("保存运行草稿需要所预览的请求与摘要")
         return self.store.propose_creative_canvas_run(project_id, payload, build_preview=self.preview_creative_canvas_run, **kw)
 
-    def list_creative_canvases(self, project_id, episode_id=None):
-        return self.store.list_creative_canvases(project_id, episode_id)
+    def list_creative_canvases(self, project_id, episode_id=None, collaboration_only=False):
+        if type(collaboration_only) is not bool:
+            raise ResourceError('画布协作筛选须为布尔值', 'invalid_canvas_filter')
+        return self.store.list_creative_canvases(project_id, episode_id, collaboration_only=collaboration_only)
 
     def get_creative_canvas(self, project_id, canvas_id, version=None):
         result = self.store.get_creative_canvas(project_id, canvas_id, version)
@@ -380,13 +384,30 @@ class CreativeCanvasService:
             if node.get("media_id"):
                 node["preview_url"] = "/api/v1/projects/%s/media/%s/content" % (project_id, node["media_id"])
         result["execution_steps"] = self.store.list_canvas_execution_steps(project_id,result["version_id"])
-        result["capabilities"] = {"edit": True, "prepare": True, "provider_submit": False, "agent": True}
+        can_edit = bool(result.get("permission", {}).get("can_edit", True))
+        result["capabilities"] = {"edit": can_edit, "prepare": can_edit, "provider_submit": False, "agent": can_edit}
         return result
 
     def create_creative_canvas(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
+        if "collaboration_enabled" in payload and payload["collaboration_enabled"] is not None and type(payload["collaboration_enabled"]) is not bool:
+            raise ResourceError("多人协作开关须为布尔值", "invalid_collaboration_flag")
         payload = dict(payload, document=normalize_document(payload.get("document", {})))
         return self.store.create_creative_canvas(project_id, payload, **kw)
+
+    def set_canvas_collaboration(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.set_canvas_collaboration(project_id, payload, **kw)
+
+    def issue_canvas_collab_ticket(self, project_id, canvas_id, payload, *, actor):
+        if not isinstance(actor, str) or not actor.strip():
+            raise ResourceError("需要真实操作身份", "access_denied", 403)
+        self.authorize_access(project_id, "read", "canvas", canvas_id)
+        return self.store.issue_canvas_collab_ticket(project_id, canvas_id, payload, actor=actor)
+
+    def recover_canvas_batch(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.recover_canvas_batch(project_id, payload, **kw)
 
     def save_creative_canvas(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)

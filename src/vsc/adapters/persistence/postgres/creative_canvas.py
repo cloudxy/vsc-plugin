@@ -4,12 +4,13 @@ from datetime import datetime,timezone,timedelta
 import json
 import hashlib
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 
 from vsc.assets.creative_canvas import (normalize_document, DOMAIN_TYPES, NODE_TYPES, canvas_image_tool,
     CANVAS_IMAGE_TOOL, CANVAS_IMAGE_TOOL_SETTINGS)
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
+from .canvas_collaboration import _diff_node_keys
 from .values import checked_id, clean, digest, new_id
 
 
@@ -85,7 +86,8 @@ class CreativeCanvasRepository:
                     node["media_id"]=target
             episode=checked_id(payload["episode_id"]) if payload.get("episode_id") else None
             if episode:self._one(conn,S.episodes,project["id"],episode)
-            canvas={"id":new_id(),"episode_id":episode};conn.execute(insert(S.creative_canvases).values(project_id=project["id"],created_by=actor,**canvas))
+            collab_enabled=self._default_canvas_collaboration_enabled(conn,actor,payload)
+            canvas={"id":new_id(),"episode_id":episode,"collaboration_enabled":collab_enabled};conn.execute(insert(S.creative_canvases).values(project_id=project["id"],created_by=actor,**canvas))
             result=self._insert_canvas_version(conn,project,canvas,{"title":payload.get("title",template["title"]+" · 副本"),"document":document},actor)
             conn.execute(insert(S.canvas_template_copies).values(project_id=project["id"],id=new_id(),source_project_id=source,template_id=template["id"],canvas_id=canvas["id"],created_by=actor))
             return dict(result,provider_submitted=False,source_version_id=version["id"])
@@ -142,6 +144,7 @@ class CreativeCanvasRepository:
         from vsc.bootstrap import repository_root
         def work(conn,project):
             canvas,version=self._canvas_version(conn,project,payload.get("canvas_id"))
+            self._require_canvas_edit(conn,project["id"],canvas,actor=actor)
             if type(payload.get("canvas_revision")) is not int or payload["canvas_revision"]!=version["version"]:raise Conflict("先保存并读取当前画布版本","canvas_revision_conflict")
             message=payload.get("message");skill=payload.get("skill_id","vsc-script");mode=payload.get("mode","manual")
             if not isinstance(message,str) or not message.strip() or len(message)>6000 or skill not in SKILLS or mode not in {"manual","auto_drafts"}:raise ResourceError("Agent需要明确消息、已接技能及执行方式")
@@ -315,6 +318,7 @@ class CreativeCanvasRepository:
                 if ordinal>=len(actions):raise Conflict('计划操作已完成')
                 if payload.get('action_index',ordinal)!=ordinal:raise Conflict('请依序确认当前操作')
                 action=actions[ordinal];canvas,version=self._canvas_version(conn,project,turn['canvas_id'])
+                self._require_canvas_edit(conn,p,canvas,actor=actor)
                 expected=next((r['output_version_id'] for r in reversed(completed) if r['output_version_id']),turn['version_id'])
                 if version['id']!=expected:raise Conflict('画布已有其他修改；旧计划保留，请基于当前版本规划','canvas_agent_stale')
                 if outcome=='auto_draft' and (turn['mode']!='auto_drafts' or action['kind'] not in {'append_text','reuse_media','create_image_node','create_video_node','create_audio_node'} and not (action['kind']=='prepare_run' and turn['execution_settings'].get('auto_media'))):raise ResourceError('自动媒体执行需要本轮固定范围与额度')
@@ -367,6 +371,8 @@ class CreativeCanvasRepository:
         def work(conn, project):
             preview = build_preview(project_id, payload["request"])
             if not preview.get("ready",True):raise ResourceError("节点依赖或模型有缺口", "canvas_execution_blocked")
+            canvas_row = self._one(conn, S.creative_canvases, project["id"], payload["request"].get("canvas_id"))
+            self._require_canvas_edit(conn, project["id"], canvas_row, modified_node_keys=(preview.get("node_id"),), actor=kw.get("actor"))
             if preview["revision"] != project["revision"] or preview["preview_sha256"] != payload["preview_sha256"]:
                 raise Conflict("画布、镜头输入或报价已改变，请重新预览", "canvas_run_preview_changed")
             artifact = self._create_artifact(conn, project, preview["artifact"])
@@ -421,6 +427,9 @@ class CreativeCanvasRepository:
             if existing:raise Conflict('该任务已有后继尝试，请查询原后继任务','canvas_fallback_exists')
             preview=build_preview(p,payload.get('step_id'))
             if not preview['ready'] or preview['preview_sha256']!=payload.get('preview_sha256') or preview['revision']!=project['revision']:raise Conflict('后继模型输入或用量已变化')
+            fixed_ver=self._one(conn,S.creative_canvas_versions,p,preview['canvas_version_id'])
+            canvas_row=self._one(conn,S.creative_canvases,p,fixed_ver['canvas_id'])
+            self._require_canvas_edit(conn,p,canvas_row,modified_node_keys=(preview.get('node_id'),),actor=actor)
             generated=None
             if preview['artifact']['artifact_type']=='workbench-generation-run':
                 generated=self.generate_workbench(p,dict(request={'step_id':payload['step_id']},preview_sha256=payload['preview_sha256']),actor=actor,build_preview=lambda project_id,request:build_preview(project_id,request['step_id']),_transaction=(conn,project),**{k:v for k,v in kw.items() if k!='_transaction'})
@@ -431,21 +440,74 @@ class CreativeCanvasRepository:
             return dict(id=step,artifact_id=artifact['id'],needs_approval=generated is None,provider_submitted=False,**({'jobs':generated['jobs']} if generated else {}))
         return self._mutate(p,'propose_canvas_fallback',payload,actor=actor,callback=work,**kw)
 
-    def list_creative_canvases(self, project_id, episode_id=None):
+    def list_creative_canvases(self, project_id, episode_id=None, collaboration_only=False):
         from .project_management import filter_management_rows
+        from .canvas_library import CanvasLibrary
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
+            p = project["id"]
+            person = S.access_identities
             query = select(S.creative_canvases, S.creative_canvas_versions.c.title,
-                S.creative_canvas_versions.c.version, S.creative_canvas_versions.c.node_count,
-                S.creative_canvas_versions.c.created_at.label("updated_at")).join(
+                S.creative_canvas_versions.c.version, S.creative_canvas_versions.c.id.label("version_id"),
+                S.creative_canvas_versions.c.node_count,
+                S.creative_canvas_versions.c.created_at.label("updated_at"),
+                func.coalesce(person.c.display_name, S.creative_canvases.c.created_by).label("creator_name")).join(
                 S.creative_canvas_versions, (S.creative_canvases.c.project_id == S.creative_canvas_versions.c.project_id) &
-                (S.creative_canvases.c.current_version_id == S.creative_canvas_versions.c.id)).where(
-                S.creative_canvases.c.project_id == project["id"])
+                (S.creative_canvases.c.current_version_id == S.creative_canvas_versions.c.id)).outerjoin(
+                person, person.c.actor == S.creative_canvases.c.created_by).where(
+                S.creative_canvases.c.project_id == p)
             if episode_id:
-                self._one(conn, S.episodes, project["id"], episode_id)
+                self._one(conn, S.episodes, p, episode_id)
                 query = query.where(S.creative_canvases.c.episode_id == checked_id(episode_id))
-            return clean({"items": filter_management_rows(conn, project["id"], S.creative_canvases, [dict(row) for row in conn.execute(query.order_by(
-                S.creative_canvases.c.created_at.desc(), S.creative_canvases.c.id)).mappings()]), "revision": project["revision"]})
+            if collaboration_only:
+                query = query.where(S.creative_canvases.c.collaboration_enabled.is_(True))
+            items = filter_management_rows(conn, p, S.creative_canvases, [dict(row) for row in conn.execute(query.order_by(
+                S.creative_canvas_versions.c.created_at.desc(), S.creative_canvases.c.created_at.desc(), S.creative_canvases.c.id)).mappings()])
+            covers = CanvasLibrary._covers(conn, items)
+            principal, current_person, _ = self._access_principal(conn)
+            is_personal = self._workspace_is_personal(conn, p, principal)
+            caps = set()
+            if principal is None:
+                caps = {"read", "edit", "manage"}
+            else:
+                try:
+                    scope = self._access_require(conn, p, "read")
+                    caps = set(scope.get("capabilities") or ())
+                except ResourceError:
+                    caps = set()
+            for row in items:
+                collab_flag = bool(row.get("collaboration_enabled", False))
+                row["collaboration_enabled"] = collab_flag
+                row["canvas_seq"] = int(row.get("collab_seq", 1))
+                row["cover_url"] = covers.get((p, row["version_id"]))
+                if principal is None:
+                    row["permission"] = {
+                        "mode": "manage",
+                        "can_edit": True,
+                        "is_owner": True,
+                        "is_studio_admin": True,
+                        "can_manage_collaboration": True,
+                        "is_personal_workspace": False,
+                        "collaboration_enabled": collab_flag,
+                    }
+                else:
+                    has_edit = "edit" in caps
+                    has_manage = "manage" in caps
+                    is_owner = bool(current_person and current_person["actor"] == row["created_by"] and has_edit)
+                    is_studio_admin = bool((not is_personal) and has_manage)
+                    can_manage = bool(is_owner or is_studio_admin)
+                    can_edit = False if not has_edit else (is_owner if not collab_flag else True)
+                    mode = "readonly" if not has_edit else (("manage" if can_manage else "readonly") if not collab_flag else ("manage" if can_manage else "edit"))
+                    row["permission"] = {
+                        "mode": mode,
+                        "can_edit": can_edit,
+                        "is_owner": is_owner,
+                        "is_studio_admin": is_studio_admin,
+                        "can_manage_collaboration": can_manage,
+                        "is_personal_workspace": is_personal,
+                        "collaboration_enabled": collab_flag,
+                    }
+            return clean({"items": items, "revision": project["revision"]})
 
     def _canvas_version(self, conn, project, canvas_id, version=None):
         canvas = self._one(conn, S.creative_canvases, project["id"], canvas_id)
@@ -514,9 +576,18 @@ class CreativeCanvasRepository:
                         ([request[field]] if request.get(field) else []) for name, field in
                         (("first_frame", "first_frame_media_id"), ("last_frame", "last_frame_media_id")))
                     jobs[node["id"]]["input_changed"] = changed
-            return clean({"id": canvas["id"], "project_id": project["id"], "episode_id": canvas["episode_id"],
-                "title": row["title"], "canvas_revision": row["version"], "version_id": row["id"], "sha256": row["sha256"],
-                "revision": project["revision"], "historical": canvas["current_version_id"] != row["id"],
+            historical = canvas["current_version_id"] != row["id"]
+            perm = self._canvas_permission(conn, project["id"], canvas)
+            if historical:
+                perm = dict(perm, can_edit=False, mode="readonly")
+            members, locks = self._active_canvas_members(conn, project["id"], canvas)
+            return clean({"id": canvas["id"], "canvas_id": canvas["id"], "project_id": project["id"], "episode_id": canvas["episode_id"],
+                "title": row["title"], "canvas_revision": row["version"], "version": row["version"], "version_id": row["id"], "sha256": row["sha256"],
+                "canvas_seq": int(canvas["collab_seq"]), "collaboration_enabled": bool(canvas["collaboration_enabled"]),
+                "created_by": canvas["created_by"], "creator": self._canvas_creator_info(conn, canvas),
+                "permission": perm, "collaborators": self._project_collaborators(conn, project["id"], canvas),
+                "members": members, "locks": locks,
+                "revision": project["revision"], "historical": historical,
                 "document": document, "preparations": prepared, "jobs": jobs,
                 "runs": [dict(r) for r in conn.execute(select(S.creative_canvas_runs).where(
                     S.creative_canvas_runs.c.project_id == project["id"], S.creative_canvas_runs.c.version_id == row["id"])).mappings()]})
@@ -529,7 +600,8 @@ class CreativeCanvasRepository:
                 S.creative_canvas_versions.c.canvas_id == canvas["id"]).order_by(S.creative_canvas_versions.c.version.desc())).mappings()
             return clean({"items": [dict(row) for row in rows], "revision": project["revision"]})
 
-    def _insert_canvas_version(self, conn, project, canvas, payload, actor, previous=None):
+    def _insert_canvas_version(self, conn, project, canvas, payload, actor, previous=None, *,
+                               collab_op_kind="version_saved", collab_ops=None, collab_session_id=None, client_op_id=None):
         p, row_id = project["id"], new_id()
         document = normalize_document(payload["document"])
         by_id = {node["id"]: node for node in document["nodes"]}
@@ -586,16 +658,28 @@ class CreativeCanvasRepository:
             conn.execute(insert(S.creative_canvas_edges).values(project_id=p, version_id=row_id, edge_key=edge["id"], ordinal=ordinal,
                 source_key=edge["source"], target_key=edge["target"], port=edge["port"],
                 source_type=by_id[edge["source"]]["type"], target_type=by_id[edge["target"]]["type"]))
-        conn.execute(update(S.creative_canvases).where(S.creative_canvases.c.project_id == p,
-            S.creative_canvases.c.id == canvas["id"]).values(current_version_id=row_id))
-        return {"id": canvas["id"], "version_id": row_id, "canvas_revision": version, "title": title, "sha256": sha}
+        if previous is None:
+            seq = 1
+            conn.execute(update(S.creative_canvases).where(S.creative_canvases.c.project_id == p,
+                S.creative_canvases.c.id == canvas["id"]).values(current_version_id=row_id))
+        else:
+            seq = int(conn.execute(update(S.creative_canvases).where(S.creative_canvases.c.project_id == p,
+                S.creative_canvases.c.id == canvas["id"]).values(
+                    current_version_id=row_id, collab_seq=S.creative_canvases.c.collab_seq + 1
+                ).returning(S.creative_canvases.c.collab_seq)).scalar_one())
+            self._record_canvas_collab_op(conn, p, canvas["id"], seq, row_id, collab_op_kind,
+                collab_ops if collab_ops is not None else [{"op": "version_saved", "version": version}],
+                actor, session_id=collab_session_id, client_op_id=client_op_id)
+        return {"id": canvas["id"], "version_id": row_id, "canvas_revision": version, "canvas_seq": seq,
+                "collaboration_enabled": bool(canvas.get("collaboration_enabled", False)), "title": title, "sha256": sha}
 
     def create_creative_canvas(self, project_id, payload, actor, **kw):
         def work(conn, project):
             episode = checked_id(payload["episode_id"]) if payload.get("episode_id") else None
             if episode:
                 self._one(conn, S.episodes, project["id"], episode)
-            canvas = {"id": new_id(), "episode_id": episode}
+            collab_enabled = self._default_canvas_collaboration_enabled(conn, actor, payload)
+            canvas = {"id": new_id(), "episode_id": episode, "collaboration_enabled": collab_enabled}
             conn.execute(insert(S.creative_canvases).values(project_id=project["id"], **canvas, created_by=actor))
             return self._insert_canvas_version(conn, project, canvas, payload, actor)
         return self._mutate(project_id, "create_creative_canvas", payload, actor=actor, callback=work, **kw)
@@ -603,21 +687,25 @@ class CreativeCanvasRepository:
     def save_creative_canvas(self, project_id, payload, actor, **kw):
         def work(conn, project):
             canvas, current = self._canvas_version(conn, project, required(payload, "canvas_id"))
-            if type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] != current["version"]:
-                raise Conflict("画布已有新版本；本地稿已保留，请读取新版本或另存副本", "canvas_revision_conflict")
+            current_doc = self._canvas_document(conn, project["id"], current)
             from vsc.assets.access_control import current_principal
             principal=current_principal();prepared=payload
             if principal is not None and principal.share_id:
-                original={n["id"]:n["job_id"] for n in self._canvas_document(conn,project["id"],current)["nodes"]}
+                original={n["id"]:n["job_id"] for n in current_doc["nodes"]}
                 document=deepcopy(payload["document"])
                 for node in document["nodes"]:node["job_id"]=original.get(node["id"])
                 prepared=dict(payload,document=document)
+            modified = _diff_node_keys(current_doc, normalize_document(prepared["document"]))
+            self._require_canvas_edit(conn, project["id"], canvas, modified_node_keys=modified, actor=actor)
+            if type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] != current["version"]:
+                raise Conflict("画布已有新版本；本地稿已保留，请读取新版本或另存副本", "canvas_revision_conflict")
             return self._insert_canvas_version(conn, project, canvas, prepared, actor, current)
         return self._mutate(project_id, "save_creative_canvas", payload, actor=actor, callback=work, **kw)
 
     def add_canvas_library_node(self, project_id, payload, actor, *, materialize_reference, **kw):
         def work(conn, project):
             canvas, current = self._canvas_version(conn, project, payload["canvas_id"])
+            self._require_canvas_edit(conn, project["id"], canvas, actor=actor)
             if payload["canvas_revision"] != current["version"]:
                 raise Conflict("画布已有新版本，请先读回当前画布", "canvas_revision_conflict")
             document = self._canvas_document(conn, project["id"], current)
@@ -646,6 +734,7 @@ class CreativeCanvasRepository:
             management_project_guard(conn,source_project)
             hidden=hidden_object_ids(conn,source_project)
             canvas,current=self._canvas_version(conn,project,payload["canvas_id"])
+            self._require_canvas_edit(conn,project["id"],canvas,actor=actor)
             if payload["canvas_revision"]!=current["version"]:
                 raise Conflict("画布已有新版本，请先读回当前画布", "canvas_revision_conflict")
             document=self._canvas_document(conn,project["id"],current)
@@ -721,7 +810,8 @@ class CreativeCanvasRepository:
             episode = (checked_id(payload["episode_id"]) if payload.get("episode_id") else None) if "episode_id" in payload else source["episode_id"]
             if episode:
                 self._one(conn, S.episodes, project["id"], episode)
-            canvas = {"id": new_id(), "episode_id": episode}
+            collab_enabled = self._default_canvas_collaboration_enabled(conn, actor, payload)
+            canvas = {"id": new_id(), "episode_id": episode, "collaboration_enabled": collab_enabled}
             document = deepcopy(self._canvas_document(conn, project["id"], row))
             mapping = {node['id']: 'copy-'+new_id() for node in document['nodes']}
             for edge in document['edges']:
@@ -745,6 +835,7 @@ class CreativeCanvasRepository:
         def work(conn, project):
             p = project["id"]
             canvas, current = self._canvas_version(conn, project, required(payload, "canvas_id"))
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=(payload.get("node_id"),), actor=actor)
             if type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] != current["version"]:
                 raise Conflict("执行准备要求当前已保存画布版本", "canvas_revision_conflict")
             document = self._canvas_document(conn, p, current)
@@ -810,6 +901,7 @@ class CreativeCanvasRepository:
     def split_canvas_image(self, project_id, payload, *, build, actor, **kw):
         def work(conn, project):
             p = project['id'];canvas, version, document = self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=(payload.get('node_id'),), actor=actor)
             source = next((node for node in document['nodes'] if node['id'] == payload['node_id']), None)
             if not source or source['type'] != 'image' or not source['media_id']:
                 raise ResourceError('请选择已固定图片的画布节点', 'canvas_grid_source_required')
@@ -867,6 +959,7 @@ class CreativeCanvasRepository:
         from .editor_workspace import EditorWorkspaceRepository
         def work(conn, project):
             p = project['id']; canvas, version, document = self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, actor=actor)
             kind = payload.get('type')
             if kind not in DOMAIN_TYPES:
                 raise ResourceError('请选择预演、导演台、剪辑或视频工具')
@@ -962,6 +1055,7 @@ class CreativeCanvasRepository:
         from .editor_workspace import EditorWorkspaceRepository
         def work(conn, project):
             p=project['id']; canvas, version, document=self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, actor=actor)
             node=next((n for n in document['nodes'] if n['id']==payload.get('node_id')),None)
             if not node or not node['media_id']: raise ResourceError('先选择有实际媒体的节点')
             episode=canvas['episode_id'] or payload.get('episode_id')
@@ -998,6 +1092,7 @@ class CreativeCanvasRepository:
     def canvas_node_candidates(self, project_id, payload, actor, **kw):
         def work(conn,project):
             canvas,version,document=self._canvas_current(conn,project,payload)
+            self._require_canvas_edit(conn,project['id'],canvas,actor=actor)
             node=next((n for n in document['nodes'] if n['id']==payload.get('node_id')),None)
             if not node or not node['media_id']: raise ResourceError('节点还没有可登记的媒体')
             target=payload.get('target_object_id');self._one(conn,S.creative_objects,project['id'],target)
@@ -1010,6 +1105,7 @@ class CreativeCanvasRepository:
     def use_canvas_domain_output(self,project_id,payload,actor,**kw):
         def work(conn,project):
             p=project['id'];canvas,version,document=self._canvas_current(conn,project,payload)
+            self._require_canvas_edit(conn,p,canvas,actor=actor)
             source=next((n for n in document['nodes'] if n['id']==payload.get('source_node_id')),None)
             if not source or source['type'] not in {'processing','music_mix','edit'}: raise ResourceError('请选择原加工或剪辑节点')
             output=self._one(conn,S.artifact_versions,p,payload.get('output_version_id'))
@@ -1039,6 +1135,7 @@ class CreativeCanvasRepository:
         from vsc.assets.classic_production import normalize_draft,DRAFT_TYPE
         def work(conn,project):
             p=project['id'];canvas,version,document=self._canvas_current(conn,project,payload)
+            self._require_canvas_edit(conn,p,canvas,modified_node_keys=(payload.get('node_id'),),actor=actor)
             node=next((n for n in document['nodes'] if n['id']==payload.get('node_id')),None)
             if not node or node['type'] not in {'image','video','audio'}:raise ResourceError('选择图片、视频或音频节点')
             image_tool=canvas_image_tool(node['type'],node['params'])
@@ -1172,6 +1269,7 @@ class CreativeCanvasRepository:
     def generate_canvas_work(self,project_id,payload,actor,build_preview,canvas_auto_authorization=None,**kw):
         def work(conn,project):
             p=project['id'];canvas,version,document=self._canvas_current(conn,project,payload)
+            self._require_canvas_edit(conn,p,canvas,modified_node_keys=(payload.get('node_id'),),actor=actor)
             request=payload.get('request',{});binding=conn.execute(select(S.canvas_generation_inputs).where(S.canvas_generation_inputs.c.project_id==p,S.canvas_generation_inputs.c.draft_version_id==checked_id(request.get('draft_version_id')))).mappings().one_or_none()
             if not binding:raise ResourceError('需要画布固定输入回执')
             if binding['version_id']!=version['id'] or binding['node_key']!=payload.get('node_id'):raise Conflict('生成输入不属于当前节点固定版本')
@@ -1189,6 +1287,7 @@ class CreativeCanvasRepository:
     def adopt_canvas_work_outputs(self,project_id,payload,actor,**kw):
         def work(conn,project):
             p=project['id'];canvas,version,document=self._canvas_current(conn,project,payload)
+            self._require_canvas_edit(conn,p,canvas,actor=actor)
             run=self._one(conn,S.artifact_versions,p,payload.get('run_version_id'))
             binding=conn.execute(select(S.creative_canvas_runs).where(S.creative_canvas_runs.c.project_id==p,S.creative_canvas_runs.c.artifact_id==run['id'])).mappings().one_or_none()
             if not binding:raise ResourceError('该运行没有画布来源')
