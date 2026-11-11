@@ -85,12 +85,34 @@ def report_rows(document):
     return rows
 
 
-def _xlsx(rows,images=()):
+def sky_qc_rows(document):
+    from vsc.assets.text_tools import QC_ISSUE_TYPES
+    rows=[["视频名称","问题名称","开始时间","结束时间","问题描述","原字幕","建议修改字幕文本","证据图片"]]
+    for title,doc in documents(document):
+        videos={v["media_id"]:(v.get("name") or v["media_id"]) for v in doc.get("videos",[])}
+        evidence_indices={ref["issue_index"] for ref in doc.get("evidence_images",[])}
+        for index,row in enumerate(doc.get("issues",[])):
+            video_name=videos.get(row.get("media_id","")) or title or row.get("media_id","")
+            issue_name=QC_ISSUE_TYPES.get(row.get("code","")) or QC_ISSUE_TYPES.get(row.get("rule","")) or row.get("code") or row.get("rule","")
+            rows.append([
+                video_name,
+                issue_name,
+                timecode(int(row.get("start_ms",0))),
+                timecode(int(row.get("end_ms",0))),
+                row.get("message",""),
+                row.get("original_subtitle",""),
+                row.get("suggested_subtitle",""),
+                "已内嵌证据帧" if index in evidence_indices else "",
+            ])
+    return rows
+
+
+def _xlsx(rows,images=(),sheet_name="Report",image_col=13):
     out=io.BytesIO()
     with zipfile.ZipFile(out,"w") as z:
         _put(z,"[Content_Types].xml",'<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'+('<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>' if images else '')+'</Types>')
         _put(z,"_rels/.rels",'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
-        _put(z,"xl/workbook.xml",'<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>')
+        _put(z,"xl/workbook.xml",'<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="'+escape(sheet_name)+'" sheetId="1" r:id="rId1"/></sheets></workbook>')
         _put(z,"xl/_rels/workbook.xml.rels",'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
         cells=[]
         for i,row in enumerate(rows,1):
@@ -106,7 +128,7 @@ def _xlsx(rows,images=()):
             for index,(row,raw) in enumerate(images,1):
                 _put(z,'xl/media/evidence'+str(index)+'.png',raw)
                 relations.append('<Relationship Id="rId'+str(index)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/evidence'+str(index)+'.png"/>')
-                drawings.append('<xdr:oneCellAnchor><xdr:from><xdr:col>13</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>'+str(row)+'</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="2286000" cy="1285875"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="'+str(index)+'" name="Evidence '+str(index)+'"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId'+str(index)+'"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>')
+                drawings.append('<xdr:oneCellAnchor><xdr:from><xdr:col>'+str(image_col)+'</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>'+str(row)+'</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="2286000" cy="1285875"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="'+str(index)+'" name="Evidence '+str(index)+'"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId'+str(index)+'"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>')
             _put(z,'xl/drawings/drawing1.xml','<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+''.join(drawings)+'</xdr:wsDr>')
             _put(z,'xl/drawings/_rels/drawing1.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+''.join(relations)+'</Relationships>')
     return out.getvalue()
@@ -116,14 +138,21 @@ def export_document(document,format,media_loader=None,view='translation'):
     from vsc.assets.text_tools import TOOLS
     tool=tool_of(document)
     if tool not in TOOLS or format not in TOOLS[tool]["formats"]:raise ResourceError("此工具不支持所选导出格式")
-    if view not in {'source','translation','bilingual'}:raise ResourceError('导出内容须为原文、译文或双语')
+    if view not in {'source','translation','bilingual','sky_qc'}:raise ResourceError('导出内容须为原文、译文、双语或质检报告')
     if format=='json':
         if tool=='translation' and view in {'source','bilingual'}:
             document={'format':'vsc.translation-export/v1','view':view,'units':[{'title':title,'source_text':doc.get('source_text',''),**({'body':doc.get('body',''),'terms':doc.get('terms',[]),'characters':doc.get('translation_characters',[])} if view=='bilingual' else {})} for title,doc in documents(document)]}
         return json.dumps(document,ensure_ascii=False,indent=2).encode(),"application/json","report.json"
     if format in {"txt","timestamp-txt"}:return "\n".join(paragraphs(document,format=="timestamp-txt",view)).encode(),"text/plain; charset=utf-8","report.txt"
     if format=="docx":return _docx(paragraphs(document,view=view)),"application/vnd.openxmlformats-officedocument.wordprocessingml.document","report.docx"
-    rows=report_rows(document)
+    if tool=="breakdown" and format=="zip":
+        out=io.BytesIO()
+        with zipfile.ZipFile(out,"w") as z:
+            _put(z,"report.json",json.dumps(document,ensure_ascii=False,indent=2).encode())
+            _put(z,"observations.txt","\n".join(paragraphs(document,False,view)).encode())
+            _put(z,"observations.timestamp.txt","\n".join(paragraphs(document,True,view)).encode())
+        return out.getvalue(),"application/zip","skyscript-breakdown.zip"
+    rows=sky_qc_rows(document) if tool=="qc" and view=="sky_qc" else report_rows(document)
     images=[];offset=1;total_images=0
     if format in {'xlsx','zip'}:
         for _,doc in documents(document):
@@ -142,12 +171,17 @@ def export_document(document,format,media_loader=None,view='translation'):
     if format=="html":
         body="<table>"+"".join("<tr>"+"".join("<th>"+html.escape(str(v))+"</th>" if i==0 else "<td>"+html.escape(str(v))+"</td>" for v in row)+"</tr>" for i,row in enumerate(rows))+"</table>"
         return ('<!doctype html><html lang="zh"><meta charset="utf-8"><title>VSC工具报告</title><style>body{font:16px system-ui;margin:2rem}table{border-collapse:collapse}th,td{padding:.6rem;border:1px solid #aaa;text-align:left;white-space:pre-wrap}</style><h1>VSC工具报告</h1>'+body+"</html>").encode(),"text/html; charset=utf-8","report.html"
-    if format=="xlsx":return _xlsx(rows,images),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","report.xlsx"
+    if format=="xlsx":
+        if tool=="qc" and view=="sky_qc":
+            return _xlsx(rows,images,sheet_name="质检报告",image_col=7),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","qc-report-8col.xlsx"
+        return _xlsx(rows,images),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","report.xlsx"
     if format=="zip":
         out=io.BytesIO();total=0
         with zipfile.ZipFile(out,"w") as z:
             _put(z,"report.json",json.dumps(document,ensure_ascii=False,indent=2).encode())
-            _put(z,"report.xlsx",_xlsx(rows,images))
+            _put(z,"report.xlsx",_xlsx(report_rows(document),images))
+            if tool=="qc":
+                _put(z,"qc-report-8col.xlsx",_xlsx(sky_qc_rows(document),images,sheet_name="质检报告",image_col=7))
             for index,(title,doc) in enumerate(documents(document),1):
                 for vno,video in enumerate(doc["videos"],1):
                     path,media=media_loader(video["media_id"]);total+=path.stat().st_size

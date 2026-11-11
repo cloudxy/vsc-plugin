@@ -13,17 +13,63 @@ TOOLS = {
  "novel":{"label":"小说转剧本","actions":{"synopsis":"梗概建议","characters":"人物小传建议","outline":"分集大纲建议","scenes":"场景建议","body":"重新创作正文建议","qa_notes":"正文检查建议"},"formats":["txt","docx","json"]},
  "translation":{"label":"剧本翻译","actions":{"terms":"提取术语与角色建议","translate":"生成当前集译文建议"},"formats":["txt","docx","json"]},
  "scoring":{"label":"剧本评分","actions":{"analyze":"分析类型、频道与首卡建议","score":"按固定标准新评分"},"formats":["json","csv","html"]},
- "breakdown":{"label":"视频拉片","actions":{"observe":"分析固定视频输入"},"formats":["txt","timestamp-txt","json"]},
+ "breakdown":{"label":"视频拉片","actions":{"observe":"分析固定视频输入"},"formats":["txt","timestamp-txt","json","zip"]},
  "qc":{"label":"视频与字幕质检","actions":{"check":"运行所选质检"},"formats":["xlsx","json","zip"]},
  "overseas":{"label":"出海本地化","actions":{"understand":"理解固定源视频","localize":"按理解稿提出本地化建议"},"formats":["json","txt","docx"]},
 }
+SCORING_PRESET_CRITERIA = [
+ {"key":"opening_clarity_hook","label":"开篇清晰度与钩子","max_score":10,"weight":1},
+ {"key":"mainline_progress","label":"主线推进力","max_score":10,"weight":1},
+ {"key":"expectation_payoff","label":"期待感与爽点兑现","max_score":10,"weight":1},
+ {"key":"conflict_emotion","label":"冲突烈度与情绪价值","max_score":10,"weight":1},
+ {"key":"character_relationship","label":"人设魅力与人物关系","max_score":10,"weight":1},
+ {"key":"dialogue_delivery","label":"台词表现力","max_score":10,"weight":1},
+ {"key":"logic_continuity","label":"逻辑自洽与连贯性","max_score":10,"weight":1},
+ {"key":"cliffhanger_binge","label":"卡点悬念与追剧欲","max_score":10,"weight":1},
+ {"key":"differentiation_fit","label":"题材差异化与赛道契合度","max_score":10,"weight":1},
+ {"key":"execution_completeness","label":"剧本完成度与可执行性","max_score":10,"weight":1},
+]
+QC_ISSUE_TYPES = {
+ "typo":"错别字",
+ "missing_punctuation":"标点缺失或误用",
+ "subtitle_desync":"音字不同步",
+ "subtitle_missing":"漏字幕",
+ "subtitle_extra":"多余字幕",
+ "subtitle_overlap":"字幕时间轴重叠",
+ "subtitle_truncation":"字幕遮挡或截断",
+ "semantic_mismatch":"字幕语义与画面不符",
+ "character_name_inconsistent":"角色称谓前后不一",
+ "audio_clipping":"爆音或削波",
+ "audio_silence":"异常静音",
+ "audio_bgm_overpower":"背景音乐压人声",
+ "lip_sync_drift":"口型明显不同步",
+ "black_frame":"黑帧或闪帧",
+ "freeze_frame":"异常卡顿或静帧",
+ "blur_artifact":"画面模糊或伪影",
+ "aspect_crop_error":"画幅裁切异常",
+ "sensitive_word":"合规敏感词风险",
+ "ai_watermark_residue":"角标或水印残留",
+ "ending_cutoff":"尾帧截断",
+ "local_checks_passed":"本地技术检查通过",
+ "local_check_failed":"本地技术检查未通过",
+}
+TRANSLATION_STYLE_PRESETS = [
+ {"key":"default","title":"默认翻译风格","language":"通用","content":"保持短剧快节奏自然口语，准确传达人物身份、情绪张力与潜台词；专有名词与称谓前后统一。"},
+ {"key":"cinematic","title":"电影级对白风格","language":"通用","content":"对白凝练克制，保留戏剧停顿与潜台词层次，避免冗余解释性直译，贴合银幕表演节拍。"},
+ {"key":"overseas_drama","title":"出海快节奏爽剧","language":"英语 / 墨西哥西语","content":"强化开场钩子与冲突反差，采用目标市场地道口语表达，单行字幕简洁易读、情绪落点明确。"},
+]
+NOVEL_MODELS = [
+ {"id":"claude-opus-high","label":"深度思考模型1 (claude-opus-high)"},
+ {"id":"gpt-5.6-high","label":"深度思考模型2 (gpt-5.6-high)"},
+]
+QC_VOICE_LANGUAGES = ["中文（普通话）","英语","西班牙语（拉美）","日语","韩语","印尼语","泰语","葡萄牙语（巴西）"]
 COMMON = {"source_text":"", "source_refs":[], "notes":""}
 DEFAULTS = {
- "novel":{"synopsis":"","core_setting":"","novel_baseline_version_id":"","characters":[],"outline":"","scenes":"","body":"","qa_notes":"","chapter_start":1,"chapter_end":1,"target_episodes":1},
+ "novel":{"synopsis":"","core_setting":"","novel_baseline_version_id":"","characters":[],"outline":"","scenes":"","body":"","qa_notes":"","chapter_start":1,"chapter_end":1,"target_episodes":1,"model_preference":"claude-opus-high","review_status":"pending"},
  "translation":{"body":"","source_language":"","target_language":"","translation_mode":"initial","translation_stage":"draft","episode_number":1,"style":"","style_version_id":"","style_request":False,"terms":[],"translation_characters":[],"reference_version_ids":[],"proofread":False},
  "scoring":{"analysis":"","channel":"未知","category":"未分类","card_start":1,"card_end":1,"card_start_line":1,"card_end_line":1,"card_source_sha256":"","criteria":[],"scores":[],"risk_score":0,"quality_score":0,"confidence":0,"review_decision":"pending","review_reason":""},
  "breakdown":{"media_id":"","understanding_mode":"light","observation_basis":"","observations":[],"body":""},
- "qc":{"videos":[],"subtitles":[],"matches":[],"checks":["metadata","subtitles"],"content_rules":[],"rule_version":"vsc.media-review/v1","check_ranges":[],"base_report_version_id":"","issues":[]},
+ "qc":{"videos":[],"subtitles":[],"matches":[],"checks":["metadata","subtitles"],"voice_language":"中文（普通话）","content_rules":[],"rule_version":"vsc.media-review/v1","check_ranges":[],"base_report_version_id":"","issues":[]},
  "overseas":{"source_media_id":"","target_language":"","understanding":"","understanding_mode":"light","observation_basis":"human-observation","understanding_version_id":"","entities":[],"body":"","groups":[],"segments":[]},
 }
 ROWS = {
@@ -104,6 +150,7 @@ def normalize_document(tool, value):
             prior[row["media_id"]]=row["end_ms"]
     if tool=='novel':
         if result['chapter_end']<result['chapter_start'] or result['target_episodes']>200:fail('章范围倒置或目标集数超过200')
+        if result['review_status'] not in {'pending','approved','rejected'}:fail('阶段审核状态无效')
         if result['source_text'].strip() and not result['novel_baseline_version_id']:
             from vsc.production.text_tools import chapter_text
             chapter_text(result['source_text'],result['chapter_start'],result['chapter_end'])
@@ -190,6 +237,14 @@ class TextToolsServiceMixin:
         from vsc.production.media_understanding import default_media_host
         media=getattr(self,'media_understanding_host',None) or default_media_host()
         return {"tools":deepcopy(TOOLS),"defaults":deepcopy(DEFAULTS),"rows":deepcopy(ROWS),"common":deepcopy(COMMON),
+                "presets":{
+                    "scoring_criteria":deepcopy(SCORING_PRESET_CRITERIA),
+                    "qc_issue_types":deepcopy(QC_ISSUE_TYPES),
+                    "translation_styles":deepcopy(TRANSLATION_STYLE_PRESETS),
+                    "novel_models":deepcopy(NOVEL_MODELS),
+                    "qc_voice_languages":list(QC_VOICE_LANGUAGES),
+                    "breakdown_model":"SkyScript",
+                },
                 'media_host':{'name':media.name,'available':media.available(),'capabilities':sorted(media.capabilities),'basis':media.basis,'online_verified':False},
                 "host":{"name":backend.name,"available":backend.available(),"online_verified":False},
                 "local_probe":bool(shutil.which("ffprobe")),"local_decode":bool(shutil.which("ffmpeg")),
@@ -208,8 +263,9 @@ class TextToolsServiceMixin:
         value=self.store.get_text_tool(project_id,unit_id)
         if value['tool']=='novel':value['novel_plan']=self.store.get_novel_plan(project_id,unit_id)
         if value['tool']=='translation':
-            from vsc.production.text_tools import translation_residuals
+            from vsc.production.text_tools import translation_residuals,translation_length_warnings
             value['residuals']=translation_residuals(value['document'])
+            value['length_warnings']=translation_length_warnings(value['document'])
         if value["tool"]=="qc":
             value["matching"]=subtitle_matches(value["document"]["videos"],value["document"]["subtitles"])
             value['issue_reviews']=self.store.text_issue_reviews(project_id,value['current_version_id'])

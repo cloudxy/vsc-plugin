@@ -3,8 +3,52 @@ import {readCanvasLibraryPending} from './canvas-library.js';
 import {createTaskNotifications} from './task-notifications.js';
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
-const entry = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
-const currentEntry=()=>new URLSearchParams(typeof window==='undefined'?'':window.location.search);
+function resolvePathnameEntry(pathname='/',search=''){
+  const params=new URLSearchParams(search||'');
+  if(params.has('page'))return params;
+  const p=String(pathname||'/').replace(/\/+$/,'')||'/';
+  const apply=obj=>{for(const [k,v]of Object.entries(obj))if(v!=null&&!params.has(k))params.set(k,String(v));return params;};
+  if(p==='/script')return apply({page:'text-tools',tool:'translation'});
+  if(p.startsWith('/script/')){
+    const [sub,stage]=p.slice('/script/'.length).split('/');
+    if(sub==='video-parse')return apply({page:'text-tools',tool:'breakdown'});
+    if(sub==='video-qc')return apply({page:'text-tools',tool:'qc'});
+    if(sub==='scoring')return apply({page:'text-tools',tool:'scoring',...(stage?{subview:stage}:{})});
+    if(sub==='novel')return apply({page:'text-tools',tool:'novel',...(stage?{subview:stage}:{})});
+    if(sub==='translation')return apply({page:'text-tools',tool:'translation',...(stage?{subview:stage}:{})});
+    if(sub==='overseas')return apply({page:'text-tools',tool:'overseas'});
+    if(['styles','history','parse-smart','parse','style','review','result'].includes(sub))return apply({page:'text-tools',tool:'translation',subview:sub});
+    return apply({page:'text-tools',tool:'translation'});
+  }
+  if(p==='/marketing-studio')return apply({page:'marketing-studio'});
+  if(p==='/members')return apply({page:'access'});
+  if(p==='/sub-studios')return apply({page:'commerce',subview:'studio-quota'});
+  if(p==='/subscription')return apply({page:'commerce',subview:'subscription'});
+  if(p==='/wallet')return apply({page:'commerce',subview:'wallet'});
+  if(p==='/wallet/invoice')return apply({page:'commerce',subview:'invoice-overview'});
+  if(p.startsWith('/wallet/invoice/')){
+    const sub=p.slice('/wallet/invoice/'.length).split('/')[0];
+    return apply({page:'commerce',subview:['apply','orders','history','titles','overview'].includes(sub)?`invoice-${sub}`:'invoice-overview'});
+  }
+  if(p==='/engine')return apply({page:'service-operations',subview:'engine'});
+  if(p==='/data-records')return apply({page:'service-operations',subview:'data-records'});
+  if(p==='/seedance-verify'||p==='/video_check')return apply({page:'service-operations',subview:'seedance-verify',...(params.get('task_id')?{task_target:params.get('task_id')}:{})});
+  if(p==='/feedback/records')return apply({page:'service-operations',subview:'feedback-records'});
+  if(p==='/ai-drama-base')return apply({page:'service-operations',subview:'ai-drama-base'});
+  if(p==='/network-diagnostic')return apply({page:'service-operations',subview:'network-diagnostic'});
+  if(p==='/account-close')return apply({page:'service-operations',subview:'account-close'});
+  if(p==='/personal-info-export')return apply({page:'service-operations',subview:'personal-info-export'});
+  if(p==='/activity')return apply({page:'service-operations',subview:'activity'});
+  if(p==='/terms')return apply({page:'service-operations',subview:'terms'});
+  if(p==='/privacy')return apply({page:'service-operations',subview:'privacy'});
+  if(p==='/pc-only-notice')return apply({page:'service-operations',subview:'pc-only-notice'});
+  if(p==='/icon')return apply({page:'service-operations',subview:'icon'});
+  if(p==='/403')return apply({page:'service-operations',subview:'forbidden'});
+  if(p==='/404')return apply({page:'service-operations',subview:'not-found'});
+  return params;
+}
+const entry = typeof window === 'undefined' ? new URLSearchParams('') : resolvePathnameEntry(window.location.pathname, window.location.search);
+const currentEntry=()=>typeof window==='undefined'?new URLSearchParams(''):resolvePathnameEntry(window.location.pathname,window.location.search);
 const platformViews=['home','projects','project','production','tasks','assets','settings','maintenance'];
 const mainViews = ['desk','collection','trash'];
 const customViews=['project-management','marketing-studio','creative-canvas','editing','classic-production','blocking','previs','creative-tools','text-tools','media-imports','access','access-share','team-review','commerce','asset-center','service-operations','community','intelligent-creation','intelligent-storyboard'];
@@ -93,6 +137,15 @@ function setEntryOptions(page,project,scope,options={}){
   if(typeof window==='undefined')return;
   const query=new URLSearchParams({page,...(project?{project}:{}),...(scope?{scope}:{}),...options});
   window.history.pushState(null,'','?'+query);
+}
+async function navigateModule(page,id=null,p=state.project){
+  const resolvedProject=page==='home'?null:(p||[...state.projectRows.keys()][0]||null);
+  const subview=['commerce','service-operations'].includes(page)&&id?id:null;
+  const scope=subview?null:id;
+  setEntryOptions(page,resolvedProject,scope,subview?{subview}:{});
+  state.view=page;
+  if(page==='home'){state.project=null;state.object=null;episodeScope=null;await switchView('home');return;}
+  await selectProject(resolvedProject,{scope});
 }
 function openedCreativeTarget(id,project,episode){
   if(project!==state.project||typeof window==='undefined')return;
@@ -188,8 +241,8 @@ async function loadCustomView(view){
     if(!creativeTools){const {createCreativeTools}=await import('./creative-tools.js');creativeTools=createCreativeTools($('creative-tools-view'),{api,projects:()=>[...state.projectRows.values()],activateWorkspace:async(p,episode)=>{state.project=p;state.object=null;episodeScope=episode;state.view='creative-tools';setEntryOptions('creative-tools',p,null,{...(currentEntry().get('tool')?{tool:currentEntry().get('tool')}:{}),...(episode?{episode}:{})});await loadProjects();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await creativeTools.load({project,object:object||episodeScope,tool:currentEntry().get('tool')});
   }else if(view==='text-tools'){
-    if(!textTools){const {createTextTools}=await import('./text-tools.js');textTools=createTextTools($('text-tools-view'),{api,activateWorkspace:async(p,unitId=null)=>{state.project=p;state.object=null;episodeScope=null;state.view='text-tools';const url=new URL(location.href);if(unitId)url.searchParams.set('task_target',unitId);else url.searchParams.delete('task_target');url.searchParams.set('project',p);url.searchParams.set('page','text-tools');history.replaceState(null,'',url);await loadProjects();},openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
-    if(ticket===customViewRequest&&view===state.view)await textTools.load({project,object:episodeScope||object,targetId:currentEntry().get('task_target'),tool:currentEntry().get('tool')});
+    if(!textTools){const {createTextTools}=await import('./text-tools.js');textTools=createTextTools($('text-tools-view'),{api,activateWorkspace:async(p,unitId=null)=>{const prev=currentEntry(),q=new URLSearchParams({page:'text-tools',project:p});if(prev.get('tool'))q.set('tool',prev.get('tool'));if(prev.get('subview'))q.set('subview',prev.get('subview'));if(unitId)q.set('task_target',unitId);state.project=p;state.object=null;episodeScope=null;state.view='text-tools';window.history.replaceState(null,'','?'+q);await loadProjects();},openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
+    if(ticket===customViewRequest&&view===state.view)await textTools.load({project,object:episodeScope||object,targetId:currentEntry().get('task_target'),tool:currentEntry().get('tool'),subview:currentEntry().get('subview')});
   }else if(view==='media-imports'){
     const {createMediaImports}=await import('./media-imports.js');if(ticket!==customViewRequest||view!==state.view)return;
     mediaImports?.suspend();mediaImports=createMediaImports({root:$('media-imports-view'),api,project,initialBatchId:currentEntry().get('task_target'),episodeId:episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),session:()=>({actor:state.actor,csrf:state.csrf,writable:state.writable}),onChange:value=>{if(project===state.project&&value.revision!=null)state.revision=value.revision;}});await mediaImports.load();
@@ -200,14 +253,14 @@ async function loadCustomView(view){
     if(!teamReview){const {createTeamReview}=await import('./team-review.js');teamReview=createTeamReview($('team-review-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},media:openMedia,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await teamReview.load({project,object});
   }else if(view==='commerce'){
-    if(!commerce){const {createCommerce}=await import('./commerce.js');commerce=createCommerce($('commerce-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
-    if(ticket===customViewRequest&&view===state.view)await commerce.load({project,object});
+    if(!commerce){const {createCommerce}=await import('./commerce.js');commerce=createCommerce($('commerce-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule});}
+    if(ticket===customViewRequest&&view===state.view)await commerce.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target')});
   }else if(view==='community'){
     if(!community){const {createCommunity}=await import('./community.js');community=createCommunity($('community-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,projectId:state.project,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project&&value!=null)state.revision=value;}});}
     if(ticket===customViewRequest&&view===state.view)await community.load({projectId:project});
   }else if(view==='service-operations'){
-    if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
-    if(ticket===customViewRequest&&view===state.view)await serviceOperations.load({project,object});
+    if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule});}
+    if(ticket===customViewRequest&&view===state.view)await serviceOperations.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target')});
   }else if(view==='asset-center'){
     if(!assetCenter){const {createAssetCenter}=await import('./asset-center.js');assetCenter=createAssetCenter($('asset-center-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),projects:()=>[...state.projectRows.values()],projectId:()=>state.project,setRevision:(value,p)=>{if(!p||p===state.project)state.revision=value;},workspaces:async()=>(await api('/api/v1/access')).workspaces});}
     if(ticket===customViewRequest&&view===state.view)await assetCenter.load();
@@ -453,7 +506,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(previous.get('project')||null)===(state.project||null)){for(const key of ['task_target','tool','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
@@ -484,7 +537,7 @@ async function loadProjects() {
     const option = el('option', '', project.name + (project.unavailable ? ' · 权威不可用' : ''));
     option.value = project.id; $('projects').append(option);
   }
-  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','project-management','text-tools','creative-tools','marketing-studio'].includes(state.view)?state.view:'projects');return; }
+  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','project-management','text-tools','creative-tools','marketing-studio','commerce','service-operations'].includes(state.view)?state.view:'projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
   if(['text-tools','creative-tools'].includes(state.view)&&!state.project){$('projects').prepend(localizedOption('',msg("ui.standalone_tools_no_film_project_selected")));$('projects').value='';await switchView(state.view);syncRoute();return;}
   if(['home','projects','collection','project-management','asset-center','marketing-studio'].includes(state.view)){await switchView(state.view);syncRoute();return;}
@@ -874,14 +927,20 @@ $('help-open')?.addEventListener('click',guard(async()=>{const data=await api('/
 for(const item of document.querySelectorAll('#account-menu button,#account-menu a'))item.addEventListener('click',()=>{$('account-menu').open=false;});
 $('access-open').addEventListener('click',guard(()=>switchView('access')));
 $('asset-center-open').addEventListener('click',guard(()=>switchView('asset-center')));
-$('commerce-open').addEventListener('click',guard(()=>switchView('commerce')));
+$('commerce-open').addEventListener('click',guard(()=>navigateModule('commerce','wallet')));
+$('drama-base-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','ai-drama-base')));
+$('engine-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','engine')));
+$('data-records-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','data-records')));
+$('invoice-open')?.addEventListener('click',guard(()=>navigateModule('commerce','invoice-overview')));
+$('studio-quota-open')?.addEventListener('click',guard(()=>navigateModule('commerce','studio-quota')));
 $('project-management-open').addEventListener('click',guard(()=>switchView('project-management')));
-$('service-operations-open').addEventListener('click',guard(()=>switchView('service-operations')));
+$('service-operations-open').addEventListener('click',guard(()=>navigateModule('service-operations','overview')));
 $('creation-record')?.addEventListener('click',guard(()=>switchView('tasks')));
 const closeHelp=()=>document.querySelector('.sidebar-help')?.removeAttribute('open');
 $('help-team')?.addEventListener('click',guard(async()=>{closeHelp();await switchView('access');}));
 $('help-guide')?.addEventListener('click',guard(async()=>{closeHelp();$('help-open')?.click();}));
-$('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await switchView('service-operations');}));
+$('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','feedback-records');}));
+$('help-network')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','network-diagnostic');}));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));
 let emptyCanvasOpening=null;
 async function createEmptyCanvasProject({isCurrent=()=>true,aiMv=false}={}){

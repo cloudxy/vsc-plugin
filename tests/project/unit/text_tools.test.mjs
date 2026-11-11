@@ -187,3 +187,116 @@ test('chapter preview follows the saved chapter format and warns about a preface
  assert.equal(a.module.splitNovelChapters(source.value).map(row=>row.text).join(''),source.value);
  a.instance.suspend();
 });
+
+test('translation length warning, 4-role classification, style presets, bilingual view, and tr_ trace header work end-to-end',async()=>{
+ const a=await toolsFixture();
+ assert.equal(a.module.computeTranslationLengthWarning('中文（简体）','甲'.repeat(4501)).exceeded,true);
+ assert.equal(a.module.computeTranslationLengthWarning('英语','A'.repeat(64001)).exceeded,true);
+ assert.equal(a.module.computeTranslationLengthWarning('英语','A'.repeat(1200)).exceeded,false);
+ await a.instance.load({project:'p',tool:'translation',targetId:'translation-one'});
+ assert.ok(a.view.querySelector('.tt-translation-flow'));
+ await a.stage('terms').fire('click');
+ assert.ok(a.view.querySelector('.tt-role-groups').textContent.includes('有名角色：0'));
+ await a.button('＋ 添加有名角色').fire('click');
+ await a.button('＋ 添加群演角色').fire('click');
+ assert.ok(a.view.querySelector('.tt-role-groups').textContent.includes('有名角色：1'));
+ assert.ok(a.view.querySelector('.tt-role-groups').textContent.includes('群演角色：1'));
+ await a.button('风格：电影级对白风格').fire('click');
+ assert.ok(a.input('翻译风格').value.includes('凝练克制'));
+ await a.stage('body').fire('click');
+ await a.button('双栏对照审校').fire('click');
+ assert.equal(a.view.querySelector('.tt-bilingual-compare').hidden,false);
+ assert.ok(a.view.querySelector('.tt-bilingual-compare').textContent.includes('Translated text'));
+ await a.view.querySelector('form').fire('submit');
+ const post=a.requests.find(r=>r.init.method==='POST'&&r.path.endsWith('/text-tools/units'));
+ assert.match(post.init.headers['X-Trace-Id'],/^tr_\d+_/);
+ assert.equal(JSON.parse(post.init.body).payload.document.translation_characters.length,2);
+ a.instance.suspend();
+});
+
+test('novel custom folder creation, model preference, and review status gate persist cleanly',async()=>{
+ const a=await toolsFixture();
+ a.capabilities.defaults.novel.model_preference='claude-opus-high';
+ a.capabilities.defaults.novel.review_status='pending';
+ await a.instance.load({project:'p',tool:'novel'});
+ const folderName=a.input('新建文件夹名称');folderName.value='女频重生档';
+ await a.button('＋ 新建文件夹').fire('click');
+ assert.ok(a.view.querySelector('.tt-folders').textContent.includes('女频重生档 · 0'));
+ await a.button('＋ 导入小说').fire('click');
+ assert.equal(a.input('项目名称').value,'女频重生档');
+ assert.equal(a.input('导入默认深度思考模型').value,'claude-opus-high');
+ await a.button('取消').fire('click');
+ await a.instance.load({project:'p',tool:'novel',targetId:'novel-one'});
+ assert.ok(a.view.querySelector('.tt-novel-flow'));
+ const model=a.input('改编深度思考模型'),gate=a.input('阶段审核状态');
+ model.value='gpt-5.6-high';await model.fire('change');
+ gate.value='approved';await gate.fire('change');
+ await a.view.querySelector('form').fire('submit');
+ const post=a.requests.find(r=>r.init.method==='POST'&&r.path.endsWith('/text-tools/units'));
+ assert.match(post.init.headers['X-Trace-Id'],/^novel_\d+_/);
+ const doc=JSON.parse(post.init.body).payload.document;
+ assert.equal(doc.model_preference,'gpt-5.6-high');
+ assert.equal(doc.review_status,'approved');
+ a.instance.suspend();
+});
+
+test('scoring loads 10 standard dimensions, quick channels, and breakdown/qc studio controls seek video and expose 8-col report',async()=>{
+ const a=await toolsFixture();
+ a.capabilities.tools.qc.formats=['xlsx','json','zip'];
+ a.capabilities.defaults.qc.voice_language='中文（普通话）';
+ await a.instance.load({project:'p',tool:'scoring',targetId:'scoring-one'});
+ await a.button('女频').fire('click');
+ assert.equal(a.input('频道').value,'女频');
+ await a.button('载入天工10维标准指标').fire('click');
+ await a.view.querySelector('form').fire('submit');
+ const scoreSave=a.requests.find(r=>r.init.method==='POST'&&r.path.endsWith('/text-tools/units'));
+ assert.ok(JSON.parse(scoreSave.init.body).payload.document.criteria.length>=10);
+ const matches=a.module.computeSubtitleMatches([{media_id:'v1',name:'ep01.mp4'},{media_id:'v2',name:'ep01.zh.mp4'}],[{filename:'ep01.zh.srt'}]);
+ assert.equal(matches[0].status,'conflict');
+ await a.instance.load({project:'p',tool:'breakdown',targetId:'breakdown-one'});
+ assert.ok(a.view.querySelector('.tt-model-badge').textContent.includes('SkyScript'));
+ const bVideo=a.view.querySelector('video');assert.ok(bVideo);
+ await a.button('跳至时码').fire('click');
+ await a.instance.load({project:'p',tool:'qc',targetId:'qc-one'});
+ const qVideo=a.view.querySelector('video');assert.ok(qVideo);
+ await a.button('定位问题画面').fire('click');
+ const skyLink=a.view.querySelectorAll('a').find(n=>n.href?.includes('view=sky_qc'));
+ assert.ok(skyLink);
+ const filter=a.input('筛选问题类型');filter.value='typo';await filter.fire('change');
+ assert.ok(a.view.querySelector('.tt-qc-issues').textContent.includes('当前筛选条件下暂无问题记录'));
+ a.instance.suspend();
+});
+
+test('script root pill order matches SkyProduction 5-studio header and supports styles/history/parse-smart subview deep-links',async()=>{
+ const a=await toolsFixture();
+ await a.instance.load({project:'p'});
+ assert.equal(a.view.dataset.tool,'translation');
+ const pillOrder=a.view.querySelector('.tt-tabs').querySelectorAll('button').map(b=>b.textContent);
+ assert.deepEqual(pillOrder,['breakdown','novel','translation','scoring','qc']);
+
+ await a.instance.load({project:'p',tool:'translation',subview:'styles'});
+ assert.equal(a.view.dataset.screen,'styles');
+ assert.ok(a.view.querySelector('.tt-style-name-count').textContent.includes('0/128'));
+ a.input('名称').value='短剧快节奏';await a.input('名称').fire('input');
+ assert.ok(a.view.querySelector('.tt-style-name-count').textContent.includes('5/128'));
+
+ await a.instance.load({project:'p',tool:'translation',subview:'history'});
+ assert.equal(a.view.dataset.screen,'history');
+ assert.ok(a.input('目标语言筛选'));
+
+ await a.instance.load({project:'p',tool:'translation',subview:'parse-smart'});
+ assert.equal(a.view.querySelector('.tt-manual-intake').open,true);
+
+ await a.instance.load({project:'p',tool:'novel',subview:'overview'});
+ const novelSelected=a.view.querySelector('.tt-workspace-stages').querySelectorAll('button').find(b=>b.getAttribute('aria-selected')==='true');
+ assert.equal(novelSelected?.dataset.stage,'synopsis');
+
+ await a.instance.load({project:'p',tool:'novel',subview:'episodes'});
+ const epSelected=a.view.querySelector('.tt-workspace-stages').querySelectorAll('button').find(b=>b.getAttribute('aria-selected')==='true');
+ assert.equal(epSelected?.dataset.stage,'outline');
+
+ await a.instance.load({project:'p',tool:'translation',subview:'style'});
+ const trSelected=a.view.querySelector('.tt-workspace-stages')?.querySelectorAll('button').find(b=>b.getAttribute('aria-selected')==='true');
+ assert.equal(trSelected?.dataset.stage,'terms');
+ a.instance.suspend();
+});

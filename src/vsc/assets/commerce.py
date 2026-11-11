@@ -281,3 +281,9 @@ class CommerceService:
         if invoice["actor"]!=actor:self._commerce_access(project_id,"manage")
         if invoice["status"]!="issued":_error("尚无已开具发票文件","invoice_not_issued")
         return invoice["document"],invoice["sha256"]
+
+    def commerce_invoice_titles(self,project_id,*,actor,query=""):
+        self._actor(actor)
+        self._commerce_access(project_id,"read")
+        if not isinstance(query,str) or len(query)>100:_error("抬头检索关键词过长")
+        return self._commerce().invoice_titles(project_id,actor,query=query)

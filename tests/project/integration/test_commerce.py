@@ -452,4 +452,33 @@ class CommerceTests(ResourceStoreFixture, unittest.TestCase):
                 conn.execute(insert(S.commerce_rates).values(project_id=self.p,id=str(uuid.uuid4()),plan_id=identifier,**doc['rates'][0]))
         self.assertEqual(failure.exception.orig.sqlstate,'23514')
 
+    def test_owner_invoice_titles_and_invoice_portal_summary_preserve_privacy(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        self.configure()
+        order1=self.paid_order();order2=self.paid_order()
+        self.write('request_commerce_invoice',dict(order_id=order1['id'],title='北京天工测试科技有限公司',tax_id='91110105MA00123456',email='finance@example.invalid'))
+        current=self.summary()
+        self.assertEqual(current['invoice_summary']['paid_order_count'],2)
+        self.assertEqual(current['invoice_summary']['invoiced_order_count'],1)
+        self.assertEqual(current['invoice_summary']['billable_order_count'],1)
+        self.assertEqual(current['invoice_summary']['support_email'],'support@skyproduction.cn')
+        self.assertNotIn('tax_id',current['invoices'][0])
+        self.assertNotIn('email',current['invoices'][0])
+        other_titles=self.service.commerce_invoice_titles(self.p,actor='other-actor')
+        self.assertEqual(other_titles['items'],[])
+        with tempfile.TemporaryDirectory() as directory:
+            app=create_app(dict(projects_root=directory,allowed_hosts=['testserver'],allowed_origins=['http://testserver'],access_token='isolated-token',human_identity='test-human'),service=self.service)
+            with TestClient(app) as client:
+                url=f'/api/v1/projects/{self.p}/commerce/invoice-titles'
+                self.assertEqual(client.get(url).status_code,403)
+                login=client.post('/api/v1/session',json={'token':'isolated-token'},headers={'Origin':'http://testserver'})
+                headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
+                resp=client.get(url+'?q=天工',headers=headers)
+                self.assertEqual(resp.status_code,200,resp.text)
+                items=resp.json()['items']
+                self.assertEqual(len(items),1)
+                self.assertEqual(items[0]['tax_id'],'91110105MA00123456')
+                self.assertEqual(items[0]['invoice_type'],'enterprise')
+
 if __name__ == "__main__": unittest.main()

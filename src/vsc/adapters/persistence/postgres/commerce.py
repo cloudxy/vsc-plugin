@@ -77,11 +77,45 @@ class CommerceRepository(WorkspaceCommerceRepository):
             invoice_rows=conn.execute(select(S.commerce_invoices).where(S.commerce_invoices.c.project_id==p,
                 True if manage else S.commerce_invoices.c.actor==actor).order_by(S.commerce_invoices.c.created_at.desc()).limit(100)).mappings()
             invoices=[{k:v for k,v in row.items() if k not in {"document","tax_id","email"}} for row in invoice_rows]
+            invoiced_order_ids={row["order_id"] for row in invoices}
+            paid_orders=[row for row in orders if row["status"]=="paid"]
+            invoice_summary=dict(
+                paid_order_count=len(paid_orders),
+                billable_order_count=sum(1 for row in paid_orders if row["id"] not in invoiced_order_ids),
+                invoiced_order_count=sum(1 for row in paid_orders if row["id"] in invoiced_order_ids),
+                issued_count=sum(1 for row in invoices if row["status"]=="issued"),
+                pending_count=sum(1 for row in invoices if row["status"] in {"created","pending","submission_unknown","unconfigured"}),
+                support_email="support@skyproduction.cn",
+                service_hours="周一至周五 10:00-19:00（法定节假日除外）",
+            )
             reservations=[dict(row) for row in conn.execute(select(S.commerce_reservations).where(S.commerce_reservations.c.project_id==p,
                 True if manage else S.commerce_reservations.c.account_actor==actor).order_by(S.commerce_reservations.c.created_at.desc()).limit(100)).mappings()]
             return clean(dict(project_id=p,revision=project["revision"],plans=list(plans.values()),policy=policy,
-                orders=orders,buckets=buckets,ledger=ledger,invoices=invoices,reservations=reservations,
+                orders=orders,buckets=buckets,ledger=ledger,invoices=invoices,invoice_summary=invoice_summary,reservations=reservations,
                 credit_balance=sum(row["available"] for row in buckets),credit_unit="commercial_credit",native_units_are_separate=True))
+
+    def invoice_titles(self,p,actor,query=""):
+        q=(query or "").strip().lower()
+        with self.store.engine.connect() as conn:
+            project=self.store._project(conn,p);p=project["id"]
+            rows=conn.execute(select(S.commerce_invoices).where(
+                S.commerce_invoices.c.project_id==p,S.commerce_invoices.c.actor==actor
+            ).order_by(S.commerce_invoices.c.created_at.desc()).limit(100)).mappings()
+            seen=set();items=[]
+            for row in rows:
+                key=(row["title"],row["tax_id"])
+                if key in seen:continue
+                if q and q not in row["title"].lower() and q not in row["tax_id"].lower():continue
+                seen.add(key)
+                items.append(dict(
+                    title=row["title"],
+                    tax_id=row["tax_id"],
+                    email=row["email"],
+                    workspace_id=row["workspace_id"],
+                    invoice_type="personal" if row["tax_id"].upper()=="PERSONAL" else "enterprise",
+                    last_used_at=row["created_at"],
+                ))
+            return clean(dict(project_id=p,revision=project["revision"],items=items))
 
     def configure_plan(self,p,payload,**kw):
         def work(conn,project):

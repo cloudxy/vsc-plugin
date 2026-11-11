@@ -699,6 +699,44 @@ class TextToolTests(ResourceStoreFixture,unittest.TestCase):
         finally:temporary.cleanup()
         with self.assertRaises(Conflict):self.write('apply_text_tool_subtitles',{'request':request,'preview_sha256':preview['preview_sha256']})
 
+    def test_sky_qc_8col_export_breakdown_zip_length_warnings_and_trace_header(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        long_zh=self.save('translation',self.draft('translation',source_language='中文（简体）',target_language='English',source_text='汉'*4505))
+        unit=self.service.get_text_tool(self.p,long_zh['unit_id'])
+        self.assertTrue(any(w.get('code')=='source_length_exceeded' and w.get('limit')==4500 for w in unit.get('length_warnings',[])),unit.get('length_warnings'))
+        media,_=self.video('trace-qc.mp4',2)
+        breakdown=self.save('breakdown',self.draft('breakdown',understanding_mode='manual',media_id=media,observations=[{'start_ms':200,'end_ms':900,'kind':'镜头','text':'固定拉镜观察'}]))
+        bzip,bmime,bname=self.service.text_tool_export(self.p,breakdown['id'],'zip')
+        self.assertEqual(bmime,'application/zip');self.assertIn('skyscript',bname)
+        with zipfile.ZipFile(io.BytesIO(bzip)) as archive:
+            self.assertTrue(any(n.endswith('.json') for n in archive.namelist()))
+            self.assertTrue(any(n.endswith('.txt') for n in archive.namelist()))
+        qc=self.save('qc',self.draft('qc',voice_language='日语',videos=[{'media_id':media,'name':'ep01.mp4','sha256':''}],
+            issues=[{'rule':'subtitles','media_id':media,'code':'typo','severity':'warning','start_ms':100,'end_ms':800,'evidence':'帧证据','message':'错别字问题','original_subtitle':'原句','suggested_subtitle':'改句','rule_version':'vsc.media-review/v1'}]))
+        sky_xlsx,xmime,xname=self.service.text_tool_export(self.p,qc['id'],'xlsx',view='sky_qc')
+        self.assertIn('8col',xname)
+        with zipfile.ZipFile(io.BytesIO(sky_xlsx)) as archive:
+            xml_blob=''.join(archive.read(n).decode('utf-8','ignore') for n in archive.namelist() if n.endswith('.xml'))
+            for col_label in ('视频名称','问题名称','开始时间','结束时间','问题描述','原字幕','建议修改字幕文本','证据图片'):
+                self.assertIn(col_label,xml_blob)
+        qczip=self.service.text_tool_export(self.p,qc['id'],'zip')[0]
+        with zipfile.ZipFile(io.BytesIO(qczip)) as archive:
+            self.assertTrue(any(n.endswith('qc-report-8col.xlsx') for n in archive.namelist()),archive.namelist())
+        app=create_app({'projects_root':str(self.root/'projects'),'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test','human_identity':'test-human','background_enabled':False},service=self.service)
+        with TestClient(app) as client:
+            login=client.post('/api/v1/session',json={'token':'test'},headers={'Origin':'http://testserver'}).json()
+            headers={'Origin':'http://testserver','X-CSRF-Token':login['csrf_token'],'X-Trace-Id':'tr_sky_test_001'}
+            base='/api/v1/projects/'+self.p+'/text-tools'
+            caps=client.get(base+'/capabilities')
+            self.assertEqual(caps.status_code,200);self.assertIn('presets',caps.json())
+            saved=client.post(base+'/units',json={'payload':{'tool':'novel','group_key':'folder-a','unit_key':'u1','title':'Trace','ordinal':0,'episode_id':None,'unit_id':None,'document':self.draft('novel',model_preference='claude-opus-high',review_status='approved',body='正文'),'base_version_id':None},'expected_revision':self.service.get_project(self.p)['revision'],'idempotency_key':uuid.uuid4().hex},headers=headers)
+            self.assertEqual(saved.status_code,200,saved.text)
+            self.assertEqual(saved.headers.get('x-trace-id'),'tr_sky_test_001')
+            exported=client.get(base+'/exports/'+qc['id']+'?format=xlsx&view=sky_qc',headers={'X-CSRF-Token':login['csrf_token'],'X-Trace-Id':'ss_export_002'})
+            self.assertEqual(exported.status_code,200)
+            self.assertEqual(exported.headers.get('x-trace-id'),'ss_export_002')
+
 class TextToolHostContractTests(unittest.TestCase):
     def test_single_turn_tool_free_host_parses_structured_output(self):
         from vsc.production.text_tool_host import GrokBuildTextTools

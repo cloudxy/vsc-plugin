@@ -1414,6 +1414,7 @@
         "src/vsc/adapters/providers/commerce.py",
         "src/vsc/interfaces/web/commerce.py",
         "src/vsc/interfaces/web/static/commerce.js",
+        "src/vsc/interfaces/web/static/commerce.css",
         "migrations/postgres/versions/0032_fixed_member_seals.py",
         "src/vsc/adapters/persistence/postgres/workspace_commerce.py",
         "src/vsc/adapters/persistence/postgres/schema_workspace_commerce.py",
@@ -1609,7 +1610,28 @@
       "layer": "unit",
       "sources": [
         "src/vsc/interfaces/web/static/text-tools.js",
+        "src/vsc/interfaces/web/static/text-tools.css",
         "tests/project/unit/text_tools.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_commerce_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/commerce.js",
+        "src/vsc/interfaces/web/static/commerce.css",
+        "tests/project/unit/commerce_frontend.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_service_operations_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/service-operations.js",
+        "src/vsc/interfaces/web/static/service-operations.css",
+        "tests/project/unit/service_operations_frontend.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
