@@ -32,7 +32,10 @@ from vsc.interfaces.web.assisted_desk import install_assisted_desk_routes
 from vsc.interfaces.web.edit_preview import install_edit_preview_routes
 from vsc.interfaces.web.editor_workspace import install_editor_workspace_routes
 from vsc.interfaces.web.production_platform import install_production_platform_routes
-from vsc.interfaces.web.creative_canvas import install_creative_canvas_routes, install_canvas_library_routes
+from vsc.interfaces.web.creative_canvas import (
+    CanvasCollabHub, install_creative_canvas_routes, install_canvas_library_routes, install_canvas_collab_ws,
+    parse_request_host,
+)
 from vsc.interfaces.web.marketing_studio import install_marketing_studio_routes, install_marketing_case_routes
 from vsc.interfaces.web.production_batch import install_production_batch_routes
 from vsc.interfaces.web.project_management import install_project_management_routes, management_http_guard
@@ -78,6 +81,8 @@ def create_app(config=None, catalog=None, service=None):
     app = FastAPI(title="VSC 资源面板", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.catalog = catalog
     app.state.execution_runtime = runtime
+    collab_hub = CanvasCollabHub()
+    app.state.canvas_collab_hub = collab_hub
     sessions = {}
     bootstrap_lock = threading.Lock()
     bootstrap = {"token": config.get("bootstrap_token"),
@@ -88,7 +93,7 @@ def create_app(config=None, catalog=None, service=None):
 
     @app.middleware("http")
     async def boundary(request, call_next):
-        host = request.headers.get("host", "").rsplit(":", 1)[0] if ":" in request.headers.get("host", "") else request.headers.get("host", "")
+        host = parse_request_host(request.headers.get("host", ""))
         if host not in allowed_hosts:
             return JSONResponse({"error": "invalid_host", "message": "仅接受配置的本机地址"}, status_code=403)
         token=None
@@ -109,12 +114,12 @@ def create_app(config=None, catalog=None, service=None):
             await run_in_threadpool(management_http_guard,catalog.service,request)
             response = await call_next(request)
         except ResourceError as error:
-            response=JSONResponse({"error":error.code,"message":str(error)},status_code=error.status_code)
+            response=JSONResponse({**(getattr(error,"details",None) or {}),"error":error.code,"message":str(error)},status_code=error.status_code)
         finally:
             if token is not None:reset_principal(token)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -124,13 +129,13 @@ def create_app(config=None, catalog=None, service=None):
 
     @app.exception_handler(ResourceError)
     async def resource_error(request, error):
-        return JSONResponse({"error": error.code, "message": error.message}, status_code=error.status_code)
+        return JSONResponse({**(getattr(error, "details", None) or {}), "error": error.code, "message": error.message}, status_code=error.status_code)
 
     # Keep the core service optional; errors follow its common protocol.
     @app.exception_handler(Exception)
     async def service_error(request, error):
         if hasattr(error, "status_code") and hasattr(error, "code"):
-            return JSONResponse({"error": error.code, "message": str(error)}, status_code=error.status_code)
+            return JSONResponse({**(getattr(error, "details", None) or {}), "error": error.code, "message": str(error)}, status_code=error.status_code)
         return JSONResponse({"error": "internal_error", "message": "读取失败，请检查本机服务日志和权威配置"}, status_code=500)
 
     def etag(request, value):
@@ -446,8 +451,9 @@ def create_app(config=None, catalog=None, service=None):
     install_edit_preview_routes(router, catalog, etag, actor)
     install_editor_workspace_routes(router, catalog, etag, actor)
     install_production_platform_routes(router, catalog, etag)
-    install_creative_canvas_routes(router, catalog, etag, actor)
+    install_creative_canvas_routes(router, catalog, etag, actor, hub=collab_hub)
     install_canvas_library_routes(app, catalog, etag)
+    install_canvas_collab_ws(app, catalog, allowed_hosts=allowed_hosts, origins=origins, hub=collab_hub)
     install_marketing_studio_routes(router, catalog, etag, actor)
     install_marketing_case_routes(app, etag)
     install_production_batch_routes(router, catalog, etag, actor)

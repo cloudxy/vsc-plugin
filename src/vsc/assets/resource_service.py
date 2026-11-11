@@ -8,14 +8,15 @@ import json
 
 
 class ResourceError(Exception):
-    def __init__(self, message, code="invalid_resource", status_code=422):
+    def __init__(self, message, code="invalid_resource", status_code=422, details=None):
         super().__init__(message)
         self.message, self.code, self.status_code = message, code, status_code
+        self.details = dict(details) if isinstance(details, dict) else None
 
 
 class Conflict(ResourceError):
-    def __init__(self, message="项目已发生变化，请刷新后重试", code="revision_conflict"):
-        super().__init__(message, code, 409)
+    def __init__(self, message="项目已发生变化，请刷新后重试", code="revision_conflict", details=None):
+        super().__init__(message, code, 409, details=details)
 
 
 class NotFound(ResourceError):

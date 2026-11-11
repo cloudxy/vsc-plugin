@@ -41,7 +41,7 @@ APPROVE_ACTIONS={'decide_artifact','select_candidate','reject_candidate','retire
 EXECUTE_ACTIONS={'start_prompt_assist','start_provider_asset_registration','finish_provider_asset_registration','claim_spatial_export','finish_spatial_export','cancel_spatial_export','cancel_edit_export','start_creative_lyrics','analyze_creative_music','claim_spatial_plan_task','service_api_cancel','execute_canvas_agent_turn','execute_intelligent_task','create_generation_job','enqueue_local_production','run_text_tool','start_text_tool_attempt','create_edit_render','request_edit_export','create_preview_job','process_creative_tool_local'}
 PUBLISH_ACTIONS={'community_publication_state','distribution_prepare','distribution_submit','distribution_receipt','publish_canvas_template','create_creative_canvas_template','publish_creative_canvas_template','access_share','library_publish'}
 def action_capability(action):
-    if action == 'copy_direct_canvas':return 'edit'
+    if action in {'copy_direct_canvas', 'set_canvas_collaboration', 'recover_canvas_batch'}:return 'edit'
     if action == 'start_marketing_canvas':return 'execute'
     if action in {'generate_intelligent_work_batch','advance_intelligent_work_batch'}:return 'execute'
     if action == "community_report":return "read"
@@ -73,5 +73,7 @@ class AccessControlServiceMixin:
     def accept_access_invitation(self,payload):return self.store.accept_access_invitation(payload)
     def access_share_view(self):return self.store.access_share_view()
     def access_migration_preview(self,project_id,workspace_id):return self.store.access_migration_preview(project_id,workspace_id)
+    def get_user_preferences(self):return self.store.get_user_preferences()
+    def update_user_preferences(self,payload,*,actor=None):return self.store.update_user_preferences(payload,actor=actor)
 
 from vsc.assets.resource_service import ResourceError,Conflict

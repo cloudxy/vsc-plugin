@@ -88,20 +88,32 @@ class CanvasLibraryTests(ResourceStoreFixture, unittest.TestCase):
             page = self.service.list_canvas_library(creator_filter='all', query=self.marker, limit=1)
             self.assertEqual(page['total'], 2)
             self.assertEqual(page['next_offset'], 1)
-            permission = page['items'][0]['permissions']
-            self.assertEqual(permission, dict(can_read=True, can_edit=True, can_rename=True, can_copy=True,
-                can_delete=False, can_manage_collaboration=False))
+            self.assertEqual(page['capabilities']['collaboration'], True)
+            first_row = page['items'][0]
+            self.assertEqual(first_row['id'], authored['id'])
+            self.assertEqual(first_row['permissions'], dict(can_read=True, can_edit=True, can_rename=True, can_copy=True,
+                can_delete=False, can_manage_collaboration=True))
             following = self.service.list_canvas_library(creator_filter='all', query=self.marker, limit=1, offset=1)
             self.assertEqual({page['items'][0]['id'], following['items'][0]['id']}, {owned['id'], authored['id']})
+            self.assertEqual(following['items'][0]['permissions'], dict(can_read=True, can_edit=False, can_rename=False, can_copy=True,
+                can_delete=False, can_manage_collaboration=False))
             self.assertIsNone(following['next_offset'])
             self.assertEqual(self.service.list_canvas_library(creator_filter='member', creator_id='test-human', query=self.marker)['items'][0]['id'], owned['id'])
-            self.assertEqual(self.service.list_canvas_library(creator_filter='all', permission='view', query=self.marker)['total'], 0)
+            self.assertEqual([r['id'] for r in self.service.list_canvas_library(creator_filter='all', permission='view', query=self.marker)['items']], [owned['id']])
+            self.assertEqual([r['id'] for r in self.service.list_canvas_library(creator_filter='all', permission='edit', query=self.marker)['items']], [authored['id']])
             options = self.service.canvas_library_options()
             self.assertNotIn(hidden, [r['id'] for r in options['projects']])
             self.assertEqual({r['id'] for r in options['creators']}, {'test-human', editor['actor']})
             self.assertTrue(next(r for r in options['projects'] if r['id'] == self.p)['permissions']['can_edit'])
             with self.assertRaises(ResourceError):
                 self.service.list_canvas_library(project_id=hidden, creator_filter='all')
+        toggled = self.service.set_canvas_collaboration(self.p, dict(canvas_id=owned['id'], collaboration_enabled=True),
+            actor='test-human', expected_revision=self.service.get_project(self.p)['revision'], idempotency_key=uuid.uuid4().hex)
+        self.rev = toggled['revision']
+        with self.as_member(editor):
+            self.assertEqual(self.service.list_canvas_library(creator_filter='all', permission='view', query=self.marker)['total'], 0)
+            self.assertEqual(self.service.list_canvas_library(creator_filter='all', permission='edit', query=self.marker)['total'], 2)
+            self.assertEqual([r['id'] for r in self.service.list_canvas_library(creator_filter='all', collaboration_only=True, query=self.marker)['items']], [owned['id']])
         with self.as_member(viewer):
             self.assertEqual(self.service.list_canvas_library(query=self.marker)['total'], 0)
             rows = self.service.list_canvas_library(creator_filter='all', permission='view', query=self.marker)['items']
@@ -109,9 +121,9 @@ class CanvasLibraryTests(ResourceStoreFixture, unittest.TestCase):
             self.assertTrue(all(not r['permissions']['can_edit'] and not r['permissions']['can_delete'] for r in rows))
             self.assertEqual(self.service.list_canvas_library(creator_filter='all', permission='edit', query=self.marker)['total'], 0)
             self.assertFalse(next(r for r in self.service.canvas_library_options()['projects'] if r['id'] == self.p)['permissions']['can_edit'])
-        row = self.service.list_canvas_library(project_id=self.p, creator_filter='all')['items'][0]
+        row = next(r for r in self.service.list_canvas_library(project_id=self.p, creator_filter='all')['items'] if r['id'] == owned['id'])
         self.assertTrue(row['permissions']['can_delete'])
-        self.assertNotIn('collaboration_enabled', row)
+        self.assertIs(row['collaboration_enabled'], True)
 
     def test_ancestor_recycle_fixed_current_version_and_cover(self):
         import io

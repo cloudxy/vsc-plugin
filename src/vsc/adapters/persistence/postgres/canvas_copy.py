@@ -157,7 +157,8 @@ class FixedCanvasClone:
             if n.get('domain_version_id'):
                 kind='spatial' if n['type'] in {'spatial','director'} else 'edit' if n['type']=='edit' else 'tool';n['domain_object_id'],n['domain_version_id']=domain_map[(kind,n['domain_version_id'])]
         for e in doc['edges']:e.update(id='edge-'+new_id(),source=nodes[e['source']],target=nodes[e['target']])
-        canvas=dict(id=canvas_id,episode_id=episode_id or episode_map.get(plan['canvas']['episode_id']));c.execute(insert(S.creative_canvases).values(project_id=p,created_by=actor,**canvas))
+        collab_enabled=self._default_canvas_collaboration_enabled(c,actor)
+        canvas=dict(id=canvas_id,episode_id=episode_id or episode_map.get(plan['canvas']['episode_id']),collaboration_enabled=collab_enabled);c.execute(insert(S.creative_canvases).values(project_id=p,created_by=actor,**canvas))
         result=self._insert_canvas_version(c,project,canvas,dict(title=title,document=doc),actor)
         return dict(result=result, media_map=media_map, domain_map=domain_map, episode_map=episode_map)
 

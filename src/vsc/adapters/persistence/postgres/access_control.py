@@ -373,13 +373,63 @@ class AccessControlRepository:
             count=sum(identity in direct or bool(self._workspace_roles(conn,project['workspace_id'],identity)) for identity in identities)
             if count>cap:raise ResourceError('项目有效成员超过已配置席位，请先调整授权或套餐','seat_limit_exceeded',409)
 
+    @staticmethod
+    def _validate_preferences(raw, base=None):
+        if not isinstance(raw, dict) or set(raw) - {'language', 'compact', 'collaboration'}:
+            raise ResourceError('偏好格式无效', 'invalid_access_input')
+        merged = dict(base or {})
+        if 'language' in raw:
+            if not isinstance(raw['language'], str) or not 1 <= len(raw['language'].strip()) <= 32:
+                raise ResourceError('偏好格式无效', 'invalid_access_input')
+            merged['language'] = raw['language'].strip()
+        if 'compact' in raw:
+            if type(raw['compact']) is not bool:
+                raise ResourceError('偏好格式无效', 'invalid_access_input')
+            merged['compact'] = raw['compact']
+        if 'collaboration' in raw:
+            collab = raw['collaboration']
+            if (not isinstance(collab, dict) or set(collab) - {'enabled_on_new_canvas'}
+                    or any(type(v) is not bool for v in collab.values())):
+                raise ResourceError('偏好格式无效', 'invalid_access_input')
+            prior_collab = dict(merged.get('collaboration') or {})
+            prior_collab.update(collab)
+            merged['collaboration'] = {'enabled_on_new_canvas': bool(prior_collab.get('enabled_on_new_canvas', False))}
+        return merged
+
+    def get_user_preferences(self):
+        with self.engine.connect() as conn:
+            principal, person, _ = self._access_principal(conn)
+            if not principal or not person:
+                denied('偏好设置需要成员身份')
+            stored = dict(person.get('preferences') or {})
+            collab = dict(stored.get('collaboration') or {})
+            stored['collaboration'] = {'enabled_on_new_canvas': bool(collab.get('enabled_on_new_canvas', False))}
+            return clean({'preferences': stored})
+
+    def update_user_preferences(self, payload, *, actor=None):
+        if not isinstance(payload, dict):
+            raise ResourceError('偏好格式无效', 'invalid_access_input')
+        raw = payload['preferences'] if set(payload) == {'preferences'} else payload
+        with self.engine.begin() as conn:
+            authority_lock(conn, True)
+            revision = self._access_state(conn)
+            principal, person, _ = self._access_principal(conn)
+            if not principal or not person or (actor is not None and principal.actor != actor):
+                denied('偏好设置需要真实成员会话')
+            merged = self._validate_preferences(raw, base=person.get('preferences') or {})
+            conn.execute(update(S.access_identities).where(S.access_identities.c.id == person['id']).values(preferences=merged))
+            conn.execute(update(S.access_state).where(S.access_state.c.id == 1).values(revision=revision + 1))
+            collab = dict(merged.get('collaboration') or {})
+            merged['collaboration'] = {'enabled_on_new_canvas': bool(collab.get('enabled_on_new_canvas', False))}
+            return clean({'preferences': merged, 'access_revision': revision + 1})
+
     def _access_apply(self,conn,person,action,p):
         def exact(keys):
             if set(p)!=set(keys):raise ResourceError('权限操作字段不完整或包含额外字段','invalid_access_input')
         if action=='profile':
             exact({'display_name','preferences'})
-            if not isinstance(p['preferences'],dict) or set(p['preferences'])-{'language','compact'} or any(not isinstance(v,(str,bool)) for v in p['preferences'].values()):raise ResourceError('偏好格式无效')
-            name=label(p['display_name']);conn.execute(update(S.access_identities).where(S.access_identities.c.id==person['id']).values(display_name=name,preferences=p['preferences']));return {'identity_id':person['id']}
+            prefs=self._validate_preferences(p['preferences'])
+            name=label(p['display_name']);conn.execute(update(S.access_identities).where(S.access_identities.c.id==person['id']).values(display_name=name,preferences=prefs));return {'identity_id':person['id']}
         if action=='workspace':
             exact({'name','parent_id'})
             if p['parent_id']:self._workspace_require(conn,p['parent_id'],'manage',person['id'])

@@ -32,7 +32,21 @@ function applySession(session) {
 async function api(path, options = {}) {
   const response = await fetch(path, {credentials: 'same-origin', ...options});
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) {const error=new Error(value.message || value.detail || `请求失败 (${response.status})`);error.status=response.status;error.code=value.error;throw error;}
+  if (!response.ok) {
+    const error = new Error(value.message || value.detail || `请求失败 (${response.status})`);
+    error.status = response.status;
+    error.code = value.error;
+    if (value && typeof value === 'object') {
+      error.details = value;
+      if (value.error_code !== undefined) error.error_code = value.error_code;
+      if (Array.isArray(value.conflicts)) error.conflicts = value.conflicts;
+      if (Array.isArray(value.locks)) error.locks = value.locks;
+      if (value.version !== undefined) error.version = value.version;
+      if (value.canvas_seq !== undefined) error.canvas_seq = value.canvas_seq;
+      if (value.permission !== undefined) error.permission = value.permission;
+    }
+    throw error;
+  }
   return value;
 }
 const base = () => `/api/v1/projects/${encodeURIComponent(state.project)}`;
