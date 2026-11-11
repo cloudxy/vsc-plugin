@@ -1,1 +1,51 @@
-.commerce{max-width:1150px;margin:auto;padding:1rem}.commerce-card{margin:1.4rem 0;padding:1rem;border:1px solid var(--line,var(--line-1,#343435));border-radius:12px;background:var(--panel,var(--surface-2,#131313))}.commerce-field{display:grid;gap:.35rem;margin:.8rem 0}.commerce-field input:not([type=checkbox]),.commerce-field textarea,.commerce-field select{width:100%;box-sizing:border-box}.commerce-table{overflow:auto;max-width:100%}.commerce table{width:100%;border-collapse:collapse}.commerce td,.commerce th{padding:.6rem;text-align:left;border-bottom:1px solid var(--line-1,#343435);overflow-wrap:anywhere}.commerce-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.6rem 0}.commerce-order,.commerce-plan{margin:1rem 0;padding:.8rem;background:var(--soft,var(--surface-2,#131313));border-radius:8px;overflow-wrap:anywhere}.commerce textarea{font:inherit}.commerce input[type=checkbox]{justify-self:start}
+.commerce{--cm-bg:#0d0e11;--cm-card:#14161b;--cm-card-2:#1a1d24;--cm-line:rgba(255,255,255,.08);--cm-lime:#9eff00;--cm-lime-soft:rgba(158,255,0,.14);--cm-ink:#f5f7fa;--cm-muted:#98a0ad;max-width:1200px;margin:0 auto;padding:1.25rem;color:var(--cm-ink);font-variant-numeric:tabular-nums;min-width:0}
+.commerce :is(button,input,select,textarea,summary,a):focus-visible{outline:2px solid var(--cm-lime);outline-offset:2px}
+.commerce-topbar,.commerce-invoice-hero{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding:1.1rem 1.25rem;border-radius:14px;border:1px solid var(--cm-line);background:var(--cm-card);margin-bottom:1rem}
+.commerce-topbar h1,.commerce-invoice-hero h1{margin:.15rem 0 0;font-size:1.35rem;font-weight:700}
+.commerce-topbar p.hint,.commerce-invoice-hero p.hint{margin:.25rem 0 0;color:var(--cm-muted);font-size:.86rem}
+.commerce-crumb-path{display:inline-block;font-size:.8rem;color:var(--cm-muted)}
+.commerce-subnav{display:flex;gap:.45rem;flex-wrap:wrap;margin:.6rem 0 1.15rem;padding-bottom:.65rem;border-bottom:1px solid var(--cm-line)}
+.commerce-subnav button[aria-pressed="true"],.commerce-actions button[aria-pressed="true"]{border-color:var(--cm-lime);background:var(--cm-lime-soft);color:#ecffca;font-weight:600}
+.commerce-btn-primary{background:linear-gradient(100deg,#d8ff66,var(--cm-lime))!important;color:#0b1205!important;border-color:transparent!important;font-weight:700;border-radius:999px;padding:.5rem 1.05rem}
+.commerce-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:.85rem;margin:1rem 0}
+.commerce-summary-cell{padding:1rem 1.1rem;border:1px solid var(--cm-line);border-radius:12px;background:var(--cm-card-2)}
+.commerce-summary-cell dt{font-size:.8rem;color:var(--cm-muted);margin-bottom:.35rem}
+.commerce-summary-cell dd{margin:0;font-size:1.38rem;font-weight:700;font-variant-numeric:tabular-nums}
+.commerce-summary-cell small{display:block;margin-top:.35rem;font-size:.76rem;color:var(--cm-muted)}
+.commerce-portal-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.95rem;margin:1.1rem 0}
+.commerce-portal-card{display:flex;flex-direction:column;justify-content:space-between;gap:.65rem;padding:1.2rem;border:1px solid var(--cm-line);border-radius:14px;background:var(--cm-card);transition:border-color .15s ease,transform .15s ease}
+.commerce-portal-card:hover{border-color:rgba(158,255,0,.35);transform:translateY(-1px)}
+.commerce-portal-card h2{font-size:1.05rem;margin:.2rem 0}
+.commerce-portal-card p{font-size:.84rem;color:var(--cm-muted);margin:0 0 .5rem;line-height:1.55}
+.commerce-portal-head{display:flex;justify-content:space-between;align-items:center}
+.commerce-portal-glyph{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:rgba(158,255,0,.1);border:1px solid rgba(158,255,0,.28);color:var(--cm-lime);font-size:1.15rem;font-weight:700}
+.commerce-badge{padding:.2rem .6rem;border-radius:999px;font-size:.74rem;border:1px solid rgba(158,255,0,.28);background:rgba(158,255,0,.08);color:#dcff99}
+.commerce-back-btn{padding:.45rem 1rem;border-radius:10px;background:#1d2028;border:1px solid var(--cm-line);color:var(--cm-ink);font-weight:500}
+.commerce-empty-guide{display:grid;gap:.45rem;justify-items:start;padding:1.1rem;margin:.75rem 0;border-radius:12px;border:1px dashed var(--cm-line);background:var(--cm-card-2)}
+.commerce-empty-guide p{margin:0;color:var(--cm-muted);font-size:.85rem}
+.commerce-support-banner{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:1rem;margin:1.1rem 0 1.4rem;padding:1.25rem 1.4rem;border-radius:14px;border:1px solid var(--cm-line);background:var(--cm-card);font-size:.86rem;color:var(--cm-muted)}
+.commerce-support-copy{display:grid;gap:.38rem}
+.commerce-support-copy strong{color:var(--cm-ink);font-size:1.05rem;margin-bottom:.2rem}
+.commerce-support-copy p{margin:0;line-height:1.55}
+.commerce-card{margin:1.1rem 0;padding:1.15rem;border:1px solid var(--cm-line);border-radius:14px;background:var(--cm-card)}
+.commerce-field{display:grid;gap:.38rem;margin:.75rem 0;font-size:.85rem;color:var(--cm-muted)}
+.commerce-field input:not([type=checkbox]),.commerce-field textarea,.commerce-field select{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:.5rem .65rem;border-radius:8px;border:1px solid var(--cm-line);background:#101217;color:var(--cm-ink)}
+.commerce-table{overflow:auto;max-width:100%}
+.commerce table{width:100%;border-collapse:collapse;font-size:.88rem}
+.commerce td,.commerce th{padding:.65rem .55rem;text-align:left;border-bottom:1px solid var(--cm-line);overflow-wrap:anywhere}
+.commerce th{color:var(--cm-muted);font-weight:500}
+.commerce-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.6rem 0}
+.commerce-order,.commerce-plan{margin:.85rem 0;padding:.95rem;background:var(--cm-card-2);border:1px solid var(--cm-line);border-radius:10px;overflow-wrap:anywhere}
+.commerce textarea{font:inherit}
+.commerce input[type=checkbox]{justify-self:start}
+.commerce-tax-hint[data-valid="false"]{color:#ff8f70}
+@media(max-width:960px){
+  .commerce-portal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:640px){
+  .commerce{padding:.75rem}
+  .commerce-portal-grid,.commerce-summary-grid{grid-template-columns:1fr}
+}
+@media(prefers-reduced-motion:reduce){
+  .commerce-portal-card{transition:none;transform:none!important}
+}

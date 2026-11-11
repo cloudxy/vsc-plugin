@@ -58,6 +58,19 @@ def install_service_operations_routes(app,router,catalog,etag,actor,read_actor):
         read_actor(request);raw,sha=service(project_id).service_export_content(project_id,identifier)
         return Response(raw,media_type='application/zip',headers={'Content-Disposition':'attachment; filename=personal-data.zip','ETag':'"'+sha+'"','Cache-Control':'private, no-store'})
 
+    @router.post('/{project_id}/service-operations/seedance-verify')
+    async def seedance_verify(project_id:str,request:Request,body:dict):
+        read_actor(request)
+        payload=body.get('payload') if isinstance(body,dict) and isinstance(body.get('payload'),dict) else body
+        return await run_in_threadpool(service(project_id).verify_seedance_task,project_id,payload)
+
+    @router.get('/{project_id}/service-operations/network-diagnostic/ping')
+    async def diagnostic_ping(project_id:str,request:Request,probe:str=''):
+        read_actor(request)
+        result=await run_in_threadpool(service(project_id).network_diagnostic_probe,project_id,probe)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(result,headers={'Cache-Control':'private, no-store'})
+
     @app.get('/api/v1/service-api/projects/{project_id}/jobs')
     def jobs(project_id:str,request:Request,offset:int=0,limit:int=50):return etag(request,service(project_id).service_api_operation(project_id,'jobs',{'offset':offset,'limit':limit},client_ip=request.client.host if request.client else None))
     @app.get('/api/v1/service-api/projects/{project_id}/capabilities')

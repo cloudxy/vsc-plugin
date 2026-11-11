@@ -61,6 +61,10 @@ def install_commerce_routes(router,catalog,etag,actor,read_actor):
         content,sha=service(project_id).commerce_invoice_content(project_id,invoice_id,actor=read_actor(request))
         return Response(content,media_type="application/pdf",headers={"Content-Disposition":"attachment; filename=invoice.pdf","ETag":'"'+sha+'"',"Cache-Control":"private, no-store"})
 
+    @router.get("/{project_id}/commerce/invoice-titles")
+    def invoice_titles(project_id:str,request:Request,q:str=""):
+        return etag(request,service(project_id).commerce_invoice_titles(project_id,actor=read_actor(request),query=q))
+
     @router.post("/{project_id}/commerce/quote")
     def quote(project_id:str,request:Request,body:dict):
         return etag(request,service(project_id).preview_commerce_charge(project_id,body.get("payload"),actor=actor(request)))

@@ -73,6 +73,17 @@ def translation_residuals(document):
             for i,line in enumerate(document.get('body','').splitlines(),1) if re.search('[\u3400-\u9fff]',line)]
 
 
+def translation_length_warnings(document):
+    source=document.get('source_text','')
+    lang=document.get('source_language','').strip().lower()
+    actual=len(source)
+    if lang in {'中文（简体）','中文','zh','zh-cn','zh_cn'} and actual>4500:
+        return [{'code':'source_length_exceeded','limit':4500,'actual':actual,'message':'中文单集原文超过 4,500 字建议上限，建议按集拆分后再执行翻译'}]
+    if lang in {'英语','英文','english','en','en-us','en_us'} and actual>64000:
+        return [{'code':'source_length_exceeded','limit':64000,'actual':actual,'message':'英文单集原文超过 64,000 字符建议上限，建议按集拆分后再执行翻译'}]
+    return []
+
+
 def host_input(tool,document,action):
     value=deepcopy(document)
     if tool=='novel' and not value.get('novel_baseline_version_id'):

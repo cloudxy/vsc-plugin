@@ -2,7 +2,7 @@
 from datetime import datetime,timedelta,timezone
 from dataclasses import asdict
 import hashlib,io,json,zipfile
-from sqlalchemy import select,insert,update,func
+from sqlalchemy import select,insert,update,func,or_
 from vsc.assets.resource_service import ResourceError,Conflict
 from vsc.assets.access_control import Principal,current_principal,set_principal,reset_principal,denied,secret_hash
 from . import schema as S
@@ -39,7 +39,83 @@ class ServiceOperationsRepository:
                 value['export']=dict(export) if export and value['mine'] else None;requests.append(value)
             keys=[{k:v for k,v in row.items() if k!='secret_sha256'} for row in conn.execute(select(S.service_api_keys).where(S.service_api_keys.c.project_id==p,S.service_api_keys.c.identity_id==person['id']).order_by(S.service_api_keys.c.created_at.desc())).mappings()]
             calls=[dict(r) for r in conn.execute(select(S.service_api_calls).where(S.service_api_calls.c.project_id==p,S.service_api_calls.c.api_key_id.in_([k['id'] for k in keys])).order_by(S.service_api_calls.c.created_at.desc()).limit(100)).mappings()]
-            return clean(dict(project_id=p,revision=project['revision'],identity_id=person['id'],actor=person['actor'],manage=manage,capabilities=scope['capabilities'],configuration=dict(config) if config else None,announcements=[v for v in announcements.values() if v['status']=='published' or manage],requests=requests,api_keys=keys,api_calls=calls,external_services={'distribution':'unconfigured','fcp':'unconfigured','studio':'unconfigured','production_service':'unconfigured','sms':'unconfigured','account_close':'local_deactivation_available'}))
+            now=datetime.now(timezone.utc)
+            bucket_rows=conn.execute(select(S.commerce_buckets).where(
+                S.commerce_buckets.c.project_id==p,
+                True if manage else or_(S.commerce_buckets.c.owner_actor==person['actor'],S.commerce_buckets.c.owner_actor.is_(None)),
+            )).mappings().all()
+            available_credits=0
+            bucket_ids=[]
+            for b in bucket_rows:
+                bucket_ids.append(b['id'])
+                if b['expires_at'] and b['expires_at']<=now:continue
+                if b['order_id']:
+                    ord_row=conn.execute(select(S.commerce_orders.c.status).where(S.commerce_orders.c.project_id==p,S.commerce_orders.c.id==b['order_id'])).scalar_one_or_none()
+                    if ord_row in {'refund_unknown','refunded'}:continue
+                bal=conn.execute(select(func.coalesce(func.sum(S.commerce_ledger.c.delta),0)).where(S.commerce_ledger.c.project_id==p,S.commerce_ledger.c.bucket_id==b['id'])).scalar_one()
+                available_credits+=int(bal or 0)
+            ledger_rows=[dict(r) for r in conn.execute(select(S.commerce_ledger).where(
+                S.commerce_ledger.c.project_id==p,
+                S.commerce_ledger.c.bucket_id.in_(bucket_ids) if bucket_ids else False,
+            ).order_by(S.commerce_ledger.c.created_at.desc()).limit(60)).mappings()] if bucket_ids else []
+            recharge_orders=[{k:r[k] for k in ('id','plan_id','status','amount_minor','currency','credits','created_at','paid_at')} for r in conn.execute(select(S.commerce_orders).where(
+                S.commerce_orders.c.project_id==p,
+                True if manage else S.commerce_orders.c.actor==person['actor'],
+            ).order_by(S.commerce_orders.c.created_at.desc()).limit(50)).mappings()]
+            reservations=[dict(r) for r in conn.execute(select(S.commerce_reservations).where(
+                S.commerce_reservations.c.project_id==p,
+                True if manage else S.commerce_reservations.c.account_actor==person['actor'],
+            ).order_by(S.commerce_reservations.c.created_at.desc()).limit(60)).mappings()]
+            total_consumed=sum(int(r['actual'] if r['actual'] is not None else r['bound']) for r in reservations if r['status'] in {'reserved','settled'})
+            recent_jobs=[dict(r) for r in conn.execute(select(
+                S.generation_jobs.c.id,S.generation_jobs.c.purpose,S.generation_jobs.c.modality,
+                S.generation_jobs.c.provider_id,S.generation_jobs.c.model_version,S.generation_jobs.c.external_task_id,
+                S.generation_jobs.c.status,S.generation_jobs.c.shot_id,S.generation_jobs.c.asset_id,
+                S.generation_jobs.c.created_at,S.generation_jobs.c.updated_at,
+            ).where(S.generation_jobs.c.project_id==p).order_by(S.generation_jobs.c.created_at.desc()).limit(50)).mappings()]
+            member_usage=[]
+            if manage:
+                grouped={}
+                for r in reservations:
+                    owner=r['account_actor'] or '项目公共池'
+                    entry=grouped.setdefault(owner,{'actor':owner,'reservation_count':0,'credits_used':0})
+                    entry['reservation_count']+=1
+                    if r['status'] in {'reserved','settled'}:
+                        entry['credits_used']+=int(r['actual'] if r['actual'] is not None else r['bound'])
+                member_usage=sorted(grouped.values(),key=lambda x:(-x['credits_used'],x['actor']))
+            engine_overview=dict(
+                credit_balance=available_credits,
+                total_consumed_credits=total_consumed,
+                ledger_records=ledger_rows,
+                recharge_orders=recharge_orders,
+                reservations=reservations,
+                recent_jobs=recent_jobs,
+                member_usage=member_usage,
+            )
+            return clean(dict(project_id=p,revision=project['revision'],identity_id=person['id'],actor=person['actor'],manage=manage,capabilities=scope['capabilities'],configuration=dict(config) if config else None,announcements=[v for v in announcements.values() if v['status']=='published' or manage],requests=requests,api_keys=keys,api_calls=calls,engine_overview=engine_overview,external_services={'distribution':'unconfigured','fcp':'unconfigured','studio':'unconfigured','production_service':'unconfigured','sms':'unconfigured','account_close':'local_deactivation_available'}))
+
+    def find_seedance_job(self,p,raw_id,*,is_uuid=False):
+        with self.store.engine.connect() as conn:
+            self.store._project(conn,p);self.store._access_require(conn,p,'read')
+            cond=(S.generation_jobs.c.id==checked_id(raw_id)) if is_uuid else (func.lower(S.generation_jobs.c.external_task_id)==raw_id.lower())
+            row=conn.execute(select(
+                S.generation_jobs.c.id,S.generation_jobs.c.external_task_id,S.generation_jobs.c.provider_id,
+                S.generation_jobs.c.model_version,S.generation_jobs.c.modality,S.generation_jobs.c.purpose,
+                S.generation_jobs.c.status,S.generation_jobs.c.shot_id,S.generation_jobs.c.asset_id,
+                S.generation_jobs.c.created_at,S.generation_jobs.c.updated_at,
+            ).where(S.generation_jobs.c.project_id==p,cond).order_by(S.generation_jobs.c.created_at.desc()).limit(1)).mappings().first()
+            return clean(dict(row)) if row else None
+
+    def diagnostic_ping(self,p):
+        with self.store.engine.connect() as conn:
+            project=self.store._project(conn,p);self.store._access_require(conn,p,'read')
+            return clean(dict(
+                ok=True,
+                project_id=project['id'],
+                revision=project['revision'],
+                database='connected',
+                server_time=datetime.now(timezone.utc).isoformat(),
+            ))
 
     def configure(self,p,payload,**kw):
         def work(conn,project):

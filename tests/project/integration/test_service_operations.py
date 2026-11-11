@@ -250,4 +250,40 @@ class ServiceOperationsTests(ResourceStoreFixture,unittest.TestCase):
         with self.as_identity(principal):
             with self.assertRaises(ResourceError):self.store._mutate(self.p,'create_generation_job',{},expected_revision=0,idempotency_key='held-api-write',actor=principal.actor,callback=lambda c,p:{})
 
+    def test_seedance_readonly_verify_tos_signature_network_ping_and_engine_overview(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        run=self.fixed_run();_,secret=self.key(['read','execute']);principal=self.service.authenticate_service_api_key(secret)
+        with self.as_identity(principal):
+            created=self.service.service_api_operation(self.p,'execute',dict(run_version_id=run['id'],run_sha256=run['sha256']))
+            job_id=created['tasks'][0]['job_id']
+        self.rev=self.service.get_project(self.p)['revision']
+        self.write('update_generation_job',dict(job_id=job_id,status='submitted',external_task_id='a1b2c3d4e5f60718'))
+        snap=self.snapshot()
+        self.assertIn('engine_overview',snap)
+        self.assertGreaterEqual(len(snap['engine_overview']['recent_jobs']),1)
+        rev_before=self.service.get_project(self.p)['revision']
+        jobs_before=self.service.list_generation_jobs(self.p)['total']
+        login_secret=secrets.token_urlsafe(32)
+        self.command('credential',{'secret':login_secret})
+        app=create_app(dict(projects_root=self.temp.name,allowed_hosts=['testserver'],allowed_origins=['http://testserver']),service=self.service)
+        with TestClient(app) as client:
+            logged=client.post('/api/v1/access/login',json={'secret':login_secret},headers={'Origin':'http://testserver'})
+            self.assertEqual(logged.status_code,200,logged.text)
+            csrf=client.get('/api/v1/session').json()['csrf_token']
+            headers={'Origin':'http://testserver','X-CSRF-Token':csrf}
+            verified=client.post(f'/api/v1/projects/{self.p}/service-operations/seedance-verify',
+                json={'payload':{'task_id':'A1B2C3D4E5F60718','tos_url':'https://tos.example.invalid/v.mp4?X-Tos-Date=20261111T120000Z&X-Tos-Expires=3600&X-Tos-Signature=deadbeef'}},headers=headers)
+            self.assertEqual(verified.status_code,200,verified.text)
+            body=verified.json()
+            self.assertTrue(body['verified']);self.assertTrue(body['read_only']);self.assertEqual(body['credits_consumed'],0)
+            self.assertEqual(body['job']['id'],job_id)
+            self.assertTrue(body['tos_signature']['signed'])
+            ping=client.get(f'/api/v1/projects/{self.p}/service-operations/network-diagnostic/ping?probe=database',headers={'X-CSRF-Token':csrf})
+            self.assertEqual(ping.status_code,200,ping.text)
+            self.assertTrue(ping.json()['ok'])
+            self.assertIn('no-store',ping.headers.get('cache-control',''))
+        self.assertEqual(self.service.get_project(self.p)['revision'],rev_before)
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],jobs_before)
+
 if __name__=='__main__':unittest.main()

@@ -170,6 +170,37 @@ def create_app(config=None, catalog=None, service=None):
     def index():
         return HTMLResponse((root / "templates" / "index.html").read_text("utf-8"))
 
+    def spa_subpath(subpath: str = ""):
+        return index()
+
+    for spa_path in (
+        "/script",
+        "/marketing-studio",
+        "/members",
+        "/sub-studios",
+        "/subscription",
+        "/wallet",
+        "/data-records",
+        "/engine",
+        "/seedance-verify",
+        "/video_check",
+        "/feedback/records",
+        "/ai-drama-base",
+        "/network-diagnostic",
+        "/account-close",
+        "/personal-info-export",
+        "/activity",
+        "/terms",
+        "/privacy",
+        "/pc-only-notice",
+        "/icon",
+        "/403",
+        "/404",
+    ):
+        app.add_api_route(spa_path, index, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
+    for spa_prefix in ("/script/{subpath:path}", "/wallet/{subpath:path}"):
+        app.add_api_route(spa_prefix, spa_subpath, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
+
     @app.get('/api/v1/project-media')
     def project_media(request: Request, project_id: str = None, episode_id: str = None,
                       modality: str = None, category: str = None, query: str = '', created_after: str = None,

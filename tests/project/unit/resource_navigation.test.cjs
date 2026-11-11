@@ -184,3 +184,22 @@ test('production navigation retains mode and episode when the selected shot chan
   app.panel.openedCreativeTarget(null,'A','episode');assert.equal(new URLSearchParams(location.search).has('task_target'),false);
   assert.equal(app.writes.length,0);
 });
+
+
+test('clean pathname entry resolves script studios, invoice portal, Seedance task_id, and explicit page overrides', () => {
+  const location={search:'?task_id=8f3a19c04b2e7d11',hash:'',pathname:'/seedance-verify'};
+  const history={pushState(_a,_b,url){location.search=url;},replaceState(_a,_b,url){location.search=url;}};
+  const app=createPanel(root,new Map([['A',project('A')]]),null,{window:{location,history,addEventListener(){}}});
+  assert.equal(app.panel.state.view,'service-operations');
+  const resolve=app.panel.resolvePathnameEntry;
+  assert.deepEqual(Object.fromEntries(resolve('/script','')),{page:'text-tools',tool:'translation'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/video-parse','')),{page:'text-tools',tool:'breakdown'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/novel/overview','')),{page:'text-tools',tool:'novel',subview:'overview'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/styles','')),{page:'text-tools',tool:'translation',subview:'styles'});
+  assert.deepEqual(Object.fromEntries(resolve('/wallet/invoice/apply','')),{page:'commerce',subview:'invoice-apply'});
+  assert.deepEqual(Object.fromEntries(resolve('/sub-studios','')),{page:'commerce',subview:'studio-quota'});
+  assert.deepEqual(Object.fromEntries(resolve('/seedance-verify','?task_id=8f3a19c04b2e7d11')),{task_id:'8f3a19c04b2e7d11',page:'service-operations',subview:'seedance-verify',task_target:'8f3a19c04b2e7d11'});
+  assert.deepEqual(Object.fromEntries(resolve('/network-diagnostic','')),{page:'service-operations',subview:'network-diagnostic'});
+  assert.deepEqual(Object.fromEntries(resolve('/403','')),{page:'service-operations',subview:'forbidden'});
+  assert.deepEqual(Object.fromEntries(resolve('/wallet/invoice','?page=home')),{page:'home'});
+});

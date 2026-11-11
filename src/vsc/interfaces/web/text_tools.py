@@ -1,7 +1,13 @@
 """Six typed tools with original session, fixed-version downloads and imports."""
-from fastapi import HTTPException,Request
+import re
+from fastapi import HTTPException,Request,Response as FastAPIResponse
 from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
+
+
+def _trace_header(request:Request):
+    raw=request.headers.get("x-trace-id","").strip()
+    return raw if raw and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}",raw) else ""
 
 
 def install_standalone_text_tool_routes(app,catalog,actor):
@@ -73,11 +79,14 @@ def install_text_tools_routes(router,catalog,etag,actor):
     async def write(project_id,request,body,method):
         identity=actor(request)
         if not isinstance(body.get("payload"),dict) or "actor" in body:raise HTTPException(422,"输入须为payload；身份来自人工会话")
-        return await run_in_threadpool(getattr(service(project_id),method),project_id,body["payload"],
+        result=await run_in_threadpool(getattr(service(project_id),method),project_id,body["payload"],
             actor=identity,expected_revision=body.get("expected_revision"),idempotency_key=body.get("idempotency_key"))
+        return result
 
     @router.post("/{project_id}/text-tools/units")
-    async def save(project_id:str,request:Request,body:dict):
+    async def save(project_id:str,request:Request,body:dict,response:FastAPIResponse):
+        trace=_trace_header(request)
+        if trace:response.headers["X-Trace-Id"]=trace
         return await write(project_id,request,body,"save_text_tool")
 
     @router.post("/{project_id}/text-tools/lock")
@@ -85,7 +94,9 @@ def install_text_tools_routes(router,catalog,etag,actor):
         return await write(project_id,request,body,"set_text_tool_lock")
 
     @router.post("/{project_id}/text-tools/run")
-    async def run(project_id:str,request:Request,body:dict):
+    async def run(project_id:str,request:Request,body:dict,response:FastAPIResponse):
+        trace=_trace_header(request)
+        if trace:response.headers["X-Trace-Id"]=trace
         return await write(project_id,request,body,"run_text_tool")
 
     @router.post("/{project_id}/text-tools/recover")
@@ -105,9 +116,12 @@ def install_text_tools_routes(router,catalog,etag,actor):
         return await write(project_id,request,body,"import_text_tool")
 
     @router.get("/{project_id}/text-tools/exports/{version_id}")
-    def export(project_id:str,version_id:str,format:str,view:str='translation'):
+    def export(project_id:str,version_id:str,format:str,request:Request,view:str='translation'):
         data,mime,name=service(project_id).text_tool_export(project_id,version_id,format,view=view)
-        return Response(data,media_type=mime,headers={"Content-Disposition":'attachment; filename="'+name+'"',"X-VSC-Source-Version":version_id})
+        headers={"Content-Disposition":'attachment; filename="'+name+'"',"X-VSC-Source-Version":version_id}
+        trace=_trace_header(request)
+        if trace:headers["X-Trace-Id"]=trace
+        return Response(data,media_type=mime,headers=headers)
 
 
     @router.get("/{project_id}/text-tools/styles")

@@ -76,3 +76,6 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 @media(max-width:1050px){.platform-episodes .episode-index{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.platform-episodes .episode-index{grid-template-columns:1fr}}
 @media(hover:none){.platform-episodes .episode-cover>.episode-actions{opacity:1;pointer-events:auto}}
+.topbar-pill{height:34px;min-height:34px;display:inline-flex;align-items:center;border:1px solid #343435;border-radius:13px;background:#1d1d1d;color:#ddd;font-size:12px;padding:5px 10px;white-space:nowrap}
+.topbar-pill:hover{background:#292929;color:#fff;border-color:#535353}
+@media(max-width:960px){.topbar-pill{display:none}}

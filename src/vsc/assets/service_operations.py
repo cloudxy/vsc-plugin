@@ -1,6 +1,7 @@
 """Operations consumers retain original account, task, budget and storage authority."""
-from datetime import datetime,timezone
-from urllib.parse import urlsplit
+from datetime import datetime,timedelta,timezone
+from urllib.parse import parse_qs,urlsplit
+import re
 import uuid
 
 KINDS={'feedback','support','fcp','studio','production_service','distribution','account_close','personal_export'}
@@ -28,6 +29,40 @@ def text(value,name,limit=200,empty=False):
 def fields(payload,names):
     if not isinstance(payload,dict) or set(payload)!=set(names.split()):error('操作字段不完整或包含未授权字段')
 
+def inspect_tos_signed_url(raw_url,*,now=None):
+    value=(raw_url or '').strip()
+    if not value:return None
+    parsed=urlsplit(value)
+    if parsed.scheme not in {'http','https'} or not parsed.hostname:
+        error('TOS 签名链接须为完整 HTTP/HTTPS 地址','invalid_tos_url')
+    params={k.lower():v[-1] for k,v in parse_qs(parsed.query,keep_blank_values=True).items() if v}
+    tos_date=params.get('x-tos-date') or params.get('x-amz-date') or ''
+    tos_expires=params.get('x-tos-expires') or params.get('x-amz-expires') or ''
+    result={'host':parsed.hostname,'path':parsed.path,'signed':bool(tos_date and tos_expires),'algorithm':params.get('x-tos-algorithm') or params.get('x-amz-algorithm') or ''}
+    if not (tos_date and tos_expires):
+        result['status']='unsigned_or_custom'
+        result['message']='链接未包含标准 X-Tos-Date / X-Tos-Expires 签名参数。'
+        return result
+    try:
+        issued=datetime.strptime(tos_date,'%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+        ttl=int(tos_expires)
+        if ttl<0 or ttl>365*86400:raise ValueError()
+    except ValueError:
+        error('TOS 签名链接中的 X-Tos-Date 或 X-Tos-Expires 格式无效','invalid_tos_url')
+    current=now or datetime.now(timezone.utc)
+    expires_at=issued+timedelta(seconds=ttl)
+    remaining=int((expires_at-current).total_seconds())
+    result.update({
+        'status':'expired' if remaining<=0 else 'valid',
+        'issued_at':issued.isoformat(),
+        'expires_seconds':ttl,
+        'expires_at':expires_at.isoformat(),
+        'expired':remaining<=0,
+        'remaining_seconds':max(0,remaining),
+        'message':'签名链接已过期，请回原任务重新获取受控访问地址。' if remaining<=0 else f'签名链接仍在有效期内（剩余 {remaining} 秒）。',
+    })
+    return result
+
 class ServiceOperationsService:
     def preview_account_close(self,p,payload):
         self.authorize_access(p,'read');fields(payload,'request_id')
@@ -45,6 +80,45 @@ class ServiceOperationsService:
 
     def service_operations_snapshot(self,p):
         self.authorize_access(p,'read');result=self._operations().snapshot(p);result['api_catalog']=api_capabilities(p);return result
+
+    def verify_seedance_task(self,p,payload):
+        self.authorize_access(p,'read')
+        if not isinstance(payload,dict) or set(payload)-{'task_id','tos_url'} or 'task_id' not in payload:
+            error('验真仅接受 task_id 与可选 tos_url')
+        raw_id=text(payload['task_id'],'Seedance 任务编号',100)
+        is_hex16=bool(re.fullmatch(r'[0-9a-fA-F]{16}',raw_id))
+        is_uuid=False
+        if not is_hex16:
+            try:
+                uuid.UUID(raw_id)
+                is_uuid=True
+            except ValueError:
+                error('任务编号须为 16 位十六进制 Seedance Task ID 或有效本地任务 UUID','invalid_seedance_task_id')
+        tos_info=inspect_tos_signed_url(payload.get('tos_url','')) if payload.get('tos_url') else None
+        matched=self._operations().find_seedance_job(p,raw_id,is_uuid=is_uuid)
+        return {
+            'project_id':p,
+            'task_id':raw_id.lower() if is_hex16 else raw_id,
+            'is_seedance_hex16':is_hex16,
+            'read_only':True,
+            'credits_consumed':0,
+            'co_brand':'天工工作台 × 火山引擎',
+            'verified':bool(matched),
+            'job':matched,
+            'tos_signature':tos_info,
+            'message':'已核对本地原始生成任务回执；本次操作仅查询，未重新生成且未消耗积分。' if matched else '当前项目未检索到该任务回执；本次核验仅做只读查询，未触发生成且未消耗任何积分。',
+        }
+
+    def network_diagnostic_probe(self,p,probe_key=''):
+        self.authorize_access(p,'read')
+        if not isinstance(probe_key,str) or len(probe_key)>64:error('诊断探针标识无效')
+        info=self._operations().diagnostic_ping(p)
+        info.update({
+            'probe_key':probe_key or 'default',
+            'storage':'configured' if self.storage is not None else 'unconfigured',
+            'api_version':'vsc.service-api/v1',
+        })
+        return info
 
     def configure_service_operations(self,p,payload,**kw):
         self._validate_write(payload,**kw);self.authorize_access(p,'manage');fields(payload,'document base_version_id');doc=payload['document'];fields(doc,'support_text terms_url privacy_url api_documentation')
