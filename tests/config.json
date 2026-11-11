@@ -2198,6 +2198,29 @@
         "src/vsc/assets/access_control.py",
         "src/vsc/interfaces/web/creative_canvas.py"
       ]
+    },
+    "project.integration.test_media_catalog": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/media_catalog.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/project/resource_catalog.py",
+        "src/vsc/interfaces/web/app.py"
+      ]
+    },
+    "project.unit.test_media_library_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/media-library.js",
+        "src/vsc/interfaces/web/static/media-library.css",
+        "src/vsc/interfaces/web/static/i18n-messages.js",
+        "src/vsc/interfaces/web/static/production-platform.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/media_library.test.mjs"
+      ]
     }
   },
   "dependencies": {

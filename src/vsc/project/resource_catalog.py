@@ -119,6 +119,16 @@ class ResourceCatalog:
             raise CatalogError('项目媒资目录需要 PostgreSQL 权威', 409, 'authority_unavailable')
         return self.service.list_project_media(**filters)
 
+    def media_catalog_detail(self, project_id, media_id):
+        if self._reader(project_id) is not None or self.service is None:
+            raise CatalogError('媒资详情需要 PostgreSQL 权威', 409, 'authority_unavailable')
+        result = self.service.get_project_media_detail(project_id, media_id)
+        media = self.media(project_id, media_id)
+        result.update(availability=media['availability'], integrity=media['integrity'])
+        if media['availability'] != 'available' or media['integrity'] == 'mismatch':
+            result['actions']['download'] = dict(available=False, reason_code='media_unavailable')
+        return result
+
     def media(self, project_id, media_id):
         reader = self._reader(project_id)
         return reader.media(media_id) if reader else self._media_status(self.service.get_media(project_id, media_id), verify=True)
