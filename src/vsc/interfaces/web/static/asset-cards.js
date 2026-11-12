@@ -1798,7 +1798,7 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   root.append(tabs,status);setText(status,'');
   if(tab==='official'){
    const host=el('section');root.append(host);
-   officialCenter=createAssetCenter(host,{...ctx,projectId:()=>projectId,session:()=>({...ctx.session(),revision}),setRevision:(value,p)=>{if(!p||p===projectId)update(value);}},{source:'official',embedded:true});
+   officialCenter=createAssetCenter(host,{...ctx,projectId:()=>projectId,session:()=>({...ctx.session(),revision}),setRevision:(value,p)=>{if(!p||p===projectId)update(value);}},{source:'official',embedded:true,workbench:true});
    await officialCenter.load();return;
   }
 

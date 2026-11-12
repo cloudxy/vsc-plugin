@@ -363,7 +363,9 @@ function flyBetween(sourceNode,targetNode,durationMs=820){
 export function createAssetCenter(root,ctx,{source='global',embedded=false,canvas=false,workbench=false,onReference=null,onDragReference=null}={}){
  if(source==='global')return createGlobalAssetLibrary(root,ctx);
  const official=source==='official';
- const facetCache=new Map();
+ const facetCache=new Map(),officialPageCache=new Map(),costumePageCache=new Map();
+ const DEFAULT_COSTUME_CATEGORIES=['春','夏','秋','冬','内衣','派对','泳装','性感'];
+ let costumeSummaryCache=null;
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,searchTimer=null;
  let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
  function stopCostumeObserver(){
@@ -866,25 +868,36 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    tabs.append(t);
   }
   kindBar.append(tabs);root.append(kindBar);
-  const params=new URLSearchParams({category:costumeCat,q:costumeQuery,offset:'0',limit:COSTUME_LIMIT});
-  const data=await get('/api/v1/asset-center/costumes?'+params);
-  if(!active(g))return;
   const seasons=el('div','','costume-tabs');seasons.setAttribute('role','tablist');bindAttribute(seasons,'aria-label','服饰分类');
   const pick=name=>{costumeCat=name;clearTimeout(costumeTimer);if(scrollRoot)scrollRoot.scrollTop=0;return load();};
-  const all=button('全部 '+(data.total_all||0).toLocaleString('zh-CN'),()=>pick(''));
-  all.setAttribute('role','tab');all.setAttribute('aria-pressed',String(!costumeCat));seasons.append(all);
-  for(const cat of data.categories||[]){
-   const t=button(cat.name+' '+Number(cat.count||0).toLocaleString('zh-CN'),()=>pick(cat.name));
-   t.setAttribute('role','tab');t.setAttribute('aria-pressed',String(costumeCat===cat.name));seasons.append(t);
-  }
+  const syncSeasonTabs=summary=>{
+   const entries=summary
+    ?[['','全部 '+Number(summary.total_all||0).toLocaleString('zh-CN')],...(summary.categories||[]).map(cat=>[cat.name,cat.name+' '+Number(cat.count||0).toLocaleString('zh-CN')])]
+    :[['','全部'],...DEFAULT_COSTUME_CATEGORIES.map(name=>[name,name])];
+   const existing=[...seasons.children];
+   if(existing.length===entries.length){
+    for(const [idx,[val,label]]of entries.entries()){
+     setText(existing[idx],label);
+     existing[idx].setAttribute('aria-pressed',String((costumeCat||'')===val));
+    }
+    return;
+   }
+   seasons.replaceChildren();
+   for(const [val,label]of entries){
+    const t=button(label,()=>pick(val));
+    t.setAttribute('role','tab');t.setAttribute('aria-pressed',String((costumeCat||'')===val));seasons.append(t);
+   }
+  };
+  syncSeasonTabs(costumeSummaryCache);
   root.append(seasons);
+  const cacheKey=costumeCat+'\0'+costumeQuery,cached=costumePageCache.get(cacheKey);
   const searchRow=el('div','','costume-search'),input=el('input');
   input.type='search';input.value=costumeQuery;
   bindAttribute(input,'placeholder','ID、颜色或单品，例如 denim、白');
   bindAttribute(input,'aria-label','搜索服饰');
   input.oninput=()=>{costumeQuery=input.value;costumeFocus=true;clearTimeout(costumeTimer);costumeTimer=setTimeout(()=>{costumeTimer=0;if(!disposed)load();},150);};
   input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault?.();clearTimeout(costumeTimer);load();}});
-  const count=el('span',Number(data.total||0).toLocaleString('zh-CN')+' 张','costume-count');
+  const count=el('span',cached?Number(cached.total||0).toLocaleString('zh-CN')+' 张':'加载中…','costume-count');
   count.setAttribute('role','status');
   const tools=el('div','','costume-tools');
   tools.append(
@@ -893,9 +906,10 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   );
   searchRow.append(input,count,tools);root.append(searchRow);
   if(costumeFocus){input.focus?.();costumeFocus=false;}
-  const pageItems=(data.items||[]).slice();let next=data.next_offset??null;
-  const grid=el('div','','costume-grid');
+  const pageItems=[],grid=el('div','','costume-grid');
+  let next=null,moreBtn=null,pagingBusy=false,sentinel=null,sentinelVisible=false;
   const words=item=>{const text=String(item.keywords||'');return (text.startsWith(item.title+' ')?text.slice(item.title.length).trim():text).split(/\s+/).filter(Boolean).join(' · ');};
+  const costumeSig=list=>(list||[]).map(x=>`${x.id}:${x.image}:${x.keywords||''}`).join('|');
   const cardFor=(item,index=24)=>{
    const card=el('article','','costume-card'),shot=el('div','','costume-shot'),open=button('',()=>costumeModal(item.id),'costume-open');
    bindAttribute(open,'aria-label','查看 '+item.id);
@@ -905,7 +919,6 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    card.append(shot,el('h3',item.id),el('p',item.label||item.category||'服饰'),keys);
    return card;
   };
-  let pagingBusy=false,sentinel=null,sentinelVisible=false;
   async function pull(){
    if(pagingBusy||next==null||!active(g)||!grid.isConnected)return;
    pagingBusy=true;const cursor=next;
@@ -915,7 +928,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     for(const item of more.items||[]){pageItems.push(item);grid.append(cardFor(item,pageItems.length-1));}
     next=more.next_offset??null;
     setText(count,Number(more.total||pageItems.length).toLocaleString('zh-CN')+' 张');
-    if(next==null){moreBtn.remove();sentinel?.remove();stopCostumeObserver();}
+    if(next==null){moreBtn?.remove();sentinel?.remove();stopCostumeObserver();}
    }finally{
     pagingBusy=false;
     if(next!=null&&sentinelVisible&&sentinel?.isConnected&&costumeObserver&&typeof costumeObserver.unobserve==='function'){
@@ -991,10 +1004,27 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    (document.body||root).append(dialog);
    dialog.showModal();
   }
-  for(const [idx,item]of pageItems.entries())grid.append(cardFor(item,idx));
-  if(!pageItems.length)grid.append(el('p','没有符合条件的服饰','costume-empty'));
+  if(cached){
+   for(const [idx,item]of (cached.items||[]).entries()){pageItems.push(item);grid.append(cardFor(item,idx));}
+   if(!pageItems.length)grid.append(el('p','没有符合条件的服饰','costume-empty'));
+   next=cached.next_offset??null;
+  }
   root.append(grid);
-  const moreBtn=button('更多',pull,'costume-more');
+  const params=new URLSearchParams({category:costumeCat,q:costumeQuery,offset:'0',limit:COSTUME_LIMIT});
+  const data=await get('/api/v1/asset-center/costumes?'+params);
+  if(!active(g))return;
+  costumeSummaryCache={total_all:data.total_all||0,categories:data.categories||[]};
+  costumePageCache.set(cacheKey,data);
+  syncSeasonTabs(costumeSummaryCache);
+  setText(count,Number(data.total||0).toLocaleString('zh-CN')+' 张');
+  if(!cached||costumeSig(data.items)!==costumeSig(pageItems)){
+   pageItems.length=0;
+   grid.replaceChildren();
+   for(const [idx,item]of (data.items||[]).entries()){pageItems.push(item);grid.append(cardFor(item,idx));}
+   if(!pageItems.length)grid.append(el('p','没有符合条件的服饰','costume-empty'));
+  }
+  next=data.next_offset??null;
+  moreBtn=button('更多',pull,'costume-more');
   if(next!=null)root.append(moreBtn);
   if(next!=null){
    if(typeof IntersectionObserver==='function'){
@@ -1042,7 +1072,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     n.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));
     tabs.append(n);
    }
-   count=el('span','加载中…','center-count');count.setAttribute('role','status');filterHost.append(count);
+   count=el('span','加载中…','center-count');count.setAttribute('role','status');
    form.append(tabs,filterHost);
   }else{
    selectFilter('asset_kind',msg('asset.asset_type'),officialSelectKinds);
@@ -1062,31 +1092,32 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   }
   const search=field(filterHost,msg('gallery.search'),'input',filters.query||'');search.type='search';bindAttribute(search,'placeholder','搜索名称或标签');
   search.oninput=()=>{filters.query=search.value;clearTimeout(searchTimer);searchTimer=setTimeout(()=>{offset=0;load();},300);};
+  if(workbench)filterHost.append(count);
   const submit=el('button',msg('ui.search'));submit.type='submit';form.append(submit);
-  if(Object.keys(filters).some(k=>filters[k]))filterHost.append(button('清空筛选',()=>{filters={};offset=0;return load();},'center-clear-filters'));
+  const hasClearable=workbench
+   ?['query','role_level','age_band','gender','role_tag','tag','form_name'].some(k=>filters[k])
+   :Object.keys(filters).some(k=>filters[k]);
+  if(hasClearable){
+   filterHost.append(button('清空筛选',()=>{
+    const keepKind=workbench?filters.asset_kind:'';
+    filters=keepKind?{asset_kind:keepKind}:{};
+    offset=0;return load();
+   },'center-clear-filters'));
+  }
   form.onsubmit=e=>{e.preventDefault();clearTimeout(searchTimer);offset=0;load();};
   root.append(form);
 
   const reqFilters={...filters,order_by:filters.order_by||'latest',source:'official',media_only:'true',offset,limit:24};
   for(const k of Object.keys(reqFilters))if(reqFilters[k]===''||reqFilters[k]==null)delete reqFilters[k];
-  const data=await get('/api/v1/asset-center?'+new URLSearchParams(reqFilters));
-  if(!active(g))return;
-  if(data.facets?.role_tag?.length){
-   facetCache.set(currentKind||'all',data.facets.role_tag);
-   if(roleTagSelect&&roleTagSelect.options.length<=1){
-    for(const t of data.facets.role_tag)roleTagSelect.append(localizedOption(t,t));
-    roleTagSelect.value=filters.role_tag||'';
-   }
-  }
-  if(workbench)setText(count,data.total+' 个资产');
-  else{count=el('p','共'+data.total+'个资产','center-count');count.setAttribute('role','status');root.append(count);}
-  const grid=el('div','','center-grid');
-  for(const row of data.items){
+  const queryStr=String(new URLSearchParams(reqFilters));
+  const officialSig=list=>(list||[]).map(r=>`${r.id}:${r.version_id}:${r.title}:${r.download_count||0}`).join('|');
+  const renderOfficialCard=(row,index=24)=>{
    const card=el('article','','center-card');const members=visibleMembers(row),member=members.find(m=>m.modality==='image')||members[0],cover=el('div','','center-cover');
    if(member){
     if(member.modality==='image'){
-     const open=button('',()=>zoom(row,member),'center-preview');
-     bindAttribute(open,'aria-label','放大查看 '+row.title);open.append(picture(member));draggable(open,row,member);cover.append(open);
+     const open=button('',()=>zoom(row,member),'center-preview'),imgNode=picture(member);
+     if(workbench){imgNode.loading=index<12?'eager':'lazy';imgNode.decoding='async';}
+     bindAttribute(open,'aria-label','放大查看 '+row.title);open.append(imgNode);draggable(open,row,member);cover.append(open);
     }else{const media=picture(member);draggable(media,row,member);cover.append(media);}
    }
    const badge=el('span',assetKind(row)==='character'?'人设':kinds.find(k=>k[0]===assetKind(row))?.[1]||msg('gallery.other'),'center-kind-badge');
@@ -1106,10 +1137,45 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     if(workbench){bindAttribute(ref,'aria-label',refLabel);bindAttribute(ref,'title',refLabel);bindAttribute(add,'aria-label',msg('gallery.add_project'));bindAttribute(add,'title',msg('gallery.add_project'));setText(ref,'✎');setText(add,'＋');actions.append(ref,add);cover.append(actions);}
     else{actions.append(ref,add);card.append(actions);}
    }
-   grid.append(card);
+   return card;
+  };
+  const grid=el('div','','center-grid');
+  const cached=workbench?officialPageCache.get(queryStr):null;
+  if(workbench){
+   if(cached){
+    if(cached.facets?.role_tag?.length&&roleTagSelect&&roleTagSelect.options.length<=1){
+     for(const t of cached.facets.role_tag)roleTagSelect.append(localizedOption(t,t));
+     roleTagSelect.value=filters.role_tag||'';
+    }
+    setText(count,cached.total+' 个资产');
+    for(const [idx,row]of (cached.items||[]).entries())grid.append(renderOfficialCard(row,idx));
+    if(!(cached.items||[]).length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
+   }
+   root.append(grid);
   }
-  if(!data.items.length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
-  root.append(grid);
+  const data=await get('/api/v1/asset-center?'+queryStr);
+  if(!active(g))return;
+  if(workbench)officialPageCache.set(queryStr,data);
+  if(data.facets?.role_tag?.length){
+   facetCache.set(currentKind||'all',data.facets.role_tag);
+   if(roleTagSelect&&roleTagSelect.options.length<=1){
+    for(const t of data.facets.role_tag)roleTagSelect.append(localizedOption(t,t));
+    roleTagSelect.value=filters.role_tag||'';
+   }
+  }
+  if(workbench){
+   setText(count,data.total+' 个资产');
+   if(!cached||officialSig(data.items)!==officialSig(cached.items)){
+    grid.replaceChildren();
+    for(const [idx,row]of data.items.entries())grid.append(renderOfficialCard(row,idx));
+    if(!data.items.length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
+   }
+  }else{
+   count=el('p','共'+data.total+'个资产','center-count');count.setAttribute('role','status');root.append(count);
+   for(const [idx,row]of data.items.entries())grid.append(renderOfficialCard(row,idx));
+   if(!data.items.length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
+   root.append(grid);
+  }
   if(officialDrawerRow&&data.items.some(r=>r.id===officialDrawerRow.id))openOfficialDrawer(officialDrawerRow,g);
   if(data.total>24)paging(data.total,data.next_offset,g);
  }
@@ -1309,7 +1375,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   identity=session().actor;shell();
   try{
    if(!session().actor){root.append(el('p',msg('ui.establish_an_operation_session_first')));return;}
-   if(ctx.workspaces)workspaces=await ctx.workspaces();
+   if(!official&&ctx.workspaces)workspaces=await ctx.workspaces();
    if(!active(g))return;
    if(tab==='cart')await selectionList(g);else if(tab==='downloads')await downloads(g);else await catalog(g);
   }catch(e){if(active(g))root.append(el('p',e.message),button(msg('ui.reload'),load));}

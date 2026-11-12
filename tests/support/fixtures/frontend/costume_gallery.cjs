@@ -30,9 +30,16 @@ const first = {id: 'SPR-0001', title: 'SPR-0001', category: '春', label: '春',
 const second = {id: 'SUM-0001', title: 'SUM-0001', category: '夏', label: '夏', keywords: 'SUM-0001 white shirt', image: '/api/v1/asset-center/costumes/SUM-0001/content'};
 const third = {id: 'SPR-0002', title: 'SPR-0002', category: '春', label: '春', keywords: 'SPR-0002 black coat', image: '/api/v1/asset-center/costumes/SPR-0002/content'};
 const requests = [];
+let deferredCostume = null;
+let workspaceCalls = 0;
 const api = async url => {
   requests.push(url);
   if (url.startsWith('/api/v1/asset-center/costumes?')) {
+    if (deferredCostume) {
+      const held = deferredCostume;
+      deferredCostume = null;
+      return held;
+    }
     const query = new URL(url, 'http://local').searchParams;
     const offset = Number(query.get('offset') || 0);
     assert.equal(query.get('limit'), '24');
@@ -70,11 +77,23 @@ const click = async (container, text) => {
     notice: () => {},
     session: () => ({actor: 'actor-fixed', csrf: 'csrf'}),
     projects: () => [],
+    workspaces: async () => { workspaceCalls += 1; return []; },
   }, {source: 'official', embedded: true, workbench: true});
   await center.load();
+  assert.equal(workspaceCalls, 0);
   assert.ok(requests[0].includes('source=official'));
   assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'false');
-  await click(root, '服饰');
+  let releaseInitialCostume;
+  deferredCostume = new Promise(resolve => { releaseInitialCostume = resolve; });
+  const initialSwitch = find(root, '服饰').onclick();
+  // Frame-0 synchronous mount: kind bar, season tabs, search row, and grid exist before HTTP resolves.
+  assert.ok(root.querySelector('.costume-kind-bar'));
+  assert.ok(root.querySelector('.costume-tabs'));
+  assert.ok(root.querySelector('.costume-search'));
+  assert.ok(root.querySelector('.costume-grid'));
+  assert.equal(find(root.querySelector('.costume-tabs'), '全部').getAttribute('aria-pressed'), 'true');
+  releaseInitialCostume({categories: cats, total_all: 3, total: 3, offset: 0, limit: 24, next_offset: 24, items: [first]});
+  await initialSwitch;
   assert.ok(requests.at(-1).includes('/api/v1/asset-center/costumes?'));
   assert.ok(requests.at(-1).includes('offset=0&limit=24'));
   assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'true');
@@ -132,5 +151,16 @@ const click = async (container, text) => {
   await click(root, '人设');
   assert.ok(requests.at(-1).includes('asset_kind=character'));
   assert.equal(root.querySelector('.costume-grid'), null);
+  assert.equal(workspaceCalls, 0);
+  // Switching back to 服饰 renders cached cards synchronously on Frame 0 and preserves unchanged <img> nodes.
+  let releaseRevisitCostume;
+  deferredCostume = new Promise(resolve => { releaseRevisitCostume = resolve; });
+  const revisitSwitch = find(root, '服饰').onclick();
+  assert.equal(find(root, '全部 3').getAttribute('aria-pressed'), 'true');
+  assert.equal(root.querySelectorAll('.costume-card').length, 1);
+  const cachedImgNode = root.querySelector('.costume-open').querySelector('img');
+  releaseRevisitCostume({categories: cats, total_all: 3, total: 3, offset: 0, limit: 24, next_offset: 24, items: [first]});
+  await revisitSwitch;
+  assert.equal(root.querySelector('.costume-open').querySelector('img'), cachedImgNode);
   console.log('costume gallery DOM PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });
