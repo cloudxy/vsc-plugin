@@ -2278,6 +2278,38 @@
         "src/vsc/interfaces/web/static/i18n-messages.js",
         "tests/project/unit/canvas_collaboration.test.mjs"
       ]
+    },
+    "project.integration.test_canvas_core_replica": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/schema_canvas_agent.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/adapters/persistence/postgres/canvas_core_ops.py",
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/production/canvas_image_ops.py",
+        "src/vsc/production/image_tools.py",
+        "src/vsc/production/canvas_execution.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/interfaces/web/app.py",
+        "migrations/postgres/versions/0055_canvas_core_runtime.py"
+      ]
+    },
+    "project.unit.test_canvas_core_replica_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/creative-canvas.css",
+        "src/vsc/interfaces/web/static/canvas-media-editors.js",
+        "src/vsc/interfaces/web/static/canvas-persistence-worker.js",
+        "src/vsc/interfaces/web/static/image-controls.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "tests/project/unit/canvas_core_replica.test.mjs"
+      ]
     }
   },
   "dependencies": {

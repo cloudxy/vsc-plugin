@@ -174,6 +174,8 @@ def create_app(config=None, catalog=None, service=None):
         return index()
 
     for spa_path in (
+        "/canvas",
+        "/canvas/share",
         "/script",
         "/marketing-studio",
         "/members",

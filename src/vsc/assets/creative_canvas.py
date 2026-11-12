@@ -26,15 +26,26 @@ NODE_TYPES = {
 DOMAIN_TYPES = {"spatial", "director", "edit", "music_mix", "processing"}
 CANVAS_IMAGE_TOOL = "vsc_image_tool"
 CANVAS_IMAGE_TOOL_SETTINGS = "vsc_image_tool_settings"
-CANVAS_IMAGE_TOOLS = ("angle", "lighting", "three_view", "headshot", "face_views")
-CANVAS_FIXED_IMAGE_TOOLS = {"three_view", "headshot", "face_views"}
+CANVAS_IMAGE_TOOLS = (
+    "angle", "lighting", "three_view", "headshot", "face_views",
+    "texture", "expression", "panorama", "upscale", "watermark",
+    "inpaint", "outpaint", "matting",
+    "multi_camera_grid_2k", "multi_camera_grid_4k", "story_four_grid",
+    "cinematic_lighting", "frame_predict_3s_after", "frame_predict_5s_before",
+)
+CANVAS_FIXED_IMAGE_TOOLS = {
+    "three_view", "headshot", "face_views",
+    "multi_camera_grid_2k", "multi_camera_grid_4k", "story_four_grid",
+    "cinematic_lighting", "frame_predict_3s_after", "frame_predict_5s_before",
+}
 
 
 def canvas_image_tool_options():
     from vsc.production.image_tools import TOOLS
-    options = {tool: deepcopy(TOOLS[tool][1]) for tool in CANVAS_IMAGE_TOOLS}
-    options["lighting"]["intensity"] = 0.5
-    options["lighting"]["view"] = "perspective"
+    options = {tool: deepcopy(TOOLS[tool][1]) for tool in CANVAS_IMAGE_TOOLS if tool in TOOLS}
+    if "lighting" in options:
+        options["lighting"]["intensity"] = 0.5
+        options["lighting"]["view"] = "perspective"
     return options
 
 
@@ -44,7 +55,8 @@ def canvas_image_tool(kind, params):
     present = keys.intersection(params)
     if not present:
         return None
-    if present != keys or kind != "image" or not isinstance(params.get(CANVAS_IMAGE_TOOL), str) or params[CANVAS_IMAGE_TOOL] not in CANVAS_IMAGE_TOOLS:
+    opts = canvas_image_tool_options()
+    if present != keys or kind != "image" or not isinstance(params.get(CANVAS_IMAGE_TOOL), str) or params[CANVAS_IMAGE_TOOL] not in opts:
         _fail("画布图像工具及其参数必须同时绑定到图片节点", "invalid_canvas_image_tool")
     raw = params[CANVAS_IMAGE_TOOL_SETTINGS]
     if not isinstance(raw, str):
@@ -66,8 +78,8 @@ def canvas_image_tool(kind, params):
     if not isinstance(settings, dict):
         _fail("画布图像工具参数须为 JSON 对象", "invalid_canvas_image_tool")
     tool = params[CANVAS_IMAGE_TOOL]
-    normalized = normalize_tool(tool, {**canvas_image_tool_options()[tool], **settings})
-    if tool in CANVAS_FIXED_IMAGE_TOOLS and normalized != canvas_image_tool_options()[tool]:
+    normalized = normalize_tool(tool, {**opts[tool], **settings})
+    if tool in CANVAS_FIXED_IMAGE_TOOLS and normalized != opts[tool]:
         _fail("画布图片生成工具使用固定视图规格", "invalid_canvas_image_tool")
     if tool == "angle" and not normalized["include_instructions"]:
         _fail("画布多角度必须包含固定角度指令", "invalid_canvas_image_tool")
@@ -178,7 +190,7 @@ def normalize_document(value):
     if not isinstance(viewport, dict) or set(viewport) - {"x", "y", "zoom"}:
         _fail("视口需要 x、y、zoom")
     return {"nodes": result, "edges": links, "viewport": {"x": _number(viewport.get("x", 0), -100000, 100000),
-        "y": _number(viewport.get("y", 0), -100000, 100000), "zoom": _number(viewport.get("zoom", 1), .2, 3)}}
+        "y": _number(viewport.get("y", 0), -100000, 100000), "zoom": _number(viewport.get("zoom", 1), .1, 8)}}
 
 
 class CreativeCanvasService:
@@ -250,8 +262,6 @@ class CreativeCanvasService:
             preview['routing'] = routing
             if preview['ready']:
                 preview['artifact']['document']['canvas_model_routing'] = routing
-                # Working provenance is pinned in the draft/typed run input,
-                # not an upstream creative approval dependency.
                 preview['preview_sha256'] = fingerprint(preview['artifact'])
         return preview
 
@@ -291,7 +301,72 @@ class CreativeCanvasService:
         return {"skills":[dict(value,id=key) for key,value in SKILLS.items()],"models":self.list_models(),
             "nodes":tree["nodes"],"revision":tree["revision"],"host_available":backend.available(),"provider_submit":False}
 
-    def list_canvas_agent_sessions(self,project_id,canvas_id):return self.store.list_canvas_agent_sessions(project_id,canvas_id)
+    def list_canvas_agent_sessions(self, project_id, canvas_id, *, include_archived=False):
+        return self.store.list_canvas_agent_sessions(project_id, canvas_id, include_archived=include_archived)
+
+    def update_canvas_agent_session_state(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if not isinstance(payload, dict) or set(payload) - {"canvas_id", "session_id", "title", "archived", "auto_approve"}:
+            _fail("会话状态更新字段无效", "invalid_agent_session_state")
+        checked_id(payload.get("canvas_id"))
+        checked_id(payload.get("session_id"))
+        if "title" in payload and payload["title"] is not None:
+            if not isinstance(payload["title"], str) or not 1 <= len(payload["title"].strip()) <= 200 or "\x00" in payload["title"]:
+                _fail("会话名称须为 1–200 字", "invalid_agent_session_state")
+        for flag in ("archived", "auto_approve"):
+            if flag in payload and payload[flag] is not None and type(payload[flag]) is not bool:
+                _fail("会话布尔开关类型无效", "invalid_agent_session_state")
+        return self.store.update_canvas_agent_session_state(project_id, payload, **kw)
+
+    def mutate_canvas_agent_queue(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if not isinstance(payload, dict) or set(payload) - {"canvas_id", "session_id", "action", "queue_item_id", "message", "skill_id", "mode", "turn_id"}:
+            _fail("会话消息队列字段无效", "invalid_agent_queue_item")
+        checked_id(payload.get("canvas_id"))
+        checked_id(payload.get("session_id"))
+        if payload.get("action") not in {"enqueue", "steer", "take_for_edit", "cancel", "mark_dispatched"}:
+            _fail("队列操作须为入队、优先、取回编辑或取消", "invalid_agent_queue_action")
+        if payload["action"] != "enqueue":
+            checked_id(payload.get("queue_item_id"))
+        if payload["action"] == "mark_dispatched":
+            checked_id(payload.get("turn_id"))
+        return self.store.mutate_canvas_agent_queue(project_id, payload, **kw)
+
+    def list_camera_motion_templates(self, project_id):
+        return self.store.list_camera_motion_templates(project_id)
+
+    def mutate_camera_motion_template(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if not isinstance(payload, dict) or set(payload) - {
+            "action", "template_id", "name", "prompt_fragment",
+            "horizontal_pan", "vertical_tilt", "zoom_delta", "roll_deg", "speed_preset", "favorite",
+        }:
+            _fail("运镜模板参数无效", "invalid_camera_motion")
+        action = payload.get("action")
+        if action not in {"create", "favorite", "delete"}:
+            _fail("运镜模板操作无效", "invalid_camera_motion_action")
+        if action == "create":
+            name = payload.get("name")
+            prompt_fragment = payload.get("prompt_fragment", "")
+            if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100 or "\x00" in name:
+                _fail("运镜模板名称须为 1–100 字", "invalid_camera_motion")
+            if not isinstance(prompt_fragment, str) or len(prompt_fragment.strip()) > 1000 or "\x00" in prompt_fragment:
+                _fail("运镜提示词片段长度无效", "invalid_camera_motion")
+            for key, low, high in (("horizontal_pan", -100, 100), ("vertical_tilt", -100, 100), ("zoom_delta", -100, 100), ("roll_deg", -45, 45)):
+                val = payload.get(key, 0)
+                if type(val) is not int or not low <= val <= high:
+                    _fail("运镜角度或推拉参数超出范围", "invalid_camera_motion")
+            if payload.get("speed_preset", "normal") not in {"slow", "normal", "fast"}:
+                _fail("运镜速度档位无效", "invalid_camera_motion")
+        else:
+            checked_id(payload.get("template_id"))
+            if action == "favorite" and type(payload.get("favorite")) is not bool:
+                _fail("收藏状态须为布尔值", "invalid_camera_motion")
+        return self.store.mutate_camera_motion_template(project_id, payload, **kw)
+
     def get_canvas_agent_turn(self,project_id,turn_id):return self.store.get_canvas_agent_turn(project_id,turn_id)
     def preview_canvas_agent_run(self,project_id,turn_id):
         request=self.store.get_canvas_agent_run_request(project_id,turn_id)
@@ -461,11 +536,32 @@ class CreativeCanvasService:
                 raise ResourceError("节点位置无效", "invalid_canvas_position")
         return self.store.add_canvas_project_media_node(project_id, payload, storage=self.storage, **kw)
 
+    def _read_verified_local_media_bytes(self, media):
+        import hashlib
+        if self.storage is None:
+            _fail("操作需要受控素材存储", "storage_unavailable")
+        locations = [item for item in media["locations"] if item["storage"] == "local" and item["available"]]
+        if not locations:
+            _fail("原图缺少可用本地字节", "media_unavailable")
+        for location in locations:
+            try:
+                candidate = self.storage.read(location["object_key"], media["sha256"])
+                if hashlib.sha256(candidate).hexdigest() == media["sha256"]:
+                    return candidate
+            except (OSError, ResourceError):
+                continue
+        _fail("固定原图字节不可读取或摘要不符", "media_sha_mismatch")
+
     def split_canvas_image(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
-        fields = {"canvas_id", "canvas_revision", "node_id", "rows", "columns", "cells"}
-        if set(payload) != fields or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1:
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "rows", "columns", "cells"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"group_name"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
             _fail("切分需要固定画布版本、节点和所选宫格", "invalid_canvas_grid")
+        group_name = payload.get("group_name", "")
+        if not isinstance(group_name, str) or len(group_name) > 100 or "\x00" in group_name:
+            _fail("分组名称最长 100 字", "invalid_canvas_grid")
         rows, columns, cells = payload["rows"], payload["columns"], payload["cells"]
         if type(rows) is not int or type(columns) is not int or not 1 <= rows <= 8 or not 1 <= columns <= 8 or not isinstance(cells, list) or not 1 <= len(cells) <= rows * columns:
             _fail("宫格行列需为1至8，且必须选择至少一格", "invalid_canvas_grid")
@@ -478,24 +574,9 @@ class CreativeCanvasService:
             seen.add((cell["row"], cell["column"]))
 
         def build(media):
-            import hashlib, io
+            import io
             from vsc.production.image_tools import split_grid_image
-            if self.storage is None:
-                _fail("切分需要受控素材存储", "storage_unavailable")
-            locations = [item for item in media["locations"] if item["storage"] == "local" and item["available"]]
-            if not locations:
-                _fail("原图缺少可用本地字节", "media_unavailable")
-            content = None
-            for location in locations:
-                try:
-                    candidate = self.storage.read(location["object_key"], media["sha256"])
-                    if hashlib.sha256(candidate).hexdigest() == media["sha256"]:
-                        content = candidate
-                        break
-                except (OSError, ResourceError):
-                    continue
-            if content is None:
-                _fail("固定原图字节不可读取或摘要不符", "media_sha_mismatch")
+            content = self._read_verified_local_media_bytes(media)
             outputs = []
             for item in split_grid_image(content, rows, columns, cells):
                 staged = self.storage.stage_upload(io.BytesIO(item["bytes"]), "grid-%s-%s.png" % (item["row"], item["column"]))
@@ -504,13 +585,148 @@ class CreativeCanvasService:
 
         return self.store.split_canvas_image(project_id, payload, build=build, **kw)
 
+    def transform_canvas_image(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "operation", "settings"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"in_place", "group_name"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("图片本地编辑需要固定画布版本、节点、操作和参数", "invalid_canvas_transform")
+        _key(payload.get("node_id"))
+        op = payload.get("operation")
+        settings = payload.get("settings")
+        if op not in {"crop", "rotate", "color_adjust", "doodle"} or not isinstance(settings, dict):
+            _fail("图片本地编辑仅支持裁剪、旋转、调色和涂鸦", "invalid_canvas_transform")
+        if "in_place" in payload and type(payload["in_place"]) is not bool:
+            _fail("就地替换标志须为布尔值", "invalid_canvas_transform")
+        group_name = payload.get("group_name")
+        if group_name is not None and (not isinstance(group_name, str) or len(group_name) > 100 or "\x00" in group_name):
+            _fail("分组名称最长 100 字", "invalid_canvas_transform")
+
+        def build(media):
+            import io
+            from vsc.production.canvas_image_ops import (
+                crop_image_bytes, rotate_flip_image_bytes, color_adjust_image_bytes, doodle_overlay_image_bytes,
+            )
+            content = self._read_verified_local_media_bytes(media)
+            if op == "crop":
+                out_bytes = crop_image_bytes(
+                    content,
+                    x=settings.get("x", 0.0),
+                    y=settings.get("y", 0.0),
+                    w=settings.get("w", 1.0),
+                    h=settings.get("h", 1.0),
+                )
+                norm = {
+                    "x": round(float(settings.get("x", 0.0)), 4),
+                    "y": round(float(settings.get("y", 0.0)), 4),
+                    "w": round(float(settings.get("w", 1.0)), 4),
+                    "h": round(float(settings.get("h", 1.0)), 4),
+                    "ratio": str(settings.get("ratio", settings.get("ratioKey", "original")))[:20],
+                }
+                suffix = "裁剪"
+            elif op == "rotate":
+                deg = settings.get("degrees", settings.get("angle", 0.0))
+                flip_x = bool(settings.get("flip_x", settings.get("flipX", False)))
+                flip_y = bool(settings.get("flip_y", settings.get("flipY", False)))
+                out_bytes = rotate_flip_image_bytes(
+                    content,
+                    degrees=deg,
+                    flip_x=flip_x,
+                    flip_y=flip_y,
+                )
+                norm = {
+                    "degrees": round(float(deg), 2),
+                    "flip_x": flip_x,
+                    "flip_y": flip_y,
+                }
+                suffix = "旋转翻转"
+            elif op == "color_adjust":
+                raw_filter = str(settings.get("filter_id", settings.get("filterId", "original")) or "original")
+                filter_id = "original" if raw_filter == "none" else raw_filter
+                strength = settings.get("strength", settings.get("filter_intensity", 100))
+                brightness = settings.get("brightness", settings.get("lightness", 0))
+                out_bytes = color_adjust_image_bytes(
+                    content,
+                    filter_id=filter_id,
+                    strength=strength,
+                    hue=settings.get("hue", 0),
+                    saturation=settings.get("saturation", 0),
+                    brightness=brightness,
+                    contrast=settings.get("contrast", 0),
+                )
+                norm = {
+                    "filter_id": filter_id[:40],
+                    "strength": int(strength),
+                    "hue": int(settings.get("hue", 0)),
+                    "saturation": int(settings.get("saturation", 0)),
+                    "brightness": int(brightness),
+                    "contrast": int(settings.get("contrast", 0)),
+                }
+                suffix = "调色滤镜"
+            else:
+                strokes = settings.get("strokes", [])
+                out_bytes = doodle_overlay_image_bytes(content, strokes)
+                norm = {"stroke_count": len(strokes) if isinstance(strokes, list) else 0}
+                suffix = "涂鸦"
+            staged = self.storage.stage_upload(io.BytesIO(out_bytes), f"canvas-{op}.png")
+            return self.storage.commit_upload(staged["staged_upload"]), norm, suffix
+
+        return self.store.transform_canvas_image(project_id, payload, build=build, **kw)
+
+    def capture_canvas_panorama(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "mode"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"yaw", "pitch", "fov", "group_name"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("全景截图需要固定画布版本、节点和截图模式", "invalid_canvas_panorama")
+        _key(payload.get("node_id"))
+        mode = payload.get("mode")
+        if mode not in {"current", "four", "twelve"}:
+            _fail("全景截图模式须为当前视角、4大视角或12大视角", "invalid_canvas_panorama")
+        yaw = _number(payload.get("yaw", 0.0), -720.0, 720.0)
+        pitch = _number(payload.get("pitch", 0.0), -89.0, 89.0)
+        fov = _number(payload.get("fov", 75.0), 30.0, 120.0)
+        group_name = payload.get("group_name")
+        if group_name is not None and (not isinstance(group_name, str) or len(group_name) > 100 or "\x00" in group_name):
+            _fail("分组名称最长 100 字", "invalid_canvas_panorama")
+        normalized_payload = dict(payload, yaw=yaw, pitch=pitch, fov=fov)
+
+        def build(media):
+            import io
+            from vsc.production.canvas_image_ops import capture_panorama_views
+            content = self._read_verified_local_media_bytes(media)
+            views = capture_panorama_views(content, mode=mode, yaw_deg=yaw, pitch_deg=pitch, fov_deg=fov)
+            outputs = []
+            for idx, view in enumerate(views):
+                staged = self.storage.stage_upload(io.BytesIO(view["bytes"]), f"panorama-{mode}-{idx + 1}.png")
+                outputs.append({"staged": self.storage.commit_upload(staged["staged_upload"]), "view": view})
+            return outputs
+
+        return self.store.capture_canvas_panorama(project_id, normalized_payload, build=build, **kw)
+
+    def replace_canvas_node_media(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        from vsc.adapters.persistence.postgres.values import checked_id
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "media_id"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"title"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("替换素材需要固定画布版本、节点和目标素材", "invalid_canvas_replace_media")
+        _key(payload.get("node_id"))
+        checked_id(payload.get("canvas_id"))
+        checked_id(payload.get("media_id"))
+        if "title" in payload and payload["title"] is not None:
+            if not isinstance(payload["title"], str) or not 1 <= len(payload["title"].strip()) <= 200 or "\x00" in payload["title"]:
+                _fail("节点标题须为 1–200 字", "invalid_canvas_replace_media")
+        return self.store.replace_canvas_node_media(project_id, payload, **kw)
+
     def creative_canvas_history(self, project_id, canvas_id):
         return self.store.creative_canvas_history(project_id, canvas_id)
 
     def prepare_creative_canvas(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
-        # A receipt is checked by the transaction before a stale revision. This
-        # read supplies byte verification only; it cannot authorize a new run.
         document = self.store.get_creative_canvas(project_id, payload.get("canvas_id"), payload.get("canvas_revision"))
         for node in document["document"]["nodes"]:
             if node.get("media_id"):

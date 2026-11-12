@@ -34,13 +34,23 @@ def route_models(configurations, model_ids, logical, context):
     return dict(original_model_ids=list(model_ids),model_ids=available,selected_model_id=available[0] if available else None,candidates=candidates)
 
 
-def draft_logical(document):
+def draft_logical(document, *, source_media=None):
     """Use the same typed reference roles as the working-generation compiler."""
     from vsc.assets.classic_production import MODES
-    modality=MODES[document['mode']]['modality'];refs=document['references']
-    by_role={role:[r['media_id'] for r in refs if r['role']==role] for role in MODES[document['mode']]['slots']}
+    mode_def=MODES[document['mode']]
+    modality=mode_def['modality'];refs=document['references'];tool=mode_def.get('image_tool')
+    by_role={role:[r['media_id'] for r in refs if r['role']==role] for role in mode_def['slots']}
     raw=dict(prompt=document['prompt'],params=document['params'],reference_media_ids=by_role.get('reference_image',[]))
-    if modality=='image':raw.update(width=document['width'],height=document['height'])
+    if modality=='image':
+        raw.update(width=document['width'],height=document['height'])
+        if tool in {'inpaint','watermark'}:
+            src_ref=next((r for r in refs if r['role']=='operation_source'),None)
+            mask_ref=next((r for r in refs if r['role']=='operation_mask'),None)
+            if src_ref and mask_ref:
+                raw.update(source_media_id=src_ref['media_id'],source_sha256=src_ref['sha256'],mask_media_id=mask_ref['media_id'],mask_sha256=mask_ref['sha256'],operation='inpaint')
+        elif tool in {'panorama','upscale'} and source_media is not None:
+            from vsc.production.fal_tools import image_operation_fields
+            raw.update(image_operation_fields(tool,source_media,document.get('tool_settings',{})))
     elif modality=='video':raw.update(duration_ms=document['duration_ms'],first_frame_media_id=next(iter(by_role.get('first_frame',[])),None),last_frame_media_id=next(iter(by_role.get('last_frame',[])),None),reference_video_media_ids=by_role.get('reference_video',[]),reference_audio_media_ids=by_role.get('reference_audio',[]))
     return normalize_request(raw,document['shot_id'],document['purpose'],modality)
 
