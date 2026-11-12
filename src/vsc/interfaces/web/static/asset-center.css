@@ -176,3 +176,26 @@ dialog.asset-library-modal::backdrop{background:rgba(0,0,0,.72)}
 .asset-center .center-card>.center-actions button{white-space:nowrap}
 .asset-center select option,.global-asset-library select option,dialog.asset-library-modal select option{background:#18181b;color:#fdfbfc}
 .asset-center dialog,.global-asset-dialog,.global-asset-picker,dialog.center-zoom,dialog.costume-modal,dialog.costume-note,dialog.asset-library-modal{overscroll-behavior:contain}
+
+/* Official reference libraries: 服装穿搭库 / 动作姿势库 / 人像颜值库 (character studio sources). */
+.asset-center.ref-library .ref-filter-row .center-clear-filters[aria-pressed=true]{border-color:#74ff53;color:#d9ffcf;background:#172414}
+.asset-center.ref-library .ref-filter-row .ref-safe[aria-pressed=true]{border-color:#a85a5a;color:#ffc9c9;background:#2a1617}
+.asset-center.ref-library .ref-pills{min-height:38px}
+.asset-center.ref-library .costume-shot{position:relative}
+.asset-center.ref-library.ref-portrait .costume-shot{aspect-ratio:4/5}
+.asset-center.ref-library .ref-badge{position:absolute;left:8px;top:8px;padding:1px 7px;border-radius:999px;background:rgba(15,15,18,.78);color:#fdfbfc;font-size:11px;line-height:18px;pointer-events:none}
+.asset-center.ref-library .ref-badge-warn{background:rgba(120,30,36,.86)}
+.asset-center.ref-library .ref-badge-right{left:auto;right:8px}
+.asset-center.ref-library .ref-pick{position:absolute;right:8px;bottom:8px;margin:0;height:30px;min-height:30px;padding:0 12px;border-radius:999px;border:1px solid rgba(116,255,83,.55);background:rgba(16,16,18,.86);color:#d9ffcf;font-size:12px;opacity:0;transition:opacity .15s}
+.asset-center.ref-library .costume-card:hover .ref-pick,.asset-center.ref-library .costume-card:focus-within .ref-pick,.asset-center.ref-library .ref-pick[aria-pressed=true]{opacity:1}
+.asset-center.ref-library .ref-pick[aria-pressed=true]{background:#74ff53;border-color:#74ff53;color:#0b080b;font-weight:600}
+.asset-center.ref-library .ref-angle-strip{display:flex;flex-wrap:wrap;gap:4px;margin:6px 2px 0}
+.asset-center.ref-library .ref-angle-strip button{margin:0;height:24px;min-height:24px;padding:0 8px;border-radius:6px;border:1px solid #333336;background:#18181a;color:#a1a0a3;font-size:11px}
+.asset-center.ref-library .ref-angle-strip button[aria-pressed=true]{color:#fdfbfc;border-color:#5b5b60;background:#2a2a2d}
+.asset-center.ref-library .costume-card h3{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+dialog.ref-modal .ref-modal-switch{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;min-height:0}
+dialog.ref-modal .ref-modal-switch:empty{display:none}
+dialog.ref-modal .ref-modal-switch button{border:1px solid #35353e;border-radius:8px;padding:5px 11px;background:#232329;color:#d4d4d8;font:inherit;font-size:12px;cursor:pointer}
+dialog.ref-modal .ref-modal-switch button[aria-pressed=true]{background:#f4f4f2;color:#141416;border-color:#f4f4f2}
+dialog.ref-modal .ref-pick-modal[aria-pressed=true]{background:#74ff53;color:#0b080b;border-color:#74ff53}
+dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:#d4d4d8}

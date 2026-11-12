@@ -51,6 +51,7 @@ from vsc.interfaces.web.team_review import install_team_review_routes
 from vsc.interfaces.web.commerce import install_commerce_routes, install_commerce_notification_routes, is_commerce_notification
 from vsc.interfaces.web.service_operations import install_service_operations_routes
 from vsc.interfaces.web.asset_center import install_asset_center_routes
+from vsc.interfaces.web.character_studio import install_character_studio_routes
 from vsc.interfaces.web.asset_cards import install_asset_card_routes
 from vsc.interfaces.web.task_notifications import install_task_notification_routes
 from vsc.interfaces.web.community import install_community_routes
@@ -91,6 +92,11 @@ def create_app(config=None, catalog=None, service=None):
     allowed_hosts = set(config.get("allowed_hosts", ["127.0.0.1", "localhost", "[::1]"]))
     origins = set(config.get("allowed_origins", ["http://127.0.0.1:8765", "http://localhost:8765"]))
 
+    def studio_relay(request):
+        # Provider keys stay in the browser; these relays forward them to the provider only.
+        path = request.url.path
+        return path == "/api/proxy" or path == "/comfy" or path.startswith("/comfy/")
+
     @app.middleware("http")
     async def boundary(request, call_next):
         host = parse_request_host(request.headers.get("host", ""))
@@ -107,7 +113,7 @@ def create_app(config=None, catalog=None, service=None):
                 principal=await run_in_threadpool(catalog.service.authenticate_service_api_key,authorization[7:])
                 if not principal.api_key_id or principal.local or principal.local_read or principal.share_id:
                     raise ResourceError('API身份不符','access_denied',403)
-            elif not notification and authorization.lower().startswith('bearer '):
+            elif not notification and not studio_relay(request) and authorization.lower().startswith('bearer '):
                 raise ResourceError('API凭据只接受专用开放接口，不用于界面登录','access_denied',403)
             token=set_principal(principal)
             if not notification:await run_in_threadpool(authorize_http,catalog.service,request)
@@ -120,7 +126,7 @@ def create_app(config=None, catalog=None, service=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         frame_ancestors = "'self'" if request.url.path.startswith("/api/v1/fcp-embed/") else "'none'"
-        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss: https: http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
         response.headers.setdefault("Cache-Control", "no-store")
         return response
 
@@ -192,6 +198,8 @@ def create_app(config=None, catalog=None, service=None):
         "/character",
         "/character/create",
         "/asset-center",
+        "/character-studio",
+        "/api-settings",
         "/recycle-bin",
         "/marketing",
         "/marketing-studio",
@@ -548,6 +556,7 @@ def create_app(config=None, catalog=None, service=None):
     install_commerce_notification_routes(app,catalog)
     install_service_operations_routes(app,router,catalog,etag,actor,read_actor)
     install_asset_center_routes(app,router,catalog,etag,actor,read_actor)
+    install_character_studio_routes(app,etag,read_actor,origin,allowed_hosts=allowed_hosts,origins=origins,sessions=sessions)
     install_asset_card_routes(router,catalog,etag,actor)
     install_task_notification_routes(router,catalog,etag,read_actor)
     install_community_routes(app,router,catalog,etag,actor,read_actor)

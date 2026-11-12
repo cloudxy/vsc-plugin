@@ -1,4 +1,5 @@
-// Official 服饰 browser against the real asset-center module. No browser claim.
+// Official reference libraries (服装穿搭库 / 动作姿势库 / 人像颜值库) against the real
+// asset-center module and character-studio store. Fake HTTP; no browser layout claim.
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {pathToFileURL} = require('node:url');
@@ -14,43 +15,49 @@ doc.documentElement = doc.createElement('html');
 globalThis.document = doc;
 const observers = [];
 globalThis.IntersectionObserver = class {
-  constructor(callback, options = {}) {
-    this.callback = callback;
-    this.options = options;
-    this.observed = new Set();
-    this.disconnected = false;
-    observers.push(this);
-  }
+  constructor(callback, options = {}) { this.callback = callback; this.options = options; this.observed = new Set(); this.disconnected = false; observers.push(this); }
   observe(node) { this.observed.add(node); }
   unobserve(node) { this.observed.delete(node); }
   disconnect() { this.disconnected = true; this.observed.clear(); }
 };
-const cats = [{name: '春', count: 2}, {name: '夏', count: 1}, {name: '秋', count: 0}, {name: '冬', count: 0}, {name: '内衣', count: 0}, {name: '派对', count: 0}, {name: '泳装', count: 0}, {name: '性感', count: 0}];
-const first = {id: 'SPR-0001', title: 'SPR-0001', category: '春', label: '春', keywords: 'SPR-0001 ivory white denim', image: '/api/v1/asset-center/costumes/SPR-0001/content'};
-const second = {id: 'SUM-0001', title: 'SUM-0001', category: '夏', label: '夏', keywords: 'SUM-0001 white shirt', image: '/api/v1/asset-center/costumes/SUM-0001/content'};
-const third = {id: 'SPR-0002', title: 'SPR-0002', category: '春', label: '春', keywords: 'SPR-0002 black coat', image: '/api/v1/asset-center/costumes/SPR-0002/content'};
+const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+const costume = (id, extra = {}) => ({id, source: 'gia', 一级分类: '现实', 分类: '春季穿搭', 服装名称: '象牙白针织衫 ' + id, 标签: ['象牙白'], 关键词: 'ivory knit',
+  缩略图: `thumbs/costume/${id}.webp`, 预览图: `img/costume/${id}.webp`, 原图: `img/costume/${id}.webp`, 来源: 'ギア · 写实服装', 敏感: false, ...extra});
+const shisei = costume('shisei-C001', {source: 'shisei', 分类: '中国历代', 服装名称: '商 · 上衣下裳', 来源: 'Shisei · 中国历代', selectedView: 'front',
+  views: [{id: 'front', label: '正面', 缩略图: 'thumbs/costumes/shisei/costume_C001_front.webp', 预览图: 'img/costumes/shisei/costume_C001_front.webp', 原图: 'img/costumes/shisei/costume_C001_front.webp'},
+    {id: 'side', label: '侧面', 缩略图: 'thumbs/costumes/shisei/costume_C001_side.webp', 预览图: 'img/costumes/shisei/costume_C001_side.webp', 原图: 'img/costumes/shisei/costume_C001_side.webp'}]});
+const anime = costume('charadb-O001', {source: 'charadb', 一级分类: '二次元', 缩略图: 'https://charadb-2fi.pages.dev/thumb/O001.webp', 来源: 'たき AI · CharaDB'});
+const costumeFacets = {tops: [{name: '现实', count: 3}, {name: '二次元', count: 1}], sources: [{id: 'gia', label: 'ギア · 写实服装', count: 2, notice: 'ギア AI 服装参考。', url: 'https://ai-costume-gallery.pages.dev/'}, {id: 'shisei', label: 'Shisei · 中国历代', count: 1, notice: 'CC0', url: 'https://github.com/wquguru/shisei'}],
+  categories: [{name: '春季穿搭', count: 2}, {name: '中国历代', count: 1}], tags: [{name: '象牙白', count: 2}], hidden_sensitive_count: 2, dataset_mode: 'pose-gallery'};
+const poseItem = (id, angle) => ({id, 体系: '全身单人・标准系', 姿势编号: 'P001', 分类: '站姿', 姿势名称: '自然站立', 角度: angle, 缩略图: `thumbs/${id}.jpg`, 原图: `img/${id}.png`});
+const group = {key: '全身单人・标准系|P001', system: '全身单人・标准系', number: 'P001', name: '自然站立', category: '站姿', items: [poseItem('full_std_P001_front', '正面'), poseItem('full_std_P001_side', '侧面')]};
+const portrait = {id: 'f71f980dde3', 分区: '正脸参考', 发长: '短发', 发型名称: '标准基础款', 标题: '短发・标准款', 热门: true, 缩略图: 'thumbs/portrait/f71f980dde3.webp', 原图: 'img/portrait/f71f980dde3.webp'};
 const requests = [];
-let deferredCostume = null;
-let workspaceCalls = 0;
-const api = async url => {
+let deferred = null;
+const navigations = [];
+const api = async (url, options = {}) => {
   requests.push(url);
-  if (url.startsWith('/api/v1/asset-center/costumes?')) {
-    if (deferredCostume) {
-      const held = deferredCostume;
-      deferredCostume = null;
-      return held;
-    }
-    const query = new URL(url, 'http://local').searchParams;
-    const offset = Number(query.get('offset') || 0);
+  if (deferred && url.includes('/pose-gallery/')) { const held = deferred; deferred = null; return held; }
+  const query = new URL(url, 'http://local').searchParams;
+  if (url.startsWith('/api/v1/asset-center/pose-gallery/costumes?')) {
     assert.equal(query.get('limit'), '24');
-    if (query.get('q')) return {categories: cats, total_all: 3, total: 1, offset, limit: 24, next_offset: null, items: [first]};
-    if (query.get('category') === '春') {
-      if (offset > 0) return {categories: cats, total_all: 3, total: 2, offset, limit: 24, next_offset: null, items: [third]};
-      return {categories: cats, total_all: 3, total: 2, offset: 0, limit: 24, next_offset: 24, items: [first]};
-    }
-    if (offset >= 48) return {categories: cats, total_all: 3, total: 3, offset, limit: 24, next_offset: null, items: [third]};
-    if (offset >= 24) return {categories: cats, total_all: 3, total: 3, offset, limit: 24, next_offset: 48, items: [second]};
-    return {categories: cats, total_all: 3, total: 3, offset: 0, limit: 24, next_offset: 24, items: [first]};
+    assert.equal(query.get('safe'), 'true');
+    const offset = Number(query.get('offset'));
+    if (query.get('q')) return {...costumeFacets, total: 1, total_all: 3, offset, limit: 24, next_offset: null, items: [costume('SPR-0001')]};
+    if (query.get('category') === '中国历代') return {...costumeFacets, total: 1, total_all: 3, offset, limit: 24, next_offset: null, items: [shisei]};
+    if (offset >= 48) return {...costumeFacets, total: 3, total_all: 3, offset, limit: 24, next_offset: null, items: [anime]};
+    if (offset >= 24) return {...costumeFacets, total: 3, total_all: 3, offset, limit: 24, next_offset: 48, items: [shisei]};
+    return {...costumeFacets, total: 3, total_all: 3, offset: 0, limit: 24, next_offset: 24, items: [costume('SPR-0001')]};
+  }
+  if (url.startsWith('/api/v1/asset-center/pose-gallery/poses?')) {
+    assert.equal(query.get('safe'), 'true');
+    const view = query.get('view');
+    return {view, total: 1, total_groups: 1, total_poses: 2, hidden_sensitive_count: 674, offset: 0, limit: 24, next_offset: null,
+      systems: [{name: '全身单人・标准系', count: 2}], categories: ['站姿'], angles: ['正面', '俯视', '仰视', '侧面', '斜侧'], items: view === 'single' ? group.items : [group]};
+  }
+  if (url.startsWith('/api/v1/asset-center/pose-gallery/portraits?')) {
+    return {total: 1, total_all: 1, offset: 0, limit: 24, next_offset: null, sections: [{name: '正脸参考', count: 1}], hair_lengths: [{name: '短发', count: 1}],
+      hair_styles: [{name: '标准基础款', count: 1}], hot_count: 1, items: [portrait]};
   }
   if (url.startsWith('/api/v1/asset-center?')) return {items: [], total: 0, next_offset: null};
   throw new Error('unexpected request ' + url);
@@ -64,103 +71,120 @@ platform.scrollTop = 0;
 workspace.append(platform);
 const root = doc.createElement('main');
 platform.append(root);
-const find = (container, text) => [...container.querySelectorAll('button')].find(node => node.textContent === text);
-const click = async (container, text) => {
-  const node = find(container, text);
-  assert.ok(node, 'missing button ' + text);
-  await node.onclick();
-};
+const all = (container, selector) => container.querySelectorAll(selector);
+const find = (container, text) => [...all(container, 'button')].find(node => node.textContent === text);
+const click = async (container, text) => { const node = find(container, text); assert.ok(node, 'missing button ' + text); await node.onclick(); await flush(); };
 (async () => {
   const {createAssetCenter} = await import(pathToFileURL(path.resolve(__dirname, '../../../../src/vsc/interfaces/web/static/asset-center.js')));
+  const studio = await import(pathToFileURL(path.resolve(__dirname, '../../../../src/vsc/interfaces/web/static/character-studio-store.js')));
   const center = createAssetCenter(root, {
-    api,
-    notice: () => {},
-    session: () => ({actor: 'actor-fixed', csrf: 'csrf'}),
-    projects: () => [],
-    workspaces: async () => { workspaceCalls += 1; return []; },
+    api, notice: () => {}, navigate: (page, options) => navigations.push([page, options]),
+    session: () => ({actor: 'actor-fixed', csrf: 'csrf'}), projects: () => [], workspaces: async () => [],
   }, {source: 'official', embedded: true, workbench: true});
   await center.load();
-  assert.equal(workspaceCalls, 0);
-  assert.ok(requests[0].includes('source=official'));
-  assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'false');
-  let releaseInitialCostume;
-  deferredCostume = new Promise(resolve => { releaseInitialCostume = resolve; });
-  const initialSwitch = find(root, '服饰').onclick();
-  // Frame-0 synchronous mount: kind bar, season tabs, search row, and grid exist before HTTP resolves.
-  assert.ok(root.querySelector('.costume-kind-bar'));
-  assert.ok(root.querySelector('.costume-tabs'));
-  assert.ok(root.querySelector('.costume-search'));
+  const tabs = [...root.querySelector('.center-official-kinds').querySelectorAll('button')].map(n => n.textContent);
+  assert.deepEqual(tabs, ['全部', '人设', '场景', '道具', '音频', '服装穿搭库', '动作姿势库', '人像颜值库']);
+  assert.ok(!tabs.includes('站位') && !tabs.includes('服饰'));
+  // Frame-0: Row 1 tabs and Row 2 filter row mount before HTTP resolves, like every other official tab.
+  let release;
+  deferred = new Promise(resolve => { release = resolve; });
+  const switching = find(root, '服装穿搭库').onclick();
+  const filtersBox = root.querySelector('.ref-filters');
+  assert.ok(filtersBox && filtersBox.classList.contains('center-official-filters'));
+  const row = root.querySelector('.center-official-filter-row');
+  assert.ok(row);
+  const boxChildren = filtersBox.children.filter(n => n.tagName !== '#TEXT');
+  assert.equal(boxChildren[0], root.querySelector('.center-official-kinds'));
+  assert.equal(boxChildren[1], row);
+  assert.equal(row.querySelectorAll('select').length, 3);
+  assert.ok(row.querySelector('.center-count'));
+  assert.ok(root.querySelector('.ref-pills'));
   assert.ok(root.querySelector('.costume-grid'));
-  assert.equal(find(root.querySelector('.costume-tabs'), '全部').getAttribute('aria-pressed'), 'true');
-  releaseInitialCostume({categories: cats, total_all: 3, total: 3, offset: 0, limit: 24, next_offset: 24, items: [first]});
-  await initialSwitch;
-  assert.ok(requests.at(-1).includes('/api/v1/asset-center/costumes?'));
+  release({...costumeFacets, total: 3, total_all: 3, offset: 0, limit: 24, next_offset: 24, items: [costume('SPR-0001')]});
+  await switching; await flush();
+  assert.ok(requests.at(-1).startsWith('/api/v1/asset-center/pose-gallery/costumes?'));
   assert.ok(requests.at(-1).includes('offset=0&limit=24'));
-  assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'true');
-  assert.equal(find(root, '全部 3').getAttribute('aria-pressed'), 'true');
-  assert.equal(root.querySelector('.costume-head'), null);
-  assert.ok(!root.textContent.includes('只有服装、没有人物的竖图'));
+  assert.equal(find(root, '服装穿搭库').getAttribute('aria-pressed'), 'true');
+  assert.ok(find(root, '全部 3'));
+  assert.ok(root.querySelector('.center-count').textContent.includes('已隐藏 2 项 18+'));
   const firstImg = root.querySelector('.costume-open').querySelector('img');
-  assert.equal(firstImg.src, first.image);
+  assert.equal(firstImg.src, '/api/v1/asset-center/pose-gallery/media/thumbs/costume/SPR-0001.webp');
   assert.equal(firstImg.loading, 'eager');
-  assert.equal(firstImg.decoding, 'async');
-  assert.ok(root.textContent.includes('ivory'));
-  assert.ok(!root.textContent.includes('SPR-0001 ivory'));
-  const initialObserver = observers.at(-1);
-  assert.equal(initialObserver.options.root, platform);
-  assert.equal(initialObserver.options.rootMargin, '0px 0px 480px 0px');
-  initialObserver.callback([{isIntersecting: true}]);
-  await new Promise(resolve => setTimeout(resolve, 20));
+  // 24-per-page infinite scroll plus the 更多 fallback.
+  const observer = observers.at(-1);
+  assert.equal(observer.options.root, platform);
+  observer.callback([{isIntersecting: true}]); await flush();
   assert.ok(requests.at(-1).includes('offset=24&limit=24'));
-  assert.equal(root.querySelectorAll('.costume-card').length, 2);
   await click(root, '更多');
   assert.ok(requests.at(-1).includes('offset=48&limit=24'));
-  assert.equal(root.querySelectorAll('.costume-card').length, 3);
+  assert.equal(all(root, '.costume-card').length, 3);
+  const remote = [...all(root, '.costume-open')].map(n => n.querySelector('img').src).find(src => src.startsWith('https://'));
+  assert.equal(remote, 'https://charadb-2fi.pages.dev/thumb/O001.webp');
   assert.equal(find(root, '更多'), undefined);
-  assert.equal(root.querySelector('.costume-sentinel'), null);
-  assert.equal(initialObserver.disconnected, true);
-  platform.scrollTop = 360;
-  const before = requests.length;
-  await click(root, '春 2');
+  // Category pills and search.
+  platform.scrollTop = 300;
+  await click(root, '中国历代 1');
   assert.equal(platform.scrollTop, 0);
-  assert.ok(requests.at(-1).includes('category=%E6%98%A5'));
-  assert.ok(requests.at(-1).includes('offset=0&limit=24'));
-  assert.equal(find(root, '春 2').getAttribute('aria-pressed'), 'true');
-  const springObserver = observers.at(-1);
-  assert.equal(springObserver.disconnected, false);
-  const input = root.querySelector('input');
-  input.value = 'white';
-  input.oninput();
-  await new Promise(resolve => setTimeout(resolve, 220));
-  assert.equal(springObserver.disconnected, true);
-  const focused = root.querySelector('input');
-  assert.ok(requests.length > before);
-  assert.ok(requests.at(-1).includes('q=white'));
-  assert.equal(focused.value, 'white');
-  assert.equal(doc.activeElement, focused);
-  await click(root, '使用说明');
-  const note = [...doc.querySelectorAll('dialog')].find(node => node.classList.contains('costume-note'));
-  assert.ok(note.textContent.includes('下载得到的是本库生成的原图'));
-  await click(root, '使用说明');
-  assert.equal(note.isConnected, false);
-  const opener = root.querySelector('.costume-open');
-  await opener.onclick();
-  const modal = [...doc.querySelectorAll('dialog')].find(node => node.classList.contains('costume-modal'));
-  assert.equal(modal.querySelector('a').getAttribute('download'), 'SPR-0001.png');
-  await modal.dispatch('keydown', {key: 'ArrowRight'});
+  assert.ok(requests.at(-1).includes('category=%E4%B8%AD%E5%9B%BD%E5%8E%86%E4%BB%A3'));
+  assert.ok(all(root, '.ref-badge').some(n => n.textContent === '2 视角'));
+  // Shisei lightbox offers view switching and the recipe toggle.
+  await root.querySelector('.costume-open').onclick();
+  const modal = [...doc.querySelectorAll('dialog')].find(n => n.classList.contains('ref-modal'));
+  assert.ok(modal && modal.open);
+  assert.ok(find(modal, '正面') && find(modal, '侧面'));
+  await find(modal, '侧面').onclick();
+  assert.ok(modal.querySelector('img').src.endsWith('costume_C001_side.webp'));
+  await find(modal, '加入配方').onclick(); await flush();
+  assert.equal(studio.getState().recipe.costume.id, 'shisei-C001');
+  assert.equal(studio.getState().recipe.costume.selectedView, 'side');
+  modal.close();
+  // The floating recipe dock reflects the recipe and opens the studio.
+  const dock = root.querySelector('.cs-recipe-dock');
+  assert.ok(dock && !dock.hidden);
+  assert.ok(find(dock, '合成 (1)'));
+  await find(dock, '合成 (1)').onclick();
+  assert.deepEqual(navigations.at(-1), ['character-studio', undefined]);
+  // Card toggle shows 已选 state without a reload.
+  const pick = root.querySelector('.ref-pick');
+  assert.equal(pick.textContent, '✓ 已选');
+  const searchBox = row.ownerDocument ? root.querySelector('input') : null;
+  searchBox.value = 'ivory'; searchBox.oninput(); await new Promise(resolve => setTimeout(resolve, 260));
+  assert.ok(requests.at(-1).includes('q=ivory'));
+  assert.equal(doc.activeElement, root.querySelector('input'));
+  // 动作姿势库: grouped multi-angle cards, white/depth thumbs.
+  await click(root, '动作姿势库');
+  assert.ok(requests.at(-1).startsWith('/api/v1/asset-center/pose-gallery/poses?'));
+  assert.ok(requests.at(-1).includes('view=group'));
+  const strip = root.querySelector('.ref-angle-strip');
+  const angleButtons = strip.children.filter(n => n.tagName === 'BUTTON');
+  assert.deepEqual(angleButtons.map(n => n.textContent), ['正面', '侧面']);
+  await angleButtons[1].onclick();
+  assert.equal(root.querySelector('.costume-open').querySelector('img').src, '/api/v1/asset-center/pose-gallery/media/thumbs/full_std_P001_side.jpg');
+  await root.querySelector('.ref-pick').onclick(); await flush();
+  assert.equal(studio.getState().recipe.pose.id, 'full_std_P001_side');
+  studio.setPoseDepthMode(true); await flush(); await flush();
+  assert.equal(root.querySelector('.costume-open').querySelector('img').src, '/api/v1/asset-center/pose-gallery/media/thumbs/depth/full_std_P001_front.webp');
+  assert.equal(studio.getState().recipe.pose.useDepth, true);
+  studio.setPoseDepthMode(false); await flush(); await flush();
+  // 人像颜值库: Top10 hot filter.
+  await click(root, '人像颜值库');
+  assert.ok(requests.at(-1).startsWith('/api/v1/asset-center/pose-gallery/portraits?'));
+  assert.ok(find(root, '短发 1'));
+  await click(root, 'Top10 热门');
+  assert.ok(requests.at(-1).includes('hot=true'));
+  assert.ok(all(root, '.ref-badge').some(n => n.textContent === '热门'));
+  // Leaving the references unmounts the dock; returning renders cached cards on Frame 0.
   await click(root, '人设');
   assert.ok(requests.at(-1).includes('asset_kind=character'));
   assert.equal(root.querySelector('.costume-grid'), null);
-  assert.equal(workspaceCalls, 0);
-  // Switching back to 服饰 renders cached cards synchronously on Frame 0 and preserves unchanged <img> nodes.
-  let releaseRevisitCostume;
-  deferredCostume = new Promise(resolve => { releaseRevisitCostume = resolve; });
-  const revisitSwitch = find(root, '服饰').onclick();
-  assert.equal(find(root, '全部 3').getAttribute('aria-pressed'), 'true');
-  assert.equal(root.querySelectorAll('.costume-card').length, 1);
-  const cachedImgNode = root.querySelector('.costume-open').querySelector('img');
-  releaseRevisitCostume({categories: cats, total_all: 3, total: 3, offset: 0, limit: 24, next_offset: 24, items: [first]});
-  await revisitSwitch;
-  assert.equal(root.querySelector('.costume-open').querySelector('img'), cachedImgNode);
+  assert.equal(root.querySelector('.cs-recipe-dock'), null);
+  deferred = new Promise(resolve => { release = resolve; });
+  const revisit = find(root, '人像颜值库').onclick();
+  assert.equal(all(root, '.costume-card').length, 1);
+  const cachedImg = root.querySelector('.costume-open').querySelector('img');
+  release({total: 1, total_all: 1, offset: 0, limit: 24, next_offset: null, sections: [{name: '正脸参考', count: 1}], hair_lengths: [{name: '短发', count: 1}], hair_styles: [], hot_count: 1, items: [portrait]});
+  await revisit; await flush();
+  assert.equal(root.querySelector('.costume-open').querySelector('img'), cachedImg);
+  center.suspend();
   console.log('costume gallery DOM PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });
