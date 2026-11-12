@@ -996,21 +996,26 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         return self._mutate(project_id, "record_review", payload, actor=actor, callback=work, **kw)
 
     def _grid_parent(self, conn, p, media_id):
-        """Only an original successful split receipt can establish a crop lineage."""
+        """Only an original successful local canvas derivative receipt can establish lineage."""
         output = conn.execute(select(S.operation_outputs).where(S.operation_outputs.c.project_id == p,
             S.operation_outputs.c.media_id == media_id)).mappings().first()
         if not output:
             return None
         operation = self._one(conn, S.media_operations, p, output['operation_id'])
-        if (operation['status'] != 'succeeded' or operation['operation_type'] != 'image-grid-split'
-                or operation['recipe_version'] != 'canvas-grid/v1' or operation['tool'] != 'vsc-local-image-grid'
-                or operation['tool_version'] != '1'):
+        specs = {
+            ('image-grid-split', 'canvas-grid/v1', 'vsc-local-image-grid'): ('split_canvas_image', 'tile'),
+            ('image-canvas-transform', 'canvas-transform/v1', 'vsc-local-image-transform'): ('transform_canvas_image', 'transformed'),
+            ('image-panorama-capture', 'canvas-panorama/v1', 'vsc-local-panorama-capture'): ('capture_canvas_panorama', 'view'),
+        }
+        spec = specs.get((operation['operation_type'], operation['recipe_version'], operation['tool']))
+        if operation['status'] != 'succeeded' or operation['tool_version'] != '1' or spec is None:
             return None
+        expected_action, expected_role = spec
         receipts = list(conn.execute(select(S.project_revisions.c.revision, S.command_receipts.c.response)
             .select_from(S.project_revisions.join(S.command_receipts, and_(
                 S.project_revisions.c.project_id == S.command_receipts.c.project_id,
                 S.project_revisions.c.command_key == S.command_receipts.c.idempotency_key)))
-            .where(S.project_revisions.c.project_id == p, S.project_revisions.c.action == 'split_canvas_image',
+            .where(S.project_revisions.c.project_id == p, S.project_revisions.c.action == expected_action,
                    S.command_receipts.c.response['operation_id'].astext == operation['id'])).mappings())
         if len(receipts) != 1:
             return None
@@ -1021,11 +1026,14 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         outputs = list(conn.execute(select(S.operation_outputs).where(S.operation_outputs.c.project_id == p,
             S.operation_outputs.c.operation_id == operation['id']).order_by(S.operation_outputs.c.ordinal)).mappings())
         parameters = operation['parameters']
+        if expected_action == 'split_canvas_image':
+            expected_len = len(parameters['cells']) if isinstance(parameters, dict) and isinstance(parameters.get('cells'), list) else -1
+        else:
+            expected_len = parameters.get('output_count') if isinstance(parameters, dict) and type(parameters.get('output_count')) is int else -1
         if (not isinstance(response, dict) or response.get('revision') != receipt['revision']
                 or len(inputs) != 1 or inputs[0]['role'] != 'source'
-                or not isinstance(parameters, dict) or not isinstance(parameters.get('cells'), list)
-                or len(outputs) != len(parameters['cells']) or not outputs
-                or any(row['role'] != 'tile' or row['ordinal'] != index for index, row in enumerate(outputs))
+                or expected_len < 1 or len(outputs) != expected_len or not outputs
+                or any(row['role'] != expected_role or row['ordinal'] != index for index, row in enumerate(outputs))
                 or response.get('media_ids') != [row['media_id'] for row in outputs]
                 or media_id not in response['media_ids']):
             return None

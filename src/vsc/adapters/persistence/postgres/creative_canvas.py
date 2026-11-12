@@ -11,6 +11,7 @@ from vsc.assets.creative_canvas import (normalize_document, DOMAIN_TYPES, NODE_T
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
 from .canvas_collaboration import _diff_node_keys
+from .canvas_core_ops import CanvasCoreOpsMixin
 from .values import checked_id, clean, digest, new_id
 
 
@@ -21,7 +22,7 @@ def _title(payload):
     return value.strip()
 
 
-class CreativeCanvasRepository:
+class CreativeCanvasRepository(CanvasCoreOpsMixin):
     def get_creative_canvas_version(self,project_id,version_id):
         with self.engine.connect() as conn:
             project=self._project(conn,project_id);p=project["id"];row=self._one(conn,S.creative_canvas_versions,p,version_id)
@@ -109,16 +110,6 @@ class CreativeCanvasRepository:
             complete=node['params'].get('marketing_role') in {'brief','method'}
             return dict(node,text=node['text'] if complete else node['text'][:6000],text_excerpt=not complete and len(node['text'])>6000)
         return clean(dict(row,canvas_id=version["canvas_id"],episode_id=canvas["episode_id"],canvas_revision=version["version"],referenced_nodes=[reference(n) for n in document["nodes"] if n["id"] in refs],model_ids=models,plan=plan,previous_plan=prior,revision=project["revision"],provider_submitted=False))
-
-    def list_canvas_agent_sessions(self,project_id,canvas_id):
-        with self.engine.connect() as conn:
-            project=self._project(conn,project_id);self._one(conn,S.creative_canvases,project["id"],canvas_id)
-            sessions=conn.execute(select(S.canvas_agent_sessions).where(S.canvas_agent_sessions.c.project_id==project["id"],S.canvas_agent_sessions.c.canvas_id==canvas_id).order_by(S.canvas_agent_sessions.c.created_at.desc())).mappings()
-            output=[]
-            for session in sessions:
-                ids=conn.execute(select(S.canvas_agent_turns.c.id).where(S.canvas_agent_turns.c.project_id==project["id"],S.canvas_agent_turns.c.session_id==session["id"]).order_by(S.canvas_agent_turns.c.created_at)).scalars()
-                output.append(dict(session,turns=[self._canvas_agent_turn(conn,project,i) for i in ids]))
-            return clean({"items":output,"revision":project["revision"]})
 
     def get_canvas_agent_turn(self,project_id,turn_id):
         with self.engine.connect() as conn:return self._canvas_agent_turn(conn,self._project(conn,project_id),turn_id)
@@ -939,8 +930,10 @@ class CreativeCanvasRepository:
                     'report': {'source': 'local-storage-complete-decode', 'probe': probe}},
                     actor=actor, _transaction=(conn, project), **kw)
                 key = 'grid-' + new_id();node_ids.append(key);media_ids.append(registered['id'])
+                group_name = (payload.get('group_name') or source.get('group') or '').strip()
                 document['nodes'].append(dict(id=key, type='image', title='切片 %s-%s' % (cell['row'], cell['column']),
-                    x=min(100000, source['x']+300+(index % 4)*280), y=min(100000, source['y']+(index // 4)*230), media_id=registered['id']))
+                    x=min(100000, source['x']+300+(index % 4)*280), y=min(100000, source['y']+(index // 4)*230),
+                    group=group_name, media_id=registered['id']))
                 document['edges'].append(dict(id='derive-'+new_id(), source=source['id'], target=key, port='derived_from'))
             operation = self.create_media_operation(p, {'operation_type': 'image-grid-split', 'recipe_version': 'canvas-grid/v1',
                 'tool': 'vsc-local-image-grid', 'tool_version': '1', 'parameters': {'canvas_version_id': version['id'],
@@ -1173,11 +1166,24 @@ class CreativeCanvasRepository:
                 role={'reference':'reference_image','first_frame':'first_frame','last_frame':'last_frame'}.get(edge['port'],edge['port'])
                 references.append(dict(role=role,media_id=media['id'],sha256=media['sha256']))
             if node['text'].strip():prompts.append(node['text'])
+            extra_dependencies=[]
             if image_tool and (len(references)!=1 or references[0]['role']!='reference_image'):
                 raise ResourceError('图像工具需要且仅接受一张固定来源图片','canvas_image_tool_source')
+            if image_tool and image_tool['tool'] in {'panorama','upscale','inpaint','watermark'}:
+                references=[dict(references[0],role='operation_source')]
+                if image_tool['tool'] in {'inpaint','watermark'} and image_tool['settings'].get('mask_media_id'):
+                    mask_media=self._media(conn,p,checked_id(image_tool['settings']['mask_media_id']))
+                    references.append(dict(role='operation_mask',media_id=mask_media['id'],sha256=mask_media['sha256']))
+                    if image_tool['settings'].get('mask_export_id'):
+                        extra_dependencies.append(checked_id(image_tool['settings']['mask_export_id']))
             roles={r['role'] for r in references}
             mode='image' if node['type']=='image' else 'audio' if node['type']=='audio' else 'omni' if roles & {'reference_video','reference_audio'} or 'reference_image' in roles and 'first_frame' not in roles else 'first_last' if 'last_frame' in roles else 'multi' if 'reference_image' in roles else 'single' if 'first_frame' in roles else 'text'
             if image_tool:mode='image_'+image_tool['tool']
+            if image_tool and not prompts:
+                from vsc.production.image_tools import tool_instruction
+                from vsc.assets.classic_production import MODES as CLASSIC_MODES
+                default_prompt=tool_instruction(image_tool['tool'],image_tool['settings']) if image_tool['tool'] not in {'inpaint','watermark','panorama','upscale'} else ''
+                prompts.append(default_prompt or CLASSIC_MODES.get(mode,{}).get('label','图像工具处理'))
             ordered=payload.get('model_ids');model_id=ordered[0] if isinstance(ordered,list) and ordered else payload.get('model_id')
             model=conn.execute(select(S.provider_models).where(S.provider_models.c.id==checked_id(model_id))).mappings().first()
             preferred={'image':'image_edit' if image_tool else 'first_frame','video':'reference_to_video' if mode in {'omni','multi'} else 'image_to_video' if references else 'text_to_video','audio':'sfx'}[node['type']]
@@ -1185,24 +1191,25 @@ class CreativeCanvasRepository:
             if image_tool and payload.get('purpose') not in (None,'image_edit'):
                 raise ResourceError('图像工具必须使用图像编辑用途','canvas_image_tool_purpose')
             purpose='image_edit' if image_tool else payload.get('purpose') or (preferred if ordered or preferred in purposes else purposes[0] if purposes else preferred)
-            params={k:v for k,v in node['params'].items() if k not in {CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS}}
+            params={} if (image_tool and image_tool['tool'] in {'panorama','upscale'}) else {k:v for k,v in node['params'].items() if k not in {CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS}}
             document=normalize_draft(dict(shot_id=shot,mode=mode,model_id=model_id,purpose=purpose,prompt='\n'.join(prompts),
                 count=payload.get('count',1),width=payload.get('width',1080),height=payload.get('height',1920),duration_ms=payload.get('duration_ms',5000),params=params,references=references,
                 **({'tool_settings':image_tool['settings']} if image_tool else {})))
-            routing=None;dependencies=[]
+            routing=None;dependencies=list(extra_dependencies)
             if ordered is not None:
                 from vsc.production.canvas_execution import route_models,draft_logical
                 from vsc.production.resource_settings import ResourceSettings
                 configurations={m['id']:m for m in ResourceSettings(self).list()['configurations']}
-                routing=route_models(configurations,ordered,draft_logical(document),{'media':references})
+                src_media=self._media(conn,p,references[0]['media_id']) if (image_tool and image_tool['tool'] in {'panorama','upscale'}) else None
+                routing=route_models(configurations,ordered,draft_logical(document,source_media=src_media),{'media':references})
                 if not routing['model_ids']:raise ResourceError('已选模型均不适用：'+'；'.join(r['name']+'：'+r['message'] for r in routing['candidates']),'canvas_no_applicable_model')
                 document['model_id']=routing['selected_model_id']
                 if agent_turn_id:
                     turn=self._canvas_agent_turn(conn,project,agent_turn_id)
                     if turn['model_ids']!=ordered:raise Conflict('模型顺序与原轮次不一致')
-                    dependencies=[turn['plan_artifact_id']]
+                    dependencies=list(extra_dependencies)+[turn['plan_artifact_id']]
                 receipt=self._create_artifact(conn,project,dict(artifact_key='canvas-routing:'+version['id']+':'+node['id'],artifact_type='canvas-model-routing',stage='workspace',document=routing,dependency_ids=dependencies,object_ids=[shot]))
-                dependencies=[receipt['id']]
+                dependencies=list(extra_dependencies)+[receipt['id']]
             artifact=self._create_artifact(conn,project,dict(artifact_key='canvas-input:'+version['id']+':'+node['id'],artifact_type=DRAFT_TYPE,stage='production',document=document,dependency_ids=dependencies,object_ids=[shot]))
             self._project_classic_draft_media(conn,project,artifact,document)
             conn.execute(insert(S.canvas_generation_inputs).values(project_id=p,draft_version_id=artifact['id'],version_id=version['id'],node_key=node['id'],shot_id=shot))

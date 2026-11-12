@@ -258,8 +258,16 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         return etag(request,service(project_id).canvas_agent_options(project_id))
 
     @router.get("/{project_id}/creative-canvases/{canvas_id}/agent-sessions")
-    def agent_sessions(project_id:str,canvas_id:str,request:Request):
-        return etag(request,service(project_id).list_canvas_agent_sessions(project_id,canvas_id))
+    def agent_sessions(project_id:str,canvas_id:str,request:Request,include_archived:bool=False):
+        return etag(request,service(project_id).list_canvas_agent_sessions(project_id,canvas_id,include_archived=include_archived))
+
+    @router.get("/{project_id}/camera-motion-templates")
+    def camera_motion_list(project_id:str,request:Request):
+        return etag(request,service(project_id).list_camera_motion_templates(project_id))
+
+    @router.post("/{project_id}/camera-motion-templates")
+    async def camera_motion_mutate(project_id:str,request:Request,body:dict):
+        return await write(project_id,request,body,"mutate_camera_motion_template")
 
     @router.get("/{project_id}/creative-canvas-agent-turns/{turn_id}")
     def agent_turn(project_id:str,turn_id:str,request:Request):
@@ -349,6 +357,27 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
         return result
 
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/transform-image")
+    async def transform_image(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "transform_canvas_image", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/capture-panorama")
+    async def capture_panorama(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "capture_canvas_panorama", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/replace-media")
+    async def replace_media(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "replace_canvas_node_media", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
     @router.post("/{project_id}/creative-canvases/{canvas_id}/prepare")
     async def prepare(project_id: str, canvas_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "prepare_creative_canvas", canvas_id)
@@ -417,6 +446,20 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
     @router.post("/{project_id}/creative-canvases/{canvas_id}/agent-turns")
     async def agent_create(project_id:str,canvas_id:str,request:Request,body:dict):
         return await write(project_id,request,body,"create_canvas_agent_turn",canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/agent-sessions/{session_id}/state")
+    async def agent_session_state(project_id:str,canvas_id:str,session_id:str,request:Request,body:dict):
+        payload=body.get("payload")
+        if not isinstance(payload,dict) or payload.get("session_id",session_id)!=session_id:
+            raise HTTPException(422,"会话路径不符")
+        return await write(project_id,request,dict(body,payload=dict(payload,session_id=session_id)),"update_canvas_agent_session_state",canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/agent-sessions/{session_id}/queue")
+    async def agent_session_queue(project_id:str,canvas_id:str,session_id:str,request:Request,body:dict):
+        payload=body.get("payload")
+        if not isinstance(payload,dict) or payload.get("session_id",session_id)!=session_id:
+            raise HTTPException(422,"会话路径不符")
+        return await write(project_id,request,dict(body,payload=dict(payload,session_id=session_id)),"mutate_canvas_agent_queue",canvas_id)
 
     @router.post("/{project_id}/creative-canvas-agent-turns/{turn_id}/execute")
     async def agent_execute(project_id:str,turn_id:str,request:Request):
