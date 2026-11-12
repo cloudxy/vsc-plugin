@@ -9,11 +9,16 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import os
 from pathlib import Path
+import stat as stat_mod
+import threading
 
 CATEGORIES = ("春", "夏", "秋", "冬", "内衣", "派对", "泳装", "性感")
-PAGE_SIZE = 120
+PAGE_SIZE = 24
 MAX_PAGE = 2000
+_CACHE_LOCK = threading.Lock()
+_CATALOG_CACHE: dict[Path, tuple[tuple, tuple, list[dict], dict[str, Path]]] = {}
 IMAGE_SUFFIXES = {".png", ".webp", ".jpg", ".jpeg"}
 SYNONYMS = {
     "黒": "black", "黑": "black", "ブラック": "black", "白": "white", "ホワイト": "white",
@@ -59,6 +64,65 @@ def load_costumes(assets_root: Path):
         _take(root / "服饰" / category, category, entries, files)
     entries.sort(key=lambda entry: (-entry[0], -entry[1]))
     return [entry[2] for entry in entries], files
+
+
+def cached_costumes(assets_root: Path, *, files_only: bool = False):
+    """Return cached (items, files), invalidating automatically on folder or file changes."""
+    root = Path(assets_root)
+    key = root.resolve(strict=False)
+    dir_sig = _dir_signature(root)
+    with _CACHE_LOCK:
+        cached = _CATALOG_CACHE.get(key)
+    if cached is not None and cached[0] == dir_sig:
+        if files_only:
+            return cached[2], cached[3]
+        full_sig = _full_signature(root)
+        if cached[1] == full_sig:
+            return cached[2], cached[3]
+    else:
+        full_sig = _full_signature(root)
+    items, files = load_costumes(root)
+    dir_sig = _dir_signature(root)
+    with _CACHE_LOCK:
+        _CATALOG_CACHE[key] = (dir_sig, full_sig, items, files)
+    return items, files
+
+
+def _dir_signature(root: Path) -> tuple:
+    base = root / "服饰"
+    sig = []
+    for category in CATEGORIES:
+        folder = base / category
+        try:
+            st = folder.stat()
+        except OSError:
+            continue
+        if stat_mod.S_ISDIR(st.st_mode):
+            sig.append((category, st.st_ino, st.st_mtime_ns))
+    return tuple(sig)
+
+
+def _full_signature(root: Path) -> tuple:
+    base = root / "服饰"
+    sig = []
+    for category in CATEGORIES:
+        folder = base / category
+        try:
+            with os.scandir(folder) as it:
+                entries = []
+                for entry in it:
+                    if entry.name.startswith("."):
+                        continue
+                    try:
+                        st = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    entries.append((entry.name, st.st_mtime_ns, st.st_size))
+        except OSError:
+            continue
+        entries.sort()
+        sig.append((category, tuple(entries)))
+    return tuple(sig)
 
 
 def costume_page(items, category="", query="", offset=0, limit=PAGE_SIZE):

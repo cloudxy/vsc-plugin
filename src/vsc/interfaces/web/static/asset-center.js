@@ -365,7 +365,17 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  const official=source==='official';
  const facetCache=new Map();
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,searchTimer=null;
- let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false;
+ let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null;
+ function stopCostumeObserver(){
+  if(costumeObserver){costumeObserver.disconnect();costumeObserver=null;}
+ }
+ function findScrollContainer(node){
+  if(typeof node?.closest==='function')return node.closest('.workspace');
+  for(let cur=node?.parentElement;cur;cur=cur.parentElement){
+   if(cur.classList?.contains?.('workspace'))return cur;
+  }
+  return null;
+ }
  const session=()=>ctx.session(),headers=()=>({'Content-Type':'application/json','X-CSRF-Token':session().csrf});
  const get=path=>ctx.api(path,{headers:{'X-CSRF-Token':session().csrf}});
  const post=(path,payload)=>ctx.api(path,{method:'POST',headers:headers(),body:JSON.stringify(payload===undefined?{}:{payload})});
@@ -394,6 +404,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   });
  }
  function shell(){
+  stopCostumeObserver();
   root.querySelectorAll('dialog').forEach(d=>d.close());
   root.replaceChildren();
   root.className='asset-center'+(official?' center-official':' center-platform')+(embedded?' center-embedded':'')+(canvas?' center-canvas':'')+(workbench?' center-workbench-official':'');
@@ -831,10 +842,13 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   dialog.showModal();
  }
  async function costumeBrowser(g){
+  const COSTUME_LIMIT='24';
+  stopCostumeObserver();
   closeCostumeDialogs();
   root.className=String(root.className||'').replace(/\bcostume-library\b/g,'').trim()+' costume-library';
+  const scrollRoot=findScrollContainer(root);
   const leave=value=>{
-   clearTimeout(costumeTimer);closeCostumeDialogs();
+   clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();
    if(value)filters.asset_kind=value;else delete filters.asset_kind;
    offset=0;
    if(value!=='costume'){costumeCat='';costumeQuery='';costumeFocus=false;}
@@ -847,11 +861,11 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    tabs.append(t);
   }
   kindBar.append(tabs);root.append(kindBar);
-  const params=new URLSearchParams({category:costumeCat,q:costumeQuery,offset:'0',limit:'120'});
+  const params=new URLSearchParams({category:costumeCat,q:costumeQuery,offset:'0',limit:COSTUME_LIMIT});
   const data=await get('/api/v1/asset-center/costumes?'+params);
   if(!active(g))return;
   const seasons=el('div','','costume-tabs');seasons.setAttribute('role','tablist');bindAttribute(seasons,'aria-label','服饰分类');
-  const pick=name=>{costumeCat=name;clearTimeout(costumeTimer);return load();};
+  const pick=name=>{costumeCat=name;clearTimeout(costumeTimer);if(scrollRoot)scrollRoot.scrollTop=0;return load();};
   const all=button('全部 '+(data.total_all||0).toLocaleString('zh-CN'),()=>pick(''));
   all.setAttribute('role','tab');all.setAttribute('aria-pressed',String(!costumeCat));seasons.append(all);
   for(const cat of data.categories||[]){
@@ -877,27 +891,37 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   const pageItems=(data.items||[]).slice();let next=data.next_offset??null;
   const grid=el('div','','costume-grid');
   const words=item=>{const text=String(item.keywords||'');return (text.startsWith(item.title+' ')?text.slice(item.title.length).trim():text).split(/\s+/).filter(Boolean).join(' · ');};
-  const cardFor=item=>{
+  const cardFor=(item,index=24)=>{
    const card=el('article','','costume-card'),shot=el('div','','costume-shot'),open=button('',()=>costumeModal(item.id),'costume-open');
    bindAttribute(open,'aria-label','查看 '+item.id);
-   const img=el('img');img.src=item.image;img.loading='lazy';bindAttribute(img,'alt',item.id+' '+words(item));
+   const img=el('img');img.src=item.image;img.loading=index<8?'eager':'lazy';img.decoding='async';bindAttribute(img,'alt',item.id+' '+words(item));
    open.append(img);shot.append(open);
    const keys=el('p',words(item)||item.category||'','costume-keys');
    card.append(shot,el('h3',item.id),el('p',item.label||item.category||'服饰'),keys);
    return card;
   };
-  let pagingBusy=false;
+  let pagingBusy=false,sentinel=null,sentinelVisible=false;
   async function pull(){
    if(pagingBusy||next==null||!active(g)||!grid.isConnected)return;
    pagingBusy=true;const cursor=next;
    try{
-    const more=await get('/api/v1/asset-center/costumes?'+new URLSearchParams({category:costumeCat,q:costumeQuery,offset:String(cursor),limit:'120'}));
+    const more=await get('/api/v1/asset-center/costumes?'+new URLSearchParams({category:costumeCat,q:costumeQuery,offset:String(cursor),limit:COSTUME_LIMIT}));
     if(!active(g)||!grid.isConnected)return;
-    for(const item of more.items||[]){pageItems.push(item);grid.append(cardFor(item));}
+    for(const item of more.items||[]){pageItems.push(item);grid.append(cardFor(item,pageItems.length-1));}
     next=more.next_offset??null;
     setText(count,Number(more.total||pageItems.length).toLocaleString('zh-CN')+' 张');
-    if(next==null)moreBtn.remove();
-   }finally{pagingBusy=false;}
+    if(next==null){moreBtn.remove();sentinel?.remove();stopCostumeObserver();}
+   }finally{
+    pagingBusy=false;
+    if(next!=null&&sentinelVisible&&sentinel?.isConnected&&costumeObserver&&typeof costumeObserver.unobserve==='function'){
+     const recheck=()=>{
+      if(!active(g)||next==null||!sentinel?.isConnected||!costumeObserver)return;
+      costumeObserver.unobserve(sentinel);
+      costumeObserver.observe(sentinel);
+     };
+     if(typeof requestAnimationFrame==='function')requestAnimationFrame(recheck);
+    }
+   }
   }
   function costumeModal(itemId){
    let cursor=pageItems.findIndex(item=>item.id===itemId);
@@ -962,15 +986,18 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    (document.body||root).append(dialog);
    dialog.showModal();
   }
-  for(const item of pageItems)grid.append(cardFor(item));
+  for(const [idx,item]of pageItems.entries())grid.append(cardFor(item,idx));
   if(!pageItems.length)grid.append(el('p','没有符合条件的服饰','costume-empty'));
   root.append(grid);
   const moreBtn=button('更多',pull,'costume-more');
   if(next!=null)root.append(moreBtn);
   if(next!=null&&typeof IntersectionObserver==='function'){
-   const sentinel=el('div','','costume-sentinel');
-   const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting))pull();},{rootMargin:'800px'});
-   observer.observe(sentinel);root.append(sentinel);
+   sentinel=el('div','','costume-sentinel');
+   costumeObserver=new IntersectionObserver(entries=>{
+    for(const entry of entries)sentinelVisible=Boolean(entry.isIntersecting);
+    if(sentinelVisible)pull();
+   },{root:scrollRoot||null,rootMargin:'0px 0px 480px 0px'});
+   costumeObserver.observe(sentinel);root.append(sentinel);
   }
  }
 
@@ -990,7 +1017,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    const tabs=el('div','','center-official-kinds');
    for(const [value,title]of officialWorkbenchKinds){
     const n=button(title,()=>{
-     clearTimeout(costumeTimer);closeCostumeDialogs();
+     clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();
      if(value)filters.asset_kind=value;else delete filters.asset_kind;
      if(value&&value!=='character'){delete filters.role_level;delete filters.age_band;delete filters.gender;delete filters.role_tag;}
      offset=0;return load();
@@ -1270,7 +1297,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    if(tab==='cart')await selectionList(g);else if(tab==='downloads')await downloads(g);else await catalog(g);
   }catch(e){if(active(g))root.append(el('p',e.message),button(msg('ui.reload'),load));}
  }
- return {load,suspend(){disposed=true;generation++;clearTimeout(searchTimer);clearTimeout(costumeTimer);closeCostumeDialogs();root.querySelectorAll('dialog').forEach(d=>d.close());}};
+ return {load,suspend(){disposed=true;generation++;clearTimeout(searchTimer);clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();root.querySelectorAll('dialog').forEach(d=>d.close());}};
 }
 
 // Project UI groups legacy objects with props without changing exact API filters.

@@ -121,7 +121,7 @@ def create_app(config=None, catalog=None, service=None):
         response.headers["Referrer-Policy"] = "no-referrer"
         frame_ancestors = "'self'" if request.url.path.startswith("/api/v1/fcp-embed/") else "'none'"
         response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
-        response.headers["Cache-Control"] = "no-store"
+        response.headers.setdefault("Cache-Control", "no-store")
         return response
 
     @app.exception_handler(CatalogError)
