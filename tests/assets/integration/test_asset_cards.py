@@ -304,3 +304,55 @@ class AssetCardTests(ResourceStoreFixture,unittest.TestCase):
                 canvas=dict(title='人物画布',episode_id=None,document=dict(nodes=[dict(id='asset',type='image',title='人物',x=120,y=120,media_id=media)],edges=[]))
                 result=client.post(path+'/creative-canvases',json=dict(payload=canvas,expected_revision=self.rev,idempotency_key='card-canvas'),headers=headers);self.assertEqual(result.status_code,200,result.text)
                 self.assertEqual(client.get(path+'/asset-card-options').status_code,200)
+
+    def test_folders_move_batch_recycle_and_manifestation_voice(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from vsc.project.resource_catalog import ResourceCatalog
+        import tempfile
+        cover = self.media('封面')
+        audio = self.media('参考声线', modality='audio')
+        c1 = self.card(name='角色甲', kind='character', media=cover)
+        c2 = self.card(name='角色乙', kind='character', media=cover)
+        folder = self.write('create_asset_folder', {'title': '核心角色组', 'cover_media_id': cover})
+        self.assertEqual(folder['folder']['cover_media_id'], cover)
+        with self.assertRaises(ResourceError) as ctx:
+            self.write('move_assets_to_folder', {'folder_id': folder['folder']['id'], 'asset_ids': [c1['id']], 'source_project_id': str(uuid.uuid4())})
+        self.assertEqual(ctx.exception.code, 'cross_project_move')
+        moved = self.write('move_assets_to_folder', {'folder_id': folder['folder']['id'], 'asset_ids': [c1['id'], c2['id']], 'source_project_id': self.p})
+        self.assertEqual(moved['moved_count'], 2)
+        in_folder = self.service.list_asset_cards(self.p, folder_id=folder['folder']['id'], order_by='name_desc')
+        self.assertEqual([row['name'] for row in in_folder['items']], ['角色甲', '角色乙'])
+        in_folder_asc = self.service.list_asset_cards(self.p, folder_id=folder['folder']['id'], order_by='name_asc')
+        self.assertEqual([row['name'] for row in in_folder_asc['items']], ['角色乙', '角色甲'])
+        self.assertEqual(self.service.list_asset_cards(self.p, folder_id='root')['total'], 0)
+        # Manifestation voice auto-save reuses owned voice card without spawning duplicates
+        v1 = self.write('save_manifestation_voice', {
+            'asset_id': c1['id'], 'base_revision': c1['asset_revision'], 'form_key': 'master', 'manifestaion_id': c1['forms'][0]['version_id'],
+            'voice_prompt': '清冷少年音', 'audio_media_id': audio,
+        })
+        voice_cards_after_first = self.service.list_asset_cards(self.p, asset_kind='voice')['total']
+        v2 = self.write('save_manifestation_voice', {
+            'asset_id': c1['id'], 'base_revision': v1['asset_revision'], 'form_key': 'master', 'manifestaion_id': v1['forms'][0]['version_id'],
+            'voice_prompt': '沉稳青年音', 'audio_media_id': audio,
+        })
+        self.assertEqual(self.service.list_asset_cards(self.p, asset_kind='voice')['total'], voice_cards_after_first)
+        self.assertEqual(v2['forms'][0]['voice_prompt'], '沉稳青年音')
+        self.assertEqual(v2['forms'][0]['voice_reference_media_id'], audio)
+        # Deleting folder preserves assets at root
+        self.write('delete_asset_folder', {'folder_id': folder['folder']['id']})
+        self.assertGreaterEqual(self.service.list_asset_cards(self.p, folder_id='root')['total'], 2)
+        # Batch recycle over HTTP
+        with tempfile.TemporaryDirectory() as root:
+            app = create_app({'allowed_hosts': ['testserver'], 'allowed_origins': ['http://testserver'], 'access_token': 'test', 'human_identity': 'test-human', 'background_enabled': False}, catalog=ResourceCatalog(root, service=self.service))
+            with TestClient(app) as client:
+                login = client.post('/api/v1/session', json={'token': 'test'}, headers={'origin': 'http://testserver'}).json()
+                headers = {'origin': 'http://testserver', 'x-csrf-token': login['csrf_token']}
+                res = client.post(
+                    f'/api/v1/projects/{self.p}/asset-cards/batch-recycle',
+                    json={'payload': {'asset_ids': [c1['id'], c2['id']], 'reason': '批量回收测试'}, 'expected_revision': self.rev, 'idempotency_key': 'batch-rec-1'},
+                    headers=headers,
+                )
+                self.assertEqual(res.status_code, 200, res.text)
+                self.assertEqual(res.json()['recycled_count'], 2)
+

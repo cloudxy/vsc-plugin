@@ -1539,7 +1539,12 @@
       "sources": [
         "src/vsc/interfaces/web/static/asset-center.js",
         "src/vsc/interfaces/web/static/asset-center.css",
-        "tests/project/unit/asset_center.test.mjs"
+        "src/vsc/interfaces/web/static/asset-cards.js",
+        "src/vsc/interfaces/web/static/asset-cards.css",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/app.py",
+        "tests/project/unit/asset_center.test.mjs",
+        "tests/project/unit/asset_editors_and_folders.test.mjs"
       ]
     },
     "project.unit.test_resource_catalog_content": {
@@ -2309,6 +2314,16 @@
         "src/vsc/interfaces/web/static/image-controls.js",
         "src/vsc/interfaces/web/static/panel.js",
         "tests/project/unit/canvas_core_replica.test.mjs"
+      ]
+    },
+    "assets.unit.test_costume_gallery": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/costume_gallery.py",
+        "src/vsc/interfaces/web/asset_center.py",
+        "src/vsc/interfaces/web/static/asset-center.js",
+        "tests/support/fixtures/frontend/costume_gallery.cjs"
       ]
     }
   },
