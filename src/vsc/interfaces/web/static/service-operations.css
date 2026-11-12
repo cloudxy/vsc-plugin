@@ -103,11 +103,12 @@
 .so-diag-pill.err{background:#fef2f2;color:#dc2626}
 .so-checkbox-line{display:flex;align-items:flex-start;gap:.5rem;margin:.75rem 0;font-size:.88rem}
 .so-checkbox-line input{width:auto!important;margin-top:.2rem}
-.so-dialog{max-width:680px;width:92vw;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:var(--so-card);color:var(--so-ink);padding:1.2rem}
+.so-dialog{max-width:680px;width:92vw;max-height:88dvh;overflow:auto;overscroll-behavior:contain;border:1px solid rgba(255,255,255,.14);border-radius:14px;background:var(--so-card);color:var(--so-ink);padding:1.2rem}
 .so-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.8rem}
 .service-operations-card{padding:1.15rem;border:1px solid var(--so-line);border-radius:14px;background:var(--so-card);margin:1rem 0}
 .service-operations-field{display:grid;gap:.38rem;margin:.7rem 0;font-size:.85rem;color:var(--so-muted)}
 .service-operations input,.service-operations textarea,.service-operations select{box-sizing:border-box;max-width:100%;min-width:0;width:100%;padding:.5rem .65rem;border-radius:8px;border:1px solid var(--so-line);background:#101217;color:var(--so-ink)}
+.service-operations select option{background:#14161b;color:#f5f7fa}
 .service-operations fieldset{border:1px solid var(--so-line);border-radius:10px;padding:.75rem;min-width:0}
 .service-operations fieldset label{display:inline-flex;align-items:center;gap:.35rem;margin:.3rem .5rem .3rem 0}
 .service-operations fieldset input{width:auto}

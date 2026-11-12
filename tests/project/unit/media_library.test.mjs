@@ -436,3 +436,69 @@ test('production-platform media tab wires createMediaLibrary, filters non-postgr
   platform.suspend();
   assert.equal(host.querySelector('.ml-total'),null);
 });
+
+test('image viewer supports fit-to-viewport, zoom buttons, 1:1 natural scale, pointer drag pan and keyboard shortcuts',async()=>{
+  const h=setup({
+    rows:[makeRow(0,{id:'img-zoom',project_id:'p1',modality:'image',category:'asset_image',width:1712,height:960})],
+  });
+  await h.library.load();
+  await h.root.querySelector('.ml-open').click();
+  const viewer=h.document.querySelector('.ml-image-viewer');
+  assert.ok(viewer);
+  const frame=viewer.querySelector('.ml-viewer-frame');
+  const img=viewer.querySelector('.ml-viewer-img');
+  const level=viewer.querySelector('.ml-viewer-zoom-level');
+  assert.equal(level.textContent,'100%');
+  assert.equal(img.getAttribute('data-zoom-scale'),'1');
+
+  await viewer.querySelector('.ml-viewer-zoom-in').click();
+  await viewer.querySelector('.ml-viewer-zoom-in').click();
+  assert.equal(level.textContent,'150%');
+  assert.equal(img.getAttribute('data-zoom-scale'),'1.5');
+
+  const beforeDragLeft=frame.scrollLeft,beforeDragTop=frame.scrollTop;
+  await frame.dispatch('pointerdown',{button:0,pointerId:1,clientX:300,clientY:300});
+  assert.equal(frame.classList.contains('is-dragging'),true);
+  await frame.dispatch('pointermove',{pointerId:1,clientX:180,clientY:140});
+  assert.equal(frame.scrollLeft,beforeDragLeft+120);
+  assert.equal(frame.scrollTop,beforeDragTop+160);
+  await frame.dispatch('pointerup',{pointerId:1});
+  assert.equal(frame.classList.contains('is-dragging'),false);
+
+  globalThis.window.dispatchKey('-');
+  assert.equal(level.textContent,'125%');
+  globalThis.window.dispatchKey('+');
+  assert.equal(level.textContent,'150%');
+  globalThis.window.dispatchKey('0');
+  assert.equal(level.textContent,'100%');
+  assert.equal(frame.scrollLeft,0);
+  assert.equal(frame.scrollTop,0);
+
+  await viewer.querySelector('.ml-viewer-zoom-actual').click();
+  assert.ok(Number(img.getAttribute('data-zoom-scale'))>1);
+  await viewer.querySelector('.ml-viewer-zoom-fit').click();
+  assert.equal(level.textContent,'100%');
+  h.library.suspend();
+});
+
+test('production-platform projects view accepts tab=canvas alias alongside tab=canvases',async()=>{
+  const document=new Document(''),host=document.createElement('main');
+  document.body.append(host);
+  globalThis.document=document;
+  const platform=createProductionPlatform(host,{
+    projects:()=>[],
+    session:()=>({actor:'human',identityId:'id-1',workspaceId:'ws-1',csrf:'csrf',writeAvailable:true}),
+    notice:()=>{},
+    navigate:async()=>{},
+    api:async url=>{
+      if(url==='/api/v1/canvas-library/options')return {projects:[],creators:[]};
+      if(url.startsWith('/api/v1/canvas-library?'))return {items:[],total:0,offset:0,limit:20,next_offset:null};
+      throw new Error('unexpected '+url);
+    },
+  });
+  await platform.load({page:'projects',tab:'canvas'});
+  const activeTab=host.querySelector('.project-tabs').querySelectorAll('a').find(a=>a.getAttribute('aria-current')==='page');
+  assert.ok(activeTab);
+  assert.ok(String(activeTab.href||activeTab.getAttribute('href')||'').includes('tab=canvases'));
+  platform.suspend();
+});

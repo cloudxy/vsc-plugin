@@ -127,9 +127,10 @@ export function createProductionPlatform(root,ctx){
     tile.append(cover,el('h3',title,'project-title'));return {tile,cover};
   }
   async function projects(t){
-    root.classList.add('platform-projects');header(msg("nav.my_projects"),scope.tab==='canvases'?msg('canvas.library.description'):scope.tab==='media'?msg('media.library.description'):msg("replica.project_description"));
+    const canvases=scope.tab==='canvases'||scope.tab==='canvas',media=scope.tab==='media';
+    root.classList.add('platform-projects');header(msg("nav.my_projects"),canvases?msg('canvas.library.description'):media?msg('media.library.description'):msg("replica.project_description"));
     const toolbar=el('div',null,'project-toolbar'),tabs=el('nav',null,'project-tabs');bindAttribute(tabs,'aria-label',msg("ui.project_category"));
-    const canvases=scope.tab==='canvases',media=scope.tab==='media',current=link(msg("common.project"),'projects',null,null),canvasTab=link(msg("nav.canvas"),'projects',null,null,{tab:'canvases'}),mediaTab=link(msg("common.route_generations"),'projects',null,null,{tab:'media'});(media?mediaTab:canvases?canvasTab:current).setAttribute('aria-current','page');tabs.append(current,canvasTab,mediaTab);
+    const current=link(msg("common.project"),'projects',null,null),canvasTab=link(msg("nav.canvas"),'projects',null,null,{tab:'canvases'}),mediaTab=link(msg("common.route_generations"),'projects',null,null,{tab:'media'});(media?mediaTab:canvases?canvasTab:current).setAttribute('aria-current','page');tabs.append(current,canvasTab,mediaTab);
     toolbar.append(tabs);root.append(toolbar);if(canvases){await canvasCatalog(t);return;}if(media){const slot=el('div',null,'project-toolbar-actions');toolbar.append(slot);await mediaCatalog(t,slot);return;}
     const controls=el('div',null,'project-toolbar-actions'),total=el('span',null,'project-total'),query=el('input');query.type='search';bindAttribute(query,"placeholder",msg("replica.search_projects"));bindAttribute(query,'aria-label',msg("ui.search_projects"));const add=button(msg("ui.new_project"),()=>createFlow());add.className='primary';controls.append(total,query,add);toolbar.append(controls);
     const rows=ctx.projects().filter(row=>!['vsc.text-tools','vsc.creative-tools'].includes(row.profile)&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind)),grid=el('div',null,'project-grid');

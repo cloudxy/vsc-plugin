@@ -193,6 +193,7 @@ def create_app(config=None, catalog=None, service=None):
         "/character/create",
         "/asset-center",
         "/recycle-bin",
+        "/marketing",
         "/marketing-studio",
         "/members",
         "/sub-studios",
