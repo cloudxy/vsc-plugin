@@ -118,8 +118,9 @@ const click = async (container, text) => { const node = find(container, text); a
   await click(root, '更多');
   assert.ok(requests.at(-1).includes('offset=48&limit=24'));
   assert.equal(all(root, '.costume-card').length, 3);
-  const remote = [...all(root, '.costume-open')].map(n => n.querySelector('img').src).find(src => src.startsWith('https://'));
-  assert.equal(remote, 'https://charadb-2fi.pages.dev/thumb/O001.webp');
+  const srcs = [...all(root, '.costume-open')].map(n => n.querySelector('img').src);
+  assert.equal(srcs.some(src => /^https?:\/\//i.test(src)), false);
+  assert.equal(srcs[2], '/api/v1/asset-center/pose-gallery/media/thumbs/costumes/charadb/O001.webp');
   assert.equal(find(root, '更多'), undefined);
   // Category pills and search.
   platform.scrollTop = 300;

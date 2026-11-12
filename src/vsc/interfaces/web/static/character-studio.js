@@ -1,6 +1,6 @@
 // AI 角色合成台 and API 接口配置 views (OAuth login bridges for AGY & Grok + Cloud API keys).
 import {openAssetImageViewer} from './asset-center.js';
-import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,STYLE_PRESETS,isAuthProvider,groupForProvider,referenceImageUrl,
+import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,STYLE_PRESETS,isAuthProvider,groupForProvider,referenceImageUrl,localCostumeImageUrl,
  poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,comparisonReferences,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
 
@@ -81,8 +81,9 @@ export function createCharacterStudio(root,ctx){
   const body=el('div','cs-slot-body');
   const thumb=el('button','cs-slot-thumb');thumb.type='button';thumb.setAttribute('aria-label',item?`放大${SLOT_LABEL[slot]}参考图`:`去${GALLERY_NAME[slot]}挑选`);
   if(item){
-   const img=el('img');img.src=slot==='pose'?referenceImageUrl(poseThumbPath(item)):referenceImageUrl(item.缩略图||item.预览图||item.原图);img.alt=SLOT_LABEL[slot];img.loading='lazy';thumb.append(img);
-   thumb.onclick=()=>zoom(slot==='pose'?poseImagePath(item):slot==='costume'?item.预览图||item.原图||item.缩略图:item.原图||item.缩略图,SLOT_LABEL[slot]);
+   const costumeLocal=slot==='costume'&&item.source!=='upload';
+   const img=el('img');img.src=slot==='pose'?referenceImageUrl(poseThumbPath(item)):costumeLocal?localCostumeImageUrl(item.缩略图||item.预览图||item.原图):referenceImageUrl(item.缩略图||item.预览图||item.原图);img.alt=SLOT_LABEL[slot];img.loading='lazy';thumb.append(img);
+   thumb.onclick=()=>zoom(slot==='pose'?poseImagePath(item):costumeLocal?localCostumeImageUrl(item.预览图||item.原图||item.缩略图):slot==='costume'?item.预览图||item.原图||item.缩略图:item.原图||item.缩略图,SLOT_LABEL[slot]);
   }else{thumb.append(el('span','cs-slot-empty','＋'));thumb.onclick=()=>pick(slot);}
   body.append(thumb);
   const info=el('div','cs-slot-info');

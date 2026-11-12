@@ -155,6 +155,26 @@ test('studio and API settings views render AGY/Grok OAuth login and Grok/Gemini 
  studio.suspend();
 });
 
+test('costume image helpers enforce local-only media paths and block external URLs',()=>{
+ assert.equal(ai.localizeCostumePath('thumbs/costume/SPR-0001.webp'),'thumbs/costume/SPR-0001.webp');
+ assert.equal(ai.localizeCostumePath('https://ai-costume-anime-gallery.pages.dev/thumbs/SPR-0001.webp'),'thumbs/costumes/gia-anime/SPR-0001.webp');
+ assert.equal(ai.localizeCostumePath('https://ai-costume-anime-gallery.pages.dev/png/SPR-0001.png'),'img/costumes/gia-anime/SPR-0001.webp');
+ assert.equal(ai.localizeCostumePath('https://charadb-2fi.pages.dev/thumb/O001.webp'),'thumbs/costumes/charadb/O001.webp');
+ assert.equal(ai.localizeCostumePath('https://charadb-2fi.pages.dev/img/O001.jpg'),'img/costumes/charadb/O001.jpg');
+ assert.equal(ai.localizeCostumePath('https://evil.example.com/costume.webp'),'');
+ assert.equal(ai.localCostumeImageUrl('https://charadb-2fi.pages.dev/thumb/O001.webp'),'/api/v1/asset-center/pose-gallery/media/thumbs/costumes/charadb/O001.webp');
+ assert.equal(ai.localCostumeImageUrl('https://evil.example.com/costume.webp'),'');
+ assert.equal(ai.referenceImageUrl('https://ai-costume-anime-gallery.pages.dev/img/SPR-0002.webp'),'/api/v1/asset-center/pose-gallery/media/img/costumes/gia-anime/SPR-0002.webp');
+ assert.equal(ai.sanitizeCostumeItem({id:'bad',缩略图:'https://evil.example.com/a.webp',原图:'https://evil.example.com/b.webp'}),null);
+ store.setSlot('costume',{id:'gia-anime-SPR-0001',source:'gia-anime',服装名称:'动漫春装',
+  缩略图:'https://ai-costume-anime-gallery.pages.dev/thumbs/SPR-0001.webp',
+  预览图:'https://ai-costume-anime-gallery.pages.dev/img/SPR-0001.webp',
+  原图:'https://ai-costume-anime-gallery.pages.dev/png/SPR-0001.png'});
+ assert.equal(store.getState().recipe.costume.缩略图,'thumbs/costumes/gia-anime/SPR-0001.webp');
+ assert.equal(store.getState().recipe.costume.原图,'img/costumes/gia-anime/SPR-0001.webp');
+ store.setSlot('costume',null);
+});
+
 test('sidebar places the studio under 资产库 and the settings icon right after 帮助',()=>{
  const html=readFileSync(new URL('../../../src/vsc/interfaces/web/templates/index.html',import.meta.url),'utf8');
  assert.match(html,/id="nav-asset-center"[^]*?<\/a><a id="nav-character-studio" href="\?page=character-studio">/);
