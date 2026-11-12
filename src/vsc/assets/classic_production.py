@@ -1,9 +1,72 @@
 """Independent shot/mode drafts, compiled into the original production run."""
 from copy import deepcopy
+import io
 import json
+import re
+import zipfile
 
 from vsc.assets.resource_service import Conflict, ResourceError
 from vsc.production.quotes import fingerprint
+
+
+STORYBOARD_BATCH_FILENAME_RE = re.compile(r"^\d+\.(png|jpg|jpeg)$", re.IGNORECASE)
+
+PROMPT_RECOMMENDATION_CATEGORIES = [
+    {
+        "id": "framing",
+        "label": "景别",
+        "items": ["大远景", "远景", "全景", "中全景", "中景", "中近景", "近景", "特写", "大特写"],
+    },
+    {
+        "id": "composition",
+        "label": "构图",
+        "items": ["三分法构图", "中心对称构图", "对角线构图", "引导线构图", "前景遮挡构图", "留白构图", "框式构图"],
+    },
+    {
+        "id": "camera_angle",
+        "label": "镜头角度",
+        "items": ["平视镜头", "低角度仰拍", "高角度俯拍", "过肩镜头", "鸟瞰视角", "荷兰角倾斜", "主观第一视角"],
+    },
+    {
+        "id": "lighting",
+        "label": "光影色调",
+        "items": ["电影级体积光", "黄金时刻逆光", "冷调霓虹夜景", "柔和自然侧光", "伦勃朗布光", "青橙电影色调", "高反差暗调"],
+    },
+    {
+        "id": "motion_texture",
+        "label": "运镜与质感",
+        "items": ["缓慢推镜", "平稳横移跟拍", "环绕运镜", "浅景深虚化", "35mm胶片颗粒", "超清细节纹理", "丝滑慢动作"],
+    },
+]
+
+
+def validate_storyboard_batch_filename(filename):
+    name = (filename or "").strip()
+    if not STORYBOARD_BATCH_FILENAME_RE.fullmatch(name):
+        raise ResourceError(
+            f"文件名格式不正确：{filename}。文件名必须为数字.png/jpg/jpeg 格式，如 1.png、2.jpg、3.JPEG 等",
+            "invalid_storyboard_batch_filename",
+        )
+    stem = name.rsplit(".", 1)[0]
+    return int(stem), name
+
+
+def validate_storyboard_batch_filenames(filenames):
+    if not isinstance(filenames, list) or not filenames or len(filenames) > 200:
+        raise ResourceError("批量导入每次支持 1–200 张数字命名分镜图片", "invalid_storyboard_batch_filename")
+    parsed = [validate_storyboard_batch_filename(str(item)) for item in filenames]
+    parsed.sort(key=lambda pair: (pair[0], pair[1].lower()))
+    return [{"number": number, "filename": name} for number, name in parsed]
+
+
+def kling_weighted_length(text):
+    if not isinstance(text, str) or not text:
+        return 0.0
+    ascii_weight = 11.0 / 26.0
+    total = 0.0
+    for ch in text:
+        total += ascii_weight if ord(ch) <= 127 else 1.0
+    return total
 
 
 MODES = {
@@ -25,7 +88,7 @@ MODES = {
 from vsc.production.image_tools import TOOLS as IMAGE_TOOLS, BLOCKED as IMAGE_BLOCKED, normalize_tool, tool_instruction, normalize_edit, EDIT_TYPE, OUTPUT_TYPE
 for tool,(label,defaults) in IMAGE_TOOLS.items():
     MODES['image_'+tool]={'label':label,'modality':'image','slots':{'reference_image':'image'},'image_tool':tool,'tool_defaults':deepcopy(defaults),'tool_unavailable':IMAGE_BLOCKED.get(tool)}
-MODES['image_inpaint'].update(slots={'operation_source':'image','operation_mask':'image'},purpose='image_edit',tool_unavailable=None)
+MODES['image_inpaint'].update(slots={'operation_source':'image','operation_mask':'image','reference_image':'image'},purpose='image_edit',tool_unavailable=None)
 MODES['image_watermark'].update(slots={'operation_source':'image','operation_mask':'image'},purpose='image_edit',tool_unavailable=None)
 for native in ('panorama','upscale'):
     MODES['image_'+native].update(slots={'operation_source':'image'},purpose='image_edit',tool_unavailable=None)
@@ -57,6 +120,8 @@ def normalize_draft(value):
         result.setdefault(key, default)
         if not isinstance(result[key], str) or len(result[key]) > bound:
             raise ResourceError("草稿文本字段格式不正确", "invalid_classic_draft")
+    if result["mode"] == "text" and kling_weighted_length(result["prompt"]) > 11000 + 1e-6:
+        raise ResourceError("文生视频提示词超出双语加权上限（中文 11000 字 / 英文 26000 字符）", "prompt_weighted_limit")
     for key, default, low, high in (("duration_ms", 5000, 1, 3600000), ("width", 1080, 1, 16384),
                                   ("height", 1920, 1, 16384), ("count", 1, 1, 8)):
         result.setdefault(key, default)
@@ -66,6 +131,19 @@ def normalize_draft(value):
     if not isinstance(params, dict) or len(params) > 40 or len(str(params)) > 20000:
         raise ResourceError("模型参数需要有界的 JSON 对象")
     result["params"] = safe_parameters(params)
+    if result["mode"] == "image" and "output_format" in result["params"]:
+        fmt = result["params"]["output_format"]
+        if fmt not in {"static", "gif"}:
+            raise ResourceError("分镜图像输出格式仅支持 static 或 gif", "invalid_classic_draft")
+        if fmt == "gif":
+            fc = result["params"].get("frame_count", 8)
+            fd = result["params"].get("frame_duration_ms", 120)
+            if type(fc) is not int or not 4 <= fc <= 24 or type(fd) is not int or not 80 <= fd <= 500:
+                raise ResourceError("GIF 输出帧数须为 4–24，单帧时长须为 80–500ms", "gif_params_invalid")
+            if result["params"].get("transparent_background") is True or any(k in result["params"] for k in ("camera_yaw", "camera_pitch", "camera_fov")):
+                raise ResourceError("GIF 模式不支持透明背景与相机视角参数", "gif_incompatible_params")
+            result["params"]["frame_count"] = fc
+            result["params"]["frame_duration_ms"] = fd
     if result['mode'] == 'digital_human':
         from vsc.production.digital_human import avatar_params, performance_prompt, normalize_selection
         result['params'] = avatar_params(params)
@@ -97,7 +175,6 @@ def normalize_draft(value):
             if not isinstance(depth_model,str) or not depth_model:raise ResourceError('请固定深度中间模型','depth_model_required')
             result['tool_settings']['depth_model_id']=depth_model
     elif result['mode']=='audio_speech':
-        import re
         settings=result.setdefault('tool_settings',{})
         if not isinstance(settings,dict) or set(settings)!={'speaker'} or not isinstance(settings['speaker'],str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}',settings['speaker']):raise ResourceError('请选择已配置预置音色','speech_voice_required')
     elif result.get('tool_settings'):raise ResourceError('当前模式没有图像工具参数')
@@ -105,6 +182,7 @@ def normalize_draft(value):
     if not isinstance(refs, list) or len(refs) > 50:
         raise ResourceError("草稿最多记录 50 个固定媒体引用")
     seen = set()
+    role_counts = {}
     for ref in refs:
         if (not isinstance(ref, dict) or set(ref) - {"role", "media_id", "sha256", "annotation_id", "annotation_source_id", "prompt_mention", "episode_asset_form_version_id"}
                 or ref.get("role") not in MODES[result["mode"]]["slots"]
@@ -116,6 +194,10 @@ def normalize_draft(value):
         if not isinstance(ref.get('prompt_mention',''),str) or len(ref.get('prompt_mention',''))>22000:raise ResourceError('参考提示引用格式无效')
         if ref.get('annotation_source_id') and not ref.get('annotation_id'):raise ResourceError('标注来源必须连接固定标注输出')
         seen.add(pair)
+        role_counts[ref["role"]] = role_counts.get(ref["role"], 0) + 1
+    if result["mode"] == "omni":
+        if role_counts.get("reference_image", 0) > 30 or role_counts.get("reference_video", 0) > 10 or role_counts.get("reference_audio", 0) > 10:
+            raise ResourceError("全能参考最多支持 30 张图片、10 个视频、10 段音频", "classic_reference_count")
     return result
 
 
@@ -132,6 +214,107 @@ class ClassicProductionServiceMixin:
             raise ResourceError("经典制作需要当前项目中的明确镜头", "shot_scope_mismatch")
         return tree, node
 
+    def classic_prompt_recommendations(self, project_id):
+        self.get_project(project_id)
+        return {"project_id": project_id, "categories": deepcopy(PROMPT_RECOMMENDATION_CATEGORIES)}
+
+    def classic_storyboard_references(self, project_id, *, episode_id=None):
+        return self.store.classic_storyboard_references(project_id, episode_id=episode_id)
+
+    def check_storyboard_batch_filenames(self, project_id, payload):
+        self.get_project(project_id)
+        if not isinstance(payload, dict):
+            raise ResourceError("需要文件名列表", "invalid_storyboard_batch_filename")
+        return {"items": validate_storyboard_batch_filenames(payload.get("filenames"))}
+
+    def classic_video_review_overview(self, project_id, *, episode_id=None):
+        return self.store.classic_video_review_overview(project_id, episode_id=episode_id)
+
+    def download_classic_episode_videos(self, project_id, *, episode_id=None, scope="all", media_ids=None):
+        if scope not in {"selected", "favorites", "all"}:
+            raise ResourceError("下载范围仅支持选中视频、收藏视频或所有视频", "invalid_video_download_scope")
+        bundle = self.store.collect_classic_episode_videos(project_id, episode_id=episode_id, scope="all" if media_ids else scope)
+        if media_ids:
+            allowed = set(media_ids)
+            bundle = dict(bundle, items=[item for item in bundle["items"] if item["media_id"] in allowed])
+        if not bundle["items"]:
+            if scope == "favorites":
+                raise ResourceError("当前没有收藏视频，请先收藏", "no_favorite_videos")
+            if scope == "selected":
+                raise ResourceError("当前剧集暂无已选用视频", "no_selected_videos")
+            raise ResourceError("当前剧集暂无可下载视频", "no_episode_videos")
+        if self.storage is None:
+            raise ResourceError("视频打包下载需要受控本地媒体存储", "storage_unavailable")
+        archive = io.BytesIO()
+        used_names = set()
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as zf:
+            for index, item in enumerate(bundle["items"], 1):
+                media = self.get_media(project_id, item["media_id"])
+                self._verify_media(project_id, media["id"], media["sha256"])
+                location = next((loc for loc in media["locations"] if loc["storage"] == "local" and loc.get("available")), None)
+                if not location:
+                    raise ResourceError("视频缺少可用本地文件：" + str(media.get("name") or media["id"]), "media_unavailable")
+                raw = self.storage.read(location["object_key"], media["sha256"])
+                ext = ".mp4"
+                if isinstance(media.get("name"), str) and "." in media["name"]:
+                    suffix = "." + media["name"].rsplit(".", 1)[-1].lower()
+                    if re.fullmatch(r"\.[a-z0-9]{2,5}", suffix):
+                        ext = suffix
+                shot_prefix = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", item.get("shot_title") or f"镜号{index}").strip("_") or f"shot_{index}"
+                entry_name = f"{index:02d}_{shot_prefix}{ext}"
+                if entry_name in used_names:
+                    entry_name = f"{index:02d}_{shot_prefix}_{media['id'][:6]}{ext}"
+                used_names.add(entry_name)
+                zf.writestr(entry_name, raw)
+        ep_title = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", bundle.get("episode_title") or "当前剧集").strip("_") or "episode"
+        scope_label = {"selected": "选中视频", "favorites": "收藏视频", "all": "视频"}[scope]
+        return {"filename": f"{scope_label}_{ep_title}.zip", "bytes": archive.getvalue(), "count": len(bundle["items"])}
+
+    def combine_classic_episode_videos(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        if not isinstance(payload, dict) or set(payload) - {"episode_id"}:
+            raise ResourceError("整集合成需要指定剧集范围", "invalid_video_combine")
+        episode_id = payload.get("episode_id")
+        if not isinstance(episode_id, str) or not episode_id.strip():
+            raise ResourceError("请选择需要合成视频的剧集", "episode_required")
+        seed = self.seed_edit_workspace(project_id, episode_id)
+        clips = seed.get("document", {}).get("clips", [])
+        if not clips:
+            raise ResourceError("当前剧集尚未选用任何分镜视频，请先选用视频后再合成", "episode_combine_empty")
+        current = self.get_edit_workspace(project_id, episode_id)
+        edit_rev = (current.get("workspace") or {}).get("revision", 0)
+        saved = self.save_edit_workspace(
+            project_id,
+            {"episode_id": episode_id, "edit_revision": edit_rev, "document": seed["document"]},
+            expected_revision=kw["expected_revision"],
+            idempotency_key=kw["idempotency_key"] + ":save",
+            actor=kw["actor"],
+        )
+        from vsc.post.edit_workspace import FirstCutRenderer
+        from vsc.post.first_cut_worker import FirstCutWorker
+        caps = FirstCutRenderer().capabilities()
+        if not caps["available"] or self.storage is None:
+            return {"status": "saved_only", "edit_version_id": saved["edit_version_id"], "clip_count": len(clips), "reason": caps["reason"], "revision": saved["revision"]}
+        job = self.request_edit_export(
+            project_id,
+            {"edit_version_id": saved["edit_version_id"]},
+            expected_revision=saved["revision"],
+            idempotency_key=kw["idempotency_key"] + ":export",
+            actor=kw["actor"],
+        )
+        worker = getattr(self, "first_cut_worker", None) or FirstCutWorker(self.store, self.storage)
+        executed = worker.run_once(project_id=project_id) or job
+        status = executed.get("status", job.get("status", "queued"))
+        return {
+            "status": status,
+            "job_id": job["id"],
+            "edit_version_id": saved["edit_version_id"],
+            "clip_count": len(clips),
+            "output_sha256": executed.get("sha256"),
+            "content_url": f"/api/v1/projects/{project_id}/edit-exports/{job['id']}/content" if status == "succeeded" else None,
+            "revision": self.get_project(project_id)["revision"],
+        }
+
     def classic_production_options(self, project_id, shot_id):
         from vsc.production.resource_settings import ResourceSettings
         tree, shot = self._classic_shot(project_id, shot_id)
@@ -144,11 +327,16 @@ class ClassicProductionServiceMixin:
         from vsc.adapters.persistence.postgres.workbench_generation import subject_candidates
         with self.store.engine.connect() as conn:
             subjects = subject_candidates(self.store, conn, project_id, shot_id)
+            episode_summary = self.store._classic_episode_video_summary(conn, project_id, shot_id)
         if self.get_project(project_id)["revision"] != tree["revision"]:
             raise Conflict("制作资料读取期间已改变，请刷新")
         return {"project_id": project_id, "shot": shot, "revision": tree["revision"], "modes": deepcopy(MODES),
             "sibling_shots":[row for row in tree["nodes"] if row["kind"]=="shot" and row["parent_id"]==shot["parent_id"]], "models": [{k: row.get(k) for k in fields} for row in models if row["modality"] in {"image", "video"}],
-            "drafts": drafts["items"], "subject_candidates": subjects, "reference_edits": self.store.list_classic_reference_edits(project_id,shot_id)["items"], "media": [{k: row.get(k) for k in ("id", "name", "modality", "sha256", "width", "height", "duration_ms")}
+            "drafts": drafts["items"], "subject_candidates": subjects, "reference_edits": self.store.list_classic_reference_edits(project_id,shot_id)["items"],
+            "episode_id": episode_summary["episode_id"],
+            "episode_previewable_video_count": episode_summary["previewable_video_count"],
+            "favorite_video_count": episode_summary["favorite_video_count"],
+            "media": [{k: row.get(k) for k in ("id", "name", "modality", "sha256", "width", "height", "duration_ms")}
                 for row in media["items"]], "media_total": media["total"]}
 
     def _classic_document(self, project_id, value):
@@ -205,8 +393,8 @@ class ClassicProductionServiceMixin:
     def import_classic_frame_media(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
         if (not isinstance(payload, dict) or set(payload) != {"shot_id", "role", "source_project_id", "source"}
-                or payload.get("role") not in {"first_frame", "last_frame"} or not isinstance(payload.get("source"), dict)):
-            raise ResourceError("需要固定镜头、首尾帧用途和项目素材来源", "invalid_classic_frame_reference")
+                or payload.get("role") not in {"first_frame", "last_frame", "reference_image"} or not isinstance(payload.get("source"), dict)):
+            raise ResourceError("需要固定镜头、参考图用途和项目素材来源", "invalid_classic_frame_reference")
         from vsc.adapters.persistence.postgres.values import checked_id
         for key in ("shot_id", "source_project_id"):
             checked_id(payload.get(key))
@@ -226,6 +414,11 @@ class ClassicProductionServiceMixin:
                 checked_id(source[key])
             if source["spatial_export_id"] is not None:
                 checked_id(source["spatial_export_id"])
+        elif source.get("kind") == "storyboard":
+            if set(source) != {"kind", "shot_id", "media_id"}:
+                raise ResourceError("需要固定来源镜号与分镜图素材", "invalid_classic_frame_reference")
+            for key in ("shot_id", "media_id"):
+                checked_id(source[key])
         else:
             raise ResourceError("素材来源类型无效", "invalid_classic_frame_reference")
         return self.store.import_classic_frame_media(project_id, payload, storage=self.storage, **kw)
@@ -255,7 +448,10 @@ class ClassicProductionServiceMixin:
             return {'project_id':project_id,'revision':self.get_project(project_id)['revision'],'ready':False,
                 'gaps':[{'code':'subject_selection_required','message':'请选择当前图像的讲话主体，或手绘白色主体区域。'}],
                 'draft_version_id':artifact['id'],'draft_sha256':artifact['sha256']}
-        if tool in {'inpaint','watermark'} and (len(document['references'])!=2 or not document.get('tool_settings',{}).get('mask_export_id')):
+        src_refs=[r for r in document['references'] if r['role']=='operation_source']
+        mask_refs=[r for r in document['references'] if r['role']=='operation_mask']
+        extra_refs=[r for r in document['references'] if r['role']=='reference_image']
+        if tool in {'inpaint','watermark'} and (len(src_refs)!=1 or len(mask_refs)!=1 or (tool=='watermark' and extra_refs) or len(extra_refs)>1 or not document.get('tool_settings',{}).get('mask_export_id')):
             return {'project_id':project_id,'revision':self.get_project(project_id)['revision'],'ready':False,'gaps':[{'code':'inpaint_inputs_required','message':'请从原图绘制并固定修改区域。'}],'draft_version_id':artifact['id'],'draft_sha256':artifact['sha256']}
         if tool and mode.get('tool_unavailable'):gap('image_tool_unavailable',mode['tool_unavailable'])
         if tool and not document['references']:gap('image_tool_source_required','此工具需要显式固定人物或场景参考图。')
@@ -287,6 +483,8 @@ class ClassicProductionServiceMixin:
                 gap("classic_reference_count", "该模式需要唯一的 " + role + " 固定输入。")
         if document["mode"] == "multi" and len(refs) < 2:
             gap("classic_reference_count", "多图参考至少需要两张固定图片。")
+        if document["mode"] == "omni" and by_role.get("reference_audio") and not by_role.get("reference_image") and not by_role.get("reference_video"):
+            gap("omni_visual_required", "全能参考不能仅使用音频，至少包含 1 张图片或 1 个视频。")
         image_count = sum(mode['slots'][ref['role']] == 'image' for ref in refs)
         if model and image_count > model["capabilities"].get("max_reference_images", image_count):
             gap("model_capability_mismatch", "图片数量超过所选模型声明的上限。")
@@ -414,7 +612,6 @@ class ClassicProductionServiceMixin:
         if set(payload)!={'edit_version_id'}:raise ResourceError('导出必须固定已保存标注版本')
         if self.storage is None:raise ResourceError('参考图导出需要受控素材存储','storage_unavailable')
         def build(document):
-            import io
             from vsc.production.image_tools import render_reference
             media=self.store.get_media(project_id,document['source_media_id']);self._verify_media(project_id,media['id'],document['source_sha256'])
             location=next((r for r in media['locations'] if r['storage']=='local' and r.get('available')),None)
@@ -428,7 +625,24 @@ class ClassicProductionServiceMixin:
 
     def change_classic_shots(self, project_id, payload, **kw):
         self._validate_write(payload,**kw)
-        if payload.get('action') not in {'create','reorder'} or set(payload)-{'action','parent_id','title','shot_ids'}:raise ResourceError('镜号操作无效')
+        if payload.get('action') not in {'create','reorder','delete'} or set(payload)-{'action','parent_id','title','shot_ids','shot_id'}:raise ResourceError('镜号操作无效')
+        if payload.get('action') == 'delete':
+            shot_id = payload.get('shot_id')
+            if not isinstance(shot_id, str) or not shot_id.strip():
+                raise ResourceError('请指定要移除的镜号', 'shot_required')
+            tree, shot = self._classic_shot(project_id, shot_id)
+            siblings = [row for row in tree['nodes'] if row['kind'] == 'shot' and row['parent_id'] == shot['parent_id']]
+            if len(siblings) <= 1:
+                raise ResourceError('每个场次镜组至少保留一个镜号', 'last_shot_protected')
+            result = self.management_command(
+                project_id,
+                {'operation': 'trash', 'target_type': 'object', 'target_id': shot_id, 'reason': '经典制作镜号列表移除镜号'},
+                **kw,
+            )
+            if result.get('status') == 'protected':
+                raise ResourceError('该镜号仍有运行中任务，暂不可移除', 'shot_in_flight')
+            next_shot = next((row['id'] for row in siblings if row['id'] != shot_id), None)
+            return {'deleted_shot_id': shot_id, 'next_shot_id': next_shot, 'revision': result['revision']}
         return self.store.change_classic_shots(project_id,payload,**kw)
 
     def classic_candidate_configuration(self, project_id, shot_id, media_id):

@@ -1,5 +1,7 @@
 """Classic mode HTTP consumer of the shared trusted session and resource service."""
+from urllib.parse import quote
 from fastapi import HTTPException, Request
+from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
 
@@ -12,6 +14,44 @@ def install_classic_production_routes(router, catalog, etag, actor):
     @router.get("/{project_id}/classic-production")
     def options(project_id: str, request: Request, shot_id: str):
         return etag(request, service(project_id).classic_production_options(project_id, shot_id))
+
+    @router.get("/{project_id}/classic-production/prompt-recommendations")
+    def prompt_recommendations(project_id: str, request: Request):
+        return etag(request, service(project_id).classic_prompt_recommendations(project_id))
+
+    @router.get("/{project_id}/classic-production/storyboard-references")
+    def storyboard_references(project_id: str, request: Request, episode_id: str = None):
+        return etag(request, service(project_id).classic_storyboard_references(project_id, episode_id=episode_id))
+
+    @router.post("/{project_id}/classic-production/batch-upload-check")
+    def batch_upload_check(project_id: str, request: Request, body: dict):
+        actor(request)
+        return service(project_id).check_storyboard_batch_filenames(project_id, body.get("payload", body))
+
+    @router.get("/{project_id}/classic-production/video-review")
+    def video_review(project_id: str, request: Request, episode_id: str = None):
+        return etag(request, service(project_id).classic_video_review_overview(project_id, episode_id=episode_id))
+
+    @router.get("/{project_id}/classic-production/video-download")
+    async def video_download(project_id: str, request: Request, episode_id: str = None, scope: str = "all", media_ids: str = None):
+        selected_ids = [item.strip() for item in (media_ids or "").split(",") if item.strip()] or None
+        archive = await run_in_threadpool(
+            service(project_id).download_classic_episode_videos,
+            project_id,
+            episode_id=episode_id,
+            scope=scope,
+            media_ids=selected_ids,
+        )
+        encoded = quote(archive["filename"])
+        return Response(
+            archive["bytes"],
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=\"videos.zip\"; filename*=UTF-8''{encoded}"},
+        )
+
+    @router.post("/{project_id}/classic-production/video-combine")
+    async def video_combine(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "combine_classic_episode_videos")
 
     @router.post("/{project_id}/classic-production/preview")
     def preview(project_id: str, request: Request, body: dict):

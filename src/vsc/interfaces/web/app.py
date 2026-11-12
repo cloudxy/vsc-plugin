@@ -119,7 +119,8 @@ def create_app(config=None, catalog=None, service=None):
             if token is not None:reset_principal(token)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        frame_ancestors = "'self'" if request.url.path.startswith("/api/v1/fcp-embed/") else "'none'"
+        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' blob: https://static.skyproduction.cn; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -176,6 +177,12 @@ def create_app(config=None, catalog=None, service=None):
     for spa_path in (
         "/canvas",
         "/canvas/share",
+        "/storyboard",
+        "/storyboard/repaint",
+        "/video",
+        "/video/review",
+        "/video/multi-clip",
+        "/fcp",
         "/script",
         "/character",
         "/character/create",
@@ -204,8 +211,32 @@ def create_app(config=None, catalog=None, service=None):
         "/404",
     ):
         app.add_api_route(spa_path, index, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
-    for spa_prefix in ("/script/{subpath:path}", "/wallet/{subpath:path}"):
+    for spa_prefix in ("/script/{subpath:path}", "/wallet/{subpath:path}", "/fcp/{subpath:path}"):
         app.add_api_route(spa_prefix, spa_subpath, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
+
+    @app.get("/api/v1/fcp-embed/{locale}", response_class=HTMLResponse, include_in_schema=False)
+    def fcp_embed_portal(locale: str):
+        loc = (locale or "").strip().lower()
+        copy_by_locale = {
+            "en": ("SkyReels Final Cut Overseas Portal", "Seamless Final Cut Pro & Timeline Bridge for International Studios", "Open Workbench Home", "Projects Directory", "Sign In / Sync Account"),
+            "ja": ("SkyReels Final Cut 海外ポータル", "Final Cut Pro タイムライン連携・国際制作スタジオポータル", "ワークベンチホームへ", "プロジェクト一覧", "アカウント連携"),
+            "ko": ("SkyReels Final Cut 글로벌 포털", "Final Cut Pro 타임라인 연동 및 글로벌 제작 스튜디오 포털", "워크벤치 홈 열기", "프로젝트 목록", "계정 연동"),
+        }
+        if loc not in copy_by_locale:
+            raise HTTPException(404, "Overseas FCP portal locale not supported")
+        title, subtitle, home_label, close_label, login_label = copy_by_locale[loc]
+        return HTMLResponse(
+            f'<!doctype html><html lang="{loc}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>{title}</title><link rel="stylesheet" href="/static/classic-production.css"><script src="/static/fcp-embed.js" defer></script></head>'
+            f'<body class="fcp-embed-body" data-locale="{loc}"><main class="fcp-embed-card">'
+            f'<span class="fcp-embed-badge" id="fcp-auth-status">Connecting…</span>'
+            f'<h1>{title}</h1><p>{subtitle}</p>'
+            f'<div class="fcp-embed-actions">'
+            f'<button type="button" class="fcp-embed-primary" id="fcp-go-home">{home_label}</button>'
+            f'<button type="button" id="fcp-close-portal">{close_label}</button>'
+            f'<button type="button" id="fcp-login-action">{login_label}</button>'
+            f'</div></main></body></html>'
+        )
 
     @app.get('/api/v1/project-media')
     def project_media(request: Request, project_id: str = None, episode_id: str = None,

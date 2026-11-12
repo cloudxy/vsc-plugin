@@ -11,8 +11,8 @@ const copy=value=>JSON.parse(JSON.stringify(value));
 const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
 const sameDocument=(left,right)=>JSON.stringify(canonical(left))===JSON.stringify(canonical(right));
 
-export function createEditWorkspace({root,api,project,episodeId,session,onChange,onArtifact}){
-  let generation=0,view=null,draft=empty(),draftRevision=0,media=[],mediaTotal=0,dirty=false,editEpoch=0,undo=[],redo=[],poll=null,disposed=false,mounted=false,previewIndex=0,previewPlayer=null;
+export function createEditWorkspace({root,api,project,episodeId,session,onChange,onArtifact,autoSave=false,multiClipGuard=false,onMultiClipBlocked=null}){
+  let generation=0,view=null,draft=empty(),draftRevision=0,media=[],mediaTotal=0,dirty=false,editEpoch=0,undo=[],redo=[],poll=null,autoSaveTimer=null,guideDismissed=false,disposed=false,mounted=false,previewIndex=0,previewPlayer=null;
   let playback=null,seed=null,batchMode=false,selectedSources=new Set(),selectedClips=new Set(),loadedMediaCount=0,candidates=[],candidateTotal=0,nextCandidateOffset=null,candidateLoading=false;
   const base=`/api/v1/projects/${encodeURIComponent(project)}`;
   const initialIdentity=typeof session==='function'?session():session||{};
@@ -35,7 +35,16 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
   function captionDocument(){const clock=frame=>{let ms=Math.round(frame*1000/draft.fps);return `${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')},${String(ms%1000).padStart(3,'0')}`;};return draft.captions.map((c,i)=>`${i+1}\n${clock(c.start_frame)} --> ${clock(c.end_frame)}\n${c.text}`).join('\n\n');}
   function captureCaption(){if(!mounted)return;const field=root.querySelector('.edit-srt');if(field&&field.value!==captionText){captionText=field.value;captionDirty=captionText!==captionDocument();stashCaption();}}
   function error(message){if(disposed||!sameIdentity())return;const out=root.querySelector('.edit-notice');if(out){setText(out,message);out.setAttribute('role','alert');}}
-  function mutate(change){undo.push(copy(draft));if(undo.length>50)undo.shift();redo=[];change();editEpoch++;dirty=true;stash();draw();}
+  function scheduleAutoSave(){
+    if(!autoSave)return;
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer=setTimeout(()=>{
+      if(!disposed&&sameIdentity()&&writable()&&dirty&&view&&!pending['/edit-workspace']){
+        save().catch(e=>error(e.message));
+      }
+    },1500);
+  }
+  function mutate(change){undo.push(copy(draft));if(undo.length>50)undo.shift();redo=[];change();editEpoch++;dirty=true;stash();draw();scheduleAutoSave();}
   async function write(path,payload){
     const auth=identity();if(!writable())throw new Error('请先建立可写的本机操作会话。');
     if(!sameIdentity())throw new Error('操作身份已切换，请重新打开本集剪辑。');
@@ -115,6 +124,10 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
       for(const [index,clip]of clips.entries()){
         const card=element('article','','edit-source-card'),added=draft.clips.some(c=>c.media_id===clip.media_id&&c.shot_id===clip.shot_id),thumbnail=element('video');thumbnail.src=clip.content_url;thumbnail.preload='metadata';thumbnail.muted=true;bindAttribute(thumbnail,'aria-label',msg("ui.preview_shot_value0_candidate_value1",{value0:clip.shot_number,value1:index+1}));
         thumbnail.controls=true;card.append(thumbnail,element('span',clip.name||msg("ui.candidate_value0",{value0:index+1}),'edit-source-name'),element('span',clip.duration_ms?msg("ui.value0_seconds_value1",{value0:(clip.duration_ms/1000).toFixed(2),value1:clip.selected?msg("ui.current_selection"):''}):msg("ui.duration_unconfirmed")));
+        if(clip.can_add&&writable()){
+          card.draggable=true;
+          card.ondragstart=e=>{e.dataTransfer?.setData('application/x-vsc-edit-source',JSON.stringify({shot_id:clip.shot_id,media_id:clip.media_id,trim_in_ms:clip.trim_in_ms||0,trim_out_ms:clip.trim_out_ms||clip.duration_ms||3000,working_selection_version_id:clip.working_selection_version_id||null}));};
+        }
         if(added)card.append(element('span',msg("ui.already_on_timeline"),'edit-source-added'));else if(!clip.can_add)card.append(element('span',clip.disabled_reason,'hint'));else if(batchMode){const label=element('label',msg("ui.select_shot_value0_candidate_value1",{value0:clip.shot_number,value1:index+1})),check=element('input');check.type='checkbox';check.checked=selectedSources.has(candidateKey(clip));check.onchange=()=>{check.checked?selectedSources.add(candidateKey(clip)):selectedSources.delete(candidateKey(clip));draw();};label.append(check);card.append(label);}else card.append(button(msg("ui.add_to_video_track"),()=>mutate(()=>draft.clips.push(sourceClip(clip))),!writable()));
         cards.append(card);
       }section.append(group);
@@ -134,7 +147,7 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
   function renderTrack(track,host){
     draft[track].forEach((clip,index)=>{
       const row=element('div','', 'edit-clip');row.dataset.clipId=clip.id;row.append(element('strong',joinMessages(["",index+1,". ",name(clip.media_id),""])));
-      if(track==='clips'){const choice=element('label',msg("ui.select_clip"),'edit-clip-choice'),check=element('input');check.type='checkbox';check.checked=selectedClips.has(clip.id);check.onchange=()=>{check.checked?selectedClips.add(clip.id):selectedClips.delete(clip.id);draw();};choice.append(check);row.append(choice);row.draggable=true;row.ondragstart=e=>{e.dataTransfer.setData('application/x-vsc-edit-clip',clip.id);};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const id=e.dataTransfer.getData('application/x-vsc-edit-clip'),from=draft.clips.findIndex(c=>c.id===id);if(from>=0&&from!==index)mutate(()=>draft.clips.splice(index,0,draft.clips.splice(from,1)[0]));};}
+      if(track==='clips'){const choice=element('label',msg("ui.select_clip"),'edit-clip-choice'),check=element('input');check.type='checkbox';check.checked=selectedClips.has(clip.id);check.onchange=()=>{check.checked?selectedClips.add(clip.id):selectedClips.delete(clip.id);draw();};choice.append(check);row.append(choice);row.draggable=true;row.ondragstart=e=>{e.dataTransfer.setData('application/x-vsc-edit-clip',clip.id);};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();const srcRaw=e.dataTransfer?.getData('application/x-vsc-edit-source');if(srcRaw){if(!writable())return;const parsed=JSON.parse(srcRaw);if(globalThis.confirm&&!globalThis.confirm('替换视频片段：确认使用拖入的视频候选替换当前轨道片段？'))return;mutate(()=>{const nextClip=sourceClip(parsed);draft.clips[index]={...nextClip,id:clip.id,...(clip.transition?{transition:clip.transition}:{})};});return;}const id=e.dataTransfer.getData('application/x-vsc-edit-clip'),from=draft.clips.findIndex(c=>c.id===id);if(from>=0&&from!==index)mutate(()=>draft.clips.splice(index,0,draft.clips.splice(from,1)[0]));};}
       const settings=element('details','','edit-clip-settings');settings.append(element('summary',msg("project.more_actions")));
       if(track==='clips'){const preview=button('',()=>previewClip(index,true)),item=media.find(m=>m.id===clip.media_id),thumb=element(item?.modality==='image'?'img':'video');preview.className='edit-clip-preview';bindAttribute(preview,'aria-label',msg("ui.preview_clip_value0",{value0:index+1}));thumb.src=base+'/media/'+encodeURIComponent(clip.media_id)+'/content';if(item?.modality==='image')bindAttribute(thumb,"alt",name(clip.media_id));else{thumb.muted=true;thumb.preload='metadata';}preview.append(thumb,element('span',joinMessages([((clip.out_frame-clip.in_frame)/draft.fps).toFixed(2),"s"])));row.append(preview,button(msg("common.crop"),()=>trimClip(clip)));}
       const from=input(msg("ui.start_frame"),clip.in_frame),to=input(msg("ui.end_frame"),clip.out_frame),volume=input(msg("common.volume"),clip.volume??1);volume.field.step='.05';
@@ -149,6 +162,11 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
           const field=input(label,clip[key]||0);field.field.addEventListener('change',()=>mutate(()=>clip[key]=Number(field.field.value)));row.append(field.wrap);
         }
       }else{
+        const trWrap=element('label','转场效果'),trSelect=element('select');bindAttribute(trSelect,'aria-label','转场效果');
+        for(const [val,label]of [['none','无转场'],['fade_in_out','淡入淡出'],['crossfade','交叉淡化']])trSelect.append(localizedOption(val,label));
+        trSelect.value=clip.transition||'none';
+        trSelect.addEventListener('change',()=>mutate(()=>{if(trSelect.value==='none')delete clip.transition;else clip.transition=trSelect.value;}));
+        trWrap.append(trSelect);settings.append(trWrap);
         for(const [title,key]of [[msg("ui.picture_fade_in_frames"),'fade_in_frames'],[msg("ui.picture_fade_out_frames"),'fade_out_frames']]){const fade=input(title,clip[key]||0);bindAttribute(fade.field,'aria-label',title);fade.field.min='0';fade.field.max=String(clip.out_frame-clip.in_frame);fade.field.onchange=()=>{const value=Number(fade.field.value),other=key==='fade_in_frames'?'fade_out_frames':'fade_in_frames';if(!Number.isInteger(value)||value<0||value+(clip[other]||0)>clip.out_frame-clip.in_frame){error('画面淡入淡出不能超过片段长度。');fade.field.value=clip[key]||0;return;}mutate(()=>clip[key]=value);};settings.append(fade.wrap);}
         settings.append(button(msg("ui.fade_through_black_into_the_next_clip"),()=>mutate(()=>{const next=draft.clips[index+1],frames=Math.min(Math.round(draft.fps/4),Math.floor((clip.out_frame-clip.in_frame-(clip.fade_in_frames||0))/2),Math.floor((next.out_frame-next.in_frame-(next.fade_out_frames||0))/2));if(frames<1)throw new Error('相邻片段过短，无法淡黑衔接');clip.fade_out_frames=frames;next.fade_in_frames=frames;}),index===draft.clips.length-1));
         row.append(button(msg("ui.move_earlier"),()=>mutate(()=>{[draft.clips[index-1],draft.clips[index]]=[draft.clips[index],draft.clips[index-1]];}),index===0));
@@ -172,7 +190,14 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
     toolbar.append(button(msg("common.undo"),()=>{redo.push(copy(draft));draft=undo.pop();editEpoch++;dirty=true;stash();draw();},!undo.length),button(msg("common.redo"),()=>{undo.push(copy(draft));draft=redo.pop();editEpoch++;dirty=true;stash();draw();},!redo.length));
     toolbar.append(button(msg("ui.load_saved_version"),async()=>{if(dirty&&!confirm('放弃本机未保存修改，并载入服务端最新剪辑版本？'))return;dirty=false;undo=[];redo=[];editEpoch++;stash();await load();}));
     const advanced=element('details','','edit-advanced');advanced.append(element('summary',msg("ui.project_settings_and_recovery")));for(const child of [...toolbar.children]){if(child.tagName==='BUTTON'&&!['保存','合成当前工作稿','撤销','重做'].includes(child.textContent))advanced.append(child);}root.append(toolbar,element('p','', 'edit-notice'));
-    const layout=element('div','','edit-preview-layout'),clipPanel=element('section','','edit-clips-panel'),playerPanel=element('section','','edit-player-panel');clipPanel.append(element('h3',msg("ui.all_video_clips")),button(msg("ui.preview_all_videos"),()=>previewClip(0,true),!draft.clips.length));playerPanel.append(element('h3',msg("common.route_video_review")));const stage=element('div','','edit-preview-stage'),player=element('video'),poster=element('img');player.controls=true;player.preload='metadata';poster.hidden=true;stage.append(player,poster);const caption=element('p',draft.clips.length?'':msg("ui.no_video_clips"),'edit-preview-caption'),playbackControls=element('div','','edit-playback-controls');playbackControls.append(button(msg("ui.previous_clip"),()=>previewClip(Math.max(0,previewIndex-1),true),!draft.clips.length),button(msg("ui.play_pause"),()=>{playback?.toggle();},!draft.clips.length),button(msg("ui.next_clip"),()=>previewClip(Math.min(draft.clips.length-1,previewIndex+1),true),!draft.clips.length));playerPanel.append(stage,caption,playbackControls);layout.append(clipPanel,playerPanel);root.append(layout);previewPlayer=playerPanel;
+    const layout=element('div','','edit-preview-layout'),clipPanel=element('section','','edit-clips-panel'),playerPanel=element('section','','edit-player-panel');
+    const allTrackMuted=draft.clips.length>0&&draft.clips.every(c=>c.muted===true);
+    clipPanel.append(
+      element('h3',msg("ui.all_video_clips")),
+      button(allTrackMuted?'恢复视频轨声音':'静音视频轨',()=>mutate(()=>{for(const c of draft.clips)c.muted=!allTrackMuted;}),!writable()||!draft.clips.length),
+      button(msg("ui.preview_all_videos"),()=>previewClip(0,true),!draft.clips.length),
+    );
+    playerPanel.append(element('h3',msg("common.route_video_review")));const stage=element('div','','edit-preview-stage'),player=element('video'),poster=element('img');player.controls=true;player.preload='metadata';poster.hidden=true;stage.append(player,poster);const caption=element('p',draft.clips.length?'':msg("ui.no_video_clips"),'edit-preview-caption'),playbackControls=element('div','','edit-playback-controls');playbackControls.append(button(msg("ui.previous_clip"),()=>previewClip(Math.max(0,previewIndex-1),true),!draft.clips.length),button(msg("ui.play_pause"),()=>{playback?.toggle();},!draft.clips.length),button(msg("ui.next_clip"),()=>previewClip(Math.min(draft.clips.length-1,previewIndex+1),true),!draft.clips.length));playerPanel.append(stage,caption,playbackControls);layout.append(clipPanel,playerPanel);root.append(layout);previewPlayer=playerPanel;
     const seek=element('input');seek.type='range';seek.min='0';seek.max=String(Math.max(0,draft.clips.reduce((sum,c)=>sum+c.out_frame-c.in_frame,0)-1));seek.step='1';seek.value='0';bindAttribute(seek,'aria-label',msg("ui.preview_time_position"));seek.oninput=()=>playback?.seek(Number(seek.value));playerPanel.append(seek);
     playback=createEditPlayback({stage,video:player,poster,document:draft,media,url:id=>base+'/media/'+encodeURIComponent(id)+'/content',onError:error,onPosition:position=>{
       seek.value=String(Math.floor(position.frame));previewIndex=Math.max(0,position.index);
@@ -214,7 +239,21 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
     if(draft.clips.length){const strip=element('div','', 'edit-timeline');bindAttribute(strip,'aria-label',msg("ui.video_clips_in_timeline_order"));let position=0;
       for(const [index,clip] of draft.clips.entries()){const seconds=(clip.out_frame-clip.in_frame)/draft.fps;const item=button(msg("ui.value0_value1_value2_seconds",{value0:index+1,value1:position.toFixed(1),value2:(position+seconds).toFixed(1)}),()=>{root.querySelector(`[data-clip-id="${CSS.escape(clip.id)}"]`)?.scrollIntoView({block:'center',behavior:'smooth'});});item.style.flexGrow=seconds;item.title=name(clip.media_id);item.classList.add('edit-timeline-item');trimHandle(item,clip,'start');trimHandle(item,clip,'end');strip.append(item);position+=seconds;}
       playerPanel.append(strip,element('p',msg("ui.total_value0_seconds_value1_clips",{value0:position.toFixed(2),value1:draft.clips.length}),'hint'));}
-    renderTrack('clips',clipPanel);if(!draft.clips.length)clipPanel.append(element('p',msg("ui.no_video_clips_yet_add_media_to_start_editing"),'edit-empty'));else previewClip(Math.min(previewIndex,draft.clips.length-1));
+    renderTrack('clips',clipPanel);
+    if(!draft.clips.length){
+      clipPanel.append(element('p',msg("ui.no_video_clips_yet_add_media_to_start_editing"),'edit-empty'));
+      if(!guideDismissed){
+        const guide=element('section','','edit-onboarding-guide');
+        guide.append(
+          element('strong','多段视频剪辑三步指引'),
+          element('p','1. 从上方「本集视频候选」一键加入或拖拽片段到视频轨（拖拽到已有片段可替换）'),
+          element('p','2. 拖动首尾裁剪滑块、调整片段顺序并选择淡入淡出／交叉淡化转场'),
+          element('p','3. 配置配乐与 SRT 字幕后点击「合成当前工作稿」输出成片'),
+          button('我知道了',()=>{guideDismissed=true;draw();}),
+        );
+        clipPanel.append(guide);
+      }
+    }else previewClip(Math.min(previewIndex,draft.clips.length-1));
     const sound=element('details','','edit-sound-panel');sound.append(element('summary',msg("ui.background_music_dialogue_and_effects")));renderTrack('audio',sound);
     if(draft.professional_inputs?.length)sound.append(element('p',`保留 ${draft.professional_inputs.length} 份固定专业来源；剪辑、声音与字幕仍是未审工作稿。`,'hint'));
     for(const gap of seed?.gaps||[])if(gap.cue_id||gap.code?.startsWith('edit_cue')||gap.code?.startsWith('edit_caption'))sound.append(element('p',gap.reason,'hint'));
@@ -251,10 +290,18 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
     view=data;reconcileRead(data);
     const resources=await api(`${base}/media?limit=200`);if(disposed||!sameIdentity()||current!==generation)return;media=resources.items||[];loadedMediaCount=media.length;mediaTotal=resources.total||media.length;draw();
     await loadCandidates();if(disposed||!sameIdentity()||current!==generation)return;
+    if(multiClipGuard){
+      const playableIds=new Set([...candidates.filter(c=>c.can_add!==false).map(c=>c.media_id),...draft.clips.map(c=>c.media_id)].filter(Boolean));
+      if(playableIds.size<2){
+        const guardMsg='至少需要 2 个可预览视频才能开启视频剪辑';
+        error(guardMsg);
+        if(onMultiClipBlocked){onMultiClipBlocked(guardMsg);return;}
+      }
+    }
     const selected=await api(`${base}/edit-seed?episode_id=${encodeURIComponent(episodeId)}`);if(disposed||!sameIdentity()||current!==generation)return;seed=selected;
     const missing=[...new Set([...draft.clips,...draft.audio,...(seed.document?.clips||[]),...(seed.document?.audio||[])].map(c=>c.media_id))].filter(id=>!media.some(item=>item.id===id));
     const details=await Promise.all(missing.map(id=>api(`${base}/media/${encodeURIComponent(id)}`)));if(disposed||!sameIdentity()||current!==generation)return;media.push(...details);draw();
     clearTimeout(poll);if(data.renders.some(r=>['queued','running'].includes(r.status)))poll=setTimeout(()=>load().catch(e=>error(e.message)),3000);
   }
-  return {load,async beforeContextSwitch(){captureCaption();stashCaption();if(dirty){try{await save();}catch{stash();}}let retained=false;try{retained=(!dirty||JSON.stringify(JSON.parse(sessionStorage.getItem(recoveryKey)||'null')?.document)===JSON.stringify(draft))&&(!captionDirty||JSON.parse(sessionStorage.getItem(captionKey)||'null')?.text===captionText);}catch{}return {ready:retained,message:retained?'未保存的剪辑输入已保留在原集。':'浏览器无法保留当前剪辑，请先保存后切换。'}},suspend(){if(disposed)return;captureCaption();stashCaption();disposed=true;playback?.dispose();generation++;clearTimeout(poll);root.querySelectorAll('dialog').forEach(dialog=>dialog.close());},save};
+  return {load,async beforeContextSwitch(){captureCaption();stashCaption();if(dirty){try{await save();}catch{stash();}}let retained=false;try{retained=(!dirty||JSON.stringify(JSON.parse(sessionStorage.getItem(recoveryKey)||'null')?.document)===JSON.stringify(draft))&&(!captionDirty||JSON.parse(sessionStorage.getItem(captionKey)||'null')?.text===captionText);}catch{}return {ready:retained,message:retained?'未保存的剪辑输入已保留在原集。':'浏览器无法保留当前剪辑，请先保存后切换。'}},suspend(){if(disposed)return;captureCaption();stashCaption();disposed=true;playback?.dispose();generation++;clearTimeout(poll);clearTimeout(autoSaveTimer);root.querySelectorAll('dialog').forEach(dialog=>dialog.close());},save};
 }

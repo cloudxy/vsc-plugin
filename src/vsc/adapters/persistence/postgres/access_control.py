@@ -155,7 +155,11 @@ class AccessControlRepository:
         if principal.actor!=actor:denied('操作身份必须来自当前会话')
         target_type,target_id=None,None
         if action=='save_creative_canvas':target_type,target_id='canvas',payload.get('canvas_id')
-        scope=self._access_require(conn,project_id,action_capability(action),target_type,target_id)
+        if action=='access_review_mark_read':
+            scope=self._access_require(conn,project_id,'read',target_type,target_id)
+            if not ({'edit','review'}&set(scope.get('capabilities',[]))):denied('需要项目编辑或审阅权限')
+        else:
+            scope=self._access_require(conn,project_id,action_capability(action),target_type,target_id)
         if scope.get('share_id') and target_type=='canvas':
             _,_,share=self._access_principal(conn)
             allowed=self._share_media_ids(conn,share)
@@ -528,7 +532,11 @@ class AccessControlRepository:
             total=conn.execute(select(func.count()).select_from(source).where(*conditions)).scalar_one()
             page=select(candidates_table,slots.c.role,slots.c.target_object_id,media_table.c.name,media_table.c.modality,S.media_blobs.c.sha256).select_from(source).where(*conditions).order_by(candidates_table.c.created_at.desc(),candidates_table.c.id.desc()).offset(offset).limit(limit)
             candidates=[]
-            for row in conn.execute(page).mappings():candidates.append(dict(row))
+            for row in conn.execute(page).mappings():
+                all_revs=[dict(r) for r in conn.execute(select(S.media_reviews).where(S.media_reviews.c.project_id==project_id,S.media_reviews.c.candidate_id==row['id']).order_by(S.media_reviews.c.created_at.desc(),S.media_reviews.c.id.desc())).mappings()]
+                acked_ids={(r.get('evidence') or {}).get('review_id') for r in all_revs if r['criteria_version']=='team-read-ack-v1'}
+                history=[{**r,'created_by':r['reviewer'],'read_ack':r['id'] in acked_ids,'evidence':{**(r.get('evidence') or {}),**({'read_ack':True} if r['id'] in acked_ids else {})}} for r in all_revs if r['criteria_version']!='team-read-ack-v1']
+                candidates.append({**dict(row),'review_history':history})
             submissions=[]
             for row in conn.execute(select(S.access_review_submissions).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.lane==lane,S.access_review_submissions.c.candidate_id.in_([c['id'] for c in candidates])).order_by(S.access_review_submissions.c.created_at.desc(),S.access_review_submissions.c.id.desc())).mappings():
                 review=self._one(conn,S.media_reviews,project_id,row['review_id']) if row['review_id'] else None
@@ -543,15 +551,28 @@ class AccessControlRepository:
             if not person:denied('审核提交需要成员身份')
             binding=conn.execute(select(S.access_projects).where(S.access_projects.c.project_id==project_id)).mappings().first()
             if not binding or payload['lane'] not in binding['review_lanes']:raise ResourceError('项目未启用此审核线路','review_lane_disabled')
-            candidate=self._one(conn,S.binding_candidates,project_id,checked_id(payload['candidate_id']));slot=self._one(conn,S.binding_slots,project_id,candidate['slot_id'])
+            if payload.get('candidate_id'):
+                candidate=self._one(conn,S.binding_candidates,project_id,checked_id(payload['candidate_id']))
+            else:
+                shot_id=checked_id(payload['shot_id']);media_id=checked_id(payload['media_id'])
+                default_role='video_take' if payload['lane']=='video' else 'first_frame'
+                found=conn.execute(select(S.binding_candidates).join(S.binding_slots,(S.binding_slots.c.project_id==S.binding_candidates.c.project_id)&(S.binding_slots.c.id==S.binding_candidates.c.slot_id)).where(S.binding_candidates.c.project_id==project_id,S.binding_candidates.c.media_id==media_id,S.binding_slots.c.target_object_id==shot_id,S.binding_slots.c.role.in_(LANES[payload['lane']]['roles'])).order_by(S.binding_candidates.c.created_at.desc())).mappings().first()
+                if found:candidate=dict(found)
+                else:
+                    created=self.propose_binding(project_id,{'target_object_id':shot_id,'media_id':media_id,'role':default_role,'slot_key':'workbench'},_transaction=(conn,project),**kw)
+                    candidate=self._one(conn,S.binding_candidates,project_id,created['candidate_id'])
+            slot=self._one(conn,S.binding_slots,project_id,candidate['slot_id'])
             if slot['role'] not in LANES[payload['lane']]['roles']:raise ResourceError('候选用途与审核线路不同')
             if payload.get('supersedes_id'):
                 previous=self._one(conn,S.access_review_submissions,project_id,checked_id(payload['supersedes_id']))
                 if previous['lane']!=payload['lane'] or not previous['review_id']:raise ResourceError('重新提交需要同线路已退回记录')
                 review=self._one(conn,S.media_reviews,project_id,previous['review_id'])
                 if review['outcome'] not in {'fail','needs_changes'}:raise ResourceError('只能从未通过记录重新提交')
+            else:
+                passed=conn.execute(select(S.access_review_submissions.c.id).join(S.media_reviews,(S.media_reviews.c.project_id==S.access_review_submissions.c.project_id)&(S.media_reviews.c.id==S.access_review_submissions.c.review_id)).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.candidate_id==candidate['id'],S.access_review_submissions.c.lane==payload['lane'],S.media_reviews.c.outcome=='pass').limit(1)).scalar_one_or_none()
+                if passed:raise Conflict('该候选已通过本线路审核，无需重复提审','review_already_passed')
             active=conn.execute(select(S.access_review_submissions.c.id).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.candidate_id==candidate['id'],S.access_review_submissions.c.review_id.is_(None))).scalar_one_or_none()
-            if active:return {'submission_id':active,'status':'pending'}
+            if active:return {'submission_id':active,'candidate_id':candidate['id'],'status':'pending'}
             identifier=new_id();conn.execute(insert(S.access_review_submissions).values(id=identifier,project_id=project_id,candidate_id=candidate['id'],lane=payload['lane'],supersedes_id=payload.get('supersedes_id'),submitted_by=person['id']))
             return {'submission_id':identifier,'candidate_id':candidate['id'],'status':'pending'}
         return self._mutate(project_id,'access_review_submit',payload,callback=work,**kw)
@@ -560,8 +581,52 @@ class AccessControlRepository:
         def work(conn,project):
             row=self._one(conn,S.access_review_submissions,project_id,checked_id(payload['submission_id']))
             if row['review_id']:raise Conflict('本次固定提交已有审核结论，请刷新或明确重新提交')
+            if payload['outcome']=='pass':
+                already=conn.execute(select(S.access_review_submissions.c.id).join(S.media_reviews,(S.media_reviews.c.project_id==S.access_review_submissions.c.project_id)&(S.media_reviews.c.id==S.access_review_submissions.c.review_id)).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.candidate_id==row['candidate_id'],S.access_review_submissions.c.lane==row['lane'],S.media_reviews.c.outcome=='pass').limit(1)).scalar_one_or_none()
+                if already:raise Conflict('该对象当前已处于审核通过状态，无需重复通过','review_already_passed')
             candidate=self._one(conn,S.binding_candidates,project_id,row['candidate_id']);media=self._media(conn,project_id,candidate['media_id'])
             review=self.record_review(project_id,{'candidate_id':candidate['id'],'reviewer_type':'human','criteria_version':'team-'+row['lane']+'-v1','outcome':payload['outcome'],'reason':payload['reason'],'evidence':{'submission_id':row['id'],'media_id':media['id'],'media_sha256':media['sha256']}},_transaction=(conn,project),**kw)
             conn.execute(update(S.access_review_submissions).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.id==row['id']).values(review_id=review['id']))
             return {'submission_id':row['id'],'review_id':review['id'],'outcome':payload['outcome'],'candidate_id':candidate['id'],'media_sha256':media['sha256']}
         return self._mutate(project_id,'access_review_commit',payload,callback=work,**kw)
+
+    def batch_commit_team_review(self,project_id,payload,**kw):
+        def work(conn,project):
+            items=[]
+            for sid in payload['submission_ids']:
+                row=self._one(conn,S.access_review_submissions,project_id,checked_id(sid))
+                if row['review_id']:raise Conflict('批量列表中包含已处理记录，请刷新后重试')
+                if payload['outcome']=='pass':
+                    already=conn.execute(select(S.access_review_submissions.c.id).join(S.media_reviews,(S.media_reviews.c.project_id==S.access_review_submissions.c.project_id)&(S.media_reviews.c.id==S.access_review_submissions.c.review_id)).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.candidate_id==row['candidate_id'],S.access_review_submissions.c.lane==row['lane'],S.media_reviews.c.outcome=='pass').limit(1)).scalar_one_or_none()
+                    if already:raise Conflict('该对象当前已处于审核通过状态，无需重复通过','review_already_passed')
+                candidate=self._one(conn,S.binding_candidates,project_id,row['candidate_id']);media=self._media(conn,project_id,candidate['media_id'])
+                review=self.record_review(project_id,{'candidate_id':candidate['id'],'reviewer_type':'human','criteria_version':'team-'+row['lane']+'-v1','outcome':payload['outcome'],'reason':payload['reason'],'evidence':{'submission_id':row['id'],'media_id':media['id'],'media_sha256':media['sha256'],'batch':True}},_transaction=(conn,project),**kw)
+                conn.execute(update(S.access_review_submissions).where(S.access_review_submissions.c.project_id==project_id,S.access_review_submissions.c.id==row['id']).values(review_id=review['id']))
+                items.append({'submission_id':row['id'],'review_id':review['id'],'outcome':payload['outcome'],'candidate_id':candidate['id']})
+            return {'items':items,'count':len(items),'outcome':payload['outcome']}
+        return self._mutate(project_id,'access_review_batch_commit',payload,callback=work,**kw)
+
+    def mark_team_review_read(self,project_id,payload,**kw):
+        def work(conn,project):
+            cand_id=payload.get('candidate_id')
+            if cand_id:
+                candidate=self._one(conn,S.binding_candidates,project_id,checked_id(cand_id))
+            else:
+                media_id=checked_id(payload['media_id'])
+                q=select(S.binding_candidates).where(S.binding_candidates.c.project_id==project_id,S.binding_candidates.c.media_id==media_id)
+                if payload.get('shot_id'):
+                    shot_id=checked_id(payload['shot_id'])
+                    q=q.join(S.binding_slots,(S.binding_slots.c.project_id==S.binding_candidates.c.project_id)&(S.binding_slots.c.id==S.binding_candidates.c.slot_id)).where(S.binding_slots.c.target_object_id==shot_id)
+                found=conn.execute(q.order_by(S.binding_candidates.c.created_at.desc(),S.binding_candidates.c.id.desc())).mappings().first()
+                if not found:raise ResourceError('未找到该媒体的候选记录')
+                candidate=dict(found)
+            media=self._media(conn,project_id,candidate['media_id'])
+            note=str(payload.get('note') or '审阅反馈已阅').strip()[:500] or '审阅反馈已阅'
+            verdict_revs=[dict(r) for r in conn.execute(select(S.media_reviews).where(S.media_reviews.c.project_id==project_id,S.media_reviews.c.candidate_id==candidate['id'],S.media_reviews.c.criteria_version!='team-read-ack-v1').order_by(S.media_reviews.c.created_at.desc(),S.media_reviews.c.id.desc())).mappings()]
+            if not verdict_revs:
+                raise ResourceError('该候选尚无审核意见，无法标记已阅','review_missing_for_read_ack')
+            target_rev=next((r for r in verdict_revs if r['id']==payload.get('review_id')),verdict_revs[0])
+            row_id=new_id()
+            conn.execute(insert(S.media_reviews).values(project_id=project_id,id=row_id,candidate_id=candidate['id'],check_id=None,reviewer=kw['actor'],reviewer_type='human',criteria_version='team-read-ack-v1',context_sha256=None,outcome=target_rev['outcome'],reason=f'[已阅] {note}',evidence={'read_ack':True,'media_id':media['id'],'media_sha256':media['sha256'],'submission_id':payload.get('submission_id'),'review_id':target_rev['id']},project_revision=project['revision']+1))
+            return {'candidate_id':candidate['id'],'review_id':target_rev['id'],'ack_id':row_id,'read_ack':True,'outcome':target_rev['outcome']}
+        return self._mutate(project_id,'access_review_mark_read',payload,callback=work,**kw)

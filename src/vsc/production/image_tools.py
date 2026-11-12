@@ -143,20 +143,22 @@ def render_reference(path,document):
  overlay=Image.new('RGBA',source.size,(0,0,0,0));mask=Image.new('L',source.size,0)
  for op in d['operations']:
   points=[(round(x*(d['width']-1)),round(y*(d['height']-1))) for x,y in op['points']];width=max(1,round(op['width']*min(source.size)));tool=op['tool']
-  layer=mask if tool=='mask' else overlay;draw=ImageDraw.Draw(layer);color=255 if tool=='mask' else (0,0,0,0) if tool=='eraser' else op['color']
-  if tool=='rectangle':
-   a,b=points[0],points[-1];draw.rectangle((min(a[0],b[0]),min(a[1],b[1]),max(a[0],b[0]),max(a[1],b[1])),outline=color,width=width)
-  elif tool=='text':
-   font=None
-   for filename in ['/System/Library/Fonts/PingFang.ttc','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
-    if Path(filename).is_file():font=ImageFont.truetype(filename,max(12,width*4));break
-   draw.text(points[0],op.get('text',''),fill=color,font=font)
-  else:
-   if len(points)>1:draw.line(points,fill=color,width=width,joint='curve')
-   for x,y in points:draw.ellipse((x-width/2,y-width/2,x+width/2,y+width/2),fill=color)
-   if tool=='arrow' and len(points)>1:
-    a,b=points[0],points[-1];angle=math.atan2(b[1]-a[1],b[0]-a[0]);length=max(12,width*4)
-    for delta in (-.5,.5):draw.line([b,(b[0]-length*math.cos(angle+delta),b[1]-length*math.sin(angle+delta))],fill=color,width=width)
+  layers=[(mask,0),(overlay,(0,0,0,0))] if tool=='eraser' else [(mask,255)] if tool=='mask' else [(overlay,op['color'])]
+  for layer,color in layers:
+   draw=ImageDraw.Draw(layer)
+   if tool=='rectangle':
+    a,b=points[0],points[-1];draw.rectangle((min(a[0],b[0]),min(a[1],b[1]),max(a[0],b[0]),max(a[1],b[1])),outline=color,width=width)
+   elif tool=='text':
+    font=None
+    for filename in ['/System/Library/Fonts/PingFang.ttc','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']:
+     if Path(filename).is_file():font=ImageFont.truetype(filename,max(12,width*4));break
+    draw.text(points[0],op.get('text',''),fill=color,font=font)
+   else:
+    if len(points)>1:draw.line(points,fill=color,width=width,joint='curve')
+    for x,y in points:draw.ellipse((x-width/2,y-width/2,x+width/2,y+width/2),fill=color)
+    if tool=='arrow' and len(points)>1:
+     a,b=points[0],points[-1];angle=math.atan2(b[1]-a[1],b[0]-a[0]);length=max(12,width*4)
+     for delta in (-.5,.5):draw.line([b,(b[0]-length*math.cos(angle+delta),b[1]-length*math.sin(angle+delta))],fill=color,width=width)
  source=Image.alpha_composite(source.convert('RGBA'),overlay)
  outputs=[]
  # Keep the established black/white export; the native edit protocol receives

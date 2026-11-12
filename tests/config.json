@@ -1303,6 +1303,7 @@
       "sources": [
         "src/vsc/assets/classic_production.py",
         "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
         "src/vsc/interfaces/web/classic_production.py",
         "src/vsc/interfaces/web/static/classic-production.js",
         "src/vsc/interfaces/web/static/classic-production.css",
@@ -2324,6 +2325,48 @@
         "src/vsc/interfaces/web/asset_center.py",
         "src/vsc/interfaces/web/static/asset-center.js",
         "tests/support/fixtures/frontend/costume_gallery.cjs"
+      ]
+    },
+    "project.unit.test_classic_production_replica_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/classic-subpages.js",
+        "src/vsc/interfaces/web/static/classic-production.js",
+        "src/vsc/interfaces/web/static/classic-production.css",
+        "src/vsc/interfaces/web/static/reference-editor.js",
+        "src/vsc/interfaces/web/static/spatial-scene.js",
+        "src/vsc/interfaces/web/static/spatial-scene.css",
+        "src/vsc/interfaces/web/static/edit-workspace.js",
+        "src/vsc/interfaces/web/static/edit-workspace.css",
+        "src/vsc/interfaces/web/static/team-review.js",
+        "src/vsc/interfaces/web/static/team-review.css",
+        "src/vsc/interfaces/web/static/fcp-embed.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/classic_production_replica.test.mjs"
+      ]
+    },
+    "project.integration.test_classic_production_replica": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/classic_production.py",
+        "src/vsc/adapters/persistence/postgres/workbench_generation.py",
+        "src/vsc/interfaces/web/classic_production.py",
+        "src/vsc/production/image_tools.py",
+        "src/vsc/assets/spatial_scene.py",
+        "src/vsc/adapters/persistence/postgres/spatial_scene.py",
+        "src/vsc/post/spatial_export.py",
+        "src/vsc/post/spatial_raster.py",
+        "src/vsc/interfaces/web/spatial_scene.py",
+        "src/vsc/post/edit_workspace.py",
+        "src/vsc/assets/team_review.py",
+        "src/vsc/assets/access_control.py",
+        "src/vsc/adapters/persistence/postgres/access_control.py",
+        "src/vsc/interfaces/web/team_review.py",
+        "src/vsc/interfaces/web/app.py"
       ]
     }
   },

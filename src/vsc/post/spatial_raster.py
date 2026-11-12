@@ -59,6 +59,23 @@ def rasterize(document,meshes,camera_basis,lights,maximum=None):
     focal=height/(2*math.tan(math.radians(camera["fov"])/2))
     background=bytes(int(document["background"][i:i+2],16) for i in (1,3,5))
     pixels=bytearray(background*(width*height));depths=array('f',[0])*(width*height)
+    pano=document.get("_panorama")
+    if pano:
+        pw,ph,pbytes=pano
+        two_pi=2*math.pi
+        for py in range(height):
+            sy=height/2-(py+.5)
+            row_base=[forward[c]*focal+up[c]*sy for c in range(3)]
+            for px in range(width):
+                sx=px+.5-width/2
+                dx,dy,dz=row_base[0]+right[0]*sx,row_base[1]+right[1]*sx,row_base[2]+right[2]*sx
+                inv_len=1.0/max(1e-9,math.sqrt(dx*dx+dy*dy+dz*dz))
+                nx,ny,nz=dx*inv_len,max(-1.0,min(1.0,dy*inv_len)),dz*inv_len
+                u=(0.5+math.atan2(nx,nz)/two_pi)%1.0
+                v=max(0.0,min(0.999999,0.5-math.asin(ny)/math.pi))
+                src=(int(v*ph)*pw+int(u*pw))*3
+                dst=(py*width+px)*3
+                pixels[dst:dst+3]=pbytes[src:src+3]
     opaque=[];transparent=[];work=0
     for mesh in meshes:
         world=mesh["vertices"]

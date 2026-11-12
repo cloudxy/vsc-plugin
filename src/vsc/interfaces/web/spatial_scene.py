@@ -2,7 +2,14 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
-from vsc.assets.spatial_scene import default_scene, normalize_scene
+from vsc.assets.spatial_scene import (
+    BODY_PRESETS,
+    CAMERA_PRESETS,
+    JOINT_GROUPS,
+    POSE_CATALOG,
+    default_scene,
+    normalize_scene,
+)
 import shutil
 
 
@@ -16,7 +23,8 @@ def install_spatial_scene_routes(router,catalog,etag,actor):
     def options(project_id:str,request:Request):
         tree=service(project_id).get_project_tree(project_id)
         return etag(request,{"nodes":tree["nodes"],"revision":tree["revision"],"default_document":default_scene(),
-            "capabilities":{"png":True,"glb_static":True,"mp4":bool(shutil.which("ffmpeg")),"skinned_glb":True,"textured_glb":True,"glb_animation":True,"scene_agent":True}})
+            "body_presets":BODY_PRESETS,"pose_catalog":POSE_CATALOG,"camera_presets":CAMERA_PRESETS,"joint_groups":JOINT_GROUPS,
+            "capabilities":{"png":True,"glb_static":True,"mp4":bool(shutil.which("ffmpeg")),"skinned_glb":True,"textured_glb":True,"glb_animation":True,"scene_agent":True,"batch_views":True,"auto_frame":True,"panorama_sky":True}})
 
     @router.get("/{project_id}/spatial-scenes")
     def listing(project_id:str,request:Request,mode:str=None):
@@ -35,6 +43,11 @@ def install_spatial_scene_routes(router,catalog,etag,actor):
     async def viewport(project_id:str,body:dict):
         image=await run_in_threadpool(service(project_id).capture_spatial_viewport,project_id,body)
         return Response(image,media_type="image/png")
+
+    @router.post("/{project_id}/spatial-auto-frame")
+    def auto_frame(project_id:str,request:Request,body:dict):
+        actor(request)
+        return service(project_id).auto_frame_spatial_scene(project_id,body.get("payload",body))
 
     @router.post("/{project_id}/spatial-scene-validate")
     def validate(project_id:str,body:dict):
@@ -64,6 +77,10 @@ def install_spatial_scene_routes(router,catalog,etag,actor):
     @router.put("/{project_id}/spatial-scenes/{scene_id}")
     async def save(project_id:str,scene_id:str,request:Request,body:dict):
         return await write(project_id,request,body,"save_spatial_scene",{"spatial_scene_id":scene_id})
+
+    @router.post("/{project_id}/spatial-scenes/{scene_id}/batch-views")
+    async def batch_views(project_id:str,scene_id:str,request:Request,body:dict):
+        return await write(project_id,request,body,"capture_spatial_batch_views",{"spatial_scene_id":scene_id})
 
     @router.post("/{project_id}/spatial-scenes/{scene_id}/exports")
     async def export(project_id:str,scene_id:str,request:Request,body:dict):

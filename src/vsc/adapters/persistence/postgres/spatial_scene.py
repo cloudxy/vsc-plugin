@@ -52,6 +52,10 @@ class SpatialSceneRepository:
     def _save_spatial_version(self,conn,project,scene,payload,actor,current=None):
         p=project["id"];document=normalize_scene(payload["document"]);title=label(payload.get("title"),"三维场景");description=payload.get("description","")
         if not isinstance(description,str) or len(description)>10000:raise ResourceError("场景描述最多 10000 字")
+        if document.get("panorama_media_id"):
+            document["panorama_media_id"]=checked_id(document["panorama_media_id"])
+            pano=self._media(conn,p,document["panorama_media_id"])
+            if pano["modality"]!="image":raise ResourceError("720° 全景背景必须引用已登记图片媒体","spatial_media_type")
         for item in document["objects"]:
             if item["media_id"]:
                 item["media_id"]=checked_id(item["media_id"]);media=self._media(conn,p,item["media_id"])
@@ -318,3 +322,25 @@ class SpatialSceneRepository:
             conn.execute(update(S.spatial_plan_tasks).where(S.spatial_plan_tasks.c.project_id==p,S.spatial_plan_tasks.c.id==task['id']).values(**values))
             return dict(id=task['id'],**values)
         return self._mutate(p,'decide_spatial_plan_task',payload,actor=actor,callback=work,**kw)
+
+    def capture_spatial_batch_views(self,project_id,payload,*,render_fn,**kw):
+        def work(conn,project):
+            p=project['id']
+            scene,row=self._spatial_version(conn,p,checked_id(payload['spatial_scene_id']))
+            from .project_management import filter_management_rows
+            if not filter_management_rows(conn,p,S.spatial_scenes,[scene]):
+                raise ResourceError('场景所属对象已回收','object_recycled',409)
+            doc=self._spatial_document(conn,p,row)
+            rendered=render_fn(scene,row,doc)
+            views=[]
+            for item in rendered:
+                registered=self._register_media(conn,project,{
+                    **item['committed'],
+                    'name':item['name'],
+                    'rights':'owned',
+                    'rights_scope':{'purposes':['storyboard','composition','reference_image','first_frame','last_frame']},
+                    'source':{'kind':'spatial-batch-views','content':{'spatial_scene_id':scene['id'],'version_id':row['id'],'count':item['count'],'angle_deg':item['angle_deg']}},
+                },kw['actor'])
+                views.append({'index':item['index'],'angle_deg':item['angle_deg'],'label':item['label'],'media_id':registered['id'],'sha256':registered['sha256'],'name':item['name']})
+            return {'spatial_scene_id':scene['id'],'count':payload['count'],'items':views}
+        return self._mutate(project_id,'capture_spatial_batch_views',payload,callback=work,**kw)
