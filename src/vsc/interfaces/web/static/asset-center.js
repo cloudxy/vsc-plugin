@@ -365,14 +365,19 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  const official=source==='official';
  const facetCache=new Map();
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,searchTimer=null;
- let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null;
+ let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
  function stopCostumeObserver(){
   if(costumeObserver){costumeObserver.disconnect();costumeObserver=null;}
+  if(costumeScrollCleanup){costumeScrollCleanup();costumeScrollCleanup=null;}
  }
  function findScrollContainer(node){
-  if(typeof node?.closest==='function')return node.closest('.workspace');
   for(let cur=node?.parentElement;cur;cur=cur.parentElement){
-   if(cur.classList?.contains?.('workspace'))return cur;
+   if(typeof getComputedStyle==='function'){
+    const oy=getComputedStyle(cur).overflowY;
+    if(oy==='auto'||oy==='scroll'||oy==='overlay')return cur;
+   }else if(cur.id==='production-platform'||cur.classList?.contains?.('workspace')){
+    return cur;
+   }
   }
   return null;
  }
@@ -991,13 +996,25 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   root.append(grid);
   const moreBtn=button('更多',pull,'costume-more');
   if(next!=null)root.append(moreBtn);
-  if(next!=null&&typeof IntersectionObserver==='function'){
-   sentinel=el('div','','costume-sentinel');
-   costumeObserver=new IntersectionObserver(entries=>{
-    for(const entry of entries)sentinelVisible=Boolean(entry.isIntersecting);
-    if(sentinelVisible)pull();
-   },{root:scrollRoot||null,rootMargin:'0px 0px 480px 0px'});
-   costumeObserver.observe(sentinel);root.append(sentinel);
+  if(next!=null){
+   if(typeof IntersectionObserver==='function'){
+    sentinel=el('div','','costume-sentinel');
+    costumeObserver=new IntersectionObserver(entries=>{
+     for(const entry of entries)sentinelVisible=Boolean(entry.isIntersecting);
+     if(sentinelVisible)pull();
+    },{root:scrollRoot||null,rootMargin:'0px 0px 480px 0px'});
+    costumeObserver.observe(sentinel);root.append(sentinel);
+   }
+   const scrollTarget=scrollRoot||(typeof window!=='undefined'?window:null);
+   if(scrollTarget?.addEventListener){
+    const onScroll=()=>{
+     if(pagingBusy||next==null||!active(g))return;
+     const box=scrollRoot||document?.scrollingElement||document?.documentElement;
+     if(box&&box.scrollHeight-box.scrollTop-box.clientHeight<=480)pull();
+    };
+    scrollTarget.addEventListener('scroll',onScroll,{passive:true});
+    costumeScrollCleanup=()=>scrollTarget.removeEventListener?.('scroll',onScroll);
+   }
   }
  }
 
