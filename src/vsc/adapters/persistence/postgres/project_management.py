@@ -11,6 +11,8 @@ OBJECT_TABLES={'creative_objects','works','episodes','scenes','sequences','shots
 ACTIVE_TASKS={'created','queued','submitted','running','polling','submission_unknown','awaiting_upload','uploaded','result_ready'}
 TASK_TABLES={'spatial_plan_tasks','generation_jobs','preview_jobs','edit_render_jobs','spatial_exports','media_import_items','text_tool_attempts','canvas_agent_turns','intelligent_tasks','script_suggestion_runs','parse_attempts','edit_preview_jobs','edit_preview_attempts'}
 MANAGEMENT_ACTIONS={'management_'+x for x in ('rename','edit','folder_create','folder_update','folder_move','folder_order','folder_remove','move','trash','restore','purge','retention')}
+RECYCLE_ITEM_KINDS={'project','episode','storyboard-group','video-group','storyboard-image','asset','video','canvas'}
+RECYCLE_KINDS={'all'}|RECYCLE_ITEM_KINDS
 
 
 def inactive_project_ids():
@@ -128,7 +130,7 @@ class ProjectManagementRepository:
 
     def management_recycle_items(self, kind='all', limit=24, cursor=None):
         """Read direct tombstones only, within the session's full-project grants."""
-        if kind not in {'all', 'project', 'episode', 'asset', 'video', 'canvas'} or type(limit) is not int or not 1 <= limit <= 100:
+        if kind not in RECYCLE_KINDS or type(limit) is not int or not 1 <= limit <= 100:
             raise ResourceError('回收列表筛选或分页范围不合法', 'invalid_page')
         boundary = None
         if cursor is not None:
@@ -139,7 +141,7 @@ class ProjectManagementRepository:
                 if not isinstance(data, list) or len(data) != 5 or data[0] != kind:
                     raise ValueError()
                 at = datetime.fromisoformat(data[1])
-                if at.tzinfo is None or data[3] not in {'project', 'episode', 'asset', 'video', 'canvas'}:
+                if at.tzinfo is None or data[3] not in RECYCLE_ITEM_KINDS:
                     raise ValueError()
                 boundary = (at, checked_id(data[2]), data[3], checked_id(data[4]))
             except (ValueError, TypeError, UnicodeError, ResourceError):
@@ -196,7 +198,44 @@ class ProjectManagementRepository:
                 .join(projects, projects.c.id == canvas.c.project_id).outerjoin(ps, ps.c.project_id == projects.c.id))\
                 .where(projects.c.id.in_(select(allowed.c.id)), cs.c.state == 'trashed',
                     func.coalesce(ps.c.state, 'active') != 'purged')
-            rows = union_all(project_rows, object_rows, video_rows, canvas_rows).subquery('recycle_items')
+            seq_blocked = exists(select(1).select_from(
+                S.sequences.join(S.scenes, and_(S.scenes.c.project_id == S.sequences.c.project_id, S.scenes.c.id == S.sequences.c.parent_id))
+                .join(episodes, and_(episodes.c.project_id == S.scenes.c.project_id, episodes.c.id == S.scenes.c.parent_id))
+                .join(parent_state, and_(parent_state.c.project_id == S.sequences.c.project_id,
+                    parent_state.c.object_id.in_((S.scenes.c.id, episodes.c.id, episodes.c.parent_id)))))
+                .where(S.sequences.c.project_id == obj.c.project_id, S.sequences.c.id == obj.c.id, parent_state.c.state != 'active'))
+            seq_rows = select(projects.c.id.label('project_id'), obj.c.id.label('target_id'),
+                literal('storyboard-group').label('kind'), obj.c.title, os.c.changed_at, os.c.reason, projects.c.revision,
+                (func.coalesce(ps.c.state, 'active') != 'active').label('blocked_by_project'),
+                seq_blocked.label('blocked_by_ancestor'))\
+                .select_from(obj.join(os, and_(os.c.project_id == obj.c.project_id, os.c.object_id == obj.c.id))
+                    .join(projects, projects.c.id == obj.c.project_id).outerjoin(ps, ps.c.project_id == projects.c.id))\
+                .where(projects.c.id.in_(select(allowed.c.id)), os.c.state == 'trashed',
+                    obj.c.kind == 'sequence', func.coalesce(ps.c.state, 'active') != 'purged')
+            shot_blocked = exists(select(1).select_from(
+                S.shots.join(S.sequences, and_(S.sequences.c.project_id == S.shots.c.project_id, S.sequences.c.id == S.shots.c.parent_id))
+                .join(S.scenes, and_(S.scenes.c.project_id == S.sequences.c.project_id, S.scenes.c.id == S.sequences.c.parent_id))
+                .join(episodes, and_(episodes.c.project_id == S.scenes.c.project_id, episodes.c.id == S.scenes.c.parent_id))
+                .join(parent_state, and_(parent_state.c.project_id == S.shots.c.project_id,
+                    parent_state.c.object_id.in_((S.sequences.c.id, S.scenes.c.id, episodes.c.id, episodes.c.parent_id)))))
+                .where(S.shots.c.project_id == obj.c.project_id, S.shots.c.id == obj.c.id, parent_state.c.state != 'active'))
+            shot_rows = select(projects.c.id.label('project_id'), obj.c.id.label('target_id'),
+                literal('video-group').label('kind'), obj.c.title, os.c.changed_at, os.c.reason, projects.c.revision,
+                (func.coalesce(ps.c.state, 'active') != 'active').label('blocked_by_project'),
+                shot_blocked.label('blocked_by_ancestor'))\
+                .select_from(obj.join(os, and_(os.c.project_id == obj.c.project_id, os.c.object_id == obj.c.id))
+                    .join(projects, projects.c.id == obj.c.project_id).outerjoin(ps, ps.c.project_id == projects.c.id))\
+                .where(projects.c.id.in_(select(allowed.c.id)), os.c.state == 'trashed',
+                    obj.c.kind == 'shot', func.coalesce(ps.c.state, 'active') != 'purged')
+            image_rows = select(projects.c.id.label('project_id'), media.c.id.label('target_id'),
+                literal('storyboard-image').label('kind'), media.c.name.label('title'), ranked.c.created_at.label('changed_at'),
+                ranked.c.reason, projects.c.revision, (func.coalesce(ps.c.state, 'active') != 'active').label('blocked_by_project'),
+                literal(False).label('blocked_by_ancestor')).select_from(media.join(projects, projects.c.id == media.c.project_id)
+                .join(ranked, and_(ranked.c.project_id == media.c.project_id, ranked.c.media_id == media.c.id))
+                .outerjoin(ps, ps.c.project_id == projects.c.id)).where(projects.c.id.in_(select(allowed.c.id)),
+                    media.c.modality == 'image', ranked.c.rank == 1, ranked.c.outcome == 'deprecate', recorded,
+                    func.coalesce(ps.c.state, 'active') != 'purged')
+            rows = union_all(project_rows, object_rows, seq_rows, shot_rows, image_rows, video_rows, canvas_rows).subquery('recycle_items')
             query = select(rows)
             if kind != 'all':
                 query = query.where(rows.c.kind == kind)
@@ -211,6 +250,7 @@ class ProjectManagementRepository:
             more = len(page) > limit
             page = page[:limit]
             permissions = {}
+            now_utc = datetime.now(timezone.utc)
             for row in page:
                 p = row['project_id']
                 if p not in permissions:
@@ -221,8 +261,11 @@ class ProjectManagementRepository:
                         if exc.code != 'access_denied':
                             raise
                         permissions[p] = False
-                row['target_type'] = row['kind'] if row['kind'] in {'project','canvas'} else 'media' if row['kind'] == 'video' else 'object'
+                row['target_type'] = row['kind'] if row['kind'] in {'project','canvas'} else 'media' if row['kind'] in {'video','storyboard-image'} else 'object'
                 row['can_restore'] = permissions[p] and not row['blocked_by_project'] and not row['blocked_by_ancestor']
+                if isinstance(row.get('changed_at'), datetime):
+                    elapsed = max(0, int((now_utc - row['changed_at']).total_seconds() // 86400))
+                    row['days_remaining'] = max(0, 30 - elapsed)
             next_cursor = None
             if more:
                 last = page[-1]

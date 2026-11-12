@@ -175,13 +175,18 @@ def create_app(config=None, catalog=None, service=None):
         return index()
 
     for spa_path in (
+        "/project",
+        "/project/episode",
         "/canvas",
+        "/canvas/detail",
         "/canvas/share",
+        "/agent",
         "/storyboard",
         "/storyboard/repaint",
         "/video",
         "/video/review",
         "/video/multi-clip",
+        "/marking",
         "/fcp",
         "/script",
         "/character",
@@ -211,7 +216,7 @@ def create_app(config=None, catalog=None, service=None):
         "/404",
     ):
         app.add_api_route(spa_path, index, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
-    for spa_prefix in ("/script/{subpath:path}", "/wallet/{subpath:path}", "/fcp/{subpath:path}"):
+    for spa_prefix in ("/script/{subpath:path}", "/wallet/{subpath:path}", "/fcp/{subpath:path}", "/canvas/share/{subpath:path}"):
         app.add_api_route(spa_prefix, spa_subpath, methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
 
     @app.get("/api/v1/fcp-embed/{locale}", response_class=HTMLResponse, include_in_schema=False)

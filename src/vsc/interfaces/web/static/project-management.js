@@ -1,6 +1,28 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)setText(n,text);if(cls)n.className=cls;return n;};
 const names={work:'部',episode:'集',scene:'场',sequence:'镜组',shot:'镜头',asset:'资产',canvas:'画布',image:'图片',video:'视频',audio:'音频',active:'可用',trashed:'已回收',parent_trashed:'父级已回收'};
+const recycleKindNames={project:'项目',episode:'剧集','storyboard-group':'分镜镜号','video-group':'视频镜号','storyboard-image':'分镜图',asset:'资产',video:'视频',canvas:'画布'};
+const RECYCLE_CATEGORIES=['all','project','episode','storyboard-group','video-group','storyboard-image','asset','video','canvas'];
+
+export function restoreTargetUrl(row){
+  if(!row||row.kind==='canvas')return null;
+  const pid=encodeURIComponent(row.project_id||'');
+  if(row.kind==='asset')return `/character?project_id=${pid}`;
+  if(row.kind==='storyboard-group'||row.kind==='storyboard-image')return `/?page=storyboard&project=${pid}`;
+  if(row.kind==='video-group'||row.kind==='video')return `/?page=shots&project=${pid}`;
+  if(row.kind==='episode')return `/project/episode?project_id=${pid}&episode=${encodeURIComponent(row.target_id||'')}`;
+  return `/?page=project&project=${pid}`;
+}
+
+export function computeRecycleDaysLeft(row,nowMs=Date.now()){
+  if(row&&typeof row.days_remaining==='number'&&Number.isFinite(row.days_remaining))return Math.max(0,Math.floor(row.days_remaining));
+  if(row?.changed_at){
+    const t=new Date(row.changed_at).getTime();
+    if(!Number.isNaN(t))return Math.max(0,30-Math.max(0,Math.floor((nowMs-t)/86400000)));
+  }
+  return 30;
+}
+
 export function createProjectManagement(root,ctx){
   let ticket=0,project=null,data=null,busy=false,identity=null,recycleCategory='all',recycleSeq=0,recycleState=null,recycleOpening=null,filters={folder:'',kind:'',q:'',offset:0};
   const drafts=new Map(),pending=new Map(),inFlight=new Set(),recycleOrigins=new Map();
@@ -30,26 +52,46 @@ export function createProjectManagement(root,ctx){
     }catch(error){if(error.status>=400&&error.status<500)pending.delete(key);if(same(t,p)){busy=false;render();}throw error;}
     finally{inFlight.delete(key);if(same(t,p)){busy=false;render();}}
   }
-  function lifecycle(target,operation,onSuccess=null,onStart=null){
+  function lifecycle(target,operation,onSuccess=null,onStart=null,newWinUrl=null){
     const dialog=el('dialog'),f=form(operation==='purge'?'永久停用（保留审计）':operation==='trash'?'移入回收':'恢复原关系');
     f.append(el('p',target.title));if(operation==='purge')f.append(el('p',msg("ui.this_action_cannot_be_undone_fixed_identities_evidence_and")));
     const reason=field(f,msg("ui.reason_for_this_action"),el('input'),'reason:'+target.id+operation);reason.required=true;reason.maxLength=2000;
     const confirm=operation==='purge'?field(f,msg("ui.enter_the_complete_target_name"),el('input'),null):null;if(confirm)confirm.required=true;
     const save=el('button',operation==='purge'?msg("ui.confirm_permanent_deactivation"):operation==='trash'?msg("ui.confirm_recycling"):msg("ui.confirm_restore"));save.type='submit';f.append(save,button(msg("common.cancel"),()=>dialog.close()));
-    const p=project,t=ticket,key=scopeKey();f.onsubmit=async e=>{e.preventDefault();if(save.disabled)return;if(!same(t,p)){dialog.close();return;}save.disabled=true;try{onStart?.();const result=await write({operation,target_type:target.type,target_id:target.id,reason:reason.value,...(confirm?{confirm_name:confirm.value}:{})});dialog.close();if(result&&result.status!=='protected'&&onSuccess&&project===p&&identity===actorKey())await onSuccess();}catch(error){if(same(t,p)){ctx.notice(error.status===409?error.message+'；输入已保留，请关闭窗口并刷新当前项目后重试。':error.message);save.disabled=false;}}};
+    const p=project,t=ticket,key=scopeKey();f.onsubmit=async e=>{e.preventDefault();if(save.disabled)return;if(!same(t,p)){dialog.close();return;}save.disabled=true;
+      let win=null;
+      if(operation==='restore'&&newWinUrl&&typeof globalThis.window?.open==='function'){
+        try{win=globalThis.window.open('about:blank','_blank');}catch{win=null;}
+      }
+      try{onStart?.();const result=await write({operation,target_type:target.type,target_id:target.id,reason:reason.value,...(confirm?{confirm_name:confirm.value}:{})});dialog.close();
+        if(result&&result.status!=='protected'){
+          if(win&&win.location)win.location.href=newWinUrl;
+          if(onSuccess&&project===p&&identity===actorKey())await onSuccess();
+        }else if(win){try{win.close?.();}catch{}}
+      }catch(error){if(win){try{win.close?.();}catch{}}if(same(t,p)){ctx.notice(error.status===409?error.message+'；输入已保留，请关闭窗口并刷新当前项目后重试。':error.message);save.disabled=false;}}};
     dialog.append(f);root.append(dialog);dialog.onclose=()=>{dialog.remove();if(!pending.has(key)&&recycleOrigins.get(key)?.target_id===target.id)recycleOrigins.delete(key);if(same(t,p))render();};dialog.showModal();
   }
   async function returnToRecycle(){ctx.onScope?.(null);await load({project:null});}
-  async function recoverPending(){const key=scopeKey(),request=pending.get(key),origin=recycleOrigins.get(key),result=await write(null,true);if(!result)return;const original=request?.payload.operation==='restore'&&request.payload.target_id===origin?.target_id||request?.confirmed&&request.payload.action==='restore'&&request.payload.media_ids?.length===1&&request.payload.media_ids[0]===origin?.target_id;if(result.status!=='protected'&&origin&&original&&project===origin.project_id&&identity===actorKey()){recycleOrigins.delete(key);await returnToRecycle();}}
+  async function recoverPending(){const key=scopeKey(),request=pending.get(key),origin=recycleOrigins.get(key);
+    let win=null;
+    const original=request?.payload.operation==='restore'&&request.payload.target_id===origin?.target_id||request?.confirmed&&request.payload.action==='restore'&&request.payload.media_ids?.length===1&&request.payload.media_ids[0]===origin?.target_id;
+    if(original&&origin?.url&&typeof globalThis.window?.open==='function'){try{win=globalThis.window.open('about:blank','_blank');}catch{win=null;}}
+    try{const result=await write(null,true);if(!result){if(win)try{win.close?.();}catch{}return;}
+      if(result.status!=='protected'&&origin&&original&&project===origin.project_id&&identity===actorKey()){
+        if(win&&win.location&&origin.url)win.location.href=origin.url;
+        recycleOrigins.delete(key);await returnToRecycle();
+      }else if(win){try{win.close?.();}catch{}}
+    }catch(error){if(win){try{win.close?.();}catch{}}throw error;}
+  }
   async function restoreFromList(row){
     if(recycleOpening||!row.can_restore||!session().actor)return;const opening={};recycleOpening=opening;
     try{const p=row.project_id,owner=actorKey(),known=data?.projects?.find(item=>item.id===p);ctx.onScope?.(p,known||{id:p,name:row.title});const loaded=await load({project:p});
       if(!loaded||project!==p||identity!==owner||identity!==actorKey()||(row.target_type==='project'?data?.state!=='trashed':data?.state!=='active'))return;
-      const target={type:row.target_type,id:row.target_id,title:row.title};
-      lifecycle(target,'restore',async()=>{recycleOrigins.delete(scopeKey());await returnToRecycle();},()=>{const key=scopeKey();if(!pending.has(key))recycleOrigins.set(key,{project_id:p,target_id:row.target_id});});
+      const target={type:row.target_type,id:row.target_id,title:row.title},targetUrl=restoreTargetUrl(row);
+      lifecycle(target,'restore',async()=>{recycleOrigins.delete(scopeKey());await returnToRecycle();},()=>{const key=scopeKey();if(!pending.has(key))recycleOrigins.set(key,{project_id:p,target_id:row.target_id,url:targetUrl});},targetUrl);
     }finally{if(recycleOpening===opening)recycleOpening=null;}
   }
-  const supportedRecycle=category=>['all','project','episode','asset','video','canvas'].includes(category);
+  const supportedRecycle=category=>RECYCLE_CATEGORIES.includes(category);
   async function readRecycle(cursor=null,stack=[]){
     const t=ticket,category=recycleCategory,seq=++recycleSeq;if(!same(t,null))return;
     if(!supportedRecycle(category)){recycleState={status:'unsupported',cursor:null,stack:[]};render();return;}
@@ -61,17 +103,24 @@ export function createProjectManagement(root,ctx){
     }catch(error){if(same(t,null)&&seq===recycleSeq&&category===recycleCategory){recycleState={status:'error',error:error.message,cursor,stack};render();}}
   }
   function render(force=false){
-    if(!data||!force&&root.querySelector('dialog[open]'))return;root.replaceChildren();const head=el('header');head.append(el('h1',project?msg("ui.project_management"):msg("common.route_recycle_bin")),el('p',project?msg("ui.manage_project_names_folders_and_retention_settings"):'查看已回收的项目、剧集、资产和视频，恢复后可继续创作','hint'));root.append(head);
+    if(!data||!force&&root.querySelector('dialog[open]'))return;root.replaceChildren();const head=el('header');head.append(el('h1',project?msg("ui.project_management"):msg("common.route_recycle_bin")),el('p',project?msg("ui.manage_project_names_folders_and_retention_settings"):'删除的项目和媒资会在这里保留 30 天，恢复后可继续创作','hint'));root.append(head);
     const choices=el('select');bindAttribute(choices,'aria-label',msg("ui.manage_project"));choices.append(localizedOption('',msg("ui.select_a_project_extra_2")));for(const r of data.projects)choices.append(localizedOption(r.id,r.name+(r.state==='trashed'?' · 已回收':'')));choices.value=project||'';choices.onchange=()=>{const next=choices.value||null;ctx.onScope?.(next,data.projects.find(r=>r.id===next));filters={folder:'',kind:'',q:'',offset:0};load({project:next});};
     if(!project||!data.project){
       const state=recycleState||{status:'loading',stack:[]},supported=supportedRecycle(recycleCategory),bar=el('div',null,'management-recycle-toolbar'),categories=el('nav',null,'management-recycle-categories');categories.setAttribute('role','tablist');categories.setAttribute('aria-label','回收站分类');
       for(const [value,label]of [['all','全部'],['project','项目'],['episode','剧集'],['storyboard-group','分镜镜号'],['video-group','视频镜号'],['storyboard-image','分镜图'],['asset','资产'],['video','视频'],['canvas','画布']]){const b=button(label,()=>{if(recycleCategory!==value){recycleCategory=value;return readRecycle();}});b.setAttribute('role','tab');b.setAttribute('aria-selected',String(recycleCategory===value));if(!supportedRecycle(value))b.title='该分类尚未接入';categories.append(b);}
       const count=el('span',state.status==='ready'?'本页 '+state.items.length+' 项':state.status==='loading'?'正在加载':supported?'':'暂未接入','management-recycle-count');count.setAttribute('role','status');bar.append(categories,count);root.append(bar);
       const grid=el('div',null,'management-recycled');
-      if(state.status==='ready')for(const row of state.items){const card=el('article',null,'management-recycled-card'),cover=el('div','▤','management-cover'),info=el('div',null,'management-recycle-info'),actions=el('div',null,'management-recycle-actions');card.dataset.targetId=row.target_id;card.dataset.projectId=row.project_id;info.append(el('h3',row.title||row.target_id),el('p',({project:'项目',episode:'剧集',asset:'资产',video:'视频',canvas:'画布'})[row.kind]||row.kind,'hint'));if(row.target_type==='object'||row.target_type==='media'||row.target_type==='canvas'){const owner=data.projects.find(item=>item.id===row.project_id);info.append(el('p',owner?'项目：'+owner.name:'项目 '+row.project_id,'hint'));}
+      if(state.status==='ready')for(const row of state.items){
+        const card=el('article',null,'management-recycled-card'),cover=el('div',null,'management-cover'),info=el('div',null,'management-recycle-info'),actions=el('div',null,'management-recycle-actions');
+        const kindLabel=recycleKindNames[row.kind]||row.kind,daysLeft=computeRecycleDaysLeft(row);
+        cover.append(el('span','▤','management-cover-glyph'),el('span',kindLabel,'management-type-badge'),el('span','剩余 '+daysLeft+' 天','management-days-badge'));
+        card.dataset.targetId=row.target_id;card.dataset.projectId=row.project_id;card.dataset.kind=row.kind;
+        info.append(el('h3',row.title||row.target_id),el('p',kindLabel,'hint'));
+        if(row.target_type==='object'||row.target_type==='media'||row.target_type==='canvas'){const owner=data.projects.find(item=>item.id===row.project_id);info.append(el('p',owner?'项目：'+owner.name:'项目 '+row.project_id,'hint'));}
         if(row.changed_at){const time=new Date(row.changed_at);info.append(el('p','回收于 '+(Number.isNaN(time.getTime())?row.changed_at:time.toLocaleString()),'hint'));}if(row.reason)info.append(el('p',row.reason,'management-recycle-reason'));
         if(!row.can_restore){const explanation=row.blocked_by_project?'请先恢复所属项目':row.blocked_by_ancestor?'请先恢复上级对象':'当前账号无法恢复此项';info.append(el('p',explanation,'management-recycle-blocked'));}
-        actions.append(button('恢复',()=>restoreFromList(row),!row.can_restore||!session().actor),button(msg("ui.project_management"),async()=>{const known=data.projects.find(item=>item.id===row.project_id);ctx.onScope?.(row.project_id,known||{id:row.project_id,name:row.title});await load({project:row.project_id});}));info.append(actions);card.append(cover,info);grid.append(card);}
+        actions.append(button('恢复',()=>restoreFromList(row),!row.can_restore||!session().actor),button(msg("ui.project_management"),async()=>{const known=data.projects.find(item=>item.id===row.project_id);ctx.onScope?.(row.project_id,known||{id:row.project_id,name:row.title});await load({project:row.project_id});}));info.append(actions);card.append(cover,info);grid.append(card);
+      }
       if(state.status==='ready'&&!state.items.length||state.status==='unsupported'){const empty=el('div',null,'management-empty'),art=el('div',null,'management-empty-illustration');art.setAttribute('aria-hidden','true');empty.append(art,el('p',state.status==='unsupported'?'该分类暂未接入':'暂无数据'));grid.append(empty);}
       if(state.status==='error'){const failure=el('div',null,'management-recycle-error');failure.setAttribute('role','alert');failure.append(el('p','回收列表读取失败：'+state.error),button(msg('ui.reload'),()=>readRecycle(state.cursor,state.stack)));grid.append(failure);}root.append(grid);
       if(supported&&(state.stack?.length||state.status==='ready'&&state.next_cursor)){const pager=el('nav',null,'management-recycle-pager');pager.append(button(msg('common.previous_page'),()=>{const stack=state.stack.slice(),cursor=stack.pop();return readRecycle(cursor,stack);},!state.stack.length||state.status==='loading'),button(msg('common.next_page'),()=>readRecycle(state.next_cursor,[...state.stack,state.cursor]),state.status!=='ready'||!state.next_cursor));root.append(pager);}

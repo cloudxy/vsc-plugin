@@ -7,6 +7,7 @@ this module never fetches remote costume files.
 """
 from __future__ import annotations
 
+from datetime import datetime
 import json
 from pathlib import Path
 
@@ -50,13 +51,14 @@ def load_costumes(assets_root: Path):
     """Return catalog rows and the id-to-file map for generated flats on disk.
 
     Older 服装 setting sheets stay in their own folders. This browser only
-    lists the seasonal flats under assets/服饰.
+    lists the seasonal flats under assets/服饰, ordered newest-ingested first.
     """
     root = Path(assets_root)
-    items, files = [], {}
+    entries, files = [], {}
     for category in CATEGORIES:
-        _take(root / "服饰" / category, category, items, files)
-    return items, files
+        _take(root / "服饰" / category, category, entries, files)
+    entries.sort(key=lambda entry: (-entry[0], -entry[1]))
+    return [entry[2] for entry in entries], files
 
 
 def costume_page(items, category="", query="", offset=0, limit=PAGE_SIZE):
@@ -91,7 +93,21 @@ def costume_file(files, item_id):
     return path
 
 
-def _take(folder, category, items, files, label=""):
+def _ingested_ns(resolved: Path, sidecar: dict) -> int:
+    for key in ("ingested_at", "created_at"):
+        raw = str(sidecar.get(key) or "").strip()
+        if raw:
+            try:
+                return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp() * 1_000_000_000)
+            except ValueError:
+                pass
+    try:
+        return resolved.stat().st_mtime_ns
+    except OSError:
+        return 0
+
+
+def _take(folder, category, entries, files, label=""):
     if not folder.is_dir():
         return
     root = folder.resolve()
@@ -111,14 +127,18 @@ def _take(folder, category, items, files, label=""):
         name = str(sidecar.get("name") or path.stem)
         item_id = _unique(path.stem, files)
         keywords = _keywords(name, sidecar)
-        items.append({
-            "id": item_id,
-            "title": name,
-            "category": item_category,
-            "label": item_category or label or "服饰",
-            "keywords": keywords,
-            "image": "/api/v1/asset-center/costumes/" + item_id + "/content",
-        })
+        entries.append((
+            _ingested_ns(resolved, sidecar),
+            len(entries),
+            {
+                "id": item_id,
+                "title": name,
+                "category": item_category,
+                "label": item_category or label or "服饰",
+                "keywords": keywords,
+                "image": "/api/v1/asset-center/costumes/" + item_id + "/content",
+            },
+        ))
         files[item_id] = resolved
 
 

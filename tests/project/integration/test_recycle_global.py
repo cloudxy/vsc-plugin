@@ -116,6 +116,36 @@ class GlobalRecycleTests(ResourceStoreFixture, unittest.TestCase):
         self.write('recycle_media',{'media_ids':[video],'action':'restore','reason':'synthetic restore'})
         self.assertFalse([row for row in self.service.management_recycle_items(kind='video')['items'] if row['project_id']==self.p])
 
+    def test_storyboard_group_video_group_and_storyboard_image_categories_with_30_day_window(self):
+        objects = self.hierarchy()
+        image = self.media('storyboard sketch', modality='image')
+        self.write('recycle_media', {'media_ids': [image], 'action': 'trash', 'reason': 'recycle sketch'})
+        self.write('management_command', {'operation': 'trash', 'target_type': 'object', 'target_id': objects['shot'], 'reason': 'recycle shot'})
+        self.write('management_command', {'operation': 'trash', 'target_type': 'object', 'target_id': objects['sequence'], 'reason': 'recycle seq'})
+
+        seq_items = [r for r in self.service.management_recycle_items(kind='storyboard-group')['items'] if r['project_id'] == self.p]
+        shot_items = [r for r in self.service.management_recycle_items(kind='video-group')['items'] if r['project_id'] == self.p]
+        img_items = [r for r in self.service.management_recycle_items(kind='storyboard-image')['items'] if r['project_id'] == self.p]
+
+        self.assertEqual([r['target_id'] for r in seq_items], [objects['sequence']])
+        self.assertEqual(seq_items[0]['target_type'], 'object')
+        self.assertTrue(seq_items[0]['can_restore'])
+        self.assertEqual(seq_items[0]['days_remaining'], 30)
+
+        self.assertEqual([r['target_id'] for r in shot_items], [objects['shot']])
+        self.assertTrue(shot_items[0]['blocked_by_ancestor'])
+        self.assertFalse(shot_items[0]['can_restore'])
+
+        self.assertEqual([r['target_id'] for r in img_items], [image])
+        self.assertEqual(img_items[0]['target_type'], 'media')
+        self.assertTrue(img_items[0]['can_restore'])
+        self.assertEqual(img_items[0]['days_remaining'], 30)
+
+        # Restoring parent sequence unblocks child video-group (shot)
+        self.write('management_command', {'operation': 'restore', 'target_type': 'object', 'target_id': objects['sequence'], 'reason': 'restore seq'})
+        shot_after = [r for r in self.service.management_recycle_items(kind='video-group')['items'] if r['project_id'] == self.p]
+        self.assertTrue(shot_after[0]['can_restore'])
+
     def test_http_requires_session_and_routes_filter(self):
         from fastapi.testclient import TestClient
         from vsc.interfaces.web.app import create_app
