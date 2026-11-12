@@ -205,6 +205,31 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
         self.assertEqual(sum(isinstance(row,dict) for row in results),1)
         self.assertEqual(sum(row=="official_publication_exists" for row in results),1)
 
+    def test_official_assets_default_to_reverse_ingestion_order(self):
+        prefix = "ingest-order-" + uuid.uuid4().hex
+        titles = ["Z-最早入库", "A-中间入库", "M-最新入库"]
+        for idx, label in enumerate(titles):
+            staged = self.service.storage.stage_upload(io.BytesIO(png_bytes()), f"order-{idx}.png")
+            imported = self.service.import_library({
+                "library_key": f"{prefix}-{idx}",
+                "title": f"{prefix} {label}",
+                "category": "image",
+                "description": "Synthetic chronological test asset",
+                "specification": {},
+                "allowed_purposes": ["identity_face"],
+                "license": {"outcome": "owned", "allow_workspace_reuse": True, "evidence": "owned synthetic bytes"},
+                "import_key": uuid.uuid4().hex,
+                "members": [{"member_key": "front", "staged_upload": staged["staged_upload"]}],
+            }, actor="test-human")
+            self.publish(self.official_payload(imported, role_tag=f"{prefix}-{idx}"))
+        default_page = self.service.search_asset_center({"source": "official", "query": prefix}, "test-human")
+        latest_page = self.service.search_asset_center({"source": "official", "query": prefix, "order_by": "latest"}, "test-human")
+        title_page = self.service.search_asset_center({"source": "official", "query": prefix, "order_by": "title"}, "test-human")
+        expected_desc = [f"{prefix} M-最新入库", f"{prefix} A-中间入库", f"{prefix} Z-最早入库"]
+        self.assertEqual([row["title"] for row in default_page["items"]], expected_desc)
+        self.assertEqual([row["title"] for row in latest_page["items"]], expected_desc)
+        self.assertEqual([row["title"] for row in title_page["items"]], sorted(expected_desc))
+
     def test_official_http_publisher_gate_facets_and_original_import(self):
         from fastapi.testclient import TestClient
         from vsc.interfaces.web.app import create_app

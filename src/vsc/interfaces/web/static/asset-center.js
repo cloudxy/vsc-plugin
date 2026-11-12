@@ -1026,7 +1026,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   form.onsubmit=e=>{e.preventDefault();clearTimeout(searchTimer);offset=0;load();};
   root.append(form);
 
-  const reqFilters={...filters,source:'official',media_only:'true',offset,limit:24};
+  const reqFilters={...filters,order_by:filters.order_by||'latest',source:'official',media_only:'true',offset,limit:24};
   for(const k of Object.keys(reqFilters))if(reqFilters[k]===''||reqFilters[k]==null)delete reqFilters[k];
   const data=await get('/api/v1/asset-center?'+new URLSearchParams(reqFilters));
   if(!active(g))return;
@@ -1396,7 +1396,7 @@ export async function openAssetLibraryModal(ctx,{
     }
     appendPickerCards(grid,items);body.append(grid);
    }else if(currentTab==='official'){
-    const q={source:'official',media_only:'true',offset:'0',limit:'48'};
+    const q={source:'official',order_by:'latest',media_only:'true',offset:'0',limit:'48'};
     if(kindFilter)q.asset_kind=kindFilter;if(keyword)q.query=keyword;
     const data=await ctx.api('/api/v1/asset-center?'+new URLSearchParams(q));
     body.replaceChildren();const grid=el('div','','asset-library-grid');

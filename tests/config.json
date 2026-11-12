@@ -1607,6 +1607,7 @@
       "owner": "project",
       "layer": "unit",
       "sources": [
+        "src/vsc/interfaces/web/static/project-management.css",
         "src/vsc/interfaces/web/static/project-management.js",
         "tests/project/unit/trash_frontend.test.mjs"
       ]
@@ -2132,7 +2133,9 @@
       "owner": "project",
       "layer": "unit",
       "sources": [
+        "src/vsc/interfaces/web/static/intelligent-production.css",
         "src/vsc/interfaces/web/static/intelligent-production.js",
+        "tests/project/unit/agent_and_recycle.test.mjs",
         "tests/project/unit/intelligent_races.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs",
         "tests/support/fixtures/frontend/panel_dom.cjs"

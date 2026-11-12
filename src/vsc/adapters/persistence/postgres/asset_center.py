@@ -249,10 +249,18 @@ class AssetCenterRepository:
                 )
             )
         order_by = filters.get("order_by", "")
-        if order_by == "latest":
-            ordering = (o.c.created_at.desc(), v.c.title, o.c.library_version_id)
-        else:
+        if order_by == "title":
             ordering = (v.c.title, o.c.library_version_id)
+        elif order_by == "heat":
+            heat_sub = (
+                select(func.count())
+                .where(S.library_download_requests.c.library_version_id == o.c.library_version_id)
+                .correlate(o)
+                .scalar_subquery()
+            )
+            ordering = (heat_sub.desc(), o.c.created_at.desc(), v.c.title, o.c.library_version_id)
+        else:
+            ordering = (o.c.created_at.desc(), v.c.created_at.desc(), v.c.title, o.c.library_version_id)
         with self.store.engine.connect() as conn:
             facets = {}
             facets_truncated = False
