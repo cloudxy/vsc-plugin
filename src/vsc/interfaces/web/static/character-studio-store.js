@@ -1,30 +1,29 @@
-// Shared character-studio state: recipe, provider configuration, history and the
-// active generation.  It lives at module scope so switching pages never interrupts
-// a running generation, matching the upstream studio behaviour.
-import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,resumeComfyTask,ComfyTaskError,ComfySubmissionRejectedError,
- PROVIDER_META,stitchRecipeCanvas,referenceImageUrl,poseThumbPath,setCsrfProvider,normalizeComfyBase,comfyFetch} from './character-studio-ai.js';
-import {COMFYUI_WORKFLOW_TEMPLATES,DEFAULT_COMFY_PRESET,parseParameterWorkflow,workflowIdentity} from './character-studio-workflows.js';
+// Shared character-studio state: recipe, provider configuration, CLI/OAuth auth status,
+// history and active generation. Lives at module scope so switching pages keeps progress.
+import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,PROVIDER_META,PROVIDER_ORDER,
+ stitchRecipeCanvas,referenceImageUrl,poseThumbPath,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin} from './character-studio-ai.js';
 
-const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',TASK_KEY='pose_atlas_active_task_v1',SAFE_KEY='pose_atlas_safe_mode_v1';
-const COMFY_CONFIG_VERSION=3,DB_NAME='pose_atlas_studio_db',STORE_NAME='kv_store';
+const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',SAFE_KEY='pose_atlas_safe_mode_v1';
+const DB_NAME='pose_atlas_studio_db',STORE_NAME='kv_store';
 export const NSFW_POSE_SYSTEMS=new Set(['全身单人・性感系','双人缠绵']);
 export const NSFW_COSTUME_CATEGORIES=new Set(['内衣・睡衣','性感穿搭']);
 export const isNsfwCostume=item=>Boolean(item?.敏感)||NSFW_COSTUME_CATEGORIES.has(item?.分类);
 export const isNsfwPose=item=>NSFW_POSE_SYSTEMS.has(item?.体系);
-const proxyDefault=provider=>provider==='qwen'||provider==='doubao';
+const proxyDefault=provider=>provider==='grok'||provider==='qwen'||provider==='doubao';
 const clone=v=>JSON.parse(JSON.stringify(v));
 
 function defaultConfig(){
  const provider=id=>({baseUrl:PROVIDER_META[id].defaultBaseUrl,apiKey:'',model:PROVIDER_META[id].models[0].value,customModel:''});
+ const providers={};for(const id of PROVIDER_ORDER)providers[id]=provider(id);
  return {
-  activeProvider:'gemini',imagePassMode:'url',useProxy:false,stylePreset:'realistic',sendStitchedSheet:false,
-  providers:{gemini:provider('gemini'),gpt:provider('gpt'),qwen:provider('qwen'),doubao:provider('doubao'),comfyui:provider('comfyui')},
+  activeProvider:'agy_auth',imagePassMode:'url',useProxy:false,stylePreset:'realistic',sendStitchedSheet:false,
+  providers,
+  agyParams:{aspectRatio:'3:4'},
+  grokParams:{endpointMode:'auto',aspectRatio:'3:4',resolution:'2k',responseFormat:'auto'},
   gptParams:{endpointMode:'images_edits_json',size:'1024x1536',quality:'high',inputFidelity:'high',background:'auto',outputFormat:'png',moderation:'auto'},
   geminiParams:{endpointMode:'native',aspectRatio:'3:4',imageSize:'2K'},
   qwenParams:{size:'1024*1536',promptExtend:true,watermark:false,negativePrompt:'',n:1},
   doubaoParams:{size:'2K',sequentialImageGeneration:'disabled',watermark:false,responseFormat:'b64_json'},
-  comfyuiParams:{workflowPreset:DEFAULT_COMFY_PRESET,workflowJson:JSON.stringify(COMFYUI_WORKFLOW_TEMPLATES[DEFAULT_COMFY_PRESET].workflow,null,2),
-   ...COMFYUI_WORKFLOW_TEMPLATES[DEFAULT_COMFY_PRESET].defaults,randomizeSeed:true,timeoutSec:600,configVersion:COMFY_CONFIG_VERSION},
  };
 }
 export const DEFAULT_API_CONFIG=defaultConfig();
@@ -32,21 +31,28 @@ export const DEFAULT_API_CONFIG=defaultConfig();
 export function mergeStoredConfig(raw){
  const base=defaultConfig();
  if(!raw||typeof raw!=='object')return base;
- const storedVer=raw.comfyuiParams?.configVersion??1;
- let comfyProvider={...base.providers.comfyui,...raw.providers?.comfyui},params={...base.comfyuiParams,configVersion:1,...raw.comfyuiParams};
- if((params.configVersion??1)<COMFY_CONFIG_VERSION){
-  params={...params,configVersion:COMFY_CONFIG_VERSION};
-  if(params.workflowPreset==='qwen21_3img'||params.workflowPreset==='qwen21_2img')Object.assign(params,{workflowPreset:DEFAULT_COMFY_PRESET,workflowJson:base.comfyuiParams.workflowJson,...COMFYUI_WORKFLOW_TEMPLATES[DEFAULT_COMFY_PRESET].defaults});
- }
- // The VSC host serves the same-origin /comfy relay; legacy direct URLs remain user choices.
- if(!String(comfyProvider.baseUrl||'').trim())comfyProvider.baseUrl='/comfy';
- if(!PROVIDER_META.comfyui.models.some(m=>m.value===comfyProvider.model))comfyProvider.model=PROVIDER_META.comfyui.models[0].value;
  const activeProvider=PROVIDER_META[raw.activeProvider]?raw.activeProvider:base.activeProvider;
- const useProxy=storedVer<3?proxyDefault(activeProvider):(raw.useProxy??proxyDefault(activeProvider));
- const providers={};for(const id of Object.keys(base.providers))providers[id]=id==='comfyui'?comfyProvider:{...base.providers[id],...raw.providers?.[id]};
- return {...base,...raw,activeProvider,useProxy,providers,
-  gptParams:{...base.gptParams,...raw.gptParams},geminiParams:{...base.geminiParams,...raw.geminiParams},
-  qwenParams:{...base.qwenParams,...raw.qwenParams},doubaoParams:{...base.doubaoParams,...raw.doubaoParams},comfyuiParams:params};
+ const useProxy=raw.useProxy===undefined?proxyDefault(activeProvider):Boolean(raw.useProxy);
+ const providers={};
+ for(const id of PROVIDER_ORDER){
+  const merged={...base.providers[id],...raw.providers?.[id]};
+  if(!PROVIDER_META[id].models.some(m=>m.value===merged.model))merged.model=PROVIDER_META[id].models[0].value;
+  providers[id]=merged;
+ }
+ return {
+  activeProvider,
+  imagePassMode:raw.imagePassMode==='base64'?'base64':'url',
+  useProxy,
+  stylePreset:raw.stylePreset||base.stylePreset,
+  sendStitchedSheet:Boolean(raw.sendStitchedSheet),
+  providers,
+  agyParams:{...base.agyParams,...raw.agyParams},
+  grokParams:{...base.grokParams,...raw.grokParams},
+  gptParams:{...base.gptParams,...raw.gptParams},
+  geminiParams:{...base.geminiParams,...raw.geminiParams},
+  qwenParams:{...base.qwenParams,...raw.qwenParams},
+  doubaoParams:{...base.doubaoParams,...raw.doubaoParams},
+ };
 }
 
 // ------------------------------------------------------------------ storage helpers
@@ -71,24 +77,32 @@ async function idbWrite(key,value){
  finally{db.close();}
 }
 const readJson=(key,fallback)=>{try{const raw=ls.get(key);return raw?JSON.parse(raw):fallback;}catch{return fallback;}};
-const emptyRecipe=()=>({portrait:null,costume:null,pose:null,extraImages:[],workflowImages:{}});
-const recipeBackup=r=>({portrait:r.portrait?.source==='upload'?null:r.portrait,costume:r.costume?.source==='upload'?null:r.costume,pose:r.pose?.source==='upload'?null:r.pose,extraImages:[],workflowImages:{}});
+const emptyRecipe=()=>({portrait:null,costume:null,pose:null,extraImages:[]});
+const recipeBackup=r=>({portrait:r.portrait?.source==='upload'?null:r.portrait,costume:r.costume?.source==='upload'?null:r.costume,pose:r.pose?.source==='upload'?null:r.pose,extraImages:[]});
+
+const defaultAuthState=()=>({
+ grok:{provider:'grok_auth',cli_installed:false,ready:false,status:'idle',account:null,message:'尚未检测本机 Grok 订阅授权状态',login_command:'grok login --oauth'},
+ agy:{provider:'agy_auth',cli_installed:false,ready:false,status:'idle',account:null,message:'尚未检测本机 AGY 授权状态',login_command:'agy'},
+});
 
 // ------------------------------------------------------------------ state
 const storedRecipe=readJson(RECIPE_KEY,null);
 const state={
  recipe:storedRecipe?{...emptyRecipe(),portrait:storedRecipe.portrait??null,costume:storedRecipe.costume??null,pose:storedRecipe.pose??null}:emptyRecipe(),
  apiConfig:mergeStoredConfig(readJson(CFG_KEY,null)),
+ authStatus:defaultAuthState(),
+ authPolling:null,
  history:readJson(HISTORY_KEY,[]),
  safeMode:ls.get(SAFE_KEY)===null?true:ls.get(SAFE_KEY)!=='false',
  poseDepthMode:Boolean(storedRecipe?.pose?.useDepth),
  customPrompt:null,previewUrl:'',isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',
- activeTask:null,hydrated:false,comfyConnection:{status:'idle'},
+ hydrated:false,
 };
 state.previewUrl=state.history?.[0]?.imageUrl||'';
 const listeners=new Set();
 let host={notice:()=>{},api:null,csrf:()=>''};
-let trackingController=null,historyWrites=Promise.resolve(),hydration=null;
+let activeController=null,historyWrites=Promise.resolve(),hydration=null,authPollTimer=null,authEpoch=0;
+
 export function configureStudio(options={}){
  host={...host,...options};
  setCsrfProvider(()=>host.csrf?.()||'');
@@ -114,17 +128,71 @@ function saveConfig(){ls.set(CFG_KEY,JSON.stringify(state.apiConfig));emit();}
 
 function hydrate(){
  if(hydration)return hydration;
- hydration=Promise.all([idbRead(RECIPE_KEY),idbRead(HISTORY_KEY),idbRead(TASK_KEY)]).then(([recipe,history,task])=>{
+ hydration=Promise.all([idbRead(RECIPE_KEY),idbRead(HISTORY_KEY)]).then(([recipe,history])=>{
   if(recipe){
    if(recipe.pose?.useDepth!==undefined)state.poseDepthMode=Boolean(recipe.pose.useDepth);
-   state.recipe={portrait:recipe.portrait??null,costume:recipe.costume??null,pose:recipe.pose??null,workflowImages:recipe.workflowImages??{},workflowImagesIdentity:recipe.workflowImagesIdentity,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
+   state.recipe={portrait:recipe.portrait??null,costume:recipe.costume??null,pose:recipe.pose??null,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
   }
   if(Array.isArray(history)){state.history=history;state.previewUrl=state.previewUrl||history[0]?.imageUrl||'';}
-  state.activeTask=task||null;state.hydrated=true;emit();
-  if(state.activeTask?.task)resumeGeneration();
+  state.hydrated=true;emit();
  }).catch(()=>{state.hydrated=true;emit();});
  return hydration;
 }
+
+// ------------------------------------------------------------------ auth status & OAuth login bridge
+export function stopAuthPolling(){
+ if(authPollTimer){clearTimeout(authPollTimer);authPollTimer=null;}
+ if(state.authPolling){state.authPolling=null;emit();}
+}
+export async function refreshAuthStatus(){
+ const epoch=++authEpoch;
+ try{
+  const data=await fetchAuthStatus(host.api);
+  if(epoch!==authEpoch||!data||typeof data!=='object')return state.authStatus;
+  if(data.grok)state.authStatus={...state.authStatus,grok:{...state.authStatus.grok,...data.grok}};
+  if(data.agy)state.authStatus={...state.authStatus,agy:{...state.authStatus.agy,...data.agy}};
+  emit();
+ }catch{}
+ return state.authStatus;
+}
+export async function verifyAuth(vendor){
+ const key=vendor==='grok'||vendor==='grok_auth'?'grok':'agy';
+ const data=await verifyAuthProvider(key,host.api);
+ if(data&&typeof data==='object'){
+  state.authStatus={...state.authStatus,[key]:{...state.authStatus[key],...data}};
+  emit();
+  if(data.message)toast(data.message);
+ }
+ return data;
+}
+export async function startAuthLogin(vendor){
+ const key=vendor==='grok'||vendor==='grok_auth'?'grok':'agy';
+ stopAuthPolling();
+ const res=await triggerAuthLogin(key,host.api);
+ if(res?.message)toast(res.message);
+ state.authPolling=key;emit();
+ let attempts=0;
+ const poll=async()=>{
+  attempts++;
+  const latest=await refreshAuthStatus();
+  if(latest?.[key]?.ready){
+   stopAuthPolling();
+   toast(key==='grok'?'Grok 订阅授权已生效':'AGY 授权登录已就绪');
+   return;
+  }
+  if(attempts<36&&state.authPolling===key){authPollTimer=setTimeout(poll,2500);}
+  else stopAuthPolling();
+ };
+ authPollTimer=setTimeout(poll,2500);
+ return res;
+}
+export const AUTH_STATUS_LABELS={
+ idle:'未检测',
+ authorized:'已授权',
+ expired:'登录已过期',
+ unauthorized:'未登录',
+ cli_missing:'未安装 CLI',
+};
 
 // ------------------------------------------------------------------ safe mode
 export function requestUnlockNsfw(onUnlocked){
@@ -169,7 +237,7 @@ export function isSelected(slot,item){
 export function toggleSlot(slot,item){
  if(slot==='pose'){
   const useDepth=item.source==='upload'?false:(item.useDepth??state.poseDepthMode);
-  const remove=state.recipe.pose?.id===item.id&&Boolean(state.recipe.pose?.useDepth)===useDepth;
+  const remove=state.recipe.pose?.id===item.id&&Boolean(state.recipe?.pose?.useDepth)===useDepth;
   setRecipe({...state.recipe,pose:remove?null:{...item,useDepth}});
   toast(remove?'已移除姿势':`已选姿势：${item.姿势名称}（${item.角度}${useDepth?' · 深度图':''}）`);return !remove;
  }
@@ -184,20 +252,6 @@ export function addExtraImage({name,url}){
 }
 export const removeExtraImage=id=>setRecipe({...state.recipe,extraImages:(state.recipe.extraImages||[]).filter(x=>x.id!==id)});
 export const updateExtraImageName=(id,name)=>{state.recipe={...state.recipe,extraImages:(state.recipe.extraImages||[]).map(x=>x.id===id?{...x,name}:x)};persistRecipe();};
-export function setWorkflowImage(nodeId,image,identity){
- if(identity!==workflowIdentity(state.apiConfig.comfyuiParams.workflowJson))return;
- const images=state.recipe.workflowImagesIdentity===identity?{...state.recipe.workflowImages}:{};
- if(image)images[nodeId]=image;else delete images[nodeId];
- setRecipe({...state.recipe,workflowImages:images,workflowImagesIdentity:identity});
-}
-export function pruneWorkflowImages(){
- const cp=state.apiConfig.comfyuiParams,identity=workflowIdentity(cp.workflowJson),workflow=parseParameterWorkflow(cp.workflowJson);
- const mapped=[cp.portraitNodeId,cp.costumeNodeId,cp.poseNodeId,cp.stitchedNodeId];
- const ids=new Set(Object.entries(workflow||{}).filter(([id,node])=>!mapped.includes(id)&&typeof node.inputs.image==='string').map(([id])=>id));
- const entries=Object.entries(state.recipe.workflowImages||{}),kept=state.recipe.workflowImagesIdentity===identity?entries.filter(([id])=>ids.has(id)):[];
- if(entries.length===kept.length&&state.recipe.workflowImagesIdentity===identity)return;
- setRecipe({...state.recipe,workflowImages:Object.fromEntries(kept),workflowImagesIdentity:identity});
-}
 export function clearRecipe(){setRecipe(emptyRecipe());toast('已清空配方');}
 
 async function postRandom(payload){
@@ -226,33 +280,9 @@ export function updateApiConfig(patch){
  state.apiConfig=next;saveConfig();
 }
 export function updateProviderConfig(provider,patch){state.apiConfig={...state.apiConfig,providers:{...state.apiConfig.providers,[provider]:{...state.apiConfig.providers[provider],...patch}}};saveConfig();}
-export function updateParams(group,patch){state.apiConfig={...state.apiConfig,[group]:{...state.apiConfig[group],...patch}};saveConfig();if(group==='comfyuiParams')pruneWorkflowImages();}
+export function updateParams(group,patch){state.apiConfig={...state.apiConfig,[group]:{...state.apiConfig[group],...patch}};saveConfig();}
 export function setCustomPrompt(value){state.customPrompt=value;emit();}
-export function currentPrompt(){
- const cfg=state.apiConfig,recipe=state.recipe;
- return state.customPrompt??buildRecipePrompt(recipe,cfg.stylePreset,cfg.activeProvider==='comfyui'&&recipe.workflowImagesIdentity===workflowIdentity(cfg.comfyuiParams.workflowJson)?Object.values(recipe.workflowImages||{}):[]);
-}
-
-// ------------------------------------------------------------------ ComfyUI connection
-let connectionEpoch=0;
-export async function checkComfyConnection(){
- const cfg=state.apiConfig.providers.comfyui,epoch=++connectionEpoch;
- if(!String(cfg.baseUrl||'').trim()){state.comfyConnection={status:'notconfigured'};emit();return;}
- state.comfyConnection={...state.comfyConnection,status:'checking',error:undefined};emit();
- try{
-  const res=await comfyFetch(normalizeComfyBase(cfg.baseUrl),'/system_stats',{},cfg.apiKey,8000);
-  if(epoch!==connectionEpoch)return;
-  if(!res.ok){state.comfyConnection={status:'error',checkedAt:Date.now(),error:res.status===401||res.status===403?`鉴权失败（HTTP ${res.status}），请检查 API Key / 鉴权设置`:`HTTP ${res.status}，请检查 ComfyUI 服务与代理`};emit();return;}
-  const data=await res.json();
-  const version=typeof data?.system?.comfyui_version==='string'&&/^[\d.a-zA-Z_-]{1,40}$/.test(data.system.comfyui_version)?data.system.comfyui_version:'未知版本';
-  state.comfyConnection=data?.system?{status:'connected',checkedAt:Date.now(),info:`ComfyUI ${version}`}:{status:'error',checkedAt:Date.now(),error:'响应不是 ComfyUI system_stats 格式，请检查地址'};
- }catch(error){
-  if(epoch!==connectionEpoch)return;
-  state.comfyConnection={status:typeof navigator!=='undefined'&&navigator.onLine===false?'offline':'error',checkedAt:Date.now(),error:String(error?.message||'无法读取 ComfyUI 状态').split('\n')[0]};
- }
- emit();
-}
-export const COMFY_CONNECTION_LABELS={idle:'未检测',notconfigured:'未配置',checking:'检测中',connected:'HTTP 已连接',offline:'离线',error:'连接失败'};
+export function currentPrompt(){return state.customPrompt??buildRecipePrompt(state.recipe,state.apiConfig.stylePreset);}
 
 // ------------------------------------------------------------------ history & generation
 function persistHistory(update){
@@ -266,7 +296,6 @@ export async function refreshStitchPreview(){
  try{state.previewUrl=await stitchRecipeCanvas(state.recipe);emit();toast('已合成参考拼图');return state.previewUrl;}
  catch(error){toast(error?.message||'拼图失败');return '';}
 }
-async function saveActive(value){await idbWrite(TASK_KEY,value).catch(()=>{});state.activeTask=value;emit();}
 async function snapshotGeneration(recipe,config,prompt){
  const {providers,...settings}=clone(config);
  const models=Object.fromEntries(Object.entries(providers).map(([key,value])=>[key,{model:value.model,customModel:value.customModel}]));
@@ -278,49 +307,31 @@ async function completeGeneration(result,record,signal){
  const imageUrl=await durableImage(result.imageUrl).catch(()=>result.imageUrl);
  throwIfAborted(signal);
  state.previewUrl=imageUrl;
- const id=record.task?`comfy:${record.task.baseUrl}:${record.task.promptId}`:(crypto.randomUUID?.()||String(Date.now()));
+ const id=crypto.randomUUID?.()||String(Date.now());
  await persistHistory(c=>[{id,createdAt:Date.now(),imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot},...c.filter(x=>x.id!==id)].slice(0,30));
- await saveActive(null);
  toast('角色图已完成并保存');
 }
-export async function resumeGeneration(){
- const record=state.activeTask;
- if(!record?.task||state.isGenerating)return;
- state.isGenerating=true;state.generationError='';emit();
- const controller=new AbortController();trackingController=controller;
- try{
-  const result=await resumeComfyTask({task:record.task,apiKey:state.apiConfig.providers.comfyui.apiKey,timeoutSec:state.apiConfig.comfyuiParams.timeoutSec,onProgress:p=>{state.generationProgress=p;emit();},signal:controller.signal});
-  await completeGeneration(result,record,controller.signal);
- }catch(error){
-  if(error instanceof ComfySubmissionRejectedError||(error instanceof ComfyTaskError&&error.reason==='failed'))await saveActive(null);
-  if(!controller.signal.aborted)state.generationError=error?.message||'无法确认任务状态，记录已保留';
- }finally{state.isGenerating=false;emit();}
-}
-export async function stopTracking(){
- trackingController?.abort();
- await saveActive(null);
- state.generationError='已停止跟踪；后端任务可能仍在执行，请先确认队列再提交新任务';emit();
+export function cancelGeneration(){
+ activeController?.abort();
 }
 export async function startGeneration(overridePrompt){
  if(state.isGenerating)return;
- if(state.activeTask){toast('存在待确认任务，请先恢复或明确停止跟踪');return;}
  const recipe=state.recipe,config=state.apiConfig,prompt=overridePrompt??currentPrompt();
- let record={prompt,summary:[recipe.portrait?.发型名称,recipe.costume?.服装名称,recipe.pose?.姿势名称].filter(Boolean).join(' + ')||'自定义合成'};
+ const record={prompt,summary:[recipe.portrait?.发型名称,recipe.costume?.服装名称,recipe.pose?.姿势名称].filter(Boolean).join(' + ')||'自定义合成'};
  state.isGenerating=true;state.generatingModel=config.activeProvider;state.generationError='';state.generationProgress=null;emit();
- const controller=new AbortController();trackingController=controller;
+ const controller=new AbortController();activeController=controller;
  try{
   record.snapshot=await snapshotGeneration(recipe,config,prompt);
   throwIfAborted(controller.signal);
-  const result=await generateCharacterImage({recipe,prompt,config,signal:controller.signal,onProgress:p=>{state.generationProgress=p;emit();},
-   onSubmitting:async prepared=>{throwIfAborted(controller.signal);if(record.snapshot&&prepared)record.snapshot.submittedWorkflowJson=JSON.stringify(prepared.workflow);await saveActive({...record,unknown:true});},
-   onSubmitted:async task=>{if(controller.signal.aborted)return;record={...record,task};await saveActive(record);}});
+  const result=await generateCharacterImage({recipe,prompt,config,signal:controller.signal,onProgress:p=>{state.generationProgress=p;emit();}});
   throwIfAborted(controller.signal);
   await completeGeneration(result,record,controller.signal);
  }catch(error){
-  if(error instanceof ComfySubmissionRejectedError||(error instanceof ComfyTaskError&&error.reason==='failed'))await saveActive(null);
-  const message=error?.message||'调用失败';
-  state.generationError=message;toast(message.split('\n')[0]);
- }finally{state.isGenerating=false;emit();}
+  if(!controller.signal.aborted){
+   const message=error?.message||'调用失败';
+   state.generationError=message;toast(message.split('\n')[0]);
+  }
+ }finally{activeController=null;state.isGenerating=false;emit();}
 }
 
 // ------------------------------------------------------------------ recipe dock

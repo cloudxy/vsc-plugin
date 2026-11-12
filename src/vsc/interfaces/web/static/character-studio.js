@@ -1,8 +1,7 @@
-// AI 角色合成台 and API 接口配置 views, ported from ai-pose-gallery studio/settings.
+// AI 角色合成台 and API 接口配置 views (OAuth login bridges for AGY & Grok + Cloud API keys).
 import {openAssetImageViewer} from './asset-center.js';
-import {PROVIDER_META,PROVIDER_ORDER,STYLE_PRESETS,referenceImageUrl,poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,
- detectComfyUi,fetchComfyObjectInfo,checkComfyWorkflow,comparisonReferences,recipeImageList} from './character-studio-ai.js';
-import {COMFYUI_WORKFLOW_TEMPLATES,parseComfyWorkflowNodes as parseNodes,autoDetectComfyMappings,getWorkflowControls,getWorkflowImages,workflowIdentity,validControlValue,validateReferenceCombinations} from './character-studio-workflows.js';
+import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,STYLE_PRESETS,isAuthProvider,groupForProvider,referenceImageUrl,
+ poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,comparisonReferences,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
 
 const SLOT_LABEL={portrait:'人像',costume:'服装',pose:'姿势'};
@@ -31,7 +30,7 @@ function toggle(checked,onChange,label){
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
 
 export function createCharacterStudio(root,ctx){
- let mode='studio',disposed=false,renderSig='',settingsProvider=null,showKey=false,objectInfo=null,objectInfoIdentity='',checkResult=null,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
+ let mode='studio',disposed=false,renderSig='',settingsProvider=null,showKey=false,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
  store.configureStudio({notice:ctx.notice,api:ctx.api,csrf:()=>ctx.session().csrf});
  const notice=message=>ctx.notice(message);
  const state=()=>store.getState();
@@ -47,6 +46,28 @@ export function createCharacterStudio(root,ctx){
   };return b;
  }
  function zoom(src,title){if(src)openAssetImageViewer({title,src:referenceImageUrl(src),host:document.body});}
+
+ function providerStatusText(id){
+  const s=state(),meta=PROVIDER_META[id];
+  if(isAuthProvider(id)){
+   const info=s.authStatus[meta.authVendor]||{};
+   return store.AUTH_STATUS_LABELS[info.status]||(info.ready?'已授权':'未登录');
+  }
+  return s.apiConfig.providers[id]?.apiKey?.trim()?'已配置 Key':'未配置 Key';
+ }
+ function groupSummary(group){
+  const s=state();
+  if(group.modes.length===1){
+   const id=group.modes[0],ok=Boolean(s.apiConfig.providers[id]?.apiKey?.trim());
+   return {label:ok?'已配置 Key':'未配置 Key',tone:ok?'is-set':''};
+  }
+  const [oauthId,apiId]=group.modes,vendor=PROVIDER_META[oauthId].authVendor;
+  const authReady=Boolean(s.authStatus[vendor]?.ready),keyReady=Boolean(s.apiConfig.providers[apiId]?.apiKey?.trim());
+  if(authReady&&keyReady)return {label:'授权已就绪 · Key 已配',tone:'is-ok'};
+  if(authReady)return {label:`${PROVIDER_META[oauthId].shortName}已就绪`,tone:'is-ok'};
+  if(keyReady)return {label:`${PROVIDER_META[apiId].shortName}已配置`,tone:'is-set'};
+  return {label:'待授权或配 Key',tone:''};
+ }
 
  // ------------------------------------------------------------------ studio
  function slotCard(slot){
@@ -133,7 +154,31 @@ export function createCharacterStudio(root,ctx){
  function providerParams(){
   const cfg=state().apiConfig,p=cfg.activeProvider,box=el('div','cs-grid2');
   const up=(group,key)=>v=>store.updateParams(group,{[key]:v});
-  if(p==='gpt'){
+  if(p==='agy_auth'){
+   const a=cfg.agyParams;
+   box.append(field('画幅比例',select(['3:4','1:1','4:3','9:16','16:9'].map(v=>[v,v]),a.aspectRatio,up('agyParams','aspectRatio'))),
+    field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')));
+   return box;
+  }
+  if(p==='grok_auth'){
+   const gr=cfg.grokParams;
+   box.append(field('画幅比例 (aspect_ratio)',select(['3:4','1:1','4:3','9:16','16:9','2:3','3:2','auto'].map(v=>[v,v]),gr.aspectRatio,up('grokParams','aspectRatio'))),
+    field('输出分辨率 (resolution)',select([['2k','2k（高清推荐）'],['1.5k','1.5k'],['1k','1k']],gr.resolution,up('grokParams','resolution'))),
+    field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')));
+   return box;
+  }
+  if(p==='grok'){
+   const gr=cfg.grokParams;
+   box.append(field('接口模式',select([['auto','自动（带参考走 /images/edits ≤5张）'],['generations','仅文生图 (/v1/images/generations)']],gr.endpointMode,up('grokParams','endpointMode'))),
+    field('画幅比例 (aspect_ratio)',select(['3:4','1:1','4:3','9:16','16:9','2:3','3:2','auto'].map(v=>[v,v]),gr.aspectRatio,up('grokParams','aspectRatio'))),
+    field('输出分辨率 (resolution)',select([['2k','2k（高清推荐）'],['1.5k','1.5k'],['1k','1k']],gr.resolution,up('grokParams','resolution'))),
+    field('返回格式 (response_format)',select([['auto','auto（推荐，自动转存临时 URL）'],['b64_json','b64_json']],gr.responseFormat,up('grokParams','responseFormat'))));
+  }else if(p==='gemini'){
+   const g=cfg.geminiParams;
+   box.append(field('接口模式',select([['native','原生 generateContent (x-goog-api-key)'],['openai_chat','OpenAI 兼容 Chat']],g.endpointMode,up('geminiParams','endpointMode'))),
+    field('画幅比例',select(['3:4','1:1','4:3','9:16','16:9'].map(v=>[v,v]),g.aspectRatio,up('geminiParams','aspectRatio'))),
+    field('分辨率 (Gemini 3)',select(['1K','2K','4K'].map(v=>[v,v]),g.imageSize,up('geminiParams','imageSize'))));
+  }else if(p==='gpt'){
    const g=cfg.gptParams;
    box.append(field('接口模式',select([['images_edits_json','/v1/images/edits JSON（URL 直传）'],['images_edits','/v1/images/edits multipart'],['responses','/v1/responses'],['chat','Chat Completions 中转']],g.endpointMode,up('gptParams','endpointMode'))),
     field('输出尺寸 (size)',select([['1024x1536','1024x1536'],['1024x1024','1024x1024'],['1536x1024','1536x1024'],['auto','auto']],g.size,up('gptParams','size'))),
@@ -141,11 +186,6 @@ export function createCharacterStudio(root,ctx){
     field('参考还原度 (input_fidelity)',select([['high','high'],['low','low']],g.inputFidelity,up('gptParams','inputFidelity'))),
     field('背景模式 (background)',select(['auto','transparent','opaque'].map(v=>[v,v]),g.background,up('gptParams','background'))),
     field('图片格式 (output_format)',select(['png','webp','jpeg'].map(v=>[v,v]),g.outputFormat,up('gptParams','outputFormat'))));
-  }else if(p==='gemini'){
-   const g=cfg.geminiParams;
-   box.append(field('接口模式',select([['native','原生 generateContent'],['openai_chat','OpenAI 兼容 Chat']],g.endpointMode,up('geminiParams','endpointMode'))),
-    field('画幅比例',select(['3:4','1:1','4:3','9:16','16:9'].map(v=>[v,v]),g.aspectRatio,up('geminiParams','aspectRatio'))),
-    field('分辨率 (Gemini 3)',select(['1K','2K','4K'].map(v=>[v,v]),g.imageSize,up('geminiParams','imageSize'))));
   }else if(p==='qwen'){
    const q=cfg.qwenParams,neg=el('textarea');neg.value=q.negativePrompt;neg.placeholder='低分辨率，多余手指，扭曲';neg.dataset.focusKey='qwen-negative';neg.onchange=()=>store.updateParams('qwenParams',{negativePrompt:neg.value});
    box.append(field('输出尺寸 (size)',select(['1024*1536','928*1664','1328*1328','1664*928'].map(v=>[v,v]),q.size,up('qwenParams','size'))),
@@ -158,140 +198,42 @@ export function createCharacterStudio(root,ctx){
     field('组图模式 (sequential)',select([['disabled','disabled (单张)'],['auto','auto (组图)']],d.sequentialImageGeneration,up('doubaoParams','sequentialImageGeneration'))),
     field('返回格式 (response_format)',select([['b64_json','b64_json'],['url','url']],d.responseFormat,up('doubaoParams','responseFormat'))),
     field('水印 (watermark)',toggle(d.watermark,up('doubaoParams','watermark'),d.watermark?'开启':'关闭')));
-  }else{
-   const c=cfg.comfyuiParams,nodes=parseNodes(c.workflowJson);
-   const timeout=el('input');timeout.type='number';timeout.min='60';timeout.step='30';timeout.value=String(c.timeoutSec||600);timeout.dataset.focusKey='comfy-timeout';
-   timeout.onchange=()=>store.updateParams('comfyuiParams',{timeoutSec:Math.max(60,Number(timeout.value)||600)});
-   box.append(field('三合一拼图节点 (可选)',select([['none','不绑定'],...nodes.imageNodes.map(n=>[n.id,`#${n.id} ${n.title}`])],c.stitchedNodeId,up('comfyuiParams','stitchedNodeId'))),
-    field('最长等待时间（秒）',timeout),
-    field('随机种子 (seed)',toggle(c.randomizeSeed,up('comfyuiParams','randomizeSeed'),c.randomizeSeed?'每次随机':'保持工作流种子')));
   }
-  if(p!=='comfyui'){
-   box.append(field('图片传参方式',select([['url','URL'],['base64','Base64']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
-    field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')),
-    field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用':'浏览器直连')));
-  }
+  box.append(field('图片传参方式',select([['url','URL'],['base64','Base64']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
+   field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')),
+   field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用':'浏览器直连')));
   return box;
  }
 
- function comfyPanel(){
-  const cfg=state().apiConfig,c=cfg.comfyuiParams,wrap=el('div','cs-comfy');
-  const presets=[...Object.entries(COMFYUI_WORKFLOW_TEMPLATES).map(([id,t])=>[id,t.label]),['custom','自定义工作流（已导入 JSON）']];
-  wrap.append(field('工作流模板 (API 格式)',select(presets,c.workflowPreset,value=>{
-   if(value==='custom')return;
-   const tpl=COMFYUI_WORKFLOW_TEMPLATES[value];objectInfo=null;checkResult=null;
-   store.updateParams('comfyuiParams',{workflowPreset:value,workflowJson:JSON.stringify(tpl.workflow,null,2),...tpl.defaults,parameterOverrides:undefined});notice(`已切换为：${tpl.label}`);
-  })));
-  const tools=el('div','cs-row-actions');
-  const importInput=el('input');importInput.type='file';importInput.accept='.json,application/json';importInput.hidden=true;
-  importInput.onchange=async()=>{const f=importInput.files?.[0];importInput.value='';if(!f)return;try{applyWorkflowJson(await f.text(),f.name);}catch{notice('读取 JSON 文件失败');}};
-  tools.append(importInput,action('导入 JSON',()=>importInput.click()),action('编辑 JSON',()=>jsonEditor()),
-   action('导出 JSON',()=>{try{JSON.parse(c.workflowJson);const blob=new Blob([c.workflowJson],{type:'application/json'}),url=URL.createObjectURL(blob);download(url,`comfyui-workflow-${Date.now()}.json`);setTimeout(()=>URL.revokeObjectURL(url),1500);notice('已导出 ComfyUI API 工作流 JSON');}catch{notice('当前工作流 JSON 格式有误，无法导出');}}),
-   action('检测本机模型',async()=>{
-    const p=cfg.providers.comfyui;
-    objectInfo=await fetchComfyObjectInfo(p.baseUrl,p.apiKey,c.workflowJson);objectInfoIdentity=workflowIdentity(c.workflowJson);
-    checkResult=await checkComfyWorkflow(p.baseUrl,p.apiKey,c.workflowJson,[c.portraitNodeId,c.costumeNodeId,c.poseNodeId,c.stitchedNodeId],objectInfo);
-    if(checkResult.fixedJson)store.updateParams('comfyuiParams',{workflowJson:checkResult.fixedJson,workflowPreset:'custom'});
-    notice(checkResult.ok?'工作流与本机模型匹配':'工作流与本机不匹配，请查看检测结果');
-   },'','comfy-check'));
-  wrap.append(tools);
-  if(checkResult){
-   const box=el('div','cs-check '+(checkResult.ok?'is-ok':'is-error'));
-   box.append(el('strong','',checkResult.ok?'检测通过':'检测未通过'));
-   for(const line of [...checkResult.errors,...checkResult.warnings,...checkResult.fixes])box.append(el('p','',line));
-   wrap.append(box);
-  }
-  const nodes=parseNodes(c.workflowJson);
-  if(!nodes.valid)wrap.append(el('p','cs-error',nodes.error||'工作流 JSON 无效'));
-  const imageOpts=[['none','不绑定'],...nodes.imageNodes.map(n=>[n.id,`#${n.id} ${n.title}`])];
-  const grid=el('div','cs-grid2');
-  for(const [key,label]of [['portraitNodeId','人像图节点 (LoadImage)'],['costumeNodeId','服装图节点 (LoadImage)'],['poseNodeId','姿势图节点 (LoadImage)']])
-   grid.append(field(label,select(imageOpts,c[key],v=>store.updateParams('comfyuiParams',{[key]:v}))));
-  grid.append(field('正向提示词节点 (Prompt)',select([['none','不绑定'],...nodes.promptNodes.map(n=>[n.id,`#${n.id} ${n.title} · ${n.field}`])],c.promptNodeId,v=>store.updateParams('comfyuiParams',{promptNodeId:v}))));
-  wrap.append(grid,action('重新识别节点',()=>{store.updateParams('comfyuiParams',autoDetectComfyMappings(c.workflowJson));notice('已重新识别节点映射');}));
-  if(objectInfo&&objectInfoIdentity===workflowIdentity(c.workflowJson)){
-   const mapped=[c.portraitNodeId,c.costumeNodeId,c.poseNodeId,c.stitchedNodeId];
-   const images=getWorkflowImages(c.workflowJson,mapped,objectInfo);
-   if(images.length){
-    const box=el('div','cs-workflow-images');box.append(el('h3','','工作流附加图片'));
-    const identity=workflowIdentity(c.workflowJson),current=state().recipe.workflowImagesIdentity===identity?state().recipe.workflowImages||{}:{};
-    for(const node of images){
-     const row=el('div','cs-workflow-image'),img=current[node.nodeId];
-     row.append(el('span','',`${node.label}${node.optional?'（可选）':''}`));
-     if(img){const t=el('img');t.src=referenceImageUrl(img.url);t.alt=node.label;row.append(t,action('移除',()=>store.setWorkflowImage(node.nodeId,null,identity)));}
-     const up=el('label','cs-upload-btn','上传');const f=el('input');f.type='file';f.accept='image/*';
-     f.onchange=async()=>{const file=f.files?.[0];f.value='';if(!file)return;const {url}=await fileToDataUrl(file);store.setWorkflowImage(node.nodeId,{id:crypto.randomUUID(),name:node.label,url,...(node.role?{role:node.role}:{})},identity);};
-     up.append(f);row.append(up);box.append(row);
-    }
-    wrap.append(box);
-   }
-   const excluded=new Set([...mapped.filter(id=>id&&id!=='none').map(id=>`${id}.image`),c.promptNodeId&&c.promptNodeId!=='none'?nodes.promptNodes.filter(n=>n.id===c.promptNodeId).map(n=>`${n.id}.${n.field}`)[0]:'']);
-   const controls=getWorkflowControls(c.workflowJson,objectInfo,excluded);
-   if(controls.length){
-    const details=el('details','cs-workflow-params');details.append(el('summary','',`工作流参数 (${controls.length})`));
-    const saved=c.parameterOverrides?.workflowId===workflowIdentity(c.workflowJson)?c.parameterOverrides.values||{}:{};
-    const grid2=el('div','cs-grid2');
-    for(const control of controls){
-     const current=saved[control.nodeId]?.[control.input]??control.value;
-     const save=value=>{
-      if(!validControlValue(control,value)){notice('参数值超出允许范围');return;}
-      const values=JSON.parse(JSON.stringify(saved));values[control.nodeId]={...(values[control.nodeId]||{}),[control.input]:value};
-      store.updateParams('comfyuiParams',{parameterOverrides:{workflowId:workflowIdentity(c.workflowJson),values}});
-     };
-     let input;
-     if(control.type==='enum')input=select(control.options.map(o=>[JSON.stringify(o),control.optionLabels?.[JSON.stringify(o)]||String(o)]),JSON.stringify(current),v=>save(JSON.parse(v)));
-     else if(control.type==='boolean')input=toggle(current,save,current?'开启':'关闭');
-     else if(control.type==='number'){input=el('input');input.type='number';input.value=String(current);if(control.min!=null)input.min=String(control.min);if(control.max!=null)input.max=String(control.max);if(control.step!=null)input.step=String(control.step);input.onchange=()=>save(Number(input.value));}
-     else{input=el(control.multiline?'textarea':'input');input.value=String(current);input.onchange=()=>save(input.value);}
-     input.dataset.focusKey='wf-'+control.key;
-     grid2.append(field(control.label,input,control.description));
-    }
-    details.append(grid2);wrap.append(details);
-   }
-  }
-  return wrap;
- }
- function applyWorkflowJson(text,name='工作流'){
-  const info=parseNodes(text);
-  if(!info.valid){notice(info.error||'工作流 JSON 无效');return false;}
-  objectInfo=null;checkResult=null;
-  store.updateParams('comfyuiParams',{workflowPreset:'custom',workflowJson:JSON.stringify(JSON.parse(text),null,2),...autoDetectComfyMappings(text),parameterOverrides:undefined});
-  notice(`已导入${name}：识别到 ${info.imageNodes.length} 个图片节点、${info.promptNodes.length} 个提示词节点`);return true;
- }
- function jsonEditor(){
-  const dialog=el('dialog','cs-dialog cs-json');dialog.setAttribute('aria-label','编辑工作流 JSON');
-  const head=el('header','cs-dialog-head');head.append(el('h2','','编辑 ComfyUI API 工作流 JSON'),action('×',()=>dialog.close(),'cs-icon-btn'));
-  const area=el('textarea');area.value=state().apiConfig.comfyuiParams.workflowJson;area.spellcheck=false;
-  const status=el('p','cs-field-hint','请粘贴「工作流 → 导出 (API)」得到的 JSON。');
-  area.oninput=()=>{const info=parseNodes(area.value);status.textContent=info.valid?`有效：${info.imageNodes.length} 个图片节点、${info.promptNodes.length} 个提示词节点`:info.error;};
-  const foot=el('footer','cs-dialog-foot');foot.append(action('应用',()=>{if(applyWorkflowJson(area.value,'编辑后的工作流'))dialog.close();},'cs-primary'),action('取消',()=>dialog.close()));
-  dialog.append(head,area,status,foot);dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal?.();
- }
-
- function connectionStatus(){
-  const conn=state().comfyConnection,box=el('div','cs-conn is-'+conn.status);box.setAttribute('role','status');
-  box.append(el('span','cs-conn-badge',`ComfyUI · ${store.COMFY_CONNECTION_LABELS[conn.status]||conn.status}`));
-  if(conn.info&&conn.status==='connected')box.append(el('span','',conn.info));
-  if(conn.error)box.append(el('span','cs-error',conn.error));
-  box.append(el('small','',conn.checkedAt?`最近检测 ${new Date(conn.checkedAt).toLocaleTimeString()}；HTTP 检测不代表任务 WebSocket 已连接`:'尚无检测记录'));
-  box.append(action('检测连接',()=>store.checkComfyConnection(),'','comfy-conn'));
-  return box;
+ function authInlineBanner(providerId){
+  const s=state(),meta=PROVIDER_META[providerId],vendor=meta.authVendor,info=s.authStatus[vendor]||{};
+  const bar=el('div','cs-conn '+(info.ready?'is-connected':info.status==='expired'||info.status==='cli_missing'?'is-error':''));
+  bar.setAttribute('role','status');
+  bar.append(el('span','cs-conn-badge',`${meta.shortName} · ${store.AUTH_STATUS_LABELS[info.status]||(info.ready?'已授权':'未登录')}`));
+  bar.append(el('span','cs-conn-msg',info.message||''));
+  const acts=el('div','cs-row-actions');
+  if(!info.ready)acts.append(action(vendor==='grok'?'调起授权登录':'打开终端授权',()=>store.startAuthLogin(vendor),'cs-primary',`login-${vendor}`));
+  acts.append(action('刷新状态',()=>store.refreshAuthStatus(),'',`refresh-${vendor}`));
+  bar.append(acts);
+  return bar;
  }
 
  function engineSection(){
   const cfg=state().apiConfig,p=cfg.activeProvider,meta=PROVIDER_META[p],pc=cfg.providers[p];
-  const keyBtn=action('配置 Key',()=>{settingsProvider=p;ctx.navigate?.('api-settings');},'cs-ghost');
-  const sec=section('2. 生图引擎与参数',{actions:keyBtn});
+  const cfgBtn=action(isAuthProvider(p)?'授权配置':'配置 Key',()=>{settingsProvider=p;ctx.navigate?.('api-settings');},'cs-ghost');
+  const sec=section('2. 生图引擎与参数',{actions:cfgBtn});
   const grid=el('div','cs-grid2');
-  grid.append(field('接口协议',select(PROVIDER_ORDER.map(id=>{const conf=id==='comfyui'?'':cfg.providers[id].apiKey.trim()?' · 已配置':' · 未配置 Key';return [id,PROVIDER_META[id].name+conf];}),p,v=>store.updateApiConfig({activeProvider:v}))));
-  grid.append(field('画风预设',select(Object.entries(STYLE_PRESETS).map(([k,v])=>[k,v.label]),cfg.stylePreset,v=>store.updateApiConfig({stylePreset:v}))));
-  if(p!=='comfyui'){
-   grid.append(field('模型 ID',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(p,{model:v}))));
-   if(pc.model==='custom'){const input=el('input');input.value=pc.customModel;input.placeholder='输入模型 ID';input.dataset.focusKey='custom-model';input.onchange=()=>store.updateProviderConfig(p,{customModel:input.value});grid.append(field('自定义模型 ID',input));}
-   if(!pc.apiKey.trim())sec.body.append(el('p','cs-warn',`尚未配置 ${meta.name} 的 API Key，请点击右上角「配置 Key」。`));
+  grid.append(field('接口协议',select(PROVIDER_ORDER.map(id=>[id,`${PROVIDER_META[id].name} · ${providerStatusText(id)}`]),p,v=>{store.updateApiConfig({activeProvider:v});if(isAuthProvider(v))store.refreshAuthStatus();},{label:'接口协议'})));
+  grid.append(field('画风预设',select(Object.entries(STYLE_PRESETS).map(([k,v])=>[k,v.label]),cfg.stylePreset,v=>store.updateApiConfig({stylePreset:v}),{label:'画风预设'})));
+  grid.append(field('模型 ID',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(p,{model:v}),{label:'模型 ID'})));
+  if(pc.model==='custom'){
+   const input=el('input');input.value=pc.customModel;input.placeholder='输入模型 ID';input.dataset.focusKey='custom-model';
+   input.onchange=()=>store.updateProviderConfig(p,{customModel:input.value});
+   grid.append(field('自定义模型 ID',input));
   }
   sec.body.append(grid);
-  if(p==='comfyui'){sec.body.append(connectionStatus(),comfyPanel());}
+  if(isAuthProvider(p))sec.body.append(authInlineBanner(p));
+  else if(!pc.apiKey.trim())sec.body.append(el('p','cs-warn',`尚未配置 ${meta.name} 的 API Key，请点击右上角「配置 Key」。`));
   const more=el('details','cs-more');more.append(el('summary','','更多参数'),providerParams());
   sec.body.append(more);
   return sec.node;
@@ -305,17 +247,8 @@ export function createCharacterStudio(root,ctx){
   sec.body.append(area);
   if(s.customPrompt!=null)sec.body.append(el('small','cs-field-hint','已手动修改提示词；更换参考图后可点「重置」重新组装。'));
   const count=store.recipeCount(s.recipe);
-  const gen=action(s.isGenerating?'生成中…':`生成角色图${count?` (${count} 张参考)`:''}`,async()=>{
-   const cfg=s.apiConfig;
-   if(cfg.activeProvider==='comfyui'){
-    const c=cfg.comfyuiParams,missing=[['portraitNodeId','portrait'],['costumeNodeId','costume'],['poseNodeId','pose']].filter(([k,slot])=>c[k]&&c[k]!=='none'&&!s.recipe[slot]).map(([,slot])=>SLOT_LABEL[slot]);
-    if(missing.length){notice(`当前工作流需要：${missing.join('、')}参考图`);return;}
-    const combo=validateReferenceCombinations(c.workflowJson,[['portraitNodeId','portrait'],['costumeNodeId','costume'],['poseNodeId','pose']].filter(([k,slot])=>c[k]&&c[k]!=='none'&&s.recipe[slot]).map(([k])=>c[k]));
-    if(combo){notice(combo);return;}
-   }
-   await store.startGeneration();
-  },'cs-primary cs-generate');
-  gen.disabled=s.isGenerating||!s.hydrated||Boolean(s.activeTask);
+  const gen=action(s.isGenerating?'生成中…':`生成角色图${count?` (${count} 张参考)`:''}`,()=>store.startGeneration(),'cs-primary cs-generate');
+  gen.disabled=s.isGenerating||!s.hydrated;
   sec.body.append(gen);
   return sec.node;
  }
@@ -342,19 +275,8 @@ export function createCharacterStudio(root,ctx){
   progressNode.replaceChildren();
   if(!s.isGenerating)return;
   progressNode.append(el('span','cs-progress-text',p?.message||`正在调用 ${PROVIDER_META[s.generatingModel]?.name||s.generatingModel||'接口'}…`));
-  if(p?.connection)progressNode.append(el('small','',{connecting:'正在连接任务通道',connected:'任务通道已连接',reconnecting:'任务通道重连中',degraded:'任务通道不稳定，改用 HTTP 轮询'}[p.connection]||''));
-  const bar=el('div','cs-bar'),fill=el('span');bar.append(fill);
-  if(typeof p?.percent==='number'){fill.style.width=`${Math.max(2,Math.min(100,p.percent))}%`;}else bar.classList.add('is-indeterminate');
+  const bar=el('div','cs-bar is-indeterminate');bar.append(el('span'));
   progressNode.append(bar);
- }
- function taskSection(){
-  const s=state();if(!s.activeTask)return null;
-  const sec=section('待确认任务');
-  sec.body.append(el('p','',s.activeTask.task?`ComfyUI 任务 ${s.activeTask.task.promptId}（${s.activeTask.summary}）`:'上次提交结果未知：服务端可能已接受任务，请先检查 ComfyUI 队列与历史记录。'));
-  const acts=el('div','cs-row-actions');
-  if(s.activeTask.task)acts.append(action('恢复跟踪',()=>store.resumeGeneration(),'cs-primary'));
-  acts.append(action('停止跟踪',()=>store.stopTracking()));
-  sec.body.append(acts);return sec.node;
  }
  function historySection(){
   const s=state(),acts=el('div','cs-row-actions');
@@ -409,7 +331,7 @@ export function createCharacterStudio(root,ctx){
  function studioView(){
   const s=state(),page=el('div','cs-page');
   const head=el('header','cs-page-head');
-  const title=el('div','cs-title');title.append(el('h1','','AI 角色合成台'),el('p','','从人像颜值库、服装穿搭库、动作姿势库挑选参考，组合生成角色图。API Key 仅保存在本机浏览器。'));
+  const title=el('div','cs-title');title.append(el('h1','','AI 角色合成台'),el('p','','从人像颜值库、服装穿搭库、动作姿势库挑选参考，通过 AGY / Grok 授权登录或主流云端 API 组合生成角色图。'));
   const acts=el('div','cs-row-actions');
   acts.append(action('随机',()=>store.randomizeAll(),'','random-all'),action('清空',()=>store.clearRecipe()),
    action(s.safeMode?'安全模式 · 开':'安全模式 · 关',()=>store.toggleSafeMode(),s.safeMode?'':'cs-danger'),
@@ -420,57 +342,130 @@ export function createCharacterStudio(root,ctx){
   const slots=el('div','cs-slots');for(const slot of ['portrait','costume','pose'])slots.append(slotCard(slot));
   refs.body.append(slots,extraImages());
   left.append(refs.node,engineSection(),promptSection());
-  right.append(resultSection());const task=taskSection();if(task)right.append(task);right.append(historySection());
+  right.append(resultSection(),historySection());
   cols.append(left,right);page.append(cols);
   return page;
  }
 
  // ------------------------------------------------------------------ settings
- function settingsView(){
-  const cfg=state().apiConfig,pid=settingsProvider||cfg.activeProvider,meta=PROVIDER_META[pid],pc=cfg.providers[pid];
-  const page=el('div','cs-page cs-settings');
-  const head=el('header','cs-page-head');
-  const title=el('div','cs-title');title.append(el('h1','','API 接口配置'),el('p','','五种生图接口的连接设置。API Key 只保存在当前浏览器本地存储，不上传到 VSC 服务器或作品数据库。'));
-  head.append(title,action('返回 AI 角色合成台',()=>ctx.navigate?.('character-studio'),'cs-primary'));page.append(head);
-  const tabs=el('div','cs-provider-tabs');tabs.setAttribute('role','tablist');
-  for(const id of PROVIDER_ORDER){
-   const m=PROVIDER_META[id],hasKey=id==='comfyui'?Boolean(cfg.providers.comfyui.baseUrl.trim()):Boolean(cfg.providers[id].apiKey.trim());
-   const status=id==='comfyui'?store.COMFY_CONNECTION_LABELS[state().comfyConnection.status]:hasKey?'已配置':'未配置 Key';
-   const b=el('button','cs-provider-tab');b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',String(pid===id));
-   const text=el('span','cs-provider-text');text.append(el('strong','',m.name),el('small','',status));
-   const dot=el('span','cs-dot'+(id==='comfyui'&&state().comfyConnection.status==='connected'?' is-ok':hasKey?' is-set':''));dot.title=status;
-   b.append(text,dot);
-   b.onclick=()=>{settingsProvider=id;store.updateApiConfig({activeProvider:id});if(id==='comfyui')store.checkComfyConnection();};
-   tabs.append(b);
+ function modeSwitchBar(group,pid){
+  if(group.modes.length<2)return null;
+  const wrap=el('div','cs-mode-switch');wrap.setAttribute('role','group');wrap.setAttribute('aria-label',`${group.name} 接入方式`);
+  for(const mid of group.modes){
+   const m=PROVIDER_META[mid],active=pid===mid;
+   const btn=el('button','cs-mode-btn'+(active?' is-active':''));btn.type='button';btn.setAttribute('aria-pressed',String(active));
+   btn.dataset.modeId=mid;
+   const head=el('div','cs-mode-btn-head');
+   head.append(el('strong','',m.modeLabel),el('span','cs-mode-pill '+(isAuthProvider(mid)?'is-oauth':'is-apikey'),providerStatusText(mid)));
+   btn.append(head,el('small','',m.modeHint));
+   btn.onclick=()=>{settingsProvider=mid;store.updateApiConfig({activeProvider:mid});if(isAuthProvider(mid))store.refreshAuthStatus();};
+   wrap.append(btn);
   }
-  page.append(tabs);
-  if(pid==='comfyui')page.append(connectionStatus());
+  return wrap;
+ }
+
+ function authSettingsBody(pid){
+  const s=state(),meta=PROVIDER_META[pid],pc=s.apiConfig.providers[pid],vendor=meta.authVendor,info=s.authStatus[vendor]||{};
+  const wrap=el('div','cs-auth-panel');
+  const card=el('div','cs-auth-card '+(info.ready?'is-ok':info.status==='expired'||info.status==='cli_missing'?'is-error':''));
+  const statusHead=el('div','cs-auth-head');
+  statusHead.append(el('span','cs-conn-badge',store.AUTH_STATUS_LABELS[info.status]||(info.ready?'已授权':'未登录')));
+  if(info.account)statusHead.append(el('span','cs-auth-account',`账号 ${info.account}`));
+  if(s.authPolling===vendor)statusHead.append(el('span','cs-auth-polling','等待授权完成并自动刷新…'));
+  card.append(statusHead,el('p','cs-auth-msg',info.message||''));
   const acts=el('div','cs-row-actions');
-  if(pid==='comfyui')acts.append(action('自动检测端口',async()=>{const found=await detectComfyUi(pc.baseUrl,pc.apiKey);if(!found){notice('未检测到可用的 ComfyUI，请确认已启动');return;}store.updateProviderConfig('comfyui',{baseUrl:found.baseUrl});notice(`已自动识别 ComfyUI 地址：${found.baseUrl}（${found.info}）`);store.checkComfyConnection();},'','detect-comfy'));
-  const doc=el('a','cs-link','文档');doc.href=meta.docUrl;doc.target='_blank';doc.rel='noreferrer';acts.append(doc);
-  acts.append(action('恢复默认',()=>{store.updateProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复默认');}));
-  const sec=section(`${meta.name} 连接配置`,{actions:acts});
-  const base=el('input');base.type=pid==='comfyui'?'text':'url';base.value=pc.baseUrl;base.placeholder=meta.defaultBaseUrl;base.dataset.focusKey='set-base';
+  acts.append(action(vendor==='grok'?'调起浏览器授权登录':'打开终端完成 AGY 授权',()=>store.startAuthLogin(vendor),'cs-primary',`auth-login-${vendor}`));
+  if(vendor==='agy')acts.append(action('在线验证授权 (agy models)',()=>store.verifyAuth('agy'),'',`auth-verify-agy`));
+  acts.append(action('刷新授权状态',()=>store.refreshAuthStatus(),'',`auth-refresh-${vendor}`));
+  const cmdText=info.login_command||(vendor==='grok'?'grok login --oauth':'agy');
+  acts.append(action(`复制命令：${cmdText}`,async()=>{await navigator.clipboard?.writeText(cmdText);notice(`已复制终端命令：${cmdText}`);}));
+  card.append(acts);
+  const cmdRow=el('div','cs-cmd-box');cmdRow.append(el('span','cs-cmd-label','终端授权命令'),el('code','',`$ ${cmdText}`));
+  card.append(cmdRow);
+  wrap.append(card);
+
+  wrap.append(field('默认模型 / 引擎',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(pid,{model:v}))));
+  if(pc.model==='custom'){
+   const custom=el('input');custom.value=pc.customModel;custom.placeholder='输入协调模型 ID（留空则使用默认模型）';custom.dataset.focusKey='set-custom';
+   custom.onchange=()=>store.updateProviderConfig(pid,{customModel:custom.value});
+   wrap.append(field('自定义模型 ID',custom));
+  }
+  const note=vendor==='grok'
+   ?'凭证边界：本模式仅读取本机 ~/.grok/auth.json 中的 Grok CLI 订阅登录态（服务端不回显、不落盘任何密钥），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。'
+   :'凭证边界：本模式复用本机 Antigravity CLI (~/.gemini/antigravity-cli) 登录态，通过内置 image-generator 子智能体生成角色图；服务端不读取或传输任何令牌明文。';
+  wrap.append(el('p','cs-field-hint',note));
+  return wrap;
+ }
+
+ function apiKeySettingsBody(pid){
+  const cfg=state().apiConfig,meta=PROVIDER_META[pid],pc=cfg.providers[pid],wrap=el('div','cs-apikey-panel');
+  const base=el('input');base.type='url';base.value=pc.baseUrl;base.placeholder=meta.defaultBaseUrl;base.dataset.focusKey='set-base';
   base.onchange=()=>store.updateProviderConfig(pid,{baseUrl:base.value});
-  sec.body.append(field(pid==='comfyui'?'ComfyUI 地址 (Base URL)':'Base URL',base,pid==='comfyui'?`默认 /comfy（VSC 同源代理，依次连接本机 8000 / 8188 端口，可用环境变量 COMFYUI_URL 指定）；直连时 ComfyUI 需加启动参数 --enable-cors-header "${typeof window!=='undefined'?window.location.origin:'*'}"。`:undefined));
+  wrap.append(field('Base URL',base,pid==='grok'?'xAI 官方端点默认 https://api.x.ai/v1；建议开启下方服务端 CORS 代理避免跨域拦截。':pid==='gemini'?'Google AI Studio 官方端点默认 https://generativelanguage.googleapis.com。':undefined));
   const keyWrap=el('div','cs-key'),key=el('input');key.type=showKey?'text':'password';key.value=pc.apiKey;key.autocomplete='off';key.dataset.focusKey='set-key';
-  key.placeholder=pid==='comfyui'?'本地 ComfyUI 无需填写，远程鉴权可填 Token':'输入 API Key（仅保存在本地浏览器）';
+  key.placeholder=meta.keyPlaceholder||'输入 API Key（仅保存在本地浏览器）';
   key.onchange=()=>store.updateProviderConfig(pid,{apiKey:key.value.trim()});
   const eye=el('button','cs-icon-btn',showKey?'隐藏':'显示');eye.type='button';eye.setAttribute('aria-label',showKey?'隐藏 API Key':'显示 API Key');eye.onclick=()=>{showKey=!showKey;render(true);};
   keyWrap.append(key,eye);
-  sec.body.append(field(pid==='comfyui'?'API Key（可选，本地留空）':'API Key',keyWrap,'Key 保存在浏览器 localStorage；清除浏览器数据会一并删除。请勿在共享电脑上保存。'));
-  if(pid!=='comfyui'){
-   sec.body.append(field('默认模型 ID',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(pid,{model:v}))));
-   if(pc.model==='custom'){const custom=el('input');custom.value=pc.customModel;custom.placeholder=pid==='doubao'?'ep-2026xxxx 或模型 ID':'输入模型 ID';custom.dataset.focusKey='set-custom';custom.onchange=()=>store.updateProviderConfig(pid,{customModel:custom.value});sec.body.append(field('自定义模型 ID',custom));}
-  }else sec.body.append(el('p','cs-field-hint','模型由工作流决定。请返回合成台导入工作流，并设置人像、服装和姿势节点。'));
+  wrap.append(field('API Key',keyWrap,pid==='grok'?'保存于浏览器 localStorage，与本机 ~/.grok/auth.json 订阅登录严格隔离。':'Key 仅保存在当前浏览器 localStorage；清除浏览器数据会一并删除，请勿在共享电脑上保存。'));
+  wrap.append(field('默认模型 ID',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(pid,{model:v}))));
+  if(pc.model==='custom'){
+   const custom=el('input');custom.value=pc.customModel;custom.placeholder=pid==='doubao'?'ep-2026xxxx 或模型 ID':'输入模型 ID';custom.dataset.focusKey='set-custom';
+   custom.onchange=()=>store.updateProviderConfig(pid,{customModel:custom.value});
+   wrap.append(field('自定义模型 ID',custom));
+  }
+  return wrap;
+ }
+
+ function settingsView(){
+  const cfg=state().apiConfig;
+  const pid=PROVIDER_META[settingsProvider]?settingsProvider:cfg.activeProvider;
+  const group=groupForProvider(pid),meta=PROVIDER_META[pid];
+  const page=el('div','cs-page cs-settings');
+  const head=el('header','cs-page-head');
+  const title=el('div','cs-title');
+  title.append(el('h1','','API 接口配置'),el('p','','支持 AGY、Grok 授权登录接入，以及 Gemini、Grok、GPT、Qwen、Doubao 的 API Key 接口接入。API Key 仅保存在当前浏览器。'));
+  head.append(title,action('返回 AI 角色合成台',()=>ctx.navigate?.('character-studio'),'cs-primary'));
+  page.append(head);
+
+  const tabs=el('div','cs-provider-tabs');tabs.setAttribute('role','tablist');
+  for(const g of SETTINGS_GROUPS){
+   const selected=g.id===group.id,summary=groupSummary(g);
+   const b=el('button','cs-provider-tab');b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',String(selected));
+   b.dataset.groupId=g.id;
+   const text=el('span','cs-provider-text');text.append(el('strong','',g.name),el('small','',summary.label));
+   const dot=el('span','cs-dot'+(summary.tone?' '+summary.tone:''));dot.title=summary.label;
+   b.append(text,dot);
+   b.onclick=()=>{
+    const nextPid=g.modes.includes(cfg.activeProvider)?cfg.activeProvider:g.modes[0];
+    settingsProvider=nextPid;store.updateApiConfig({activeProvider:nextPid});
+    if(isAuthProvider(nextPid))store.refreshAuthStatus();
+   };
+   tabs.append(b);
+  }
+  page.append(tabs);
+
+  const acts=el('div','cs-row-actions');
+  const doc=el('a','cs-link','文档');doc.href=meta.docUrl;doc.target='_blank';doc.rel='noreferrer';acts.append(doc);
+  if(!isAuthProvider(pid)){
+   acts.append(action('恢复默认',()=>{store.updateProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复默认端点与模型');}));
+  }
+  const sec=section(`${group.name} · 接入配置`,{actions:acts});
+  const modeBar=modeSwitchBar(group,pid);
+  if(modeBar)sec.body.append(modeBar);
+  sec.body.append(isAuthProvider(pid)?authSettingsBody(pid):apiKeySettingsBody(pid));
   page.append(sec.node);
-  if(pid!=='comfyui'){
+
+  if(!isAuthProvider(pid)){
    const g=section('全局请求选项');
-   g.body.append(field('参考图传参方式',select([['url','传递图片 URL（免上传文件，推荐）'],['base64','转 Base64 编码传输']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
-    field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用（解决跨域限制）':'已关闭（浏览器直连）'),'默认关闭（浏览器直连）；切换到阿里云百炼 (Qwen) 或火山方舟 (Doubao) 时会自动开启。仅转发白名单 HTTPS 域名（服务端环境变量 PROXY_ALLOWED_ORIGINS 可扩展）。'));
+   g.body.append(
+    field('参考图传参方式',select([['url','传递图片 URL（免上传文件，Gemini 原生与 Grok 编辑自动转 Base64）'],['base64','统一转 Base64 编码传输']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
+    field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用（解决跨域限制）':'已关闭（浏览器直连）'),'切换到 Grok API、阿里云百炼 (Qwen) 或火山方舟 (Doubao) 时会自动启用；仅转发白名单 HTTPS 官方域名。'),
+   );
    page.append(g.node);
   }
-  const foot=el('div','cs-row-actions cs-end');foot.append(action('保存配置',()=>{const active=document.activeElement;active?.dispatchEvent?.(new Event('change'));notice('配置已保存（仅本机浏览器）');},'cs-primary'));
+  const foot=el('div','cs-row-actions cs-end');
+  foot.append(action('保存配置',()=>{const active=document.activeElement;active?.dispatchEvent?.(new Event('change'));notice('配置已保存');},'cs-primary'));
   page.append(foot);
   return page;
  }
@@ -478,7 +473,7 @@ export function createCharacterStudio(root,ctx){
  // ------------------------------------------------------------------ render loop
  function signature(){
   const s=state();
-  return JSON.stringify([mode,settingsProvider,showKey,[...busy],s.recipe,s.apiConfig,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.activeTask,s.hydrated,s.comfyConnection,Boolean(objectInfo),checkResult]);
+  return JSON.stringify([mode,settingsProvider,showKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.hydrated]);
  }
  function render(force=false){
   if(disposed)return;
@@ -498,6 +493,7 @@ export function createCharacterStudio(root,ctx){
  return {
   async load({mode:nextMode='studio'}={}){
    disposed=false;mode=nextMode==='settings'?'settings':'studio';
+   if(mode==='settings')settingsProvider=state().apiConfig.activeProvider;
    unsub?.();unsub=store.subscribe(()=>render());
    if(!pasteHandler){
     pasteHandler=async event=>{
@@ -509,11 +505,11 @@ export function createCharacterStudio(root,ctx){
     };
     document.addEventListener('paste',pasteHandler);
    }
-   if(state().apiConfig.activeProvider==='comfyui'||mode==='settings'&&(settingsProvider||state().apiConfig.activeProvider)==='comfyui')store.checkComfyConnection();
+   store.refreshAuthStatus();
    render(true);
   },
   suspend(){
-   disposed=true;unsub?.();unsub=null;
+   disposed=true;unsub?.();unsub=null;store.stopAuthPolling();
    if(pasteHandler){document.removeEventListener('paste',pasteHandler);pasteHandler=null;}
    for(const d of document.querySelectorAll('dialog.cs-dialog'))d.close?.();
   },

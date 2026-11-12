@@ -1,8 +1,5 @@
-// Character studio generation engine, ported from ai-pose-gallery aiGenerator.ts.
-// Provider keys come from the browser-local configuration only; requests go either
-// directly to the provider or through the same-origin /api/proxy and /comfy relays.
-import {applyWorkflowOverrides,getWorkflowImages,validateReferenceCombinations,workflowIdentity,parseComfyWorkflowNodes} from './character-studio-workflows.js';
-
+// Character studio generation engine: local CLI/OAuth bridges (AGY, Grok subscription)
+// and browser-local API key providers (Gemini, Grok API, OpenAI GPT, Qwen, Doubao).
 export const MEDIA_BASE='/api/v1/asset-center/pose-gallery/media/';
 let csrfProvider=()=>'';
 export function setCsrfProvider(fn){csrfProvider=typeof fn==='function'?fn:()=>'';}
@@ -44,26 +41,45 @@ export function uploadedReferences(name,url,width=0,height=0,bytes=0){
  };
 }
 
-export function isLocalDevHost(){return typeof window!=='undefined'&&['localhost','127.0.0.1','[::1]'].includes(window.location?.hostname);}
-export function defaultComfyBaseUrl(){return '/comfy';}
-export function comfyCandidateUrls(current=''){
- return Array.from(new Set([String(current).trim(),'/comfy','http://127.0.0.1:8000','http://127.0.0.1:8188'].map(x=>x.replace(/\/+$/,'')).filter(Boolean)));
-}
-
-export const PROVIDER_ORDER=['gemini','gpt','qwen','doubao','comfyui'];
+export const PROVIDER_ORDER=['agy_auth','grok_auth','gemini','grok','gpt','qwen','doubao'];
+export const SETTINGS_GROUPS=[
+ {id:'google',name:'Google · AGY / Gemini',modes:['agy_auth','gemini']},
+ {id:'xai',name:'xAI · Grok',modes:['grok_auth','grok']},
+ {id:'gpt',name:'OpenAI GPT Image',modes:['gpt']},
+ {id:'qwen',name:'阿里云百炼 Qwen',modes:['qwen']},
+ {id:'doubao',name:'字节火山方舟 Doubao',modes:['doubao']},
+];
 export const PROVIDER_META={
- gemini:{id:'gemini',name:'Google Gemini',shortName:'Gemini',defaultBaseUrl:'https://generativelanguage.googleapis.com',docUrl:'https://ai.google.dev/gemini-api/docs/image-generation',
-  models:[['gemini-3.1-flash-image-preview'],['gemini-3-pro-image-preview'],['gemini-2.5-flash-image'],['gemini-2.5-flash-image-preview'],['custom','自定义模型 ID']]},
- gpt:{id:'gpt',name:'OpenAI GPT Image',shortName:'GPT',defaultBaseUrl:'https://api.openai.com/v1',docUrl:'https://platform.openai.com/docs/guides/image-generation',
+ agy_auth:{id:'agy_auth',name:'AGY 授权登录 (Google Antigravity)',shortName:'AGY 授权',modeLabel:'AGY 授权登录',modeHint:'本机 Antigravity OAuth · 免填 Key',
+  authMode:'oauth',authVendor:'agy',defaultBaseUrl:'',docUrl:'https://ai.google.dev/gemini-api/docs/image-generation',
+  models:[['image-generator','image-generator（AGY 内置生图智能体 · 推荐）'],['custom','指定协调模型 ID（高级）']]},
+ grok_auth:{id:'grok_auth',name:'Grok 授权登录 (xAI 订阅)',shortName:'Grok 授权',modeLabel:'Grok 授权登录',modeHint:'本机 grok CLI 订阅登录 · ~/.grok/auth.json',
+  authMode:'oauth',authVendor:'grok',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/image-generations',
+  models:[['grok-imagine-image-2.0','grok-imagine-image-2.0（多图参考合成 · 推荐）'],['grok-imagine-image','grok-imagine-image']]},
+ gemini:{id:'gemini',name:'Google Gemini (API 接口)',shortName:'Gemini API',modeLabel:'Gemini API 接口',modeHint:'Google AI Studio API Key',
+  authMode:'apikey',defaultBaseUrl:'https://generativelanguage.googleapis.com',docUrl:'https://ai.google.dev/gemini-api/docs/image-generation',
+  keyPlaceholder:'输入 AIza... API Key（仅保存在本地浏览器）',
+  models:[['gemini-3.1-flash-image-preview','gemini-3.1-flash-image-preview（Nano Banana 2 · 推荐）'],['gemini-3-pro-image-preview','gemini-3-pro-image-preview（Nano Banana Pro）'],['gemini-2.5-flash-image'],['gemini-2.5-flash-image-preview'],['custom','自定义模型 ID']]},
+ grok:{id:'grok',name:'xAI Grok (API 接口)',shortName:'Grok API',modeLabel:'Grok API 接口',modeHint:'xAI 按量计费 API Key（与订阅登录隔离）',
+  authMode:'apikey',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/image-generations',
+  keyPlaceholder:'输入 xai-... API Key（仅保存在本地浏览器）',
+  models:[['grok-imagine-image-2.0','grok-imagine-image-2.0（多图编辑 ≤5 张 · 推荐）'],['grok-imagine-image'],['grok-2-image-1212','grok-2-image-1212（仅文生图）'],['custom','自定义模型 ID']]},
+ gpt:{id:'gpt',name:'OpenAI GPT Image',shortName:'GPT',modeLabel:'API 接口',modeHint:'OpenAI API Key',
+  authMode:'apikey',defaultBaseUrl:'https://api.openai.com/v1',docUrl:'https://platform.openai.com/docs/guides/image-generation',
+  keyPlaceholder:'输入 sk-... API Key（仅保存在本地浏览器）',
   models:[['gpt-image-2.5'],['gpt-image-2.5-sunburst'],['gpt-image-2.5-flare'],['gpt-image-2'],['gpt-image-1.5'],['gpt-image-1'],['custom','自定义模型 ID']]},
- qwen:{id:'qwen',name:'阿里云百炼 Qwen',shortName:'Qwen',defaultBaseUrl:'https://dashscope.aliyuncs.com',docUrl:'https://help.aliyun.com/zh/model-studio/qwen-image-edit-api',
+ qwen:{id:'qwen',name:'阿里云百炼 Qwen',shortName:'Qwen',modeLabel:'API 接口',modeHint:'DashScope API Key',
+  authMode:'apikey',defaultBaseUrl:'https://dashscope.aliyuncs.com',docUrl:'https://help.aliyun.com/zh/model-studio/qwen-image-edit-api',
+  keyPlaceholder:'输入 DashScope sk-... API Key（仅保存在本地浏览器）',
   models:[['qwen-image-3.0-pro'],['qwen-image-2.1-pro'],['qwen-image-2.1-turbo'],['qwen-image-2.0-pro'],['qwen-image-edit-plus'],['custom','自定义模型 ID']]},
- doubao:{id:'doubao',name:'字节火山方舟 Doubao',shortName:'Doubao',defaultBaseUrl:'https://ark.cn-beijing.volces.com',docUrl:'https://www.volcengine.com/docs/82379/1541523',
+ doubao:{id:'doubao',name:'字节火山方舟 Doubao',shortName:'Doubao',modeLabel:'API 接口',modeHint:'火山方舟 API Key',
+  authMode:'apikey',defaultBaseUrl:'https://ark.cn-beijing.volces.com',docUrl:'https://www.volcengine.com/docs/82379/1541523',
+  keyPlaceholder:'输入火山方舟 API Key（仅保存在本地浏览器）',
   models:[['doubao-seedream-5-0'],['doubao-seedream-5-0-lite'],['doubao-seedream-4-5-251128'],['doubao-seedream-4-0-250828'],['doubao-seededit-3-0-i2i-250628'],['custom','自定义模型 ID / Endpoint']]},
- comfyui:{id:'comfyui',name:'本地 ComfyUI',shortName:'ComfyUI',defaultBaseUrl:'/comfy',docUrl:'https://docs.comfy.org/essentials/comfyui_server',
-  models:[['qwen_image_edit_2509','qwen_image_edit_2509（由工作流决定）'],['custom','自定义名称（仅用于记录显示）']]},
 };
 for(const meta of Object.values(PROVIDER_META))meta.models=meta.models.map(([value,label])=>({value,label:label||value}));
+export const isAuthProvider=id=>PROVIDER_META[id]?.authMode==='oauth';
+export const groupForProvider=id=>SETTINGS_GROUPS.find(g=>g.modes.includes(id))||SETTINGS_GROUPS[0];
 
 export const STYLE_PRESETS={
  none:{label:'无预设（跟随参考图）',prompt:''},
@@ -81,12 +97,10 @@ export const STYLE_PRESETS={
 };
 const PHOTO_STYLES=new Set(['realistic','fashion','film']);
 
-export function buildRecipePrompt(recipe,stylePreset='realistic',workflowImages=[]){
+export function buildRecipePrompt(recipe,stylePreset='realistic'){
  const styleInfo=STYLE_PRESETS[stylePreset]??STYLE_PRESETS.realistic,isPhoto=PHOTO_STYLES.has(stylePreset);
- const sheet=workflowImages.some(i=>i.role==='character_sheet');
- const faceless=!recipe.portrait&&!sheet&&Boolean(recipe.costume&&recipe.pose);
+ const faceless=!recipe.portrait&&Boolean(recipe.costume&&recipe.pose);
  const clauses=[];let idx=1,costumeIdx=0;
- workflowImages.filter(i=>i.role==='character_sheet').forEach(()=>{clauses.push('• 角色设定参考：提供的设定集展示同一角色的多个视角与细节，不是多个不同人物。保持角色的脸型、五官、发型、发色、肤色及服装配饰一致；只把它作为角色参考，成品布局遵循当前工作流的输出设置。');idx++;});
  if(recipe.portrait){
   const p=recipe.portrait,hair=p.发型名称&&p.发型名称!=='标准基础款'?p.标题:p.发长;
   const skin='人物的肤色必须与图一人物一致，所有裸露皮肤（包括服装镂空处露出的皮肤）必须与脸部肤色统一，统一后的肤色与质感按风格要求呈现。';
@@ -103,10 +117,9 @@ export function buildRecipePrompt(recipe,stylePreset='realistic',workflowImages=
   clauses.push(recipe.pose.source==='upload'?`• 姿势：按照图${idx}中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图${idx}人物的外观与服装，${body}。`:`• 姿势：按照图${idx}中人体模型的动作和镜头角度摆姿势（${recipe.pose.姿势名称}，${recipe.pose.角度}）；图${idx}只是动作示意，${body}。`);idx++;
  }
  if(faceless)clauses.push('• 无脸展示：生成一位穿着参考服装的成年展示人物，脸部保持无五官的自然肤色表面，不添加眼睛、鼻子、嘴巴或具体人物身份；全身裸露皮肤的颜色统一，不照搬服装图或姿势图的灰白人台材质。');
- for(const ref of workflowImages.filter(i=>i.role!=='character_sheet')){clauses.push(`• 工作流参考：参考图${idx}（${ref.name||'补充参考'}）中的相关元素，具体用途以工作流要求为准。`);idx++;}
  for(const extra of recipe.extraImages||[]){clauses.push(`• 附加参考：融合图${idx}（${extra.name||'补充元素'}）中的元素、配饰、背景或光影细节。`);idx++;}
  if(!clauses.length)return '请先选择人像/服装/姿势或上传附加参考图。';
- const lines=[`请根据${sheet?'提供的角色设定参考':`提供的 ${idx-1} 张参考图`}，生成一张完整的${faceless?'人物穿搭展示图':isPhoto?'真实人物照片':'人物图像'}：`,...clauses];
+ const lines=[`请根据提供的 ${idx-1} 张参考图，生成一张完整的${faceless?'人物穿搭展示图':isPhoto?'真实人物照片':'人物图像'}：`,...clauses];
  if(styleInfo.prompt)lines.push(`• 风格：${styleInfo.prompt} ${faceless?'人物比例协调，手部自然，脸部无五官，光影统一。':'人物比例协调，手部与五官自然，光影统一。'}`);
  lines.push('画面中没有任何文字、标志或水印。');
  return lines.join('\n');
@@ -162,7 +175,7 @@ export async function stitchRecipeCanvas(recipe){
  return canvas.toDataURL('image/jpeg',0.92);
 }
 
-// Local relative paths map to the public gallery CDNs so cloud providers can fetch them.
+// Local relative paths map to the public gallery CDNs so cloud providers in URL mode can fetch them.
 export function toPublicHttpsUrl(src){
  if(/^https?:\/\//i.test(src)||String(src).startsWith('data:'))return src;
  const clean=stripMedia(src).replace(/^\/+/,'');
@@ -185,20 +198,38 @@ function dataUrlToBlob(dataUrl){
  for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
  return new Blob([arr],{type:mime});
 }
+function blobToDataUrl(blob){
+ return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('图片读取失败'));r.readAsDataURL(blob);});
+}
+async function fetchImageViaProxy(url,signal){
+ const headers=new Headers({'x-target-url':url,'x-target-method':'GET',Accept:'image/*,*/*;q=0.8'});
+ const csrf=csrfProvider();if(csrf)headers.set('X-CSRF-Token',csrf);
+ const response=await fetch('/api/proxy',{method:'POST',headers,credentials:'same-origin',signal});
+ if(!response.ok)throw new Error('代理下载图片失败');
+ const blob=await response.blob();
+ if(!blob.type.startsWith('image/'))throw new Error('返回内容不是图片');
+ return blobToDataUrl(blob);
+}
 export async function durableImage(url){
  if(String(url).startsWith('data:image/'))return url;
- const response=await fetch(referenceImageUrl(url),{credentials:'same-origin'});
- if(!response.ok)throw new Error('图片下载失败');
- const blob=await response.blob();
- if(!blob.type.startsWith('image/'))throw new Error('引用不是图片');
- return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('图片读取失败'));r.readAsDataURL(blob);});
+ const resolved=referenceImageUrl(url),external=/^https?:\/\//i.test(resolved);
+ try{
+  const response=await fetch(resolved,external?{}:{credentials:'same-origin'});
+  if(!response.ok)throw new Error('图片下载失败');
+  const blob=await response.blob();
+  if(!blob.type.startsWith('image/'))throw new Error('引用不是图片');
+  return await blobToDataUrl(blob);
+ }catch(error){
+  if(/^https:\/\//i.test(resolved))return fetchImageViaProxy(resolved);
+  throw error;
+ }
 }
 export async function durableRecipe(recipe){
  const next=JSON.parse(JSON.stringify(recipe));
  for(const item of [next.portrait,next.costume,next.pose]){
   if(item?.source==='upload'){item.原图=await durableImage(item.原图);item.缩略图=item.原图;if('预览图' in item)item.预览图=item.原图;}
  }
- for(const image of [...(next.extraImages||[]),...Object.values(next.workflowImages||{})])image.url=await durableImage(image.url);
+ for(const image of next.extraImages||[])image.url=await durableImage(image.url);
  return next;
 }
 
@@ -207,7 +238,7 @@ async function smartFetch(targetUrl,init,useProxy){
  const headers=new Headers(init.headers);
  headers.set('x-target-url',targetUrl);
  const csrf=csrfProvider();if(csrf)headers.set('X-CSRF-Token',csrf);
- return fetch('/api/proxy',{method:init.method||'POST',headers,body:init.body,credentials:'same-origin'});
+ return fetch('/api/proxy',{method:'POST',headers,body:init.body,signal:init.signal,credentials:'same-origin'});
 }
 
 function extractUniversalImage(json){
@@ -233,369 +264,111 @@ function extractUniversalImage(json){
  return null;
 }
 
-// --------------------------------------------------------------------------- ComfyUI
-export function normalizeComfyBase(baseUrl){return (String(baseUrl||'').trim()||defaultComfyBaseUrl()).replace(/\/+$/,'');}
-function describeComfyNetworkError(baseUrl,timedOut){
- if(timedOut)return `[ComfyUI] 请求 ${baseUrl} 超时：ComfyUI 可能正忙或无响应，请查看 ComfyUI 终端日志。`;
- if(baseUrl.startsWith('/'))return `[ComfyUI] 本机代理 ${baseUrl} 无法连通 ComfyUI：请确认 ComfyUI 已启动，且端口与服务启动时的 COMFYUI_URL 一致（默认依次尝试 http://127.0.0.1:8000 与 8188）。`;
- const origin=typeof window!=='undefined'?window.location.origin:'';
- return `[ComfyUI] 无法连接 ${baseUrl}。可能原因：\n① ComfyUI 未启动，或地址/端口不对（Desktop 版默认 8000，便携版默认 8188）\n② 跨域 (CORS) 被拦截：ComfyUI 启动参数需包含 --enable-cors-header "${origin}"，或改用 /comfy 本机代理`;
+// ------------------------------------------------------------------ Auth bridge API
+async function callStudioApi(path,options={},api=null){
+ const headers={'Content-Type':'application/json',...(options.headers||{})};
+ const csrf=csrfProvider();if(csrf)headers['X-CSRF-Token']=csrf;
+ if(typeof api==='function')return api(path,{...options,headers});
+ const res=await fetch(path,{...options,headers,credentials:'same-origin'});
+ const data=await res.json().catch(()=>({}));
+ if(!res.ok)throw new Error(data?.detail||data?.message||`请求失败 (HTTP ${res.status})`);
+ return data;
 }
-function comfyHeaders(baseUrl,init,apiKey){
- const headers=new Headers(init?.headers);
- if(String(apiKey||'').trim())headers.set('Authorization',`Bearer ${String(apiKey).trim()}`);
- if(baseUrl.startsWith('/')){const csrf=csrfProvider();if(csrf)headers.set('X-CSRF-Token',csrf);}
- return headers;
-}
-export async function comfyFetch(baseUrl,path,init={},apiKey='',timeoutMs=30000){
- const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeoutMs);
- if(init.signal){if(init.signal.aborted)ctrl.abort();else init.signal.addEventListener('abort',()=>ctrl.abort(),{once:true});}
- let res;
- try{res=await fetch(`${baseUrl}${path}`,{...init,headers:comfyHeaders(baseUrl,init,apiKey),signal:ctrl.signal,credentials:'same-origin'});}
- catch(e){throw new Error(describeComfyNetworkError(baseUrl,e?.name==='AbortError'));}
- finally{clearTimeout(timer);}
- if(baseUrl.startsWith('/')&&res.status===502){
-  let message=describeComfyNetworkError(baseUrl,false);
-  try{const body=await res.clone().json();if(body?.message)message=`[ComfyUI] ${body.message}`;}catch{}
-  throw new Error(message);
- }
- return res;
-}
-async function readJsonSafe(res){const text=await res.text();try{return JSON.parse(text);}catch{return {_raw:text.slice(0,300)};}}
+export const fetchAuthStatus=api=>callStudioApi('/api/v1/character-studio/auth/status',{method:'GET'},api);
+export const verifyAuthProvider=(provider,api)=>callStudioApi('/api/v1/character-studio/auth/verify',{method:'POST',body:JSON.stringify({provider})},api);
+export const triggerAuthLogin=(provider,api)=>callStudioApi('/api/v1/character-studio/auth/login',{method:'POST',body:JSON.stringify({provider})},api);
 
-export async function testComfyConnection(baseUrl,apiKey=''){
- const clean=normalizeComfyBase(baseUrl);
- const res=await comfyFetch(clean,'/system_stats',{},apiKey,8000);
- if(res.status===401||res.status===403)throw new Error(`[ComfyUI] ${clean} 拒绝访问 (HTTP ${res.status})，请检查 API Key / 鉴权设置`);
- if(!res.ok)throw new Error(`[ComfyUI] ${clean}/system_stats 返回 HTTP ${res.status}，该地址可能不是 ComfyUI`);
- const data=await readJsonSafe(res);
- if(!data?.system)throw new Error(`[ComfyUI] ${clean} 的响应不是 ComfyUI 格式，请检查地址`);
- const ver=typeof data.system.comfyui_version==='string'&&/^[\d.a-zA-Z_-]{1,40}$/.test(data.system.comfyui_version)?data.system.comfyui_version:'未知版本';
- const dev=data.devices?.[0];
- const gpu=dev?.name?String(dev.name).replace(/^cuda:\d+\s*/,'').replace(/\s*:\s*\w+$/,''):'本地设备';
- const vram=dev?.vram_total?` · 显存 ${(dev.vram_total/1024**3).toFixed(1)} GB`:'';
- return `ComfyUI ${ver} · ${gpu}${vram}`;
-}
-export async function detectComfyUi(current='',apiKey=''){
- for(const url of comfyCandidateUrls(current)){try{return {baseUrl:url,info:await testComfyConnection(url,apiKey)};}catch{}}
- return null;
-}
-function comboOptions(spec){
- if(!Array.isArray(spec))return null;
- if(Array.isArray(spec[0]))return spec[0].map(String);
- if(spec[0]==='COMBO'&&Array.isArray(spec[1]?.options))return spec[1].options.map(String);
- return null;
-}
-const baseName=s=>String(s).split(/[\\/]/).pop().toLowerCase();
-export async function fetchComfyObjectInfo(baseUrl,apiKey,workflowJson){
- const parsed=parseComfyWorkflowNodes(workflowJson);
- if(!parsed.valid)throw new Error(parsed.error||'工作流 JSON 无效');
- const workflow=JSON.parse(workflowJson),base=normalizeComfyBase(baseUrl);
- const classes=Array.from(new Set(Object.values(workflow).map(n=>n?.class_type).filter(Boolean)));
- const entries=await Promise.all(classes.map(async cls=>{
-  const res=await comfyFetch(base,`/object_info/${encodeURIComponent(cls)}`,{},apiKey,15000);
-  if(!res.ok)throw new Error(`[ComfyUI] 无法读取节点「${cls}」的定义（HTTP ${res.status}），请检查连接地址、访问令牌和网关接口权限。`);
-  const json=await readJsonSafe(res);return [cls,json?.[cls]];
- }));
- return Object.fromEntries(entries.filter(([,d])=>d));
-}
-export async function checkComfyWorkflow(baseUrl,apiKey,workflowJson,mappedImageNodeIds=[],objectInfo){
- const parsedInfo=parseComfyWorkflowNodes(workflowJson);
- if(!parsedInfo.valid)return {ok:false,errors:[parsedInfo.error||'工作流 JSON 无效'],warnings:[],fixes:[]};
- const wf=JSON.parse(workflowJson),info=objectInfo??await fetchComfyObjectInfo(baseUrl,apiKey,workflowJson);
- const errors=[],warnings=[],fixes=[],mapped=new Set(mappedImageNodeIds.filter(x=>x&&x!=='none'));
- const loaders=new Set(getWorkflowImages(workflowJson,[],info).map(n=>n.nodeId));
- for(const [id,node]of Object.entries(wf)){
-  if(!node?.class_type)continue;
-  const title=node._meta?.title||node.class_type,def=info[node.class_type];
-  if(!def){errors.push(`缺少节点「${node.class_type}」（节点 ${id}：${title}）。请在 ComfyUI Manager 安装对应的自定义节点，或升级 ComfyUI。`);continue;}
-  const required=def.input?.required||{},optional=def.input?.optional||{},inputs=node.inputs||{};
-  for(const [name,spec]of Object.entries(required)){
-   if(spec?.[0]==='COMFY_AUTOGROW_V3'){
-    const template=spec[1]?.template;
-    if(template?.input?.required)for(let i=0;i<(template.min??0);i++){const child=template.names?.[i]??`${template.prefix}${i}`;if(!(`${name}.${child}` in inputs))errors.push(`节点 ${id}「${title}」缺少必填输入 ${name}.${child}`);}
-    continue;
-   }
-   if(!(name in inputs))errors.push(`节点 ${id}「${title}」缺少必填输入 ${name}`);
-  }
-  for(const [name,value]of Object.entries(inputs)){
-   if(Array.isArray(value))continue;
-   const options=comboOptions(required[name]??optional[name]);
-   if(!options||typeof value!=='string')continue;
-   if(name==='image'&&mapped.has(id)&&loaders.has(id))continue;
-   if(node.class_type==='LoadImage'&&name==='image'){if(!mapped.has(id)&&!options.includes(value))warnings.push(`节点 ${id}「${title}」引用的图片 ${value} 不在 ComfyUI input 目录中，且未映射到人像/服装/姿势槽位`);continue;}
-   if(options.includes(value))continue;
-   const same=options.find(o=>baseName(o)===baseName(value));
-   if(same){inputs[name]=same;fixes.push(`节点 ${id}「${title}」${name}：${value} → ${same}（自动修正路径）`);continue;}
-   errors.push(`节点 ${id}「${title}」的 ${name} = ${value} 在本机不存在（通常是模型文件未安装或路径不同）。本机可选：${options.slice(0,12).join('、')||'（空）'}${options.length>12?' …':''}`);
-  }
- }
- return {ok:!errors.length,errors,warnings,fixes,fixedJson:fixes.length?JSON.stringify(wf,null,2):undefined};
-}
-function translateNodeError(er){
- const detail=er?.details?`（${er.details}）`:'';
- switch(er?.type){
-  case 'value_not_in_list':return `${er.extra_info?.input_name??'输入'} 的值不在本机可选列表中${detail}——通常是模型文件不存在或路径不同`;
-  case 'required_input_missing':return `缺少必填输入 ${er.extra_info?.input_name??''}`;
-  case 'invalid_input_type':case 'return_type_mismatch':return `节点连线类型不匹配${detail}`;
-  case 'value_bigger_than_max':case 'value_smaller_than_min':return `参数超出范围${detail}`;
-  default:return `${er?.message||'校验失败'}${detail}`;
- }
-}
-function formatComfyPromptError(json,wf,status){
- const parts=[],e=json?.error;
- if(e){
-  if(e.type==='missing_node_type'||/does not exist|not found/i.test(String(e.message)))parts.push(`缺少节点类型：${e.details||e.message}。请在 ComfyUI Manager 安装缺失的自定义节点或升级 ComfyUI`);
-  else if(e.type==='prompt_no_outputs')parts.push('工作流没有输出节点（SaveImage / PreviewImage）');
-  else if(e.type!=='prompt_outputs_failed_validation')parts.push(`${e.message||e.type}${e.details?`：${e.details}`:''}`);
- }
- for(const [id,ne]of Object.entries(json?.node_errors||{})){const title=wf[id]?._meta?.title||ne?.class_type||id;for(const er of ne?.errors||[])parts.push(`节点 ${id}「${title}」：${translateNodeError(er)}`);}
- if(!parts.length)parts.push(json?._raw||`HTTP ${status}`);
- return `[ComfyUI] 提交工作流失败：\n${parts.join('\n')}`;
-}
-function formatExecutionError(messages,wf){
- const err=(messages||[]).find(m=>m?.[0]==='execution_error')?.[1];
- if(err){
-  const title=wf[err.node_id]?._meta?.title||err.node_type||err.node_id,raw=`${err.exception_type||''} ${err.exception_message||''}`;
-  if(/out of memory|OutOfMemory|CUDA error: out of memory|allocat/i.test(raw))return `[ComfyUI] 显存不足（节点 ${err.node_id}「${title}」）。\n建议：关闭其他占用显卡的程序；在工作流中把「按姿势图比例确定输出尺寸」节点的 megapixels 从 1.0 调低到 0.6；然后重试。`;
-  return `[ComfyUI] 执行出错（节点 ${err.node_id}「${title}」）：${String(err.exception_message||raw).trim().slice(0,400)}`;
- }
- if((messages||[]).some(m=>m?.[0]==='execution_interrupted'))return '[ComfyUI] 任务已被中断（可能在 ComfyUI 界面中点击了取消）';
- return `[ComfyUI] 工作流执行出错：${JSON.stringify(messages||'').slice(0,300)}`;
-}
-function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onerror=()=>reject(new Error('读取生成结果失败'));r.onload=()=>resolve(r.result);r.readAsDataURL(blob);});}
-async function uploadImageToComfy(baseUrl,src,prefix,apiKey){
- let dataUrl;
- try{dataUrl=await srcToPngDataUrl(src);}catch{throw new Error(`读取参考图失败：${String(src).slice(0,80)}`);}
- const form=new FormData();
- form.append('image',dataUrlToBlob(dataUrl),`${prefix}_${Date.now()}.png`);form.append('subfolder','pose_studio');form.append('overwrite','true');
- const res=await comfyFetch(baseUrl,'/upload/image',{method:'POST',body:form},apiKey,60000);
- if(!res.ok)throw new Error(`[ComfyUI] 上传参考图失败 (HTTP ${res.status})：${(await res.text()).slice(0,200)}`);
- const json=await res.json();return json.subfolder?`${json.subfolder}/${json.name}`:json.name;
-}
-
-export class ComfyTaskError extends Error{constructor(message,task,reason='tracking'){super(message);this.task=task;this.reason=reason;this.name='ComfyTaskError';}}
-export class ComfySubmissionRejectedError extends Error{constructor(message,status){super(message);this.status=status;this.name='ComfySubmissionRejectedError';}}
-export class ComfySubmissionUnknownError extends Error{constructor(){super('[ComfyUI] 提交结果未知：服务端可能已接受任务，请先检查队列与历史记录，勿直接重复提交。');this.name='ComfySubmissionUnknownError';}}
-const abortError=msg=>{const e=new Error(msg);e.name='AbortError';return e;};
-function checkSignal(signal){if(signal?.aborted)throw abortError('已停止跟踪，后台任务继续执行');}
-
-function openComfySocket(task,apiKey){
- let socket,stopped=false,failures=0,reconnectTimer,handshakeTimer;
- const session={connection:'connecting',onMessage(){},onConnection(){},close(){stopped=true;clearTimeout(reconnectTimer);disconnect();}};
- const set=state=>{session.connection=state;session.onConnection(state);};
- const disconnect=()=>{clearTimeout(handshakeTimer);if(socket){socket.onopen=socket.onclose=socket.onerror=socket.onmessage=null;try{socket.close();}catch{}socket=undefined;}};
- const reconnect=()=>{disconnect();if(stopped)return;failures++;set(failures>=3?'degraded':'reconnecting');reconnectTimer=setTimeout(connect,Math.min(30000,1000*2**Math.min(failures-1,5)));};
- const connect=()=>{
-  if(stopped)return;set(failures?'reconnecting':'connecting');
-  try{
-   const u=new URL(task.baseUrl,window.location.href);
-   u.protocol=u.protocol==='https:'?'wss:':'ws:';u.pathname=`${u.pathname.replace(/\/+$/,'')}/ws`;u.search=new URLSearchParams({clientId:task.clientId}).toString();u.hash='';
-   socket=String(apiKey||'').trim()?new WebSocket(u.toString(),['comfyui',`comfyui-auth.${String(apiKey).trim()}`]):new WebSocket(u.toString());
-   handshakeTimer=setTimeout(reconnect,8000);
-   socket.onopen=()=>{clearTimeout(handshakeTimer);failures=0;set('connected');};
-   socket.onclose=reconnect;socket.onerror=reconnect;
-   socket.onmessage=e=>{if(typeof e.data!=='string')return;let msg;try{msg=JSON.parse(e.data);}catch{return;}session.onMessage(msg);};
-  }catch{reconnect();}
- };
- connect();return session;
-}
-
-export function resumeComfyTask(params){return trackComfyTask(params);}
-
-async function trackComfyTask(params,workflow={},existingSocket){
- const {task,apiKey,signal}=params,ctrl=new AbortController(),abort=()=>ctrl.abort();
- signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
- const deadline=setTimeout(abort,Math.max(1,params.timeoutSec||600)*1000);
- let progress={stage:'queue',message:'正在确认 ComfyUI 任务状态…',connection:'connecting'};
- const report=next=>{progress={...progress,...next};params.onProgress?.(progress);};
- let socket=existingSocket,nextHistoryAt=0,nextQueueAt=0,queueRequested=true,terminalRetries=0,terminalFailure,wakePending=false,wakeWait;
- const wake=()=>{wakePending=true;wakeWait?.();};
- const reconcile=()=>{nextHistoryAt=0;queueRequested=true;wake();};
- const activate=()=>{if(document.visibilityState==='visible')reconcile();};
- const interval=()=>socket?.connection==='connected'?30000:3000;
- const wait=ms=>{
-  if(wakePending){wakePending=false;return Promise.resolve();}
-  return new Promise((resolve,reject)=>{
-   const done=()=>{clearTimeout(timer);ctrl.signal.removeEventListener('abort',stop);wakeWait=undefined;};
-   const finish=()=>{done();wakePending=false;resolve();};
-   const stop=()=>{done();reject(abortError('已停止跟踪'));};
-   const timer=setTimeout(finish,Math.max(0,ms));wakeWait=finish;
-   ctrl.signal.addEventListener('abort',stop,{once:true});if(ctrl.signal.aborted)stop();
-  });
- };
- async function read(path,image=false){
-  const request=new AbortController(),stop=()=>request.abort();
-  ctrl.signal.addEventListener('abort',stop,{once:true});if(ctrl.signal.aborted)stop();
-  const timer=setTimeout(stop,image?60000:15000);
-  try{
-   const res=await fetch(`${task.baseUrl}${path}`,{headers:comfyHeaders(task.baseUrl,{},apiKey),signal:request.signal,credentials:'same-origin'});
-   if(res.status===401||res.status===403)throw new ComfyTaskError(`[ComfyUI] 访问被拒绝 (HTTP ${res.status})，请检查凭据和来源后恢复任务。`,task,'auth');
-   if(!res.ok)throw new Error(`HTTP ${res.status}`);
-   return image?await res.blob():await res.json();
-  }finally{clearTimeout(timer);ctrl.signal.removeEventListener('abort',stop);}
- }
- try{
-  checkSignal(ctrl.signal);
-  socket??=openComfySocket(task,apiKey);
-  socket.onMessage=msg=>{
-   const d=msg?.data;
-   if(msg?.type==='status'){queueRequested=true;wake();return;}
-   if(!d||d.prompt_id!==task.promptId)return;
-   if(msg.type==='executing'&&d.node){const title=workflow[d.node]?._meta?.title||workflow[d.node]?.class_type||d.node;report({stage:'running',message:`正在执行：${title}`,percent:undefined});}
-   else if(msg.type==='progress'&&d.max>0)report({stage:'running',message:`当前节点（${d.value}/${d.max}）`,percent:Math.round(d.value/d.max*100)});
-   else if(['execution_start','execution_cached','executed'].includes(msg.type))report({stage:'running',message:msg.type==='execution_cached'?'正在复用已缓存节点…':msg.type==='executed'?'节点已完成，继续执行工作流…':'ComfyUI 开始执行任务…',percent:undefined});
-   if(['execution_success','execution_error','execution_interrupted'].includes(msg.type)||(msg.type==='executing'&&d.node===null)){
-    if(msg.type==='execution_error'||msg.type==='execution_interrupted')terminalFailure=[[msg.type,d]];
-    terminalRetries=6;reconcile();
-   }
+// ------------------------------------------------------------------ Request compilers
+export function buildGeminiApiRequest({baseUrl,apiKey,model,prompt,refs,geminiParams}){
+ const gm=geminiParams||{endpointMode:'native',aspectRatio:'3:4',imageSize:'2K'};
+ if(gm.endpointMode==='native'){
+  const root=baseUrl.replace(/\/v1(?:beta)?$/,''),url=`${root}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const parts=[...refs.map(du=>{
+   const [head,b64]=String(du).split(','),mime=head?.match(/data:(.*?);/)?.[1]||'image/png';
+   return {inlineData:{mimeType:mime,data:b64||''}};
+  }),{text:prompt}];
+  const imageConfig={aspectRatio:gm.aspectRatio||'3:4'};
+  if(model.includes('gemini-3')&&gm.imageSize)imageConfig.imageSize=gm.imageSize;
+  return {
+   url,
+   headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},
+   body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig}}),
   };
-  socket.onConnection=connection=>{const was=progress.connection==='connected';report({connection});if(connection==='connected'||was)reconcile();else{nextHistoryAt=Math.min(nextHistoryAt,Date.now()+3000);wake();}};
-  report({connection:socket.connection});
-  window.addEventListener('online',reconcile);document.addEventListener('visibilitychange',activate);
-  for(;;){
-   checkSignal(ctrl.signal);
-   if(Date.now()>=nextHistoryAt){
-    nextHistoryAt=Date.now()+interval();
-    let item;
-    try{item=(await read(`/history/${encodeURIComponent(task.promptId)}`))?.[task.promptId];}
-    catch(error){if(error instanceof ComfyTaskError)throw error;checkSignal(ctrl.signal);report({message:'任务状态查询暂时失败，正在重试…'});nextHistoryAt=Math.min(nextHistoryAt,Date.now()+3000);}
-    if(item?.status?.status_str==='error')throw new ComfyTaskError(formatExecutionError(item.status.messages,workflow),task,'failed');
-    if(!item||(item.status&&item.status.completed===false&&item.status.status_str!=='success')){
-     if(terminalRetries>0){terminalRetries--;nextHistoryAt=Math.min(nextHistoryAt,Date.now()+500);}
-     else if(terminalFailure)throw new ComfyTaskError(formatExecutionError(terminalFailure,workflow),task,'failed');
-     queueRequested=true;
-    }else{
-     let out;
-     for(const nodeOut of Object.values(item.outputs||{}))for(const im of nodeOut?.images||[])if(im?.filename&&(!out||(im.type==='output'&&out.type!=='output')))out=im;
-     if(!out){if(item.status?.completed)throw new ComfyTaskError('[ComfyUI] 工作流完成但没有输出图片，请检查 SaveImage 节点。',task,'failed');nextHistoryAt=Math.min(nextHistoryAt,Date.now()+3000);}
-     else{
-      report({stage:'download',message:'正在获取生成结果…',percent:undefined});
-      const qs=new URLSearchParams({filename:out.filename,subfolder:out.subfolder||'',type:out.type||'output'});
-      let blob;
-      try{blob=await read(`/view?${qs}`,true);}catch(error){if(error instanceof ComfyTaskError)throw error;checkSignal(ctrl.signal);report({message:'图片下载暂时失败，正在重试…'});nextHistoryAt=Math.min(nextHistoryAt,Date.now()+3000);}
-      if(blob){
-       if(!blob.size||!blob.type.startsWith('image/'))throw new ComfyTaskError('[ComfyUI] 生成结果不是有效图片，可恢复后重新下载。',task);
-       const imageUrl=await blobToDataUrl(blob);checkSignal(ctrl.signal);
-       return {imageUrl,modelUsed:'ComfyUI 工作流',providerUsed:'comfyui'};
-      }
-     }
-    }
-   }
-   if(queueRequested&&Date.now()>=nextQueueAt){
-    queueRequested=false;nextQueueAt=Date.now()+3000;
-    try{
-     const q=await read('/queue'),pending=(q?.queue_pending||[]).findIndex(x=>x?.[1]===task.promptId);
-     if(pending>=0)report({stage:'queue',message:`排队中，前方还有 ${pending+(q.queue_running?.length||0)} 个任务`,percent:undefined});
-     else if((q?.queue_running||[]).some(x=>x?.[1]===task.promptId)){if(progress.stage!=='running')report({stage:'running',message:'ComfyUI 正在执行任务…',percent:undefined});}
-     else report({message:'暂未在队列或历史中找到任务，继续确认…',percent:undefined});
-    }catch(error){if(error instanceof ComfyTaskError)throw error;checkSignal(ctrl.signal);report({message:'队列查询暂时失败，正在等待任务状态…'});}
-   }
-   await wait(Math.min(nextHistoryAt,queueRequested?nextQueueAt:Infinity)-Date.now());
+ }
+ const v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`;
+ return {
+  url:`${v1}/chat/completions`,
+  headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
+  body:JSON.stringify({
+   model,
+   messages:[{role:'user',content:[{type:'text',text:`${prompt}\n(Output aspect ratio: ${gm.aspectRatio||'3:4'}, resolution: ${gm.imageSize||'2K'})`},...refs.map(ref=>({type:'image_url',image_url:{url:ref}}))]}],
+   modalities:['text','image'],
+  }),
+ };
+}
+
+export function buildGrokApiRequest({baseUrl,apiKey,model,prompt,refs,grokParams}){
+ const gr=grokParams||{endpointMode:'auto',aspectRatio:'3:4',resolution:'2k',responseFormat:'auto'};
+ const v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`;
+ const headers={'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`};
+ const pureGeneration=gr.endpointMode==='generations'||model==='grok-2-image-1212'||!refs.length;
+ if(pureGeneration){
+  const payload={model,prompt,n:1};
+  if(model!=='grok-2-image-1212'){
+   payload.aspect_ratio=gr.aspectRatio||'3:4';
+   payload.resolution=gr.resolution||'2k';
   }
- }catch(error){
-  if(error instanceof ComfyTaskError)throw error;
-  const message=ctrl.signal.aborted?signal?.aborted?'[ComfyUI] 已停止跟踪，后台任务继续执行，可恢复查看。':'[ComfyUI] 等待结果超时，后台任务继续执行，可恢复查看。':error instanceof Error?error.message:'[ComfyUI] 跟踪任务失败，可恢复查看。';
-  throw new ComfyTaskError(message,task,ctrl.signal.aborted&&!signal?.aborted?'timeout':'tracking');
- }finally{
-  socket?.close();clearTimeout(deadline);signal?.removeEventListener('abort',abort);
-  window.removeEventListener('online',reconcile);document.removeEventListener('visibilitychange',activate);
+  payload.response_format=gr.responseFormat==='b64_json'?'b64_json':'url';
+  return {url:`${v1}/images/generations`,headers,body:JSON.stringify(payload)};
  }
+ if(refs.length>5)throw new Error('[Grok API] Grok 图像编辑一次最多支持 5 张参考图（若开启附带合成拼图，请控制在 4 张以内）');
+ const payload={model,prompt,aspect_ratio:gr.aspectRatio||'3:4',resolution:gr.resolution||'2k'};
+ if(gr.responseFormat==='b64_json')payload.response_format='b64_json';
+ if(refs.length===1)payload.image={url:refs[0],type:'image_url'};
+ else payload.images=refs.map(url=>({url,type:'image_url'}));
+ return {url:`${v1}/images/edits`,headers,body:JSON.stringify(payload)};
 }
 
-async function generateWithComfyUi({recipe,prompt,config,baseUrl,apiKey,onProgress,onSubmitting,onSubmitted,signal}){
- const report=onProgress??(()=>{}),cp=config.comfyuiParams,timeoutSec=Math.max(60,cp.timeoutSec||600);
- const parsedInfo=parseComfyWorkflowNodes(cp.workflowJson);
- if(!parsedInfo.valid)throw new Error(`[ComfyUI] ${parsedInfo.error||'工作流 JSON 无效'}`);
- report({stage:'check',message:'正在检查 ComfyUI 服务与模型…'});
- await testComfyConnection(baseUrl,apiKey);
- const schemas=await fetchComfyObjectInfo(baseUrl,apiKey,cp.workflowJson);
- const extraNodes=getWorkflowImages(cp.workflowJson,[cp.portraitNodeId,cp.costumeNodeId,cp.poseNodeId,cp.stitchedNodeId],schemas);
- const extraImages=recipe.workflowImagesIdentity===workflowIdentity(cp.workflowJson)?recipe.workflowImages||{}:{};
- const selectedJson=applyWorkflowOverrides(cp.workflowJson,cp.parameterOverrides,schemas);
- const check=await checkComfyWorkflow(baseUrl,apiKey,selectedJson,[cp.portraitNodeId,cp.costumeNodeId,cp.poseNodeId,cp.stitchedNodeId,
-  ...extraNodes.filter(n=>extraImages[n.nodeId]?.url||(n.optional&&n.role==='character_sheet')).map(n=>n.nodeId)],schemas);
- if(!check.ok)throw new Error(`[ComfyUI] 工作流与本机不匹配：\n${check.errors.join('\n')}`);
- const workflow=JSON.parse(check.fixedJson??selectedJson);
- const slots=[
-  {nodeId:cp.portraitNodeId,src:recipe.portrait?recipe.portrait.原图||recipe.portrait.缩略图:null,prefix:'studio_portrait',label:'人像'},
-  {nodeId:cp.costumeNodeId,src:recipe.costume?recipe.costume.预览图||recipe.costume.原图||recipe.costume.缩略图:null,prefix:'studio_costume',label:'服装'},
-  {nodeId:cp.poseNodeId,src:recipe.pose?poseImagePath(recipe.pose):null,prefix:'studio_pose',label:'姿势'},
- ];
- const combo=validateReferenceCombinations(cp.workflowJson,[...slots.filter(s=>s.src&&s.nodeId&&s.nodeId!=='none').map(s=>s.nodeId),...extraNodes.filter(n=>extraImages[n.nodeId]?.url).map(n=>n.nodeId)]);
- if(combo)throw new Error(`[ComfyUI] ${combo}`);
- const invalid=slots.filter(s=>s.nodeId&&s.nodeId!=='none'&&!parsedInfo.imageNodes.some(n=>n.id===s.nodeId));
- if(invalid.length)throw new Error(`[ComfyUI] ${invalid.map(s=>s.label).join('、')}节点映射已失效，请重新识别或选择节点`);
- const missing=slots.filter(s=>s.nodeId&&s.nodeId!=='none'&&!s.src&&parsedInfo.imageNodes.find(n=>n.id===s.nodeId)?.emptyValue===undefined);
- if(missing.length)throw new Error(`[ComfyUI] 请先选择或上传：${missing.map(s=>s.label).join('、')}`);
- for(const slot of slots){
-  if(!slot.nodeId||slot.nodeId==='none'||!workflow[slot.nodeId]?.inputs)continue;
-  if(!slot.src){const empty=parsedInfo.imageNodes.find(n=>n.id===slot.nodeId)?.emptyValue;if(empty!==undefined){workflow[slot.nodeId].inputs.image=empty;continue;}throw new Error(`当前工作流需要「${slot.label}」参考图（节点 ${slot.nodeId}），请先在图库中选择`);}
-  report({stage:'upload',message:`正在上传${slot.label}参考图…`});
-  workflow[slot.nodeId].inputs.image=await uploadImageToComfy(baseUrl,slot.src,slot.prefix,apiKey);
- }
- for(const node of extraNodes){
-  const image=extraImages[node.nodeId];
-  if(!image?.url){if(node.optional&&node.role==='character_sheet')workflow[node.nodeId].inputs.image='无';continue;}
-  report({stage:'upload',message:`正在上传${node.label}…`});
-  workflow[node.nodeId].inputs.image=await uploadImageToComfy(baseUrl,image.url,'studio_reference',apiKey);
- }
- if(cp.stitchedNodeId&&cp.stitchedNodeId!=='none'&&workflow[cp.stitchedNodeId]?.inputs){
-  report({stage:'upload',message:'正在上传参考拼图…'});
-  workflow[cp.stitchedNodeId].inputs.image=await uploadImageToComfy(baseUrl,await stitchRecipeCanvas(recipe),'studio_stitched',apiKey);
- }
- if(cp.promptNodeId&&cp.promptNodeId!=='none'&&workflow[cp.promptNodeId]?.inputs){
-  const inputs=workflow[cp.promptNodeId].inputs;
-  for(const field of ['prompt','text','string','positive'])if(typeof inputs[field]==='string'){inputs[field]=prompt;break;}
- }
- if(cp.randomizeSeed){
-  const seed=Math.floor(Math.random()*90000000000000)+1000000;
-  for(const node of Object.values(workflow)){if(!node?.inputs)continue;if(typeof node.inputs.seed==='number')node.inputs.seed=seed;if(typeof node.inputs.noise_seed==='number')node.inputs.noise_seed=seed;}
- }
- checkSignal(signal);
- await onSubmitting?.({workflow:JSON.parse(JSON.stringify(workflow))});
- checkSignal(signal);
- const clientId=`pose_studio_${crypto.randomUUID()}`,submittedAt=Date.now();
- report({stage:'queue',message:'正在提交工作流…'});
- const socket=openComfySocket({baseUrl,clientId},apiKey);
- try{
-  let promptRes,promptJson;
-  const submission=new AbortController(),abortSubmission=()=>submission.abort();
-  signal?.addEventListener('abort',abortSubmission,{once:true});if(signal?.aborted)abortSubmission();
-  const timer=setTimeout(abortSubmission,60000);
-  try{
-   const headers=comfyHeaders(baseUrl,{headers:{'Content-Type':'application/json'}},apiKey);
-   promptRes=await fetch(`${baseUrl}/prompt`,{method:'POST',headers,body:JSON.stringify({prompt:workflow,client_id:clientId}),signal:submission.signal,credentials:'same-origin'});
-   promptJson=await readJsonSafe(promptRes);
-  }catch{throw new ComfySubmissionUnknownError();}
-  finally{clearTimeout(timer);signal?.removeEventListener('abort',abortSubmission);}
-  if(!promptRes.ok){if(promptRes.status>=500)throw new ComfySubmissionUnknownError();throw new ComfySubmissionRejectedError(formatComfyPromptError(promptJson,workflow,promptRes.status),promptRes.status);}
-  if(typeof promptJson?.prompt_id!=='string'||!promptJson.prompt_id)throw new ComfySubmissionUnknownError();
-  const task={promptId:promptJson.prompt_id,clientId,baseUrl,submittedAt};
-  try{await onSubmitted?.(task);}catch{throw new ComfyTaskError('[ComfyUI] 任务已提交，但保存恢复记录失败。请保留任务编号后恢复，勿重复提交。',task,'storage');}
-  return await trackComfyTask({task,apiKey,timeoutSec,onProgress,signal},workflow,socket);
- }finally{socket.close();}
-}
-
-export async function generateCharacterImage({recipe,prompt,config,onProgress,onSubmitting,onSubmitted,signal}){
- const provider=config.activeProvider,pCfg=config.providers[provider],apiKey=String(pCfg.apiKey||'').trim();
- if(provider!=='comfyui'&&!apiKey)throw new Error(`请先配置 ${PROVIDER_META[provider].name} 的 API Key`);
+// ------------------------------------------------------------------ Generation entry
+export async function generateCharacterImage({recipe,prompt,config,onProgress,signal}){
+ const provider=config.activeProvider,meta=PROVIDER_META[provider],pCfg=config.providers[provider]||{};
+ if(!meta)throw new Error('未知的生图接口通道');
  const rawSources=[
   recipe.portrait&&(recipe.portrait.原图||recipe.portrait.缩略图),
   recipe.costume&&(recipe.costume.预览图||recipe.costume.原图||recipe.costume.缩略图),
   recipe.pose&&poseImagePath(recipe.pose),
   ...(recipe.extraImages||[]).map(x=>x.url),
-  ...(provider==='comfyui'&&recipe.workflowImagesIdentity===workflowIdentity(config.comfyuiParams.workflowJson)?Object.values(recipe.workflowImages||{}).map(i=>i.url):[]),
  ].filter(Boolean);
  if(!rawSources.length)throw new Error('请先选择或上传至少 1 张参考图');
- const model=pCfg.model==='custom'?String(pCfg.customModel||'').trim():pCfg.model;
- if(provider!=='comfyui'&&!model)throw new Error('请选择或填写有效的模型名称');
- const baseUrl=(String(pCfg.baseUrl||'').trim()||PROVIDER_META[provider].defaultBaseUrl).replace(/\/+$/,'');
- if(provider==='comfyui')return generateWithComfyUi({recipe,prompt,config,baseUrl,apiKey,onProgress,onSubmitting,onSubmitted,signal});
- const needBase64=config.imagePassMode==='base64'||config.sendStitchedSheet||(provider==='gemini'&&config.geminiParams.endpointMode==='native')||(provider==='gpt'&&config.gptParams.endpointMode==='images_edits');
+ const model=pCfg.model==='custom'?String(pCfg.customModel||'').trim():(pCfg.model||meta.models[0].value);
+ if(!model)throw new Error('请选择或填写有效的模型名称');
+
+ if(isAuthProvider(provider)){
+  const localRefs=rawSources.map(referenceImageUrl);
+  const allRefs=config.sendStitchedSheet?[...localRefs,await stitchRecipeCanvas(recipe)]:localRefs;
+  if(provider==='grok_auth'&&allRefs.length>5)throw new Error('[Grok 授权] Grok 图像编辑一次最多支持 5 张参考图，请减少附加参考图或关闭附带合成拼图');
+  onProgress?.({stage:'running',message:provider==='agy_auth'?'正在通过 AGY 内置 image-generator 生成角色图…':'正在通过 Grok 订阅授权通道生成角色图…'});
+  const csrf=csrfProvider(),headers={'Content-Type':'application/json'};if(csrf)headers['X-CSRF-Token']=csrf;
+  const payload={
+   provider,model,prompt,references:allRefs,
+   aspect_ratio:provider==='grok_auth'?(config.grokParams?.aspectRatio||'3:4'):(config.agyParams?.aspectRatio||'3:4'),
+   resolution:config.grokParams?.resolution||'2k',
+  };
+  const res=await fetch('/api/v1/character-studio/generate',{method:'POST',headers,body:JSON.stringify(payload),signal,credentials:'same-origin'});
+  const json=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(json?.detail||json?.message||`[${meta.shortName}] 请求失败 (HTTP ${res.status})`);
+  if(!json?.image_url)throw new Error(`[${meta.shortName}] 服务未返回图像数据`);
+  return {imageUrl:json.image_url,modelUsed:json.model||model,providerUsed:provider};
+ }
+
+ const apiKey=String(pCfg.apiKey||'').trim();
+ if(!apiKey)throw new Error(`请先配置 ${meta.name} 的 API Key`);
+ const baseUrl=(String(pCfg.baseUrl||'').trim()||meta.defaultBaseUrl).replace(/\/+$/,'');
+ const needBase64=config.imagePassMode==='base64'||config.sendStitchedSheet||(provider==='gemini'&&config.geminiParams.endpointMode==='native')||provider==='grok'||(provider==='gpt'&&config.gptParams.endpointMode==='images_edits');
  const imageRefs=needBase64?await Promise.all(rawSources.map(srcToPngDataUrl)):rawSources.map(toPublicHttpsUrl);
  const allRefs=config.sendStitchedSheet?[...imageRefs,await stitchRecipeCanvas(recipe)]:imageRefs;
  const json_=headers=>({'Content-Type':'application/json',...headers});
+ onProgress?.({stage:'running',message:`正在请求 ${meta.shortName} (${model})…`});
  let res;
  if(provider==='gpt'){
   const g=config.gptParams,v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`,auth={Authorization:`Bearer ${apiKey}`};
@@ -603,44 +376,43 @@ export async function generateCharacterImage({recipe,prompt,config,onProgress,on
    const payload={model,prompt,images:allRefs.map(ref=>({image_url:ref}))};
    if(g.size!=='auto')payload.size=g.size;if(g.quality!=='auto')payload.quality=g.quality;if(g.inputFidelity)payload.input_fidelity=g.inputFidelity;
    if(g.background!=='auto')payload.background=g.background;if(g.outputFormat)payload.output_format=g.outputFormat;if(g.moderation!=='auto')payload.moderation=g.moderation;
-   res=await smartFetch(`${v1}/images/edits`,{method:'POST',headers:json_(auth),body:JSON.stringify(payload)},config.useProxy);
+   res=await smartFetch(`${v1}/images/edits`,{method:'POST',headers:json_(auth),body:JSON.stringify(payload),signal},config.useProxy);
   }else if(g.endpointMode==='images_edits'){
    const fd=new FormData();fd.append('model',model);fd.append('prompt',prompt);
    allRefs.forEach((du,i)=>fd.append('image[]',dataUrlToBlob(du),`ref_${i+1}.png`));
    if(g.size!=='auto')fd.append('size',g.size);if(g.quality!=='auto')fd.append('quality',g.quality);if(g.inputFidelity)fd.append('input_fidelity',g.inputFidelity);
    if(g.background!=='auto')fd.append('background',g.background);if(g.outputFormat)fd.append('output_format',g.outputFormat);if(g.moderation!=='auto')fd.append('moderation',g.moderation);
-   res=await smartFetch(`${v1}/images/edits`,{method:'POST',headers:auth,body:fd},config.useProxy);
+   res=await smartFetch(`${v1}/images/edits`,{method:'POST',headers:auth,body:fd,signal},config.useProxy);
   }else if(g.endpointMode==='responses'){
    const tool={type:'image_generation'};
    if(g.size!=='auto')tool.size=g.size;if(g.quality!=='auto')tool.quality=g.quality;if(g.background!=='auto')tool.background=g.background;if(g.inputFidelity)tool.input_fidelity=g.inputFidelity;if(g.outputFormat)tool.output_format=g.outputFormat;
-   res=await smartFetch(`${v1}/responses`,{method:'POST',headers:json_(auth),body:JSON.stringify({model,input:[{role:'user',content:[...allRefs.map(ref=>({type:'input_image',image_url:ref})),{type:'input_text',text:prompt}]}],tools:[tool]})},config.useProxy);
+   res=await smartFetch(`${v1}/responses`,{method:'POST',headers:json_(auth),body:JSON.stringify({model,input:[{role:'user',content:[...allRefs.map(ref=>({type:'input_image',image_url:ref})),{type:'input_text',text:prompt}]}],tools:[tool]}),signal},config.useProxy);
   }else{
-   res=await smartFetch(`${v1}/chat/completions`,{method:'POST',headers:json_(auth),body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:prompt},...allRefs.map(ref=>({type:'image_url',image_url:{url:ref}}))]}],modalities:['text','image']})},config.useProxy);
+   res=await smartFetch(`${v1}/chat/completions`,{method:'POST',headers:json_(auth),body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:prompt},...allRefs.map(ref=>({type:'image_url',image_url:{url:ref}}))]}],modalities:['text','image']}),signal},config.useProxy);
   }
  }else if(provider==='gemini'){
-  const gm=config.geminiParams;
-  if(gm.endpointMode==='native'){
-   const root=baseUrl.replace(/\/v1(?:beta)?$/,''),url=`${root}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-   const parts=[...allRefs.map(du=>({inlineData:{mimeType:'image/png',data:du.split(',')[1]}})),{text:prompt}];
-   const imageConfig={aspectRatio:gm.aspectRatio};if(model.includes('gemini-3')&&gm.imageSize)imageConfig.imageSize=gm.imageSize;
-   res=await smartFetch(url,{method:'POST',headers:json_({'x-goog-api-key':apiKey}),body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig}})},config.useProxy);
-  }else{
-   const v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`;
-   res=await smartFetch(`${v1}/chat/completions`,{method:'POST',headers:json_({Authorization:`Bearer ${apiKey}`}),body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:`${prompt}\n(Output aspect ratio: ${gm.aspectRatio}, resolution: ${gm.imageSize})`},...allRefs.map(ref=>({type:'image_url',image_url:{url:ref}}))]}],modalities:['text','image']})},config.useProxy);
-  }
+  const req=buildGeminiApiRequest({baseUrl,apiKey,model,prompt,refs:allRefs,geminiParams:config.geminiParams});
+  res=await smartFetch(req.url,{method:'POST',headers:req.headers,body:req.body,signal},config.useProxy);
+ }else if(provider==='grok'){
+  const req=buildGrokApiRequest({baseUrl,apiKey,model,prompt,refs:allRefs,grokParams:config.grokParams});
+  res=await smartFetch(req.url,{method:'POST',headers:req.headers,body:req.body,signal},config.useProxy);
  }else if(provider==='qwen'){
   const qw=config.qwenParams,endpoint=baseUrl.includes('/services/aigc/')?baseUrl:`${baseUrl.replace(/\/api\/v1$/,'')}/api/v1/services/aigc/multimodal-generation/generation`;
   res=await smartFetch(endpoint,{method:'POST',headers:json_({Authorization:`Bearer ${apiKey}`}),body:JSON.stringify({model,input:{messages:[{role:'user',content:[...imageRefs.map(ref=>({image:ref})),{text:prompt}]}]},
-   parameters:{size:qw.size,n:qw.n||1,prompt_extend:qw.promptExtend,watermark:qw.watermark,...(String(qw.negativePrompt||'').trim()?{negative_prompt:qw.negativePrompt.trim()}:{})}})},config.useProxy);
+   parameters:{size:qw.size,n:qw.n||1,prompt_extend:qw.promptExtend,watermark:qw.watermark,...(String(qw.negativePrompt||'').trim()?{negative_prompt:qw.negativePrompt.trim()}:{})}}),signal},config.useProxy);
  }else{
   const db=config.doubaoParams;let endpoint=baseUrl;
   if(!endpoint.endsWith('/images/generations'))endpoint=endpoint.endsWith('/api/v3')||endpoint.endsWith('/v1')?`${endpoint}/images/generations`:`${endpoint}/api/v3/images/generations`;
-  res=await smartFetch(endpoint,{method:'POST',headers:json_({Authorization:`Bearer ${apiKey}`}),body:JSON.stringify({model,prompt,image:allRefs,size:db.size,sequential_image_generation:db.sequentialImageGeneration,watermark:db.watermark,response_format:db.responseFormat})},config.useProxy);
+  res=await smartFetch(endpoint,{method:'POST',headers:json_({Authorization:`Bearer ${apiKey}`}),body:JSON.stringify({model,prompt,image:allRefs,size:db.size,sequential_image_generation:db.sequentialImageGeneration,watermark:db.watermark,response_format:db.responseFormat}),signal},config.useProxy);
  }
  const json=await res.json().catch(()=>({}));
- if(!res.ok)throw new Error(`[${PROVIDER_META[provider].shortName}] ${json?.error?.message||json?.message||json?.code||`请求失败 (HTTP ${res.status})`}`);
- const imageUrl=extractUniversalImage(json);
+ if(!res.ok)throw new Error(`[${meta.shortName}] ${json?.error?.message||json?.message||json?.code||`请求失败 (HTTP ${res.status})`}`);
+ let imageUrl=extractUniversalImage(json);
  if(!imageUrl)throw new Error(`接口已响应但未解析到图片输出：${(json?.choices?.[0]?.message?.content||json?.output?.choices?.[0]?.message?.content?.[0]?.text||JSON.stringify(json)).slice(0,260)}`);
+ if(/^https:\/\//i.test(imageUrl)&&config.useProxy){
+  onProgress?.({stage:'download',message:'正在转存临时生成图片…'});
+  imageUrl=await fetchImageViaProxy(imageUrl,signal).catch(()=>imageUrl);
+ }
  return {imageUrl,modelUsed:model,providerUsed:provider};
 }
 
