@@ -50,10 +50,13 @@ const api = async url => {
 };
 const workspace = doc.createElement('div');
 workspace.className = 'workspace';
-workspace.scrollTop = 0;
 doc.body.append(workspace);
+const platform = doc.createElement('section');
+platform.id = 'production-platform';
+platform.scrollTop = 0;
+workspace.append(platform);
 const root = doc.createElement('main');
-workspace.append(root);
+platform.append(root);
 const find = (container, text) => [...container.querySelectorAll('button')].find(node => node.textContent === text);
 const click = async (container, text) => {
   const node = find(container, text);
@@ -85,7 +88,7 @@ const click = async (container, text) => {
   assert.ok(root.textContent.includes('ivory'));
   assert.ok(!root.textContent.includes('SPR-0001 ivory'));
   const initialObserver = observers.at(-1);
-  assert.equal(initialObserver.options.root, workspace);
+  assert.equal(initialObserver.options.root, platform);
   assert.equal(initialObserver.options.rootMargin, '0px 0px 480px 0px');
   initialObserver.callback([{isIntersecting: true}]);
   await new Promise(resolve => setTimeout(resolve, 20));
@@ -97,10 +100,10 @@ const click = async (container, text) => {
   assert.equal(find(root, '更多'), undefined);
   assert.equal(root.querySelector('.costume-sentinel'), null);
   assert.equal(initialObserver.disconnected, true);
-  workspace.scrollTop = 360;
+  platform.scrollTop = 360;
   const before = requests.length;
   await click(root, '春 2');
-  assert.equal(workspace.scrollTop, 0);
+  assert.equal(platform.scrollTop, 0);
   assert.ok(requests.at(-1).includes('category=%E6%98%A5'));
   assert.ok(requests.at(-1).includes('offset=0&limit=24'));
   assert.equal(find(root, '春 2').getAttribute('aria-pressed'), 'true');
