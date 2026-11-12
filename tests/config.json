@@ -2327,6 +2327,9 @@
         "src/vsc/assets/costume_gallery.py",
         "src/vsc/interfaces/web/asset_center.py",
         "src/vsc/interfaces/web/static/asset-center.js",
+        "src/vsc/interfaces/web/static/asset-center.css",
+        "src/vsc/interfaces/web/static/character-studio-store.js",
+        "src/vsc/interfaces/web/static/character-studio-ai.js",
         "tests/support/fixtures/frontend/costume_gallery.cjs"
       ]
     },
@@ -2370,6 +2373,31 @@
         "src/vsc/adapters/persistence/postgres/access_control.py",
         "src/vsc/interfaces/web/team_review.py",
         "src/vsc/interfaces/web/app.py"
+      ]
+    },
+    "assets.unit.test_pose_gallery": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/pose_gallery.py",
+        "src/vsc/interfaces/web/character_studio.py",
+        "src/vsc/interfaces/web/app.py",
+        "src/vsc/interfaces/web/templates/index.html"
+      ]
+    },
+    "project.unit.test_character_studio_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/character-studio.js",
+        "src/vsc/interfaces/web/static/character-studio.css",
+        "src/vsc/interfaces/web/static/character-studio-ai.js",
+        "src/vsc/interfaces/web/static/character-studio-store.js",
+        "src/vsc/interfaces/web/static/character-studio-workflows.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/static/workbench-shell.css",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/character_studio.test.mjs"
       ]
     }
   },

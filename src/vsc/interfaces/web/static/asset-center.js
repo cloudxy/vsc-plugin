@@ -1,4 +1,6 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
+import * as studio from './character-studio-store.js';
+import {referenceImageUrl,poseThumbPath,poseImagePath,selectCostumeView} from './character-studio-ai.js';
 /* Catalog metadata and personal selections reference the original library. */
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);if(text!==null&&text!==undefined)setText(n,text);if(cls)n.className=cls;return n;};
 const kinds=[
@@ -15,17 +17,19 @@ const officialWorkbenchKinds=[
  ['character','人设'],
  ['location','场景'],
  ['prop','道具'],
- ['blocking','站位'],
  ['voice','音频'],
- ['costume','服饰'],
+ ['costume','服装穿搭库'],
+ ['pose','动作姿势库'],
+ ['portrait','人像颜值库'],
 ];
 const officialSelectKinds=[
  ['character','人设'],
  ['location',msg('asset.scene')],
  ['prop',msg('asset.prop')],
- ['blocking','站位'],
  ['voice','音频'],
- ['costume','服饰'],
+ ['costume','服装穿搭库'],
+ ['pose','动作姿势库'],
+ ['portrait','人像颜值库'],
 ];
 const roles={character:'identity_face',location:'location_master',prop:'prop',voice:'voice_sample',creature:'prop'};
 const MAX_CART_ITEMS=200;
@@ -364,10 +368,23 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  if(source==='global')return createGlobalAssetLibrary(root,ctx);
  const official=source==='official';
  const facetCache=new Map(),officialPageCache=new Map(),costumePageCache=new Map();
- const DEFAULT_COSTUME_CATEGORIES=['春','夏','秋','冬','内衣','派对','泳装','性感'];
- let costumeSummaryCache=null;
+ const REF_KINDS=new Set(['costume','pose','portrait']);
+ const refState={costume:{top:'',source:'',category:'',tag:'',q:''},pose:{view:'group',system:'',category:'',angle:'',q:''},portrait:{section:'',hair:'',style:'',hot:false,q:''}};
+ const refSummary={},refPageCache=new Map();
+ let refDock=null,refPickers=[],refFocus='',refSafe=null,refDepth=null;
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,searchTimer=null;
  let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
+ if(official&&!canvas&&typeof location!=='undefined'){const k=new URLSearchParams(location.search||'').get('kind');if(k&&officialWorkbenchKinds.some(([v])=>v&&v===k))filters.asset_kind=k;}
+ if(official){
+  studio.configureStudio({notice:m=>ctx.notice?.(m),api:ctx.api,csrf:()=>ctx.session?.()?.csrf||''});
+  studio.subscribe(s=>{
+   if(disposed||!REF_KINDS.has(filters.asset_kind||'')||tab!=='gallery')return;
+   const changed=refSafe!==null&&(s.safeMode!==refSafe||(filters.asset_kind==='pose'&&s.poseDepthMode!==refDepth));
+   refSafe=s.safeMode;refDepth=s.poseDepthMode;
+   if(changed){load();return;}
+   for(const fn of refPickers)fn();
+  });
+ }
  function stopCostumeObserver(){
   if(costumeObserver){costumeObserver.disconnect();costumeObserver=null;}
   if(costumeScrollCleanup){costumeScrollCleanup();costumeScrollCleanup=null;}
@@ -411,6 +428,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   });
  }
  function shell(){
+  unmountRefs();
   stopCostumeObserver();
   root.querySelectorAll('dialog').forEach(d=>d.close());
   root.replaceChildren();
@@ -848,208 +866,286 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   (document.body||root).append(dialog);
   dialog.showModal();
  }
- async function costumeBrowser(g){
-  const COSTUME_LIMIT='24';
-  stopCostumeObserver();
-  closeCostumeDialogs();
-  root.className=String(root.className||'').replace(/\bcostume-library\b/g,'').trim()+' costume-library';
-  const scrollRoot=findScrollContainer(root);
-  const leave=value=>{
+  // ------------------------------------------------------------------ reference libraries
+  // 服装穿搭库 / 动作姿势库 / 人像颜值库 share Row 1 (kind tabs) and Row 2 (44px
+  // filter row) with the other official tabs, so switching tabs never shifts layout.
+  async function referenceBrowser(g,kind){
+   const LIMIT='24';
+   stopCostumeObserver();closeCostumeDialogs();
+   root.className=String(root.className||'').replace(/\b(costume-library|ref-library|ref-costume|ref-pose|ref-portrait)\b/g,'').replace(/\s+/g,' ').trim()+' costume-library ref-library ref-'+kind;
+   const scrollRoot=findScrollContainer(root),st=refState[kind],slot=kind;
+   const reload=()=>{clearTimeout(costumeTimer);if(scrollRoot)scrollRoot.scrollTop=0;return load();};
+   const studioState=studio.getState();
+   const form=el('div','','center-official-filters ref-filters'),tabs=el('div','','center-official-kinds');
+   for(const [value,title]of officialWorkbenchKinds){
+    const t=button(title,()=>switchKind(value));
+    t.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));tabs.append(t);
+   }
+   const row=el('div','','center-official-filter-row ref-filter-row');
+   form.append(tabs,row);root.append(form);
+   const summary=refSummary[kind]||null;
+   const selects={};
+   const pickSelect=(key,label,choices,onPick)=>{
+    const s=field(row,label,'select');fillSelect(s,label,choices,st[key]);
+    s.onchange=()=>{st[key]=s.value;onPick?.();refFocus='';return reload();};
+    selects[key]=s;return s;
+   };
+   const search=()=>{
+    const input=field(row,'搜索','input',st.q||'');input.type='search';
+    bindAttribute(input,'placeholder',kind==='costume'?'名称、颜色、单品或编号':kind==='pose'?'姿势名称、编号或分类':'发型名称或编号');
+    input.oninput=()=>{st.q=input.value;refFocus='search';clearTimeout(costumeTimer);costumeTimer=setTimeout(()=>{costumeTimer=0;if(!disposed)load();},200);};
+    input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault?.();clearTimeout(costumeTimer);load();}});
+    return input;
+   };
+   const safeButton=()=>{
+    const b=button(studioState.safeMode?'安全模式':'18+ 已解锁',()=>studio.toggleSafeMode(),'center-clear-filters ref-safe');
+    b.setAttribute('aria-pressed',String(!studioState.safeMode));bindAttribute(b,'title',studioState.safeMode?'已隐藏 18+ 敏感分类，点击确认年龄后解锁':'点击恢复安全模式');return b;
+   };
+   let input;
+   if(kind==='costume'){
+    pickSelect('top','全部类型',(summary?.tops||[{name:'现实'},{name:'二次元'}]).map(t=>[t.name,t.count!=null?`${t.name} ${t.count}`:t.name]),()=>{st.source='';st.category='';st.tag='';});
+    pickSelect('source','全部来源',(summary?.sources||[]).map(s=>[s.id,`${s.label} ${s.count}`]),()=>{st.category='';st.tag='';});
+    pickSelect('tag','全部标签',(summary?.tags||[]).map(t=>[t.name,`${t.name} ${t.count}`]));
+    input=search();
+   }else if(kind==='pose'){
+    pickSelect('system','全部体系',(summary?.systems||[]).map(s=>[s.name,`${s.name} ${s.count}`]),()=>{st.category='';});
+    pickSelect('angle','全部角度',(summary?.angles||['正面','斜侧','侧面','背面','俯视','仰视']).map(a=>[a,a]));
+    const view=field(row,'视图','select');for(const [v,l]of [['group','分组'],['single','单张']])view.append(localizedOption(v,l));view.value=st.view;
+    view.onchange=()=>{st.view=view.value;return reload();};
+    const depth=field(row,'素体','select');for(const [v,l]of [['white','素体白模'],['depth','深度图 (Depth)']])depth.append(localizedOption(v,l));depth.value=studioState.poseDepthMode?'depth':'white';
+    depth.onchange=()=>studio.setPoseDepthMode(depth.value==='depth');
+    input=search();
+   }else{
+    pickSelect('section','全部分区',(summary?.sections||[]).map(s=>[s.name,`${s.name} ${s.count}`]),()=>{st.style='';});
+    pickSelect('style','全部发型',(summary?.hair_styles||[]).map(s=>[s.name,`${s.name} ${s.count}`]));
+    input=search();
+   }
+   const count=el('span','加载中…','center-count');count.setAttribute('role','status');row.append(count);
+   if(kind==='portrait'){
+    const hot=button(st.hot?'Top10 热门 ✓':'Top10 热门',()=>{st.hot=!st.hot;return reload();},'center-clear-filters ref-hot');hot.setAttribute('aria-pressed',String(Boolean(st.hot)));row.append(hot);
+   }else row.append(safeButton());
+   if(kind==='costume')row.append(button('来源说明',()=>costumeNote('来源与使用说明',(refSummary.costume?.sources||[]).map(s=>`${s.label}：${s.notice}（${s.url}）`).join('\n\n')||'加载中，请稍后再试。'),'center-clear-filters'));
+   if(refFocus==='search'){input.focus?.();}
+   // Row 3 pills: costume/pose categories, portrait hair lengths.
+   const pills=el('div','','costume-tabs ref-pills');pills.setAttribute('role','tablist');
+   const pillKey=kind==='portrait'?'hair':'category';
+   const syncPills=data=>{
+    const list=kind==='costume'?(data?.categories||[]).map(c=>[c.name,`${c.name} ${Number(c.count).toLocaleString('zh-CN')}`])
+     :kind==='pose'?(data?.categories||[]).map(c=>[c,c]):(data?.hair_lengths||[]).map(h=>[h.name,`${h.name} ${h.count}`]);
+    const totalLabel=kind==='costume'&&data?`全部 ${Number(data.categories.reduce((a,c)=>a+c.count,0)).toLocaleString('zh-CN')}`:'全部';
+    const entries=[['',totalLabel],...list];
+    const existing=[...pills.children];
+    if(existing.length===entries.length&&existing.every((n,i)=>n.dataset?.value===entries[i][0])){
+     for(const [i,[val,label]]of entries.entries()){setText(existing[i],label);existing[i].setAttribute('aria-pressed',String((st[pillKey]||'')===val));}
+     return;
+    }
+    pills.replaceChildren();
+    for(const [val,label]of entries){
+     const t=button(label,()=>{st[pillKey]=val;if(kind==='costume')st.tag='';return reload();});
+     if(t.dataset)t.dataset.value=val;t.setAttribute('role','tab');t.setAttribute('aria-pressed',String((st[pillKey]||'')===val));pills.append(t);
+    }
+   };
+   syncPills(summary);root.append(pills);
+   const pageItems=[],grid=el('div','','costume-grid ref-grid'),pickers=[];
+   let next=null,moreBtn=null,pagingBusy=false,sentinel=null,sentinelVisible=false;
+   const params=offset=>{
+    const q=new URLSearchParams();
+    for(const [k,v]of Object.entries(st))if(v!==''&&v!==false&&v!=null)q.set(k,String(v));
+    if(kind!=='portrait')q.set('safe',String(studio.getState().safeMode));
+    q.set('offset',String(offset));q.set('limit',LIMIT);return q;
+   };
+   const endpoint='/api/v1/asset-center/pose-gallery/'+(kind==='costume'?'costumes':kind==='pose'?'poses':'portraits');
+   const cacheKey=kind+'\0'+String(params(0));
+   const cached=refPageCache.get(cacheKey);
+   const pickItem=entry=>kind==='pose'?(entry.group?entry.group.items[entry.active]||entry.group.items[0]:entry.item):kind==='costume'?(entry.item.views?.length?selectCostumeView(entry.item,entry.view||entry.item.selectedView||'front'):entry.item):entry.item;
+   const picked=entry=>{
+    const recipe=studio.getState().recipe;
+    if(kind==='pose'&&entry.group)return entry.group.items.some(i=>i.id===recipe.pose?.id);
+    return recipe[slot]?.id===(entry.item?.id);
+   };
+   const thumbOf=entry=>{
+    const item=pickItem(entry);
+    if(kind==='pose')return referenceImageUrl(poseThumbPath(item,studio.getState().poseDepthMode));
+    return referenceImageUrl(item.缩略图||item.预览图||item.原图);
+   };
+   const titleOf=entry=>{const item=pickItem(entry);return kind==='costume'?item.服装名称:kind==='pose'?(entry.group?entry.group.name:item.姿势名称):item.标题||item.发型名称;};
+   const metaOf=entry=>{
+    const item=pickItem(entry);
+    if(kind==='costume')return [item.来源,item.分类].filter(Boolean).join(' · ');
+    if(kind==='pose')return entry.group?[entry.group.system,entry.group.category,`${entry.group.items.length} 个角度`].filter(Boolean).join(' · '):[item.体系,item.分类,item.角度].filter(Boolean).join(' · ');
+    return [item.分区,item.发长].filter(Boolean).join(' · ');
+   };
+   const updatePick=(btn,entry)=>{const on=picked(entry);setText(btn,on?'✓ 已选':'加入配方');btn.setAttribute('aria-pressed',String(on));};
+   const togglePick=entry=>{
+    const item=pickItem(entry);
+    if(kind==='pose'&&entry.group&&picked(entry)&&studio.getState().recipe.pose?.id!==item.id){studio.setSlot('pose',{...item,useDepth:studio.getState().poseDepthMode});ctx.notice?.(`已选姿势：${item.姿势名称}（${item.角度}）`);return;}
+    studio.toggleSlot(slot,item);
+   };
+   const cardFor=(entry,index)=>{
+    const card=el('article','','costume-card ref-card'),shot=el('div','','costume-shot'),open=button('',()=>refModal(index),'costume-open');
+    bindAttribute(open,'aria-label','查看 '+titleOf(entry));
+    const img=el('img');img.src=thumbOf(entry);img.loading=index<8?'eager':'lazy';img.decoding='async';bindAttribute(img,'alt',titleOf(entry)||'');
+    open.append(img);shot.append(open);
+    const item=pickItem(entry);
+    if(kind==='costume'&&item.敏感)shot.append(el('span','18+','ref-badge ref-badge-warn'));
+    if(kind==='portrait'&&item.热门)shot.append(el('span','热门','ref-badge'));
+    if(kind==='costume'&&item.views?.length)shot.append(el('span',`${item.views.length} 视角`,'ref-badge ref-badge-right'));
+    const pick=button('加入配方',()=>togglePick(entry),'ref-pick');updatePick(pick,entry);pickers.push(()=>updatePick(pick,entry));shot.append(pick);
+    card.append(shot);
+    if(kind==='pose'&&entry.group&&entry.group.items.length>1){
+     const strip=el('div','','ref-angle-strip');
+     for(const [i,angleItem]of entry.group.items.entries()){
+      const b=button(angleItem.角度||String(i+1),()=>{entry.active=i;img.src=thumbOf(entry);for(const c of strip.children)c.setAttribute('aria-pressed',String(c===b));});
+      b.setAttribute('aria-pressed',String(i===entry.active));
+      b.addEventListener('mouseenter',()=>{img.src=referenceImageUrl(poseThumbPath(angleItem,studio.getState().poseDepthMode));});
+      b.addEventListener('mouseleave',()=>{img.src=thumbOf(entry);});
+      strip.append(b);
+     }
+     card.append(strip);
+    }
+    card.append(el('h3',titleOf(entry)||''),el('p',metaOf(entry),'costume-keys'));
+    return card;
+   };
+   const appendEntries=items=>{
+    for(const raw of items||[]){
+     const entry=kind==='pose'&&raw.items?{group:raw,active:0}:{item:raw};
+     pageItems.push(entry);grid.append(cardFor(entry,pageItems.length-1));
+    }
+   };
+   const sig=list=>(list||[]).map(x=>x.key||x.id).join('|');
+   async function pull(){
+    if(pagingBusy||next==null||!active(g)||!grid.isConnected)return;
+    pagingBusy=true;const cursor=next;
+    try{
+     const more=await get(endpoint+'?'+params(cursor));
+     if(!active(g)||!grid.isConnected)return;
+     appendEntries(more.items);next=more.next_offset??null;
+     setText(count,Number(more.total||pageItems.length).toLocaleString('zh-CN')+(kind==='pose'&&st.view==='group'?' 组':' 张'));
+     if(next==null){moreBtn?.remove();sentinel?.remove();stopCostumeObserver();}
+    }finally{
+     pagingBusy=false;
+     if(next!=null&&sentinelVisible&&sentinel?.isConnected&&costumeObserver&&typeof costumeObserver.unobserve==='function'){
+      const recheck=()=>{if(!active(g)||next==null||!sentinel?.isConnected||!costumeObserver)return;costumeObserver.unobserve(sentinel);costumeObserver.observe(sentinel);};
+      if(typeof requestAnimationFrame==='function')requestAnimationFrame(recheck);
+     }
+    }
+   }
+   function refModal(index){
+    let cursor=index;if(!pageItems[cursor])return;
+    closeCostumeDialogs();
+    const dialog=el('dialog','','costume-modal ref-modal'),viewport=el('div','','center-zoom-viewport'),img=el('img');viewport.append(img);
+    const caption=el('p'),down=el('a','下载原图'),levelEl=el('span','100%','center-zoom-level'),extra=el('div','','ref-modal-switch');
+    down.target='_blank';down.rel='noopener';
+    const zoomCtrl=attachImageZoomPan(viewport,img,{onScaleChange:({percent})=>setText(levelEl,`${percent}%`)});
+    const pick=button('加入配方',()=>{togglePick(pageItems[cursor]);updatePick(pick,pageItems[cursor]);},'ref-pick-modal');
+    const fullOf=entry=>{const item=pickItem(entry);if(kind==='pose')return poseImagePath(item,studio.getState().poseDepthMode);if(kind==='costume')return item.预览图||item.原图||item.缩略图;return item.原图||item.缩略图;};
+    const show=()=>{
+     const entry=pageItems[cursor];if(!entry)return;const item=pickItem(entry);
+     img.src=referenceImageUrl(fullOf(entry));bindAttribute(img,'alt',titleOf(entry)||'');
+     setText(caption,[item.id,titleOf(entry),metaOf(entry)].filter(Boolean).join(' · '));
+     down.href=referenceImageUrl(item.原图||fullOf(entry));down.setAttribute('download',String(item.id||'reference'));
+     extra.replaceChildren();
+     if(kind==='costume'&&entry.item.views?.length){
+      for(const view of entry.item.views){const b=button(view.label,()=>{entry.view=view.id;show();});b.setAttribute('aria-pressed',String((entry.view||entry.item.selectedView||'front')===view.id));extra.append(b);}
+     }
+     if(kind==='pose'){
+      for(const [depth,label]of [[false,'白模'],[true,'Depth']]){const b=button(label,()=>{studio.setPoseDepthMode(depth);show();});b.setAttribute('aria-pressed',String(studio.getState().poseDepthMode===depth));extra.append(b);}
+      if(entry.group)for(const [i,angleItem]of entry.group.items.entries()){const b=button(angleItem.角度||String(i+1),()=>{entry.active=i;show();});b.setAttribute('aria-pressed',String(entry.active===i));extra.append(b);}
+     }
+     updatePick(pick,entry);zoomCtrl.reset();
+    };
+    const stepItem=async delta=>{const target=cursor+delta;if(target>=pageItems.length&&delta>0)await pull();if(!dialog.isConnected||target<0||target>=pageItems.length)return;cursor=target;show();};
+    const bar=el('div','','costume-modal-bar');
+    bar.append(button('缩小',()=>zoomCtrl.zoomOut()),levelEl,button('适应窗口',()=>zoomCtrl.reset()),button('放大',()=>zoomCtrl.zoomIn()),button('上一张',()=>stepItem(-1)),button('下一张',()=>stepItem(1)),pick,down,button('关闭',()=>dialog.close()));
+    dialog.append(viewport,extra,caption,bar);
+    dialog.addEventListener('keydown',event=>{
+     if(event.key==='ArrowRight'){event.preventDefault?.();stepItem(1);}else if(event.key==='ArrowLeft'){event.preventDefault?.();stepItem(-1);}
+     else if(event.key==='+'||event.key==='='){event.preventDefault?.();zoomCtrl.zoomIn();}else if(event.key==='-'){event.preventDefault?.();zoomCtrl.zoomOut();}else if(event.key==='0'){event.preventDefault?.();zoomCtrl.reset();}
+    });
+    dialog.addEventListener('click',event=>{if(zoomCtrl.consumeMoved())return;if(event.target===dialog)dialog.close();});
+    dialog.addEventListener('close',()=>dialog.remove());
+    (document.body||root).append(dialog);dialog.showModal();show();
+   }
+   if(cached){appendEntries(cached.items);if(!pageItems.length)grid.append(el('p','没有符合条件的参考图','costume-empty'));next=cached.next_offset??null;setText(count,Number(cached.total||0).toLocaleString('zh-CN')+(kind==='pose'&&st.view==='group'?' 组':' 张'));}
+   root.append(grid);
+   refPickers=pickers;
+   mountDock();
+   const data=await get(endpoint+'?'+params(0));
+   if(!active(g))return;
+   refSummary[kind]=data;refPageCache.set(cacheKey,data);
+   if(kind==='costume'){
+    fillSelect(selects.top,'全部类型',(data.tops||[]).map(t=>[t.name,`${t.name} ${t.count}`]),st.top);
+    fillSelect(selects.source,'全部来源',(data.sources||[]).map(s=>[s.id,`${s.label} ${s.count}`]),st.source);
+    fillSelect(selects.tag,'全部标签',(data.tags||[]).map(t=>[t.name,`${t.name} ${t.count}`]),st.tag);
+   }else if(kind==='pose'){
+    fillSelect(selects.system,'全部体系',(data.systems||[]).map(s=>[s.name,`${s.name} ${s.count}`]),st.system);
+    fillSelect(selects.angle,'全部角度',(data.angles||[]).map(a=>[a,a]),st.angle);
+   }else{
+    fillSelect(selects.section,'全部分区',(data.sections||[]).map(s=>[s.name,`${s.name} ${s.count}`]),st.section);
+    fillSelect(selects.style,'全部发型',(data.hair_styles||[]).map(s=>[s.name,`${s.name} ${s.count}`]),st.style);
+   }
+   syncPills(data);
+   const unit=kind==='pose'&&st.view==='group'?' 组':' 张';
+   setText(count,Number(data.total||0).toLocaleString('zh-CN')+unit+(data.hidden_sensitive_count&&studio.getState().safeMode?` · 已隐藏 ${data.hidden_sensitive_count} 项 18+`:''));
+   if(!cached||sig(data.items)!==sig(pageItems.map(e=>e.group||e.item))){
+    pageItems.length=0;pickers.length=0;grid.replaceChildren();appendEntries(data.items);
+    if(!pageItems.length)grid.append(el('p','没有符合条件的参考图','costume-empty'));
+   }
+   next=data.next_offset??null;
+   moreBtn=button('更多',pull,'costume-more');
+   if(next!=null){
+    root.append(moreBtn);
+    if(typeof IntersectionObserver==='function'){
+     sentinel=el('div','','costume-sentinel');
+     costumeObserver=new IntersectionObserver(entries=>{for(const entry of entries)sentinelVisible=Boolean(entry.isIntersecting);if(sentinelVisible)pull();},{root:scrollRoot||null,rootMargin:'0px 0px 480px 0px'});
+     costumeObserver.observe(sentinel);root.append(sentinel);
+    }
+    const scrollTarget=scrollRoot||(typeof window!=='undefined'?window:null);
+    if(scrollTarget?.addEventListener){
+     const onScroll=()=>{if(pagingBusy||next==null||!active(g))return;const box=scrollRoot||document?.scrollingElement||document?.documentElement;if(box&&box.scrollHeight-box.scrollTop-box.clientHeight<=480)pull();};
+     scrollTarget.addEventListener('scroll',onScroll,{passive:true});
+     costumeScrollCleanup=()=>scrollTarget.removeEventListener?.('scroll',onScroll);
+    }
+   }
+  }
+  function fillSelect(select,allLabel,choices,value){
+   if(!select)return;
+   const wanted=[['',allLabel],...choices];
+   const current=[...(select.options||select.children||[])].map(o=>o.value);
+   if(current.length===wanted.length&&current.every((v,i)=>v===wanted[i][0])){
+    for(const [i,[,label]]of wanted.entries()){const o=(select.options||select.children)[i];if(o)setText(o,label);}
+   }else{
+    select.replaceChildren();for(const [v,l]of wanted)select.append(localizedOption(v,l));
+   }
+   select.value=value&&wanted.some(([v])=>v===value)?value:'';
+  }
+  function switchKind(value){
    clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();
    if(value)filters.asset_kind=value;else delete filters.asset_kind;
-   offset=0;
-   if(value!=='costume'){costumeCat='';costumeQuery='';costumeFocus=false;}
+   if(value&&value!=='character'){delete filters.role_level;delete filters.age_band;delete filters.gender;delete filters.role_tag;}
+   refFocus='';offset=0;syncKindRoute();
    return load();
-  };
-  const kindBar=el('div','','center-official-filters costume-kind-bar'),tabs=el('div','','center-official-kinds');
-  for(const [value,title]of officialWorkbenchKinds){
-   const t=button(title,()=>leave(value));
-   t.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));
-   tabs.append(t);
   }
-  kindBar.append(tabs);root.append(kindBar);
-  const seasons=el('div','','costume-tabs');seasons.setAttribute('role','tablist');bindAttribute(seasons,'aria-label','服饰分类');
-  const pick=name=>{costumeCat=name;clearTimeout(costumeTimer);if(scrollRoot)scrollRoot.scrollTop=0;return load();};
-  const syncSeasonTabs=summary=>{
-   const entries=summary
-    ?[['','全部 '+Number(summary.total_all||0).toLocaleString('zh-CN')],...(summary.categories||[]).map(cat=>[cat.name,cat.name+' '+Number(cat.count||0).toLocaleString('zh-CN')])]
-    :[['','全部'],...DEFAULT_COSTUME_CATEGORIES.map(name=>[name,name])];
-   const existing=[...seasons.children];
-   if(existing.length===entries.length){
-    for(const [idx,[val,label]]of entries.entries()){
-     setText(existing[idx],label);
-     existing[idx].setAttribute('aria-pressed',String((costumeCat||'')===val));
-    }
-    return;
-   }
-   seasons.replaceChildren();
-   for(const [val,label]of entries){
-    const t=button(label,()=>pick(val));
-    t.setAttribute('role','tab');t.setAttribute('aria-pressed',String((costumeCat||'')===val));seasons.append(t);
-   }
-  };
-  syncSeasonTabs(costumeSummaryCache);
-  root.append(seasons);
-  const cacheKey=costumeCat+'\0'+costumeQuery,cached=costumePageCache.get(cacheKey);
-  const searchRow=el('div','','costume-search'),input=el('input');
-  input.type='search';input.value=costumeQuery;
-  bindAttribute(input,'placeholder','ID、颜色或单品，例如 denim、白');
-  bindAttribute(input,'aria-label','搜索服饰');
-  input.oninput=()=>{costumeQuery=input.value;costumeFocus=true;clearTimeout(costumeTimer);costumeTimer=setTimeout(()=>{costumeTimer=0;if(!disposed)load();},150);};
-  input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault?.();clearTimeout(costumeTimer);load();}});
-  const count=el('span',cached?Number(cached.total||0).toLocaleString('zh-CN')+' 张':'加载中…','costume-count');
-  count.setAttribute('role','status');
-  const tools=el('div','','costume-tools');
-  tools.append(
-   button('使用说明',()=>costumeNote('使用说明','点分类，或用编号、颜色、单品搜索，例如 denim、白。点卡片看大图，左右方向键可以换一张。下载得到的是本库生成的原图。')),
-   button('使用注意',()=>costumeNote('使用注意','画面里只有服装，供创作时作服装参考。这些图不是在售商品，也不能当作真人的肖像或身材。请逐张取用。'))
-  );
-  searchRow.append(input,count,tools);root.append(searchRow);
-  if(costumeFocus){input.focus?.();costumeFocus=false;}
-  const pageItems=[],grid=el('div','','costume-grid');
-  let next=null,moreBtn=null,pagingBusy=false,sentinel=null,sentinelVisible=false;
-  const words=item=>{const text=String(item.keywords||'');return (text.startsWith(item.title+' ')?text.slice(item.title.length).trim():text).split(/\s+/).filter(Boolean).join(' · ');};
-  const costumeSig=list=>(list||[]).map(x=>`${x.id}:${x.image}:${x.keywords||''}`).join('|');
-  const cardFor=(item,index=24)=>{
-   const card=el('article','','costume-card'),shot=el('div','','costume-shot'),open=button('',()=>costumeModal(item.id),'costume-open');
-   bindAttribute(open,'aria-label','查看 '+item.id);
-   const img=el('img');img.src=item.image;img.loading=index<8?'eager':'lazy';img.decoding='async';bindAttribute(img,'alt',item.id+' '+words(item));
-   open.append(img);shot.append(open);
-   const keys=el('p',words(item)||item.category||'','costume-keys');
-   card.append(shot,el('h3',item.id),el('p',item.label||item.category||'服饰'),keys);
-   return card;
-  };
-  async function pull(){
-   if(pagingBusy||next==null||!active(g)||!grid.isConnected)return;
-   pagingBusy=true;const cursor=next;
-   try{
-    const more=await get('/api/v1/asset-center/costumes?'+new URLSearchParams({category:costumeCat,q:costumeQuery,offset:String(cursor),limit:COSTUME_LIMIT}));
-    if(!active(g)||!grid.isConnected)return;
-    for(const item of more.items||[]){pageItems.push(item);grid.append(cardFor(item,pageItems.length-1));}
-    next=more.next_offset??null;
-    setText(count,Number(more.total||pageItems.length).toLocaleString('zh-CN')+' 张');
-    if(next==null){moreBtn?.remove();sentinel?.remove();stopCostumeObserver();}
-   }finally{
-    pagingBusy=false;
-    if(next!=null&&sentinelVisible&&sentinel?.isConnected&&costumeObserver&&typeof costumeObserver.unobserve==='function'){
-     const recheck=()=>{
-      if(!active(g)||next==null||!sentinel?.isConnected||!costumeObserver)return;
-      costumeObserver.unobserve(sentinel);
-      costumeObserver.observe(sentinel);
-     };
-     if(typeof requestAnimationFrame==='function')requestAnimationFrame(recheck);
-    }
-   }
+  function syncKindRoute(){
+   if(!official||canvas||typeof window==='undefined'||typeof location==='undefined'||!location?.search?.includes('page=asset-center'))return;
+   const route=new URLSearchParams(location.search);
+   if(filters.asset_kind)route.set('kind',filters.asset_kind);else route.delete('kind');
+   const nextSearch='?'+route;if(location.search!==nextSearch)history.replaceState?.(null,'',nextSearch);
   }
-  function costumeModal(itemId){
-   let cursor=pageItems.findIndex(item=>item.id===itemId);
-   if(cursor<0)return;
-   closeCostumeDialogs();
-   const dialog=el('dialog','','costume-modal');
-   const viewport=el('div','','center-zoom-viewport');
-   const img=el('img');
-   viewport.append(img);
-   const caption=el('p');
-   const down=el('a','下载');
-   const levelEl=el('span','100%','center-zoom-level');
-   const zoomCtrl=attachImageZoomPan(viewport,img,{
-    onScaleChange:({percent})=>setText(levelEl,`${percent}%`),
-   });
-   const show=()=>{
-    const item=pageItems[cursor];if(!item)return;
-    img.src=item.image;bindAttribute(img,'alt',item.id);
-    setText(caption,item.id+' · '+(item.label||'')+' · '+words(item));
-    down.href=item.image;down.setAttribute('download',item.id+'.png');
-    zoomCtrl.reset();
-   };
-   const stepItem=async delta=>{
-    const target=cursor+delta;
-    if(target>=pageItems.length&&delta>0)await pull();
-    if(!dialog.isConnected)return;
-    if(target<0||target>=pageItems.length)return;
-    cursor=target;show();
-   };
-   show();
-   const bar=el('div','','costume-modal-bar');
-   bar.append(
-    button('缩小',()=>zoomCtrl.zoomOut()),
-    levelEl,
-    button('适应窗口',()=>zoomCtrl.reset()),
-    button('放大',()=>zoomCtrl.zoomIn()),
-    button('上一张',()=>stepItem(-1)),
-    button('下一张',()=>stepItem(1)),
-    down,
-    button('关闭',()=>dialog.close())
-   );
-   dialog.append(viewport,caption,bar);
-   dialog.addEventListener('keydown',event=>{
-    if(event.key==='ArrowRight'){event.preventDefault?.();stepItem(1);}
-    else if(event.key==='ArrowLeft'){event.preventDefault?.();stepItem(-1);}
-    else if(event.key==='+'||event.key==='='){event.preventDefault?.();zoomCtrl.zoomIn();}
-    else if(event.key==='-'){event.preventDefault?.();zoomCtrl.zoomOut();}
-    else if(event.key==='0'){event.preventDefault?.();zoomCtrl.reset();}
-   });
-   dialog.addEventListener('click',event=>{
-    if(zoomCtrl.consumeMoved())return;
-    if(event.target===dialog)dialog.close();
-   });
-   let startX=null;
-   dialog.addEventListener('pointerdown',event=>{if(zoomCtrl.getScale()<=1)startX=event.clientX;else startX=null;});
-   dialog.addEventListener('pointerup',event=>{
-    if(startX==null||zoomCtrl.getScale()>1)return;
-    const dx=event.clientX-startX;startX=null;
-    if(Math.abs(dx)>48)stepItem(dx<0?1:-1);
-   });
-   dialog.addEventListener('close',()=>dialog.remove());
-   (document.body||root).append(dialog);
-   dialog.showModal();
+  function composeNavigate(){
+   if(ctx.navigate)return ctx.navigate('character-studio');
+   if(typeof location!=='undefined')location.href='/?page=character-studio';
   }
-  if(cached){
-   for(const [idx,item]of (cached.items||[]).entries()){pageItems.push(item);grid.append(cardFor(item,idx));}
-   if(!pageItems.length)grid.append(el('p','没有符合条件的服饰','costume-empty'));
-   next=cached.next_offset??null;
+  function mountDock(){
+   if(canvas||refDock)return;
+   refDock=studio.mountRecipeDock(root,{onCompose:composeNavigate,force:REF_KINDS.has(filters.asset_kind||'')});
   }
-  root.append(grid);
-  const params=new URLSearchParams({category:costumeCat,q:costumeQuery,offset:'0',limit:COSTUME_LIMIT});
-  const data=await get('/api/v1/asset-center/costumes?'+params);
-  if(!active(g))return;
-  costumeSummaryCache={total_all:data.total_all||0,categories:data.categories||[]};
-  costumePageCache.set(cacheKey,data);
-  syncSeasonTabs(costumeSummaryCache);
-  setText(count,Number(data.total||0).toLocaleString('zh-CN')+' 张');
-  if(!cached||costumeSig(data.items)!==costumeSig(pageItems)){
-   pageItems.length=0;
-   grid.replaceChildren();
-   for(const [idx,item]of (data.items||[]).entries()){pageItems.push(item);grid.append(cardFor(item,idx));}
-   if(!pageItems.length)grid.append(el('p','没有符合条件的服饰','costume-empty'));
+  function unmountRefs(){
+   refDock?.destroy();refDock=null;refPickers=[];
   }
-  next=data.next_offset??null;
-  moreBtn=button('更多',pull,'costume-more');
-  if(next!=null)root.append(moreBtn);
-  if(next!=null){
-   if(typeof IntersectionObserver==='function'){
-    sentinel=el('div','','costume-sentinel');
-    costumeObserver=new IntersectionObserver(entries=>{
-     for(const entry of entries)sentinelVisible=Boolean(entry.isIntersecting);
-     if(sentinelVisible)pull();
-    },{root:scrollRoot||null,rootMargin:'0px 0px 480px 0px'});
-    costumeObserver.observe(sentinel);root.append(sentinel);
-   }
-   const scrollTarget=scrollRoot||(typeof window!=='undefined'?window:null);
-   if(scrollTarget?.addEventListener){
-    const onScroll=()=>{
-     if(pagingBusy||next==null||!active(g))return;
-     const box=scrollRoot||document?.scrollingElement||document?.documentElement;
-     if(box&&box.scrollHeight-box.scrollTop-box.clientHeight<=480)pull();
-    };
-    scrollTarget.addEventListener('scroll',onScroll,{passive:true});
-    costumeScrollCleanup=()=>scrollTarget.removeEventListener?.('scroll',onScroll);
-   }
-  }
- }
 
  async function officialCatalog(g){
-  if(filters.asset_kind==='costume')return costumeBrowser(g);
+  if(REF_KINDS.has(filters.asset_kind||'')){refSafe=studio.getState().safeMode;refDepth=studio.getState().poseDepthMode;return referenceBrowser(g,filters.asset_kind);}
   const form=el('form','','center-official-filters');
   const filterHost=workbench?el('div','','center-official-filter-row'):form;
   const selectFilter=(key,label,choices)=>{
@@ -1063,12 +1159,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   if(workbench){
    const tabs=el('div','','center-official-kinds');
    for(const [value,title]of officialWorkbenchKinds){
-    const n=button(title,()=>{
-     clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();
-     if(value)filters.asset_kind=value;else delete filters.asset_kind;
-     if(value&&value!=='character'){delete filters.role_level;delete filters.age_band;delete filters.gender;delete filters.role_tag;}
-     offset=0;return load();
-    });
+    const n=button(title,()=>switchKind(value));
     n.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));
     tabs.append(n);
    }
@@ -1380,7 +1471,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    if(tab==='cart')await selectionList(g);else if(tab==='downloads')await downloads(g);else await catalog(g);
   }catch(e){if(active(g))root.append(el('p',e.message),button(msg('ui.reload'),load));}
  }
- return {load,suspend(){disposed=true;generation++;clearTimeout(searchTimer);clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();root.querySelectorAll('dialog').forEach(d=>d.close());}};
+ return {load,suspend(){disposed=true;generation++;clearTimeout(searchTimer);clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();unmountRefs();root.querySelectorAll('dialog').forEach(d=>d.close());}};
 }
 
 // Project UI groups legacy objects with props without changing exact API filters.

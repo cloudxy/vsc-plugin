@@ -160,7 +160,7 @@ test('official and shared tabs query their own sources and restore from the URL'
   location.search='?page=asset-center&tab=official';
   const root=new Element('main',document),panel=createAssetCenter(root,context([],api));await panel.load();
   assert.ok(root.querySelector('.center-workbench-official'));
-  assert.deepEqual(root.querySelector('.center-official-kinds').walk().filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','站位','音频','服饰']);
+  assert.deepEqual(root.querySelector('.center-official-kinds').walk().filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','音频','服装穿搭库','动作姿势库','人像颜值库']);
   const filterRow=root.querySelector('.center-official-filter-row');
   assert.ok(filterRow);
   const filterChildren=root.querySelector('.center-official-filters').children.filter(n=>n.tagName!=='#TEXT');
@@ -178,8 +178,7 @@ test('official and shared tabs query their own sources and restore from the URL'
   assert.match(root.querySelector('.center-official-tags').textContent,/主角青年女/);
   assert.ok(root.querySelector('.center-cover').querySelector('.center-actions'));
   assert.ok(calls[0].includes('source=official')&&calls[0].includes('media_only=true')&&!calls[0].includes('asset_kind='));
-  await button(root,'站位').onclick();
-  assert.ok(calls.some(url=>url.includes('asset_kind=blocking')));
+  assert.equal(button(root,'站位'),undefined);
   await button(root,'音频').onclick();
   assert.ok(calls.some(url=>url.includes('asset_kind=voice')));
   await button(root,'全部').onclick();
