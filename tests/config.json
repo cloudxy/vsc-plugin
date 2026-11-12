@@ -2393,7 +2393,6 @@
         "src/vsc/interfaces/web/static/character-studio.css",
         "src/vsc/interfaces/web/static/character-studio-ai.js",
         "src/vsc/interfaces/web/static/character-studio-store.js",
-        "src/vsc/interfaces/web/static/character-studio-workflows.js",
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/static/workbench-shell.css",
         "src/vsc/interfaces/web/templates/index.html",

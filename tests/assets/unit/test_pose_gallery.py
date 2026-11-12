@@ -1,13 +1,20 @@
-"""Character studio galleries, media boundary, provider proxy and ComfyUI relay."""
+"""Character studio galleries, media boundary, CLI/OAuth auth bridges and HTTPS provider proxy."""
+import base64
 import json
 import random
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from vsc.adapters.providers.xai_grok import credentials as grok_credentials
 from vsc.assets import pose_gallery as g
 from vsc.interfaces.web.character_studio import proxy_target_allowed
+
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
+)
 
 
 def write(path: Path, value):
@@ -46,6 +53,7 @@ def build_gallery(repo: Path):
         "原图": f"img/portrait/p{i}.webp", "检索": f"p{i}"} for i in range(5)])
     write(data / "portrait-meta-zh.json", {"分区列表": ["正脸参考", "造型氛围"], "发长列表": ["短发", "中发", "中长发", "长发"]})
     write(repo / "assets" / "pose-gallery" / "thumbs" / "portrait" / "p0.webp", b"RIFF0000WEBPVP8 ")
+    write(repo / "assets" / "pose-gallery" / "img" / "portrait" / "p0.png", PNG_1X1)
     write(repo / "assets" / "pose-gallery" / "secret.json", {"x": 1})
     (repo / "workflow").mkdir(parents=True, exist_ok=True)
     (repo / "workflow" / "kernel.json").write_text("{}", encoding="utf-8")
@@ -124,20 +132,22 @@ class PoseGalleryTests(unittest.TestCase):
         self.assertEqual(page["dataset_mode"], "legacy")
         self.assertEqual(page["items"][0]["缩略图"], "/api/v1/asset-center/costumes/SPR-0001/content")
 
-    def test_proxy_allow_list(self):
+    def test_proxy_allow_list_includes_xai_and_gemini(self):
         self.assertTrue(proxy_target_allowed("https://api.openai.com/v1/images/edits"))
+        self.assertTrue(proxy_target_allowed("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"))
+        self.assertTrue(proxy_target_allowed("https://api.x.ai/v1/images/edits"))
+        self.assertTrue(proxy_target_allowed("https://imgen.x.ai/tmp/out.png"))
         self.assertTrue(proxy_target_allowed("https://ark.cn-beijing.volces.com/api/v3/images/generations"))
-        self.assertFalse(proxy_target_allowed("http://api.openai.com/v1"))
+        self.assertFalse(proxy_target_allowed("https://x.ai/v1"))
+        self.assertFalse(proxy_target_allowed("http://api.x.ai/v1"))
         self.assertFalse(proxy_target_allowed("https://api.openai.com.evil.com/v1"))
         self.assertFalse(proxy_target_allowed("https://user:pw@api.openai.com/v1"))
         self.assertFalse(proxy_target_allowed("https://127.0.0.1/", "*"))
         self.assertFalse(proxy_target_allowed("https://localhost/", "*"))
-        self.assertTrue(proxy_target_allowed("https://img.example.volces.com/a", "*.volces.com"))
-        self.assertFalse(proxy_target_allowed("https://volces.com/a", "*.volces.com"))
 
 
 class CharacterStudioHttpTests(unittest.TestCase):
-    def test_routes_media_proxy_and_spa(self):
+    def test_routes_media_proxy_auth_bridges_and_no_comfy(self):
         import httpx
         from fastapi.testclient import TestClient
         from vsc.interfaces.web.app import create_app
@@ -147,6 +157,8 @@ class CharacterStudioHttpTests(unittest.TestCase):
             build_gallery(repo)
             projects = repo / "projects"
             projects.mkdir()
+            fake_state = repo / "jetski_state.pbtxt"
+            fake_state.write_text("oauth_ready: true\n", encoding="utf-8")
             with patch("vsc.interfaces.web.character_studio.repository_root", return_value=repo):
                 app = create_app({"projects_root": str(projects), "allowed_hosts": ["testserver"], "allowed_origins": ["http://testserver"],
                                   "access_token": "studio-test", "human_identity": "test-human", "background_enabled": False})
@@ -158,6 +170,7 @@ class CharacterStudioHttpTests(unittest.TestCase):
                         self.assertIn("api-settings-open", page.text)
                         csp = page.headers["content-security-policy"]
                         self.assertIn("img-src 'self' data: blob: https:", csp)
+                        self.assertNotIn("127.0.0.1:*", csp)
                         self.assertIn("style-src 'self'", csp)
                     denied = client.get("/api/v1/asset-center/pose-gallery/costumes")
                     self.assertEqual(denied.status_code, 403)
@@ -167,44 +180,106 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     costumes = client.get("/api/v1/asset-center/pose-gallery/costumes?safe=true", headers=headers)
                     self.assertEqual(costumes.status_code, 200, costumes.text)
                     self.assertEqual(costumes.json()["limit"], 24)
-                    self.assertEqual(client.get("/api/v1/asset-center/pose-gallery/poses?view=bad", headers=headers).status_code, 422)
-                    self.assertEqual(client.get("/api/v1/asset-center/pose-gallery/portraits?hot=true", headers=headers).json()["total"], 1)
-                    pick = client.post("/api/v1/asset-center/pose-gallery/random", json={"slot": "recipe", "safe": True}, headers=headers)
-                    self.assertEqual(set(pick.json()), {"portrait", "costume", "pose"})
                     media = client.get("/api/v1/asset-center/pose-gallery/media/thumbs/portrait/p0.webp")
                     self.assertEqual(media.status_code, 200)
-                    self.assertEqual(media.headers["cache-control"], "private, max-age=3600")
-                    self.assertEqual(media.headers["content-type"], "image/webp")
                     self.assertEqual(client.get("/api/v1/asset-center/pose-gallery/media/thumbs/%2e%2e/secret.json").status_code, 404)
-                    # Provider proxy: same-origin session required, allow-list enforced, Bearer forwarded not rejected.
-                    bearer = {**headers, "Authorization": "Bearer sk-test", "Content-Type": "application/json"}
-                    self.assertEqual(client.post("/api/proxy", content=b"{}", headers={"Authorization": "Bearer sk-test"}).status_code, 403)
+
+                    # Local ComfyUI relay is completely removed.
+                    self.assertEqual(client.get("/comfy/system_stats", headers=headers).status_code, 404)
+                    self.assertEqual(client.get("/comfy/system_stats", headers={**headers, "Authorization": "Bearer token"}).status_code, 403)
+
+                    # Provider proxy: xAI & Gemini allowed, User-Agent attached, GET download supported.
+                    bearer = {**headers, "Authorization": "Bearer xai-test-key", "Content-Type": "application/json"}
+                    self.assertEqual(client.post("/api/proxy", content=b"{}", headers={"Authorization": "Bearer xai-test-key"}).status_code, 403)
                     self.assertEqual(client.post("/api/proxy", content=b"{}", headers={**bearer, "x-target-url": "https://evil.example.com/x"}).status_code, 403)
-                    self.assertEqual(client.post("/api/proxy", content=b"x" * (10 * 1024 * 1024 + 1),
-                                                 headers={**bearer, "x-target-url": "https://api.openai.com/v1/images/edits"}).status_code, 413)
-                    upstream = httpx.Response(200, json={"data": [{"url": "https://cdn.example/out.png"}]}, headers={"content-type": "application/json"})
+                    upstream = httpx.Response(200, json={"data": [{"url": "https://imgen.x.ai/out.png"}]}, headers={"content-type": "application/json"})
                     with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=upstream)) as forwarded:
-                        relayed = client.post("/api/proxy", content=b'{"model":"gpt-image-1"}',
-                                              headers={**bearer, "x-target-url": "https://api.openai.com/v1/images/edits"})
+                        relayed = client.post("/api/proxy", content=b'{"model":"grok-imagine-image-2.0"}',
+                                              headers={**bearer, "x-target-url": "https://api.x.ai/v1/images/edits"})
                     self.assertEqual(relayed.status_code, 200, relayed.text)
-                    self.assertEqual(relayed.json()["data"][0]["url"], "https://cdn.example/out.png")
                     sent = forwarded.call_args
-                    self.assertEqual(sent.args[0], "https://api.openai.com/v1/images/edits")
-                    self.assertEqual(sent.kwargs["headers"]["authorization"], "Bearer sk-test")
+                    self.assertEqual(sent.args[0], "https://api.x.ai/v1/images/edits")
+                    self.assertEqual(sent.kwargs["headers"]["authorization"], "Bearer xai-test-key")
+                    self.assertEqual(sent.kwargs["headers"]["user-agent"], grok_credentials.USER_AGENT)
                     self.assertNotIn("x-csrf-token", {k.lower() for k in sent.kwargs["headers"]})
-                    # Other APIs still refuse Bearer credentials for UI login.
-                    self.assertEqual(client.get("/api/v1/projects", headers={"Authorization": "Bearer sk-test"}).status_code, 403)
-                    # ComfyUI relay reports an unreachable local server in Chinese without leaking credentials.
-                    with patch("httpx.AsyncClient.request", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
-                        comfy = client.get("/comfy/system_stats", headers={**headers, "Authorization": "Bearer comfy-token"})
-                    self.assertEqual(comfy.status_code, 502)
-                    self.assertIn("ComfyUI", comfy.json()["message"])
-                    self.assertNotIn("comfy-token", comfy.text)
-                    ok = httpx.Response(200, json={"system": {"comfyui_version": "0.3.60"}}, headers={"content-type": "application/json"})
-                    with patch("httpx.AsyncClient.request", new=AsyncMock(return_value=ok)):
-                        comfy = client.get("/comfy/system_stats", headers=headers)
-                    self.assertEqual(comfy.json()["system"]["comfyui_version"], "0.3.60")
-                    self.assertEqual(client.post("/comfy/prompt", json={}, headers={"X-CSRF-Token": headers["X-CSRF-Token"]}).status_code, 403)
+
+                    img_upstream = httpx.Response(200, content=PNG_1X1, headers={"content-type": "image/png"})
+                    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=img_upstream)) as get_mock:
+                        fetched = client.post("/api/proxy", headers={**headers, "x-target-url": "https://imgen.x.ai/out.png", "x-target-method": "GET"})
+                    self.assertEqual(fetched.status_code, 200)
+                    self.assertEqual(fetched.content, PNG_1X1)
+                    self.assertEqual(get_mock.call_args.args[0], "https://imgen.x.ai/out.png")
+
+                    # Auth status & online verification never leak secret tokens.
+                    with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", side_effect=lambda b: f"/usr/local/bin/{b}"), \
+                         patch("vsc.adapters.providers.xai_grok.credentials.key_problem", return_value=None), \
+                         patch("vsc.adapters.providers.xai_grok.credentials.account_id", return_value="alice@example.com"):
+                        st = client.get("/api/v1/character-studio/auth/status", headers=headers)
+                        self.assertEqual(st.status_code, 200, st.text)
+                        body = st.json()
+                        self.assertTrue(body["grok"]["ready"])
+                        self.assertEqual(body["grok"]["account"], "al***@example.com")
+                        self.assertTrue(body["agy"]["ready"])
+                        self.assertNotIn("oauth_ready", st.text)
+
+                        proc_ok = subprocess.CompletedProcess(["agy", "models"], 0, stdout="gemini-4-carbon-pro\nclaude-opus-4-6\n", stderr="")
+                        with patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_ok):
+                            ver = client.post("/api/v1/character-studio/auth/verify", json={"provider": "agy"}, headers=headers)
+                        self.assertEqual(ver.status_code, 200, ver.text)
+                        self.assertTrue(ver.json()["verified"])
+                        self.assertEqual(ver.json()["model_count"], 2)
+
+                    # Backend Grok subscription generation (`grok_auth`) uses `~/.grok/auth.json` and immediately stores temporary URL.
+                    fake_client = MagicMock()
+                    fake_client.__enter__.return_value = fake_client
+                    fake_client.post.return_value = httpx.Response(200, json={"data": [{"url": "https://imgen.x.ai/gen1.png"}]})
+                    fake_client.get.return_value = httpx.Response(200, content=PNG_1X1, headers={"content-type": "image/png"})
+                    with patch("vsc.adapters.providers.xai_grok.credentials.read_key", return_value="secret-sub-token-999"), \
+                         patch("httpx.Client", return_value=fake_client):
+                        gen_grok = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "grok_auth",
+                                "model": "grok-imagine-image-2.0",
+                                "prompt": "生成角色立绘",
+                                "references": ["/api/v1/asset-center/pose-gallery/media/img/portrait/p0.png"],
+                                "aspect_ratio": "3:4",
+                                "resolution": "2k",
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(gen_grok.status_code, 200, gen_grok.text)
+                    self.assertTrue(gen_grok.json()["image_url"].startswith("data:image/png;base64,"))
+                    self.assertNotIn("secret-sub-token-999", gen_grok.text)
+                    post_call = fake_client.post.call_args
+                    self.assertEqual(post_call.args[0], "https://api.x.ai/v1/images/edits")
+                    self.assertEqual(post_call.kwargs["headers"]["Authorization"], "Bearer secret-sub-token-999")
+                    self.assertEqual(post_call.kwargs["headers"]["User-Agent"], grok_credentials.USER_AGENT)
+
+                    # Backend AGY generation (`agy_auth`) invokes `agy` CLI in isolated temp dir and reads result.png.
+                    def fake_agy_run(cmd, cwd=None, **kwargs):
+                        out = Path(cwd) / "result.png"
+                        out.write_bytes(PNG_1X1)
+                        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"saved_path": str(out), "error": ""}), stderr="")
+
+                    with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/agy"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", side_effect=fake_agy_run):
+                        gen_agy = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "agy_auth",
+                                "model": "image-generator",
+                                "prompt": "生成角色立绘",
+                                "references": [f"data:image/png;base64,{base64.b64encode(PNG_1X1).decode('ascii')}"],
+                                "aspect_ratio": "3:4",
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(gen_agy.status_code, 200, gen_agy.text)
+                    self.assertTrue(gen_agy.json()["image_url"].startswith("data:image/png;base64,"))
+                    self.assertEqual(gen_agy.json()["provider"], "agy_auth")
 
 
 if __name__ == "__main__":

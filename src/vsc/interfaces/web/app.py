@@ -93,9 +93,8 @@ def create_app(config=None, catalog=None, service=None):
     origins = set(config.get("allowed_origins", ["http://127.0.0.1:8765", "http://localhost:8765"]))
 
     def studio_relay(request):
-        # Provider keys stay in the browser; these relays forward them to the provider only.
-        path = request.url.path
-        return path == "/api/proxy" or path == "/comfy" or path.startswith("/comfy/")
+        # Provider keys stay in the browser; /api/proxy forwards them to allow-listed HTTPS providers only.
+        return request.url.path == "/api/proxy"
 
     @app.middleware("http")
     async def boundary(request, call_next):
@@ -126,7 +125,7 @@ def create_app(config=None, catalog=None, service=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         frame_ancestors = "'self'" if request.url.path.startswith("/api/v1/fcp-embed/") else "'none'"
-        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss: https: http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss: https:; img-src 'self' data: blob: https:; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
         response.headers.setdefault("Cache-Control", "no-store")
         return response
 
@@ -556,7 +555,7 @@ def create_app(config=None, catalog=None, service=None):
     install_commerce_notification_routes(app,catalog)
     install_service_operations_routes(app,router,catalog,etag,actor,read_actor)
     install_asset_center_routes(app,router,catalog,etag,actor,read_actor)
-    install_character_studio_routes(app,etag,read_actor,origin,allowed_hosts=allowed_hosts,origins=origins,sessions=sessions)
+    install_character_studio_routes(app,etag,read_actor,origin)
     install_asset_card_routes(router,catalog,etag,actor)
     install_task_notification_routes(router,catalog,etag,read_actor)
     install_community_routes(app,router,catalog,etag,actor,read_actor)
