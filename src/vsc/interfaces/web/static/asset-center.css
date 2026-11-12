@@ -166,3 +166,11 @@ dialog.asset-library-modal::backdrop{background:rgba(0,0,0,.72)}
  dialog.asset-library-modal{width:calc(100vw - 16px);max-width:calc(100vw - 16px);height:92vh}
  .asset-library-modal-filters input{margin-left:0;width:100%}
 }
+
+/* Ergonomic Polish: Active Shared Library tab pill, non-wrapping action buttons, dark option contrast & dialog scroll containment */
+.global-asset-tabs a{padding:5px 12px;border-radius:999px;border:1px solid #363640;background:#1a1a1f;color:#d4d4d8;text-decoration:none;transition:border-color .15s,color .15s}
+.global-asset-tabs a:hover{border-color:#9eff00;color:#fdfbfc}
+.global-asset-tabs a[aria-current=page]{border-color:#9eff00;background:rgba(158,255,0,.14);color:#b2ff68;font-weight:600}
+.asset-center .center-card>.center-actions button{white-space:nowrap}
+.asset-center select option,.global-asset-library select option,dialog.asset-library-modal select option{background:#18181b;color:#fdfbfc}
+.asset-center dialog,.global-asset-dialog,.global-asset-picker,dialog.center-zoom,dialog.costume-modal,dialog.costume-note,dialog.asset-library-modal{overscroll-behavior:contain}

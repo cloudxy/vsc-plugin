@@ -285,7 +285,7 @@ export function createEditWorkspace({root,api,project,episodeId,session,onChange
     root.append(advanced,exports);
   }
   async function load(){
-    if(disposed)return;if(!sameIdentity()){root.replaceChildren(element('p',msg("ui.the_operation_identity_changed_reopen_this_episode_s_edit")));return;}captureCaption();const current=++generation;if(!episodeId){root.replaceChildren(element('p',msg("ui.open_the_episode_you_want_to_edit_from_the")));return;}
+    if(disposed)return;if(!sameIdentity()){root.replaceChildren(element('p',msg("ui.the_operation_identity_changed_reopen_this_episode_s_edit")));return;}captureCaption();const current=++generation;if(!episodeId){const emptyCard=element('section','','edit-empty-episode-card');emptyCard.append(element('p',msg("ui.open_the_episode_you_want_to_edit_from_the")));root.replaceChildren(emptyCard);return;}
     const data=await api(`${base}/edit-workspace?episode_id=${encodeURIComponent(episodeId)}`);if(disposed||!sameIdentity()||current!==generation)return;
     view=data;reconcileRead(data);
     const resources=await api(`${base}/media?limit=200`);if(disposed||!sameIdentity()||current!==generation)return;media=resources.items||[];loadedMediaCount=media.length;mediaTotal=resources.total||media.length;draw();

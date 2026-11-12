@@ -157,7 +157,7 @@ test('selected image exposes preview and original download without editing canva
  await card.fire('click',{target:card.querySelector('img')});card=a.root.querySelector('.cc-node');const toolbar=card.querySelector('.cc-image-node-tools');assert.ok(toolbar);assert.equal(toolbar.style.transform,'scale(2) translateX(-50%)');
  const link=toolbar.querySelector('a');assert.equal(link.href,'/api/v1/projects/p1/media/media1/content?download=true');
  await card.fire('click',{target:link});assert.equal(a.root.querySelector('.cc-node'),card);assert.equal(a.store.has(canvasDraftKey()),false);
- await toolbar.querySelectorAll('button').find(b=>b.textContent==='预览').fire('click');const dialog=a.root.querySelector('.cc-image-preview');assert.ok(dialog.open);assert.equal(dialog.querySelector('img').src,'/api/v1/projects/p1/media/media1/content');
+ await toolbar.querySelectorAll('button').find(b=>b.textContent==='预览').fire('click');const dialog=a.root.querySelector('.cc-image-preview');assert.ok(dialog.open);assert.ok(dialog.querySelector('.center-zoom-viewport'));assert.equal(dialog.querySelector('.center-zoom-level').textContent,'100%');assert.equal(dialog.querySelector('img').src,'/api/v1/projects/p1/media/media1/content');
  await dialog.querySelector('button').fire('click');assert.equal(a.root.querySelector('.cc-image-preview'),null);assert.equal(a.store.has(canvasDraftKey()),false);a.canvas.suspend();
 });
 

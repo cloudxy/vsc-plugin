@@ -257,3 +257,5 @@
 .fcp-embed-actions button{background:#2a2a2d;color:#fdfbfc;border:1px solid #444;border-radius:8px;padding:8px 14px;cursor:pointer;font:inherit}
 .fcp-embed-actions .fcp-embed-primary{background:linear-gradient(100deg,#efff8b,#74ff53);color:#0b080b;border-color:transparent;font-weight:600}
 @media(max-width:800px){.classic-repaint-layout,.classic-video-review-grid{grid-template-columns:1fr}}
+.classic-production select option,.classic-subpage select option,.classic-upload-dialog select option{background:#18181b;color:#fdfbfc}
+.classic-production dialog,.classic-subpage dialog,.classic-upload-dialog{overscroll-behavior:contain}
