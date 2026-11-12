@@ -1,7 +1,8 @@
 // AI 角色合成台 and API 接口配置 views (OAuth login bridges for AGY & Grok + Cloud API keys).
 import {openAssetImageViewer} from './asset-center.js';
-import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,STYLE_PRESETS,isAuthProvider,groupForProvider,referenceImageUrl,localCostumeImageUrl,
- poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,comparisonReferences,recipeImageList} from './character-studio-ai.js';
+import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,SETTINGS_MODALITIES,VIDEO_PROVIDER_META,VIDEO_SETTINGS_GROUPS,
+ STYLE_PRESETS,isAuthProvider,groupForProvider,isVideoAuthProvider,groupForVideoProvider,VIDEO_IMAGE_KEY_PEERS,IMAGE_VIDEO_KEY_PEERS,
+ referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,comparisonReferences,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
 
 const SLOT_LABEL={portrait:'人像',costume:'服装',pose:'姿势'};
@@ -28,9 +29,20 @@ function toggle(checked,onChange,label){
  wrap.append(input,el('span','cs-switch-track'),el('span','cs-switch-label',label||''));return wrap;
 }
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
+function svgIcon(kind){
+ const ns='http://www.w3.org/2000/svg';
+ const make=(tag,attrs={})=>{const n=document.createElementNS?document.createElementNS(ns,tag):document.createElement(tag);for(const [k,v]of Object.entries(attrs))n.setAttribute(k,v);return n;};
+ const svg=make('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.7','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true',class:'cs-modality-icon'});
+ if(kind==='video'){
+  svg.append(make('rect',{x:'3',y:'5',width:'13',height:'14',rx:'2.5'}),make('path',{d:'m16 10 5-3v10l-5-3Z'}));
+ }else{
+  svg.append(make('rect',{x:'3',y:'4',width:'18',height:'16',rx:'2.5'}),make('circle',{cx:'8.5',cy:'9.5',r:'1.5'}),make('path',{d:'m21 15-4.5-4.5L7 20'}));
+ }
+ return svg;
+}
 
 export function createCharacterStudio(root,ctx){
- let mode='studio',disposed=false,renderSig='',settingsProvider=null,showKey=false,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
+ let mode='studio',disposed=false,renderSig='',settingsModality='image',settingsProvider=null,settingsVideoProvider=null,showKey=false,showVideoKey=false,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
  store.configureStudio({notice:ctx.notice,api:ctx.api,csrf:()=>ctx.session().csrf});
  const notice=message=>ctx.notice(message);
  const state=()=>store.getState();
@@ -55,6 +67,14 @@ export function createCharacterStudio(root,ctx){
   }
   return s.apiConfig.providers[id]?.apiKey?.trim()?'已配置 Key':'未配置 Key';
  }
+ function videoProviderStatusText(id){
+  const s=state(),meta=VIDEO_PROVIDER_META[id];
+  if(isVideoAuthProvider(id)){
+   const info=s.authStatus[meta.authVendor]||{};
+   return store.AUTH_STATUS_LABELS[info.status]||(info.ready?'已授权':'未登录');
+  }
+  return s.apiConfig.videoProviders?.[id]?.apiKey?.trim()?'已配置 Key':'未配置 Key';
+ }
  function groupSummary(group){
   const s=state();
   if(group.modes.length===1){
@@ -67,6 +87,24 @@ export function createCharacterStudio(root,ctx){
   if(authReady)return {label:`${PROVIDER_META[oauthId].shortName}已就绪`,tone:'is-ok'};
   if(keyReady)return {label:`${PROVIDER_META[apiId].shortName}已配置`,tone:'is-set'};
   return {label:'待授权或配 Key',tone:''};
+ }
+ function videoGroupSummary(group){
+  const s=state();
+  if(group.modes.length===1){
+   const id=group.modes[0],ok=Boolean(s.apiConfig.videoProviders?.[id]?.apiKey?.trim());
+   return {label:ok?'已配置 Key':'未配置 Key',tone:ok?'is-set':''};
+  }
+  const [oauthId,apiId]=group.modes,vendor=VIDEO_PROVIDER_META[oauthId].authVendor;
+  const authReady=Boolean(s.authStatus[vendor]?.ready),keyReady=Boolean(s.apiConfig.videoProviders?.[apiId]?.apiKey?.trim());
+  if(authReady&&keyReady)return {label:'授权已就绪 · Key 已配',tone:'is-ok'};
+  if(authReady)return {label:`${VIDEO_PROVIDER_META[oauthId].shortName}已就绪`,tone:'is-ok'};
+  if(keyReady)return {label:`${VIDEO_PROVIDER_META[apiId].shortName}已配置`,tone:'is-set'};
+  return {label:'待授权或配 Key',tone:''};
+ }
+ function modalityReadyCount(kind){
+  const groups=kind==='video'?VIDEO_SETTINGS_GROUPS:SETTINGS_GROUPS;
+  const summarize=kind==='video'?videoGroupSummary:groupSummary;
+  return groups.filter(g=>Boolean(summarize(g).tone)).length;
  }
 
  // ------------------------------------------------------------------ studio
@@ -221,7 +259,7 @@ export function createCharacterStudio(root,ctx){
 
  function engineSection(){
   const cfg=state().apiConfig,p=cfg.activeProvider,meta=PROVIDER_META[p],pc=cfg.providers[p];
-  const cfgBtn=action(isAuthProvider(p)?'授权配置':'配置 Key',()=>{settingsProvider=p;ctx.navigate?.('api-settings');},'cs-ghost');
+  const cfgBtn=action(isAuthProvider(p)?'授权配置':'配置 Key',()=>{settingsModality='image';settingsProvider=p;ctx.navigate?.('api-settings',{tab:'image'});},'cs-ghost');
   const sec=section('2. 生图引擎与参数',{actions:cfgBtn});
   const grid=el('div','cs-grid2');
   grid.append(field('接口协议',select(PROVIDER_ORDER.map(id=>[id,`${PROVIDER_META[id].name} · ${providerStatusText(id)}`]),p,v=>{store.updateApiConfig({activeProvider:v});if(isAuthProvider(v))store.refreshAuthStatus();},{label:'接口协议'})));
@@ -348,25 +386,40 @@ export function createCharacterStudio(root,ctx){
   return page;
  }
 
- // ------------------------------------------------------------------ settings
- function modeSwitchBar(group,pid){
+ // ------------------------------------------------------------------ settings (图 / 视频双 Tab)
+ function syncSettingsTabRoute(tab){
+  if(typeof window==='undefined'||typeof location==='undefined')return;
+  const onSettings=location.pathname==='/api-settings'||String(location.search||'').includes('page=api-settings');
+  if(!onSettings)return;
+  const route=new URLSearchParams(location.search);
+  if(location.pathname!=='/api-settings')route.set('page','api-settings');
+  route.set('tab',tab);
+  const next=(location.pathname==='/api-settings'?'/api-settings?':'?')+route;
+  const cur=(location.pathname==='/api-settings'?location.pathname:'')+location.search;
+  if(cur!==next)window.history?.replaceState?.(null,'',next);
+ }
+
+ function modeSwitchBar(group,pid,{metaMap=PROVIDER_META,isAuthFn=isAuthProvider,statusFn=providerStatusText,onPick}={}){
   if(group.modes.length<2)return null;
   const wrap=el('div','cs-mode-switch');wrap.setAttribute('role','group');wrap.setAttribute('aria-label',`${group.name} 接入方式`);
   for(const mid of group.modes){
-   const m=PROVIDER_META[mid],active=pid===mid;
+   const m=metaMap[mid],active=pid===mid;
    const btn=el('button','cs-mode-btn'+(active?' is-active':''));btn.type='button';btn.setAttribute('aria-pressed',String(active));
    btn.dataset.modeId=mid;
    const head=el('div','cs-mode-btn-head');
-   head.append(el('strong','',m.modeLabel),el('span','cs-mode-pill '+(isAuthProvider(mid)?'is-oauth':'is-apikey'),providerStatusText(mid)));
+   head.append(el('strong','',m.modeLabel),el('span','cs-mode-pill '+(isAuthFn(mid)?'is-oauth':'is-apikey'),statusFn(mid)));
    btn.append(head,el('small','',m.modeHint));
-   btn.onclick=()=>{settingsProvider=mid;store.updateApiConfig({activeProvider:mid});if(isAuthProvider(mid))store.refreshAuthStatus();};
+   btn.onclick=()=>onPick(mid);
    wrap.append(btn);
   }
   return wrap;
  }
 
- function authSettingsBody(pid){
-  const s=state(),meta=PROVIDER_META[pid],pc=s.apiConfig.providers[pid],vendor=meta.authVendor,info=s.authStatus[vendor]||{};
+ function authSettingsBody(pid,{isVideo=false}={}){
+  const s=state(),meta=(isVideo?VIDEO_PROVIDER_META:PROVIDER_META)[pid];
+  const pc=(isVideo?s.apiConfig.videoProviders:s.apiConfig.providers)[pid];
+  const updateFn=isVideo?store.updateVideoProviderConfig:store.updateProviderConfig;
+  const vendor=meta.authVendor,info=s.authStatus[vendor]||{};
   const wrap=el('div','cs-auth-panel');
   const card=el('div','cs-auth-card '+(info.ready?'is-ok':info.status==='expired'||info.status==='cli_missing'?'is-error':''));
   const statusHead=el('div','cs-auth-head');
@@ -385,51 +438,62 @@ export function createCharacterStudio(root,ctx){
   card.append(cmdRow);
   wrap.append(card);
 
-  wrap.append(field('默认模型 / 引擎',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(pid,{model:v}))));
+  wrap.append(field(isVideo?'默认视频模型':'默认模型 / 引擎',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>updateFn(pid,{model:v}))));
   if(pc.model==='custom'){
-   const custom=el('input');custom.value=pc.customModel;custom.placeholder='输入协调模型 ID（留空则使用默认模型）';custom.dataset.focusKey='set-custom';
-   custom.onchange=()=>store.updateProviderConfig(pid,{customModel:custom.value});
+   const custom=el('input');custom.value=pc.customModel;custom.placeholder=isVideo?'输入视频模型 ID':'输入协调模型 ID（留空则使用默认模型）';custom.dataset.focusKey=isVideo?'set-video-custom':'set-custom';
+   custom.onchange=()=>updateFn(pid,{customModel:custom.value});
    wrap.append(field('自定义模型 ID',custom));
   }
   const note=vendor==='grok'
-   ?'凭证边界：本模式仅读取本机 ~/.grok/auth.json 中的 Grok CLI 订阅登录态（服务端不回显、不落盘任何密钥），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。'
+   ?(isVideo
+     ?'凭证边界：本模式复用本机 ~/.grok/auth.json 中的 Grok CLI 订阅登录态调用 Imagine 视频接口（服务端不回显、不落盘任何密钥），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。'
+     :'凭证边界：本模式仅读取本机 ~/.grok/auth.json 中的 Grok CLI 订阅登录态（服务端不回显、不落盘任何密钥），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。')
    :'凭证边界：本模式复用本机 Antigravity CLI (~/.gemini/antigravity-cli) 登录态，通过内置 image-generator 子智能体生成角色图；服务端不读取或传输任何令牌明文。';
   wrap.append(el('p','cs-field-hint',note));
   return wrap;
  }
 
- function apiKeySettingsBody(pid){
-  const cfg=state().apiConfig,meta=PROVIDER_META[pid],pc=cfg.providers[pid],wrap=el('div','cs-apikey-panel');
-  const base=el('input');base.type='url';base.value=pc.baseUrl;base.placeholder=meta.defaultBaseUrl;base.dataset.focusKey='set-base';
-  base.onchange=()=>store.updateProviderConfig(pid,{baseUrl:base.value});
-  wrap.append(field('Base URL',base,pid==='grok'?'xAI 官方端点默认 https://api.x.ai/v1；建议开启下方服务端 CORS 代理避免跨域拦截。':pid==='gemini'?'Google AI Studio 官方端点默认 https://generativelanguage.googleapis.com。':undefined));
-  const keyWrap=el('div','cs-key'),key=el('input');key.type=showKey?'text':'password';key.value=pc.apiKey;key.autocomplete='off';key.dataset.focusKey='set-key';
+ function apiKeySettingsBody(pid,{isVideo=false}={}){
+  const cfg=state().apiConfig,meta=(isVideo?VIDEO_PROVIDER_META:PROVIDER_META)[pid];
+  const pc=(isVideo?cfg.videoProviders:cfg.providers)[pid];
+  const updateFn=isVideo?store.updateVideoProviderConfig:store.updateProviderConfig;
+  const visible=isVideo?showVideoKey:showKey;
+  const wrap=el('div','cs-apikey-panel');
+  const base=el('input');base.type='url';base.value=pc.baseUrl;base.placeholder=meta.defaultBaseUrl;base.dataset.focusKey=isVideo?'set-video-base':'set-base';
+  base.onchange=()=>updateFn(pid,{baseUrl:base.value});
+  const baseHint=(pid==='grok'||pid==='grok_video')
+   ?'xAI 官方端点默认 https://api.x.ai/v1；建议开启下方服务端 CORS 代理避免跨域拦截。'
+   :(pid==='gemini'||pid==='gemini_video')
+   ?'Google AI Studio 官方端点默认 https://generativelanguage.googleapis.com。'
+   :pid==='doubao_video'
+   ?'火山方舟默认端点 https://ark.cn-beijing.volces.com（工作区自动化任务亦支持 ~/.zshenv 中的 ARK_AGENT_PLAN_API_KEY）。'
+   :undefined;
+  wrap.append(field('Base URL',base,baseHint));
+  const keyWrap=el('div','cs-key'),key=el('input');key.type=visible?'text':'password';key.value=pc.apiKey;key.autocomplete='off';key.dataset.focusKey=isVideo?'set-video-key':'set-key';
   key.placeholder=meta.keyPlaceholder||'输入 API Key（仅保存在本地浏览器）';
-  key.onchange=()=>store.updateProviderConfig(pid,{apiKey:key.value.trim()});
-  const eye=el('button','cs-icon-btn',showKey?'隐藏':'显示');eye.type='button';eye.setAttribute('aria-label',showKey?'隐藏 API Key':'显示 API Key');eye.onclick=()=>{showKey=!showKey;render(true);};
+  key.onchange=()=>updateFn(pid,{apiKey:key.value.trim()});
+  const eye=el('button','cs-icon-btn',visible?'隐藏':'显示');eye.type='button';eye.setAttribute('aria-label',visible?'隐藏 API Key':'显示 API Key');
+  eye.onclick=()=>{if(isVideo)showVideoKey=!showVideoKey;else showKey=!showKey;render(true);};
   keyWrap.append(key,eye);
-  wrap.append(field('API Key',keyWrap,pid==='grok'?'保存于浏览器 localStorage，与本机 ~/.grok/auth.json 订阅登录严格隔离。':'Key 仅保存在当前浏览器 localStorage；清除浏览器数据会一并删除，请勿在共享电脑上保存。'));
-  wrap.append(field('默认模型 ID',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>store.updateProviderConfig(pid,{model:v}))));
+  const keyHint=(pid==='grok'||pid==='grok_video')
+   ?'保存于浏览器 localStorage，与本机 ~/.grok/auth.json 订阅登录严格隔离。'
+   :'Key 仅保存在当前浏览器 localStorage；清除浏览器数据会一并删除，请勿在共享电脑上保存。';
+  wrap.append(field('API Key',keyWrap,keyHint));
+  wrap.append(field(isVideo?'默认视频模型 ID':'默认模型 ID',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>updateFn(pid,{model:v}))));
   if(pc.model==='custom'){
-   const custom=el('input');custom.value=pc.customModel;custom.placeholder=pid==='doubao'?'ep-2026xxxx 或模型 ID':'输入模型 ID';custom.dataset.focusKey='set-custom';
-   custom.onchange=()=>store.updateProviderConfig(pid,{customModel:custom.value});
+   const custom=el('input');custom.value=pc.customModel;custom.placeholder=(pid==='doubao'||pid==='doubao_video')?'ep-2026xxxx 或模型 ID':'输入模型 ID';custom.dataset.focusKey=isVideo?'set-video-custom':'set-custom';
+   custom.onchange=()=>updateFn(pid,{customModel:custom.value});
    wrap.append(field('自定义模型 ID',custom));
   }
   return wrap;
  }
 
- function settingsView(){
+ function imageSettingsPanel(panel){
   const cfg=state().apiConfig;
   const pid=PROVIDER_META[settingsProvider]?settingsProvider:cfg.activeProvider;
   const group=groupForProvider(pid),meta=PROVIDER_META[pid];
-  const page=el('div','cs-page cs-settings');
-  const head=el('header','cs-page-head');
-  const title=el('div','cs-title');
-  title.append(el('h1','','API 接口配置'),el('p','','支持 AGY、Grok 授权登录接入，以及 Gemini、Grok、GPT、Qwen、Doubao 的 API Key 接口接入。API Key 仅保存在当前浏览器。'));
-  head.append(title,action('返回 AI 角色合成台',()=>ctx.navigate?.('character-studio'),'cs-primary'));
-  page.append(head);
 
-  const tabs=el('div','cs-provider-tabs');tabs.setAttribute('role','tablist');
+  const tabs=el('div','cs-provider-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','生图服务商');
   for(const g of SETTINGS_GROUPS){
    const selected=g.id===group.id,summary=groupSummary(g);
    const b=el('button','cs-provider-tab');b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',String(selected));
@@ -444,37 +508,174 @@ export function createCharacterStudio(root,ctx){
    };
    tabs.append(b);
   }
-  page.append(tabs);
+  panel.append(tabs);
 
   const acts=el('div','cs-row-actions');
   const doc=el('a','cs-link','文档');doc.href=meta.docUrl;doc.target='_blank';doc.rel='noreferrer';acts.append(doc);
   if(!isAuthProvider(pid)){
-   acts.append(action('恢复默认',()=>{store.updateProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复默认端点与模型');}));
+   const peerVid=IMAGE_VIDEO_KEY_PEERS[pid],peerKey=peerVid?cfg.videoProviders?.[peerVid]?.apiKey?.trim():'';
+   if(peerKey&&peerKey!==cfg.providers[pid]?.apiKey?.trim()){
+    acts.append(action('复用「视频」同厂商 Key',()=>{store.updateProviderConfig(pid,{apiKey:peerKey});notice(`已从视频配置复用 ${meta.shortName} Key`);}));
+   }
+   acts.append(action('恢复默认',()=>{store.updateProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复生图默认端点与模型');}));
   }
-  const sec=section(`${group.name} · 接入配置`,{actions:acts});
-  const modeBar=modeSwitchBar(group,pid);
+  const sec=section(`${group.name} · 生图接入配置`,{actions:acts});
+  const modeBar=modeSwitchBar(group,pid,{
+   metaMap:PROVIDER_META,isAuthFn:isAuthProvider,statusFn:providerStatusText,
+   onPick:mid=>{settingsProvider=mid;store.updateApiConfig({activeProvider:mid});if(isAuthProvider(mid))store.refreshAuthStatus();},
+  });
   if(modeBar)sec.body.append(modeBar);
-  sec.body.append(isAuthProvider(pid)?authSettingsBody(pid):apiKeySettingsBody(pid));
-  page.append(sec.node);
+  sec.body.append(isAuthProvider(pid)?authSettingsBody(pid,{isVideo:false}):apiKeySettingsBody(pid,{isVideo:false}));
+  panel.append(sec.node);
 
   if(!isAuthProvider(pid)){
-   const g=section('全局请求选项');
+   const g=section('生图全局请求选项');
    g.body.append(
     field('参考图传参方式',select([['url','传递图片 URL（免上传文件，Gemini 原生与 Grok 编辑自动转 Base64）'],['base64','统一转 Base64 编码传输']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
     field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用（解决跨域限制）':'已关闭（浏览器直连）'),'切换到 Grok API、阿里云百炼 (Qwen) 或火山方舟 (Doubao) 时会自动启用；仅转发白名单 HTTPS 官方域名。'),
    );
-   page.append(g.node);
+   panel.append(g.node);
   }
   const foot=el('div','cs-row-actions cs-end');
-  foot.append(action('保存配置',()=>{const active=document.activeElement;active?.dispatchEvent?.(new Event('change'));notice('配置已保存');},'cs-primary'));
-  page.append(foot);
+  foot.append(action('保存配置',()=>{const active=document.activeElement;active?.dispatchEvent?.(new Event('change'));notice('生图接口配置已保存');},'cs-primary'));
+  panel.append(foot);
+ }
+
+ function videoSettingsPanel(panel){
+  const cfg=state().apiConfig;
+  const pid=VIDEO_PROVIDER_META[settingsVideoProvider]?settingsVideoProvider:cfg.activeVideoProvider;
+  const group=groupForVideoProvider(pid),meta=VIDEO_PROVIDER_META[pid];
+  const vd=cfg.videoDefaults||{mode:'image_to_video',aspectRatio:'16:9',resolution:'720p',durationSec:'5',generateAudio:true};
+
+  const tabs=el('div','cs-provider-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','视频服务商');
+  for(const g of VIDEO_SETTINGS_GROUPS){
+   const selected=g.id===group.id,summary=videoGroupSummary(g);
+   const b=el('button','cs-provider-tab');b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',String(selected));
+   b.dataset.groupId=g.id;
+   const text=el('span','cs-provider-text');text.append(el('strong','',g.name),el('small','',summary.label));
+   const dot=el('span','cs-dot'+(summary.tone?' '+summary.tone:''));dot.title=summary.label;
+   b.append(text,dot);
+   b.onclick=()=>{
+    const nextPid=g.modes.includes(cfg.activeVideoProvider)?cfg.activeVideoProvider:g.modes[0];
+    settingsVideoProvider=nextPid;store.updateApiConfig({activeVideoProvider:nextPid});
+    if(isVideoAuthProvider(nextPid))store.refreshAuthStatus();
+   };
+   tabs.append(b);
+  }
+  panel.append(tabs);
+
+  const acts=el('div','cs-row-actions');
+  const doc=el('a','cs-link','文档');doc.href=meta.docUrl;doc.target='_blank';doc.rel='noreferrer';acts.append(doc);
+  if(!isVideoAuthProvider(pid)){
+   const peerImg=VIDEO_IMAGE_KEY_PEERS[pid],peerKey=peerImg?cfg.providers?.[peerImg]?.apiKey?.trim():'';
+   if(peerKey&&peerKey!==cfg.videoProviders?.[pid]?.apiKey?.trim()){
+    acts.append(action('复用「图」同厂商 Key',()=>{store.updateVideoProviderConfig(pid,{apiKey:peerKey});notice(`已从生图配置复用 ${meta.shortName} Key`);}));
+   }
+   acts.append(action('恢复默认',()=>{store.updateVideoProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复视频默认端点与模型');}));
+  }
+  const sec=section(`${group.name} · 视频接入配置`,{actions:acts});
+  const modeBar=modeSwitchBar(group,pid,{
+   metaMap:VIDEO_PROVIDER_META,isAuthFn:isVideoAuthProvider,statusFn:videoProviderStatusText,
+   onPick:mid=>{settingsVideoProvider=mid;store.updateApiConfig({activeVideoProvider:mid});if(isVideoAuthProvider(mid))store.refreshAuthStatus();},
+  });
+  if(modeBar)sec.body.append(modeBar);
+  sec.body.append(isVideoAuthProvider(pid)?authSettingsBody(pid,{isVideo:true}):apiKeySettingsBody(pid,{isVideo:true}));
+  panel.append(sec.node);
+
+  const g=section('视频默认参数与请求选项');
+  const grid=el('div','cs-grid2');
+  grid.append(
+   field('默认视频任务模式',select([
+    ['image_to_video','图生视频（首帧驱动 · 推荐）'],
+    ['first_last_frame','首尾帧过渡控制'],
+    ['reference_to_video','多参考图角色一致生成'],
+    ['text_to_video','纯文生视频'],
+   ],vd.mode,v=>store.updateVideoDefaults({mode:v}),{label:'默认视频任务模式'})),
+   field('默认视频画幅',select([
+    ['16:9','16:9 横屏影视'],['9:16','9:16 竖屏短剧'],['1:1','1:1 方画幅'],['4:3','4:3'],['3:4','3:4'],['21:9','21:9 宽银幕'],
+   ],vd.aspectRatio,v=>store.updateVideoDefaults({aspectRatio:v}),{label:'默认视频画幅'})),
+   field('默认输出分辨率',select([
+    ['720p','720p 高清（均衡速度与画质 · 推荐）'],['1080p','1080p 全高清成片'],['480p','480p 快速预演样片'],
+   ],vd.resolution,v=>store.updateVideoDefaults({resolution:v}),{label:'默认输出分辨率'})),
+   field('默认单镜头时长',select([
+    ['5','5 秒'],['8','8 秒'],['10','10 秒'],['15','15 秒（Grok 1.5 / Seedance 支持）'],
+   ],String(vd.durationSec||'5'),v=>store.updateVideoDefaults({durationSec:v}),{label:'默认单镜头时长'})),
+  );
+  g.body.append(
+   grid,
+   field('原生音轨生成',toggle(vd.generateAudio!==false,v=>store.updateVideoDefaults({generateAudio:v}),vd.generateAudio!==false?'开启（支持模型同步生成环境声/音效）':'关闭（仅输出静音画面）')),
+  );
+  if(!isVideoAuthProvider(pid)){
+   g.body.append(
+    field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.videoUseProxy,v=>store.updateApiConfig({videoUseProxy:v}),cfg.videoUseProxy?'已启用（支持异步任务提交与轮询代理）':'已关闭（浏览器直连）'),'切换到 Grok API、通义万相 (Wan) 或火山 Seedance 时自动启用；仅转发白名单 HTTPS 官方域名。'),
+   );
+  }
+  panel.append(g.node);
+
+  const foot=el('div','cs-row-actions cs-end');
+  foot.append(action('保存配置',()=>{const active=document.activeElement;active?.dispatchEvent?.(new Event('change'));notice('视频接口配置已保存');},'cs-primary'));
+  panel.append(foot);
+ }
+
+ function settingsView(){
+  const page=el('div','cs-page cs-settings');
+  const head=el('header','cs-page-head');
+  const title=el('div','cs-title');
+  title.append(el('h1','','API 接口配置'),el('p','','按「图」与「视频」分栏管理授权登录及云端 API Key 接口配置。API Key 仅保存在当前浏览器。'));
+  head.append(title,action('返回 AI 角色合成台',()=>ctx.navigate?.('character-studio'),'cs-primary'));
+  page.append(head);
+
+  const modalityBar=el('div','cs-modality-tabs');
+  modalityBar.setAttribute('role','tablist');
+  modalityBar.setAttribute('aria-label','接口模态分类');
+  const switchModality=nextModality=>{
+   if(nextModality!=='image'&&nextModality!=='video')return;
+   settingsModality=nextModality;
+   syncSettingsTabRoute(nextModality);
+   render(true);
+  };
+  for(const mod of SETTINGS_MODALITIES){
+   const active=settingsModality===mod.id;
+   const readyCount=modalityReadyCount(mod.id),totalCount=mod.id==='image'?SETTINGS_GROUPS.length:VIDEO_SETTINGS_GROUPS.length;
+   const tabBtn=el('button','cs-modality-tab'+(active?' is-active':''));
+   tabBtn.type='button';
+   tabBtn.id=`cs-modality-tab-${mod.id}`;
+   tabBtn.dataset.modality=mod.id;
+   tabBtn.setAttribute('role','tab');
+   tabBtn.setAttribute('aria-selected',String(active));
+   tabBtn.setAttribute('aria-controls','cs-modality-panel');
+   tabBtn.tabIndex=active?0:-1;
+   const copy=el('span','cs-modality-copy');
+   copy.append(el('strong','cs-modality-name',mod.label),el('small','cs-modality-desc',mod.subtitle));
+   const badge=el('span','cs-modality-badge'+(readyCount>0?' is-ready':''),readyCount>0?`已就绪 ${readyCount}/${totalCount}`:`0/${totalCount} 已配`);
+   tabBtn.append(svgIcon(mod.id),copy,badge);
+   tabBtn.onclick=()=>switchModality(mod.id);
+   tabBtn.addEventListener('keydown',event=>{
+    if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
+     event.preventDefault?.();
+     const targetMod=mod.id==='image'?'video':'image';
+     switchModality(targetMod);
+     root.querySelector(`#cs-modality-tab-${targetMod}`)?.focus?.();
+    }
+   });
+   modalityBar.append(tabBtn);
+  }
+  page.append(modalityBar);
+
+  const panel=el('div','cs-modality-panel');
+  panel.id='cs-modality-panel';
+  panel.setAttribute('role','tabpanel');
+  panel.setAttribute('aria-labelledby',`cs-modality-tab-${settingsModality}`);
+  if(settingsModality==='video')videoSettingsPanel(panel);
+  else imageSettingsPanel(panel);
+  page.append(panel);
   return page;
  }
 
  // ------------------------------------------------------------------ render loop
  function signature(){
   const s=state();
-  return JSON.stringify([mode,settingsProvider,showKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.hydrated]);
+  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.hydrated]);
  }
  function render(force=false){
   if(disposed)return;
@@ -492,9 +693,17 @@ export function createCharacterStudio(root,ctx){
  }
 
  return {
-  async load({mode:nextMode='studio'}={}){
+  async load({mode:nextMode='studio',tab}={}){
    disposed=false;mode=nextMode==='settings'?'settings':'studio';
-   if(mode==='settings')settingsProvider=state().apiConfig.activeProvider;
+   if(mode==='settings'){
+    if(tab==='video'||tab==='image')settingsModality=tab;
+    else if(typeof location!=='undefined'){
+     const urlTab=new URLSearchParams(location.search||'').get('tab');
+     if(urlTab==='video'||urlTab==='image')settingsModality=urlTab;
+    }
+    settingsProvider=state().apiConfig.activeProvider;
+    settingsVideoProvider=state().apiConfig.activeVideoProvider;
+   }
    unsub?.();unsub=store.subscribe(()=>render());
    if(!pasteHandler){
     pasteHandler=async event=>{

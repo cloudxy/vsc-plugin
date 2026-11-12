@@ -266,6 +266,10 @@ class CharacterStudioHttpTests(unittest.TestCase):
                         self.assertTrue(ver.json()["verified"])
                         self.assertEqual(ver.json()["model_count"], 2)
 
+                        ver_grok_vid = client.post("/api/v1/character-studio/auth/verify", json={"provider": "grok_video_auth"}, headers=headers)
+                        self.assertEqual(ver_grok_vid.status_code, 200, ver_grok_vid.text)
+                        self.assertTrue(ver_grok_vid.json()["verified"])
+
                     # Backend Grok subscription generation (`grok_auth`) uses `~/.grok/auth.json` and immediately stores temporary URL.
                     fake_client = MagicMock()
                     fake_client.__enter__.return_value = fake_client
@@ -293,29 +297,124 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     self.assertEqual(post_call.kwargs["headers"]["Authorization"], "Bearer secret-sub-token-999")
                     self.assertEqual(post_call.kwargs["headers"]["User-Agent"], grok_credentials.USER_AGENT)
 
-                    # Backend AGY generation (`agy_auth`) invokes `agy` CLI in isolated temp dir and reads result.png.
-                    def fake_agy_run(cmd, cwd=None, **kwargs):
-                        out = Path(cwd) / "result.png"
-                        out.write_bytes(PNG_1X1)
-                        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"saved_path": str(out), "error": ""}), stderr="")
+                    # Backend AGY generation (`agy_auth`) invokes `agy` CLI without `--mode auto`, with `--effort low`,
+                    # supports real `brain/<conversation_id>/vsc_studio_result_*.jpg` output and structured error mapping.
+                    fake_brain = repo / "fake_brain"
+                    fake_brain.mkdir()
+                    JPEG_TINY = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
+                    seen_cmds: list[list[str]] = []
 
+                    def fake_agy_brain_run(cmd, cwd=None, **kwargs):
+                        seen_cmds.append(list(cmd))
+                        conv_id = "8ab2bac4-8f03-4850-8203-e3e6bc7c3bd1"
+                        conv_dir = fake_brain / conv_id
+                        conv_dir.mkdir(parents=True, exist_ok=True)
+                        jpg = conv_dir / "vsc_studio_result_1794500420.jpg"
+                        jpg.write_bytes(JPEG_TINY)
+                        envelope = {
+                            "conversation_id": conv_id,
+                            "status": "SUCCESS",
+                            "response": f"Generated image is saved at {jpg}.",
+                            "structured_output": {"saved_path": "", "error": ""},
+                        }
+                        return subprocess.CompletedProcess(
+                            cmd,
+                            0,
+                            stdout=json.dumps(envelope),
+                            stderr="warning: --mode auto is not available for this account; continuing in the default mode\n",
+                        )
+
+                    ref_data_uri = f"data:image/png;base64,{base64.b64encode(PNG_1X1).decode('ascii')}"
                     with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
+                         patch("vsc.interfaces.web.character_studio._agy_brain_dir", return_value=fake_brain), \
                          patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/agy"), \
-                         patch("vsc.interfaces.web.character_studio.subprocess.run", side_effect=fake_agy_run):
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", side_effect=fake_agy_brain_run):
                         gen_agy = client.post(
                             "/api/v1/character-studio/generate",
                             json={
                                 "provider": "agy_auth",
-                                "model": "image-generator",
+                                "model": "gemini-4-carbon-pro",
                                 "prompt": "生成角色立绘",
-                                "references": [f"data:image/png;base64,{base64.b64encode(PNG_1X1).decode('ascii')}"],
+                                "references": [ref_data_uri],
                                 "aspect_ratio": "3:4",
                             },
                             headers=headers,
                         )
                     self.assertEqual(gen_agy.status_code, 200, gen_agy.text)
-                    self.assertTrue(gen_agy.json()["image_url"].startswith("data:image/png;base64,"))
+                    self.assertTrue(gen_agy.json()["image_url"].startswith("data:image/jpeg;base64,"))
                     self.assertEqual(gen_agy.json()["provider"], "agy_auth")
+                    self.assertEqual(len(seen_cmds), 1)
+                    self.assertNotIn("--mode", seen_cmds[0])
+                    self.assertNotIn("-m", seen_cmds[0])
+                    self.assertIn("--effort", seen_cmds[0])
+                    self.assertEqual(seen_cmds[0][seen_cmds[0].index("--effort") + 1], "low")
+                    self.assertIn("--model", seen_cmds[0])
+                    self.assertEqual(seen_cmds[0][seen_cmds[0].index("--model") + 1], "gemini-4-carbon-pro")
+
+                    # Quota exhaustion (`429 RESOURCE_EXHAUSTED`) inside JSON envelope is surfaced as 429 even when stderr has CLI warnings.
+                    quota_envelope = {
+                        "conversation_id": "96fb8ca3-c094-4ca9-aecf-47bd2a6845ac",
+                        "status": "SUCCESS",
+                        "response": "Quota exhausted.",
+                        "structured_output": {
+                            "saved_path": "",
+                            "error": "HTTP 429 Too Many Requests: You have exhausted your capacity on this model. Your quota will reset after 3h55m12s. RESOURCE_EXHAUSTED",
+                        },
+                    }
+                    proc_429 = subprocess.CompletedProcess(
+                        ["agy"],
+                        0,
+                        stdout=json.dumps(quota_envelope),
+                        stderr="warning: --mode auto is not available for this account; continuing in the default mode\n",
+                    )
+                    with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
+                         patch("vsc.interfaces.web.character_studio._agy_brain_dir", return_value=fake_brain), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/agy"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_429):
+                        res_429 = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "agy_auth",
+                                "model": "image-generator",
+                                "prompt": "生成角色立绘",
+                                "references": [ref_data_uri],
+                                "aspect_ratio": "3:4",
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(res_429.status_code, 429, res_429.text)
+                    self.assertIn("配额已用尽", res_429.json()["detail"])
+                    self.assertIn("3h55m12s", res_429.json()["detail"])
+                    self.assertNotIn("--mode auto", res_429.json()["detail"])
+
+                    # Safety moderation block (`no image generated in response`) surfaces actionable 422 error.
+                    safety_envelope = {
+                        "conversation_id": "58307063-cc70-4810-ad27-e7b249e8a8d8",
+                        "status": "SUCCESS",
+                        "response": "Blocked.",
+                        "structured_output": {
+                            "saved_path": "/etc/passwd",
+                            "error": "generate_image failed: no image generated in response",
+                        },
+                    }
+                    proc_safety = subprocess.CompletedProcess(["agy"], 0, stdout=json.dumps(safety_envelope), stderr="")
+                    with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
+                         patch("vsc.interfaces.web.character_studio._agy_brain_dir", return_value=fake_brain), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/agy"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_safety):
+                        res_safety = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "agy_auth",
+                                "model": "image-generator",
+                                "prompt": "生成角色立绘",
+                                "references": [ref_data_uri],
+                                "aspect_ratio": "3:4",
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(res_safety.status_code, 422, res_safety.text)
+                    self.assertIn("安全策略拦截", res_safety.json()["detail"])
 
 
 if __name__ == "__main__":

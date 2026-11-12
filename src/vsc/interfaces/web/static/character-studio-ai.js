@@ -134,6 +134,49 @@ for(const meta of Object.values(PROVIDER_META))meta.models=meta.models.map(([val
 export const isAuthProvider=id=>PROVIDER_META[id]?.authMode==='oauth';
 export const groupForProvider=id=>SETTINGS_GROUPS.find(g=>g.modes.includes(id))||SETTINGS_GROUPS[0];
 
+export const SETTINGS_MODALITIES=[
+ {id:'image',label:'图',subtitle:'生图接口与授权'},
+ {id:'video',label:'视频',subtitle:'视频接口与授权'},
+];
+export const VIDEO_PROVIDER_ORDER=['grok_video_auth','grok_video','doubao_video','gemini_video','qwen_video','openai_video'];
+export const VIDEO_SETTINGS_GROUPS=[
+ {id:'xai_video',name:'xAI · Grok Video',modes:['grok_video_auth','grok_video']},
+ {id:'doubao_video',name:'字节火山方舟 Seedance',modes:['doubao_video']},
+ {id:'google_video',name:'Google · Veo (Gemini)',modes:['gemini_video']},
+ {id:'qwen_video',name:'阿里云百炼 通义万相 Wan',modes:['qwen_video']},
+ {id:'openai_video',name:'OpenAI Sora / 兼容网关',modes:['openai_video']},
+];
+export const VIDEO_PROVIDER_META={
+ grok_video_auth:{id:'grok_video_auth',name:'Grok 视频授权登录 (xAI 订阅)',shortName:'Grok 授权',modeLabel:'Grok 授权登录',modeHint:'本机 grok CLI 订阅登录 · ~/.grok/auth.json',
+  authMode:'oauth',authVendor:'grok',modality:'video',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/video-generations',
+  models:[['grok-imagine-video-1.5','grok-imagine-video-1.5（首尾帧/关键帧/14图参考 · 最高 15s 1080p · 推荐）'],['grok-imagine-video-1.5-lite','grok-imagine-video-1.5-lite（轻量快速 · 首帧/参考 · 最高 15s）'],['grok-imagine-video','grok-imagine-video（经典模型 · 视频编辑/续接）']]},
+ grok_video:{id:'grok_video',name:'xAI Grok Video (API 接口)',shortName:'Grok API',modeLabel:'Grok API 接口',modeHint:'xAI 按量计费 API Key（与订阅登录隔离）',
+  authMode:'apikey',modality:'video',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/video-generations',
+  keyPlaceholder:'输入 xai-... API Key（仅保存在本地浏览器）',
+  models:[['grok-imagine-video-1.5','grok-imagine-video-1.5（首尾帧/关键帧/14图参考 · 最高 15s 1080p · 推荐）'],['grok-imagine-video-1.5-lite','grok-imagine-video-1.5-lite（轻量快速 · 首帧/参考 · 最高 15s）'],['grok-imagine-video','grok-imagine-video（经典模型 · 视频编辑/续接）'],['custom','自定义视频模型 ID']]},
+ doubao_video:{id:'doubao_video',name:'字节火山方舟 Seedance',shortName:'Seedance',modeLabel:'API 接口',modeHint:'火山方舟 API Key / Agent Plan',
+  authMode:'apikey',modality:'video',defaultBaseUrl:'https://ark.cn-beijing.volces.com',docUrl:'https://www.volcengine.com/docs/82379/1520757',
+  keyPlaceholder:'输入火山方舟 API Key（仅保存在本地浏览器）',
+  models:[['doubao-seedance-2-5-260628','doubao-seedance-2-5-260628（原生有声 · 图生/文生/多图参考 · 推荐）'],['doubao-seedance-2-0-pro','doubao-seedance-2-0-pro（高动态电影镜头 · 1080p）'],['doubao-seedance-1-5-pro','doubao-seedance-1-5-pro（首尾帧运镜控制）'],['doubao-seedance-1-0-lite-i2v','doubao-seedance-1-0-lite-i2v（轻量图生视频样片）'],['custom','自定义模型 ID / Endpoint']]},
+ gemini_video:{id:'gemini_video',name:'Google Veo (Gemini API 接口)',shortName:'Veo API',modeLabel:'Gemini API 接口',modeHint:'Google AI Studio API Key',
+  authMode:'apikey',modality:'video',defaultBaseUrl:'https://generativelanguage.googleapis.com',docUrl:'https://ai.google.dev/gemini-api/docs/video',
+  keyPlaceholder:'输入 AIza... API Key（仅保存在本地浏览器）',
+  models:[['veo-3.1-generate-preview','veo-3.1-generate-preview（原生音画同步 · 首尾帧/参考 · 推荐）'],['veo-3.1-fast-generate-preview','veo-3.1-fast-generate-preview（快速预演候选）'],['veo-3.0-generate-001','veo-3.0-generate-001（1080p 电影级生成）'],['veo-2.0-generate-001','veo-2.0-generate-001'],['custom','自定义视频模型 ID']]},
+ qwen_video:{id:'qwen_video',name:'阿里云百炼 通义万相 Wan',shortName:'Wan',modeLabel:'API 接口',modeHint:'DashScope API Key',
+  authMode:'apikey',modality:'video',defaultBaseUrl:'https://dashscope.aliyuncs.com',docUrl:'https://help.aliyun.com/zh/model-studio/image-to-video-api-reference',
+  keyPlaceholder:'输入 DashScope sk-... API Key（仅保存在本地浏览器）',
+  models:[['wan2.6-i2v-plus','wan2.6-i2v-plus（图生视频专业版 · 首尾帧/多参考 · 推荐）'],['wan2.6-t2v-plus','wan2.6-t2v-plus（文生视频专业版）'],['wan2.5-i2v-turbo','wan2.5-i2v-turbo（极速图生视频预演）'],['wan2.2-kf2v-plus','wan2.2-kf2v-plus（首尾帧关键帧过渡）'],['custom','自定义视频模型 ID']]},
+ openai_video:{id:'openai_video',name:'OpenAI Sora / 兼容视频接口',shortName:'Sora',modeLabel:'API 接口',modeHint:'OpenAI API Key 或兼容视频网关',
+  authMode:'apikey',modality:'video',defaultBaseUrl:'https://api.openai.com/v1',docUrl:'https://platform.openai.com/docs/guides/video-generation',
+  keyPlaceholder:'输入 sk-... API Key（仅保存在本地浏览器）',
+  models:[['sora-2','sora-2（图生/文生有声视频 · 推荐）'],['sora-2-pro','sora-2-pro（高保真镜头与物理连续性）'],['custom','自定义模型 ID（支持可灵 / Vidu 等兼容网关）']]},
+};
+for(const meta of Object.values(VIDEO_PROVIDER_META))meta.models=meta.models.map(([value,label])=>({value,label:label||value}));
+export const isVideoAuthProvider=id=>VIDEO_PROVIDER_META[id]?.authMode==='oauth';
+export const groupForVideoProvider=id=>VIDEO_SETTINGS_GROUPS.find(g=>g.modes.includes(id))||VIDEO_SETTINGS_GROUPS[0];
+export const VIDEO_IMAGE_KEY_PEERS={grok_video:'grok',doubao_video:'doubao',gemini_video:'gemini',qwen_video:'qwen',openai_video:'gpt'};
+export const IMAGE_VIDEO_KEY_PEERS={grok:'grok_video',doubao:'doubao_video',gemini:'gemini_video',qwen:'qwen_video',gpt:'openai_video'};
+
 export const STYLE_PRESETS={
  none:{label:'无预设（跟随参考图）',prompt:''},
  realistic:{label:'写实人像写真',prompt:'写实商业摄影级质感，85mm 人像镜头，自然柔和光影，真实肌肤纹理与织物细节，8k 高清画质。'},
@@ -384,6 +427,33 @@ export function buildGrokApiRequest({baseUrl,apiKey,model,prompt,refs,grokParams
  if(refs.length===1)payload.image={url:refs[0],type:'image_url'};
  else payload.images=refs.map(url=>({url,type:'image_url'}));
  return {url:`${v1}/images/edits`,headers,body:JSON.stringify(payload)};
+}
+
+export function buildGrokVideoApiRequest({baseUrl,apiKey,model,prompt,firstFrame='',lastFrame='',references=[],videoDefaults}){
+ const vd=videoDefaults||{aspectRatio:'16:9',resolution:'720p',durationSec:'5',generateAudio:true};
+ const v1=String(baseUrl||'https://api.x.ai/v1').replace(/\/+$/,'');
+ const root=v1.endsWith('/v1')?v1:`${v1}/v1`;
+ const advanced=String(model||'').includes('1.5'),lite=String(model||'').includes('lite');
+ const maxSec=advanced?15:10,duration=Number(vd.durationSec||5);
+ if(!Number.isInteger(duration)||duration<1||duration>maxSec)throw new Error(`[Grok Video] 视频时长须为 1–${maxSec} 整秒`);
+ if(!String(prompt||'').trim())throw new Error('[Grok Video] 视频请求需要非空提示词');
+ const refs=(references||[]).filter(Boolean);
+ if(refs.length>14)throw new Error('[Grok Video] 参考模式一次最多支持 14 张参考图');
+ if((!advanced||lite)&&lastFrame)throw new Error('[Grok Video] 尾帧钉定需使用 grok-imagine-video-1.5 模型');
+ if(!advanced&&firstFrame&&refs.length)throw new Error('[Grok Video] 经典 grok-imagine-video 不支持首帧与参考图同用');
+ const resolution=vd.resolution||'720p';
+ if(refs.length&&!['480p','720p'].includes(resolution))throw new Error('[Grok Video] 多参考图模式最高支持 720p 分辨率');
+ const payload={model,prompt:String(prompt).trim(),duration,resolution};
+ if(firstFrame)payload.image={url:firstFrame};
+ if(lastFrame)payload.last_frame={url:lastFrame};
+ if(refs.length)payload.reference_images=refs.map(url=>({url}));
+ if(vd.aspectRatio)payload.aspect_ratio=vd.aspectRatio;
+ if(vd.generateAudio===false)payload.generate_audio=false;
+ return {
+  url:`${root}/videos/generations`,
+  headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},
+  body:JSON.stringify(payload),
+ };
 }
 
 // ------------------------------------------------------------------ Generation entry
