@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from vsc.adapters.providers.xai_grok import credentials as grok_credentials
 from vsc.adapters.providers.xai_grok import spec as grok_spec
 from vsc.assets import pose_gallery
+from vsc.assets.script_ai import host_environment
 from vsc.bootstrap import repository_root
 
 DEFAULT_ALLOWED_ORIGINS = (
@@ -45,6 +46,7 @@ FORWARD_HEADERS = ("content-type", "authorization", "x-goog-api-key", "x-dashsco
 MEDIA_URL_PREFIX = "/api/v1/asset-center/pose-gallery/media/"
 AGY_STATE_REL = Path(".gemini") / "antigravity-cli" / "jetski_state.pbtxt"
 AGY_BRAIN_REL = Path(".gemini") / "antigravity-cli" / "brain"
+GROK_SESSIONS_REL = Path(".grok") / "sessions"
 AGY_IMAGE_SCHEMA = json.dumps(
     {
         "type": "object",
@@ -59,10 +61,21 @@ AGY_IMAGE_SCHEMA = json.dumps(
 _WILDCARD = re.compile(r"^(?:(https?)://)?\*\.([a-z0-9.-]+)(?::(\d+))?(?:/.*)?$", re.I)
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 _MODEL_ID_RE = re.compile(r"\b(?:gemini|claude|gpt)-[a-z0-9][a-z0-9.-]{2,60}\b", re.I)
+_GROK_MODEL_ID_RE = re.compile(r"\bgrok-[a-z0-9][a-z0-9.-]{1,60}\b", re.I)
 _SAFE_CONV_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{3,127}$")
 _ABS_IMAGE_PATH_RE = re.compile(r"(/[^\s`'\"<>()]+?\.(?:png|jpe?g|webp|gif))", re.I)
 _QUOTA_RESET_RE = re.compile(r"reset after\s+([0-9hms.]+)", re.I)
 _FALLBACK_BIN_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
+_CLI_PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+)
 _IMAGE_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 
 
@@ -158,6 +171,28 @@ def _agy_brain_dir() -> Path:
     return Path.home() / AGY_BRAIN_REL
 
 
+def _grok_sessions_dir() -> Path:
+    return Path.home() / GROK_SESSIONS_REL
+
+
+def _grok_cli_env() -> dict[str, str]:
+    """Run grok CLI strictly on ~/.grok/auth.json without XAI_API_KEY or app secrets."""
+    env = host_environment()
+    for key in _CLI_PROXY_ENV_KEYS:
+        val = os.environ.get(key)
+        if val:
+            env[key] = val
+    path_parts = [p for p in env.get("PATH", "").split(os.pathsep) if p]
+    for extra in (*_FALLBACK_BIN_DIRS, str(Path.home() / ".local" / "bin")):
+        if extra not in path_parts:
+            path_parts.append(extra)
+    env["PATH"] = os.pathsep.join(path_parts)
+    env["GROK_DISABLE_AUTOUPDATER"] = "1"
+    env["GROK_MEMORY"] = "0"
+    env["GROK_WORKFLOWS"] = "0"
+    return env
+
+
 def _resolve_cli_bin(name: str) -> str | None:
     found = shutil.which(name)
     if found:
@@ -182,16 +217,23 @@ def _grok_auth_status() -> dict:
     account = _mask_identity(grok_credentials.account_id()) if ready else None
     if ready:
         status = "authorized"
-        message = f"Grok 订阅登录已就绪（账号：{account}）" if account else "Grok 订阅登录已就绪"
+        acct_note = f"（账号：{account}）" if account else ""
+        if cli_installed:
+            message = f"本机 Grok 授权已就绪{acct_note}，支持终端 grok CLI (image_edit) 与 Imagine 订阅生图"
+        else:
+            message = f"Grok 订阅凭证已就绪{acct_note}（未检测到 grok CLI，仅支持 Imagine 直连模型）"
     elif has_file:
         status = "expired"
-        message = problem or "Grok 登录态不可用，请重新授权登录"
+        if cli_installed and problem and "已过期" in problem:
+            message = "Grok 本地访问令牌已过有效期；点击「在线验证」或直接发起生图将通过本机 grok CLI 自动刷新令牌"
+        else:
+            message = problem or "Grok 登录态不可用，请重新授权登录"
     elif not cli_installed:
         status = "cli_missing"
         message = "未检测到本机 grok CLI，请先安装 grok CLI 后运行 grok login --oauth"
     else:
         status = "unauthorized"
-        message = "尚未登录 Grok 订阅账号，可点击「调起浏览器授权登录」或在终端执行 grok login --oauth"
+        message = "尚未登录 Grok 账号，可点击「调起浏览器授权登录」或在终端执行 grok login --oauth"
     return {
         "provider": "grok_auth",
         "cli_installed": cli_installed,
@@ -200,6 +242,79 @@ def _grok_auth_status() -> dict:
         "account": account,
         "message": message,
         "login_command": "grok login --oauth",
+    }
+
+
+def _refresh_grok_auth_via_cli() -> bool:
+    grok_bin = _resolve_cli_bin("grok")
+    if not grok_bin or not grok_credentials.LOGIN_FILE.is_file():
+        return False
+    try:
+        subprocess.run(
+            [grok_bin, "models"],
+            env=_grok_cli_env(),
+            capture_output=True,
+            text=True,
+            timeout=35,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return grok_credentials.key_problem() is None
+
+
+def _verify_grok_online() -> dict:
+    info = _grok_auth_status()
+    grok_bin = _resolve_cli_bin("grok")
+    if not grok_bin:
+        return {**info, "verified": False}
+    try:
+        proc = subprocess.run(
+            [grok_bin, "models"],
+            env=_grok_cli_env(),
+            capture_output=True,
+            text=True,
+            timeout=35,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            **info,
+            "verified": False,
+            "message": f"Grok CLI 在线验证未完成（{type(exc).__name__}），请确认网络或在终端执行 grok models",
+        }
+    info = _grok_auth_status()
+    cleaned = _ANSI_RE.sub("", (proc.stdout or "") + "\n" + (proc.stderr or ""))
+    lower = cleaned.lower()
+    models = sorted(set(_GROK_MODEL_ID_RE.findall(cleaned)))
+    not_logged_in = "not logged in" in lower or "not signed in" in lower or "login required" in lower
+    if proc.returncode == 0 and not not_logged_in and (models or "logged in" in lower):
+        acct = f"，账号：{info['account']}" if info.get("account") else ""
+        count_note = f"可用模型 {len(models)} 个" if models else "已连接 grok.com"
+        return {
+            **info,
+            "ready": True,
+            "verified": True,
+            "status": "authorized",
+            "model_count": len(models),
+            "message": f"Grok CLI 在线验证通过（{count_note}{acct}，内置 image_edit 与 Imagine 通道已就绪）",
+        }
+    if not not_logged_in and any(
+        kw in lower for kw in ("fetch failed", "network", "connection", "operation not permitted", "timed out", "dns")
+    ):
+        return {
+            **info,
+            "verified": False,
+            "message": "Grok CLI 在线连接失败，请检查本机网络或代理设置后重试",
+        }
+    return {
+        **info,
+        "ready": False,
+        "verified": False,
+        "status": "expired" if info["status"] == "expired" else "unauthorized",
+        "message": "Grok CLI 尚未完成在线授权或登录已过期，请点击「调起浏览器授权登录」或在终端执行 grok login --oauth",
     }
 
 
@@ -308,6 +423,7 @@ def _trigger_auth_login(provider: str) -> dict:
         try:
             subprocess.Popen(
                 [grok_bin, "login", "--oauth"],
+                env=_grok_cli_env(),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -413,23 +529,445 @@ def _download_https_image(url: str) -> tuple[bytes, str]:
     return res.content, mime
 
 
-def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
+def _is_grok_cli_model(model: str) -> bool:
+    norm = (model or "").strip().lower()
+    if not norm or norm in ("image_edit", "image_gen", "grok-cli", "grok-cli-imagine"):
+        return True
+    if norm.startswith("grok-imagine-") or norm.startswith("grok-2-image"):
+        return False
+    return True
+
+
+def _read_grok_subscription_key() -> str:
     try:
-        key = grok_credentials.read_key(error=ValueError)
-    except ValueError as exc:
-        raise HTTPException(401, str(exc)) from exc
-    prompt = str(body.get("prompt") or "").strip()
-    model = str(body.get("model") or "grok-imagine-image-2.0").strip() or "grok-imagine-image-2.0"
-    aspect_ratio = str(body.get("aspect_ratio") or "3:4").strip()
-    resolution = str(body.get("resolution") or "2k").strip().lower()
-    raw_refs = body.get("references") or []
-    if not isinstance(raw_refs, list) or not raw_refs:
-        raise HTTPException(422, "请先选择或上传至少 1 张参考图")
-    if len(raw_refs) > grok_spec.EDIT_SOURCE_LIMIT:
+        return grok_credentials.read_key(error=ValueError)
+    except ValueError as first_exc:
+        if "已过期" in str(first_exc) and grok_credentials.LOGIN_FILE.is_file():
+            _refresh_grok_auth_via_cli()
+            try:
+                return grok_credentials.read_key(error=ValueError)
+            except ValueError as second_exc:
+                raise HTTPException(401, f"[Grok 授权] {second_exc}") from second_exc
+        raise HTTPException(401, f"[Grok 授权] {first_exc}") from first_exc
+
+
+def _unwrap_grok_error_detail(detail: str, redact_secret: str = "") -> tuple[str, int | None]:
+    text = _ANSI_RE.sub("", detail or "").strip()
+    if redact_secret:
+        text = text.replace(redact_secret, "[REDACTED]")
+    inferred_status: int | None = None
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if 0 <= brace_start < brace_end:
+        try:
+            inner = json.loads(text[brace_start : brace_end + 1])
+        except ValueError:
+            inner = None
+        if isinstance(inner, dict):
+            raw_status = inner.get("http_status") or inner.get("status")
+            if isinstance(raw_status, int):
+                inferred_status = raw_status
+            inner_msg = inner.get("message") or inner.get("error")
+            if isinstance(inner_msg, dict):
+                inner_msg = inner_msg.get("message")
+            if isinstance(inner_msg, str) and inner_msg.strip():
+                text = inner_msg.strip()
+                if redact_secret:
+                    text = text.replace(redact_secret, "[REDACTED]")
+    return re.sub(r"\s+", " ", text).strip(), inferred_status
+
+
+def _raise_grok_generation_error(
+    status_or_rc: int,
+    detail: str,
+    *,
+    via_cli: bool,
+    redact_secret: str = "",
+) -> None:
+    compact, inferred_status = _unwrap_grok_error_detail(detail, redact_secret=redact_secret)
+    http_status = inferred_status or (status_or_rc if 100 <= status_or_rc <= 599 else None)
+    lower = compact.lower()
+    if (
+        http_status == 402
+        or "status 402" in lower
+        or "payment required" in lower
+        or "usage balance exhausted" in lower
+        or "run out of credits" in lower
+        or "need a grok subscription" in lower
+        or "insufficient credits" in lower
+    ):
+        if "grok build" in lower or via_cli:
+            raise HTTPException(
+                402,
+                "[Grok 授权] 当前账号的终端 Grok Build 用量余额已耗尽（HTTP 402）。"
+                "可在终端运行 grok 后输入 /usage 查看额度与重置时间，或在模型下拉框切换为「grok-imagine-image-2.0（Grok 订阅直连）」、"
+                "在「API 接口配置」切换为 AGY 授权登录 / Grok API 接口。",
+            )
+        raise HTTPException(
+            402,
+            "[Grok 授权] 当前 Grok 账号的 Imagine 订阅生图额度不足或未开通对应订阅（HTTP 402）。"
+            "请前往 grok.com 核对订阅与额度，或在模型下拉框切换为「image_edit（终端 grok CLI 内置生图）」、"
+            "在「API 接口配置」切换为 AGY 授权登录 / Grok API 接口。",
+        )
+    if (
+        http_status == 429
+        or "429" in lower
+        or "rate limit" in lower
+        or "rate_limit" in lower
+        or "too many requests" in lower
+        or "resource_exhausted" in lower
+        or "quota" in lower
+    ):
+        reset_match = _QUOTA_RESET_RE.search(compact)
+        reset_hint = f"（预计 {reset_match.group(1)} 后重置）" if reset_match else ""
+        raise HTTPException(
+            429,
+            f"[Grok 授权] 当前账号的 Grok 生图请求触发速率或配额限制{reset_hint}。"
+            "请稍后重试，或在「API 接口配置」切换为 AGY 授权登录 / Grok API 接口。",
+        )
+    if (
+        "moderation" in lower
+        or "image_safety" in lower
+        or "safety" in lower
+        or "content policy" in lower
+        or "prohibited" in lower
+        or "refusal" in lower
+        or ("blocked" in lower and ("prompt" in lower or "image" in lower or "content" in lower))
+        or ("安全" in compact and ("拦截" in compact or "过滤" in compact or "拒绝" in compact))
+    ):
         raise HTTPException(
             422,
-            f"[Grok 授权] Grok 图像编辑一次最多支持 {grok_spec.EDIT_SOURCE_LIMIT} 张参考图（当前 {len(raw_refs)} 张），请减少附加参考图或关闭附带合成拼图",
+            "[Grok 授权] 生图请求触发平台安全策略拦截（未返回图像）。请尝试更换较温和的参考图或调整提示词描述后重试。",
         )
+    if (
+        http_status in (401, 403)
+        or "unauthenticated" in lower
+        or "unauthorized" in lower
+        or "not logged in" in lower
+        or "not signed in" in lower
+        or "login required" in lower
+        or "token expired" in lower
+        or "invalid token" in lower
+    ):
+        code = http_status if http_status in (401, 403) else 401
+        raise HTTPException(
+            code,
+            "[Grok 授权] 本机 Grok 登录态已失效或无对应生图权限，请点击「调起浏览器授权登录」或在终端执行 grok login --oauth 重新授权。",
+        )
+    short = compact[:280]
+    if via_cli:
+        raise HTTPException(
+            502,
+            f"[Grok 授权] 终端 grok CLI 未返回有效生成图片（exit={status_or_rc}）{('：' + short) if short else ''}",
+        )
+    out_code = 502 if (http_status is None or http_status >= 500) else http_status
+    raise HTTPException(out_code, f"[Grok 授权] {short or '平台未返回有效图片'}")
+
+
+def _probe_studio_image_file(
+    candidate: str | Path,
+    tmp_dir: Path,
+    allowed_roots: tuple[Path | None, ...],
+    ref_names: set[str],
+    *,
+    base_dirs: tuple[Path, ...] = (),
+) -> Path | None:
+    cand_paths: list[Path] = []
+    if isinstance(candidate, Path):
+        cand_paths.append(candidate)
+    else:
+        text = str(candidate or "").strip().strip("`'\"")
+        if text.startswith("file://"):
+            text = text[7:]
+        if not text:
+            return None
+        cand = Path(text).expanduser()
+        if cand.is_absolute():
+            cand_paths.append(cand)
+        else:
+            for base in (*base_dirs, tmp_dir):
+                cand_paths.append(base / cand)
+    for raw_cand in cand_paths:
+        try:
+            resolved = raw_cand.resolve()
+            if not resolved.is_file():
+                continue
+            in_tmp = resolved.is_relative_to(tmp_dir)
+            in_extra = any(root is not None and resolved.is_relative_to(root) for root in allowed_roots)
+            if not (in_tmp or in_extra):
+                continue
+            if in_tmp and resolved.parent == tmp_dir and resolved.name in ref_names:
+                continue
+            with resolved.open("rb") as fh:
+                head = fh.read(16)
+            if _detect_image_mime(head):
+                return resolved
+        except OSError:
+            continue
+    return None
+
+
+def _probe_agy_image_file(
+    candidate: str | Path,
+    tmp_dir: Path,
+    brain_root: Path | None,
+    ref_names: set[str],
+) -> Path | None:
+    return _probe_studio_image_file(candidate, tmp_dir, (brain_root,), ref_names)
+
+
+def _find_grok_session_dir(sessions_root: Path | None, session_id: str, cwd_hint: str, tmp_dir: Path) -> Path | None:
+    if sessions_root is None or not session_id or not _SAFE_CONV_ID_RE.match(session_id):
+        return None
+    candidates: list[Path] = []
+    for folder_str in (cwd_hint, str(tmp_dir)):
+        if folder_str:
+            candidates.append(sessions_root / quote(folder_str, safe="") / session_id)
+    candidates.append(sessions_root / session_id)
+    try:
+        if sessions_root.is_dir():
+            for ws_dir in sessions_root.iterdir():
+                if ws_dir.is_dir() and not ws_dir.name.startswith("."):
+                    candidates.append(ws_dir / session_id)
+    except OSError:
+        pass
+    seen: set[Path] = set()
+    for cand in candidates:
+        if cand in seen:
+            continue
+        seen.add(cand)
+        try:
+            resolved = cand.resolve()
+            if resolved.is_relative_to(sessions_root) and resolved.is_dir():
+                return resolved
+        except OSError:
+            continue
+    return None
+
+
+def _extract_grok_cli_result(
+    stdout: str,
+    stderr: str,
+    tmp_dir: Path,
+    out_path: Path,
+    ref_names: set[str],
+) -> tuple[Path | None, str]:
+    try:
+        sessions_root = _grok_sessions_dir().resolve()
+    except OSError:
+        sessions_root = None
+    allowed_roots = (sessions_root,)
+
+    direct = _probe_studio_image_file(out_path, tmp_dir, allowed_roots, ref_names)
+    if direct is not None:
+        return direct, ""
+
+    parsed = _parse_agy_json_output(stdout)
+    structured: dict = {}
+    session_id = ""
+    cwd_hint = ""
+    response_text = ""
+    if isinstance(parsed, dict):
+        session_id = str(parsed.get("sessionId") or parsed.get("session_id") or "").strip()
+        cwd_hint = str(parsed.get("cwd") or "").strip()
+        response_text = str(parsed.get("text") or parsed.get("response") or "").strip()
+        raw_struct = parsed.get("structuredOutput")
+        if raw_struct is None:
+            raw_struct = parsed.get("structured_output")
+        if isinstance(raw_struct, str) and raw_struct.strip().startswith("{"):
+            try:
+                raw_struct = json.loads(raw_struct)
+            except ValueError:
+                raw_struct = None
+        if not isinstance(raw_struct, dict) and response_text.startswith("{"):
+            try:
+                maybe_obj = json.loads(response_text)
+                if isinstance(maybe_obj, dict) and ("saved_path" in maybe_obj or "error" in maybe_obj):
+                    raw_struct = maybe_obj
+            except ValueError:
+                pass
+        structured = raw_struct if isinstance(raw_struct, dict) else parsed
+
+    session_dir = _find_grok_session_dir(sessions_root, session_id, cwd_hint, tmp_dir)
+    base_dirs = (session_dir,) if session_dir is not None else ()
+
+    if isinstance(structured, dict):
+        saved = str(structured.get("saved_path") or "").strip()
+        if saved:
+            found = _probe_studio_image_file(saved, tmp_dir, allowed_roots, ref_names, base_dirs=base_dirs)
+            if found is not None:
+                return found, ""
+
+    if response_text:
+        for match in _ABS_IMAGE_PATH_RE.findall(response_text):
+            found = _probe_studio_image_file(match, tmp_dir, allowed_roots, ref_names, base_dirs=base_dirs)
+            if found is not None:
+                return found, ""
+        for rel_match in re.findall(r"(images/[^\s`'\"<>()]+?\.(?:png|jpe?g|webp|gif))", response_text, re.I):
+            found = _probe_studio_image_file(rel_match, tmp_dir, allowed_roots, ref_names, base_dirs=base_dirs)
+            if found is not None:
+                return found, ""
+
+    try:
+        tmp_children = sorted(tmp_dir.iterdir())
+    except OSError:
+        tmp_children = []
+    for child in tmp_children:
+        found = _probe_studio_image_file(child, tmp_dir, allowed_roots, ref_names)
+        if found is not None:
+            return found, ""
+
+    if session_dir is not None:
+        for scan_dir in (session_dir / "images", session_dir):
+            try:
+                if not scan_dir.is_dir():
+                    continue
+                candidates = [p for p in scan_dir.iterdir() if p.is_file() and not p.name.startswith(".")]
+                candidates.sort(key=lambda p: (-p.stat().st_mtime, p.name))
+                for child in candidates:
+                    found = _probe_studio_image_file(child, tmp_dir, allowed_roots, ref_names)
+                    if found is not None:
+                        return found, ""
+            except OSError:
+                continue
+
+    for err_candidate in (
+        parsed.get("message") if isinstance(parsed, dict) and parsed.get("type") == "error" else None,
+        structured.get("error") if isinstance(structured, dict) else None,
+        parsed.get("error") if isinstance(parsed, dict) else None,
+        parsed.get("message") if isinstance(parsed, dict) else None,
+    ):
+        text = str(err_candidate or "").strip()
+        if text:
+            return None, text
+
+    if response_text and not response_text.startswith("{"):
+        return None, response_text
+
+    cleaned_err = _ANSI_RE.sub("", stderr or "").strip()
+    err_lines = [ln.strip() for ln in cleaned_err.splitlines() if ln.strip()]
+    non_warning_err = [ln for ln in err_lines if not ln.lower().startswith("warning:")]
+    if non_warning_err:
+        return None, " ".join(non_warning_err)
+
+    cleaned_out = _ANSI_RE.sub("", stdout or "").strip()
+    if cleaned_out and parsed is None:
+        return None, cleaned_out
+    if err_lines:
+        return None, " ".join(err_lines)
+    return None, ""
+
+
+def _generate_with_grok_cli(
+    repo_root: Path,
+    *,
+    model: str,
+    prompt: str,
+    aspect_ratio: str,
+    raw_refs: list,
+) -> dict:
+    grok_bin = _resolve_cli_bin("grok")
+    if not grok_bin:
+        raise HTTPException(
+            422,
+            "[Grok 授权] 未检测到本机 grok CLI，请先安装 Grok CLI 后执行 grok login --oauth，或切换为 grok-imagine-image-2.0 直连模型",
+        )
+    if grok_credentials.key_problem() is not None and not grok_credentials.LOGIN_FILE.is_file():
+        raise HTTPException(
+            401,
+            "[Grok 授权] 尚未检测到本机 Grok 登录态（~/.grok/auth.json），请在「API 接口配置」点击「调起浏览器授权登录」或在终端执行 grok login --oauth",
+        )
+
+    resolved_refs = [_resolve_reference_bytes(repo_root, str(ref)) for ref in raw_refs]
+    with tempfile.TemporaryDirectory(prefix="vsc-grok-studio-") as tmp:
+        tmp_dir = Path(tmp).resolve()
+        ref_paths = []
+        ref_names = set()
+        for idx, (raw, mime) in enumerate(resolved_refs, 1):
+            name = f"ref_{idx}.{_IMAGE_EXT.get(mime, 'png')}"
+            target = tmp_dir / name
+            target.write_bytes(raw)
+            ref_paths.append(target)
+            ref_names.add(name)
+        out_path = tmp_dir / "result.png"
+        ref_lines = "\n".join(f"- 图{i}: {p}" for i, p in enumerate(ref_paths, 1))
+        grok_rules = (
+            "本次是 VSC 角色合成台的程序化生图调用。严格遵守："
+            "1) 直接调用一次内置 `image_edit` 工具完成生图，严禁执行任何终端命令、文件复制或子智能体；"
+            "2) 严禁将图片复制或保存到 ~/Documents/grok-files 或任何外部目录，保留在默认会话目录即可；"
+            "3) 若 `image_edit` 触发安全拦截或报错，禁止重试、禁止改写提示词绕过，直接将错误原因填入 JSON 输出的 `error` 字段；"
+            "4) 生图成功后，将 `image_edit` 工具返回的生成图片完整绝对路径原样填入 `saved_path`（不要缩写为相对路径 `images/1.jpg`），`error` 填空字符串。"
+        )
+        grok_prompt = (
+            "请立即调用一次内置 `image_edit` 工具合成角色图，参数要求：\n"
+            f"- image（按顺序对应提示词中的图1..图{len(ref_paths)}）: {json.dumps([str(p) for p in ref_paths], ensure_ascii=False)}\n"
+            f'- aspect_ratio: "{aspect_ratio}"\n'
+            f"参考图路径对应关系：\n{ref_lines}\n\n"
+            '调用完成后无需二次审图或移动文件，直接按 JSON Schema 返回 `{"saved_path": "<生成图绝对路径>", "error": ""}`（若失败则 `saved_path` 填 `""`、`error` 填具体原因）。\n\n'
+            f"生图提示词（prompt）：\n{prompt}"
+        )
+        cmd = [
+            grok_bin,
+            "--yolo",
+            "--no-auto-update",
+            "--no-subagents",
+            "--no-plan",
+            "--disable-web-search",
+            "--disallowed-tools",
+            "run_terminal_cmd,StrReplace,Delete",
+            "--effort",
+            "low",
+            "--cwd",
+            str(tmp_dir),
+            "--rules",
+            grok_rules,
+            "--output-format",
+            "json",
+            "--json-schema",
+            AGY_IMAGE_SCHEMA,
+        ]
+        if model not in ("image_edit", "image_gen", "grok-cli", "grok-cli-imagine"):
+            cmd.extend(["-m", model])
+        cmd.extend(["-p", grok_prompt])
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(tmp_dir),
+                env=_grok_cli_env(),
+                capture_output=True,
+                text=True,
+                timeout=240,
+                stdin=subprocess.DEVNULL,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "[Grok 授权] 调用终端 grok CLI 生图超时，请稍后重试") from None
+        except OSError as exc:
+            raise HTTPException(502, f"[Grok 授权] 无法启动 grok CLI：{type(exc).__name__}") from exc
+
+        found, error_detail = _extract_grok_cli_result(proc.stdout, proc.stderr, tmp_dir, out_path, ref_names)
+        if found is not None:
+            raw = found.read_bytes()
+            mime = _detect_image_mime(raw)
+            if mime:
+                return {
+                    "image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
+                    "model": model,
+                    "provider": "grok_auth",
+                }
+        _raise_grok_generation_error(proc.returncode, error_detail, via_cli=True)
+
+
+def _generate_with_grok_imagine_api(
+    repo_root: Path,
+    *,
+    model: str,
+    prompt: str,
+    aspect_ratio: str,
+    resolution: str,
+    raw_refs: list,
+) -> dict:
+    key = _read_grok_subscription_key()
     data_uris = []
     for ref in raw_refs:
         raw, mime = _resolve_reference_bytes(repo_root, str(ref))
@@ -468,8 +1006,12 @@ def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
             or (result.get("message") if isinstance(result, dict) else None)
             or upstream.text[:240]
         )
-        safe_err = str(err_msg).replace(key, "[REDACTED]")
-        raise HTTPException(502 if upstream.status_code >= 500 else upstream.status_code, f"[Grok 授权] {safe_err}")
+        _raise_grok_generation_error(
+            upstream.status_code,
+            str(err_msg or ""),
+            via_cli=False,
+            redact_secret=key,
+        )
 
     items = result.get("data") if isinstance(result, dict) else None
     first = items[0] if isinstance(items, list) and items and isinstance(items[0], dict) else {}
@@ -487,40 +1029,37 @@ def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
     raise HTTPException(502, "[Grok 授权] 平台已响应但未返回有效图片")
 
 
-def _probe_agy_image_file(
-    candidate: str | Path,
-    tmp_dir: Path,
-    brain_root: Path | None,
-    ref_names: set[str],
-) -> Path | None:
-    if isinstance(candidate, Path):
-        cand = candidate
-    else:
-        text = str(candidate or "").strip().strip("`'\"")
-        if text.startswith("file://"):
-            text = text[7:]
-        if not text:
-            return None
-        cand = Path(text).expanduser()
-        if not cand.is_absolute():
-            cand = tmp_dir / cand
-    try:
-        resolved = cand.resolve()
-        if not resolved.is_file():
-            return None
-        in_tmp = resolved.is_relative_to(tmp_dir)
-        in_brain = brain_root is not None and resolved.is_relative_to(brain_root)
-        if not (in_tmp or in_brain):
-            return None
-        if in_tmp and resolved.parent == tmp_dir and resolved.name in ref_names:
-            return None
-        with resolved.open("rb") as fh:
-            head = fh.read(16)
-        if _detect_image_mime(head):
-            return resolved
-    except OSError:
-        return None
-    return None
+def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
+    prompt = str(body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(422, "提示词不能为空")
+    model = str(body.get("model") or "image_edit").strip() or "image_edit"
+    aspect_ratio = str(body.get("aspect_ratio") or "3:4").strip()
+    resolution = str(body.get("resolution") or "2k").strip().lower()
+    raw_refs = body.get("references") or []
+    if not isinstance(raw_refs, list) or not raw_refs:
+        raise HTTPException(422, "请先选择或上传至少 1 张参考图")
+    if len(raw_refs) > grok_spec.EDIT_SOURCE_LIMIT:
+        raise HTTPException(
+            422,
+            f"[Grok 授权] Grok 图像编辑一次最多支持 {grok_spec.EDIT_SOURCE_LIMIT} 张参考图（当前 {len(raw_refs)} 张），请减少附加参考图或关闭附带合成拼图",
+        )
+    if _is_grok_cli_model(model):
+        return _generate_with_grok_cli(
+            repo_root,
+            model=model,
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            raw_refs=raw_refs,
+        )
+    return _generate_with_grok_imagine_api(
+        repo_root,
+        model=model,
+        prompt=prompt,
+        aspect_ratio=aspect_ratio,
+        resolution=resolution,
+        raw_refs=raw_refs,
+    )
 
 
 def _parse_agy_json_output(stdout: str) -> dict | None:
@@ -878,8 +1417,7 @@ def install_character_studio_routes(app, etag, read_actor, origin):
         read_actor(request)
         provider = str(body.get("provider") or "").strip()
         if provider in ("grok", "grok_auth", "grok_video_auth"):
-            info = _grok_auth_status()
-            return {**info, "verified": info["ready"]}
+            return await asyncio.to_thread(_verify_grok_online)
         if provider in ("agy", "agy_auth"):
             return await asyncio.to_thread(_verify_agy_online)
         raise HTTPException(422, "不支持的授权验证类型")

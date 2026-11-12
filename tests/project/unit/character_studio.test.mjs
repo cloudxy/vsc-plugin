@@ -142,7 +142,11 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
    };
   }
   if(path==='/api/v1/character-studio/auth/login')return {started:true,command:'grok login --oauth',message:'已调起授权登录'};
-  if(path==='/api/v1/character-studio/auth/verify')return {provider:'agy_auth',ready:true,verified:true,status:'authorized',model_count:6,message:'AGY 在线验证通过'};
+  if(path==='/api/v1/character-studio/auth/verify'){
+   const reqBody=opts?.body?JSON.parse(opts.body):{};
+   if(reqBody.provider==='grok')return {provider:'grok_auth',ready:true,verified:true,status:'authorized',model_count:4,message:'Grok CLI 在线验证通过'};
+   return {provider:'agy_auth',ready:true,verified:true,status:'authorized',model_count:6,message:'AGY 在线验证通过'};
+  }
   return {};
  };
  const studio=createCharacterStudio(root,{api:mockApi,notice:m=>notices.push(m),session:()=>({actor:'a',csrf:'c'}),navigate:(page,options)=>navigations.push([page,options])});
@@ -182,6 +186,11 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  await grokAuthBtn.onclick();await flush();
  assert.ok(root.querySelector('.cs-auth-card'));
  assert.match(root.querySelector('.cs-cmd-box').textContent,/grok login --oauth/);
+ assert.deepEqual(ai.PROVIDER_META.grok_auth.models.map(m=>m.value),['image_edit','grok-imagine-image-2.0','grok-imagine-image','custom']);
+ const grokVerifyBtn=root.querySelectorAll('button').find(b=>b.textContent.includes('在线验证授权 (grok models)'));
+ assert.ok(grokVerifyBtn);
+ await grokVerifyBtn.onclick();await flush();
+ assert.ok(notices.some(m=>m.includes('Grok CLI 在线验证通过')));
 
  // Switch to Google · AGY / Gemini tab -> verify AGY auth mode & Gemini API mode switch
  const googleTab=root.querySelectorAll('.cs-provider-tab').find(b=>b.dataset.groupId==='google');
