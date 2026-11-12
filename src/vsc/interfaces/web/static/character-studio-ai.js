@@ -106,9 +106,9 @@ export const PROVIDER_META={
  agy_auth:{id:'agy_auth',name:'AGY 授权登录 (Google Antigravity)',shortName:'AGY 授权',modeLabel:'AGY 授权登录',modeHint:'本机 Antigravity OAuth · 免填 Key',
   authMode:'oauth',authVendor:'agy',defaultBaseUrl:'',docUrl:'https://ai.google.dev/gemini-api/docs/image-generation',
   models:[['image-generator','image-generator（AGY 内置生图智能体 · 推荐）'],['custom','指定协调模型 ID（高级）']]},
- grok_auth:{id:'grok_auth',name:'Grok 授权登录 (xAI 订阅)',shortName:'Grok 授权',modeLabel:'Grok 授权登录',modeHint:'本机 grok CLI 订阅登录 · ~/.grok/auth.json',
+ grok_auth:{id:'grok_auth',name:'Grok 授权登录 (xAI 订阅 / CLI)',shortName:'Grok 授权',modeLabel:'Grok 授权登录',modeHint:'本机 grok CLI 登录态 · ~/.grok/auth.json',
   authMode:'oauth',authVendor:'grok',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/image-generations',
-  models:[['grok-imagine-image-2.0','grok-imagine-image-2.0（多图参考合成 · 推荐）'],['grok-imagine-image','grok-imagine-image']]},
+  models:[['image_edit','image_edit（终端 grok CLI 内置生图 · 推荐）'],['grok-imagine-image-2.0','grok-imagine-image-2.0（Grok 订阅直连多图合成）'],['grok-imagine-image','grok-imagine-image（Grok 订阅直连）'],['custom','指定 grok CLI 协调模型 ID（高级）']]},
  gemini:{id:'gemini',name:'Google Gemini (API 接口)',shortName:'Gemini API',modeLabel:'Gemini API 接口',modeHint:'Google AI Studio API Key',
   authMode:'apikey',defaultBaseUrl:'https://generativelanguage.googleapis.com',docUrl:'https://ai.google.dev/gemini-api/docs/image-generation',
   keyPlaceholder:'输入 AIza... API Key（仅保存在本地浏览器）',
@@ -474,7 +474,8 @@ export async function generateCharacterImage({recipe,prompt,config,onProgress,si
   const localRefs=rawSources.map(referenceImageUrl);
   const allRefs=config.sendStitchedSheet?[...localRefs,await stitchRecipeCanvas(recipe)]:localRefs;
   if(provider==='grok_auth'&&allRefs.length>5)throw new Error('[Grok 授权] Grok 图像编辑一次最多支持 5 张参考图，请减少附加参考图或关闭附带合成拼图');
-  onProgress?.({stage:'running',message:provider==='agy_auth'?'正在通过 AGY 内置 image-generator 生成角色图…':'正在通过 Grok 订阅授权通道生成角色图…'});
+  const isGrokCli=provider==='grok_auth'&&(model==='image_edit'||!model.startsWith('grok-imagine-'));
+  onProgress?.({stage:'running',message:provider==='agy_auth'?'正在通过终端 AGY 内置 image-generator 生成角色图…':isGrokCli?'正在通过终端 grok CLI 内置 image_edit 生成角色图…':'正在通过 Grok 订阅授权通道生成角色图…'});
   const csrf=csrfProvider(),headers={'Content-Type':'application/json'};if(csrf)headers['X-CSRF-Token']=csrf;
   const payload={
    provider,model,prompt,references:allRefs,

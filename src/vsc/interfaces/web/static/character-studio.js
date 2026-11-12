@@ -200,10 +200,10 @@ export function createCharacterStudio(root,ctx){
    return box;
   }
   if(p==='grok_auth'){
-   const gr=cfg.grokParams;
-   box.append(field('画幅比例 (aspect_ratio)',select(['3:4','1:1','4:3','9:16','16:9','2:3','3:2','auto'].map(v=>[v,v]),gr.aspectRatio,up('grokParams','aspectRatio'))),
-    field('输出分辨率 (resolution)',select([['2k','2k（高清推荐）'],['1.5k','1.5k'],['1k','1k']],gr.resolution,up('grokParams','resolution'))),
-    field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')));
+   const gr=cfg.grokParams,usesImagineApi=String(cfg.providers.grok_auth?.model||'').startsWith('grok-imagine-');
+   box.append(field('画幅比例 (aspect_ratio)',select(['3:4','1:1','4:3','9:16','16:9','2:3','3:2','auto'].map(v=>[v,v]),gr.aspectRatio,up('grokParams','aspectRatio'))));
+   if(usesImagineApi)box.append(field('输出分辨率 (resolution)',select([['2k','2k（高清推荐）'],['1.5k','1.5k'],['1k','1k']],gr.resolution,up('grokParams','resolution'))));
+   box.append(field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')));
    return box;
   }
   if(p==='grok'){
@@ -252,6 +252,7 @@ export function createCharacterStudio(root,ctx){
   bar.append(el('span','cs-conn-msg',info.message||''));
   const acts=el('div','cs-row-actions');
   if(!info.ready)acts.append(action(vendor==='grok'?'调起授权登录':'打开终端授权',()=>store.startAuthLogin(vendor),'cs-primary',`login-${vendor}`));
+  acts.append(action('在线验证',()=>store.verifyAuth(vendor),'',`verify-inline-${vendor}`));
   acts.append(action('刷新状态',()=>store.refreshAuthStatus(),'',`refresh-${vendor}`));
   bar.append(acts);
   return bar;
@@ -429,7 +430,7 @@ export function createCharacterStudio(root,ctx){
   card.append(statusHead,el('p','cs-auth-msg',info.message||''));
   const acts=el('div','cs-row-actions');
   acts.append(action(vendor==='grok'?'调起浏览器授权登录':'打开终端完成 AGY 授权',()=>store.startAuthLogin(vendor),'cs-primary',`auth-login-${vendor}`));
-  if(vendor==='agy')acts.append(action('在线验证授权 (agy models)',()=>store.verifyAuth('agy'),'',`auth-verify-agy`));
+  acts.append(action(vendor==='grok'?'在线验证授权 (grok models)':'在线验证授权 (agy models)',()=>store.verifyAuth(vendor),'',`auth-verify-${vendor}`));
   acts.append(action('刷新授权状态',()=>store.refreshAuthStatus(),'',`auth-refresh-${vendor}`));
   const cmdText=info.login_command||(vendor==='grok'?'grok login --oauth':'agy');
   acts.append(action(`复制命令：${cmdText}`,async()=>{await navigator.clipboard?.writeText(cmdText);notice(`已复制终端命令：${cmdText}`);}));
@@ -447,7 +448,7 @@ export function createCharacterStudio(root,ctx){
   const note=vendor==='grok'
    ?(isVideo
      ?'凭证边界：本模式复用本机 ~/.grok/auth.json 中的 Grok CLI 订阅登录态调用 Imagine 视频接口（服务端不回显、不落盘任何密钥），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。'
-     :'凭证边界：本模式仅读取本机 ~/.grok/auth.json 中的 Grok CLI 订阅登录态（服务端不回显、不落盘任何密钥），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。')
+     :'凭证边界：本模式复用本机 ~/.grok/auth.json 中的 grok CLI 登录态，支持调用终端 grok 内置 image_edit 或直连 Imagine 订阅接口（服务端不回显、不落盘任何密钥，子进程严格剥离 XAI_API_KEY），与「Grok API 接口」按量计费 Key 严格分开识别，不自动混用或回退。')
    :'凭证边界：本模式复用本机 Antigravity CLI (~/.gemini/antigravity-cli) 登录态，通过内置 image-generator 子智能体生成角色图；服务端不读取或传输任何令牌明文。';
   wrap.append(el('p','cs-field-hint',note));
   return wrap;

@@ -1,6 +1,7 @@
 """Character studio galleries, media boundary, CLI/OAuth auth bridges and HTTPS provider proxy."""
 import base64
 import json
+import os
 import random
 import subprocess
 import tempfile
@@ -266,16 +267,38 @@ class CharacterStudioHttpTests(unittest.TestCase):
                         self.assertTrue(ver.json()["verified"])
                         self.assertEqual(ver.json()["model_count"], 2)
 
-                        ver_grok_vid = client.post("/api/v1/character-studio/auth/verify", json={"provider": "grok_video_auth"}, headers=headers)
+                        grok_models_out = "You are logged in with grok.com.\nDefault model: grok-4.6\n* grok-4.6 (default)\n- grok-4.7\n- grok-4.7-build-fast\n"
+                        proc_grok_ok = subprocess.CompletedProcess(["grok", "models"], 0, stdout=grok_models_out, stderr="")
+                        with patch.dict(os.environ, {"XAI_API_KEY": "should-never-pass"}, clear=False), \
+                             patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_grok_ok) as grok_ver_mock:
+                            ver_grok_vid = client.post("/api/v1/character-studio/auth/verify", json={"provider": "grok_video_auth"}, headers=headers)
                         self.assertEqual(ver_grok_vid.status_code, 200, ver_grok_vid.text)
                         self.assertTrue(ver_grok_vid.json()["verified"])
+                        self.assertEqual(ver_grok_vid.json()["model_count"], 3)
+                        self.assertEqual(grok_ver_mock.call_args.args[0], ["/usr/local/bin/grok", "models"])
+                        self.assertNotIn("XAI_API_KEY", grok_ver_mock.call_args.kwargs["env"])
 
-                    # Backend Grok subscription generation (`grok_auth`) uses `~/.grok/auth.json` and immediately stores temporary URL.
+                    # Backend Grok subscription generation (`grok_auth` with `grok-imagine-image-2.0`) uses `~/.grok/auth.json`,
+                    # auto-refreshes expired OAuth tokens via `grok models`, and immediately stores temporary URL.
+                    fake_login_file = repo / "fake_grok_auth.json"
+                    fake_login_file.write_text("{}", encoding="utf-8")
                     fake_client = MagicMock()
                     fake_client.__enter__.return_value = fake_client
                     fake_client.post.return_value = httpx.Response(200, json={"data": [{"url": "https://imgen.x.ai/gen1.png"}]})
                     fake_client.get.return_value = httpx.Response(200, content=PNG_1X1, headers={"content-type": "image/png"})
-                    with patch("vsc.adapters.providers.xai_grok.credentials.read_key", return_value="secret-sub-token-999"), \
+                    read_attempts = [0]
+
+                    def flaky_read_key(error=RuntimeError):
+                        read_attempts[0] += 1
+                        if read_attempts[0] == 1:
+                            raise error("grok 登录态已过期：请在终端运行 grok 刷新登录后再使用 Grok 路线")
+                        return "secret-sub-token-999"
+
+                    proc_refresh = subprocess.CompletedProcess(["grok", "models"], 0, stdout="You are logged in\n", stderr="")
+                    with patch.object(grok_credentials, "LOGIN_FILE", fake_login_file), \
+                         patch("vsc.adapters.providers.xai_grok.credentials.read_key", side_effect=flaky_read_key), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/grok"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_refresh) as refresh_mock, \
                          patch("httpx.Client", return_value=fake_client):
                         gen_grok = client.post(
                             "/api/v1/character-studio/generate",
@@ -290,12 +313,114 @@ class CharacterStudioHttpTests(unittest.TestCase):
                             headers=headers,
                         )
                     self.assertEqual(gen_grok.status_code, 200, gen_grok.text)
+                    self.assertEqual(refresh_mock.call_count, 1)
+                    self.assertEqual(refresh_mock.call_args.args[0], ["/opt/homebrew/bin/grok", "models"])
                     self.assertTrue(gen_grok.json()["image_url"].startswith("data:image/png;base64,"))
                     self.assertNotIn("secret-sub-token-999", gen_grok.text)
                     post_call = fake_client.post.call_args
                     self.assertEqual(post_call.args[0], "https://api.x.ai/v1/images/edits")
                     self.assertEqual(post_call.kwargs["headers"]["Authorization"], "Bearer secret-sub-token-999")
                     self.assertEqual(post_call.kwargs["headers"]["User-Agent"], grok_credentials.USER_AGENT)
+
+                    # Backend Grok CLI generation (`grok_auth` with `image_edit` / custom coordinator model) invokes terminal `grok` CLI,
+                    # strips `XAI_API_KEY`, recovers session-relative `images/1.jpg`, and maps 402 errors cleanly in Chinese.
+                    fake_grok_sessions = repo / "fake_grok_sessions"
+                    fake_grok_sessions.mkdir()
+                    JPEG_GROK = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9"
+                    seen_grok_cmds: list[list[str]] = []
+                    seen_grok_envs: list[dict[str, str]] = []
+
+                    def fake_grok_cli_run(cmd, cwd=None, env=None, **kwargs):
+                        seen_grok_cmds.append(list(cmd))
+                        seen_grok_envs.append(dict(env or {}))
+                        sid = "01a1c9c6-4610-7591-b232-b4168c1f7df9"
+                        from urllib.parse import quote
+                        sess_dir = fake_grok_sessions / quote(str(cwd), safe="") / sid / "images"
+                        sess_dir.mkdir(parents=True, exist_ok=True)
+                        (sess_dir / "1.jpg").write_bytes(JPEG_GROK)
+                        envelope = {
+                            "sessionId": sid,
+                            "cwd": str(cwd),
+                            "stopReason": "end_turn",
+                            "text": '{"saved_path":"images/1.jpg","error":""}',
+                        }
+                        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(envelope), stderr="")
+
+                    with patch.dict(os.environ, {"XAI_API_KEY": "xai-must-not-leak"}, clear=False), \
+                         patch.object(grok_credentials, "LOGIN_FILE", fake_login_file), \
+                         patch("vsc.interfaces.web.character_studio._grok_sessions_dir", return_value=fake_grok_sessions), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/grok"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", side_effect=fake_grok_cli_run):
+                        gen_grok_cli = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "grok_auth",
+                                "model": "image_edit",
+                                "prompt": "生成角色立绘",
+                                "references": ["/api/v1/asset-center/pose-gallery/media/img/portrait/p0.png"],
+                                "aspect_ratio": "3:4",
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(gen_grok_cli.status_code, 200, gen_grok_cli.text)
+                    self.assertTrue(gen_grok_cli.json()["image_url"].startswith("data:image/jpeg;base64,"))
+                    self.assertEqual(gen_grok_cli.json()["model"], "image_edit")
+                    self.assertEqual(len(seen_grok_cmds), 1)
+                    self.assertIn("--yolo", seen_grok_cmds[0])
+                    self.assertIn("--no-auto-update", seen_grok_cmds[0])
+                    self.assertIn("--disallowed-tools", seen_grok_cmds[0])
+                    self.assertNotIn("--add-dir", seen_grok_cmds[0])
+                    self.assertNotIn("-m", seen_grok_cmds[0])
+                    self.assertNotIn("XAI_API_KEY", seen_grok_envs[0])
+                    self.assertEqual(seen_grok_envs[0].get("GROK_MEMORY"), "0")
+
+                    grok_cli_402 = subprocess.CompletedProcess(
+                        ["grok"],
+                        1,
+                        stdout=json.dumps({
+                            "type": "error",
+                            "message": 'Internal error: {\n  "message": "API error (status 402 Payment Required): Grok Build usage balance exhausted",\n  "http_status": 402\n}',
+                        }),
+                        stderr="",
+                    )
+                    with patch.object(grok_credentials, "LOGIN_FILE", fake_login_file), \
+                         patch("vsc.interfaces.web.character_studio._grok_sessions_dir", return_value=fake_grok_sessions), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", return_value="/opt/homebrew/bin/grok"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=grok_cli_402):
+                        res_grok_402 = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "grok_auth",
+                                "model": "grok-4.7-build-fast",
+                                "prompt": "生成角色立绘",
+                                "references": ["/api/v1/asset-center/pose-gallery/media/img/portrait/p0.png"],
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(res_grok_402.status_code, 402, res_grok_402.text)
+                    self.assertIn("Grok Build 用量余额已耗尽", res_grok_402.json()["detail"])
+
+                    fake_402_client = MagicMock()
+                    fake_402_client.__enter__.return_value = fake_402_client
+                    fake_402_client.post.return_value = httpx.Response(
+                        402,
+                        json={"error": "You have run out of credits or need a Grok subscription. secret-sub-token-999"},
+                    )
+                    with patch("vsc.adapters.providers.xai_grok.credentials.read_key", return_value="secret-sub-token-999"), \
+                         patch("httpx.Client", return_value=fake_402_client):
+                        res_imagine_402 = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "grok_auth",
+                                "model": "grok-imagine-image-2.0",
+                                "prompt": "生成角色立绘",
+                                "references": ["/api/v1/asset-center/pose-gallery/media/img/portrait/p0.png"],
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(res_imagine_402.status_code, 402, res_imagine_402.text)
+                    self.assertIn("Imagine 订阅生图额度不足", res_imagine_402.json()["detail"])
+                    self.assertNotIn("secret-sub-token-999", res_imagine_402.text)
 
                     # Backend AGY generation (`agy_auth`) invokes `agy` CLI without `--mode auto`, with `--effort low`,
                     # supports real `brain/<conversation_id>/vsc_studio_result_*.jpg` output and structured error mapping.
