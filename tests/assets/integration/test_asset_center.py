@@ -268,3 +268,44 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             with engine.connect() as conn:
                 self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),S.SCHEMA_REVISION)
                 self.assertEqual(conn.execute(select(func.count()).select_from(S.official_asset_publications)).scalar_one(),1)
+
+    def test_creature_category_heat_order_and_cart_clear(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        beast = self.shared()
+        other = self.shared()
+        cat = self.service.edit_asset_catalog({
+            "entry_id": beast["entry_id"],
+            "library_version_id": beast["version_id"],
+            "expected_revision": 0,
+            "asset_kind": "creature",
+            "form_name": "完全体",
+            "workspace_id": None,
+            "review_status": "confirmed",
+            "notes": "上古神兽",
+            "tags": ["麒麟"],
+            "command_key": uuid.uuid4().hex,
+        }, "test-human")
+        self.assertEqual(cat["display_kind"], "creature")
+        creatures = self.service.search_asset_center({"asset_kind": "creature"})
+        self.assertTrue(any(row["version_id"] == beast["version_id"] and row["catalog"]["display_kind"] == "creature" for row in creatures["items"]))
+        self.service.request_asset_download({"library_version_id": beast["version_id"], "member_key": "front", "command_key": uuid.uuid4().hex}, "test-human")
+        heated = self.service.search_asset_center({"order_by": "heat"})
+        top = next(row for row in heated["items"] if row["version_id"] == beast["version_id"])
+        self.assertGreaterEqual(top["download_count"], 1)
+        app = create_app({"projects_root": self.tmp.name, "allowed_hosts": ["testserver"], "allowed_origins": ["http://testserver"],
+                          "access_token": "official-local-test", "human_identity": "test-human", "background_enabled": False}, service=self.service)
+        with TestClient(app) as client:
+            login = client.post("/api/v1/session", json={"token": "official-local-test"}, headers={"Origin": "http://testserver"})
+            headers = {"Origin": "http://testserver", "X-CSRF-Token": login.json()["csrf_token"]}
+            before_count = len(client.get("/api/v1/asset-center/cart", headers=headers).json()["items"])
+            for item in (beast, other):
+                r = client.post("/api/v1/asset-center/cart", headers=headers, json={"payload": {"library_version_id": item["version_id"], "member_key": "front", "active": True}})
+                self.assertEqual(r.status_code, 200, r.text)
+            expected_total = before_count + 2
+            self.assertEqual(len(client.get("/api/v1/asset-center/cart", headers=headers).json()["items"]), expected_total)
+            cleared = client.post("/api/v1/asset-center/cart/clear", headers=headers, json={"payload": {}})
+            self.assertEqual(cleared.status_code, 200, cleared.text)
+            self.assertEqual(cleared.json()["cleared"], expected_total)
+            self.assertEqual(client.get("/api/v1/asset-center/cart", headers=headers).json()["items"], [])
+

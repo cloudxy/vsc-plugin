@@ -25,6 +25,10 @@ function resolvePathnameEntry(pathname='/',search=''){
     if(['styles','history','parse-smart','parse','style','review','result'].includes(sub))return apply({page:'text-tools',tool:'translation',subview:sub});
     return apply({page:'text-tools',tool:'translation'});
   }
+  if(p==='/character')return apply({page:'assets',...(params.get('project_id')?{project:params.get('project_id')}:{})});
+  if(p==='/character/create')return apply({page:'assets',subview:'editor',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('type')?{asset_type:params.get('type')}:{}),...(params.get('id')?{asset_id:params.get('id')}:{})});
+  if(p==='/asset-center')return apply({page:'asset-center',tab:'shared'});
+  if(p==='/recycle-bin')return apply({page:'project-management',tab:'recycle'});
   if(p==='/marketing-studio')return apply({page:'marketing-studio'});
   if(p==='/members')return apply({page:'access'});
   if(p==='/sub-studios')return apply({page:'commerce',subview:'studio-quota'});
@@ -511,7 +515,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key','asset_type','asset_id'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
