@@ -169,11 +169,15 @@ test('official and shared tabs query their own sources and restore from the URL'
   assert.ok(filterRow.querySelector('.center-count'));
   assert.ok(filterRow.walk().some(n=>n.tagName==='INPUT'));
   assert.equal(filterRow.walk().filter(n=>n.tagName==='SELECT').length,3);
+  const rowDirect=filterRow.children.filter(n=>n.tagName!=='#TEXT');
+  assert.equal(rowDirect.at(-1),filterRow.querySelector('.center-count'));
+  await button(root,'场景').onclick();
+  assert.equal(root.querySelector('.center-clear-filters'),null);
+  assert.ok(calls.some(url=>url.includes('source=official')&&url.includes('asset_kind=location')));
+  await button(root,'全部').onclick();
   assert.match(root.querySelector('.center-official-tags').textContent,/主角青年女/);
   assert.ok(root.querySelector('.center-cover').querySelector('.center-actions'));
   assert.ok(calls[0].includes('source=official')&&calls[0].includes('media_only=true')&&!calls[0].includes('asset_kind='));
-  await button(root,'场景').onclick();
-  assert.ok(calls.some(url=>url.includes('source=official')&&url.includes('asset_kind=location')));
   await button(root,'站位').onclick();
   assert.ok(calls.some(url=>url.includes('asset_kind=blocking')));
   await button(root,'音频').onclick();

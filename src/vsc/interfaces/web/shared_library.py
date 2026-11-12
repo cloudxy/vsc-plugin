@@ -61,8 +61,12 @@ def install_shared_library_routes(app, router, catalog, etag, actor, config=None
     def content(version_id: str, member_key: str):
         path, mime = service().library_member_content(version_id, member_key)
         safe = mime in {"image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"} or mime.startswith(("audio/", "video/", "text/plain"))
-        return FileResponse(path, media_type=mime if safe else "application/octet-stream",
-            content_disposition_type="inline" if safe else "attachment")
+        return FileResponse(
+            path,
+            media_type=mime if safe else "application/octet-stream",
+            content_disposition_type="inline" if safe else "attachment",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     @app.post("/api/v1/library/import")
     def import_entry(request: Request, body: dict):
