@@ -15,6 +15,7 @@ from pathlib import Path
 
 FORMAT = "vsc.edit-workspace/v1"
 RECIPE = "first-cut-2"
+TRANSITIONS = {"none", "fade_in_out", "crossfade"}
 
 
 def validate_edit(document):
@@ -42,7 +43,7 @@ def validate_edit(document):
         if not isinstance(items, list) or len(items) > 500:
             raise ValueError("音轨必须为不超过 500 段的列表")
         for clip in items:
-            fields = {"id", "media_id", "in_frame", "out_frame", "volume", "muted", "shot_id", "at_frame", "fade_in", "fade_out", "purpose", "working_selection_version_id", "source_job_id", "fade_in_frames", "fade_out_frames", "cue_id", "binding_decision_id"}
+            fields = {"id", "media_id", "in_frame", "out_frame", "volume", "muted", "shot_id", "at_frame", "fade_in", "fade_out", "purpose", "working_selection_version_id", "source_job_id", "fade_in_frames", "fade_out_frames", "transition", "cue_id", "binding_decision_id"}
             if not isinstance(clip, dict) or set(clip) - fields:
                 raise ValueError("素材片段含未知字段")
             if not isinstance(clip.get("id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", clip["id"]) or clip["id"] in ids:
@@ -52,6 +53,8 @@ def validate_edit(document):
                 raise ValueError("片段必须引用已登记素材")
             if "purpose" in clip and (track != "audio" or clip["purpose"] not in {"music", "ambience", "sfx", "dialogue_dry"}):
                 raise ValueError("音轨用途须为音乐、环境、音效或配音")
+            if "transition" in clip and (track != "clips" or clip["transition"] not in TRANSITIONS):
+                raise ValueError("画面转场仅支持无、淡入淡出或交叉淡化")
             if 'working_selection_version_id' in clip and (track != 'clips' or not isinstance(clip['working_selection_version_id'], str) or not clip['working_selection_version_id']):
                 raise ValueError('工作选片来源需要固定版本，且只能属于画面轨')
             if 'source_job_id' in clip:
@@ -243,10 +246,12 @@ class FirstCutRenderer:
         directory = Path(directory)
         fps, width, height = (document[k] for k in ("fps", "width", "height"))
         recipe, normalized, audio_streams = [], [], {}
-        for index, clip in enumerate(document["clips"]):
+        clips_list = document["clips"]
+        for index, clip in enumerate(clips_list):
             source = inputs[clip["id"]]
             path, modality = source["path"], source["modality"]
-            start, duration = clip["in_frame"] / fps, (clip["out_frame"] - clip["in_frame"]) / fps
+            frame_len = clip["out_frame"] - clip["in_frame"]
+            start, duration = clip["in_frame"] / fps, frame_len / fps
             probe = _probe(path,cancelled)
             streams = probe.get("streams", [])
             audio_streams[clip['id']] = any(s['codec_type']=='audio' for s in streams)
@@ -263,19 +268,30 @@ class FirstCutRenderer:
             if not has_audio:
                 args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
             video_filter=f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}"
-            if clip.get('fade_in_frames'):
-                video_filter+=f",fade=t=in:start_frame=0:nb_frames={clip['fade_in_frames']}"
-            if clip.get('fade_out_frames'):
+            transition = clip.get("transition")
+            auto_fade = max(1, min(frame_len // 3, round(fps * 0.3))) if frame_len >= 3 else 0
+            fade_in_f = clip.get("fade_in_frames", 0)
+            fade_out_f = clip.get("fade_out_frames", 0)
+            if transition in {"fade_in_out", "crossfade"} and not fade_in_f and not fade_out_f and auto_fade:
+                if transition == "fade_in_out" or index > 0:
+                    fade_in_f = auto_fade
+                if transition == "fade_in_out" or index + 1 < len(clips_list):
+                    fade_out_f = min(auto_fade, max(0, frame_len - fade_in_f))
+            if index > 0 and clips_list[index - 1].get("transition") == "crossfade" and not fade_in_f and auto_fade:
+                fade_in_f = min(auto_fade, max(0, frame_len - fade_out_f))
+            if fade_in_f:
+                video_filter+=f",fade=t=in:start_frame=0:nb_frames={fade_in_f}"
+            if fade_out_f:
                 # Match Remotion's last frame at black; audio remains independently editable.
-                start_frame=max(0,clip['out_frame']-clip['in_frame']-1-clip['fade_out_frames'])
-                video_filter+=f",fade=t=out:start_frame={start_frame}:nb_frames={clip['fade_out_frames']}"
+                start_frame=max(0,frame_len-1-fade_out_f)
+                video_filter+=f",fade=t=out:start_frame={start_frame}:nb_frames={fade_out_f}"
             args += ["-map", "0:v:0", "-map", "0:a:0" if has_audio else "1:a:0", "-vf", video_filter,
                      "-af", f"aresample=48000,volume={clip.get('volume', 1)}", "-ac", "2", "-c:v", "libx264",
                      "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", str(duration), "-movflags", "+faststart", str(target)]
             _run(args,cancelled=cancelled)
             normalized.append(target)
             recipe.append({"clip_id": clip["id"], "in_frame": clip["in_frame"], "out_frame": clip["out_frame"], "modality": modality,
-                           'fade_in_frames':clip.get('fade_in_frames',0),'fade_out_frames':clip.get('fade_out_frames',0)})
+                           'fade_in_frames':fade_in_f,'fade_out_frames':fade_out_f,'transition':transition or 'none'})
         (directory / "concat.txt").write_text("\n".join("file '" + p.name + "'" for p in normalized) + "\n")
         master = directory / "master.mp4"
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "1", "-i", "concat.txt", "-c", "copy", str(master)], cwd=directory,cancelled=cancelled)

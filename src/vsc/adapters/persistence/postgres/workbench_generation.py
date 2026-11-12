@@ -91,10 +91,13 @@ def inpaint_sources(store, conn, project_id, document):
     """Resolve the editor export and its typed source/mask, never free-form IDs."""
     from vsc.production.image_tools import OUTPUT_TYPE, EDIT_TYPE
     settings=document.get('tool_settings',{})
-    source=next((r for r in document['references'] if r['role']=='operation_source'),None)
-    mask=next((r for r in document['references'] if r['role']=='operation_mask'),None)
-    if len(document['references'])!=2 or not source or not mask or not settings.get('mask_export_id'):
+    sources=[r for r in document['references'] if r['role']=='operation_source']
+    masks=[r for r in document['references'] if r['role']=='operation_mask']
+    extras=[r for r in document['references'] if r['role']=='reference_image']
+    max_extras=1 if document.get('mode')=='image_inpaint' else 0
+    if len(sources)!=1 or len(masks)!=1 or len(extras)>max_extras or len(document['references'])!=2+len(extras) or not settings.get('mask_export_id'):
         raise ResourceError('请从原图编辑器固定原图和修改区域','inpaint_inputs_required')
+    source,mask=sources[0],masks[0]
     artifact=store._one(conn,S.artifact_versions,project_id,checked_id(settings['mask_export_id']))
     value=json.loads(artifact['document'])
     if artifact['artifact_type']!=OUTPUT_TYPE or value.get('shot_id')!=document['shot_id'] or (value.get('source_media_id'),value.get('source_sha256'))!=(source['media_id'],source['sha256']):

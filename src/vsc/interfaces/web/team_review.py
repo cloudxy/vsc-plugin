@@ -14,3 +14,7 @@ def install_team_review_routes(router,catalog,etag,actor):
     async def submit(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'submit_team_review')
     @router.post('/{project_id}/team-review/commit')
     async def commit(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'commit_team_review')
+    @router.post('/{project_id}/team-review/batch-commit')
+    async def batch_commit(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'batch_commit_team_review')
+    @router.post('/{project_id}/team-review/mark-read')
+    async def mark_read(project_id:str,request:Request,body:dict):return await write(project_id,request,body,'mark_team_review_read')

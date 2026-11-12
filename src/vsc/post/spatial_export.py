@@ -74,22 +74,80 @@ def sphere():
     return vertices, triangles
 
 
+POSE_DEFAULTS = {
+    "stand": {},
+    "walk": {"la": [25, 0, -8], "ra": [-25, 0, 8], "ll": [-22, 0, 0], "rl": [22, 0, 0]},
+    "run": {"torso": [18, 0, 0], "la": [55, 0, -10], "ra": [-55, 0, 10], "ll": [-42, 0, 0], "rl": [38, 0, 0]},
+    "sit": {"crouch": True, "hip": 0.62},
+    "crouch": {"crouch": True, "hip": 0.58, "torso": [24, 0, 0]},
+    "kneel_single": {"crouch": True, "hip": 0.68, "torso": [8, 0, 0]},
+    "kneel_double": {"crouch": True, "hip": 0.55, "torso": [6, 0, 0]},
+    "combat": {"torso": [12, 18, 0], "la": [-65, 20, -22], "ra": [-75, -20, 18], "ll": [-18, 0, -8], "rl": [18, 0, 8]},
+    "arms_crossed": {"la": [-55, 35, 28], "ra": [-55, -35, -28]},
+    "hands_on_hips": {"la": [-25, 0, -38], "ra": [-25, 0, 38]},
+    "wave": {"la": [8, 0, -8], "ra": [-150, 0, 28]},
+    "reach": {"torso": [10, 0, 0], "la": [-88, 0, -6], "ra": [-88, 0, 6]},
+    "lean": {"torso": [0, 0, 14], "la": [10, 0, -14], "ra": [-15, 0, 18]},
+    "look_phone": {"head": [26, 0, 0], "la": [-52, 18, 12], "ra": [-58, -22, -16]},
+    "think": {"head": [12, 8, 5], "la": [-45, 25, 22], "ra": [-110, -25, -18]},
+    "bow": {"torso": [42, 0, 0], "head": [18, 0, 0], "la": [12, 0, -6], "ra": [12, 0, 6]},
+    "push": {"torso": [22, 0, 0], "la": [-92, 0, -8], "ra": [-92, 0, 8], "ll": [-25, 0, 0], "rl": [28, 0, 0]},
+    "kick": {"torso": [-12, 0, 0], "la": [-35, 0, -18], "ra": [25, 0, 18], "ll": [-82, 0, 0], "rl": [6, 0, 0]},
+    "throw": {"torso": [14, -24, 0], "la": [30, 0, -16], "ra": [-135, 15, 24], "ll": [-22, 0, 0], "rl": [24, 0, 0]},
+    "t_pose": {"la": [0, 0, -90], "ra": [0, 0, 90]},
+    "arms_up": {"la": [-145, 0, -8], "ra": [-145, 0, 8]},
+}
+
+
 def actor_mesh(item):
     vertices, faces = [], []
     pose, joints = item.get("pose", "stand"), item.get("joints", {})
-    crouch = pose in {"sit", "crouch"}
-    hip = .65 if crouch else 1.05
-    torso_tilt = joints.get("torso", 20 if pose == "crouch" else 0)
-    arm = -145 if pose == "arms_up" else 20 if pose == "walk" else 0
-    parts = [([0,hip+.28,0],[.5,.65,.25],[torso_tilt,0,0],False),
-        ([0,hip+.85,.03],[.37,.42,.37],[0,joints.get("head",0),0],True),
-        ([-.35,hip+.25,0],[.16,.67,.17],[joints.get("left_arm",arm),0,-8],False),
-        ([.35,hip+.25,0],[.16,.67,.17],[joints.get("right_arm",-arm if pose=='walk' else arm),0,8],False)]
-    for side in (-1,1):
+    preset = POSE_DEFAULTS.get(pose, {})
+    crouch = bool(preset.get("crouch"))
+    hip = preset.get("hip", .65 if crouch else 1.05)
+    base_torso = preset.get("torso", [0, 0, 0])
+    base_head = preset.get("head", [0, 0, 0])
+    base_la = preset.get("la", [0, 0, -8])
+    base_ra = preset.get("ra", [0, 0, 8])
+    base_ll = preset.get("ll", [0, 0, 0])
+    base_rl = preset.get("rl", [0, 0, 0])
+    torso_rot = [
+        joints.get("torso_pitch", joints.get("torso", base_torso[0])),
+        joints.get("torso_yaw", base_torso[1]),
+        joints.get("torso_roll", base_torso[2]),
+    ]
+    head_rot = [
+        joints.get("head_nod", base_head[0]),
+        joints.get("head_turn", joints.get("head", base_head[1])),
+        joints.get("head_tilt", base_head[2]),
+    ]
+    la_rot = [
+        joints.get("left_shoulder_pitch", joints.get("left_arm", base_la[0])) - 0.5 * joints.get("left_elbow", 0),
+        joints.get("left_shoulder_yaw", base_la[1]),
+        joints.get("left_shoulder_roll", base_la[2]),
+    ]
+    ra_rot = [
+        joints.get("right_shoulder_pitch", joints.get("right_arm", base_ra[0])) - 0.5 * joints.get("right_elbow", 0),
+        joints.get("right_shoulder_yaw", base_ra[1]),
+        joints.get("right_shoulder_roll", base_ra[2]),
+    ]
+    head_scale = [.52, .56, .52] if item.get("body_preset") == "two_heads_tall" else [.37, .42, .37]
+    parts = [
+        ([0, hip + .28, 0], [.5, .65, .25], torso_rot, False),
+        ([0, hip + .85, .03], head_scale, head_rot, True),
+        ([-.35, hip + .25, 0], [.16, .67, .17], la_rot, False),
+        ([.35, hip + .25, 0], [.16, .67, .17], ra_rot, False),
+    ]
+    for side, base_leg, prefix in ((-1, base_ll, "left"), (1, base_rl, "right")):
+        leg_rot = [
+            joints.get(f"{prefix}_hip_pitch", base_leg[0]) + 0.35 * joints.get(f"{prefix}_knee", 0),
+            joints.get(f"{prefix}_hip_yaw", base_leg[1]),
+            joints.get(f"{prefix}_hip_roll", base_leg[2]),
+        ]
         if crouch:
-            parts.extend([([side*.16,.52,.2],[.21,.22,.6],[0,0,0],False),([side*.16,.25,.45],[.19,.5,.19],[0,0,0],False)])
+            parts.extend([([side * .16, .52, .2], [.21, .22, .6], leg_rot, False), ([side * .16, .25, .45], [.19, .5, .19], [0, 0, 0], False)])
         else:
-            parts.append(([side*.16,.5,0],[.21,.98,.22],[side*20 if pose=='walk' else 0,0,0],False))
+            parts.append(([side * .16, .5, 0], [.21, .98, .22], leg_rot, False))
     for position, scale, rotation, rounded in parts:
         pts, tris = sphere() if rounded else box()
         offset = len(vertices)
@@ -148,6 +206,10 @@ def camera_at(document, camera_id, instant):
         raise ResourceError("该时刻机位与注视目标重合", "spatial_camera_degenerate")
     right = unit(cross(forward, [0, 1, 0] if abs(forward[1]) < .99 else [0, 0, 1]))
     up = unit(cross(right, forward))
+    if camera.get("roll"):
+        ang = math.radians(camera["roll"])
+        ca, sa = math.cos(ang), math.sin(ang)
+        right, up = [r * ca + u * sa for r, u in zip(right, up)], [-r * sa + u * ca for r, u in zip(right, up)]
     return camera, right, up, forward
 
 
