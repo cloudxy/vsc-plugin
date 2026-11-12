@@ -341,6 +341,9 @@ test('14 mountAssetEditor enforces 1..5 capabilities, headshot 2:1 lock, blur vo
   }
  });
  assert.ok(root.querySelector('.reference-voice-section'));
+ assert.ok(root.querySelector('.editor-left-scroll'));
+ assert.ok(root.querySelector('.editor-quota-details'));
+ assert.equal(root.textContent.includes('pic_type=2'),false);
  assert.ok(root.textContent.includes('多视图'));
  assert.ok(root.textContent.includes('大头照'));
 

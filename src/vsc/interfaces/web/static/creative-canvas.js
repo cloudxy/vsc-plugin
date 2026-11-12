@@ -5,7 +5,7 @@ function nativeUnitsText(value){if(!value||typeof value!=='object')return String
    projections of original jobs. Every callback is bound to its owning view. */
 import {createRunScopeControls} from './run-scope-controls.js';
 import {createMediaUpload} from './media-upload.js';
-import {createAssetCenter,projectAssetCategoryParams} from './asset-center.js';
+import {createAssetCenter,projectAssetCategoryParams,openAssetImageViewer} from './asset-center.js';
 import {mountImageControls} from './image-controls.js';
 import {mountPanorama} from './panorama-viewer.js';
 import {createCanvasCollabController,resolveCanvasPermission,formatRelativeCanvasTime} from './canvas-collab-recovery.js';
@@ -782,7 +782,7 @@ export function createCreativeCanvasPanel(ctx){
       );
       tools.append(menu,gridMenu(s,node),processMenu,button(s,'替换素材',()=>openReplaceMediaDialog(s,node)),button(s,'保存资产',()=>toCandidate(s,node)));
     }
-    const preview=button(s,'预览',()=>{if(!live(s))return;const dialog=el('dialog',null,'cc-image-preview'),image=el('img'),close=button(s,'关闭',()=>dialog.close());bindAttribute(dialog,'aria-label','预览 '+node.title);bindAttribute(image,'alt',node.title);image.src=content;dialog.append(close,image);dialog.addEventListener('close',()=>dialog.remove(),{once:true});s.root.append(dialog);dialog.showModal();});
+    const preview=button(s,'预览',()=>{if(!live(s))return;const {dialog}=openAssetImageViewer({title:node.title,src:content,host:s.root});if(dialog.classList?.add)dialog.classList.add('cc-image-preview');else dialog.className+=' cc-image-preview';bindAttribute(dialog,'aria-label','预览 '+node.title);});
     const download=el('a','下载');download.href=content+'?download=true';download.setAttribute('download','');tools.append(preview,download);card.append(tools);
     const editor=s.imageTool;if(editor&&editor.sourceId===node.id&&editor.sourceMediaId===node.media_id){const host=el('div',null,'cc-image-tool-panel cc-image-tool-panel--'+editor.tool);host.style.transform=`scale(${1/s.document.viewport.zoom}) translateX(-50%)`;card.append(host);mountImageControls(host,{tool:editor.tool,settings:editor.settings,defaults:editor.defaults,imageUrl:content,canvas:true,promptState:editor,onChange:()=>{},isCurrent:()=>live(s)&&s.imageTool===editor,onClose:()=>{s.imageTool=null;draw(s);},onSubmit:()=>applyImageTool(s,editor),onError:error=>notice(s,error.message)});}
   }

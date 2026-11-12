@@ -408,6 +408,7 @@ export async function mountAssetEditor(root,ctx,{
   const form=activeForm();
   const layout=el('div',null,'character-create-content');
   const left=el('aside',null,'editor-left-panel');
+  const leftScroll=el('div',null,'editor-left-scroll');
   const right=el('section',null,'editor-right-panel');
 
   // 1. Model Selector
@@ -423,7 +424,7 @@ export async function mountAssetEditor(root,ctx,{
   }
   modelSelect.onchange=()=>{state.modelId=modelSelect.value;scheduleDraftSave();};
   modelWrap.append(modelSelect);
-  left.append(modelWrap);
+  leftScroll.append(modelWrap);
 
   // 2. Reference Images Zone
   const maxRefs=(state.multiView||state.headshot)?1:8;
@@ -498,7 +499,7 @@ export async function mountAssetEditor(root,ctx,{
     }
    }
   });
-  left.append(refZone);
+  leftScroll.append(refZone);
 
   // 3. @ RichPromptEditor
   const promptSection=el('section',null,'editor-prompt-box');
@@ -553,7 +554,7 @@ export async function mountAssetEditor(root,ctx,{
   };
   renderChips();
   promptSection.append(promptHead,promptArea,atPopup,chipBar);
-  left.append(promptSection);
+  leftScroll.append(promptSection);
 
   // 4. Type 1 ONLY: Manifestation Reference Voice Binding
   if(caps.supportsVoiceBinding){
@@ -675,7 +676,7 @@ export async function mountAssetEditor(root,ctx,{
     vCard.append(clearBtn);
     voiceBox.append(vCard);
    }
-   left.append(voiceBox);
+   leftScroll.append(voiceBox);
   }
 
   // 5. Sticky Bottom Bar (strictly gated by editorCapabilitiesForType)
@@ -795,14 +796,17 @@ export async function mountAssetEditor(root,ctx,{
    }catch(e){notice(e.message);}
   };
   ctaRow.append(quoteBtn,genBtn);
-  bottomBar.append(scopeHost,quoteStatus,ctaRow);
-  left.append(bottomBar);
+  const quotaDetails=el('details',null,'editor-quota-details');
+  quotaDetails.append(el('summary','制作额度与授权设置'),scopeHost);
+  leftScroll.append(quotaDetails);
+  bottomBar.append(quoteStatus,ctaRow);
+  left.append(leftScroll,bottomBar);
 
   // Right Panel: TagsNav + Candidate Grid
   renderTagsNav(right,false);
   const grid=el('div',null,'editor-results-grid');
   const uploadTile=el('button','','editor-upload-tile');uploadTile.type='button';
-  uploadTile.append(el('span','＋'),el('strong','本地上传'),el('small','pic_type=2'));
+  uploadTile.append(el('span','＋'),el('strong','本地上传'),el('small','支持 JPG / PNG，≤50MB'));
   uploadTile.onclick=()=>{
    const d=openEditorDialog(`上传 ${form.name} 本地图片`);
    const host=el('section');d.append(host);
@@ -826,6 +830,8 @@ export async function mountAssetEditor(root,ctx,{
    const cardEl=el('article',null,'editor-result-card'+(isSelected?' is-selected':''));
    const stage=el('div',null,'editor-result-stage');
    const img=el('img');img.src=`${base()}/media/${encodeURIComponent(cand.media_id)}/content`;bindAttribute(img,'alt',cand.name);
+   if(img.style)img.style.cursor='zoom-in';
+   img.addEventListener('click',()=>openAssetImageViewer({title:[state.name||caps.typeLabel,form.name,cand.name].filter(Boolean).join(' · '),src:img.src,host:document.body||root}));
    stage.append(img);
    stage.append(el('span',cand.pic_type===2?'本地上传':'AI 生成','editor-result-source'));
    if(isSelected)stage.append(el('span','已选用','editor-selected-badge'));
@@ -1092,7 +1098,26 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   const css=el('link');css.rel='stylesheet';css.href='/static/asset-cards.css';css.dataset.assetCards='';document.head?.append(css);
  }
  const actor=ctx.session().actor,uploads=new Set();
- let active=true,serial=0,offset=0,options=null,episode=null,revision=ctx.session().revision,query='',kind='',folderId='',orderBy='',favorite=false,mode='project',tab='project',batchMode=false,visibleCards=[],folders=[],currentFolder=null,officialCenter=null,editorHandle=null,searchDebounce=null;
+ const initParams=typeof location!=='undefined'?new URLSearchParams(location.search):new URLSearchParams();
+ let active=true,serial=0,offset=0,options=null,episode=null,revision=ctx.session().revision,query='',kind=initParams.get('kind')||'',folderId='',orderBy='',favorite=false,mode='project',tab=initParams.get('tab')==='official'?'official':'project',batchMode=false,visibleCards=[],folders=[],currentFolder=null,officialCenter=null,editorHandle=null,searchDebounce=null;
+ function syncCardsUrl(extra=null){
+  if(typeof window==='undefined'||!window.history?.replaceState||!window.location)return;
+  const q=new URLSearchParams(window.location.search);
+  if(!q.get('page'))q.set('page','assets');
+  if(projectId)q.set('project',projectId);
+  if(extra?.editor){
+   q.set('subview','editor');
+   q.set('asset_type',String(extra.assetType||1));
+   if(extra.assetId)q.set('asset_id',extra.assetId);else q.delete('asset_id');
+  }else{
+   for(const k of ['subview','asset_type','asset_id','type','id','role_id'])q.delete(k);
+   if(tab&&tab!=='project')q.set('tab',tab);else q.delete('tab');
+   if(kind)q.set('kind',kind);else q.delete('kind');
+  }
+  const basePath=window.location.pathname==='/character/create'&&!extra?.editor?'/character':'';
+  const next=basePath+'?'+q;
+  if((basePath?window.location.pathname+window.location.search:window.location.search)!==next)window.history.replaceState(null,'',next);
+ }
  const selected=new Set(),live=()=>active&&isCurrent()&&ctx.session().actor===actor,base=p=>'/api/v1/projects/'+encodeURIComponent(p||projectId),headers=()=>({'Content-Type':'application/json','X-CSRF-Token':ctx.session().csrf});
  root.classList.add('asset-card-page');
  const status=el('p',null,'asset-card-status');status.setAttribute('role','status');root.append(status);
@@ -1146,15 +1171,17 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
  }
 
  async function enterFullEditor({card=null,assetType=1,initialName=''}={}){
+  const resolvedType=card?(KIND_TO_TYPE_NUM[card.asset_kind]||1):assetType;
   officialCenter?.suspend();officialCenter=null;
   editorHandle?.suspend();editorHandle=null;
   root.querySelectorAll('dialog').forEach(d=>d.close());
   root.replaceChildren(status);
+  syncCardsUrl({editor:true,assetType:resolvedType,assetId:card?.id||null});
   const host=el('div',null,'asset-editor-host');
   root.append(host);
   editorHandle=await mountAssetEditor(host,ctx,{
    projectId,
-   assetType:card?(KIND_TO_TYPE_NUM[card.asset_kind]||1):assetType,
+   assetType:resolvedType,
    assetId:card?.id||null,
    card,
    initialName,
@@ -1759,9 +1786,12 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   editorHandle?.suspend();editorHandle=null;
   root.querySelectorAll('dialog').forEach(d=>d.close());
   root.replaceChildren();
+  syncCardsUrl();
   const tabs=el('nav',null,'asset-card-tabs');
   for(const [value,title]of [['project',msg('asset.project_source')],['official','官方资产']]){
    const b=button(tabs,title,()=>{tab=value;selected.clear();return load();});
+   if(b.dataset)b.dataset.tab=value;
+   b.setAttribute('data-tab',value);
    b.setAttribute('aria-pressed',String(tab===value));
   }
   link(tabs,msg('shell.shared_library'),'asset-center',{tab:'shared'});
