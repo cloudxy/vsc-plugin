@@ -202,4 +202,15 @@ test('clean pathname entry resolves script studios, invoice portal, Seedance tas
   assert.deepEqual(Object.fromEntries(resolve('/network-diagnostic','')),{page:'service-operations',subview:'network-diagnostic'});
   assert.deepEqual(Object.fromEntries(resolve('/403','')),{page:'service-operations',subview:'forbidden'});
   assert.deepEqual(Object.fromEntries(resolve('/wallet/invoice','?page=home')),{page:'home'});
+  assert.deepEqual(Object.fromEntries(resolve('/marketing','?project_id=p1&episode_id=e1')),{project_id:'p1',episode_id:'e1',page:'marketing-studio',project:'p1',episode:'e1'});
+  assert.deepEqual(Object.fromEntries(resolve('/project','?tab=canvas')),{tab:'canvases',page:'projects'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/novel/u1/characters','')),{page:'text-tools',tool:'novel',task_target:'u1',subview:'characters'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/parse-smart/j2','')),{page:'text-tools',tool:'translation',subview:'parse-smart',task_target:'j2'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/style/j2','')),{page:'text-tools',tool:'translation',subview:'style',task_target:'j2'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/scoring/s9','')),{page:'text-tools',tool:'scoring',task_target:'s9'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/rating/detail','')),{page:'text-tools',tool:'scoring',subview:'report'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/video-qc/q3','')),{page:'text-tools',tool:'qc',task_target:'q3'});
+  assert.deepEqual(Object.fromEntries(resolve('/script/qc','')),{page:'text-tools',tool:'qc'});
+  assert.deepEqual(Object.fromEntries(resolve('/','?page=storyboard&project=p1')),{page:'classic-production',project:'p1',kind:'image',mode:'image'});
+  assert.deepEqual(Object.fromEntries(resolve('/','?page=shots&project=p1')),{page:'classic-production',project:'p1',kind:'video'});
 });

@@ -11,6 +11,15 @@ const key=name=>'media.library.'+name;
 const label=(name,values)=>msg(key(name),values);
 const node=(tag,text,className)=>{const value=document.createElement(tag);if(text!=null)setText(value,text);if(className)value.className=className;return value;};
 const button=(text,run,className='')=>{const value=node('button',text,className);value.type='button';value.addEventListener('click',run);return value;};
+function setInlineStyle(el,prop,val){
+  if(!el)return;
+  if(el.style&&typeof el.style==='object'){el.style[prop]=val;return;}
+  const kebab=prop.replace(/[A-Z]/g,m=>'-'+m.toLowerCase());
+  const raw=String(el.getAttribute?.('style')||'');
+  const parts=raw.split(';').map(s=>s.trim()).filter(s=>s&&!s.startsWith(kebab+':'));
+  if(val!==''&&val!==null&&val!==undefined)parts.push(`${kebab}:${val}`);
+  el.setAttribute?.('style',parts.join(';'));
+}
 const identity=session=>JSON.stringify([session?.actor??null,session?.identityId??null,session?.workspaceId??null]);
 const pad2=n=>String(n).padStart(2,'0');
 const toYMD=d=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
@@ -428,17 +437,130 @@ export function createMediaLibrary(root,ctx){
     const closeBtn=button('×',()=>closeViewer(s,true),'ml-viewer-close');bindAttribute(closeBtn,'aria-label',msg('common.close'));
     let sidebarOpen=true;
     const sidebar=node('aside',null,'ml-viewer-sidebar');
-    const foldBtn=button('▤',()=>{sidebarOpen=!sidebarOpen;sidebar.hidden=!sidebarOpen;foldBtn.setAttribute('aria-expanded',String(sidebarOpen));},'ml-viewer-fold');
+    const foldBtn=button('▤',()=>{sidebarOpen=!sidebarOpen;sidebar.hidden=!sidebarOpen;foldBtn.setAttribute('aria-expanded',String(sidebarOpen));if(viewerZoom.getScale()===1)viewerZoom.reset();},'ml-viewer-fold');
     bindAttribute(foldBtn,'aria-label',label('toggle_sidebar'));foldBtn.setAttribute('aria-expanded','true');
     const prevBtn=button('‹',()=>stepImage(-1),'ml-viewer-prev');bindAttribute(prevBtn,'aria-label',label('prev_image'));
     const nextBtn=button('›',()=>stepImage(1),'ml-viewer-next');bindAttribute(nextBtn,'aria-label',label('next_image'));
     const counter=node('span',null,'ml-viewer-counter');
-    const frame=node('div',null,'ml-viewer-frame'),img=node('img',null,'ml-viewer-img');
-    frame.append(img);stage.append(closeBtn,foldBtn,prevBtn,nextBtn,counter,frame);
+    const frame=node('div',null,'ml-viewer-frame');
+    if(typeof frame.scrollLeft!=='number')frame.scrollLeft=0;
+    if(typeof frame.scrollTop!=='number')frame.scrollTop=0;
+    const zoomBar=node('div',null,'ml-viewer-zoom-bar');
+    const zoomOutBtn=button('−',()=>viewerZoom.zoomOut(),'ml-viewer-zoom-btn ml-viewer-zoom-out');bindAttribute(zoomOutBtn,'aria-label','缩小图片');bindAttribute(zoomOutBtn,'title','缩小 (-)');
+    const zoomLevel=node('span','100%','ml-viewer-zoom-level');zoomLevel.setAttribute('aria-live','polite');
+    const zoomInBtn=button('＋',()=>viewerZoom.zoomIn(),'ml-viewer-zoom-btn ml-viewer-zoom-in');bindAttribute(zoomInBtn,'aria-label','放大图片');bindAttribute(zoomInBtn,'title','放大 (+)');
+    const zoomFitBtn=button('适应窗口',()=>viewerZoom.reset(),'ml-viewer-zoom-btn ml-viewer-zoom-fit');bindAttribute(zoomFitBtn,'aria-label','适应窗口大小');
+    const zoomActualBtn=button('1:1',()=>viewerZoom.zoomNatural(),'ml-viewer-zoom-btn ml-viewer-zoom-actual');bindAttribute(zoomActualBtn,'aria-label','原始像素大小');bindAttribute(zoomActualBtn,'title','原始大小 (1:1)');
+    zoomBar.append(zoomOutBtn,zoomLevel,zoomInBtn,zoomFitBtn,zoomActualBtn);
+    stage.append(closeBtn,foldBtn,prevBtn,nextBtn,counter,zoomBar,frame);
+    let currentImg=null,scale=1,fitW=0,fitH=0,initialW=0,initialH=0,drag=null;
+    const MIN_SCALE=0.25,MAX_SCALE=4,ZOOM_STEP=0.25;
+    function syncZoomBar(){
+      setText(zoomLevel,`${Math.round(scale*100)}%`);
+      zoomOutBtn.disabled=scale<=MIN_SCALE+1e-6;
+      zoomInBtn.disabled=scale>=MAX_SCALE-1e-6;
+    }
+    function measureFit(){
+      const availW=Math.max(200,(Number(frame.clientWidth)||880)-24);
+      const availH=Math.max(200,(Number(frame.clientHeight)||600)-24);
+      const natW=Math.max(1,Number(currentImg?.naturalWidth)||Number(initialW)||720);
+      const natH=Math.max(1,Number(currentImg?.naturalHeight)||Number(initialH)||720);
+      let ratio=Math.min(availW/natW,availH/natH,1);
+      const minDisplay=Math.min(360,availW,availH);
+      if(natW*ratio<minDisplay&&natH*ratio<minDisplay)ratio=Math.min(availW/natW,availH/natH,minDisplay/Math.max(natW,natH));
+      fitW=Math.max(48,Math.round(natW*ratio));
+      fitH=Math.max(48,Math.round(natH*ratio));
+    }
+    function applyScale(nextScale,focusX=null,focusY=null){
+      if(!currentImg)return scale;
+      if(!fitW||!fitH)measureFit();
+      const clamped=Math.min(MAX_SCALE,Math.max(MIN_SCALE,Math.round(Number(nextScale)*100)/100));
+      const prev=scale;
+      scale=clamped;
+      const targetW=Math.max(24,Math.round(fitW*scale));
+      const targetH=Math.max(24,Math.round(fitH*scale));
+      setInlineStyle(currentImg,'width',`${targetW}px`);
+      setInlineStyle(currentImg,'height',`${targetH}px`);
+      setInlineStyle(currentImg,'maxWidth','none');
+      setInlineStyle(currentImg,'maxHeight','none');
+      if(currentImg.dataset)currentImg.dataset.zoomScale=String(scale);
+      currentImg.setAttribute?.('data-zoom-scale',String(scale));
+      if(prev>0&&prev!==scale){
+        const r=scale/prev;
+        const cx=focusX??((Number(frame.clientWidth)||880)/2);
+        const cy=focusY??((Number(frame.clientHeight)||600)/2);
+        frame.scrollLeft=Math.max(0,Math.round(((Number(frame.scrollLeft)||0)+cx)*r-cx));
+        frame.scrollTop=Math.max(0,Math.round(((Number(frame.scrollTop)||0)+cy)*r-cy));
+      }
+      syncZoomBar();
+      return scale;
+    }
+    const viewerZoom={
+      getScale:()=>scale,
+      zoomIn:()=>applyScale(scale+ZOOM_STEP),
+      zoomOut:()=>applyScale(scale-ZOOM_STEP),
+      reset:()=>{
+        if(!currentImg)return 1;
+        measureFit();
+        scale=1;
+        setInlineStyle(currentImg,'width',`${fitW}px`);
+        setInlineStyle(currentImg,'height',`${fitH}px`);
+        setInlineStyle(currentImg,'maxWidth','none');
+        setInlineStyle(currentImg,'maxHeight','none');
+        if(currentImg.dataset)currentImg.dataset.zoomScale='1';
+        currentImg.setAttribute?.('data-zoom-scale','1');
+        frame.scrollLeft=0;frame.scrollTop=0;
+        syncZoomBar();
+        return scale;
+      },
+      zoomNatural:()=>{
+        if(!currentImg)return 1;
+        measureFit();
+        const natW=Math.max(1,Number(currentImg.naturalWidth)||Number(initialW)||fitW);
+        return applyScale(natW/Math.max(1,fitW));
+      },
+      bindImage:(imgEl,w,h)=>{
+        currentImg=imgEl;initialW=Number(w)||0;initialH=Number(h)||0;fitW=0;fitH=0;scale=1;
+        if(imgEl){
+          imgEl.draggable=false;imgEl.setAttribute?.('draggable','false');
+          imgEl.addEventListener('load',()=>{if(currentImg!==imgEl)return;if(scale===1)viewerZoom.reset();else{measureFit();applyScale(scale);}});
+          imgEl.addEventListener('dblclick',ev=>{ev?.preventDefault?.();applyScale(scale>1.05?1:2,ev?.offsetX??null,ev?.offsetY??null);});
+        }
+        viewerZoom.reset();
+      },
+    };
+    frame.addEventListener('wheel',ev=>{
+      if(ev?.ctrlKey||ev?.metaKey){
+        ev.preventDefault?.();
+        applyScale(scale+(Number(ev.deltaY)<0?ZOOM_STEP:-ZOOM_STEP),ev.offsetX??null,ev.offsetY??null);
+      }
+    },{passive:false});
+    frame.addEventListener('pointerdown',ev=>{
+      if(ev?.button!=null&&ev.button!==0)return;
+      drag={pointerId:ev?.pointerId,startX:Number(ev?.clientX)||0,startY:Number(ev?.clientY)||0,startLeft:Number(frame.scrollLeft)||0,startTop:Number(frame.scrollTop)||0,moved:false};
+      frame.classList?.add?.('is-dragging');
+      try{frame.setPointerCapture?.(ev?.pointerId);}catch{}
+    });
+    frame.addEventListener('pointermove',ev=>{
+      if(!drag)return;
+      if(drag.pointerId!==undefined&&ev?.pointerId!==undefined&&ev.pointerId!==drag.pointerId)return;
+      const dx=(Number(ev?.clientX)||0)-drag.startX,dy=(Number(ev?.clientY)||0)-drag.startY;
+      if(Math.abs(dx)>3||Math.abs(dy)>3)drag.moved=true;
+      frame.scrollLeft=Math.max(0,drag.startLeft-dx);
+      frame.scrollTop=Math.max(0,drag.startTop-dy);
+      if(drag.moved)ev?.preventDefault?.();
+    });
+    const finishDrag=ev=>{
+      if(!drag)return;
+      if(ev?.pointerId!==undefined){try{frame.releasePointerCapture?.(ev.pointerId);}catch{}}
+      drag=null;frame.classList?.remove?.('is-dragging');
+    };
+    frame.addEventListener('pointerup',finishDrag);
+    frame.addEventListener('pointercancel',finishDrag);
     const sideScroll=node('div',null,'ml-detail-scroll'),title=node('h2',null,'ml-detail-title'),sub=node('p',null,'ml-detail-sub'),detailBody=node('div',null,'ml-detail-body'),detailActions=node('footer',null,'ml-detail-actions');
     sideScroll.append(title,sub,detailBody);sidebar.append(sideScroll,detailActions);
     layout.append(stage,sidebar);dialog.append(layout);document.body.append(dialog);
-    const viewerState={kind:'image',dialog,opener,row:initialRow,index:startIndex,counter,prevBtn,nextBtn,keyOff:null};
+    const viewerState={kind:'image',dialog,opener,row:initialRow,index:startIndex,counter,prevBtn,nextBtn,keyOff:null,zoom:viewerZoom};
     s.viewer=viewerState;
     function showAt(nextIndex){
       const currentSeq=imageSequence(s);
@@ -450,8 +572,9 @@ export function createMediaLibrary(root,ctx){
       nextBtn.hidden=nextBtn.disabled=nextIndex>=currentSeq.length-1;
       frame.replaceChildren();
       const picture=node('img',null,'ml-viewer-img');picture.src=item.content_url;bindAttribute(picture,'alt',item.name);
-      picture.addEventListener('error',()=>{picture.remove();frame.append(node('span',msg('ui.preview_is_currently_unavailable'),'ml-preview-failed'));});
+      picture.addEventListener('error',()=>{currentImg=null;picture.remove();frame.append(node('span',msg('ui.preview_is_currently_unavailable'),'ml-preview-failed'));});
       frame.append(picture);
+      viewerZoom.bindImage(picture,item.width,item.height);
       setText(title,item.name);
       const subParts=[item.project_name,item.episode_name,item.created_at?toYMD(new Date(Date.parse(item.created_at))):null].filter(Boolean);
       setText(sub,subParts.join(' · '));
@@ -463,6 +586,9 @@ export function createMediaLibrary(root,ctx){
         if(s.viewer!==viewerState)return;
         if(event.key==='ArrowLeft')stepImage(-1);
         else if(event.key==='ArrowRight')stepImage(1);
+        else if(event.key==='+'||event.key==='='){event.preventDefault?.();viewerZoom.zoomIn();}
+        else if(event.key==='-'||event.key==='_'){event.preventDefault?.();viewerZoom.zoomOut();}
+        else if(event.key==='0'){event.preventDefault?.();viewerZoom.reset();}
         else if(event.key==='Escape'){event.preventDefault?.();closeViewer(s,true);}
       });
     }

@@ -5,10 +5,19 @@ import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
 function resolvePathnameEntry(pathname='/',search=''){
   const params=new URLSearchParams(search||'');
-  if(params.has('page'))return params;
+  if(params.has('page')){
+    if(params.get('project_id')&&!params.has('project'))params.set('project',params.get('project_id'));
+    if(params.get('episode_id')&&!params.has('episode'))params.set('episode',params.get('episode_id'));
+    if(params.get('shot_id')&&!params.has('scope'))params.set('scope',params.get('shot_id'));
+    const rawPage=params.get('page');
+    if(rawPage==='storyboard'){params.set('page','classic-production');if(!params.has('kind'))params.set('kind','image');if(!params.has('mode'))params.set('mode','image');}
+    else if(rawPage==='shots'||rawPage==='video'){params.set('page','classic-production');if(!params.has('kind'))params.set('kind','video');}
+    else if(rawPage==='projects'&&params.get('tab')==='canvas')params.set('tab','canvases');
+    return params;
+  }
   const p=String(pathname||'/').replace(/\/+$/,'')||'/';
   const apply=obj=>{for(const [k,v]of Object.entries(obj))if(v!=null&&!params.has(k))params.set(k,String(v));return params;};
-  if(p==='/project')return apply({page:'projects',...(params.get('tab')?{tab:params.get('tab')}:{})});
+  if(p==='/project'){if(params.get('tab')==='canvas')params.set('tab','canvases');return apply({page:'projects',...(params.get('tab')?{tab:params.get('tab')}:{})});}
   if(p==='/project/episode')return apply({page:'project',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('episode_id')?{episode:params.get('episode_id'),scope:params.get('episode_id')}:{})});
   if(p==='/canvas'||p==='/canvas/detail')return apply({page:'creative-canvas',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('episode_id')?{episode:params.get('episode_id')}:{}),...(params.get('canvas_id')?{task_target:params.get('canvas_id')}:{})});
   if(p==='/agent'){
@@ -36,21 +45,36 @@ function resolvePathnameEntry(pathname='/',search=''){
   }
   if(p==='/script')return apply({page:'text-tools',tool:'translation'});
   if(p.startsWith('/script/')){
-    const [sub,stage]=p.slice('/script/'.length).split('/');
-    if(sub==='video-parse')return apply({page:'text-tools',tool:'breakdown'});
-    if(sub==='video-qc')return apply({page:'text-tools',tool:'qc'});
-    if(sub==='scoring')return apply({page:'text-tools',tool:'scoring',...(stage?{subview:stage}:{})});
-    if(sub==='novel')return apply({page:'text-tools',tool:'novel',...(stage?{subview:stage}:{})});
-    if(sub==='translation')return apply({page:'text-tools',tool:'translation',...(stage?{subview:stage}:{})});
-    if(sub==='overseas')return apply({page:'text-tools',tool:'overseas'});
-    if(['styles','history','parse-basic','parse-smart','parse','style','review','result'].includes(sub))return apply({page:'text-tools',tool:'translation',subview:sub});
+    const [sub,second,third]=p.slice('/script/'.length).split('/').filter(Boolean);
+    if(sub==='video-parse')return apply({page:'text-tools',tool:'breakdown',...(second?{task_target:second}:{})});
+    if(sub==='video-qc'||sub==='qc')return apply({page:'text-tools',tool:'qc',...(second?{task_target:second}:{})});
+    if(sub==='scoring'||sub==='rating'){
+      const scoringStages=['overview','card','source_text','report','detail'];
+      const mapStage=s=>s==='detail'?'report':s;
+      if(second&&scoringStages.includes(second)&&!third)return apply({page:'text-tools',tool:'scoring',subview:mapStage(second)});
+      return apply({page:'text-tools',tool:'scoring',...(second?{task_target:second}:{}),...(third?{subview:mapStage(third)}:{})});
+    }
+    if(sub==='novel'){
+      const novelStages=['parse','overview','characters','episodes','script'];
+      if(second&&novelStages.includes(second)&&!third)return apply({page:'text-tools',tool:'novel',subview:second});
+      return apply({page:'text-tools',tool:'novel',...(second?{task_target:second}:{}),...(third?{subview:third}:{})});
+    }
+    if(sub==='translation'||sub==='translate'){
+      const trStages=['styles','history','parse-basic','parse-smart','parse','style','review','result'];
+      if(second&&trStages.includes(second)&&!third)return apply({page:'text-tools',tool:'translation',subview:second});
+      if(second&&trStages.includes(second)&&third)return apply({page:'text-tools',tool:'translation',subview:second,task_target:third});
+      return apply({page:'text-tools',tool:'translation',...(second?{task_target:second}:{}),...(third?{subview:third}:{})});
+    }
+    if(sub==='overseas')return apply({page:'text-tools',tool:'overseas',...(second?{task_target:second}:{})});
+    if(['overview','characters','episodes','script'].includes(sub))return apply({page:'text-tools',tool:'novel',subview:sub,...(second?{task_target:second}:{})});
+    if(['styles','history','parse-basic','parse-smart','parse','style','review','result'].includes(sub))return apply({page:'text-tools',tool:'translation',subview:sub,...(second?{task_target:second}:{})});
     return apply({page:'text-tools',tool:'translation'});
   }
   if(p==='/character')return apply({page:'assets',...(params.get('project_id')?{project:params.get('project_id')}:{})});
   if(p==='/character/create')return apply({page:'assets',subview:'editor',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('type')?{asset_type:params.get('type')}:{}),...(params.get('id')||params.get('role_id')?{asset_id:params.get('id')||params.get('role_id')}:{})});
   if(p==='/asset-center')return apply({page:'asset-center',tab:'shared'});
   if(p==='/recycle-bin')return apply({page:'project-management',tab:'recycle'});
-  if(p==='/marketing-studio')return apply({page:'marketing-studio'});
+  if(p==='/marketing-studio'||p==='/marketing')return apply({page:'marketing-studio',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('episode_id')?{episode:params.get('episode_id')}:{})});
   if(p==='/members')return apply({page:'access'});
   if(p==='/sub-studios')return apply({page:'commerce',subview:'studio-quota'});
   if(p==='/subscription')return apply({page:'commerce',subview:'subscription'});
@@ -271,7 +295,7 @@ async function loadCustomView(view){
     if(!creativeTools){const {createCreativeTools}=await import('./creative-tools.js');creativeTools=createCreativeTools($('creative-tools-view'),{api,projects:()=>[...state.projectRows.values()],activateWorkspace:async(p,episode)=>{state.project=p;state.object=null;episodeScope=episode;state.view='creative-tools';setEntryOptions('creative-tools',p,null,{...(currentEntry().get('tool')?{tool:currentEntry().get('tool')}:{}),...(episode?{episode}:{})});await loadProjects();},session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(!id||id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await creativeTools.load({project,object:object||episodeScope,tool:currentEntry().get('tool')});
   }else if(view==='text-tools'){
-    if(!textTools){const {createTextTools}=await import('./text-tools.js');textTools=createTextTools($('text-tools-view'),{api,activateWorkspace:async(p,unitId=null)=>{const prev=currentEntry(),q=new URLSearchParams({page:'text-tools',project:p});if(prev.get('tool'))q.set('tool',prev.get('tool'));if(prev.get('subview'))q.set('subview',prev.get('subview'));if(unitId)q.set('task_target',unitId);state.project=p;state.object=null;episodeScope=null;state.view='text-tools';window.history.replaceState(null,'','?'+q);await loadProjects();},openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
+    if(!textTools){const {createTextTools}=await import('./text-tools.js');textTools=createTextTools($('text-tools-view'),{api,activateWorkspace:async(p,unitId=null)=>{const prev=currentEntry(),q=new URLSearchParams({page:'text-tools',project:p});if(prev.get('tool'))q.set('tool',prev.get('tool'));if(prev.get('subview'))q.set('subview',prev.get('subview'));if(unitId)q.set('task_target',unitId);state.project=p;state.object=null;episodeScope=null;state.view='text-tools';window.history.replaceState(null,'','?'+q);await loadProjects();},onToolChange:({tool:t,subview:sv,targetId:tid}={})=>{if(typeof window==='undefined'||state.view!=='text-tools')return;const route=currentEntry();route.set('page','text-tools');if(state.project)route.set('project',state.project);if(t)route.set('tool',t);if(sv)route.set('subview',sv);else route.delete('subview');if(tid)route.set('task_target',tid);else route.delete('task_target');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);},openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,id)=>{if(id===state.project)state.revision=value;},notice,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await textTools.load({project,object:episodeScope||object,targetId:currentEntry().get('task_target'),tool:currentEntry().get('tool'),subview:currentEntry().get('subview')});
   }else if(view==='media-imports'){
     const {createMediaImports}=await import('./media-imports.js');if(ticket!==customViewRequest||view!==state.view)return;
@@ -283,13 +307,13 @@ async function loadCustomView(view){
     if(!teamReview){const {createTeamReview}=await import('./team-review.js');teamReview=createTeamReview($('team-review-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},media:openMedia,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await teamReview.load({project,object});
   }else if(view==='commerce'){
-    if(!commerce){const {createCommerce}=await import('./commerce.js');commerce=createCommerce($('commerce-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule});}
+    if(!commerce){const {createCommerce}=await import('./commerce.js');commerce=createCommerce($('commerce-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:(sub,targetId=null)=>{if(typeof window==='undefined'||state.view!=='commerce')return;const route=currentEntry();route.set('page','commerce');if(state.project)route.set('project',state.project);if(sub)route.set('subview',sub);else route.delete('subview');if(targetId)route.set('task_target',targetId);else route.delete('task_target');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
     if(ticket===customViewRequest&&view===state.view)await commerce.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target')});
   }else if(view==='community'){
     if(!community){const {createCommunity}=await import('./community.js');community=createCommunity($('community-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,projectId:state.project,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project&&value!=null)state.revision=value;}});}
     if(ticket===customViewRequest&&view===state.view)await community.load({projectId:project});
   }else if(view==='service-operations'){
-    if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule});}
+    if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:sub=>{if(typeof window==='undefined'||state.view!=='service-operations')return;const route=currentEntry();route.set('page','service-operations');if(state.project)route.set('project',state.project);if(sub)route.set('subview',sub);else route.delete('subview');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
     if(ticket===customViewRequest&&view===state.view)await serviceOperations.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target')});
   }else if(view==='asset-center'){
     if(!assetCenter){const {createAssetCenter}=await import('./asset-center.js');assetCenter=createAssetCenter($('asset-center-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),projects:()=>[...state.projectRows.values()],projectId:()=>state.project,setRevision:(value,p)=>{if(!p||p===state.project)state.revision=value;},workspaces:async()=>(await api('/api/v1/access')).workspaces});}
@@ -549,7 +573,7 @@ async function switchView(view, focus = null) {
 function syncRoute(){
   if(typeof window==='undefined'||restoringDeskRoute)return;
   if(window.location.pathname==='/404'&&state.view==='service-operations'&&currentEntry().get('subview')==='not-found'){deskRouteReady=true;return;}
-  if(window.location.pathname.startsWith('/fcp/')&&state.view==='fcp-portal'){deskRouteReady=true;return;}
+  if(window.location.pathname?.startsWith('/fcp/')&&state.view==='fcp-portal'){deskRouteReady=true;return;}
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
   if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','create','tab','mode','canvas_origin','task_id','task_kind','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key','asset_type','asset_id','shot_id','media_id','locale'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;

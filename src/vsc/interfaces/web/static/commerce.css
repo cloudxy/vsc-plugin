@@ -30,6 +30,7 @@
 .commerce-card{margin:1.1rem 0;padding:1.15rem;border:1px solid var(--cm-line);border-radius:14px;background:var(--cm-card)}
 .commerce-field{display:grid;gap:.38rem;margin:.75rem 0;font-size:.85rem;color:var(--cm-muted)}
 .commerce-field input:not([type=checkbox]),.commerce-field textarea,.commerce-field select{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:.5rem .65rem;border-radius:8px;border:1px solid var(--cm-line);background:#101217;color:var(--cm-ink)}
+.commerce select option{background:#14161b;color:#f5f7fa}
 .commerce-table{overflow:auto;max-width:100%}
 .commerce table{width:100%;border-collapse:collapse;font-size:.88rem}
 .commerce td,.commerce th{padding:.65rem .55rem;text-align:left;border-bottom:1px solid var(--cm-line);overflow-wrap:anywhere}

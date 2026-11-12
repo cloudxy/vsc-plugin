@@ -187,6 +187,7 @@ export function createServiceOperations(root,ctx){
   function switchSubview(next){
     subview=normalizeOperationsSubview(next);
     if(scope)scope.subview=subview;
+    ctx.onSubviewChange?.(subview);
     render();
   }
 

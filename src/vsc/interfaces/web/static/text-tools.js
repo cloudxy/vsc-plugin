@@ -76,13 +76,17 @@ export function createTextTools(root,ctx){
     }catch(error){if(error.status>=400&&error.status<500)pending.delete(k);throw error;}
   }
   async function listing(){const s=scope,n=epoch;const value=await ctx.api(base(s.project)+'/text-tools?tool='+tool);if(!alive(n,s))return false;list=value.items;ctx.setRevision(value.revision,s.project);return true;}
-  async function open(id,nextScreen=id?'editor':'home'){
+  async function open(id,nextScreen=id?'editor':'home',{fallbackScreen=null}={}){
     for(const uploader of uploaders)uploader.suspend();uploaders=[];
     const n=++epoch,s=scope;current=null;dirty=false;root.replaceChildren(el('p',msg("ui.loading_fixed_working_draft")));
     try{
       const value=id?await ctx.api(base(s.project)+'/text-tools/units/'+encodeURIComponent(id)):null;
-      if(!alive(n,s))return;if(value&&value.tool!==tool){tool=value.tool;await listing();if(!alive(n,s))return;}current=value;screen=nextScreen;dirty=retained.has(formKey());if(value)ctx.setRevision(value.revision,s.project);render();
-    }catch(error){if(alive(n,s)){root.replaceChildren(el('p',error.message),button(msg("ui.reload"),()=>open(id)));}}
+      if(!alive(n,s))return;if(value&&value.tool!==tool){tool=value.tool;await listing();if(!alive(n,s))return;}current=value;screen=nextScreen;if(['styles','history'].includes(subviewMode)&&nextScreen==='home')subviewMode=null;dirty=retained.has(formKey());if(value)ctx.setRevision(value.revision,s.project);ctx.onToolChange?.({tool,subview:nextScreen==='styles'||nextScreen==='history'?nextScreen:subviewMode,targetId:value?.id||null});render();
+    }catch(error){
+      if(!alive(n,s))return;
+      if(fallbackScreen&&error?.status===404){ctx.notice('未找到指定工作稿，已打开对应工作台。');current=null;screen=fallbackScreen;dirty=retained.has(formKey());ctx.onToolChange?.({tool,subview:subviewMode,targetId:null});render();return;}
+      root.replaceChildren(el('p',error.message),button(msg("ui.reload"),()=>open(id)));
+    }
   }
   function toolbar(title,back=null){const bar=el('header',null,'tt-page-toolbar');if(back)bar.append(button('← 返回',back));bar.append(el('h1',title));return bar;}
   function modal(title,content){const dialog=el('dialog',null,'tt-dialog'),head=el('header');head.append(el('h2',title),button('×',()=>dialog.close()));head.children[1].setAttribute('aria-label','关闭'+title);dialog.append(head,content);dialog.addEventListener('close',()=>dialog.remove());root.append(dialog);dialog.showModal();return dialog;}
@@ -121,7 +125,7 @@ export function createTextTools(root,ctx){
     root.dataset.screen=screen;const heading=el('header');heading.className='tt-heading';heading.append(el('h1',caps.tools[tool].label));root.append(heading);
     const tabs=el('nav',null,'tt-tabs');
     const order=['breakdown','novel','translation','scoring','qc','overseas'];
-    for(const [id,item]of Object.entries(caps.tools).sort(([a],[b])=>(order.indexOf(a)<0?order.length:order.indexOf(a))-(order.indexOf(b)<0?order.length:order.indexOf(b)))){const b=button(item.label,async()=>{epoch++;tool=id;subviewMode=null;current=null;root.replaceChildren(el('p',msg("ui.switching_tools")));if(await listing())await open(null);});b.setAttribute('aria-pressed',String(tool===id));tabs.append(b);}root.append(tabs);
+    for(const [id,item]of Object.entries(caps.tools).sort(([a],[b])=>(order.indexOf(a)<0?order.length:order.indexOf(a))-(order.indexOf(b)<0?order.length:order.indexOf(b)))){const b=button(item.label,async()=>{epoch++;tool=id;subviewMode=null;current=null;ctx.onToolChange?.({tool:id,subview:null,targetId:null});root.replaceChildren(el('p',msg("ui.switching_tools")));if(await listing())await open(null);});b.setAttribute('aria-pressed',String(tool===id));tabs.append(b);}root.append(tabs);
     if(!current&&['novel','scoring'].includes(tool)&&screen!=='editor'){renderCatalogue(s,n);return;}
     if(tool==='translation'&&screen==='history'){renderHistory(s,n);return;}
     if(tool==='translation'&&screen==='styles'){renderStyles(s,n);return;}
@@ -390,8 +394,8 @@ export function createTextTools(root,ctx){
       }
       if(!current){
         const parseSwitch=el('div',null,'tt-preset-bar tt-parse-mode-bar');
-        const basicBtn=button('标准文档解析',()=>{subviewMode='parse-basic';manual.open=false;basicBtn.setAttribute('aria-pressed','true');smartBtn.setAttribute('aria-pressed','false');});
-        const smartBtn=button('智能文本解析',()=>{subviewMode='parse-smart';manual.open=true;basicBtn.setAttribute('aria-pressed','false');smartBtn.setAttribute('aria-pressed','true');});
+        const basicBtn=button('标准文档解析',()=>{subviewMode='parse-basic';manual.open=false;basicBtn.setAttribute('aria-pressed','true');smartBtn.setAttribute('aria-pressed','false');ctx.onToolChange?.({tool,subview:subviewMode,targetId:null});});
+        const smartBtn=button('智能文本解析',()=>{subviewMode='parse-smart';manual.open=true;basicBtn.setAttribute('aria-pressed','false');smartBtn.setAttribute('aria-pressed','true');ctx.onToolChange?.({tool,subview:subviewMode,targetId:null});});
         basicBtn.setAttribute('aria-pressed',String(subviewMode!=='parse-smart'));
         smartBtn.setAttribute('aria-pressed',String(subviewMode==='parse-smart'));
         parseSwitch.append(el('span','解析入口：','tt-preset-label'),basicBtn,smartBtn);
@@ -497,7 +501,7 @@ export function createTextTools(root,ctx){
     const exportBox=outside.find(node=>node.querySelector('h2')?.textContent===String(msg('ui.fixed_version_export')));if(exportBox){const menu=el('details',null,'tt-export-menu');menu.append(el('summary',tool==='qc'?'下载报告':'导出'),exportBox);top.append(menu);used.add(exportBox);}for(const hint of [...root.children].filter(node=>node.tagName==='P'))moreBody.append(hint);
     for(const node of original)if(!used.has(node)&&node!==form&&node!==top)moreBody.append(node);for(const node of outside){if(used.has(node)||node===runPanel)continue;if(node.classList.contains('tt-attempts'))body.append(node);else moreBody.append(node);}if(runPanel&&runPanel.children.length>1)moreBody.append(runPanel);
     if(tool==='translation'){main.parentElement.classList.add('tt-translation-home');moreBody.append(nav);}form.replaceChildren(...(tool==='translation'&&!current?[body]:[top,body]));root.dataset.screen=current?'workspace':'intake';
-    function showScreen(value){screen=value;render();}
+    function showScreen(value){screen=value;subviewMode=['styles','history'].includes(value)?value:null;ctx.onToolChange?.({tool,subview:subviewMode,targetId:current?.id||null});render();}
   }
   function renderBreakdownIntake(main,s,n){
     const box=el('section');box.append(el('h2',msg("ui.multi_episode_video_order")));const select=field(box,msg("ui.add_videos_for_analysis"),el('select'));for(const row of options.media)select.append(localizedOption(row.id,row.name));
@@ -635,7 +639,7 @@ export function createTextTools(root,ctx){
       };
       await enter();return;
     }
-    try{const values=await Promise.all([ctx.api(base(s.project)+'/text-tools/capabilities'),ctx.api(base(s.project)+'/text-tools/options')]);if(!alive(n,s))return;[caps,options]=values;subviewMode=value.subview||null;if(value.tool&&caps.tools[value.tool])tool=value.tool;else if(!value.targetId&&caps.tools.translation)tool='translation';else if(!caps.tools[tool])tool=Object.keys(caps.tools)[0]||tool;const stageMap=tool==='novel'?{parse:'source_text',overview:'synopsis',characters:'characters',episodes:'outline',script:'body'}:tool==='translation'?{parse:'source_text',style:'terms',review:'terms',result:'body'}:tool==='scoring'?{overview:'overview',card:'card',source_text:'source_text',report:'report'}:null;const mappedStage=subviewMode&&stageMap?.[subviewMode]||null;if(mappedStage)workspaceTabs.set(tool,mappedStage);await listing();const wantsStageEditor=Boolean(mappedStage&&(tool!=='translation'||['style','review','result'].includes(subviewMode)));const autoTarget=!value.targetId&&wantsStageEditor?list[0]?.id||null:null;const targetId=value.targetId||autoTarget;const initialScreen=targetId||(wantsStageEditor&&tool!=='translation')?'editor':(['styles','history'].includes(subviewMode)?subviewMode:'home');if(alive(n,s))await open(targetId,initialScreen);}
+    try{const values=await Promise.all([ctx.api(base(s.project)+'/text-tools/capabilities'),ctx.api(base(s.project)+'/text-tools/options')]);if(!alive(n,s))return;[caps,options]=values;subviewMode=value.subview||null;if(value.tool&&caps.tools[value.tool])tool=value.tool;else if(!value.targetId&&caps.tools.translation)tool='translation';else if(!caps.tools[tool])tool=Object.keys(caps.tools)[0]||tool;const stageMap=tool==='novel'?{parse:'source_text',overview:'synopsis',characters:'characters',episodes:'outline',script:'body'}:tool==='translation'?{parse:'source_text','parse-basic':'source_text','parse-smart':'source_text',style:'terms',review:'terms',result:'body'}:tool==='scoring'?{overview:'overview',card:'card',source_text:'source_text',report:'report'}:null;const mappedStage=subviewMode&&stageMap?.[subviewMode]||null;if(mappedStage)workspaceTabs.set(tool,mappedStage);await listing();const wantsStageEditor=Boolean(mappedStage&&(tool!=='translation'||['style','review','result'].includes(subviewMode)));const matchedUnit=value.targetId?list.find(u=>u.id===value.targetId||u.group_key===value.targetId):null;const autoTarget=!value.targetId&&wantsStageEditor?list[0]?.id||null:null;const targetId=matchedUnit?matchedUnit.id:(value.targetId||autoTarget);const fallbackScreen=wantsStageEditor&&tool!=='translation'?'editor':(['styles','history'].includes(subviewMode)?subviewMode:'home');const initialScreen=targetId?'editor':fallbackScreen;if(alive(n,s))await open(targetId,initialScreen,{fallbackScreen:value.targetId?fallbackScreen:null});}
     catch(error){if(alive(n,s))root.replaceChildren(el('p',error.message),button(msg("ui.reload"),()=>load(value)));}
   }
   return {load,suspend(){epoch++;for(const uploader of uploaders)uploader.suspend();uploaders=[];for(const controls of runControls)controls.dispose();runControls=[];}};

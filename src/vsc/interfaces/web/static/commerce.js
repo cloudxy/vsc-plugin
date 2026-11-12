@@ -147,6 +147,7 @@ export function createCommerce(root,ctx){
       setDraft('invoice-type',extra.titleObj.invoice_type==='personal'?'personal':(extra.titleObj.invoice_type||'enterprise_normal'));
     }
     if(scope)scope.subview=subview;
+    ctx.onSubviewChange?.(subview,extra.orderId||null);
     render();
   }
 
