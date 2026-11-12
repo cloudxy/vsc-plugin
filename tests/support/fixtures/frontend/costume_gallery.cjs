@@ -12,25 +12,48 @@ Element.prototype.close = function() { this.open = false; for (const fn of this.
 const doc = new Document('');
 doc.documentElement = doc.createElement('html');
 globalThis.document = doc;
-const cats = [{name: '春', count: 1}, {name: '夏', count: 1}, {name: '秋', count: 0}, {name: '冬', count: 0}, {name: '内衣', count: 0}, {name: '派对', count: 0}, {name: '泳装', count: 0}, {name: '性感', count: 0}];
+const observers = [];
+globalThis.IntersectionObserver = class {
+  constructor(callback, options = {}) {
+    this.callback = callback;
+    this.options = options;
+    this.observed = new Set();
+    this.disconnected = false;
+    observers.push(this);
+  }
+  observe(node) { this.observed.add(node); }
+  unobserve(node) { this.observed.delete(node); }
+  disconnect() { this.disconnected = true; this.observed.clear(); }
+};
+const cats = [{name: '春', count: 2}, {name: '夏', count: 1}, {name: '秋', count: 0}, {name: '冬', count: 0}, {name: '内衣', count: 0}, {name: '派对', count: 0}, {name: '泳装', count: 0}, {name: '性感', count: 0}];
 const first = {id: 'SPR-0001', title: 'SPR-0001', category: '春', label: '春', keywords: 'SPR-0001 ivory white denim', image: '/api/v1/asset-center/costumes/SPR-0001/content'};
 const second = {id: 'SUM-0001', title: 'SUM-0001', category: '夏', label: '夏', keywords: 'SUM-0001 white shirt', image: '/api/v1/asset-center/costumes/SUM-0001/content'};
+const third = {id: 'SPR-0002', title: 'SPR-0002', category: '春', label: '春', keywords: 'SPR-0002 black coat', image: '/api/v1/asset-center/costumes/SPR-0002/content'};
 const requests = [];
 const api = async url => {
   requests.push(url);
   if (url.startsWith('/api/v1/asset-center/costumes?')) {
     const query = new URL(url, 'http://local').searchParams;
     const offset = Number(query.get('offset') || 0);
-    if (query.get('category') === '春') return {categories: cats, total_all: 2, total: 1, offset, limit: 120, next_offset: null, items: [first]};
-    if (query.get('q')) return {categories: cats, total_all: 2, total: 1, offset, limit: 120, next_offset: null, items: [first]};
-    if (offset > 0) return {categories: cats, total_all: 2, total: 2, offset, limit: 120, next_offset: null, items: [second]};
-    return {categories: cats, total_all: 2, total: 2, offset: 0, limit: 120, next_offset: 120, items: [first]};
+    assert.equal(query.get('limit'), '24');
+    if (query.get('q')) return {categories: cats, total_all: 3, total: 1, offset, limit: 24, next_offset: null, items: [first]};
+    if (query.get('category') === '春') {
+      if (offset > 0) return {categories: cats, total_all: 3, total: 2, offset, limit: 24, next_offset: null, items: [third]};
+      return {categories: cats, total_all: 3, total: 2, offset: 0, limit: 24, next_offset: 24, items: [first]};
+    }
+    if (offset >= 48) return {categories: cats, total_all: 3, total: 3, offset, limit: 24, next_offset: null, items: [third]};
+    if (offset >= 24) return {categories: cats, total_all: 3, total: 3, offset, limit: 24, next_offset: 48, items: [second]};
+    return {categories: cats, total_all: 3, total: 3, offset: 0, limit: 24, next_offset: 24, items: [first]};
   }
   if (url.startsWith('/api/v1/asset-center?')) return {items: [], total: 0, next_offset: null};
   throw new Error('unexpected request ' + url);
 };
+const workspace = doc.createElement('div');
+workspace.className = 'workspace';
+workspace.scrollTop = 0;
+doc.body.append(workspace);
 const root = doc.createElement('main');
-doc.body.append(root);
+workspace.append(root);
 const find = (container, text) => [...container.querySelectorAll('button')].find(node => node.textContent === text);
 const click = async (container, text) => {
   const node = find(container, text);
@@ -50,25 +73,44 @@ const click = async (container, text) => {
   assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'false');
   await click(root, '服饰');
   assert.ok(requests.at(-1).includes('/api/v1/asset-center/costumes?'));
+  assert.ok(requests.at(-1).includes('offset=0&limit=24'));
   assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'true');
-  assert.equal(find(root, '全部 2').getAttribute('aria-pressed'), 'true');
+  assert.equal(find(root, '全部 3').getAttribute('aria-pressed'), 'true');
   assert.equal(root.querySelector('.costume-head'), null);
   assert.ok(!root.textContent.includes('只有服装、没有人物的竖图'));
-  assert.equal(root.querySelector('.costume-open').querySelector('img').src, first.image);
+  const firstImg = root.querySelector('.costume-open').querySelector('img');
+  assert.equal(firstImg.src, first.image);
+  assert.equal(firstImg.loading, 'eager');
+  assert.equal(firstImg.decoding, 'async');
   assert.ok(root.textContent.includes('ivory'));
   assert.ok(!root.textContent.includes('SPR-0001 ivory'));
-  await click(root, '更多');
-  assert.ok(requests.at(-1).includes('offset=120'));
+  const initialObserver = observers.at(-1);
+  assert.equal(initialObserver.options.root, workspace);
+  assert.equal(initialObserver.options.rootMargin, '0px 0px 480px 0px');
+  initialObserver.callback([{isIntersecting: true}]);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(requests.at(-1).includes('offset=24&limit=24'));
   assert.equal(root.querySelectorAll('.costume-card').length, 2);
+  await click(root, '更多');
+  assert.ok(requests.at(-1).includes('offset=48&limit=24'));
+  assert.equal(root.querySelectorAll('.costume-card').length, 3);
   assert.equal(find(root, '更多'), undefined);
+  assert.equal(root.querySelector('.costume-sentinel'), null);
+  assert.equal(initialObserver.disconnected, true);
+  workspace.scrollTop = 360;
   const before = requests.length;
-  await click(root, '春 1');
+  await click(root, '春 2');
+  assert.equal(workspace.scrollTop, 0);
   assert.ok(requests.at(-1).includes('category=%E6%98%A5'));
-  assert.equal(find(root, '春 1').getAttribute('aria-pressed'), 'true');
+  assert.ok(requests.at(-1).includes('offset=0&limit=24'));
+  assert.equal(find(root, '春 2').getAttribute('aria-pressed'), 'true');
+  const springObserver = observers.at(-1);
+  assert.equal(springObserver.disconnected, false);
   const input = root.querySelector('input');
   input.value = 'white';
   input.oninput();
   await new Promise(resolve => setTimeout(resolve, 220));
+  assert.equal(springObserver.disconnected, true);
   const focused = root.querySelector('input');
   assert.ok(requests.length > before);
   assert.ok(requests.at(-1).includes('q=white'));
