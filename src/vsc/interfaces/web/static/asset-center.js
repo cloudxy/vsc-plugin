@@ -1,6 +1,6 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 import * as studio from './character-studio-store.js';
-import {referenceImageUrl,poseThumbPath,poseImagePath,selectCostumeView} from './character-studio-ai.js';
+import {referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView} from './character-studio-ai.js';
 /* Catalog metadata and personal selections reference the original library. */
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);if(text!==null&&text!==undefined)setText(n,text);if(cls)n.className=cls;return n;};
 const kinds=[
@@ -966,6 +966,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    const thumbOf=entry=>{
     const item=pickItem(entry);
     if(kind==='pose')return referenceImageUrl(poseThumbPath(item,studio.getState().poseDepthMode));
+    if(kind==='costume')return localCostumeImageUrl(item.缩略图||item.预览图||item.原图);
     return referenceImageUrl(item.缩略图||item.预览图||item.原图);
    };
    const titleOf=entry=>{const item=pickItem(entry);return kind==='costume'?item.服装名称:kind==='pose'?(entry.group?entry.group.name:item.姿势名称):item.标题||item.发型名称;};
@@ -1039,11 +1040,12 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     const zoomCtrl=attachImageZoomPan(viewport,img,{onScaleChange:({percent})=>setText(levelEl,`${percent}%`)});
     const pick=button('加入配方',()=>{togglePick(pageItems[cursor]);updatePick(pick,pageItems[cursor]);},'ref-pick-modal');
     const fullOf=entry=>{const item=pickItem(entry);if(kind==='pose')return poseImagePath(item,studio.getState().poseDepthMode);if(kind==='costume')return item.预览图||item.原图||item.缩略图;return item.原图||item.缩略图;};
+    const resolveModalUrl=raw=>kind==='costume'?localCostumeImageUrl(raw):referenceImageUrl(raw);
     const show=()=>{
      const entry=pageItems[cursor];if(!entry)return;const item=pickItem(entry);
-     img.src=referenceImageUrl(fullOf(entry));bindAttribute(img,'alt',titleOf(entry)||'');
+     img.src=resolveModalUrl(fullOf(entry));bindAttribute(img,'alt',titleOf(entry)||'');
      setText(caption,[item.id,titleOf(entry),metaOf(entry)].filter(Boolean).join(' · '));
-     down.href=referenceImageUrl(item.原图||fullOf(entry));down.setAttribute('download',String(item.id||'reference'));
+     down.href=resolveModalUrl(item.原图||fullOf(entry));down.setAttribute('download',String(item.id||'reference'));
      extra.replaceChildren();
      if(kind==='costume'&&entry.item.views?.length){
       for(const view of entry.item.views){const b=button(view.label,()=>{entry.view=view.id;show();});b.setAttribute('aria-pressed',String((entry.view||entry.item.selectedView||'front')===view.id));extra.append(b);}

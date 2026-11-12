@@ -4,8 +4,61 @@ export const MEDIA_BASE='/api/v1/asset-center/pose-gallery/media/';
 let csrfProvider=()=>'';
 export function setCsrfProvider(fn){csrfProvider=typeof fn==='function'?fn:()=>'';}
 
+const LEGACY_COSTUME_MEDIA_PREFIX='/api/v1/asset-center/costumes/';
+const REMOTE_COSTUME_PREFIXES=[
+ ['https://ai-costume-gallery.pages.dev/thumbs/costume/','thumbs/costume/'],
+ ['https://ai-costume-gallery.pages.dev/img/costume/','img/costume/'],
+ ['https://ai-costume-gallery.pages.dev/thumbs/','thumbs/costume/'],
+ ['https://ai-costume-gallery.pages.dev/img/','img/costume/'],
+ ['https://ai-costume-anime-gallery.pages.dev/thumbs/','thumbs/costumes/gia-anime/'],
+ ['https://ai-costume-anime-gallery.pages.dev/img/','img/costumes/gia-anime/'],
+ ['https://charadb-2fi.pages.dev/thumb/','thumbs/costumes/charadb/'],
+ ['https://charadb-2fi.pages.dev/img/','img/costumes/charadb/'],
+];
+export function localizeCostumePath(src){
+ const raw=String(src||'').trim();
+ if(!raw)return '';
+ if(raw.startsWith(LEGACY_COSTUME_MEDIA_PREFIX))return raw;
+ if(raw.startsWith(MEDIA_BASE))return raw.slice(MEDIA_BASE.length);
+ if(raw.startsWith('https://ai-costume-anime-gallery.pages.dev/png/')){
+  const tail=raw.slice('https://ai-costume-anime-gallery.pages.dev/png/'.length);
+  const stem=tail.replace(/\.[^./]+$/,'');
+  return stem?`img/costumes/gia-anime/${stem}.webp`:'';
+ }
+ for(const [remote,local]of REMOTE_COSTUME_PREFIXES){
+  if(raw.startsWith(remote))return local+raw.slice(remote.length);
+ }
+ if(/^(https?:\/\/|\/\/|data:|blob:)/i.test(raw))return '';
+ const clean=raw.replace(/^\/+/,'');
+ return (clean.startsWith('thumbs/')||clean.startsWith('img/'))?clean:'';
+}
+export function localCostumeImageUrl(src){
+ const norm=localizeCostumePath(src);
+ if(!norm)return '';
+ return norm.startsWith('/')?norm:MEDIA_BASE+norm;
+}
+export function sanitizeCostumeItem(item){
+ if(!item||typeof item!=='object'||item.source==='upload')return item;
+ const next={...item};
+ if(Array.isArray(next.views)){
+  next.views=next.views.map(v=>{
+   const vt=localizeCostumePath(v?.缩略图),vp=localizeCostumePath(v?.预览图),vo=localizeCostumePath(v?.原图);
+   const thumb=vt||vp||vo,orig=vo||vp||vt,prev=vp||orig||thumb;
+   return thumb&&orig?{...v,缩略图:thumb,预览图:prev,原图:orig}:null;
+  }).filter(Boolean);
+ }
+ const lt=localizeCostumePath(next.缩略图),lp=localizeCostumePath(next.预览图),lo=localizeCostumePath(next.原图);
+ const thumb=lt||lp||lo||next.views?.[0]?.缩略图||'',orig=lo||lp||lt||next.views?.[0]?.原图||'',prev=lp||orig||thumb;
+ if(!thumb||!orig)return null;
+ next.缩略图=thumb;next.预览图=prev;next.原图=orig;
+ return next;
+}
+
 export function referenceImageUrl(src){
- const value=String(src||'');
+ const value=String(src||'').trim();
+ if(!value)return '';
+ const mappedCostume= /^https:\/\//i.test(value)?localizeCostumePath(value):'';
+ if(mappedCostume)return mappedCostume.startsWith('/')?mappedCostume:MEDIA_BASE+mappedCostume;
  if(/^(data:|blob:|https?:\/\/|\/)/i.test(value))return value;
  const clean=value.replace(/^\/+/,'');
  if(clean.startsWith('thumbs/')||clean.startsWith('img/'))return MEDIA_BASE+clean;
@@ -183,6 +236,10 @@ export function toPublicHttpsUrl(src){
  if(clean.startsWith('img/portrait/'))return `https://ai-portrait-gallery.pages.dev/img/${clean.slice(13).replace(/\.webp$/i,'.png')}`;
  if(clean.startsWith('thumbs/portrait/'))return `https://ai-portrait-gallery.pages.dev/thumbs/${clean.slice(16)}`;
  if(clean.startsWith('img/costume/')||clean.startsWith('thumbs/costume/'))return `https://ai-costume-gallery.pages.dev/${clean}`;
+ if(clean.startsWith('img/costumes/gia-anime/'))return `https://ai-costume-anime-gallery.pages.dev/img/${clean.slice(23)}`;
+ if(clean.startsWith('thumbs/costumes/gia-anime/'))return `https://ai-costume-anime-gallery.pages.dev/thumbs/${clean.slice(26)}`;
+ if(clean.startsWith('img/costumes/charadb/'))return `https://charadb-2fi.pages.dev/img/${clean.slice(21)}`;
+ if(clean.startsWith('thumbs/costumes/charadb/'))return `https://charadb-2fi.pages.dev/thumb/${clean.slice(24)}`;
  if(clean.startsWith('img/depth/'))return `https://ai-pose-depth-gallery.pages.dev/img/${clean.slice(10).replace(/\.webp$/i,'.png')}`;
  if(clean.startsWith('thumbs/depth/'))return `https://ai-pose-depth-gallery.pages.dev/thumbs/${clean.slice(13).replace(/\.webp$/i,'.jpg')}`;
  return `https://ai-pose-gallery.pages.dev/${clean}`;

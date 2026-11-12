@@ -26,20 +26,37 @@ def write(path: Path, value):
 
 
 def build_gallery(repo: Path):
-    data = repo / "assets" / "pose-gallery" / "data"
+    gallery = repo / "assets" / "pose-gallery"
+    data = gallery / "data"
     write(data / "costume-zh.json", [
         {"id": f"SPR-{i:04d}", "分类": "春季穿搭", "服装名称": f"春装{i}", "标签": ["象牙白"], "关键词": "ivory knit",
          "缩略图": f"thumbs/costume/SPR-{i:04d}.webp", "预览图": f"img/costume/SPR-{i:04d}.webp", "原图": f"img/costume/SPR-{i:04d}.webp",
          "检索": f"SPR-{i:04d} 春季穿搭 ivory"} for i in range(30)
-    ] + [{"id": "LIN-0001", "分类": "内衣・睡衣", "服装名称": "睡衣", "标签": [], "关键词": "", "缩略图": "thumbs/costume/LIN-0001.webp",
-          "预览图": "img/costume/LIN-0001.webp", "原图": "img/costume/LIN-0001.webp", "检索": "LIN-0001"}])
+    ] + [
+        {"id": "LIN-0001", "分类": "内衣・睡衣", "服装名称": "睡衣", "标签": [], "关键词": "", "缩略图": "thumbs/costume/LIN-0001.webp",
+         "预览图": "img/costume/LIN-0001.webp", "原图": "img/costume/LIN-0001.webp", "检索": "LIN-0001"},
+        {"id": "missing-local", "分类": "春季穿搭", "服装名称": "缺失文件", "标签": [], "关键词": "",
+         "缩略图": "thumbs/costume/MISSING.webp", "预览图": "img/costume/MISSING.webp", "原图": "img/costume/MISSING.webp", "检索": "missing"},
+    ])
     write(data / "costume-shisei-zh.json", [{"id": "shisei-C001", "source": "shisei", "一级分类": "现实", "分类": "中国历代", "服装名称": "商",
         "标签": ["商"], "关键词": "", "缩略图": "thumbs/costumes/shisei/c1.webp", "预览图": "img/costumes/shisei/c1.webp", "原图": "img/costumes/shisei/c1.webp",
         "views": [{"id": "front", "label": "正面", "缩略图": "thumbs/costumes/shisei/c1.webp", "预览图": "img/costumes/shisei/c1.webp", "原图": "img/costumes/shisei/c1.webp"}], "检索": "shisei 商"}])
-    write(data / "costume-gia-anime-zh.json", [])
+    write(data / "costume-gia-anime-zh.json", [
+        {"id": "remote-bad", "source": "gia-anime", "一级分类": "二次元", "分类": "春季穿搭", "服装名称": "外链禁止",
+         "缩略图": "https://evil.example.com/a.webp", "预览图": "https://evil.example.com/b.webp", "原图": "https://evil.example.com/c.png", "检索": "remote-bad"},
+    ])
     write(data / "costume-anime-zh.json", [{"id": "charadb-O001", "source": "charadb", "一级分类": "二次元", "分类": "泳装", "服装名称": "泳装",
         "标签": [], "关键词": "", "缩略图": "https://charadb-2fi.pages.dev/thumb/O001.webp", "预览图": "https://charadb-2fi.pages.dev/img/O001.jpg",
         "原图": "https://charadb-2fi.pages.dev/img/O001.jpg", "敏感": True, "检索": "charadb 泳装"}])
+    for i in range(30):
+        write(gallery / "thumbs" / "costume" / f"SPR-{i:04d}.webp", b"RIFF0000WEBPVP8 ")
+        write(gallery / "img" / "costume" / f"SPR-{i:04d}.webp", b"RIFF0000WEBPVP8 ")
+    write(gallery / "thumbs" / "costume" / "LIN-0001.webp", b"RIFF0000WEBPVP8 ")
+    write(gallery / "img" / "costume" / "LIN-0001.webp", b"RIFF0000WEBPVP8 ")
+    write(gallery / "thumbs" / "costumes" / "shisei" / "c1.webp", b"RIFF0000WEBPVP8 ")
+    write(gallery / "img" / "costumes" / "shisei" / "c1.webp", b"RIFF0000WEBPVP8 ")
+    write(gallery / "thumbs" / "costumes" / "charadb" / "O001.webp", b"RIFF0000WEBPVP8 ")
+    write(gallery / "img" / "costumes" / "charadb" / "O001.jpg", b"\xff\xd8\xff\xe0\x00\x10JFIF")
     poses = []
     for system, prefix in (("全身单人・标准系", "full_std"), ("全身单人・性感系", "full_sexy")):
         for number in ("P001", "P002"):
@@ -87,6 +104,24 @@ class PoseGalleryTests(unittest.TestCase):
             g.costume_page(self.repo, top="未知")
         with self.assertRaises(ValueError):
             g.costume_page(self.repo, limit=0)
+
+    def test_costume_forbids_external_urls_and_localizes_known_cdn(self):
+        all_items = g.costume_page(self.repo, safe=False, limit=120)["items"]
+        ids = {item["id"] for item in all_items}
+        self.assertNotIn("remote-bad", ids)
+        self.assertNotIn("missing-local", ids)
+        charadb = next(item for item in all_items if item["id"] == "charadb-O001")
+        self.assertEqual(charadb["缩略图"], "thumbs/costumes/charadb/O001.webp")
+        self.assertEqual(charadb["预览图"], "img/costumes/charadb/O001.jpg")
+        self.assertEqual(charadb["原图"], "img/costumes/charadb/O001.jpg")
+        for item in all_items:
+            for key in ("缩略图", "预览图", "原图"):
+                self.assertFalse(str(item.get(key, "")).startswith(("http://", "https://")), item)
+        self.assertEqual(
+            g.localize_costume_path("https://ai-costume-anime-gallery.pages.dev/png/SPR-0001.png"),
+            "img/costumes/gia-anime/SPR-0001.webp",
+        )
+        self.assertEqual(g.localize_costume_path("https://evil.example.com/a.webp"), "")
 
     def test_poses_group_by_number_with_angle_order_and_safe_mode(self):
         grouped = g.pose_page(self.repo)
@@ -182,6 +217,7 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     self.assertEqual(costumes.json()["limit"], 24)
                     media = client.get("/api/v1/asset-center/pose-gallery/media/thumbs/portrait/p0.webp")
                     self.assertEqual(media.status_code, 200)
+                    self.assertEqual(media.headers.get("cache-control"), "private, max-age=86400")
                     self.assertEqual(client.get("/api/v1/asset-center/pose-gallery/media/thumbs/%2e%2e/secret.json").status_code, 404)
 
                     # Local ComfyUI relay is completely removed.

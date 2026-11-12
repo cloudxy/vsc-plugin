@@ -1,7 +1,7 @@
 // Shared character-studio state: recipe, provider configuration, CLI/OAuth auth status,
 // history and active generation. Lives at module scope so switching pages keeps progress.
 import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,PROVIDER_META,PROVIDER_ORDER,
- stitchRecipeCanvas,referenceImageUrl,poseThumbPath,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin} from './character-studio-ai.js';
+ stitchRecipeCanvas,referenceImageUrl,localCostumeImageUrl,poseThumbPath,sanitizeCostumeItem,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin} from './character-studio-ai.js';
 
 const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',SAFE_KEY='pose_atlas_safe_mode_v1';
 const DB_NAME='pose_atlas_studio_db',STORE_NAME='kv_store';
@@ -88,7 +88,7 @@ const defaultAuthState=()=>({
 // ------------------------------------------------------------------ state
 const storedRecipe=readJson(RECIPE_KEY,null);
 const state={
- recipe:storedRecipe?{...emptyRecipe(),portrait:storedRecipe.portrait??null,costume:storedRecipe.costume??null,pose:storedRecipe.pose??null}:emptyRecipe(),
+ recipe:storedRecipe?{...emptyRecipe(),portrait:storedRecipe.portrait??null,costume:sanitizeCostumeItem(storedRecipe.costume)??null,pose:storedRecipe.pose??null}:emptyRecipe(),
  apiConfig:mergeStoredConfig(readJson(CFG_KEY,null)),
  authStatus:defaultAuthState(),
  authPolling:null,
@@ -123,7 +123,10 @@ function persistRecipe(){
  idbWrite(RECIPE_KEY,state.recipe).catch(()=>toast('配方保存失败，请检查浏览器存储空间'));
  ls.set(RECIPE_KEY,JSON.stringify(recipeBackup(state.recipe)));
 }
-function setRecipe(next){state.recipe=next;persistRecipe();emit();}
+function setRecipe(next){
+ state.recipe={...next,costume:next?.costume?sanitizeCostumeItem(next.costume):null};
+ persistRecipe();emit();
+}
 function saveConfig(){ls.set(CFG_KEY,JSON.stringify(state.apiConfig));emit();}
 
 function hydrate(){
@@ -131,7 +134,7 @@ function hydrate(){
  hydration=Promise.all([idbRead(RECIPE_KEY),idbRead(HISTORY_KEY)]).then(([recipe,history])=>{
   if(recipe){
    if(recipe.pose?.useDepth!==undefined)state.poseDepthMode=Boolean(recipe.pose.useDepth);
-   state.recipe={portrait:recipe.portrait??null,costume:recipe.costume??null,pose:recipe.pose??null,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
+   state.recipe={portrait:recipe.portrait??null,costume:sanitizeCostumeItem(recipe.costume)??null,pose:recipe.pose??null,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
   }
   if(Array.isArray(history)){state.history=history;state.previewUrl=state.previewUrl||history[0]?.imageUrl||'';}
   state.hydrated=true;emit();
@@ -339,6 +342,7 @@ export function recipeCount(recipe=state.recipe){return [recipe.portrait,recipe.
 export function slotThumb(slot,item){
  if(!item)return '';
  if(slot==='pose')return referenceImageUrl(poseThumbPath(item));
+ if(slot==='costume'&&item.source!=='upload')return localCostumeImageUrl(item.缩略图||item.预览图||item.原图);
  return referenceImageUrl(item.缩略图||item.预览图||item.原图);
 }
 export function mountRecipeDock(container,{onCompose,force=false}={}){

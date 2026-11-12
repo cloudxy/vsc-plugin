@@ -2,9 +2,10 @@
 
 The datasets and images stay in the ignored ``assets/pose-gallery`` directory of the
 workspace; nothing here is packaged.  Items keep the original Chinese field names so
-the browser recipe, prompt builder and ComfyUI workflow receive the same structure
-as the upstream gallery.  Relative ``thumbs/`` and ``img/`` paths are resolved by the
-media endpoint, while remote gallery URLs stay untouched.
+the browser recipe and prompt builder receive a stable gallery structure.  Relative
+``thumbs/`` and ``img/`` paths are resolved by the local media endpoint; costume
+entries strictly forbid external ``http(s)://`` image URLs and must resolve to local
+files on disk so browsing never consumes external bandwidth.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ COSTUME_SOURCES = (
     {"id": "shisei", "label": "Shisei · 中国历代", "top": "现实", "url": "https://github.com/wquguru/shisei",
      "notice": "wquguru 的 AI 生成服装参考，CC0；请标注来源。并非专业历史服饰复原。"},
     {"id": "gia-anime", "label": "ギア · 动漫服装", "top": "二次元", "url": "https://ai-costume-anime-gallery.pages.dev/",
-     "notice": "仅收录元数据，图片由ギア原站提供；使用请遵守原站说明。"},
+     "notice": "ギア（@giaaibusi）AI 动漫服装参考（已缓存至本地离线读取）；使用请遵守原站说明。"},
     {"id": "charadb", "label": "たき AI · CharaDB", "top": "二次元", "url": "https://github.com/taki-ttt/charadb/blob/main/LICENSE",
      "notice": "仅供参考，须遵守原作者限制（禁止真人、未成年人用途及图片再分发）；请阅读来源条款。"},
 )
@@ -102,6 +103,60 @@ def _page(rows, offset, limit):
 
 # --------------------------------------------------------------------------- costumes
 
+_LOCAL_MEDIA_URL_PREFIX = "/api/v1/asset-center/pose-gallery/media/"
+_LEGACY_COSTUME_URL_PREFIX = "/api/v1/asset-center/costumes/"
+_REMOTE_COSTUME_PREFIXES = (
+    ("https://ai-costume-gallery.pages.dev/thumbs/costume/", "thumbs/costume/"),
+    ("https://ai-costume-gallery.pages.dev/img/costume/", "img/costume/"),
+    ("https://ai-costume-gallery.pages.dev/thumbs/", "thumbs/costume/"),
+    ("https://ai-costume-gallery.pages.dev/img/", "img/costume/"),
+    ("https://ai-costume-anime-gallery.pages.dev/thumbs/", "thumbs/costumes/gia-anime/"),
+    ("https://ai-costume-anime-gallery.pages.dev/img/", "img/costumes/gia-anime/"),
+    ("https://charadb-2fi.pages.dev/thumb/", "thumbs/costumes/charadb/"),
+    ("https://charadb-2fi.pages.dev/img/", "img/costumes/charadb/"),
+)
+
+
+def localize_costume_path(url: str) -> str:
+    """Normalize a costume image reference to a safe local gallery path; forbid external URLs."""
+    raw = str(url or "").strip().replace("\\", "/")
+    if not raw or not raw.isprintable():
+        return ""
+    if raw.startswith(_LEGACY_COSTUME_URL_PREFIX):
+        return raw
+    if raw.startswith(_LOCAL_MEDIA_URL_PREFIX):
+        raw = raw[len(_LOCAL_MEDIA_URL_PREFIX):]
+    elif raw.startswith("https://ai-costume-anime-gallery.pages.dev/png/"):
+        tail = raw[len("https://ai-costume-anime-gallery.pages.dev/png/"):]
+        stem = Path(tail).stem
+        raw = f"img/costumes/gia-anime/{stem}.webp" if stem else ""
+    else:
+        for remote_prefix, local_prefix in _REMOTE_COSTUME_PREFIXES:
+            if raw.startswith(remote_prefix):
+                raw = local_prefix + raw[len(remote_prefix):]
+                break
+    if raw.startswith(("http://", "https://", "//", "data:")):
+        return ""
+    clean = raw.lstrip("/")
+    if not clean.startswith(MEDIA_PREFIXES):
+        return ""
+    parts = clean.split("/")
+    if any(not part or part.startswith(".") for part in parts):
+        return ""
+    if Path(clean).suffix.lower() not in MEDIA_SUFFIXES:
+        return ""
+    return clean
+
+
+def _local_costume_media(root: Path, url: str) -> str:
+    norm = localize_costume_path(url)
+    if not norm:
+        return ""
+    if norm.startswith(_LEGACY_COSTUME_URL_PREFIX):
+        return norm
+    return norm if (root / norm).is_file() else ""
+
+
 def _legacy_costumes(repository: Path):
     from vsc.assets.costume_gallery import cached_costumes
     items, _ = cached_costumes(Path(repository) / "assets")
@@ -120,6 +175,16 @@ def _legacy_costumes(repository: Path):
 def load_costumes(repository: Path):
     root = gallery_root(repository)
     paths = [root / "data" / name for name in COSTUME_FILES]
+    media_dirs = [
+        root / "thumbs" / "costume",
+        root / "img" / "costume",
+        root / "thumbs" / "costumes" / "shisei",
+        root / "img" / "costumes" / "shisei",
+        root / "thumbs" / "costumes" / "gia-anime",
+        root / "img" / "costumes" / "gia-anime",
+        root / "thumbs" / "costumes" / "charadb",
+        root / "img" / "costumes" / "charadb",
+    ]
 
     def build():
         rows, seen = [], set()
@@ -138,13 +203,45 @@ def load_costumes(repository: Path):
                 if not isinstance(raw, dict) or not raw.get("id") or raw["id"] in seen:
                     continue
                 item = dict(raw)
+                raw_views = item.get("views")
+                if isinstance(raw_views, list) and raw_views:
+                    norm_views = []
+                    for view in raw_views:
+                        if not isinstance(view, dict):
+                            continue
+                        vt = _local_costume_media(root, view.get("缩略图"))
+                        vp = _local_costume_media(root, view.get("预览图"))
+                        vo = _local_costume_media(root, view.get("原图"))
+                        v_thumb = vt or vp or vo
+                        v_orig = vo or vp or vt
+                        v_prev = vp or v_orig or v_thumb
+                        if v_thumb and v_orig:
+                            norm_views.append({**view, "缩略图": v_thumb, "预览图": v_prev, "原图": v_orig})
+                    if not norm_views:
+                        continue
+                    item["views"] = norm_views
+
+                lt = _local_costume_media(root, item.get("缩略图"))
+                lp = _local_costume_media(root, item.get("预览图"))
+                lo = _local_costume_media(root, item.get("原图"))
+                if not (lt or lp or lo) and item.get("views"):
+                    first_view = item["views"][0]
+                    lt, lp, lo = first_view["缩略图"], first_view["预览图"], first_view["原图"]
+                thumb = lt or lp or lo
+                orig = lo or lp or lt
+                prev = lp or orig or thumb
+                if not (thumb and orig):
+                    continue
+                item["缩略图"] = thumb
+                item["预览图"] = prev
+                item["原图"] = orig
+
                 source = item.get("source") or default_source or "gia"
                 item["source"] = source
                 item.setdefault("一级分类", meta.get(source, {}).get("top", "现实"))
                 item.setdefault("来源", meta.get(source, {}).get("label", source))
                 item.setdefault("来源地址", meta.get(source, {}).get("url", ""))
                 item.setdefault("标签", [])
-                item.setdefault("预览图", item.get("原图") or item.get("缩略图") or "")
                 item["敏感"] = bool(item.get("敏感")) or item.get("分类") in NSFW_COSTUME_CATEGORIES
                 item["_text"] = " ".join(str(x) for x in (
                     item.get("检索"), item["id"], item.get("服装名称"), item.get("关键词"), item.get("日文名称"),
@@ -154,7 +251,7 @@ def load_costumes(repository: Path):
         return {"items": rows, "by_id": {r["id"]: r for r in rows}, "mode": mode}
 
     legacy_dir = Path(repository) / "assets" / "服饰"
-    return _cached(("costumes", str(root)), paths + [legacy_dir], build)
+    return _cached(("costumes", str(root)), paths + media_dirs + [legacy_dir], build)
 
 
 def costume_page(repository, *, top="", source="", category="", tag="", q="", safe=True,

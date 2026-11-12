@@ -673,7 +673,7 @@ def install_character_studio_routes(app, etag, read_actor, origin):
             path,
             media_type=pose_gallery.media_type(path),
             content_disposition_type="inline",
-            headers={"Cache-Control": "private, max-age=3600"},
+            headers={"Cache-Control": "private, max-age=86400"},
         )
 
     @app.get("/api/v1/character-studio/auth/status")
