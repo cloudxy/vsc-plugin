@@ -52,13 +52,17 @@ AGY_IMAGE_SCHEMA = json.dumps(
             "saved_path": {"type": "string"},
             "error": {"type": "string"},
         },
-        "required": ["saved_path"],
+        "required": ["saved_path", "error"],
     },
     separators=(",", ":"),
 )
 _WILDCARD = re.compile(r"^(?:(https?)://)?\*\.([a-z0-9.-]+)(?::(\d+))?(?:/.*)?$", re.I)
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 _MODEL_ID_RE = re.compile(r"\b(?:gemini|claude|gpt)-[a-z0-9][a-z0-9.-]{2,60}\b", re.I)
+_SAFE_CONV_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{3,127}$")
+_ABS_IMAGE_PATH_RE = re.compile(r"(/[^\s`'\"<>()]+?\.(?:png|jpe?g|webp|gif))", re.I)
+_QUOTA_RESET_RE = re.compile(r"reset after\s+([0-9hms.]+)", re.I)
+_FALLBACK_BIN_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
 _IMAGE_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 
 
@@ -154,8 +158,24 @@ def _agy_brain_dir() -> Path:
     return Path.home() / AGY_BRAIN_REL
 
 
+def _resolve_cli_bin(name: str) -> str | None:
+    found = shutil.which(name)
+    if found:
+        return found
+    if getattr(shutil.which, "__module__", "") != "shutil":
+        return None
+    for folder in (*_FALLBACK_BIN_DIRS, str(Path.home() / ".local" / "bin")):
+        cand = Path(folder) / name
+        try:
+            if cand.is_file() and os.access(cand, os.X_OK):
+                return str(cand)
+        except OSError:
+            continue
+    return None
+
+
 def _grok_auth_status() -> dict:
-    cli_installed = bool(shutil.which("grok"))
+    cli_installed = bool(_resolve_cli_bin("grok"))
     problem = grok_credentials.key_problem()
     ready = problem is None
     has_file = grok_credentials.LOGIN_FILE.is_file()
@@ -184,7 +204,7 @@ def _grok_auth_status() -> dict:
 
 
 def _agy_auth_status() -> dict:
-    cli_installed = bool(shutil.which("agy"))
+    cli_installed = bool(_resolve_cli_bin("agy"))
     state_file = _agy_state_file()
     try:
         has_state = state_file.is_file() and state_file.stat().st_size > 0
@@ -213,7 +233,7 @@ def _agy_auth_status() -> dict:
 
 def _verify_agy_online() -> dict:
     info = _agy_auth_status()
-    agy_bin = shutil.which("agy")
+    agy_bin = _resolve_cli_bin("agy")
     if not agy_bin:
         return {**info, "verified": False}
     try:
@@ -221,7 +241,7 @@ def _verify_agy_online() -> dict:
             [agy_bin, "models"],
             capture_output=True,
             text=True,
-            timeout=25,
+            timeout=45,
             stdin=subprocess.DEVNULL,
             check=False,
         )
@@ -271,15 +291,15 @@ def _open_macos_terminal(command: str) -> bool:
 
 
 def _trigger_auth_login(provider: str) -> dict:
-    if provider in ("grok", "grok_auth"):
-        grok_bin = shutil.which("grok")
+    if provider in ("grok", "grok_auth", "grok_video_auth"):
+        grok_bin = _resolve_cli_bin("grok")
         if not grok_bin:
             return {
                 "started": False,
                 "command": "grok login --oauth",
                 "message": "本机未找到 grok 命令，请先安装 grok CLI 后在终端运行 grok login --oauth",
             }
-        if _open_macos_terminal("grok login --oauth"):
+        if _open_macos_terminal(f"{grok_bin} login --oauth"):
             return {
                 "started": True,
                 "command": "grok login --oauth",
@@ -305,13 +325,14 @@ def _trigger_auth_login(provider: str) -> dict:
                 "message": "无法自动启动登录进程，请复制命令 grok login --oauth 在终端执行。",
             }
     if provider in ("agy", "agy_auth"):
-        if not shutil.which("agy"):
+        agy_bin = _resolve_cli_bin("agy")
+        if not agy_bin:
             return {
                 "started": False,
                 "command": "agy",
                 "message": "本机未找到 agy 命令，请先安装 Antigravity CLI 后在终端运行 agy 完成登录。",
             }
-        if _open_macos_terminal("agy"):
+        if _open_macos_terminal(agy_bin):
             return {
                 "started": True,
                 "command": "agy",
@@ -466,41 +487,208 @@ def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
     raise HTTPException(502, "[Grok 授权] 平台已响应但未返回有效图片")
 
 
-def _extract_agy_saved_file(stdout: str, tmp_dir: Path, out_path: Path, ref_names: set[str]) -> Path | None:
-    if out_path.is_file():
-        return out_path
-    cleaned = _ANSI_RE.sub("", stdout or "").strip()
-    parsed = None
-    for candidate_text in (cleaned, *(line.strip() for line in reversed(cleaned.splitlines()) if line.strip().startswith("{"))):
-        try:
-            parsed = json.loads(candidate_text)
-            break
-        except ValueError:
-            continue
-    if isinstance(parsed, dict):
-        structured = parsed.get("structured_output") if isinstance(parsed.get("structured_output"), dict) else parsed
-        saved = str(structured.get("saved_path") or "").strip()
-        if saved:
-            cand = Path(saved).expanduser()
-            if not cand.is_absolute():
-                cand = tmp_dir / cand
-            try:
-                resolved = cand.resolve()
-                brain_root = _agy_brain_dir().resolve()
-                if resolved.is_file() and (
-                    resolved.is_relative_to(tmp_dir) or resolved.is_relative_to(brain_root)
-                ):
-                    return resolved
-            except OSError:
-                pass
-    for child in sorted(tmp_dir.iterdir()):
-        if child.is_file() and child.name not in ref_names and _detect_image_mime(child.read_bytes()):
-            return child
+def _probe_agy_image_file(
+    candidate: str | Path,
+    tmp_dir: Path,
+    brain_root: Path | None,
+    ref_names: set[str],
+) -> Path | None:
+    if isinstance(candidate, Path):
+        cand = candidate
+    else:
+        text = str(candidate or "").strip().strip("`'\"")
+        if text.startswith("file://"):
+            text = text[7:]
+        if not text:
+            return None
+        cand = Path(text).expanduser()
+        if not cand.is_absolute():
+            cand = tmp_dir / cand
+    try:
+        resolved = cand.resolve()
+        if not resolved.is_file():
+            return None
+        in_tmp = resolved.is_relative_to(tmp_dir)
+        in_brain = brain_root is not None and resolved.is_relative_to(brain_root)
+        if not (in_tmp or in_brain):
+            return None
+        if in_tmp and resolved.parent == tmp_dir and resolved.name in ref_names:
+            return None
+        with resolved.open("rb") as fh:
+            head = fh.read(16)
+        if _detect_image_mime(head):
+            return resolved
+    except OSError:
+        return None
     return None
 
 
+def _parse_agy_json_output(stdout: str) -> dict | None:
+    cleaned = _ANSI_RE.sub("", stdout or "").strip()
+    if not cleaned:
+        return None
+    candidates = [cleaned]
+    candidates.extend(
+        line.strip()
+        for line in reversed(cleaned.splitlines())
+        if line.strip().startswith("{") and line.strip() != cleaned
+    )
+    for candidate_text in candidates:
+        try:
+            obj = json.loads(candidate_text)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
+def _extract_agy_result(
+    stdout: str,
+    stderr: str,
+    tmp_dir: Path,
+    out_path: Path,
+    ref_names: set[str],
+) -> tuple[Path | None, str]:
+    try:
+        brain_root = _agy_brain_dir().resolve()
+    except OSError:
+        brain_root = None
+
+    direct = _probe_agy_image_file(out_path, tmp_dir, brain_root, ref_names)
+    if direct is not None:
+        return direct, ""
+
+    parsed = _parse_agy_json_output(stdout)
+    structured: dict = {}
+    conv_id = ""
+    response_text = ""
+    if isinstance(parsed, dict):
+        raw_struct = parsed.get("structured_output")
+        if isinstance(raw_struct, str) and raw_struct.strip().startswith("{"):
+            try:
+                raw_struct = json.loads(raw_struct)
+            except ValueError:
+                raw_struct = None
+        structured = raw_struct if isinstance(raw_struct, dict) else parsed
+        conv_id = str(parsed.get("conversation_id") or "").strip()
+        response_text = str(parsed.get("response") or "").strip()
+
+        saved = str(structured.get("saved_path") or "").strip()
+        if saved:
+            found = _probe_agy_image_file(saved, tmp_dir, brain_root, ref_names)
+            if found is not None:
+                return found, ""
+
+        for match in _ABS_IMAGE_PATH_RE.findall(response_text):
+            found = _probe_agy_image_file(match, tmp_dir, brain_root, ref_names)
+            if found is not None:
+                return found, ""
+
+    try:
+        tmp_children = sorted(tmp_dir.iterdir())
+    except OSError:
+        tmp_children = []
+    for child in tmp_children:
+        found = _probe_agy_image_file(child, tmp_dir, brain_root, ref_names)
+        if found is not None:
+            return found, ""
+
+    if brain_root is not None and conv_id and _SAFE_CONV_ID_RE.match(conv_id):
+        try:
+            conv_dir = (brain_root / conv_id).resolve()
+            if conv_dir.is_relative_to(brain_root) and conv_dir.is_dir():
+                candidates = [p for p in conv_dir.iterdir() if p.is_file() and not p.name.startswith(".")]
+                candidates.sort(
+                    key=lambda p: (
+                        0 if p.name.startswith("vsc_studio_result") else 1,
+                        -p.stat().st_mtime,
+                        p.name,
+                    )
+                )
+                for child in candidates:
+                    found = _probe_agy_image_file(child, tmp_dir, brain_root, ref_names)
+                    if found is not None:
+                        return found, ""
+        except OSError:
+            pass
+
+    for err_candidate in (
+        structured.get("error") if isinstance(structured, dict) else None,
+        parsed.get("error") if isinstance(parsed, dict) else None,
+    ):
+        text = str(err_candidate or "").strip()
+        if text:
+            return None, text
+
+    if response_text and response_text not in ("正在等待生图结果", "正在等待生图结果。"):
+        return None, response_text
+
+    cleaned_err = _ANSI_RE.sub("", stderr or "").strip()
+    err_lines = [ln.strip() for ln in cleaned_err.splitlines() if ln.strip()]
+    non_warning_err = [ln for ln in err_lines if not ln.lower().startswith("warning:")]
+    if non_warning_err:
+        return None, " ".join(non_warning_err)
+
+    cleaned_out = _ANSI_RE.sub("", stdout or "").strip()
+    if cleaned_out and parsed is None:
+        return None, cleaned_out
+    if err_lines:
+        return None, " ".join(err_lines)
+    return None, ""
+
+
+def _raise_agy_generation_error(returncode: int, detail: str) -> None:
+    compact = re.sub(r"\s+", " ", detail or "").strip()
+    lower = compact.lower()
+    if (
+        "429" in lower
+        or "resource_exhausted" in lower
+        or "quota_exhausted" in lower
+        or "exhausted your capacity" in lower
+        or "rate_limit" in lower
+        or "too many requests" in lower
+    ):
+        reset_match = _QUOTA_RESET_RE.search(compact)
+        reset_hint = f"（预计 {reset_match.group(1)} 后重置）" if reset_match else ""
+        raise HTTPException(
+            429,
+            f"[AGY 授权] 当前账号的 AGY 生图模型配额已用尽{reset_hint}。"
+            "请等待配额重置后再试，或在「API 接口配置」中切换为 Gemini API 接口 / Grok 生图通道。",
+        )
+    if (
+        "no image generated in response" in lower
+        or "image_safety" in lower
+        or "safety" in lower
+        or "content policy" in lower
+        or "prohibited" in lower
+        or ("安全" in compact and ("拦截" in compact or "过滤" in compact or "拒绝" in compact))
+    ):
+        raise HTTPException(
+            422,
+            "[AGY 授权] 生图请求触发模型安全策略拦截（未返回图像）。请尝试更换较温和的参考图或调整提示词描述后重试。",
+        )
+    if (
+        "unauthenticated" in lower
+        or "not logged in" in lower
+        or "login required" in lower
+        or "invalid_grant" in lower
+        or "token expired" in lower
+        or "authentication failed" in lower
+    ):
+        raise HTTPException(
+            401,
+            "[AGY 授权] 本机 AGY 登录态已过期或未授权，请在终端执行 agy 重新完成 Google 登录。",
+        )
+    short = compact[:280]
+    raise HTTPException(
+        502,
+        f"[AGY 授权] 未获取到有效生成图片（exit={returncode}）{('：' + short) if short else ''}",
+    )
+
+
 def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
-    agy_bin = shutil.which("agy")
+    agy_bin = _resolve_cli_bin("agy")
     if not agy_bin:
         raise HTTPException(422, "未检测到本机 agy CLI，请先安装 Antigravity CLI")
     if not _agy_auth_status()["ready"]:
@@ -528,21 +716,25 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
             ref_paths.append(target)
             ref_names.add(name)
         out_path = tmp_dir / "result.png"
+        ref_list = ", ".join(str(p) for p in ref_paths)
         ref_lines = "\n".join(f"- 图{i}: {p}" for i, p in enumerate(ref_paths, 1))
         agy_prompt = (
-            "请直接调用 `image-generator` 子智能体生成角色图片，严禁修改任何工作区代码文件。\n"
-            f"参考图文件列表（依次对应提示词中的图1..图{len(ref_paths)}）：\n{ref_lines}\n"
-            f"输出画幅比例：{aspect_ratio}\n"
-            f"请将最终生成的 PNG 图片保存到该精确路径：{out_path}\n"
-            f"生图提示词：\n{prompt}\n"
-            '完成后只输出 JSON：{"saved_path": "<实际保存路径>", "error": ""}'
+            "你是 VSC 角色合成台的生图协调器。严禁读取或修改任何工作区文件，严禁执行终端命令，严禁轮询 manage_subagents 或读取 transcript。\n"
+            "请立即通过 `invoke_subagent` 调用 `image-generator` 子智能体执行一次生图：\n"
+            '- ImageName: "vsc_studio_result"\n'
+            f'- AspectRatio: "{aspect_ratio}"\n'
+            f"- ImagePaths（按顺序对应提示词中的图1..图{len(ref_paths)}）: [{ref_list}]\n"
+            f"参考图对应关系：\n{ref_lines}\n"
+            "要求 `image-generator` 直接调用一次 `generate_image`（若遇到 429 配额耗尽或安全拦截，不要重试，立即原样汇报错误信息；生图成功后直接回复生成的 brain 文件绝对路径，无需移动或转换文件）。\n"
+            '你在发出 `invoke_subagent` 后直接简短输出一句“正在等待生图结果”并结束当前回合等待系统唤醒；收到子智能体回复后，立即调用 `finish` 工具填入 `saved_path`（生成图片的绝对路径，失败则填 ""）与 `error`（失败原因原文，成功则填 ""）；调用 `finish` 后若系统提示总结，仅回复 OK。\n\n'
+            f"生图提示词：\n{prompt}"
         )
         cmd = [
             agy_bin,
-            "--mode",
-            "auto",
             "--dangerously-skip-permissions",
             "--disable-slash-commands",
+            "--effort",
+            "low",
             "--add-dir",
             str(tmp_dir),
             "--output-format",
@@ -551,7 +743,7 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
             AGY_IMAGE_SCHEMA,
         ]
         if model and model != "image-generator":
-            cmd.extend(["-m", model])
+            cmd.extend(["--model", model])
         cmd.extend(["-p", agy_prompt])
         try:
             proc = subprocess.run(
@@ -568,7 +760,7 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
         except OSError as exc:
             raise HTTPException(502, f"[AGY 授权] 无法启动 agy CLI：{type(exc).__name__}") from exc
 
-        found = _extract_agy_saved_file(proc.stdout, tmp_dir, out_path, ref_names)
+        found, error_detail = _extract_agy_result(proc.stdout, proc.stderr, tmp_dir, out_path, ref_names)
         if found is not None:
             raw = found.read_bytes()
             mime = _detect_image_mime(raw)
@@ -578,8 +770,7 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
                     "model": model,
                     "provider": "agy_auth",
                 }
-        detail = _ANSI_RE.sub("", (proc.stderr or proc.stdout or "").strip())[:240]
-        raise HTTPException(502, f"[AGY 授权] 未获取到有效生成图片（exit={proc.returncode}）{('：' + detail) if detail else ''}")
+        _raise_agy_generation_error(proc.returncode, error_detail)
 
 
 def install_character_studio_routes(app, etag, read_actor, origin):
@@ -686,7 +877,7 @@ def install_character_studio_routes(app, etag, read_actor, origin):
         origin(request)
         read_actor(request)
         provider = str(body.get("provider") or "").strip()
-        if provider in ("grok", "grok_auth"):
+        if provider in ("grok", "grok_auth", "grok_video_auth"):
             info = _grok_auth_status()
             return {**info, "verified": info["ready"]}
         if provider in ("agy", "agy_auth"):

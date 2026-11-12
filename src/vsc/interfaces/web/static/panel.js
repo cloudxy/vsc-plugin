@@ -74,7 +74,7 @@ function resolvePathnameEntry(pathname='/',search=''){
   if(p==='/character/create')return apply({page:'assets',subview:'editor',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('type')?{asset_type:params.get('type')}:{}),...(params.get('id')||params.get('role_id')?{asset_id:params.get('id')||params.get('role_id')}:{})});
   if(p==='/asset-center')return apply({page:'asset-center',tab:'shared'});
   if(p==='/character-studio')return apply({page:'character-studio'});
-  if(p==='/api-settings')return apply({page:'api-settings'});
+  if(p==='/api-settings')return apply({page:'api-settings',...(params.get('tab')?{tab:params.get('tab')}:{})});
   if(p==='/recycle-bin')return apply({page:'project-management',tab:'recycle'});
   if(p==='/marketing-studio'||p==='/marketing')return apply({page:'marketing-studio',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('episode_id')?{episode:params.get('episode_id')}:{})});
   if(p==='/members')return apply({page:'access'});
@@ -346,7 +346,7 @@ async function loadCustomView(view){
     if(ticket===customViewRequest&&view===state.view)await assetCenter.load();
   }else if(view==='character-studio'||view==='api-settings'){
     if(!characterStudio){const {createCharacterStudio}=await import('./character-studio.js');characterStudio=createCharacterStudio($('character-studio-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),navigate:(page,options)=>navigateStandalone(page,options)});}
-    if(ticket===customViewRequest&&view===state.view)await characterStudio.load({mode:view==='api-settings'?'settings':'studio'});
+    if(ticket===customViewRequest&&view===state.view)await characterStudio.load({mode:view==='api-settings'?'settings':'studio',tab:currentEntry().get('tab')});
   }else if(['intelligent-creation','intelligent-storyboard'].includes(view)){
     if(!intelligentProduction){const {createIntelligentProductionPanel}=await import('./intelligent-production.js');intelligentProduction=createIntelligentProductionPanel({opened:openedCreativeTarget,api,notice,projects:()=>[...state.projectRows.values()],navigate:async(page,scope=state.object,p=state.project,options={})=>{setEntryOptions(page,p,scope,options);if(options.episode)episodeScope=options.episode;state.view=page;await selectProject(p,{scope});},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await intelligentProduction.load($('intelligent-production-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),view==='intelligent-storyboard'?'storyboard':'creation',currentEntry().get('task_target'));

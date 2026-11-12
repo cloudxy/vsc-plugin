@@ -1,6 +1,6 @@
 // Shared character-studio state: recipe, provider configuration, CLI/OAuth auth status,
 // history and active generation. Lives at module scope so switching pages keeps progress.
-import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,PROVIDER_META,PROVIDER_ORDER,
+import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,PROVIDER_META,PROVIDER_ORDER,VIDEO_PROVIDER_META,VIDEO_PROVIDER_ORDER,
  stitchRecipeCanvas,referenceImageUrl,localCostumeImageUrl,poseThumbPath,sanitizeCostumeItem,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin} from './character-studio-ai.js';
 
 const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',SAFE_KEY='pose_atlas_safe_mode_v1';
@@ -10,14 +10,20 @@ export const NSFW_COSTUME_CATEGORIES=new Set(['内衣・睡衣','性感穿搭'])
 export const isNsfwCostume=item=>Boolean(item?.敏感)||NSFW_COSTUME_CATEGORIES.has(item?.分类);
 export const isNsfwPose=item=>NSFW_POSE_SYSTEMS.has(item?.体系);
 const proxyDefault=provider=>provider==='grok'||provider==='qwen'||provider==='doubao';
+const videoProxyDefault=provider=>provider==='grok_video'||provider==='qwen_video'||provider==='doubao_video';
 const clone=v=>JSON.parse(JSON.stringify(v));
 
 function defaultConfig(){
  const provider=id=>({baseUrl:PROVIDER_META[id].defaultBaseUrl,apiKey:'',model:PROVIDER_META[id].models[0].value,customModel:''});
+ const videoProvider=id=>({baseUrl:VIDEO_PROVIDER_META[id].defaultBaseUrl,apiKey:'',model:VIDEO_PROVIDER_META[id].models[0].value,customModel:''});
  const providers={};for(const id of PROVIDER_ORDER)providers[id]=provider(id);
+ const videoProviders={};for(const id of VIDEO_PROVIDER_ORDER)videoProviders[id]=videoProvider(id);
  return {
   activeProvider:'agy_auth',imagePassMode:'url',useProxy:false,stylePreset:'realistic',sendStitchedSheet:false,
+  activeVideoProvider:'grok_video_auth',videoUseProxy:false,
   providers,
+  videoProviders,
+  videoDefaults:{mode:'image_to_video',aspectRatio:'16:9',resolution:'720p',durationSec:'5',generateAudio:true},
   agyParams:{aspectRatio:'3:4'},
   grokParams:{endpointMode:'auto',aspectRatio:'3:4',resolution:'2k',responseFormat:'auto'},
   gptParams:{endpointMode:'images_edits_json',size:'1024x1536',quality:'high',inputFidelity:'high',background:'auto',outputFormat:'png',moderation:'auto'},
@@ -33,11 +39,19 @@ export function mergeStoredConfig(raw){
  if(!raw||typeof raw!=='object')return base;
  const activeProvider=PROVIDER_META[raw.activeProvider]?raw.activeProvider:base.activeProvider;
  const useProxy=raw.useProxy===undefined?proxyDefault(activeProvider):Boolean(raw.useProxy);
+ const activeVideoProvider=VIDEO_PROVIDER_META[raw.activeVideoProvider]?raw.activeVideoProvider:base.activeVideoProvider;
+ const videoUseProxy=raw.videoUseProxy===undefined?videoProxyDefault(activeVideoProvider):Boolean(raw.videoUseProxy);
  const providers={};
  for(const id of PROVIDER_ORDER){
   const merged={...base.providers[id],...raw.providers?.[id]};
   if(!PROVIDER_META[id].models.some(m=>m.value===merged.model))merged.model=PROVIDER_META[id].models[0].value;
   providers[id]=merged;
+ }
+ const videoProviders={};
+ for(const id of VIDEO_PROVIDER_ORDER){
+  const merged={...base.videoProviders[id],...raw.videoProviders?.[id]};
+  if(!VIDEO_PROVIDER_META[id].models.some(m=>m.value===merged.model))merged.model=VIDEO_PROVIDER_META[id].models[0].value;
+  videoProviders[id]=merged;
  }
  return {
   activeProvider,
@@ -45,7 +59,11 @@ export function mergeStoredConfig(raw){
   useProxy,
   stylePreset:raw.stylePreset||base.stylePreset,
   sendStitchedSheet:Boolean(raw.sendStitchedSheet),
+  activeVideoProvider,
+  videoUseProxy,
   providers,
+  videoProviders,
+  videoDefaults:{...base.videoDefaults,...raw.videoDefaults},
   agyParams:{...base.agyParams,...raw.agyParams},
   grokParams:{...base.grokParams,...raw.grokParams},
   gptParams:{...base.gptParams,...raw.gptParams},
@@ -159,7 +177,7 @@ export async function refreshAuthStatus(){
  return state.authStatus;
 }
 export async function verifyAuth(vendor){
- const key=vendor==='grok'||vendor==='grok_auth'?'grok':'agy';
+ const key=vendor==='grok'||vendor==='grok_auth'||vendor==='grok_video_auth'?'grok':'agy';
  const data=await verifyAuthProvider(key,host.api);
  if(data&&typeof data==='object'){
   state.authStatus={...state.authStatus,[key]:{...state.authStatus[key],...data}};
@@ -169,7 +187,7 @@ export async function verifyAuth(vendor){
  return data;
 }
 export async function startAuthLogin(vendor){
- const key=vendor==='grok'||vendor==='grok_auth'?'grok':'agy';
+ const key=vendor==='grok'||vendor==='grok_auth'||vendor==='grok_video_auth'?'grok':'agy';
  stopAuthPolling();
  const res=await triggerAuthLogin(key,host.api);
  if(res?.message)toast(res.message);
@@ -280,9 +298,12 @@ export async function randomizeSlot(slot,scope){
 export function updateApiConfig(patch){
  const next={...state.apiConfig,...patch};
  if(patch.activeProvider&&patch.useProxy===undefined)next.useProxy=proxyDefault(patch.activeProvider);
+ if(patch.activeVideoProvider&&patch.videoUseProxy===undefined)next.videoUseProxy=videoProxyDefault(patch.activeVideoProvider);
  state.apiConfig=next;saveConfig();
 }
 export function updateProviderConfig(provider,patch){state.apiConfig={...state.apiConfig,providers:{...state.apiConfig.providers,[provider]:{...state.apiConfig.providers[provider],...patch}}};saveConfig();}
+export function updateVideoProviderConfig(provider,patch){state.apiConfig={...state.apiConfig,videoProviders:{...state.apiConfig.videoProviders,[provider]:{...state.apiConfig.videoProviders[provider],...patch}}};saveConfig();}
+export function updateVideoDefaults(patch){state.apiConfig={...state.apiConfig,videoDefaults:{...state.apiConfig.videoDefaults,...patch}};saveConfig();}
 export function updateParams(group,patch){state.apiConfig={...state.apiConfig,[group]:{...state.apiConfig[group],...patch}};saveConfig();}
 export function setCustomPrompt(value){state.customPrompt=value;emit();}
 export function currentPrompt(){return state.customPrompt??buildRecipePrompt(state.recipe,state.apiConfig.stylePreset);}
@@ -299,10 +320,11 @@ export async function refreshStitchPreview(){
  try{state.previewUrl=await stitchRecipeCanvas(state.recipe);emit();toast('已合成参考拼图');return state.previewUrl;}
  catch(error){toast(error?.message||'拼图失败');return '';}
 }
-async function snapshotGeneration(recipe,config,prompt){
- const {providers,...settings}=clone(config);
+export async function snapshotGeneration(recipe,config,prompt){
+ const {providers,videoProviders,...settings}=clone(config);
  const models=Object.fromEntries(Object.entries(providers).map(([key,value])=>[key,{model:value.model,customModel:value.customModel}]));
- return {recipe:await durableRecipe(recipe),prompt,settings,models};
+ const videoModels=Object.fromEntries(Object.entries(videoProviders||{}).map(([key,value])=>[key,{model:value.model,customModel:value.customModel}]));
+ return {recipe:await durableRecipe(recipe),prompt,settings,models,videoModels};
 }
 const throwIfAborted=signal=>{if(signal.aborted){const e=new Error('已停止');e.name='AbortError';throw e;}};
 async function completeGeneration(result,record,signal){
