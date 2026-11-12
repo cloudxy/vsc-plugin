@@ -850,18 +850,6 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   const params=new URLSearchParams({category:costumeCat,q:costumeQuery,offset:'0',limit:'120'});
   const data=await get('/api/v1/asset-center/costumes?'+params);
   if(!active(g))return;
-  const head=el('header','','costume-head'),top=el('div','','costume-top'),intro=el('div'),eyebrow=el('p','官方资产 · 服饰图','costume-eyebrow');
-  intro.append(eyebrow);
-  const heading=el('h2','','costume-title'),mark=el('span','服饰','costume-mark');
-  heading.append(mark,el('span',' 图库'));
-  intro.append(heading,el('p','只有服装、没有人物的竖图（2:3）。可按春、夏、秋、冬、内衣、派对、泳装、性感查看。'),el('p','这些服装图由本库生成。请逐张取用，不要整库转发。','costume-notice'));
-  top.append(intro);
-  const tools=el('div','','costume-tools');
-  tools.append(
-   button('使用说明',()=>costumeNote('使用说明','点分类，或用编号、颜色、单品搜索，例如 denim、白。点卡片看大图，左右方向键可以换一张。下载得到的是本库生成的原图。')),
-   button('使用注意',()=>costumeNote('使用注意','画面里只有服装，供创作时作服装参考。这些图不是在售商品，也不能当作真人的肖像或身材。请逐张取用。'))
-  );
-  top.append(tools);head.append(top);root.append(head);
   const seasons=el('div','','costume-tabs');seasons.setAttribute('role','tablist');bindAttribute(seasons,'aria-label','服饰分类');
   const pick=name=>{costumeCat=name;clearTimeout(costumeTimer);return load();};
   const all=button('全部 '+(data.total_all||0).toLocaleString('zh-CN'),()=>pick(''));
@@ -878,7 +866,13 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   input.oninput=()=>{costumeQuery=input.value;costumeFocus=true;clearTimeout(costumeTimer);costumeTimer=setTimeout(()=>{costumeTimer=0;if(!disposed)load();},150);};
   input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault?.();clearTimeout(costumeTimer);load();}});
   const count=el('span',Number(data.total||0).toLocaleString('zh-CN')+' 张','costume-count');
-  count.setAttribute('role','status');searchRow.append(input,count);root.append(searchRow);
+  count.setAttribute('role','status');
+  const tools=el('div','','costume-tools');
+  tools.append(
+   button('使用说明',()=>costumeNote('使用说明','点分类，或用编号、颜色、单品搜索，例如 denim、白。点卡片看大图，左右方向键可以换一张。下载得到的是本库生成的原图。')),
+   button('使用注意',()=>costumeNote('使用注意','画面里只有服装，供创作时作服装参考。这些图不是在售商品，也不能当作真人的肖像或身材。请逐张取用。'))
+  );
+  searchRow.append(input,count,tools);root.append(searchRow);
   if(costumeFocus){input.focus?.();costumeFocus=false;}
   const pageItems=(data.items||[]).slice();let next=data.next_offset??null;
   const grid=el('div','','costume-grid');
@@ -983,8 +977,9 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  async function officialCatalog(g){
   if(filters.asset_kind==='costume')return costumeBrowser(g);
   const form=el('form','','center-official-filters');
+  const filterHost=workbench?el('div','','center-official-filter-row'):form;
   const selectFilter=(key,label,choices)=>{
-   const select=field(form,label,'select');select.append(localizedOption('',label));
+   const select=field(filterHost,label,'select');select.append(localizedOption('',label));
    for(const [value,title]of choices)select.append(localizedOption(value,title));
    select.value=filters[key]||'';
    select.onchange=()=>{if(select.value)filters[key]=select.value;else delete filters[key];offset=0;return load();};
@@ -1003,26 +998,28 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     n.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));
     tabs.append(n);
    }
-   form.append(tabs);count=el('span','加载中…','center-count');count.setAttribute('role','status');form.append(count);
+   count=el('span','加载中…','center-count');count.setAttribute('role','status');filterHost.append(count);
+   form.append(tabs,filterHost);
   }else{
    selectFilter('asset_kind',msg('asset.asset_type'),officialSelectKinds);
   }
   const currentKind=filters.asset_kind||'';
+  let roleTagSelect=null;
   if(!currentKind||currentKind==='character'){
    selectFilter('role_level','角色级别',[['lead','主角'],['supporting','配角'],['extra','群演']]);
    const bands=[['child|male','幼年男'],['child|female','幼年女'],['teen|male','少年男'],['teen|female','少年女'],['young_adult|male','青年男'],['young_adult|female','青年女'],['middle_aged|male','中年男'],['middle_aged|female','中年女'],['senior|male','老年男'],['senior|female','老年女']];
-   const band=field(form,'人物档','select');band.append(localizedOption('','人物档'));
+   const band=field(filterHost,'人物档','select');band.append(localizedOption('','人物档'));
    for(const [value,title]of bands)band.append(localizedOption(value,title));
    const currentBand=filters.age_band&&filters.gender?filters.age_band+'|'+filters.gender:'';
    band.value=bands.some(([value])=>value===currentBand)?currentBand:'';
    band.onchange=()=>{const [age,gender]=(band.value||'|').split('|');if(age)filters.age_band=age;else delete filters.age_band;if(gender)filters.gender=gender;else delete filters.gender;delete filters.role_tag;offset=0;return load();};
    const cachedTags=facetCache.get(currentKind||'all')||[];
-   if(cachedTags.length)selectFilter('role_tag','风格/角色标签',cachedTags.map(t=>[t,t]));
+   if(cachedTags.length||workbench)roleTagSelect=selectFilter('role_tag','风格/角色标签',cachedTags.map(t=>[t,t]));
   }
-  const search=field(form,msg('gallery.search'),'input',filters.query||'');search.type='search';bindAttribute(search,'placeholder','搜索名称或标签');
+  const search=field(filterHost,msg('gallery.search'),'input',filters.query||'');search.type='search';bindAttribute(search,'placeholder','搜索名称或标签');
   search.oninput=()=>{filters.query=search.value;clearTimeout(searchTimer);searchTimer=setTimeout(()=>{offset=0;load();},300);};
   const submit=el('button',msg('ui.search'));submit.type='submit';form.append(submit);
-  if(Object.keys(filters).some(k=>filters[k]))form.append(button('清空筛选',()=>{filters={};offset=0;return load();},'center-clear-filters'));
+  if(Object.keys(filters).some(k=>filters[k]))filterHost.append(button('清空筛选',()=>{filters={};offset=0;return load();},'center-clear-filters'));
   form.onsubmit=e=>{e.preventDefault();clearTimeout(searchTimer);offset=0;load();};
   root.append(form);
 
@@ -1030,7 +1027,13 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   for(const k of Object.keys(reqFilters))if(reqFilters[k]===''||reqFilters[k]==null)delete reqFilters[k];
   const data=await get('/api/v1/asset-center?'+new URLSearchParams(reqFilters));
   if(!active(g))return;
-  if(data.facets?.role_tag?.length)facetCache.set(currentKind||'all',data.facets.role_tag);
+  if(data.facets?.role_tag?.length){
+   facetCache.set(currentKind||'all',data.facets.role_tag);
+   if(roleTagSelect&&roleTagSelect.options.length<=1){
+    for(const t of data.facets.role_tag)roleTagSelect.append(localizedOption(t,t));
+    roleTagSelect.value=filters.role_tag||'';
+   }
+  }
   if(workbench)setText(count,data.total+' 个资产');
   else{count=el('p','共'+data.total+'个资产','center-count');count.setAttribute('role','status');root.append(count);}
   const grid=el('div','','center-grid');

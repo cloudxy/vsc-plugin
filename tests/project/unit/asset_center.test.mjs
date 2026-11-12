@@ -161,6 +161,14 @@ test('official and shared tabs query their own sources and restore from the URL'
   const root=new Element('main',document),panel=createAssetCenter(root,context([],api));await panel.load();
   assert.ok(root.querySelector('.center-workbench-official'));
   assert.deepEqual(root.querySelector('.center-official-kinds').walk().filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','站位','音频','服饰']);
+  const filterRow=root.querySelector('.center-official-filter-row');
+  assert.ok(filterRow);
+  const filterChildren=root.querySelector('.center-official-filters').children.filter(n=>n.tagName!=='#TEXT');
+  assert.equal(filterChildren[0],root.querySelector('.center-official-kinds'));
+  assert.equal(filterChildren[1],filterRow);
+  assert.ok(filterRow.querySelector('.center-count'));
+  assert.ok(filterRow.walk().some(n=>n.tagName==='INPUT'));
+  assert.equal(filterRow.walk().filter(n=>n.tagName==='SELECT').length,3);
   assert.match(root.querySelector('.center-official-tags').textContent,/主角青年女/);
   assert.ok(root.querySelector('.center-cover').querySelector('.center-actions'));
   assert.ok(calls[0].includes('source=official')&&calls[0].includes('media_only=true')&&!calls[0].includes('asset_kind='));
