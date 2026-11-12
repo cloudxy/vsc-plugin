@@ -52,7 +52,8 @@ const click = async (container, text) => {
   assert.ok(requests.at(-1).includes('/api/v1/asset-center/costumes?'));
   assert.equal(find(root, '服饰').getAttribute('aria-pressed'), 'true');
   assert.equal(find(root, '全部 2').getAttribute('aria-pressed'), 'true');
-  assert.ok(root.textContent.includes('只有服装、没有人物的竖图'));
+  assert.equal(root.querySelector('.costume-head'), null);
+  assert.ok(!root.textContent.includes('只有服装、没有人物的竖图'));
   assert.equal(root.querySelector('.costume-open').querySelector('img').src, first.image);
   assert.ok(root.textContent.includes('ivory'));
   assert.ok(!root.textContent.includes('SPR-0001 ivory'));
