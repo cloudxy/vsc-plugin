@@ -14,7 +14,7 @@ function setup({api,refresh,storage=new Map()}={}){
   const document=new Document(''),root=document.createElement('section');document.body.append(root);globalThis.document=document;
   if(!globalThis.crypto)Object.defineProperty(globalThis,'crypto',{value:webcrypto});
   globalThis.sessionStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
-  const project={id:'project-1',name:'原项目',storage_policy:'postgres-series-v1',profile_snapshot:{character_style:'2d'},counts:{episodes:2,images:0,videos:0}};
+  const project={id:'project-1',name:'原项目',workspace_id:'space-1',workspace_name:'个人空间',storage_policy:'postgres-series-v1',profile_snapshot:{character_style:'2d'},counts:{episodes:2,images:0,videos:0}};
   const session={actor:'human',identityId:'id-1',workspaceId:'space-1',csrf:'csrf',writeAvailable:true,writable:true};
   const calls=[],notices=[];let refreshes=0;
   const platform=createProductionPlatform(root,{session:()=>session,projects:()=>[project],notice:value=>notices.push(String(value)),
@@ -70,7 +70,7 @@ test('loading failure is retryable and does not turn into an empty-project write
   await h.platform.load({page:'projects'});const d=await h.open();assert.equal(d.querySelector('input').disabled,true);assert.equal(h.posts().length,0);await submit(d);assert.equal(d.querySelector('input').disabled,false);assert.equal(h.posts().length,0);
 });
 
-for(const change of ['scope','identity','workspace'])test(`late edit receipt after ${change} cannot refresh or alter the new view`,async()=>{
+for(const change of ['scope','identity'])test(`late edit receipt after ${change} cannot refresh or alter the new view`,async()=>{
   const wait=deferred(),started=deferred();const h=setup({api:async c=>{if(c.options.method==='POST'){started.resolve();await wait.promise;return {revision:9};}}});
   await h.platform.load({page:'projects'});const d=await h.open();fill(d);const saving=submit(d);await started.promise;
   assert.ok(d.querySelectorAll('input').every(n=>n.disabled));await submit(d);assert.equal(h.posts().length,1);

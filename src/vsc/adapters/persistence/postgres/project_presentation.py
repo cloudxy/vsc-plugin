@@ -1,9 +1,72 @@
 """Read-only cards over original project, object and media identities."""
-from sqlalchemy import select, func
+from sqlalchemy import select, func, exists, false, case, and_, or_
 from . import schema as S
-from .values import clean
+from .values import clean, checked_id
 from .media_recycle import recycled_ids
 from .project_management import hidden_object_ids, inactive_canvas_ids
+
+PROJECT_OWNER = S.access_identities.alias('project_owner')
+
+
+def catalog_scope(workspace_id=None, relation=None, owner_kind=None):
+    """Validate optional directory restrictions; neither parameter grants access."""
+    from vsc.assets.resource_service import ResourceError
+    if relation not in (None, '', 'created', 'participating'):
+        raise ResourceError('项目关系筛选无效', 'invalid_project_scope')
+    if owner_kind not in (None, '', 'personal', 'team'):
+        raise ResourceError('项目归属类型无效', 'invalid_project_scope')
+    return dict(workspace_id=checked_id(workspace_id) if workspace_id else None,
+        relation=relation or None, owner_kind=owner_kind or None)
+
+
+def scope_projects(store, conn, query, filters):
+    """Restrict an already-authorized project query before any count or page."""
+    workspace_id, relation, owner_kind = filters.get('workspace_id'), filters.get('relation'), filters.get('owner_kind')
+    bindings, projects = S.access_projects, S.projects
+    if workspace_id:
+        query = query.where(projects.c.id.in_(select(bindings.c.project_id).where(bindings.c.workspace_id == workspace_id)))
+    if owner_kind:
+        owned = exists(select(1).select_from(bindings.join(S.access_workspaces,
+            S.access_workspaces.c.id == bindings.c.workspace_id)).where(bindings.c.project_id == projects.c.id,
+                S.access_workspaces.c.kind == 'personal' if owner_kind == 'personal'
+                    else S.access_workspaces.c.kind.in_(['studio', 'substudio'])))
+        # Trusted internal staging and old local imports may precede binding.
+        # The user explicitly defines a recorded creator as their personal owner.
+        if owner_kind == 'personal':
+            owned = or_(owned, and_(projects.c.created_by.is_not(None),
+                ~exists(select(1).where(bindings.c.project_id == projects.c.id))))
+        query = query.where(owned)
+    if relation:
+        _, person, _ = store._access_principal(conn)
+        if not person:
+            return query.where(false())
+        # Historical creators remain unknown. They may be in the participation
+        # collection but must never be presented as a known other creator.
+        query = query.where(projects.c.created_by == person['actor'] if relation == 'created'
+            else projects.c.created_by.is_distinct_from(person['actor']))
+    return query
+
+
+def project_relation(created_by, actor):
+    if created_by is None or actor is None:
+        return 'unknown'
+    return 'created' if created_by == actor else 'participating'
+
+
+def workspace_columns():
+    workspace = S.access_workspaces
+    creator_name = select(S.access_identities.c.display_name).where(
+        S.access_identities.c.actor == S.projects.c.created_by).correlate(S.projects).scalar_subquery()
+    return (S.access_projects.c.workspace_id, S.access_workspaces.c.name.label('workspace_name'),
+        S.access_workspaces.c.kind.label('workspace_kind'), S.projects.c.created_by.label('project_created_by'),
+        case((workspace.c.kind == 'personal', 'personal'),
+            (workspace.c.kind.in_(['studio', 'substudio']), 'team'),
+            (S.projects.c.created_by.is_not(None), 'personal')).label('owner_kind'),
+        case((workspace.c.kind == 'personal', PROJECT_OWNER.c.actor),
+            (workspace.c.id.is_(None), S.projects.c.created_by)).label('owner_actor'),
+        case((workspace.c.kind == 'personal', func.coalesce(PROJECT_OWNER.c.display_name, PROJECT_OWNER.c.actor)),
+            (workspace.c.kind.in_(['studio', 'substudio']), workspace.c.name),
+            else_=func.coalesce(creator_name, S.projects.c.created_by)).label('owner_name'))
 
 
 def visible_media(project_id):
@@ -30,11 +93,28 @@ def project_cards(store, projects):
     """Enrich already-authorized rows; legacy authority rows remain untouched."""
     result = []
     with store.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
+        _, person, _ = store._access_principal(conn)
+        actor = person['actor'] if person else None
+        ids = [row['id'] for row in projects if row.get('storage_policy') == 'postgres-series-v1' and not row.get('unavailable')]
+        metadata = {r['id']: dict(r) for r in conn.execute(select(S.projects.c.id, *workspace_columns())
+            .outerjoin(S.access_projects, S.access_projects.c.project_id == S.projects.c.id)
+            .outerjoin(S.access_workspaces, S.access_workspaces.c.id == S.access_projects.c.workspace_id)
+            .outerjoin(PROJECT_OWNER, PROJECT_OWNER.c.id == S.access_workspaces.c.created_by)
+            .where(S.projects.c.id.in_(ids))).mappings()} if ids else {}
         for source in projects:
             row = dict(source)
+            facts = metadata.get(row['id'], {})
+            row.update(workspace_id=facts.get('workspace_id'), workspace_name=facts.get('workspace_name'),
+                workspace_kind=facts.get('workspace_kind'), created_by=facts.get('project_created_by'),
+                owner_kind=facts.get('owner_kind', source.get('owner_kind')),
+                owner_actor=facts.get('owner_actor', source.get('owner_actor')),
+                owner_name=facts.get('owner_name', source.get('owner_name')),
+                project_relation=project_relation(facts.get('project_created_by'), actor), my_role=None)
             if row.get('storage_policy') != 'postgres-series-v1' or row.get('unavailable'):
                 result.append(row)
                 continue
+            scope = store._access_require(conn, row['id'])
+            row['my_role'] = scope.get('effective_role')
             p = row['id']; hidden = hidden_object_ids(conn, p)
             media = visible_media(p).subquery()
             counts = dict(conn.execute(select(media.c.modality, func.count()).group_by(media.c.modality)).all())

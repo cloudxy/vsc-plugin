@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0057_service_feedback"
+SCHEMA_REVISION = "0058_project_creator"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -44,6 +44,7 @@ projects = Table("projects", metadata,
     uid(primary_key=True), Column("name", Text, nullable=False),
     Column("profile", Text, nullable=False), Column("storage_policy", Text, nullable=False),
     Column("profile_snapshot", JSONB, nullable=False),
+    Column("created_by", Text),
     Column("revision", BigInteger, nullable=False, server_default="0"),
     Column("decision_sequence", BigInteger, nullable=False, server_default="0"), stamp(),
     CheckConstraint("storage_policy = 'postgres-series-v1'", name="storage_policy"),

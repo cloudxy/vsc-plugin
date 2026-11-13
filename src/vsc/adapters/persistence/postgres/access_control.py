@@ -201,16 +201,22 @@ class AccessControlRepository:
         conn.execute(insert(S.access_workspace_members).values(workspace_id=workspace,identity_id=person['id'],role='owner',active=True))
         return workspace
 
+    def _local_access_person(self,conn,actor):
+        subject='local:'+sha256(actor.encode()).hexdigest()
+        row=conn.execute(select(S.access_identities).where(S.access_identities.c.subject_key==subject)).mappings().first()
+        created=not bool(row)
+        if created:
+            row={'id':new_id(),'subject_key':subject,'actor':actor,'display_name':actor,'preferences':{},'active':True}
+            conn.execute(insert(S.access_identities).values(**row))
+        if not row['active']:denied('本机身份已停用')
+        return row,created
+
     def ensure_local_access(self,actor):
         with self.engine.begin() as conn:
             authority_lock(conn,True);revision=self._access_state(conn)
-            subject='local:'+sha256(actor.encode()).hexdigest()
-            row=conn.execute(select(S.access_identities).where(S.access_identities.c.subject_key==subject)).mappings().first()
-            if not row:
-                row={'id':new_id(),'subject_key':subject,'actor':actor,'display_name':actor,'preferences':{},'active':True}
-                conn.execute(insert(S.access_identities).values(**row));self._personal_workspace(conn,row)
+            row,created=self._local_access_person(conn,actor)
+            if created:
                 conn.execute(update(S.access_state).where(S.access_state.c.id==1).values(revision=revision+1))
-            if not row['active']:denied('本机身份已停用')
             return {'identity_id':row['id'],'actor':row['actor'],'local':True,'workspace_id':self._personal_workspace(conn,row)}
 
     def authenticate_access(self,secret):
@@ -225,7 +231,29 @@ class AccessControlRepository:
             if not share or share['expires_at']<=datetime.now(timezone.utc):denied('凭据无效或已撤销/到期')
             return {'share_id':share['id'],'actor':'share:'+share['id'],'local':False}
 
-    def accept_access_invitation(self,payload):
+    def _invitation_target(self,conn,invitation):
+        workspace_id=invitation['workspace_id'];project_id=invitation['project_id'];project_name=None
+        if project_id:
+            project_name=conn.execute(select(S.projects.c.name).where(S.projects.c.id==project_id)).scalar_one()
+            workspace_id=conn.execute(select(S.access_projects.c.workspace_id).where(S.access_projects.c.project_id==project_id)).scalar_one()
+        workspace=conn.execute(select(S.access_workspaces).where(S.access_workspaces.c.id==workspace_id)).mappings().one()
+        return clean({'invitation_id':invitation['id'],'scope':'workspace' if invitation['workspace_id'] else 'project',
+            'scope_id':invitation['workspace_id'] or project_id,'target_name':project_name or workspace['name'],
+            'workspace_id':workspace_id,'workspace_name':workspace['name'],'project_id':project_id,'project_name':project_name,
+            'role':invitation['role'],'expires_at':invitation['expires_at'],'accepted':bool(invitation['accepted_by'])})
+
+    def access_invitation_preview(self,secret):
+        hashed=secret_hash(secret)
+        with self.engine.begin() as conn:
+            authority_lock(conn)
+            invitation=conn.execute(select(S.access_invitations).where(S.access_invitations.c.secret_sha256==hashed)).mappings().first()
+            if not invitation or invitation['revoked'] or invitation['expires_at']<=datetime.now(timezone.utc):denied('邀请已失效')
+            if invitation['workspace_id'] and not invitation['accepted_by']:
+                kind=conn.execute(select(S.access_workspaces.c.kind).where(S.access_workspaces.c.id==invitation['workspace_id'])).scalar_one()
+                if kind=='personal':raise ResourceError('个人空间仅支持项目协作邀请','personal_workspace_membership')
+            return self._invitation_target(conn,invitation)
+
+    def accept_access_invitation(self,payload,*,include_target=False):
         if not isinstance(payload,dict) or set(payload)-{'invitation_secret','credential_secret','display_name','use_current_identity'}:raise ResourceError('邀请加入字段无效')
         invitation_hash=secret_hash(payload.get('invitation_secret'));credential_hash=secret_hash(payload.get('credential_secret'));name=label(payload.get('display_name'))
         use_current=payload.get('use_current_identity',False)
@@ -236,6 +264,9 @@ class AccessControlRepository:
             if use_current and not joining_person:denied('用当前身份加入需要先登录成员')
             invitation=conn.execute(select(S.access_invitations).where(S.access_invitations.c.secret_sha256==invitation_hash).with_for_update()).mappings().first()
             if not invitation or invitation['revoked'] or invitation['expires_at']<=datetime.now(timezone.utc):denied('邀请已失效')
+            if invitation['workspace_id'] and not invitation['accepted_by']:
+                kind=conn.execute(select(S.access_workspaces.c.kind).where(S.access_workspaces.c.id==invitation['workspace_id'])).scalar_one()
+                if kind=='personal':raise ResourceError('个人空间仅支持项目协作邀请','personal_workspace_membership')
             if invitation['accepted_by']:
                 existing=conn.execute(select(S.access_credentials).where(S.access_credentials.c.identity_id==invitation['accepted_by'],S.access_credentials.c.secret_sha256==credential_hash,S.access_credentials.c.revoked.is_(False))).mappings().first()
                 if not existing:denied('邀请已被使用')
@@ -254,7 +285,13 @@ class AccessControlRepository:
                 self._personal_workspace(conn,person)
                 self._access_seat_check(conn)
                 self._access_event(conn,'invitation:'+invitation['id'],None,'accept_invitation',digest({'invitation_id':invitation['id'],'credential_sha256':credential_hash}),revision,{'identity_id':person['id'],'invitation_id':invitation['id']})
-            return {'identity_id':person['id'],'actor':person['actor'],'credential_id':credential,'local':bool(joining_principal and joining_principal.local),'workspace_id':self._personal_workspace(conn,person)}
+            workspace=self._personal_workspace(conn,person)
+            if invitation['workspace_id']:workspace=invitation['workspace_id']
+            result={'identity_id':person['id'],'actor':person['actor'],'credential_id':credential,'local':bool(joining_principal and joining_principal.local),'workspace_id':workspace}
+            if include_target:
+                target=self._invitation_target(conn,invitation)
+                result.update(joined_project_id=invitation['project_id'],joined_workspace_id=invitation['workspace_id'],target_name=target['target_name'],role=invitation['role'])
+            return result
 
     def _access_event(self,conn,key,identity,action,request_sha,revision,response):
         revision+=1;response=clean(dict(response,access_revision=revision))
@@ -270,6 +307,10 @@ class AccessControlRepository:
             for row in conn.execute(select(S.access_workspaces).order_by(S.access_workspaces.c.created_at)).mappings():
                 roles=self._workspace_roles(conn,row['id'],person['id'])
                 if roles:workspaces.append({**dict(row),'roles':sorted(roles),'manageable':'owner' in roles})
+            owners={r['id']:r for r in conn.execute(select(S.access_identities.c.id,S.access_identities.c.actor,S.access_identities.c.display_name).where(S.access_identities.c.id.in_({w['created_by'] for w in workspaces}))).mappings()}
+            for workspace in workspaces:
+                owner=owners[workspace['created_by']]
+                workspace.update(owner_name=owner['display_name'],owner_actor=owner['actor'])
             managed={r['id'] for r in workspaces if r['manageable']}
             project_rows=[]
             for row in conn.execute(select(S.projects)).mappings():
@@ -283,10 +324,13 @@ class AccessControlRepository:
                     q=select(table,S.access_identities.c.display_name,S.access_identities.c.actor).join(S.access_identities,table.c.identity_id==S.access_identities.c.id).where(table.c[field].in_(ids))
                     members.extend(dict(r) for r in conn.execute(q).mappings())
             invitations=[{k:v for k,v in dict(r).items() if k!='secret_sha256'} for r in conn.execute(select(S.access_invitations).where(or_(S.access_invitations.c.created_by==person['id'],S.access_invitations.c.workspace_id.in_(managed),S.access_invitations.c.project_id.in_(managed_projects))).order_by(S.access_invitations.c.created_at.desc())).mappings()]
-            shares=[{k:v for k,v in dict(r).items() if k!='secret_sha256'} for r in conn.execute(select(S.access_shares).where(or_(S.access_shares.c.created_by==person['id'],S.access_shares.c.project_id.in_(managed_projects))).order_by(S.access_shares.c.created_at.desc())).mappings()]
+            shares=[{k:v for k,v in dict(r).items() if k!='secret_sha256'} for r in conn.execute(select(S.access_shares,S.creative_canvas_versions.c.title.label('canvas_title')).join(S.creative_canvas_versions,and_(S.creative_canvas_versions.c.project_id==S.access_shares.c.project_id,S.creative_canvas_versions.c.id==S.access_shares.c.canvas_version_id)).where(or_(S.access_shares.c.created_by==person['id'],S.access_shares.c.project_id.in_(managed_projects))).order_by(S.access_shares.c.created_at.desc())).mappings()]
             credentials=[{k:v for k,v in dict(r).items() if k!='secret_sha256'} for r in conn.execute(select(S.access_credentials).where(S.access_credentials.c.identity_id==person['id'])).mappings()]
             revision=conn.execute(select(S.access_state.c.revision).where(S.access_state.c.id==1)).scalar_one()
             names={row['id']:row['name'] for row in workspaces+project_rows}
+            visible_workspace_ids={row['workspace_id'] for row in project_rows if row.get('workspace_id')}
+            if visible_workspace_ids:
+                names.update({row['id']:row['name'] for row in conn.execute(select(S.access_workspaces.c.id,S.access_workspaces.c.name).where(S.access_workspaces.c.id.in_(visible_workspace_ids))).mappings()})
             for row in project_rows:
                 row['workspace_name']=names.get(row.get('workspace_id'),'尚未归属')
             for row in members+invitations:
@@ -315,23 +359,111 @@ class AccessControlRepository:
             items=[{**dict(row),'project_name':names[row['project_id']]} for row in rows]
             return clean({'workspace_id':workspace_id,'projects':projects,'items':items,'total':total,'offset':offset,'limit':limit,'next_offset':offset+limit if offset+limit<total else None})
 
-    def access_bind_new_project(self,conn,project_id,actor):
+    def access_bind_new_project(self,conn,project_id,actor,workspace_id=None):
         principal,person,_=self._access_principal(conn)
-        if principal is None:return
-        if not person or principal.actor!=actor:denied('新项目需要已认证成员')
+        if principal is None:
+            person=conn.execute(select(S.access_identities).where(S.access_identities.c.actor==actor)).mappings().first();created=False
+            if not person:person,created=self._local_access_person(conn,actor)
+            if not person['active']:denied('身份已停用，不能新建项目')
+            if created:
+                revision=self._access_state(conn)
+                conn.execute(update(S.access_state).where(S.access_state.c.id==1).values(revision=revision+1))
+        elif not person or principal.actor!=actor:denied('新项目需要已认证成员')
         authority_lock(conn)
-        workspace=principal.workspace_id or self._personal_workspace(conn,person)
+        workspace=checked_id(workspace_id) if workspace_id is not None else self._personal_workspace(conn,person)
         self._workspace_require(conn,workspace,'edit',person['id'])
+        target=conn.execute(select(S.access_workspaces).where(S.access_workspaces.c.id==workspace)).mappings().one()
+        if target['kind']=='personal' and target['created_by']!=person['id']:denied('个人项目只能归属自己的个人空间')
         conn.execute(insert(S.access_projects).values(project_id=project_id,workspace_id=workspace,review_lanes=[],assigned_by=person['id']))
-        conn.execute(insert(S.access_project_members).values(project_id=project_id,identity_id=person['id'],role='owner',active=True))
+        if target['kind']=='personal':conn.execute(insert(S.access_project_members).values(project_id=project_id,identity_id=person['id'],role='owner',active=True))
+
+    def _access_relationships(self,conn):
+        return {
+            'workspaces':{r['id']:dict(r) for r in conn.execute(select(S.access_workspaces)).mappings()},
+            'people':{r['id']:dict(r) for r in conn.execute(select(S.access_identities).where(S.access_identities.c.active.is_(True))).mappings()},
+            'members':{(r['workspace_id'],r['identity_id']):r['role'] for r in conn.execute(select(S.access_workspace_members).where(S.access_workspace_members.c.active.is_(True))).mappings()}}
+
+    @staticmethod
+    def _relationship_roles(rel,workspace_id,identity_id,removed=None):
+        roles=set();visited=set();cursor=workspace_id;first=True
+        while cursor:
+            if cursor in visited:raise ResourceError('组织父子关系成环','invalid_workspace')
+            visited.add(cursor)
+            workspace=rel['workspaces'].get(cursor)
+            if not workspace:raise ResourceError('空间不存在','not_found',404)
+            role=rel['members'].get((cursor,identity_id)) if (cursor,identity_id)!=removed else None
+            if role and (first or role=='owner'):roles.add(role)
+            first=False;cursor=workspace['parent_id']
+        return roles
+
+    def _migration_plan(self,conn,project_id,workspace_id,project=None):
+        project_id=checked_id(project_id);workspace_id=checked_id(workspace_id)
+        project=project or self._project(conn,project_id)
+        before=conn.execute(select(S.access_projects).where(S.access_projects.c.project_id==project_id)).mappings().first()
+        rel=self._access_relationships(conn);destination=rel['workspaces'][workspace_id]
+        direct={r['identity_id']:r['role'] for r in conn.execute(select(S.access_project_members).where(S.access_project_members.c.project_id==project_id,S.access_project_members.c.active.is_(True))).mappings()}
+        changes=[];retained=[]
+        for identity_id,person in sorted(rel['people'].items()):
+            old=self._relationship_roles(rel,before['workspace_id'],identity_id) if before else ({'owner'} if person['subject_key'].startswith('local:') else set())
+            new=self._relationship_roles(rel,workspace_id,identity_id)
+            if identity_id in direct:
+                old.add(direct[identity_id]);new.add(direct[identity_id])
+                retained.append({'identity_id':identity_id,'display_name':person['display_name'],'role':direct[identity_id]})
+            if not old and not new:continue
+            old_caps=set().union(*(CAPABILITIES[r] for r in old));new_caps=set().union(*(CAPABILITIES[r] for r in new))
+            change='gained' if not old_caps else 'lost' if not new_caps else 'changed' if old_caps!=new_caps else 'retained'
+            changes.append({'identity_id':identity_id,'display_name':person['display_name'],'actor':person['actor'],
+                'before_roles':sorted(old),'after_roles':sorted(new),'before_capabilities':sorted(old_caps),'after_capabilities':sorted(new_caps),
+                'change':change,'direct_role':direct.get(identity_id)})
+        shares=[]
+        query=select(S.access_shares,S.creative_canvas_versions.c.title.label('canvas_title')).join(S.creative_canvas_versions,and_(S.creative_canvas_versions.c.project_id==S.access_shares.c.project_id,S.creative_canvas_versions.c.id==S.access_shares.c.canvas_version_id)).where(
+            S.access_shares.c.project_id==project_id,S.access_shares.c.revoked.is_(False),S.access_shares.c.expires_at>datetime.now(timezone.utc)).order_by(S.access_shares.c.id)
+        for row in conn.execute(query).mappings():
+            shares.append({key:row[key] for key in ('id','canvas_id','canvas_title','mode','expires_at','canvas_version_id')})
+        return clean({'project_id':project_id,'project_name':project['name'],'project_revision':project['revision'],
+            'access_revision':conn.execute(select(S.access_state.c.revision).where(S.access_state.c.id==1)).scalar_one(),
+            'from_workspace_id':before['workspace_id'] if before else None,'from_workspace_name':rel['workspaces'][before['workspace_id']]['name'] if before else '尚未归属',
+            'to_workspace_id':workspace_id,'to_workspace_name':destination['name'],'access_changes':changes,
+            'retained_direct_grants':retained,'shares':shares,'effect':'空间权限随归属调整；保留项目直接授权和有效分享，原产物、决定和媒体不改变'})
 
     def access_migration_preview(self,project_id,workspace_id):
-        with self.engine.connect() as conn:
+        with self.engine.begin() as conn:
+            authority_lock(conn)
             self._access_require(conn,project_id,'manage');principal,person,_=self._access_principal(conn)
             if not person:denied()
-            self._workspace_require(conn,workspace_id,'manage',person['id']);project=self._project(conn,project_id)
-            before=conn.execute(select(S.access_projects).where(S.access_projects.c.project_id==project_id)).mappings().first()
-            plan={'project_id':project_id,'project_revision':project['revision'],'from_workspace_id':before['workspace_id'] if before else None,'to_workspace_id':workspace_id,'effect':'新归属权限即时生效；原产物、决定和媒体不改变'}
+            self._workspace_require(conn,workspace_id,'manage',person['id'])
+            plan=self._migration_plan(conn,project_id,workspace_id)
+            return {'plan':plan,'sha256':digest(plan)}
+
+    def _member_removal_plan(self,conn,workspace_id,identity_id):
+        workspace_id=checked_id(workspace_id);identity_id=checked_id(identity_id)
+        rel=self._access_relationships(conn);workspace=rel['workspaces'][workspace_id]
+        person=self._access_identity(conn,identity_id);removed=(workspace_id,identity_id)
+        descendants={workspace_id}
+        while True:
+            expanded=descendants|{key for key,row in rel['workspaces'].items() if row['parent_id'] in descendants}
+            if expanded==descendants:break
+            descendants=expanded
+        query=select(S.access_project_members,S.projects.c.name.label('project_name'),S.access_projects.c.workspace_id).join(S.access_projects,S.access_projects.c.project_id==S.access_project_members.c.project_id).join(S.projects,S.projects.c.id==S.access_projects.c.project_id).where(
+            S.access_projects.c.workspace_id.in_(descendants),S.access_project_members.c.identity_id==identity_id,S.access_project_members.c.active.is_(True)).order_by(S.access_project_members.c.project_id)
+        grants=[]
+        for row in conn.execute(query).mappings():
+            can_revoke=True
+            if row['role']=='owner':
+                other_direct=conn.execute(select(S.access_project_members.c.identity_id).join(S.access_identities,S.access_identities.c.id==S.access_project_members.c.identity_id).where(S.access_project_members.c.project_id==row['project_id'],S.access_project_members.c.identity_id!=identity_id,S.access_project_members.c.role=='owner',S.access_project_members.c.active.is_(True),S.access_identities.c.active.is_(True))).first()
+                other_workspace=any('owner' in self._relationship_roles(rel,row['workspace_id'],key,removed) for key in rel['people'] if key!=identity_id)
+                can_revoke=bool(other_direct or other_workspace)
+            grants.append({'project_id':row['project_id'],'project_name':row['project_name'],'role':row['role'],'can_revoke':can_revoke})
+        return {'workspace_id':workspace_id,'workspace_name':workspace['name'],'identity_id':identity_id,'display_name':person['display_name'],
+            'access_revision':conn.execute(select(S.access_state.c.revision).where(S.access_state.c.id==1)).scalar_one(),
+            'retained_project_grants':grants,'effect':'移除空间成员后仍保留这些项目直接授权；仅明确勾选才同时撤销，分享链接保持有效'}
+
+    def access_member_removal_preview(self,workspace_id,identity_id):
+        with self.engine.begin() as conn:
+            authority_lock(conn);principal,person,_=self._access_principal(conn)
+            if not person:denied()
+            self._workspace_require(conn,workspace_id,'manage',person['id'])
+            plan=self._member_removal_plan(conn,workspace_id,identity_id)
             return {'plan':plan,'sha256':digest(plan)}
 
     def access_command(self,action,payload,*,expected_revision,idempotency_key,actor):
@@ -442,11 +574,10 @@ class AccessControlRepository:
         if action=='assign-project':
             exact({'project_id','workspace_id','preview_sha256'})
             self._access_require(conn,p['project_id'],'manage');self._workspace_require(conn,p['workspace_id'],'manage',person['id'])
-            project=self._project(conn,p['project_id'],lock=True);previous=conn.execute(select(S.access_projects).where(S.access_projects.c.project_id==p['project_id'])).mappings().first()
-            plan={'project_id':p['project_id'],'project_revision':project['revision'],'from_workspace_id':previous['workspace_id'] if previous else None,'to_workspace_id':p['workspace_id'],'effect':'新归属权限即时生效；原产物、决定和媒体不改变'}
+            project=self._project(conn,p['project_id'],lock=True)
+            plan=self._migration_plan(conn,p['project_id'],p['workspace_id'],project)
             if digest(plan)!=p['preview_sha256']:raise Conflict('归属预览已变化，请重新预览')
             conn.execute(pg_insert(S.access_projects).values(project_id=p['project_id'],workspace_id=p['workspace_id'],review_lanes=[],assigned_by=person['id']).on_conflict_do_update(index_elements=['project_id'],set_={'workspace_id':p['workspace_id'],'assigned_by':person['id']}))
-            conn.execute(pg_insert(S.access_project_members).values(project_id=p['project_id'],identity_id=person['id'],role='owner',active=True).on_conflict_do_update(index_elements=['project_id','identity_id'],set_={'role':'owner','active':True}))
             return plan
         if action in {'member','invitation'}:
             scope=p.get('scope');target=p.get('scope_id')
@@ -455,15 +586,39 @@ class AccessControlRepository:
             else:self._access_require(conn,target,'manage')
             if p.get('role') not in CAPABILITIES:raise ResourceError('成员角色无效')
             if action=='member':
-                exact({'scope','scope_id','identity_id','role','active'})
+                required={'scope','scope_id','identity_id','role','active'};optional={'preview_sha256','revoke_project_access'}
+                if not required<=set(p) or set(p)-required-optional:raise ResourceError('权限操作字段不完整或包含额外字段','invalid_access_input')
                 if type(p['active'])is not bool:raise ResourceError('成员启用状态无效')
-                self._access_identity(conn,p['identity_id']);table=S.access_workspace_members if scope=='workspace' else S.access_project_members;field=scope+'_id'
+                revoke=p.get('revoke_project_access',False)
+                if type(revoke)is not bool or (set(p)&optional and (scope!='workspace' or p['active'])):raise ResourceError('项目授权撤销仅用于移除空间成员','invalid_access_input')
+                member_identity=self._access_identity(conn,p['identity_id'])['id'];table=S.access_workspace_members if scope=='workspace' else S.access_project_members;field=scope+'_id'
                 previous=conn.execute(select(table).where(table.c[field]==target,table.c.identity_id==p['identity_id'])).mappings().first()
+                if scope=='workspace' and p['active'] and (not previous or not previous['active']):
+                    workspace=conn.execute(select(S.access_workspaces).where(S.access_workspaces.c.id==target)).mappings().one()
+                    if workspace['kind']=='personal' and member_identity!=workspace['created_by']:raise ResourceError('个人空间仅支持项目协作者，不能新增其他空间成员','personal_workspace_membership')
+                removal=None
+                if scope=='workspace' and not p['active'] and (revoke or 'preview_sha256' in p):
+                    removal=self._member_removal_plan(conn,target,p['identity_id'])
+                    if digest(removal)!=p.get('preview_sha256'):raise Conflict('成员移除预览已变化，请重新预览','access_preview_conflict')
+                    if revoke and any(not r['can_revoke'] for r in removal['retained_project_grants']):raise Conflict('不能撤销项目最后一位有效所有者','last_owner')
                 if previous and previous['active'] and previous['role']=='owner' and (not p['active'] or p['role']!='owner'):
                     count=conn.execute(select(func.count()).select_from(table).where(table.c[field]==target,table.c.role=='owner',table.c.active.is_(True))).scalar_one()
-                    if count<=1:raise Conflict('不能移除最后一位直接所有者','last_owner')
-                conn.execute(pg_insert(table).values(**{field:target,'identity_id':p['identity_id'],'role':p['role'],'active':p['active']}).on_conflict_do_update(index_elements=[field,'identity_id'],set_={'role':p['role'],'active':p['active']}));return {'scope':scope,'scope_id':target,'identity_id':p['identity_id'],'role':p['role'],'active':p['active']}
+                    has_workspace_owner=False
+                    if scope=='project':
+                        binding=conn.execute(select(S.access_projects.c.workspace_id).where(S.access_projects.c.project_id==target)).scalar_one()
+                        rel=self._access_relationships(conn)
+                        has_workspace_owner=any('owner' in self._relationship_roles(rel,binding,key) for key in rel['people'] if key!=member_identity)
+                    if count<=1 and not has_workspace_owner:raise Conflict('不能移除最后一位有效所有者','last_owner')
+                conn.execute(pg_insert(table).values(**{field:target,'identity_id':p['identity_id'],'role':p['role'],'active':p['active']}).on_conflict_do_update(index_elements=[field,'identity_id'],set_={'role':p['role'],'active':p['active']}))
+                revoked=[]
+                if revoke:
+                    revoked=[row['project_id'] for row in removal['retained_project_grants']]
+                    if revoked:conn.execute(update(S.access_project_members).where(S.access_project_members.c.project_id.in_(revoked),S.access_project_members.c.identity_id==p['identity_id']).values(active=False))
+                return {'scope':scope,'scope_id':target,'identity_id':p['identity_id'],'role':p['role'],'active':p['active'],'revoked_project_ids':revoked}
             exact({'scope','scope_id','role','secret','expires_at'})
+            if scope=='workspace':
+                kind=conn.execute(select(S.access_workspaces.c.kind).where(S.access_workspaces.c.id==target)).scalar_one()
+                if kind=='personal':raise ResourceError('个人空间仅支持项目协作邀请','personal_workspace_membership')
             if p['role']=='owner':raise ResourceError('邀请不能直接授予所有者；加入后由当前所有者明确调整')
             identifier=new_id();conn.execute(insert(S.access_invitations).values(id=identifier,workspace_id=target if scope=='workspace' else None,project_id=target if scope=='project' else None,role=p['role'],secret_sha256=secret_hash(p['secret']),expires_at=expires(p['expires_at']),created_by=person['id']))
             return {'invitation_id':identifier,'scope':scope,'scope_id':target}

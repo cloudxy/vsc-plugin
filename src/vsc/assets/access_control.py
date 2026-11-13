@@ -70,9 +70,11 @@ class AccessControlServiceMixin:
         return self.store.access_command(action,payload,expected_revision=expected_revision,idempotency_key=idempotency_key,actor=actor)
     def ensure_local_access(self,actor):return self.store.ensure_local_access(label(actor))
     def authenticate_access(self,secret):return self.store.authenticate_access(secret)
-    def accept_access_invitation(self,payload):return self.store.accept_access_invitation(payload)
+    def access_invitation_preview(self,secret):return self.store.access_invitation_preview(secret)
+    def accept_access_invitation(self,payload,*,include_target=False):return self.store.accept_access_invitation(payload,include_target=include_target)
     def access_share_view(self):return self.store.access_share_view()
     def access_migration_preview(self,project_id,workspace_id):return self.store.access_migration_preview(project_id,workspace_id)
+    def access_member_removal_preview(self,workspace_id,identity_id):return self.store.access_member_removal_preview(workspace_id,identity_id)
     def get_user_preferences(self):return self.store.get_user_preferences()
     def update_user_preferences(self,payload,*,actor=None):return self.store.update_user_preferences(payload,actor=actor)
 

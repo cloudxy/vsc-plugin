@@ -193,15 +193,16 @@ def install_canvas_library_routes(app, catalog, etag):
         return catalog.service
 
     @app.get('/api/v1/canvas-library/options')
-    def options(request: Request):
-        return etag(request, service().canvas_library_options())
+    def options(request: Request, workspace_id: str = None, relation: str = None, owner_kind: str = None):
+        return etag(request, service().canvas_library_options(workspace_id=workspace_id, relation=relation, owner_kind=owner_kind))
 
     @app.get('/api/v1/canvas-library')
     def library(request: Request, project_id: str = None, episode_id: str = None,
                 creator_filter: str = 'mine', creator_id: str = None, permission: str = 'all',
                 collaboration_only: bool = False, order: str = 'updated_desc', query: str = '',
-                offset: int = 0, limit: int = 30):
+                offset: int = 0, limit: int = 30, workspace_id: str = None, relation: str = None, owner_kind: str = None):
         return etag(request, service().list_canvas_library(project_id=project_id, episode_id=episode_id,
+            workspace_id=workspace_id, relation=relation, owner_kind=owner_kind,
             creator_filter=creator_filter, creator_id=creator_id, permission=permission,
             collaboration_only=collaboration_only, order=order, query=query, offset=offset, limit=limit))
 

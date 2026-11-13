@@ -4,17 +4,18 @@ from sqlalchemy import and_, exists, false, func, literal, or_, select, tuple_
 from . import schema as S
 from .access_control import authority_lock
 from .values import clean
+from .project_presentation import scope_projects, workspace_columns, project_relation, PROJECT_OWNER
 
 
 class CanvasLibrary:
     def __init__(self, store):
         self.store = store
 
-    def _scope(self, conn):
+    def _scope(self, conn, filters=None):
         projects = S.projects
         active = ~exists(select(1).where(S.management_project_states.c.project_id == projects.c.id,
             S.management_project_states.c.state != 'active'))
-        read = self.store._access_project_query(conn, 'read').where(active).cte('canvas_readable_projects')
+        read = scope_projects(self.store, conn, self.store._access_project_query(conn, 'read').where(active), filters or {}).cte('canvas_readable_projects')
         edit = self.store._access_project_query(conn, 'edit').where(active).cte('canvas_editable_projects')
         manage = self.store._access_project_query(conn, 'manage').where(active).cte('canvas_managed_projects')
         return read, edit, manage
@@ -25,7 +26,7 @@ class CanvasLibrary:
             S.episodes, S.creative_objects, S.management_object_states)
         person, ap, aw = S.access_identities, S.access_projects, S.access_workspaces
         return select(c.c.id, c.c.project_id, p.c.name.label('project_name'), c.c.episode_id,
-            obj.c.title.label('episode_name'), v.c.title, v.c.version.label('canvas_revision'),
+            obj.c.title.label('episode_name'), *workspace_columns(), v.c.title, v.c.version.label('canvas_revision'),
             v.c.id.label('version_id'), v.c.created_at.label('updated_at'),
             c.c.collaboration_enabled, c.c.collab_seq.label('canvas_seq'),
             c.c.created_by.label('creator_id'), func.coalesce(person.c.display_name, c.c.created_by).label('creator_name'))\
@@ -33,6 +34,7 @@ class CanvasLibrary:
                 .join(p, p.c.id == c.c.project_id)
                 .outerjoin(ap, ap.c.project_id == c.c.project_id)
                 .outerjoin(aw, aw.c.id == ap.c.workspace_id)
+                .outerjoin(PROJECT_OWNER, PROJECT_OWNER.c.id == aw.c.created_by)
                 .outerjoin(ep, and_(ep.c.project_id == c.c.project_id, ep.c.id == c.c.episode_id))
                 .outerjoin(obj, and_(obj.c.project_id == ep.c.project_id, obj.c.id == ep.c.id))
                 .outerjoin(person, person.c.actor == c.c.created_by))\
@@ -67,13 +69,21 @@ class CanvasLibrary:
         return {(r['project_id'], r['version_id']): '/api/v1/projects/' + r['project_id'] + '/media/' + r['media_id'] + '/content'
             for r in conn.execute(select(ranked).where(ranked.c.rank == 1)).mappings()}
 
-    def options(self):
+    def options(self, filters=None):
         with self.store.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
             authority_lock(conn)
-            read, edit, _ = self._scope(conn)
+            read, edit, _ = self._scope(conn, filters)
             p = S.projects
-            projects = [dict(id=r.id, name=r.name, permissions={'can_edit': r.can_edit}) for r in conn.execute(
-                select(p.c.id, p.c.name, p.c.id.in_(select(edit.c.id)).label('can_edit'))
+            _, person, _ = self.store._access_principal(conn)
+            projects = [dict(id=r.id, name=r.name, workspace_id=r.workspace_id, workspace_name=r.workspace_name,
+                workspace_kind=r.workspace_kind, created_by=r.project_created_by,
+                owner_kind=r.owner_kind, owner_actor=r.owner_actor, owner_name=r.owner_name,
+                project_relation=project_relation(r.project_created_by, person['actor'] if person else None),
+                permissions={'can_edit': r.can_edit}) for r in conn.execute(
+                select(p.c.id, p.c.name, *workspace_columns(), p.c.id.in_(select(edit.c.id)).label('can_edit'))
+                    .outerjoin(S.access_projects, S.access_projects.c.project_id == p.c.id)
+                    .outerjoin(S.access_workspaces, S.access_workspaces.c.id == S.access_projects.c.workspace_id)
+                    .outerjoin(PROJECT_OWNER, PROJECT_OWNER.c.id == S.access_workspaces.c.created_by)
                     .where(p.c.id.in_(select(read.c.id))).order_by(p.c.name, p.c.id))]
             visible = self._canvases(read).subquery()
             creators = [dict(id=r.creator_id, name=r.creator_name) for r in conn.execute(
@@ -84,7 +94,7 @@ class CanvasLibrary:
     def search(self, filters):
         with self.store.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
             authority_lock(conn)
-            read, edit, manage = self._scope(conn)
+            read, edit, manage = self._scope(conn, filters)
             principal, person, _ = self.store._access_principal(conn)
             query = self._canvases(read)
             c = S.creative_canvases
@@ -140,6 +150,7 @@ class CanvasLibrary:
             ).order_by(order, c.c.project_id, c.c.id).offset(filters['offset']).limit(filters['limit'])).mappings()]
             covers = self._covers(conn, rows)
             for row in rows:
+                row['project_relation'] = project_relation(row['project_created_by'], person['actor'] if person else None)
                 edit_flag = bool(row.pop('can_edit'))
                 copy_flag = bool(row.pop('can_copy'))
                 manage_flag = bool(row.pop('can_manage'))

@@ -47,7 +47,9 @@
         "tests/project/unit/episode_management.test.mjs",
         "tests/project/unit/marketing_studio.test.mjs",
         "src/vsc/assets/marketing_cases.py",
-        "src/vsc/assets/marketing-cases.json"
+        "src/vsc/assets/marketing-cases.json",
+        "src/vsc/interfaces/web/static/project-scope.js",
+        "tests/project/unit/project_scope.test.mjs"
       ]
     },
     "assets.integration.test_edit_preview": {
@@ -2403,6 +2405,35 @@
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/character_studio.test.mjs",
         "tests/project/unit/character_studio_parity.test.mjs"
+      ]
+    },
+    "project.integration.test_project_workspace_catalog": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/project_presentation.py",
+        "src/vsc/adapters/persistence/postgres/resource_store.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/adapters/persistence/postgres/canvas_library.py",
+        "src/vsc/adapters/persistence/postgres/media_catalog.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/interfaces/web/app.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "migrations/postgres/versions/0058_project_creator.py"
+      ]
+    },
+    "project.unit.test_access_control_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/access-control.js",
+        "src/vsc/interfaces/web/static/access-control.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/access_control_frontend.test.mjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
       ]
     }
   },

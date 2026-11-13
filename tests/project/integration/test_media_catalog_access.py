@@ -45,7 +45,12 @@ class ProjectMediaAuthorizationTests(ResourceStoreFixture, unittest.TestCase):
         self.media(marker + '-two')
         secret = self.service.create_project({'name': 'private synthetic'}, actor='test-human')['id']
         child_project = self.service.create_project({'name': 'nested synthetic'}, actor='test-human')['id']
-        unassigned = self.service.create_project({'name': 'unassigned synthetic'}, actor='test-human')['id']
+        # Explicit pre-authority staging fixture; normal creation now always
+        # records personal/team ownership and cannot create this historical case.
+        unassigned = str(uuid.uuid4())
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.projects).values(id=unassigned, name='historical staging synthetic',
+                profile='vsc.series-pg', profile_snapshot={}, storage_policy='postgres-series-v1'))
         for p, suffix in ((secret, 'secret'), (child_project, 'nested'), (unassigned, 'unassigned')):
             name = marker + '-' + suffix
             digest = hashlib.sha256(name.encode()).hexdigest()
@@ -63,7 +68,8 @@ class ProjectMediaAuthorizationTests(ResourceStoreFixture, unittest.TestCase):
             conn.execute(insert(S.access_workspaces).values(id=child, name='child', kind='substudio', parent_id=parent, created_by=owner))
             conn.execute(insert(S.access_workspaces).values(id=other, name='other', kind='studio', created_by=owner))
             for p, workspace in ((self.p, child), (secret, child), (child_project, other)):
-                conn.execute(insert(S.access_projects).values(project_id=p, workspace_id=workspace, assigned_by=owner, review_lanes=[]))
+                conn.execute(update(S.access_projects).where(S.access_projects.c.project_id == p)
+                    .values(workspace_id=workspace, assigned_by=owner, review_lanes=[]))
             conn.execute(insert(S.access_project_members).values(project_id=self.p, identity_id=member, role='viewer', active=True))
 
         projects = {self.p, secret, child_project, unassigned}
