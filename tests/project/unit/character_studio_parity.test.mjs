@@ -95,6 +95,36 @@ test('reference details retain English costume prompt, tags, source links, view 
  modal().close();center.suspend();root.remove();
 });
 
+test('history menus close on a repeated trigger, outside mouse/touch click, Escape, focus departure and suspension',async()=>{
+ const saved=structuredClone(store.getState()),add=doc.addEventListener,remove=doc.removeEventListener,listeners=new Map();
+ let root,center;
+ doc.addEventListener=(type,fn,capture)=>{assert.equal(capture,true);if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn);};
+ doc.removeEventListener=(type,fn)=>listeners.get(type)?.delete(fn);
+ const dispatch=(type,target,extra={})=>{const e=event({target,...extra});for(const fn of [...(listeners.get(type)||[])])fn(e);return e;};
+ try{
+  store.getState().history=[1,2].map(i=>({id:`menu-${i}`,createdAt:i,imageUrl:'data:image/png;base64,AA==',provider:'agy_auth',prompt:'menu fixture'}));
+  ({root,center}=await gallery('composite'));
+  const menus=root.querySelectorAll('.cs-history-menu'),toolbar=menus[0],summary=toolbar.querySelector('summary'),search=root.querySelector('input');
+  const toggle=menu=>menu.querySelector('summary').onclick(event({target:menu.querySelector('summary')}));
+  toggle(toolbar);assert.equal(toolbar.open,true);assert.equal(summary.getAttribute('aria-expanded'),'true');
+  toggle(toolbar);assert.equal(toolbar.open,false);assert.equal(summary.getAttribute('aria-expanded'),'false');
+  toggle(toolbar);dispatch('pointerdown',toolbar.querySelector('button'),{pointerType:'touch'});assert.equal(toolbar.open,true);
+  dispatch('pointerdown',search,{pointerType:'mouse'});assert.equal(toolbar.open,false);assert.equal(summary.getAttribute('aria-expanded'),'false');
+  toggle(toolbar);dispatch('pointerdown',doc.body,{pointerType:'touch'});assert.equal(toolbar.open,false);
+  toggle(toolbar);dispatch('click',search);assert.equal(toolbar.open,false);
+  toggle(toolbar);toggle(menus[1]);assert.equal(toolbar.open,false);assert.equal(menus[1].open,true);
+  toggle(menus[2]);assert.equal(menus[1].open,false);assert.equal(menus[2].open,true);
+  const escaped=dispatch('keydown',doc.body,{key:'Escape'});assert.equal(escaped.prevented,true);assert.equal(menus[2].open,false);assert.equal(doc.activeElement,menus[2].querySelector('summary'));
+  toggle(toolbar);search.focus();dispatch('focusin',search);assert.equal(toolbar.open,false);assert.equal(doc.activeElement,search);
+  toggle(toolbar);center.suspend();assert.equal(toolbar.open,false);assert.ok([...listeners.values()].every(set=>set.size===0));
+  await center.load();await flush();assert.ok([...listeners.values()].every(set=>set.size===1));
+  center.suspend();assert.ok([...listeners.values()].every(set=>set.size===0));
+ }finally{
+  center?.suspend();root?.remove();doc.addEventListener=add;doc.removeEventListener=remove;
+  Object.assign(store.getState(),saved);store.setPreviewUrl(saved.previewUrl);
+ }
+});
+
 test('AI composite library follows portraits and owns existing, live, filtered and recoverable generation history',async()=>{
  const saved=structuredClone(store.getState()),oldConfirm=globalThis.confirm,oldFetch=globalThis.fetch,originalClick=Element.prototype.click;
  const routes=[],downloads=[];let center,root,studio,studioRoot;
