@@ -1,4 +1,4 @@
-import {msg,joinMessages,setText,bindAttribute,isMessage,translate,option as localizedOption} from './i18n.js';
+import {msg,joinMessages,setText,bindAttribute,isMessage,translate,getLocale,option as localizedOption} from './i18n.js';
 import {mountDiscovery} from './discovery.js';
 import {mountAssetCards} from './asset-cards.js';
 import {scopedProjects,directoryScope,scopedDirectoryPath} from './project-scope.js';
@@ -128,27 +128,57 @@ export function createProductionPlatform(root,ctx){
     const mark=el('span',null,'project-cover-mark');mark.innerHTML='<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect x="17" y="11" width="32" height="42" rx="3" fill="currentColor"/><path d="M13 16v40h31" stroke="currentColor" stroke-width="3"/><path d="M24 20h18M24 26h14" stroke="#1d1d1d" stroke-width="2"/></svg>';if(!row.cover)cover.append(mark);
     tile.append(cover,el('h3',title,'project-title'));return {tile,cover};
   }
-  function projectRole(row){const role=row.my_role;if(role)return msg('workspace.role_'+role);const caps=row.access_capabilities||[];if(!caps.length)return msg('workspace.local_read_only');return msg(caps.includes('manage')?'workspace.role_owner':caps.includes('edit')?'workspace.role_editor':caps.includes('review')?'workspace.role_reviewer':'workspace.role_viewer');}
-  function projectScopeControls(toolbar){
-    const control=el('select');bindAttribute(control,'aria-label',msg('workspace.scope_label'));
-    for(const [key,title]of [['all','workspace.all_projects'],['personal','workspace.personal_projects'],['team','workspace.team_projects'],['created','workspace.created'],['participating','workspace.participating']])control.append(localizedOption(key,msg(title)));
-    control.value=directoryScope(scope.projectScope);control.addEventListener('change',()=>ctx.navigate('projects',null,null,{...(scope.tab?{tab:scope.tab}:{}),project_scope:control.value}));
-    const group=el('label',msg('workspace.scope_label'),'project-scope-control');group.append(control);toolbar.append(group);root.append(el('p',msg('workspace.ownership_hint'),'project-scope-description'),el('p',msg('workspace.share_entry'),'hint'));
+  const projectCategories=[['personal','workspace.personal_projects'],['participating','workspace.participating_projects'],['team','workspace.team_projects']];
+  function projectCategoryTabs(){
+    const current=directoryScope(scope.projectScope),viewTab=scope.tab,nav=el('nav',null,'project-category-tabs');
+    nav.setAttribute('role','tablist');bindAttribute(nav,'aria-label',msg('workspace.project_categories'));
+    const activate=async key=>{await ctx.navigate('projects',null,null,{...(viewTab?{tab:viewTab}:{}),project_scope:key});root.querySelector('#project-category-'+key)?.focus?.();};
+    projectCategories.forEach(([key,label],index)=>{
+      const tab=el('a',msg(label));tab.href='?'+new URLSearchParams({page:'projects',...(viewTab?{tab:viewTab}:{}),project_scope:key});tab.id='project-category-'+key;
+      tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(key===current));tab.setAttribute('aria-controls','project-category-results');tab.tabIndex=key===current?0:-1;
+      tab.addEventListener('click',async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await activate(key);});
+      tab.addEventListener('keydown',async event=>{const next=event.key==='ArrowRight'?(index+1)%3:event.key==='ArrowLeft'?(index+2)%3:event.key==='Home'?0:event.key==='End'?2:null;if(next==null)return;event.preventDefault();await activate(projectCategories[next][0]);});nav.append(tab);
+    });return nav;
   }
   async function projects(t){
-    const canvases=scope.tab==='canvases'||scope.tab==='canvas',media=scope.tab==='media';
-    root.classList.add('platform-projects');header(msg('workspace.project_directory'),canvases?msg('canvas.library.description'):media?msg('media.library.description'):msg("replica.project_description"));
-    const toolbar=el('div',null,'project-toolbar'),tabs=el('nav',null,'project-tabs');bindAttribute(tabs,'aria-label',msg("ui.project_category"));
-    const current=link(msg("common.project"),'projects',null,null,{project_scope:directoryScope(scope.projectScope)}),canvasTab=link(msg("nav.canvas"),'projects',null,null,{tab:'canvases',project_scope:directoryScope(scope.projectScope)}),mediaTab=link(msg("common.route_generations"),'projects',null,null,{tab:'media',project_scope:directoryScope(scope.projectScope)});(media?mediaTab:canvases?canvasTab:current).setAttribute('aria-current','page');tabs.append(current,canvasTab,mediaTab);
-    toolbar.append(tabs);root.append(toolbar);projectScopeControls(toolbar);if(canvases){await canvasCatalog(t);return;}if(media){const slot=el('div',null,'project-toolbar-actions');toolbar.append(slot);await mediaCatalog(t,slot);return;}
-    const controls=el('div',null,'project-toolbar-actions'),total=el('span',null,'project-total'),query=el('input');query.type='search';bindAttribute(query,"placeholder",msg("replica.search_projects"));bindAttribute(query,'aria-label',msg("ui.search_projects"));const add=button(msg("ui.new_project"),()=>createFlow());add.className='primary';controls.append(total,query,add);toolbar.append(controls);
-    const rows=currentProjects().filter(row=>!['vsc.text-tools','vsc.creative-tools'].includes(row.profile)&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind)),grid=el('div',null,'project-grid');
-    const draw=()=>{grid.replaceChildren();const filtered=rows.filter(r=>r.name.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()));setText(total,msg('replica.project_count',{count:filtered.length}));const newTile=el('article',null,'project-tile');const plus=button('',()=>createFlow());plus.className='project-cover project-cover-new';bindAttribute(plus,'aria-label',msg("project.create_project"));plus.append(el('span','+','project-new-symbol'),el('span',msg("project.create_project"),'project-new-label'));newTile.append(plus);grid.append(newTile);
-      for(const row of filtered){const {tile,cover}=projectCover(row,row.name,()=>ctx.navigate(row.storage_policy==='postgres-series-v1'?'project':'script',null,row.id));tile.dataset.projectId=row.id;const frame=el('div',null,'project-cover-wrap');cover.replaceWith(frame);frame.append(cover);const tools=el('div',null,'project-cover-footer'),counts=el('span',null,'project-cover-counts');if(row.counts){counts.append(el('span','▱ '+row.counts.episodes),el('span','▧ '+row.counts.images),el('span','▣ '+row.counts.videos));bindAttribute(counts,'aria-label',msg("ui.value0_episodes_value1_images_value2_videos_value3_canvases",{value0:row.counts.episodes,value1:row.counts.images,value2:row.counts.videos,value3:row.counts.canvases}));}tools.append(counts);const operations=el('div',null,'project-card-actions');if(!row.read_only){for(const [operation,title,shape]of [['rename',msg('common.rename'),'<path d="m4 12 9-9 4 4-9 9-5 1Z M11 5l4 4 M17 12v6H3V4h6"/>'],['trash',msg('ui.delete'),'<path d="M3 5h14 M6 5V2h8v3 M5 5l1 13h8l1-13 M8 8v7 M12 8v7"/>']]){const action=button('',()=>manageCard(row,operation),!session().actor);bindAttribute(action,'aria-label',title);bindAttribute(action,'title',title);action.innerHTML='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+shape+'</svg>';operations.append(action);}}tools.append(operations);frame.append(tools);const ownership=el('p',null,'project-ownership');ownership.append(el('span',row.owner_name||row.workspace_name||row.created_by||msg('workspace.local_read_only')),el('span',projectRole(row)));tile.append(ownership);const relationship=el('small',row.created_by?(row.created_by===session().actor?msg('workspace.created'):msg('workspace.participating')):msg('workspace.creator_unknown'),'project-relationship');tile.append(relationship);const meta=el('p',null,'project-date');if(row.updated_at||row.created_at)meta.append(el('span',new Date(row.updated_at||row.created_at).toLocaleDateString('zh-CN')));if(row.project_type)meta.append(el('span',row.project_type,'project-type'));if(row.read_only)meta.append(el('span',msg('ui.read_only_project'),'project-type'));tile.append(meta);grid.append(tile);}
-    };query.addEventListener('input',draw);draw();root.append(grid);
+    const category=directoryScope(scope.projectScope),canvases=scope.tab==='canvases'||scope.tab==='canvas',media=scope.tab==='media';
+    root.classList.add('platform-projects');
+    const heading=header(msg('workspace.project_directory')),add=button(msg('ui.new_project'),()=>createFlow(),!session().actor||!session().writeAvailable);add.className='primary project-create-action';heading.append(add);
+    const navigation=el('div',null,'project-directory-navigation'),libraries=el('nav',null,'project-library-links');bindAttribute(libraries,'aria-label',msg('ui.project_category'));
+    if(canvases||media)libraries.append(link(msg('workspace.back_to_projects'),'projects',null,null,{project_scope:category}));
+    for(const [label,tab]of [['workspace.canvas_library','canvases'],['workspace.media_library','media']]){const a=link(msg(label),'projects',null,null,{tab,project_scope:category});if((canvases&&tab==='canvases')||(media&&tab==='media'))a.setAttribute('aria-current','page');libraries.append(a);}
+    navigation.append(projectCategoryTabs(),libraries);root.append(navigation);
+    const region=el('section',null,'project-category-results');region.id='project-category-results';region.setAttribute('role','tabpanel');region.setAttribute('aria-labelledby','project-category-'+category);
+    if(canvases||media){root.append(region);if(canvases)await canvasCatalog(t);else{const slot=el('div',null,'project-toolbar');region.append(slot);await mediaCatalog(t,slot);}return;}
+    const toolbar=el('div',null,'project-directory-toolbar'),query=el('input'),total=el('span',null,'project-total');query.type='search';bindAttribute(query,'placeholder',msg('replica.search_projects'));bindAttribute(query,'aria-label',msg('ui.search_projects'));total.setAttribute('role','status');toolbar.append(query,total);root.append(toolbar,region);
+    const rows=currentProjects().filter(row=>!['vsc.text-tools','vsc.creative-tools'].includes(row.profile)&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind)),grid=el('div',null,'project-grid');region.append(grid);
+    const draw=()=>{
+      grid.replaceChildren();const filtered=rows.filter(row=>row.name.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()));setText(total,msg('replica.project_count',{count:filtered.length}));
+      if(!filtered.length){
+        const empty=el('div',null,'project-directory-empty');
+        if(query.value.trim()){empty.append(el('p',msg('workspace.no_search_results')),button(msg('workspace.clear_search'),()=>{query.value='';draw();query.focus?.();}));}
+        else{empty.append(el('p',msg('workspace.'+category+'_empty')));if(category!=='personal')empty.append(el('small',msg('workspace.'+category+'_hint')));}
+        grid.append(empty);return;
+      }
+      for(const row of filtered){
+        const {tile,cover}=projectCover(row,row.name,()=>ctx.navigate(row.storage_policy==='postgres-series-v1'?'project':'script',null,row.id));tile.dataset.projectId=row.id;
+        const frame=el('div',null,'project-cover-wrap');cover.replaceWith(frame);frame.append(cover);
+        if(row.read_only)frame.append(el('span',msg('ui.read_only_project'),'project-readonly'));
+        if(!row.read_only){
+          const operations=el('div',null,'project-card-actions');
+          for(const [operation,label,shape]of [['rename','workspace.rename_project','<path d="m4 12 9-9 4 4-9 9-5 1Z M11 5l4 4 M17 12v6H3V4h6"/>'],['trash','workspace.delete_project','<path d="M3 5h14 M6 5V2h8v3 M5 5l1 13h8l1-13 M8 8v7 M12 8v7"/>']]){
+            const action=button('',()=>manageCard(row,operation),!session().actor);bindAttribute(action,'aria-label',msg(label,{name:row.name}));bindAttribute(action,'title',msg(label,{name:row.name}));
+            action.innerHTML='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+shape+'</svg>';operations.append(action);
+          }frame.append(operations);
+        }
+        const meta=el('p',null,'project-date'),date=new Date(row.updated_at||row.created_at);
+        if(Number.isFinite(date.getTime())){const time=el('time',new Intl.DateTimeFormat(getLocale(),{year:'numeric',month:'2-digit',day:'2-digit'}).format(date));time.dateTime=date.toISOString();meta.append(time);}
+        if(row.project_type)meta.append(el('span',row.project_type,'project-type'));tile.append(meta);grid.append(tile);
+      }
+    };query.addEventListener('input',draw);draw();
   }
   async function mediaCatalog(t,toolbarSlot=null){
-    root.classList.add('platform-media');const host=el('section');root.append(host);
+    root.classList.add('platform-media');const host=el('section');(root.querySelector('.project-category-results')||root).append(host);
     const {createMediaLibrary}=await import('./media-library.js');if(!same(t))return;
     mediaLibrary=createMediaLibrary(host,{...ctx,toolbarSlot,api:(path,options)=>ctx.api(path.startsWith('/api/v1/project-media?')?scopedDirectoryPath(path,session(),scope.projectScope):path,options),
       projects:async({isCurrent,signal})=>{if(!same(t)||!isCurrent())return;const value=await ctx.api('/api/v1/projects',{signal});if(!same(t)||!isCurrent())return;if(!Array.isArray(value.items))throw new Error(translate(msg('media.library.invalid_response')));return {items:scopedProjects(value.items,session(),scope.projectScope).filter(row=>row.storage_policy==='postgres-series-v1'&&!row.unavailable)};},
@@ -172,7 +202,7 @@ export function createProductionPlatform(root,ctx){
     form.addEventListener('submit',async e=>{e.preventDefault();if(!same(t)||identity!==session().actor)return;save.disabled=true;try{if(!request){const current=await ctx.api(endpoint(row.id,'management?limit=1'));if(!same(t)||identity!==session().actor)return;request={payload:operation==='rename'?{operation,title:value.value.trim()}:{operation,target_type:'project',target_id:row.id,reason:translate(msg("ui.delete_project"))},expected_revision:current.revision,idempotency_key:uid()};remember(requestKey,request);}const result=await ctx.api(endpoint(row.id,'management'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify(request)});if(!same(t)||identity!==session().actor)return;remember(requestKey,null);if(result.status==='protected'){request=null;throw new Error(result.reasons.map(r=>r.message).join('；'));}dialog.close();if(removing)ctx.notice(msg("ui.project_deleted"));await ctx.refreshProjects?.();if(same(t))await reload();}catch(error){if(error.status>=400&&error.status<500){request=null;remember(requestKey,null);}setText(message,error.message+(request?'；重试将恢复同一操作回执。':''));}finally{if(dialog.isConnected)save.disabled=false;}});
   }
   async function canvasCatalog(t){
-    const host=el('section');root.append(host);
+    const host=el('section');(root.querySelector('.project-category-results')||root).append(host);
     canvasLibrary=createCanvasLibrary(host,{...ctx,api:(path,options)=>ctx.api(path.startsWith('/api/v1/canvas-library')?scopedDirectoryPath(path,session(),scope.projectScope):path,options),
       projects:async({isCurrent})=>{if(!same(t)||!isCurrent())return;const value=await ctx.api(scopedDirectoryPath('/api/v1/canvas-library/options',session(),scope.projectScope));if(!same(t)||!isCurrent())return;if(!Array.isArray(value.projects)||!Array.isArray(value.creators))throw new Error(translate(msg('canvas.library.invalid_response')));return {items:value.projects,creators:value.creators};},
       episodes:async(project,{isCurrent})=>{const items=[];let next=0;do{if(!same(t)||!isCurrent())return;const value=await ctx.api(endpoint(project,'production-platform?'+new URLSearchParams({offset:String(next),limit:'100'})));if(!same(t)||!isCurrent())return;const page=value.episodes;if(!page||!Array.isArray(page.items)||!(page.next_offset===null||Number.isInteger(page.next_offset)&&page.next_offset>next))throw new Error(translate(msg('canvas.library.invalid_response')));items.push(...page.items);next=page.next_offset;}while(next!=null);return {items};}

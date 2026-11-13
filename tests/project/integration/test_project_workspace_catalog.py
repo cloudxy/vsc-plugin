@@ -157,12 +157,81 @@ class ProjectWorkspaceCatalogTests(ResourceStoreFixture, unittest.TestCase):
                     self.assertEqual(client.get(path, params={'workspace_id': 'forged'}).status_code, 422)
                     self.assertEqual(client.get(path, params={'workspace_id': 'unassigned'}).status_code, 422)
                     self.assertEqual(client.get(path, params={'owner_kind': 'unassigned'}).status_code, 422)
+                    self.assertEqual(client.get(path, params={'project_category': 'created'}).status_code, 422)
                     personal = client.get(path, params=dict(owner_kind='personal', query=self.marker, creator_filter='all'))
                     self.assertEqual(personal.status_code, 200, personal.text)
                     self.assertEqual([r['project_id'] for r in personal.json()['items']], [self.historic])
+                    categorized = client.get(path, params=dict(project_category='personal', query=self.marker, creator_filter='all'))
+                    self.assertEqual(categorized.status_code, 200, categorized.text)
+                    self.assertEqual([r['project_id'] for r in categorized.json()['items']], [self.historic])
                 options = client.get('/api/v1/canvas-library/options', params={'workspace_id': self.b})
                 self.assertEqual(options.status_code, 200, options.text)
                 self.assertEqual([r['id'] for r in options.json()['projects']], [self.cross])
+                self.assertEqual(client.get('/api/v1/canvas-library/options',
+                    params={'project_category': 'all'}).status_code, 422)
+                categorized = client.get('/api/v1/canvas-library/options', params={'project_category': 'personal'})
+                self.assertEqual(categorized.status_code, 200, categorized.text)
+                self.assertEqual({r['id'] for r in categorized.json()['projects']} & set(self.canvas_ids), {self.historic})
+
+    def test_project_categories_partition_authorized_rows_before_counts_pages_and_options(self):
+        from sqlalchemy import insert, update
+        from vsc.adapters.persistence.postgres import schema as S
+        binding = self.setup_catalog()
+        invited = self.service.create_project({'name': self.marker + '-invited-personal'}, actor='other-creator')['id']
+        name = self.marker + '-invited-personal'
+        digest = hashlib.sha256(name.encode()).hexdigest()
+        media = self.service.register_media(invited, dict(name=name, modality='image', sha256=digest,
+            size_bytes=1, mime_type='image/png', storage='local', object_key=digest+'.bin', rights='owned',
+            source=dict(kind='test-owned', content='synthetic')), actor='other-creator',
+            expected_revision=0, idempotency_key=uuid.uuid4().hex)
+        self.service.create_creative_canvas(invited, dict(title=name,
+            document=dict(nodes=[dict(id='text1', type='text', text='synthetic')], edges=[])),
+            actor='other-creator', expected_revision=media['revision'], idempotency_key=uuid.uuid4().hex)
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.access_project_members).values(project_id=invited,
+                identity_id=self.owner['identity_id'], role='viewer', active=True))
+            subteam = str(uuid.uuid4())
+            conn.execute(insert(S.access_workspaces).values(id=subteam, name='Subteam', kind='substudio',
+                parent_id=self.a, created_by=self.owner['identity_id']))
+            conn.execute(update(S.access_projects).where(S.access_projects.c.project_id == self.cross)
+                .values(workspace_id=subteam))
+        expected = dict(personal={self.historic}, participating={invited}, team={self.p, self.mine, self.cross})
+        targets = set().union(*expected.values()) | {self.secret}
+        with self.principal(**binding):
+            with self.engine.connect() as conn:
+                authorized = set(conn.execute(self.store._access_project_query(conn, 'read')).scalars()) & targets
+            self.assertEqual(authorized, set().union(*expected.values()))
+            for name, listing in (
+                    ('media', self.service.list_project_media),
+                    ('canvas', lambda **kw: self.service.list_canvas_library(creator_filter='all', **kw))):
+                with self.subTest(directory=name):
+                    categories = {}
+                    for category, projects in expected.items():
+                        seen, offset = [], 0
+                        while True:
+                            page = listing(project_category=category, query=self.marker, limit=1, offset=offset)
+                            self.assertEqual(page['total'], len(projects))
+                            seen.extend(row['project_id'] for row in page['items'])
+                            if page['next_offset'] is None:
+                                break
+                            self.assertGreater(page['next_offset'], offset)
+                            offset = page['next_offset']
+                        self.assertEqual(set(seen), projects)
+                        self.assertEqual(len(seen), len(projects))
+                        categories[category] = set(seen)
+                        beyond = listing(project_category=category, query=self.marker, offset=len(projects))
+                        self.assertEqual((beyond['total'], beyond['items'], beyond['next_offset']), (len(projects), [], None))
+                    self.assertTrue(categories['personal'].isdisjoint(categories['participating']))
+                    self.assertTrue(categories['personal'].isdisjoint(categories['team']))
+                    self.assertTrue(categories['participating'].isdisjoint(categories['team']))
+                    self.assertEqual(set().union(*categories.values()), authorized)
+                    aggregate = listing(query=self.marker)
+                    self.assertEqual((aggregate['total'], {r['project_id'] for r in aggregate['items']}),
+                        (len(authorized), authorized))
+                    self.assertEqual(listing(project_category='participating', owner_kind='team', query=self.marker)['total'], 0)
+            for category, projects in expected.items():
+                options = self.service.canvas_library_options(project_category=category)
+                self.assertEqual({row['id'] for row in options['projects']} & targets, projects)
 
     def test_previous_revision_keeps_historical_creator_unknown_and_upgrade_matches_model(self):
         from alembic import command

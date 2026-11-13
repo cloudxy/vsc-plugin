@@ -8,15 +8,17 @@ from .project_management import hidden_object_ids, inactive_canvas_ids
 PROJECT_OWNER = S.access_identities.alias('project_owner')
 
 
-def catalog_scope(workspace_id=None, relation=None, owner_kind=None):
-    """Validate optional directory restrictions; neither parameter grants access."""
+def catalog_scope(workspace_id=None, relation=None, owner_kind=None, project_category=None):
+    """Validate optional directory restrictions; no parameter grants access."""
     from vsc.assets.resource_service import ResourceError
     if relation not in (None, '', 'created', 'participating'):
         raise ResourceError('项目关系筛选无效', 'invalid_project_scope')
     if owner_kind not in (None, '', 'personal', 'team'):
         raise ResourceError('项目归属类型无效', 'invalid_project_scope')
+    if project_category not in (None, '', 'personal', 'participating', 'team'):
+        raise ResourceError('项目分类无效', 'invalid_project_scope')
     return dict(workspace_id=checked_id(workspace_id) if workspace_id else None,
-        relation=relation or None, owner_kind=owner_kind or None)
+        relation=relation or None, owner_kind=owner_kind or None, project_category=project_category or None)
 
 
 def scope_projects(store, conn, query, filters):
@@ -25,6 +27,24 @@ def scope_projects(store, conn, query, filters):
     bindings, projects = S.access_projects, S.projects
     if workspace_id:
         query = query.where(projects.c.id.in_(select(bindings.c.project_id).where(bindings.c.workspace_id == workspace_id)))
+    project_category = filters.get('project_category')
+    if project_category:
+        workspace = S.access_workspaces
+        if project_category == 'team':
+            category = workspace.c.kind.in_(['studio', 'substudio'])
+        else:
+            _, person, _ = store._access_principal(conn)
+            if not person:
+                return query.where(false())
+            category = and_(workspace.c.kind == 'personal',
+                PROJECT_OWNER.c.actor == person['actor'] if project_category == 'personal'
+                    else PROJECT_OWNER.c.actor != person['actor'])
+        # Category is a partition of actual authorized ownership bindings.
+        # Creator history and direct collaboration never reclassify a team.
+        query = query.where(exists(select(1).select_from(bindings.join(workspace,
+            workspace.c.id == bindings.c.workspace_id).join(PROJECT_OWNER,
+                PROJECT_OWNER.c.id == workspace.c.created_by)).where(
+                    bindings.c.project_id == projects.c.id, category).correlate(projects)))
     if owner_kind:
         owned = exists(select(1).select_from(bindings.join(S.access_workspaces,
             S.access_workspaces.c.id == bindings.c.workspace_id)).where(bindings.c.project_id == projects.c.id,

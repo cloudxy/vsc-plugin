@@ -224,14 +224,14 @@ class CreativeCanvasService:
         project_id, payload = self._direct_canvas_copy_payload(project_id, payload)
         return DirectCanvasCopiesRepository(self.store).copy(project_id, payload, verify_media=self._verify_media, **kw)
 
-    def canvas_library_options(self, *, workspace_id=None, relation=None, owner_kind=None):
+    def canvas_library_options(self, *, workspace_id=None, relation=None, owner_kind=None, project_category=None):
         from vsc.adapters.persistence.postgres.canvas_library import CanvasLibrary
         from vsc.adapters.persistence.postgres.project_presentation import catalog_scope
-        return CanvasLibrary(self.store).options(catalog_scope(workspace_id, relation, owner_kind))
+        return CanvasLibrary(self.store).options(catalog_scope(workspace_id, relation, owner_kind, project_category))
 
     def list_canvas_library(self, *, project_id=None, episode_id=None, creator_filter='mine',
                             creator_id=None, permission='all', collaboration_only=False, order='updated_desc', query='', offset=0, limit=30,
-                            workspace_id=None, relation=None, owner_kind=None):
+                            workspace_id=None, relation=None, owner_kind=None, project_category=None):
         from vsc.adapters.persistence.postgres.canvas_library import CanvasLibrary
         from vsc.adapters.persistence.postgres.project_presentation import catalog_scope
         from vsc.adapters.persistence.postgres.values import checked_id
@@ -253,7 +253,7 @@ class CreativeCanvasService:
         if episode_id and not project_id:
             raise ResourceError('剧集筛选需要先指定项目', 'invalid_canvas_filter')
         return CanvasLibrary(self.store).search(dict(project_id=checked_id(project_id) if project_id else None,
-            **catalog_scope(workspace_id, relation, owner_kind),
+            **catalog_scope(workspace_id, relation, owner_kind, project_category),
             episode_id=checked_id(episode_id) if episode_id else None, creator_filter=creator_filter,
             creator_id=creator_id, permission=permission, collaboration_only=collaboration_only,
             order=order, query=query.strip(), offset=offset, limit=limit))

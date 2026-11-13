@@ -23,7 +23,7 @@ function setup({api,refresh,storage=new Map()}={}){
       if(url.endsWith('/cover'))return {revision:8,selection:null,cover:null};
       if(options.method==='POST'){project.name=body.payload.title;project.counts.episodes=body.payload.episode_count;project.profile_snapshot.character_style=body.payload.character_style;return {project_id:project.id,revision:9};}
       return {revision:8,project,episode_count:2};}});
-  const open=async()=>{assert.ok(!notices.length,notices.join(';'));await root.querySelectorAll('button').find(n=>n.getAttribute('aria-label')==='重命名').click();return root.querySelector('dialog');};
+  const open=async()=>{assert.ok(!notices.length,notices.join(';'));await root.querySelectorAll('button').find(n=>n.getAttribute('aria-label')?.startsWith('重命名')).click();return root.querySelector('dialog');};
   return {root,platform,project,session,calls,notices,storage,open,get refreshes(){return refreshes;},posts:()=>calls.filter(c=>c.options.method==='POST')};
 }
 function fill(dialog,{name='编辑后的项目',count=3,style='3d'}={}){

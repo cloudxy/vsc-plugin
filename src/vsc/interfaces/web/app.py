@@ -255,9 +255,10 @@ def create_app(config=None, catalog=None, service=None):
     def project_media(request: Request, project_id: str = None, episode_id: str = None,
                       modality: str = None, category: str = None, query: str = '', created_after: str = None,
                       created_before: str = None, order: str = 'created_desc', offset: int = 0, limit: int = 24,
-                      workspace_id: str = None, relation: str = None, owner_kind: str = None):
+                      workspace_id: str = None, relation: str = None, owner_kind: str = None,
+                      project_category: str = None):
         return etag(request, catalog.project_media(project_id=project_id, episode_id=episode_id,
-            workspace_id=workspace_id, relation=relation, owner_kind=owner_kind,
+            workspace_id=workspace_id, relation=relation, owner_kind=owner_kind, project_category=project_category,
             modality=modality, category=category, query=query, created_after=created_after, created_before=created_before,
             order=order, offset=offset, limit=limit))
 
