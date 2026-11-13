@@ -130,12 +130,11 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .sidebar .sidebar-help>div button{display:flex;align-items:center;min-height:32px;padding:4px 12px;gap:8px;border-radius:8px;color:#cccacb;font-size:14px;line-height:20px}
 .sidebar .sidebar-help>div button svg{width:20px;height:20px;flex:none}
 .sidebar .sidebar-help>div button:hover{background:#292929;color:#fdfbfc}
-.sidebar .sidebar-settings-open{box-sizing:border-box;justify-content:center;min-width:0;width:100%;height:40px;min-height:40px;padding:0;border-radius:12px;font-size:0}
-.sidebar .sidebar-settings-open span{display:none}
+.sidebar .sidebar-settings-open{box-sizing:border-box;justify-content:center;min-width:0;width:100%;height:40px;min-height:40px;padding:0 12px;border-radius:12px;color:#a1a0a3;font-size:14px;line-height:20px}
 .sidebar .sidebar-settings-open svg{width:20px;height:20px}
-.sidebar .sidebar-settings-open:hover{background:var(--sidebar-hover)}
+.sidebar .sidebar-settings-open:hover{background:var(--sidebar-hover);color:#fdfbfc}
 @media(min-width:541px){body:not(.production-shell) .layout,body:not(.production-shell) .platform-mode{grid-template-columns:218px minmax(0,1fr)}body:not(.production-shell) .brand{box-sizing:border-box;width:218px;border-right-width:.5px}}
-@media(max-width:540px){.platform-mode .sidebar,.sidebar{padding:8px 6px}.sidebar .main-nav a{justify-content:center;padding:8px}.sidebar .main-nav a span,.sidebar .main-nav a small,.sidebar .recent-projects{display:none}.sidebar-marketing{margin:12px 0;padding:8px 0}.sidebar .new-canvas-project{display:flex;justify-content:center;width:100%;min-height:38px;height:38px;margin:0 0 12px;padding:8px;font-size:0;gap:0}.sidebar .sidebar-footer{display:flex;flex-direction:column;gap:0}.sidebar .sidebar-help{flex:none;width:100%}.sidebar .sidebar-help summary{justify-content:center;padding:0}.sidebar .sidebar-help summary span{display:none}.sidebar .sidebar-help>div{left:40px;bottom:0}.sidebar .sidebar-settings-open{width:100%}.sidebar{overflow:visible}}
+@media(max-width:540px){.platform-mode .sidebar,.sidebar{padding:8px 6px}.sidebar .main-nav a{justify-content:center;padding:8px}.sidebar .main-nav a span,.sidebar .main-nav a small,.sidebar .recent-projects{display:none}.sidebar-marketing{margin:12px 0;padding:8px 0}.sidebar .new-canvas-project{display:flex;justify-content:center;width:100%;min-height:38px;height:38px;margin:0 0 12px;padding:8px;font-size:0;gap:0}.sidebar .sidebar-footer{display:flex;flex-direction:column;gap:0}.sidebar .sidebar-help{flex:none;width:100%}.sidebar .sidebar-help summary{justify-content:center;padding:0}.sidebar .sidebar-help summary span,.sidebar .sidebar-settings-open span{display:none}.sidebar .sidebar-help>div{left:40px;bottom:0}.sidebar .sidebar-settings-open{width:100%}.sidebar{overflow:visible}}
 @media(prefers-reduced-motion:reduce){.sidebar .main-nav a,.recent-projects-toggle svg{transition:none}}
 
 .project-create-workspace{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.project-create-workspace select{max-width:100%;padding:8px;border-radius:6px;border:1px solid #45454c;background:#202024;color:#eee}
