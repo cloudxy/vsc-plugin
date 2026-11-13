@@ -184,11 +184,22 @@ export function createServiceOperations(root,ctx){
     return dialog;
   }
 
+  function resetScroll(focusRoot=false){
+    root.scrollTop=0;
+    if(root.parentElement)root.parentElement.scrollTop=0;
+    if(focusRoot){
+      if(root.getAttribute?.('tabindex')==null)root.setAttribute?.('tabindex','-1');
+      root.focus?.({preventScroll:true});
+    }
+  }
+
   function switchSubview(next){
     subview=normalizeOperationsSubview(next);
     if(scope)scope.subview=subview;
     ctx.onSubviewChange?.(subview);
+    resetScroll();
     render();
+    resetScroll(true);
   }
 
   async function write(path,payload,onSuccess){
@@ -1097,137 +1108,143 @@ export function createServiceOperations(root,ctx){
   }
 
   function render(){
+    const scrollHost=root.parentElement||root;
+    const prevScroll=scrollHost.scrollTop||0;
+    if(root.getAttribute?.('tabindex')==null)root.setAttribute?.('tabindex','-1');
     root.replaceChildren();
     root.classList.add('service-operations');
     root.dataset.subview=subview;
     const s=scope,t=ticket;
-
-    if(subview==='engine'){renderEngine(s);return;}
-    if(subview==='data-records'){renderDataRecords(s);return;}
-    if(subview==='seedance-verify'){renderSeedanceVerify(t,s);return;}
-    if(subview==='feedback-records'){renderFeedbackRecords(t,s);return;}
-    if(subview==='ai-drama-base'){renderAiDramaBase(s);return;}
-    if(subview==='network-diagnostic'){renderNetworkDiagnostic(t,s);return;}
-    if(subview==='personal-info-export'){renderPersonalExport(t,s);return;}
-    if(subview==='account-close'){renderAccountClose(s);return;}
-    if(subview==='activity'){
-      const head=node('header',null,'so-hero-bar so-standalone-head');
-      head.append(node('h1','天工工作台 · 运营专题活动'),renderQuickSwitch(s));
-      root.append(head);
-      summaryGrid(root,[
-        ['充值解锁 DramaWave 承制权益','单部短剧保底出海分发','前往会员与钱包解锁承制合作名额'],
-        ['投稿享 4x 流量分发加权','昆仑 AI 短剧基地联合扶持','支持多语种精校与海外渠道直发'],
-        ['全模态创作算力活动','Seedance / 图像 / 剧本工具联动','所有消耗明细均记录在项目商业账本']
-      ]);
-      const actCard=box('当期活动与项目公告');
-      const published=(data.announcements||[]).filter(a=>a.status==='published');
-      if(published.length){
-        for(const item of published){
-          const row=node('article',null,'service-operations-request');
-          row.append(node('h3',item.title),node('p',item.body));
-          actCard.append(row);
+    try{
+      if(subview==='engine'){renderEngine(s);return;}
+      if(subview==='data-records'){renderDataRecords(s);return;}
+      if(subview==='seedance-verify'){renderSeedanceVerify(t,s);return;}
+      if(subview==='feedback-records'){renderFeedbackRecords(t,s);return;}
+      if(subview==='ai-drama-base'){renderAiDramaBase(s);return;}
+      if(subview==='network-diagnostic'){renderNetworkDiagnostic(t,s);return;}
+      if(subview==='personal-info-export'){renderPersonalExport(t,s);return;}
+      if(subview==='account-close'){renderAccountClose(s);return;}
+      if(subview==='activity'){
+        const head=node('header',null,'so-hero-bar so-standalone-head');
+        head.append(node('h1','天工工作台 · 运营专题活动'),renderQuickSwitch(s));
+        root.append(head);
+        summaryGrid(root,[
+          ['充值解锁 DramaWave 承制权益','单部短剧保底出海分发','前往会员与钱包解锁承制合作名额'],
+          ['投稿享 4x 流量分发加权','昆仑 AI 短剧基地联合扶持','支持多语种精校与海外渠道直发'],
+          ['全模态创作算力活动','Seedance / 图像 / 剧本工具联动','所有消耗明细均记录在项目商业账本']
+        ]);
+        const actCard=box('当期活动与项目公告');
+        const published=(data.announcements||[]).filter(a=>a.status==='published');
+        if(published.length){
+          for(const item of published){
+            const row=node('article',null,'service-operations-request');
+            row.append(node('h3',item.title),node('p',item.body));
+            actCard.append(row);
+          }
+        }else{
+          actCard.append(node('p','当前暂无额外项目内公告，可通过下方入口直达对应权益页面。','hint'));
         }
-      }else{
-        actCard.append(node('p','当前暂无额外项目内公告，可通过下方入口直达对应权益页面。','hint'));
+        const actions=node('div',null,'service-operations-actions');
+        actions.append(
+          button('前往会员与钱包 →',()=>ctx.navigate?.('commerce','wallet',s.project),false,'so-btn-primary'),
+          button('了解 AI 短剧基地 →',()=>switchSubview('ai-drama-base'),false,'so-btn-ghost')
+        );
+        actCard.append(actions);
+        return;
       }
-      const actions=node('div',null,'service-operations-actions');
-      actions.append(
-        button('前往会员与钱包 →',()=>ctx.navigate?.('commerce','wallet',s.project),false,'so-btn-primary'),
-        button('了解 AI 短剧基地 →',()=>switchSubview('ai-drama-base'),false,'so-btn-ghost')
-      );
-      actCard.append(actions);
-      return;
-    }
-    if(subview==='pc-only-notice'){
-      const head=node('header',null,'so-hero-bar so-standalone-head');
-      head.append(node('h1','建议使用桌面端浏览器访问'),renderQuickSwitch(s));
-      root.append(head);
-      const card=box('天工工作台核心画布与剪辑器面向桌面端大屏设计');
-      card.append(node('p','无限画布多节点编排、多分镜轨道审片及批量字幕质检需要桌面端键鼠交互。请复制当前工作台地址并在电脑端 Chrome / Edge 打开。','hint'));
-      const currentHref=globalThis.location?.href||'https://www.skyproduction.cn/';
-      const actions=node('div',null,'service-operations-actions');
-      actions.append(
-        button('复制当前链接',async()=>{await clipWrite(currentHref);ctx.notice('已复制工作台链接，请在桌面浏览器粘贴打开');},false,'so-btn-primary'),
-        button('返回工作台首页',()=>ctx.navigate?.('home'),false,'so-btn-ghost')
-      );
-      card.append(actions);
-      return;
-    }
-    if(subview==='icon'){
-      const head=node('header',null,'so-hero-bar so-standalone-head');
-      head.append(node('h1','天工工作台 · 图标资产预览表'),renderQuickSwitch(s));
-      root.append(head);
-      const iconCatalog=[
-        ['canvas-infinite','◈','无限画布与节点编排'],['script-studio','▤','剧本工作室与多语精校'],
-        ['marketing-agent','✧','营销工作室与爆款创意'],['asset-library','❖','角色/场景/道具资产中心'],
-        ['seedance-shield','🛡','Seedance 官方任务验真'],['tiangong-engine','⚡','天工引擎开放 API'],
-        ['wallet-credits','✦','商业积分与电子发票'],['network-probe','✓','10 项全链路网络诊断']
-      ];
-      const card=box('内置语义图标检索（点击复制图标标识）');
-      const searchInput=field(card,'搜索图标名称或场景','icon-filter','text','');
-      searchInput.placeholder='输入关键词筛选图标…';
-      const grid=node('div',null,'so-summary-grid');
-      const paintIcons=()=>{
-        const kw=searchInput.value.trim().toLowerCase();
-        grid.replaceChildren();
-        for(const [id,glyph,desc]of iconCatalog){
-          if(kw&&!`${id} ${desc}`.toLowerCase().includes(kw))continue;
-          const cell=node('article',null,'so-summary-card');
-          cell.append(node('span',`${glyph} ${id}`,'so-summary-label'),node('strong',desc,'so-summary-value'),button('复制 ID',async()=>{await clipWrite(id);ctx.notice(`已复制图标标识 ${id}`);},false,'so-btn-ghost'));
-          grid.append(cell);
+      if(subview==='pc-only-notice'){
+        const head=node('header',null,'so-hero-bar so-standalone-head');
+        head.append(node('h1','建议使用桌面端浏览器访问'),renderQuickSwitch(s));
+        root.append(head);
+        const card=box('天工工作台核心画布与剪辑器面向桌面端大屏设计');
+        card.append(node('p','无限画布多节点编排、多分镜轨道审片及批量字幕质检需要桌面端键鼠交互。请复制当前工作台地址并在电脑端 Chrome / Edge 打开。','hint'));
+        const currentHref=globalThis.location?.href||'https://www.skyproduction.cn/';
+        const actions=node('div',null,'service-operations-actions');
+        actions.append(
+          button('复制当前链接',async()=>{await clipWrite(currentHref);ctx.notice('已复制工作台链接，请在桌面浏览器粘贴打开');},false,'so-btn-primary'),
+          button('返回工作台首页',()=>ctx.navigate?.('home'),false,'so-btn-ghost')
+        );
+        card.append(actions);
+        return;
+      }
+      if(subview==='icon'){
+        const head=node('header',null,'so-hero-bar so-standalone-head');
+        head.append(node('h1','天工工作台 · 图标资产预览表'),renderQuickSwitch(s));
+        root.append(head);
+        const iconCatalog=[
+          ['canvas-infinite','◈','无限画布与节点编排'],['script-studio','▤','剧本工作室与多语精校'],
+          ['marketing-agent','✧','营销工作室与爆款创意'],['asset-library','❖','角色/场景/道具资产中心'],
+          ['seedance-shield','🛡','Seedance 官方任务验真'],['tiangong-engine','⚡','天工引擎开放 API'],
+          ['wallet-credits','✦','商业积分与电子发票'],['network-probe','✓','10 项全链路网络诊断']
+        ];
+        const card=box('内置语义图标检索（点击复制图标标识）');
+        const searchInput=field(card,'搜索图标名称或场景','icon-filter','text','');
+        searchInput.placeholder='输入关键词筛选图标…';
+        const grid=node('div',null,'so-summary-grid');
+        const paintIcons=()=>{
+          const kw=searchInput.value.trim().toLowerCase();
+          grid.replaceChildren();
+          for(const [id,glyph,desc]of iconCatalog){
+            if(kw&&!`${id} ${desc}`.toLowerCase().includes(kw))continue;
+            const cell=node('article',null,'so-summary-card');
+            cell.append(node('span',`${glyph} ${id}`,'so-summary-label'),node('strong',desc,'so-summary-value'),button('复制 ID',async()=>{await clipWrite(id);ctx.notice(`已复制图标标识 ${id}`);},false,'so-btn-ghost'));
+            grid.append(cell);
+          }
+        };
+        searchInput.addEventListener('input',paintIcons);
+        paintIcons();
+        card.append(grid);
+        return;
+      }
+      if(subview==='terms'||subview==='privacy'||subview==='forbidden'||subview==='not-found'){
+        const head=node('header',null,'so-hero-bar so-standalone-head');
+        const title=subview==='terms'?'用户服务协议':subview==='privacy'?'隐私保护政策':subview==='not-found'?'404 · 页面不存在或已移动':'403 · 当前账号无访问权限';
+        head.append(node('h1',title),renderQuickSwitch(s));
+        root.append(head);
+        const card=box(title);
+        const cfg=data.configuration?.document||{};
+        if(subview==='forbidden'){
+          card.append(node('p','该页面仅面向企业工作室主管理员或具备对应项目角色权限的成员开放。请切换工作空间身份，或联系工作室管理员授权。','hint'));
+        }else if(subview==='not-found'){
+          card.append(node('p','未找到所请求的工作台路径，请核对链接地址或返回首页重新进入对应模块。','hint'));
+        }else{
+          const linkUrl=subview==='terms'?cfg.terms_url:cfg.privacy_url;
+          card.append(node('p',cfg.support_text||'天工工作台遵循严格的数据隔离、审计追溯与生成合成内容标识规范。'));
+          if(linkUrl){const a=node('a',linkUrl);a.href=linkUrl;a.target='_blank';a.rel='noopener noreferrer';card.append(a);}
         }
-      };
-      searchInput.addEventListener('input',paintIcons);
-      paintIcons();
-      card.append(grid);
-      return;
-    }
-    if(subview==='terms'||subview==='privacy'||subview==='forbidden'||subview==='not-found'){
-      const head=node('header',null,'so-hero-bar so-standalone-head');
-      const title=subview==='terms'?'用户服务协议':subview==='privacy'?'隐私保护政策':subview==='not-found'?'404 · 页面不存在或已移动':'403 · 当前账号无访问权限';
-      head.append(node('h1',title),renderQuickSwitch(s));
-      root.append(head);
-      const card=box(title);
-      const cfg=data.configuration?.document||{};
-      if(subview==='forbidden'){
-        card.append(node('p','该页面仅面向企业工作室主管理员或具备对应项目角色权限的成员开放。请切换工作空间身份，或联系工作室管理员授权。','hint'));
-      }else if(subview==='not-found'){
-        card.append(node('p','未找到所请求的工作台路径，请核对链接地址或返回首页重新进入对应模块。','hint'));
-      }else{
-        const linkUrl=subview==='terms'?cfg.terms_url:cfg.privacy_url;
-        card.append(node('p',cfg.support_text||'天工工作台遵循严格的数据隔离、审计追溯与生成合成内容标识规范。'));
-        if(linkUrl){const a=node('a',linkUrl);a.href=linkUrl;a.target='_blank';a.rel='noopener noreferrer';card.append(a);}
+        card.append(button('返回工作台首页',()=>ctx.navigate?.('home'),false,'so-btn-primary'));
+        return;
       }
-      card.append(button('返回工作台首页',()=>ctx.navigate?.('home'),false,'so-btn-primary'));
-      return;
-    }
 
-    const top=node('header',null,'so-topbar');
-    const titleWrap=node('div');
-    titleWrap.append(node('h1',msg("ui.services_public_api_and_personal_information")),node('p',msg("ui.local_requests_retain_processing_records_partnerships_sms_and_distribution"),'hint'));
-    top.append(titleWrap,button(msg("ui.reload_service_records"),()=>load({...scope,subview})));
-    root.append(top);
+      const top=node('header',null,'so-topbar');
+      const titleWrap=node('div');
+      titleWrap.append(node('h1',msg("ui.services_public_api_and_personal_information")),node('p',msg("ui.local_requests_retain_processing_records_partnerships_sms_and_distribution"),'hint'));
+      top.append(titleWrap,button(msg("ui.reload_service_records"),()=>load({...scope,subview})));
+      root.append(top);
 
-    const nav=node('nav',null,'so-subnav');
-    bindAttribute(nav,'aria-label','平台服务与运营导航');
-    for(const [id,label]of [
-      ['overview','综合服务总览'],
-      ['engine','天工引擎 API'],
-      ['data-records','数据与消耗记录'],
-      ['seedance-verify','Seedance 视频验真'],
-      ['feedback-records','我的意见反馈'],
-      ['ai-drama-base','昆仑 AI 短剧基地'],
-      ['network-diagnostic','网络诊断'],
-      ['personal-info-export','个人信息导出'],
-      ['account-close','账户注销']
-    ]){
-      const b=button(label,()=>switchSubview(id));
-      b.dataset.subview=id;
-      b.setAttribute('aria-pressed',String(subview===id));
-      nav.append(b);
+      const nav=node('nav',null,'so-subnav');
+      bindAttribute(nav,'aria-label','平台服务与运营导航');
+      for(const [id,label]of [
+        ['overview','综合服务总览'],
+        ['engine','天工引擎 API'],
+        ['data-records','数据与消耗记录'],
+        ['seedance-verify','Seedance 视频验真'],
+        ['feedback-records','我的意见反馈'],
+        ['ai-drama-base','昆仑 AI 短剧基地'],
+        ['network-diagnostic','网络诊断'],
+        ['personal-info-export','个人信息导出'],
+        ['account-close','账户注销']
+      ]){
+        const b=button(label,()=>switchSubview(id));
+        b.dataset.subview=id;
+        b.setAttribute('aria-pressed',String(subview===id));
+        nav.append(b);
+      }
+      root.append(nav);
+      renderOverview(t,s);
+    }finally{
+      if(prevScroll>0)scrollHost.scrollTop=prevScroll;
     }
-    root.append(nav);
-    renderOverview(t,s);
   }
 
   async function load(value){
@@ -1238,10 +1255,12 @@ export function createServiceOperations(root,ctx){
     scope={...value,actor:session().actor};
     subview=normalizeOperationsSubview(value?.subview);
     const s=scope,t=++ticket;busy=false;
+    resetScroll();
     root.replaceChildren(node('p',msg("ui.loading_service_records")));
     if((!s.project||!session().actor)&&['terms','privacy','pc-only-notice','icon','forbidden','not-found','activity','network-diagnostic','ai-drama-base','seedance-verify','engine'].includes(subview)){
       data={configuration:{document:{}},announcements:[],requests:[],api_keys:[],api_calls:[],api_catalog:null,engine_overview:{credit_balance:0,total_consumed_credits:0,ledger_records:[],recharge_orders:[],reservations:[],recent_jobs:[],member_usage:[]}};
       render();
+      resetScroll(true);
       return;
     }
     if(!s.project){root.replaceChildren(node('p',msg("ui.select_a_project_first")));return;}
@@ -1252,6 +1271,7 @@ export function createServiceOperations(root,ctx){
       data=result;
       ctx.setRevision(result.revision,s.project);
       render();
+      resetScroll(true);
     }catch(e){
       if(same(t,s))root.replaceChildren(node('p',e.message),button(msg("ui.retry_loading"),()=>load(s)));
     }

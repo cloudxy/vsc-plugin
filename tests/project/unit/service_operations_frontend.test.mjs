@@ -1,5 +1,7 @@
 import {loadModule} from '../../support/fixtures/frontend/modules.cjs';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
@@ -7,6 +9,7 @@ class Element {
   constructor(tag,text=''){
     this.tagName=tag.toUpperCase();this._text=text;this.children=[];this.attrs={};this.listeners={};
     this.value='';this.checked=false;this.style={};this.dataset={};this.parentElement=null;this.className='';
+    this.scrollTop=0;this.focusCalls=[];
     this.classList={
       add:(...v)=>{this.className=[...new Set([...this.className.split(' '),...v])].filter(Boolean).join(' ');},
       contains:v=>this.className.split(' ').includes(v)
@@ -39,7 +42,7 @@ class Element {
   get options(){return this.children.filter(x=>x.tagName==='OPTION');}
   showModal(){this.open=true;}
   close(){this.open=false;return this.fire('close');}
-  focus(){}
+  focus(opts){this.focusCalls.push(opts??null);}
   async fire(type,properties={}){
     const event={target:this,preventDefault(){},...properties};
     if(this['on'+type])await this['on'+type](event);
@@ -286,5 +289,35 @@ test('standalone subviews stay focused without multi-tab admin clutter, support 
   await f.instance.load({project:'proj-ops',subview:'404'});
   assert.equal(f.view.dataset.subview,'not-found');
   assert.ok(f.view.textContent.includes('404 · 页面不存在或已移动'));
+  f.instance.suspend();
+});
+
+test('network-diagnostic inside assisted-mode workspace restores vertical scroll, resets on navigation, and preserves scroll during live probes',async()=>{
+  const staticDir=path.resolve(import.meta.dirname,'../../../src/vsc/interfaces/web/static');
+  const shellCss=fs.readFileSync(path.join(staticDir,'workbench-shell.css'),'utf8');
+  const opsCss=fs.readFileSync(path.join(staticDir,'service-operations.css'),'utf8');
+  assert.match(shellCss,/\.workspace:has\(:is\([^)]*#service-operations-view[^)]*\):not\(\[hidden\]\)\)\{[^}]*overflow-y:auto/);
+  assert.match(opsCss,/\.workspace:has\(#service-operations-view:not\(\[hidden\]\)\)\{[^}]*overflow-y:auto/);
+  assert.match(opsCss,/#service-operations-view\{[^}]*flex:none;width:100%;box-sizing:border-box\}/);
+
+  const f=await opsFixture();
+  const workspace=document.createElement('section');
+  workspace.className='workspace assisted-mode';
+  workspace.append(f.view);
+  workspace.scrollTop=360;
+
+  await f.instance.load({project:'proj-ops',subview:'network-diagnostic'});
+  assert.equal(workspace.scrollTop,0);
+  assert.equal(f.view.getAttribute('tabindex'),'-1');
+  assert.deepEqual(f.view.focusCalls.at(-1),{preventScroll:true});
+
+  workspace.scrollTop=420;
+  await f.button('开始 10 项全链路诊断').fire('click');
+  assert.ok(f.view.textContent.includes('诊断进度：10 / 10'));
+  assert.equal(workspace.scrollTop,420);
+
+  await f.button('我的意见反馈').fire('click');
+  assert.equal(f.view.dataset.subview,'feedback-records');
+  assert.equal(workspace.scrollTop,0);
   f.instance.suspend();
 });
