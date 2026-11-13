@@ -1,0 +1,1896 @@
+{
+  "schema": "vsc.marketing-local-assets/v1",
+  "catalog_sha256": "3574def15e6793d988c9c788ff1c3814ad879ab96677abeae84f7493e11becd9",
+  "assets": {
+    "cases/approved_051882f0174cac67/cover": {
+      "id": "cases/approved_051882f0174cac67/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_051882f0174cac67.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "5aac50947c861cae8243a8c3e77d0187674f8a6074504ff25dc4806dc236afa5",
+      "size_bytes": 46636,
+      "mime_type": "image/jpeg",
+      "object_key": "5aac50947c861cae8243a8c3e77d0187674f8a6074504ff25dc4806dc236afa5.jpg"
+    },
+    "cases/approved_051882f0174cac67/video": {
+      "id": "cases/approved_051882f0174cac67/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_051882f0174cac67.mp4",
+      "sha256": "33302a2cf099203eddb0f05c2e5258f0d8716ce6090896fd6baf94267cae605d",
+      "size_bytes": 13658829,
+      "mime_type": "video/mp4",
+      "object_key": "33302a2cf099203eddb0f05c2e5258f0d8716ce6090896fd6baf94267cae605d.mp4"
+    },
+    "cases/approved_092da543e904e7ca/cover": {
+      "id": "cases/approved_092da543e904e7ca/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_092da543e904e7ca.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "df42032d93916e64700c4643a51dfe0c7232e35738dbcb5acb5a51b0daff9a56",
+      "size_bytes": 60120,
+      "mime_type": "image/jpeg",
+      "object_key": "df42032d93916e64700c4643a51dfe0c7232e35738dbcb5acb5a51b0daff9a56.jpg"
+    },
+    "cases/approved_092da543e904e7ca/video": {
+      "id": "cases/approved_092da543e904e7ca/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_092da543e904e7ca.mp4",
+      "sha256": "07df622cd63e5ef5f5602788cd9ca37b20d4fe8109f5a012f242113b890ad6e6",
+      "size_bytes": 15714881,
+      "mime_type": "video/mp4",
+      "object_key": "07df622cd63e5ef5f5602788cd9ca37b20d4fe8109f5a012f242113b890ad6e6.mp4"
+    },
+    "cases/approved_09ce29db144f24a2/cover": {
+      "id": "cases/approved_09ce29db144f24a2/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_09ce29db144f24a2.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "b88020a8c666022c998c42d8796b8d047f5ff6943b457d55f23afdb331622f4f",
+      "size_bytes": 51066,
+      "mime_type": "image/jpeg",
+      "object_key": "b88020a8c666022c998c42d8796b8d047f5ff6943b457d55f23afdb331622f4f.jpg"
+    },
+    "cases/approved_09ce29db144f24a2/video": {
+      "id": "cases/approved_09ce29db144f24a2/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_09ce29db144f24a2.mp4",
+      "sha256": "4aef055e5d17be71b95ffbd17156c4192e467565492050d855b6e70820041cb8",
+      "size_bytes": 11424319,
+      "mime_type": "video/mp4",
+      "object_key": "4aef055e5d17be71b95ffbd17156c4192e467565492050d855b6e70820041cb8.mp4"
+    },
+    "cases/approved_0de067b53d60c7ee/cover": {
+      "id": "cases/approved_0de067b53d60c7ee/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_0de067b53d60c7ee.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "8dd6776f2ca7b2424815141d8508d96391733f4a6900645da8c23a7c611712d5",
+      "size_bytes": 79769,
+      "mime_type": "image/jpeg",
+      "object_key": "8dd6776f2ca7b2424815141d8508d96391733f4a6900645da8c23a7c611712d5.jpg"
+    },
+    "cases/approved_0de067b53d60c7ee/video": {
+      "id": "cases/approved_0de067b53d60c7ee/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_0de067b53d60c7ee.mp4",
+      "sha256": "c291ea9439b2f0a0938837f78e2a7a587f0d31d2332fb104fb78e9e5cd9d51a6",
+      "size_bytes": 16789767,
+      "mime_type": "video/mp4",
+      "object_key": "c291ea9439b2f0a0938837f78e2a7a587f0d31d2332fb104fb78e9e5cd9d51a6.mp4"
+    },
+    "cases/approved_1239cd7a3400c361/cover": {
+      "id": "cases/approved_1239cd7a3400c361/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1239cd7a3400c361.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "15c8b411dcaaf5dd1693063719cc05f9c9092049b260edf8d595bafccb27d764",
+      "size_bytes": 77897,
+      "mime_type": "image/jpeg",
+      "object_key": "15c8b411dcaaf5dd1693063719cc05f9c9092049b260edf8d595bafccb27d764.jpg"
+    },
+    "cases/approved_1239cd7a3400c361/video": {
+      "id": "cases/approved_1239cd7a3400c361/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1239cd7a3400c361.mp4",
+      "sha256": "6e0312061ab83325a954d7f90c8f3d600ed6a7f9288955d2375fddc2bf72bf48",
+      "size_bytes": 18607062,
+      "mime_type": "video/mp4",
+      "object_key": "6e0312061ab83325a954d7f90c8f3d600ed6a7f9288955d2375fddc2bf72bf48.mp4"
+    },
+    "cases/approved_16166ff7862b806c/cover": {
+      "id": "cases/approved_16166ff7862b806c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16166ff7862b806c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "082a7f22d44cc4dd48bdbad1b2d287b20f7891ff03b6435318b5131686d02d65",
+      "size_bytes": 46817,
+      "mime_type": "image/jpeg",
+      "object_key": "082a7f22d44cc4dd48bdbad1b2d287b20f7891ff03b6435318b5131686d02d65.jpg"
+    },
+    "cases/approved_16166ff7862b806c/video": {
+      "id": "cases/approved_16166ff7862b806c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16166ff7862b806c.mp4",
+      "sha256": "a9e0ed31ac4440651293d1b8701279d978b3898fe6dd3d715f888fca33787188",
+      "size_bytes": 13304768,
+      "mime_type": "video/mp4",
+      "object_key": "a9e0ed31ac4440651293d1b8701279d978b3898fe6dd3d715f888fca33787188.mp4"
+    },
+    "cases/approved_16db90ba12533436/cover": {
+      "id": "cases/approved_16db90ba12533436/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16db90ba12533436.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "a4dcba612f6582ca30e00953f5abfb9895391d945216150a4d835c2b6fa61f7c",
+      "size_bytes": 55786,
+      "mime_type": "image/jpeg",
+      "object_key": "a4dcba612f6582ca30e00953f5abfb9895391d945216150a4d835c2b6fa61f7c.jpg"
+    },
+    "cases/approved_16db90ba12533436/video": {
+      "id": "cases/approved_16db90ba12533436/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_16db90ba12533436.mp4",
+      "sha256": "93d0e226203bf51fd063e5a6dffd0a73ea47e6d36e49269c9a474af653d2f0ac",
+      "size_bytes": 17476035,
+      "mime_type": "video/mp4",
+      "object_key": "93d0e226203bf51fd063e5a6dffd0a73ea47e6d36e49269c9a474af653d2f0ac.mp4"
+    },
+    "cases/approved_1a88e417e7fc8cb6/cover": {
+      "id": "cases/approved_1a88e417e7fc8cb6/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1a88e417e7fc8cb6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "8a6f17f5ba59ca3f07b74fde7c8768b3bd4488b7432821fc3f473f3285109549",
+      "size_bytes": 38843,
+      "mime_type": "image/jpeg",
+      "object_key": "8a6f17f5ba59ca3f07b74fde7c8768b3bd4488b7432821fc3f473f3285109549.jpg"
+    },
+    "cases/approved_1a88e417e7fc8cb6/video": {
+      "id": "cases/approved_1a88e417e7fc8cb6/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1a88e417e7fc8cb6.mp4",
+      "sha256": "320e9418f3ec7fc82b140dd3f8e214202f476c736167db521c6c51c1b522f2eb",
+      "size_bytes": 13313446,
+      "mime_type": "video/mp4",
+      "object_key": "320e9418f3ec7fc82b140dd3f8e214202f476c736167db521c6c51c1b522f2eb.mp4"
+    },
+    "cases/approved_1c3915bbfa30c1d6/cover": {
+      "id": "cases/approved_1c3915bbfa30c1d6/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1c3915bbfa30c1d6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "4a630d799cd28739bd217d763f10e20bab144b840942d7784910e4ad6464de0a",
+      "size_bytes": 77814,
+      "mime_type": "image/jpeg",
+      "object_key": "4a630d799cd28739bd217d763f10e20bab144b840942d7784910e4ad6464de0a.jpg"
+    },
+    "cases/approved_1c3915bbfa30c1d6/video": {
+      "id": "cases/approved_1c3915bbfa30c1d6/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1c3915bbfa30c1d6.mp4",
+      "sha256": "64cc6ae0058f2a2e00dccb1689769e9b8e88fee4051bb5b7ef2b8091511b40b6",
+      "size_bytes": 20652465,
+      "mime_type": "video/mp4",
+      "object_key": "64cc6ae0058f2a2e00dccb1689769e9b8e88fee4051bb5b7ef2b8091511b40b6.mp4"
+    },
+    "cases/approved_1ea4702340a7620e/cover": {
+      "id": "cases/approved_1ea4702340a7620e/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1ea4702340a7620e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "418768878f0130a025d6b9c39e51e4fd50647b89ecb82a3b10eeaec84e0b012c",
+      "size_bytes": 47591,
+      "mime_type": "image/jpeg",
+      "object_key": "418768878f0130a025d6b9c39e51e4fd50647b89ecb82a3b10eeaec84e0b012c.jpg"
+    },
+    "cases/approved_1ea4702340a7620e/video": {
+      "id": "cases/approved_1ea4702340a7620e/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_1ea4702340a7620e.mp4",
+      "sha256": "982fc3ecf16de83267f991e244799234d37bee16aa97c9a4855e19cd4b987abf",
+      "size_bytes": 13048990,
+      "mime_type": "video/mp4",
+      "object_key": "982fc3ecf16de83267f991e244799234d37bee16aa97c9a4855e19cd4b987abf.mp4"
+    },
+    "cases/approved_26a2e551fbf25c8b/cover": {
+      "id": "cases/approved_26a2e551fbf25c8b/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_26a2e551fbf25c8b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "af4a6c3616e392b404c038ceebca26ba3c6b0117fd421e4f2d9a16229b5d6694",
+      "size_bytes": 64021,
+      "mime_type": "image/jpeg",
+      "object_key": "af4a6c3616e392b404c038ceebca26ba3c6b0117fd421e4f2d9a16229b5d6694.jpg"
+    },
+    "cases/approved_26a2e551fbf25c8b/video": {
+      "id": "cases/approved_26a2e551fbf25c8b/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_26a2e551fbf25c8b.mp4",
+      "sha256": "0a3df00dc0db579e616819d8a2cf6be815d72b4977d850189a7ddde480e0a6f6",
+      "size_bytes": 8526111,
+      "mime_type": "video/mp4",
+      "object_key": "0a3df00dc0db579e616819d8a2cf6be815d72b4977d850189a7ddde480e0a6f6.mp4"
+    },
+    "cases/approved_27dd37d3a5dda499/cover": {
+      "id": "cases/approved_27dd37d3a5dda499/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_27dd37d3a5dda499.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "7e05f3772c54f57625d0283b865e5b2dc224bf8c76632c1db41215b40cbc628d",
+      "size_bytes": 49572,
+      "mime_type": "image/jpeg",
+      "object_key": "7e05f3772c54f57625d0283b865e5b2dc224bf8c76632c1db41215b40cbc628d.jpg"
+    },
+    "cases/approved_27dd37d3a5dda499/video": {
+      "id": "cases/approved_27dd37d3a5dda499/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_27dd37d3a5dda499.mp4",
+      "sha256": "47f69a2c7b3b692ee6ff254a3183f1539c9df783c084eca35ce6729761c15954",
+      "size_bytes": 19011392,
+      "mime_type": "video/mp4",
+      "object_key": "47f69a2c7b3b692ee6ff254a3183f1539c9df783c084eca35ce6729761c15954.mp4"
+    },
+    "cases/approved_28491de6038674af/cover": {
+      "id": "cases/approved_28491de6038674af/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28491de6038674af.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "94151af76a497597993f3c03b6edc2a4311309fdce81bab1dd420326033a53f8",
+      "size_bytes": 48563,
+      "mime_type": "image/jpeg",
+      "object_key": "94151af76a497597993f3c03b6edc2a4311309fdce81bab1dd420326033a53f8.jpg"
+    },
+    "cases/approved_28491de6038674af/video": {
+      "id": "cases/approved_28491de6038674af/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28491de6038674af.mp4",
+      "sha256": "8ed1dc975d433d82afae5ae13ce5685333e1df3a5ffe3a5480a5a210e2a37df3",
+      "size_bytes": 15234792,
+      "mime_type": "video/mp4",
+      "object_key": "8ed1dc975d433d82afae5ae13ce5685333e1df3a5ffe3a5480a5a210e2a37df3.mp4"
+    },
+    "cases/approved_28f5703e848d880b/cover": {
+      "id": "cases/approved_28f5703e848d880b/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28f5703e848d880b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "0efd28767825af41a1f3c0f9066740de4888f50e4fde4145078196acb12b8439",
+      "size_bytes": 53461,
+      "mime_type": "image/jpeg",
+      "object_key": "0efd28767825af41a1f3c0f9066740de4888f50e4fde4145078196acb12b8439.jpg"
+    },
+    "cases/approved_28f5703e848d880b/video": {
+      "id": "cases/approved_28f5703e848d880b/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_28f5703e848d880b.mp4",
+      "sha256": "88b71dcbfebe0322ad0eb7029d7d67fb10f663d141eb4962dfbc64644121035c",
+      "size_bytes": 15971090,
+      "mime_type": "video/mp4",
+      "object_key": "88b71dcbfebe0322ad0eb7029d7d67fb10f663d141eb4962dfbc64644121035c.mp4"
+    },
+    "cases/approved_29135e17cb17b93d/cover": {
+      "id": "cases/approved_29135e17cb17b93d/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29135e17cb17b93d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "3f295d9598bd94146d5beea349d37d60b16fdf5d2951e3638baf6b7eb571eb6a",
+      "size_bytes": 60257,
+      "mime_type": "image/jpeg",
+      "object_key": "3f295d9598bd94146d5beea349d37d60b16fdf5d2951e3638baf6b7eb571eb6a.jpg"
+    },
+    "cases/approved_29135e17cb17b93d/video": {
+      "id": "cases/approved_29135e17cb17b93d/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29135e17cb17b93d.mp4",
+      "sha256": "4e908b7b42ce8535cc606db0c33233a87450b8bdaa73374e23c8ef7971121b27",
+      "size_bytes": 14556335,
+      "mime_type": "video/mp4",
+      "object_key": "4e908b7b42ce8535cc606db0c33233a87450b8bdaa73374e23c8ef7971121b27.mp4"
+    },
+    "cases/approved_2987f267268bad5a/cover": {
+      "id": "cases/approved_2987f267268bad5a/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2987f267268bad5a.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "2a1d195b15fb0cec5f18d196303e0a971046246734df0462b2ca0e3782a86304",
+      "size_bytes": 77174,
+      "mime_type": "image/jpeg",
+      "object_key": "2a1d195b15fb0cec5f18d196303e0a971046246734df0462b2ca0e3782a86304.jpg"
+    },
+    "cases/approved_2987f267268bad5a/video": {
+      "id": "cases/approved_2987f267268bad5a/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2987f267268bad5a.mp4",
+      "sha256": "2279f40eed83a491cce56945a101474a294f633b01e737f07ca36a9d0dd48583",
+      "size_bytes": 15140185,
+      "mime_type": "video/mp4",
+      "object_key": "2279f40eed83a491cce56945a101474a294f633b01e737f07ca36a9d0dd48583.mp4"
+    },
+    "cases/approved_29b3935768966a5d/cover": {
+      "id": "cases/approved_29b3935768966a5d/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29b3935768966a5d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "940bc170aede176abafa8795bdc67c552326dab9bdb7ba89f2162d020cba2c6c",
+      "size_bytes": 59841,
+      "mime_type": "image/jpeg",
+      "object_key": "940bc170aede176abafa8795bdc67c552326dab9bdb7ba89f2162d020cba2c6c.jpg"
+    },
+    "cases/approved_29b3935768966a5d/video": {
+      "id": "cases/approved_29b3935768966a5d/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_29b3935768966a5d.mp4",
+      "sha256": "b1b8ead114d51e1fa00d0efb9b0fcfe4654c8ed057589f57351f055f55e7c591",
+      "size_bytes": 17481265,
+      "mime_type": "video/mp4",
+      "object_key": "b1b8ead114d51e1fa00d0efb9b0fcfe4654c8ed057589f57351f055f55e7c591.mp4"
+    },
+    "cases/approved_2cd339bde0ae6ffb/cover": {
+      "id": "cases/approved_2cd339bde0ae6ffb/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2cd339bde0ae6ffb.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "7138b7f3c6f20858eb8c10135e5d3436e8150610fff3dad17eec48aaeedd3428",
+      "size_bytes": 52022,
+      "mime_type": "image/jpeg",
+      "object_key": "7138b7f3c6f20858eb8c10135e5d3436e8150610fff3dad17eec48aaeedd3428.jpg"
+    },
+    "cases/approved_2cd339bde0ae6ffb/video": {
+      "id": "cases/approved_2cd339bde0ae6ffb/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2cd339bde0ae6ffb.mp4",
+      "sha256": "4dd3a03616e538cb614b1cbd4ab1695199832dd9dd27cbe9e852eb38a90c180b",
+      "size_bytes": 12393069,
+      "mime_type": "video/mp4",
+      "object_key": "4dd3a03616e538cb614b1cbd4ab1695199832dd9dd27cbe9e852eb38a90c180b.mp4"
+    },
+    "cases/approved_2dd6c3c2a58705ed/cover": {
+      "id": "cases/approved_2dd6c3c2a58705ed/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2dd6c3c2a58705ed.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "fc2b153cf0da0e83f92bdb3ecad6d0d00fc80720df1cbeb3d1c69b2c105c0453",
+      "size_bytes": 70369,
+      "mime_type": "image/jpeg",
+      "object_key": "fc2b153cf0da0e83f92bdb3ecad6d0d00fc80720df1cbeb3d1c69b2c105c0453.jpg"
+    },
+    "cases/approved_2dd6c3c2a58705ed/video": {
+      "id": "cases/approved_2dd6c3c2a58705ed/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2dd6c3c2a58705ed.mp4",
+      "sha256": "2e61eb4c3028ad47e5a929c1f70cdc90df854a551c9878b2dde56e08fe0fd2f1",
+      "size_bytes": 14254327,
+      "mime_type": "video/mp4",
+      "object_key": "2e61eb4c3028ad47e5a929c1f70cdc90df854a551c9878b2dde56e08fe0fd2f1.mp4"
+    },
+    "cases/approved_2f933f0e89162024/cover": {
+      "id": "cases/approved_2f933f0e89162024/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2f933f0e89162024.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "45aebb46d7f8d4453d0f5ed6df6215adcd1343c54f542a61fd84143854bcaf80",
+      "size_bytes": 54747,
+      "mime_type": "image/jpeg",
+      "object_key": "45aebb46d7f8d4453d0f5ed6df6215adcd1343c54f542a61fd84143854bcaf80.jpg"
+    },
+    "cases/approved_2f933f0e89162024/video": {
+      "id": "cases/approved_2f933f0e89162024/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_2f933f0e89162024.mp4",
+      "sha256": "315dcfb4076d1d0def954410ec4fd39415f8af4e05be901f69b97111fb572c78",
+      "size_bytes": 13759057,
+      "mime_type": "video/mp4",
+      "object_key": "315dcfb4076d1d0def954410ec4fd39415f8af4e05be901f69b97111fb572c78.mp4"
+    },
+    "cases/approved_322e51560f7542e3/cover": {
+      "id": "cases/approved_322e51560f7542e3/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_322e51560f7542e3.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "9568b9971b9133819d8031226622ea78b094889e56662f37e54d16d23079d4d6",
+      "size_bytes": 25156,
+      "mime_type": "image/jpeg",
+      "object_key": "9568b9971b9133819d8031226622ea78b094889e56662f37e54d16d23079d4d6.jpg"
+    },
+    "cases/approved_322e51560f7542e3/video": {
+      "id": "cases/approved_322e51560f7542e3/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_322e51560f7542e3.mp4",
+      "sha256": "6e63866fc38872da0fc19a0f5302307e5aea152fb22b88366be13471ebc9faed",
+      "size_bytes": 17875926,
+      "mime_type": "video/mp4",
+      "object_key": "6e63866fc38872da0fc19a0f5302307e5aea152fb22b88366be13471ebc9faed.mp4"
+    },
+    "cases/approved_343a9e96526e4db5/cover": {
+      "id": "cases/approved_343a9e96526e4db5/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_343a9e96526e4db5.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "8ab84fba9b62fee3dffec52d5cdd02f0955f976258187987df9b54a4338e19b0",
+      "size_bytes": 64020,
+      "mime_type": "image/jpeg",
+      "object_key": "8ab84fba9b62fee3dffec52d5cdd02f0955f976258187987df9b54a4338e19b0.jpg"
+    },
+    "cases/approved_343a9e96526e4db5/video": {
+      "id": "cases/approved_343a9e96526e4db5/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_343a9e96526e4db5.mp4",
+      "sha256": "ae57b06ce2b882ecb89a12638689f4dc5362e3b7d8678f0d38a81a992766f5d5",
+      "size_bytes": 19240954,
+      "mime_type": "video/mp4",
+      "object_key": "ae57b06ce2b882ecb89a12638689f4dc5362e3b7d8678f0d38a81a992766f5d5.mp4"
+    },
+    "cases/approved_34ff1522612301db/cover": {
+      "id": "cases/approved_34ff1522612301db/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_34ff1522612301db.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "0dc1e488fe78bf860104b94d1b81a62f990b16debf8866eca360d9e7511aed44",
+      "size_bytes": 61661,
+      "mime_type": "image/jpeg",
+      "object_key": "0dc1e488fe78bf860104b94d1b81a62f990b16debf8866eca360d9e7511aed44.jpg"
+    },
+    "cases/approved_34ff1522612301db/video": {
+      "id": "cases/approved_34ff1522612301db/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_34ff1522612301db.mp4",
+      "sha256": "173d73afe6156c897c9d872737863e228bfa0ae7be90538d011f4111e4ef4016",
+      "size_bytes": 18278559,
+      "mime_type": "video/mp4",
+      "object_key": "173d73afe6156c897c9d872737863e228bfa0ae7be90538d011f4111e4ef4016.mp4"
+    },
+    "cases/approved_3c54a10c407bc67b/cover": {
+      "id": "cases/approved_3c54a10c407bc67b/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3c54a10c407bc67b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "dc33cd678407a769f92488406cf59263108244e8f6d22760ba3dbe053b0ffe22",
+      "size_bytes": 60372,
+      "mime_type": "image/jpeg",
+      "object_key": "dc33cd678407a769f92488406cf59263108244e8f6d22760ba3dbe053b0ffe22.jpg"
+    },
+    "cases/approved_3c54a10c407bc67b/video": {
+      "id": "cases/approved_3c54a10c407bc67b/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3c54a10c407bc67b.mp4",
+      "sha256": "843def7836f87cb831570aa809a276661eaf792109c78bbc3b15ee514c2d0bd4",
+      "size_bytes": 14736970,
+      "mime_type": "video/mp4",
+      "object_key": "843def7836f87cb831570aa809a276661eaf792109c78bbc3b15ee514c2d0bd4.mp4"
+    },
+    "cases/approved_3d307e41c6ff595f/cover": {
+      "id": "cases/approved_3d307e41c6ff595f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3d307e41c6ff595f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "69cec5b16cd2427ef11fe69fa25e3fd0497ec33d69cd4265f960b67613c5ff6b",
+      "size_bytes": 41015,
+      "mime_type": "image/jpeg",
+      "object_key": "69cec5b16cd2427ef11fe69fa25e3fd0497ec33d69cd4265f960b67613c5ff6b.jpg"
+    },
+    "cases/approved_3d307e41c6ff595f/video": {
+      "id": "cases/approved_3d307e41c6ff595f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3d307e41c6ff595f.mp4",
+      "sha256": "101303a6175eb00bf65206e764134a8f69c49cc58cd10589e156fbe54ac49ad0",
+      "size_bytes": 14826133,
+      "mime_type": "video/mp4",
+      "object_key": "101303a6175eb00bf65206e764134a8f69c49cc58cd10589e156fbe54ac49ad0.mp4"
+    },
+    "cases/approved_3f4efff01f52619f/cover": {
+      "id": "cases/approved_3f4efff01f52619f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3f4efff01f52619f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "07901a445881f19b8d128bd5a02cd729578ae8ab40edccaad65d01ca6463af5f",
+      "size_bytes": 48538,
+      "mime_type": "image/jpeg",
+      "object_key": "07901a445881f19b8d128bd5a02cd729578ae8ab40edccaad65d01ca6463af5f.jpg"
+    },
+    "cases/approved_3f4efff01f52619f/video": {
+      "id": "cases/approved_3f4efff01f52619f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_3f4efff01f52619f.mp4",
+      "sha256": "bfcb86e610b8b5b4304b2219b485dc6bf734539e7ce204127f58e693737deb63",
+      "size_bytes": 12118405,
+      "mime_type": "video/mp4",
+      "object_key": "bfcb86e610b8b5b4304b2219b485dc6bf734539e7ce204127f58e693737deb63.mp4"
+    },
+    "cases/approved_415c4ab45f811209/cover": {
+      "id": "cases/approved_415c4ab45f811209/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_415c4ab45f811209.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "1e77403bb6c248412768cf603377521f90ab1fa1b8efd351fb048024edde6f44",
+      "size_bytes": 62533,
+      "mime_type": "image/jpeg",
+      "object_key": "1e77403bb6c248412768cf603377521f90ab1fa1b8efd351fb048024edde6f44.jpg"
+    },
+    "cases/approved_415c4ab45f811209/video": {
+      "id": "cases/approved_415c4ab45f811209/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_415c4ab45f811209.mp4",
+      "sha256": "5cc1896e431c59889bcdcd579fa074d9679bd68f897e9b8d766888f871b52dd2",
+      "size_bytes": 15514570,
+      "mime_type": "video/mp4",
+      "object_key": "5cc1896e431c59889bcdcd579fa074d9679bd68f897e9b8d766888f871b52dd2.mp4"
+    },
+    "cases/approved_42ea3604be957991/cover": {
+      "id": "cases/approved_42ea3604be957991/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_42ea3604be957991.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "a84c02ad15fb7a0d231c5394279131da182dfee95ec98a0d38260ca3e443af9f",
+      "size_bytes": 50257,
+      "mime_type": "image/jpeg",
+      "object_key": "a84c02ad15fb7a0d231c5394279131da182dfee95ec98a0d38260ca3e443af9f.jpg"
+    },
+    "cases/approved_42ea3604be957991/video": {
+      "id": "cases/approved_42ea3604be957991/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_42ea3604be957991.mp4",
+      "sha256": "6dbcee561b6bad1564f9d3661cfab3189cb66ff0b0187f1ecbd756a869eff216",
+      "size_bytes": 15032101,
+      "mime_type": "video/mp4",
+      "object_key": "6dbcee561b6bad1564f9d3661cfab3189cb66ff0b0187f1ecbd756a869eff216.mp4"
+    },
+    "cases/approved_43c0c9a7e8cf8107/cover": {
+      "id": "cases/approved_43c0c9a7e8cf8107/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_43c0c9a7e8cf8107.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "22884a67481a607584d645d1a32af06a45974fe4d0a362ee3f90f3679c5ccebf",
+      "size_bytes": 57518,
+      "mime_type": "image/jpeg",
+      "object_key": "22884a67481a607584d645d1a32af06a45974fe4d0a362ee3f90f3679c5ccebf.jpg"
+    },
+    "cases/approved_43c0c9a7e8cf8107/video": {
+      "id": "cases/approved_43c0c9a7e8cf8107/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_43c0c9a7e8cf8107.mp4",
+      "sha256": "6f04ab0553a9f9908287f44b8c04dc60b8e65b9e107ab5912438a728753bef7d",
+      "size_bytes": 14391012,
+      "mime_type": "video/mp4",
+      "object_key": "6f04ab0553a9f9908287f44b8c04dc60b8e65b9e107ab5912438a728753bef7d.mp4"
+    },
+    "cases/approved_46acba176332bac7/cover": {
+      "id": "cases/approved_46acba176332bac7/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46acba176332bac7.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6988d2746cfb26e62511df800f32469946dfaffbe54527eb5d3ca29e4c8523aa",
+      "size_bytes": 70771,
+      "mime_type": "image/jpeg",
+      "object_key": "6988d2746cfb26e62511df800f32469946dfaffbe54527eb5d3ca29e4c8523aa.jpg"
+    },
+    "cases/approved_46acba176332bac7/video": {
+      "id": "cases/approved_46acba176332bac7/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46acba176332bac7.mp4",
+      "sha256": "9c409f7b1f098acc34f101bbb5be6a6eea1cff4c6fee266568afa957f0e35f8f",
+      "size_bytes": 15856364,
+      "mime_type": "video/mp4",
+      "object_key": "9c409f7b1f098acc34f101bbb5be6a6eea1cff4c6fee266568afa957f0e35f8f.mp4"
+    },
+    "cases/approved_46b8f5f6e7cc8305/cover": {
+      "id": "cases/approved_46b8f5f6e7cc8305/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46b8f5f6e7cc8305.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "1f6045bfacae8e5c0c529e67b1640761913070dc752dfdd114c220982bab34b7",
+      "size_bytes": 66283,
+      "mime_type": "image/jpeg",
+      "object_key": "1f6045bfacae8e5c0c529e67b1640761913070dc752dfdd114c220982bab34b7.jpg"
+    },
+    "cases/approved_46b8f5f6e7cc8305/video": {
+      "id": "cases/approved_46b8f5f6e7cc8305/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_46b8f5f6e7cc8305.mp4",
+      "sha256": "feec0bb15b77e4345f731adc358db5b36389271da41faafd40e8108dc66f15c6",
+      "size_bytes": 15932140,
+      "mime_type": "video/mp4",
+      "object_key": "feec0bb15b77e4345f731adc358db5b36389271da41faafd40e8108dc66f15c6.mp4"
+    },
+    "cases/approved_470bc3973db7b3bb/cover": {
+      "id": "cases/approved_470bc3973db7b3bb/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_470bc3973db7b3bb.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "dbe3ce9beccdd272b4c4e92634b5004025be4902c0d226d227ed3b8a2fbdbdc4",
+      "size_bytes": 47223,
+      "mime_type": "image/jpeg",
+      "object_key": "dbe3ce9beccdd272b4c4e92634b5004025be4902c0d226d227ed3b8a2fbdbdc4.jpg"
+    },
+    "cases/approved_470bc3973db7b3bb/video": {
+      "id": "cases/approved_470bc3973db7b3bb/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_470bc3973db7b3bb.mp4",
+      "sha256": "32f8ebacf392ebea7737d0ec0bd30d480c98f49a4dfd983622cd564ee414cb4f",
+      "size_bytes": 14439209,
+      "mime_type": "video/mp4",
+      "object_key": "32f8ebacf392ebea7737d0ec0bd30d480c98f49a4dfd983622cd564ee414cb4f.mp4"
+    },
+    "cases/approved_488fbaf3ea8e06f1/cover": {
+      "id": "cases/approved_488fbaf3ea8e06f1/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_488fbaf3ea8e06f1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6b79c6c37f5b529ae44b1b7e9951256eb29222ee081693924e42674ce74e7363",
+      "size_bytes": 36593,
+      "mime_type": "image/jpeg",
+      "object_key": "6b79c6c37f5b529ae44b1b7e9951256eb29222ee081693924e42674ce74e7363.jpg"
+    },
+    "cases/approved_488fbaf3ea8e06f1/video": {
+      "id": "cases/approved_488fbaf3ea8e06f1/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_488fbaf3ea8e06f1.mp4",
+      "sha256": "cf5e8dcab19b4aebdef12c537a55fead36109b365e6f9bf8787eb58527aa2c0b",
+      "size_bytes": 13703191,
+      "mime_type": "video/mp4",
+      "object_key": "cf5e8dcab19b4aebdef12c537a55fead36109b365e6f9bf8787eb58527aa2c0b.mp4"
+    },
+    "cases/approved_48fbe616ea63c609/cover": {
+      "id": "cases/approved_48fbe616ea63c609/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_48fbe616ea63c609.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "ef13b52c8ce8cf64a6798cba22ca246b94e201386ec234e4c9b4243c097c32b3",
+      "size_bytes": 61846,
+      "mime_type": "image/jpeg",
+      "object_key": "ef13b52c8ce8cf64a6798cba22ca246b94e201386ec234e4c9b4243c097c32b3.jpg"
+    },
+    "cases/approved_48fbe616ea63c609/video": {
+      "id": "cases/approved_48fbe616ea63c609/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_48fbe616ea63c609.mp4",
+      "sha256": "b93fb6329fd5ac75efd37c243ebcfc19372743fd9ea65267d17215baaf30b6b5",
+      "size_bytes": 14822224,
+      "mime_type": "video/mp4",
+      "object_key": "b93fb6329fd5ac75efd37c243ebcfc19372743fd9ea65267d17215baaf30b6b5.mp4"
+    },
+    "cases/approved_4bf2b2a633e0ed73/cover": {
+      "id": "cases/approved_4bf2b2a633e0ed73/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4bf2b2a633e0ed73.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "68e07d4ef27f1a3fca0e39b5bc72eb5a588c39de00fd6a776b42309af07842ed",
+      "size_bytes": 49467,
+      "mime_type": "image/jpeg",
+      "object_key": "68e07d4ef27f1a3fca0e39b5bc72eb5a588c39de00fd6a776b42309af07842ed.jpg"
+    },
+    "cases/approved_4bf2b2a633e0ed73/video": {
+      "id": "cases/approved_4bf2b2a633e0ed73/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4bf2b2a633e0ed73.mp4",
+      "sha256": "f70904c90d8cfdcefa2031c5ebf97be63d7868250db1891a4cd0785e1630d216",
+      "size_bytes": 18683860,
+      "mime_type": "video/mp4",
+      "object_key": "f70904c90d8cfdcefa2031c5ebf97be63d7868250db1891a4cd0785e1630d216.mp4"
+    },
+    "cases/approved_4c4a2d748bd9ddb1/cover": {
+      "id": "cases/approved_4c4a2d748bd9ddb1/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4c4a2d748bd9ddb1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "8af0f39e0e7b8343bcf3fb0d5d5c8d09caf2d952aa5cba366344052ed0c243a1",
+      "size_bytes": 70554,
+      "mime_type": "image/jpeg",
+      "object_key": "8af0f39e0e7b8343bcf3fb0d5d5c8d09caf2d952aa5cba366344052ed0c243a1.jpg"
+    },
+    "cases/approved_4c4a2d748bd9ddb1/video": {
+      "id": "cases/approved_4c4a2d748bd9ddb1/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4c4a2d748bd9ddb1.mp4",
+      "sha256": "7cc1cd0488dfb3c2d2d3e85e5ce59a69a39c9c59893d92a1db4a67db6f154b36",
+      "size_bytes": 17419122,
+      "mime_type": "video/mp4",
+      "object_key": "7cc1cd0488dfb3c2d2d3e85e5ce59a69a39c9c59893d92a1db4a67db6f154b36.mp4"
+    },
+    "cases/approved_4ccc78636abf3dc5/cover": {
+      "id": "cases/approved_4ccc78636abf3dc5/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4ccc78636abf3dc5.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "0c1aa5e9ae0409303382f253ee035801265f349ed77b8d921ccdd2250e35b278",
+      "size_bytes": 48785,
+      "mime_type": "image/jpeg",
+      "object_key": "0c1aa5e9ae0409303382f253ee035801265f349ed77b8d921ccdd2250e35b278.jpg"
+    },
+    "cases/approved_4ccc78636abf3dc5/video": {
+      "id": "cases/approved_4ccc78636abf3dc5/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4ccc78636abf3dc5.mp4",
+      "sha256": "b455a1b038d17e00dd3704e158f1f1364bac69582e80e7198e958e94d46c9a0c",
+      "size_bytes": 13402625,
+      "mime_type": "video/mp4",
+      "object_key": "b455a1b038d17e00dd3704e158f1f1364bac69582e80e7198e958e94d46c9a0c.mp4"
+    },
+    "cases/approved_4fbb3f7e4924f712/cover": {
+      "id": "cases/approved_4fbb3f7e4924f712/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4fbb3f7e4924f712.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "833dcbb71ab9b11060eeaa2d2df9f0bff187de3b3f470158f98a95558e28a1dc",
+      "size_bytes": 43063,
+      "mime_type": "image/jpeg",
+      "object_key": "833dcbb71ab9b11060eeaa2d2df9f0bff187de3b3f470158f98a95558e28a1dc.jpg"
+    },
+    "cases/approved_4fbb3f7e4924f712/video": {
+      "id": "cases/approved_4fbb3f7e4924f712/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_4fbb3f7e4924f712.mp4",
+      "sha256": "e9c0e91b397887be4256056db236e518cf2ab4813944ce7090700f5bb0334b42",
+      "size_bytes": 12962444,
+      "mime_type": "video/mp4",
+      "object_key": "e9c0e91b397887be4256056db236e518cf2ab4813944ce7090700f5bb0334b42.mp4"
+    },
+    "cases/approved_56ca68350f78e1c8/cover": {
+      "id": "cases/approved_56ca68350f78e1c8/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_56ca68350f78e1c8.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "1235862c9a61d47326b3c8a3c160dca72dfa3bdb1abf935658d25abcc9fc3b20",
+      "size_bytes": 46773,
+      "mime_type": "image/jpeg",
+      "object_key": "1235862c9a61d47326b3c8a3c160dca72dfa3bdb1abf935658d25abcc9fc3b20.jpg"
+    },
+    "cases/approved_56ca68350f78e1c8/video": {
+      "id": "cases/approved_56ca68350f78e1c8/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_56ca68350f78e1c8.mp4",
+      "sha256": "b5c2091d8b2811caa6191463651c3d3cffc69f9e975624a0444cae787075f317",
+      "size_bytes": 16731380,
+      "mime_type": "video/mp4",
+      "object_key": "b5c2091d8b2811caa6191463651c3d3cffc69f9e975624a0444cae787075f317.mp4"
+    },
+    "cases/approved_57d01b43970e9bb2/cover": {
+      "id": "cases/approved_57d01b43970e9bb2/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_57d01b43970e9bb2.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "ee435cf98b9297a9b380f0fc7b61b6cd4641ee6e0cd96db08dafe8cc15d8fe46",
+      "size_bytes": 54193,
+      "mime_type": "image/jpeg",
+      "object_key": "ee435cf98b9297a9b380f0fc7b61b6cd4641ee6e0cd96db08dafe8cc15d8fe46.jpg"
+    },
+    "cases/approved_57d01b43970e9bb2/video": {
+      "id": "cases/approved_57d01b43970e9bb2/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_57d01b43970e9bb2.mp4",
+      "sha256": "be09c54f65b02e5edb996c16fb993e621fb0c6b08dd4c5045fa2af7445151ca4",
+      "size_bytes": 8977414,
+      "mime_type": "video/mp4",
+      "object_key": "be09c54f65b02e5edb996c16fb993e621fb0c6b08dd4c5045fa2af7445151ca4.mp4"
+    },
+    "cases/approved_5841c39870152691/cover": {
+      "id": "cases/approved_5841c39870152691/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5841c39870152691.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "74a7f4ab62923d13417187226b0fb2e2feb1430c5108f0951fd7cbec69b61244",
+      "size_bytes": 57288,
+      "mime_type": "image/jpeg",
+      "object_key": "74a7f4ab62923d13417187226b0fb2e2feb1430c5108f0951fd7cbec69b61244.jpg"
+    },
+    "cases/approved_5841c39870152691/video": {
+      "id": "cases/approved_5841c39870152691/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5841c39870152691.mp4",
+      "sha256": "b953cbde1caea784e84ce89079dc81b3990b3a13791e04a0a8ec46278918233c",
+      "size_bytes": 19477302,
+      "mime_type": "video/mp4",
+      "object_key": "b953cbde1caea784e84ce89079dc81b3990b3a13791e04a0a8ec46278918233c.mp4"
+    },
+    "cases/approved_58d1f70e9801be5f/cover": {
+      "id": "cases/approved_58d1f70e9801be5f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58d1f70e9801be5f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "a3aa3444acdac82a3d8483d2019731b8f3bda73b3a38ada2308ffcd9cd53919d",
+      "size_bytes": 66634,
+      "mime_type": "image/jpeg",
+      "object_key": "a3aa3444acdac82a3d8483d2019731b8f3bda73b3a38ada2308ffcd9cd53919d.jpg"
+    },
+    "cases/approved_58d1f70e9801be5f/video": {
+      "id": "cases/approved_58d1f70e9801be5f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58d1f70e9801be5f.mp4",
+      "sha256": "9836d81ee924244b6b7d356a6d5983d985c7f863f1164ba7fc4ae833ec391a0d",
+      "size_bytes": 12798095,
+      "mime_type": "video/mp4",
+      "object_key": "9836d81ee924244b6b7d356a6d5983d985c7f863f1164ba7fc4ae833ec391a0d.mp4"
+    },
+    "cases/approved_58e9ae5da69b4334/cover": {
+      "id": "cases/approved_58e9ae5da69b4334/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58e9ae5da69b4334.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "fa8aba0b224610ad02d59e05a8b19fd17e603e6dcd34eec9b3d50cc91e7509f1",
+      "size_bytes": 45355,
+      "mime_type": "image/jpeg",
+      "object_key": "fa8aba0b224610ad02d59e05a8b19fd17e603e6dcd34eec9b3d50cc91e7509f1.jpg"
+    },
+    "cases/approved_58e9ae5da69b4334/video": {
+      "id": "cases/approved_58e9ae5da69b4334/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_58e9ae5da69b4334.mp4",
+      "sha256": "815ba5f8352a4b0119c34fb8e89a5592f3b8d55962ab1c36f4f6230193ea2a46",
+      "size_bytes": 13009511,
+      "mime_type": "video/mp4",
+      "object_key": "815ba5f8352a4b0119c34fb8e89a5592f3b8d55962ab1c36f4f6230193ea2a46.mp4"
+    },
+    "cases/approved_5a403f605d453c7e/cover": {
+      "id": "cases/approved_5a403f605d453c7e/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5a403f605d453c7e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "bbae96d4aa743afb5ea88091bade757821ea1f11d386b722e346722b9645ab01",
+      "size_bytes": 74682,
+      "mime_type": "image/jpeg",
+      "object_key": "bbae96d4aa743afb5ea88091bade757821ea1f11d386b722e346722b9645ab01.jpg"
+    },
+    "cases/approved_5a403f605d453c7e/video": {
+      "id": "cases/approved_5a403f605d453c7e/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5a403f605d453c7e.mp4",
+      "sha256": "ef3204044821077b85001557e04a0c86ba7673bd4c4fc5687e90aa33404049c5",
+      "size_bytes": 19127498,
+      "mime_type": "video/mp4",
+      "object_key": "ef3204044821077b85001557e04a0c86ba7673bd4c4fc5687e90aa33404049c5.mp4"
+    },
+    "cases/approved_5af5166fb485edb1/cover": {
+      "id": "cases/approved_5af5166fb485edb1/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5af5166fb485edb1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6f7069c2a9bc67bc7b8ca3f57dc8d334d52002ef13388a7c2b6e459f9c38f794",
+      "size_bytes": 51092,
+      "mime_type": "image/jpeg",
+      "object_key": "6f7069c2a9bc67bc7b8ca3f57dc8d334d52002ef13388a7c2b6e459f9c38f794.jpg"
+    },
+    "cases/approved_5af5166fb485edb1/video": {
+      "id": "cases/approved_5af5166fb485edb1/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5af5166fb485edb1.mp4",
+      "sha256": "aea7d8e06f2515881882bcbe7062243c3ccec001e6fdcdc2632e726e79f63544",
+      "size_bytes": 20104438,
+      "mime_type": "video/mp4",
+      "object_key": "aea7d8e06f2515881882bcbe7062243c3ccec001e6fdcdc2632e726e79f63544.mp4"
+    },
+    "cases/approved_5b23c850a2e56af0/cover": {
+      "id": "cases/approved_5b23c850a2e56af0/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5b23c850a2e56af0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "fe8fdaba2f8f13f8b2ddc6959a9cc47f39b746dd779332056a25a2a1a205eaf1",
+      "size_bytes": 57172,
+      "mime_type": "image/jpeg",
+      "object_key": "fe8fdaba2f8f13f8b2ddc6959a9cc47f39b746dd779332056a25a2a1a205eaf1.jpg"
+    },
+    "cases/approved_5b23c850a2e56af0/video": {
+      "id": "cases/approved_5b23c850a2e56af0/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5b23c850a2e56af0.mp4",
+      "sha256": "d07b0e658fe62fdecad3239256b9176508dd21f4889be72fef2991af3058c07d",
+      "size_bytes": 16472790,
+      "mime_type": "video/mp4",
+      "object_key": "d07b0e658fe62fdecad3239256b9176508dd21f4889be72fef2991af3058c07d.mp4"
+    },
+    "cases/approved_5c4fdc87ab3c63e9/cover": {
+      "id": "cases/approved_5c4fdc87ab3c63e9/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5c4fdc87ab3c63e9.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "3e56b9d81a5e55fab42e42f4a54620bad74d706b725fd43b0e22f3f78c2e562c",
+      "size_bytes": 62949,
+      "mime_type": "image/jpeg",
+      "object_key": "3e56b9d81a5e55fab42e42f4a54620bad74d706b725fd43b0e22f3f78c2e562c.jpg"
+    },
+    "cases/approved_5c4fdc87ab3c63e9/video": {
+      "id": "cases/approved_5c4fdc87ab3c63e9/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5c4fdc87ab3c63e9.mp4",
+      "sha256": "4e8d60a291035d4bc8c9fa7df419c2cb49a87d045b48061e22d24a5d27eb9571",
+      "size_bytes": 13393382,
+      "mime_type": "video/mp4",
+      "object_key": "4e8d60a291035d4bc8c9fa7df419c2cb49a87d045b48061e22d24a5d27eb9571.mp4"
+    },
+    "cases/approved_5cfe00dd31051727/cover": {
+      "id": "cases/approved_5cfe00dd31051727/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5cfe00dd31051727.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "5e13a1b66404b4e3d3becc7ebce3a2ee97daf1f292f637c579bdd66ed5fd975d",
+      "size_bytes": 64366,
+      "mime_type": "image/jpeg",
+      "object_key": "5e13a1b66404b4e3d3becc7ebce3a2ee97daf1f292f637c579bdd66ed5fd975d.jpg"
+    },
+    "cases/approved_5cfe00dd31051727/video": {
+      "id": "cases/approved_5cfe00dd31051727/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5cfe00dd31051727.mp4",
+      "sha256": "6791d62ffac9ce544c36eff82329b8e15c35bd7057976344608ec82543dac824",
+      "size_bytes": 13171389,
+      "mime_type": "video/mp4",
+      "object_key": "6791d62ffac9ce544c36eff82329b8e15c35bd7057976344608ec82543dac824.mp4"
+    },
+    "cases/approved_5d193eb226cd9d6c/cover": {
+      "id": "cases/approved_5d193eb226cd9d6c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5d193eb226cd9d6c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "58938cbb2b3f54930bea53b20162382785dcbdda59b256b3a36d4f052be33c06",
+      "size_bytes": 63558,
+      "mime_type": "image/jpeg",
+      "object_key": "58938cbb2b3f54930bea53b20162382785dcbdda59b256b3a36d4f052be33c06.jpg"
+    },
+    "cases/approved_5d193eb226cd9d6c/video": {
+      "id": "cases/approved_5d193eb226cd9d6c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_5d193eb226cd9d6c.mp4",
+      "sha256": "3f404ee7a8c08f50d221863b072924af798313d4d7843fc2d880427975c519e6",
+      "size_bytes": 12585060,
+      "mime_type": "video/mp4",
+      "object_key": "3f404ee7a8c08f50d221863b072924af798313d4d7843fc2d880427975c519e6.mp4"
+    },
+    "cases/approved_626c1182b7db3a4b/cover": {
+      "id": "cases/approved_626c1182b7db3a4b/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_626c1182b7db3a4b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6a85d9ad8aed8b048ecf4fd7333b981d57050960a4644b677c8f239795bf112f",
+      "size_bytes": 49935,
+      "mime_type": "image/jpeg",
+      "object_key": "6a85d9ad8aed8b048ecf4fd7333b981d57050960a4644b677c8f239795bf112f.jpg"
+    },
+    "cases/approved_626c1182b7db3a4b/video": {
+      "id": "cases/approved_626c1182b7db3a4b/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_626c1182b7db3a4b.mp4",
+      "sha256": "0667c02af11a39f15ac1d603ad061bd2997d505120e32181ac51a9f6e60adc83",
+      "size_bytes": 14728903,
+      "mime_type": "video/mp4",
+      "object_key": "0667c02af11a39f15ac1d603ad061bd2997d505120e32181ac51a9f6e60adc83.mp4"
+    },
+    "cases/approved_6639a6293dedca6f/cover": {
+      "id": "cases/approved_6639a6293dedca6f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6639a6293dedca6f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "ac34d8764711290e34615563edab8d4a7c8497b1776533a619ace0085102e9a9",
+      "size_bytes": 56914,
+      "mime_type": "image/jpeg",
+      "object_key": "ac34d8764711290e34615563edab8d4a7c8497b1776533a619ace0085102e9a9.jpg"
+    },
+    "cases/approved_6639a6293dedca6f/video": {
+      "id": "cases/approved_6639a6293dedca6f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6639a6293dedca6f.mp4",
+      "sha256": "695f0b038ea078b0c810ffd1c49a5e7d5e7448254aa9194a4641a10055806d78",
+      "size_bytes": 12949567,
+      "mime_type": "video/mp4",
+      "object_key": "695f0b038ea078b0c810ffd1c49a5e7d5e7448254aa9194a4641a10055806d78.mp4"
+    },
+    "cases/approved_68755e4b3d54db82/cover": {
+      "id": "cases/approved_68755e4b3d54db82/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_68755e4b3d54db82.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6614ab69e75dcf0d298191b4729853041ade16918b7c9839508687bb9b549a11",
+      "size_bytes": 30104,
+      "mime_type": "image/jpeg",
+      "object_key": "6614ab69e75dcf0d298191b4729853041ade16918b7c9839508687bb9b549a11.jpg"
+    },
+    "cases/approved_68755e4b3d54db82/video": {
+      "id": "cases/approved_68755e4b3d54db82/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_68755e4b3d54db82.mp4",
+      "sha256": "0034f372446fdc8cc17ce94eacba3c189c0a14738678538b7935d454a85877ca",
+      "size_bytes": 15389458,
+      "mime_type": "video/mp4",
+      "object_key": "0034f372446fdc8cc17ce94eacba3c189c0a14738678538b7935d454a85877ca.mp4"
+    },
+    "cases/approved_6aad9f47595e6c2d/cover": {
+      "id": "cases/approved_6aad9f47595e6c2d/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6aad9f47595e6c2d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "9d92d8ff8776ba6e018f879f1e61cd5d647b9a0a72d7e6ef03213b015d1e84fa",
+      "size_bytes": 76154,
+      "mime_type": "image/jpeg",
+      "object_key": "9d92d8ff8776ba6e018f879f1e61cd5d647b9a0a72d7e6ef03213b015d1e84fa.jpg"
+    },
+    "cases/approved_6aad9f47595e6c2d/video": {
+      "id": "cases/approved_6aad9f47595e6c2d/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6aad9f47595e6c2d.mp4",
+      "sha256": "a67ea7ef88e9a542346c372762d9d342e9d0c5a5196b2282ea66292aecd9dfe7",
+      "size_bytes": 13992254,
+      "mime_type": "video/mp4",
+      "object_key": "a67ea7ef88e9a542346c372762d9d342e9d0c5a5196b2282ea66292aecd9dfe7.mp4"
+    },
+    "cases/approved_6b7a4d44bf7083dd/cover": {
+      "id": "cases/approved_6b7a4d44bf7083dd/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6b7a4d44bf7083dd.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "752a7c5f7d153153afdf20a6e1e00a92b38e62caa4454f11b0d074a607e341b5",
+      "size_bytes": 51497,
+      "mime_type": "image/jpeg",
+      "object_key": "752a7c5f7d153153afdf20a6e1e00a92b38e62caa4454f11b0d074a607e341b5.jpg"
+    },
+    "cases/approved_6b7a4d44bf7083dd/video": {
+      "id": "cases/approved_6b7a4d44bf7083dd/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6b7a4d44bf7083dd.mp4",
+      "sha256": "cd12ed3293703fc470e96c8453d3bf85e83907a5af00b8ab0414051ee04f9e70",
+      "size_bytes": 12908203,
+      "mime_type": "video/mp4",
+      "object_key": "cd12ed3293703fc470e96c8453d3bf85e83907a5af00b8ab0414051ee04f9e70.mp4"
+    },
+    "cases/approved_6d6c9620331480ad/cover": {
+      "id": "cases/approved_6d6c9620331480ad/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6d6c9620331480ad.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "cc0091c040d83ccba8f69dce7dc04d6c6e841869e1726627c10b93ad25124e12",
+      "size_bytes": 48269,
+      "mime_type": "image/jpeg",
+      "object_key": "cc0091c040d83ccba8f69dce7dc04d6c6e841869e1726627c10b93ad25124e12.jpg"
+    },
+    "cases/approved_6d6c9620331480ad/video": {
+      "id": "cases/approved_6d6c9620331480ad/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6d6c9620331480ad.mp4",
+      "sha256": "0c8ec06763b832d402624760d022f17de9ddfa76d281f260a04c943dd4aa4475",
+      "size_bytes": 5539084,
+      "mime_type": "video/mp4",
+      "object_key": "0c8ec06763b832d402624760d022f17de9ddfa76d281f260a04c943dd4aa4475.mp4"
+    },
+    "cases/approved_6deb4f28001779ce/cover": {
+      "id": "cases/approved_6deb4f28001779ce/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6deb4f28001779ce.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "a5141d9047ecc78d54535f0d83f8767044b5e46bc120d209170707566ae651e5",
+      "size_bytes": 18806,
+      "mime_type": "image/jpeg",
+      "object_key": "a5141d9047ecc78d54535f0d83f8767044b5e46bc120d209170707566ae651e5.jpg"
+    },
+    "cases/approved_6deb4f28001779ce/video": {
+      "id": "cases/approved_6deb4f28001779ce/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6deb4f28001779ce.mp4",
+      "sha256": "5a07fa2a0bb3692323a99cc4ebf19427382942fdd90f58d1908000fcb6066d8d",
+      "size_bytes": 16773593,
+      "mime_type": "video/mp4",
+      "object_key": "5a07fa2a0bb3692323a99cc4ebf19427382942fdd90f58d1908000fcb6066d8d.mp4"
+    },
+    "cases/approved_6e162503026dc8b6/cover": {
+      "id": "cases/approved_6e162503026dc8b6/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6e162503026dc8b6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "e35a209beb2cd009178272ce91550bafe19a4d60dc20729ab0a204ab7fe7d780",
+      "size_bytes": 12435,
+      "mime_type": "image/jpeg",
+      "object_key": "e35a209beb2cd009178272ce91550bafe19a4d60dc20729ab0a204ab7fe7d780.jpg"
+    },
+    "cases/approved_6e162503026dc8b6/video": {
+      "id": "cases/approved_6e162503026dc8b6/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6e162503026dc8b6.mp4",
+      "sha256": "8e495eaf4a77df2f36afe55740b7d34ad9771ad1f9422440c8d37c077a09d28e",
+      "size_bytes": 6503645,
+      "mime_type": "video/mp4",
+      "object_key": "8e495eaf4a77df2f36afe55740b7d34ad9771ad1f9422440c8d37c077a09d28e.mp4"
+    },
+    "cases/approved_6ef1c94756c3c438/cover": {
+      "id": "cases/approved_6ef1c94756c3c438/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6ef1c94756c3c438.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "9a54ebdd58b74e68d9f99a1b01f4e679a0d2da3011ec4dfbaca170a06fcb4e0c",
+      "size_bytes": 59733,
+      "mime_type": "image/jpeg",
+      "object_key": "9a54ebdd58b74e68d9f99a1b01f4e679a0d2da3011ec4dfbaca170a06fcb4e0c.jpg"
+    },
+    "cases/approved_6ef1c94756c3c438/video": {
+      "id": "cases/approved_6ef1c94756c3c438/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_6ef1c94756c3c438.mp4",
+      "sha256": "f351404c83cb24f4ba0c2c50b887de916690d9fc438524c164f4021255391ca6",
+      "size_bytes": 16331701,
+      "mime_type": "video/mp4",
+      "object_key": "f351404c83cb24f4ba0c2c50b887de916690d9fc438524c164f4021255391ca6.mp4"
+    },
+    "cases/approved_709817c52fe2db9e/cover": {
+      "id": "cases/approved_709817c52fe2db9e/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_709817c52fe2db9e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "45746b2e8a9194690ac1b3c8a1928cf2fb42443635dff1bc8202193717b9decf",
+      "size_bytes": 46445,
+      "mime_type": "image/jpeg",
+      "object_key": "45746b2e8a9194690ac1b3c8a1928cf2fb42443635dff1bc8202193717b9decf.jpg"
+    },
+    "cases/approved_709817c52fe2db9e/video": {
+      "id": "cases/approved_709817c52fe2db9e/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_709817c52fe2db9e.mp4",
+      "sha256": "a9974b6c0505b559e43014cf163e92c68703de0a5bbf0fdfd040f4b57a839570",
+      "size_bytes": 13546293,
+      "mime_type": "video/mp4",
+      "object_key": "a9974b6c0505b559e43014cf163e92c68703de0a5bbf0fdfd040f4b57a839570.mp4"
+    },
+    "cases/approved_7135edbbae7c4181/cover": {
+      "id": "cases/approved_7135edbbae7c4181/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7135edbbae7c4181.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "21cc6e35adf3a23a5714983ac62d2693c6fb64f553b49a4e7093717d3118c00e",
+      "size_bytes": 72000,
+      "mime_type": "image/jpeg",
+      "object_key": "21cc6e35adf3a23a5714983ac62d2693c6fb64f553b49a4e7093717d3118c00e.jpg"
+    },
+    "cases/approved_7135edbbae7c4181/video": {
+      "id": "cases/approved_7135edbbae7c4181/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7135edbbae7c4181.mp4",
+      "sha256": "e7cbf689ef9e1e5a51e7a496f4d2efd7e53836b492e0ca64ccc3a7f55de65fd3",
+      "size_bytes": 13335142,
+      "mime_type": "video/mp4",
+      "object_key": "e7cbf689ef9e1e5a51e7a496f4d2efd7e53836b492e0ca64ccc3a7f55de65fd3.mp4"
+    },
+    "cases/approved_73fe077b7d230476/cover": {
+      "id": "cases/approved_73fe077b7d230476/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_73fe077b7d230476.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6e3fae86cffe8c024ca285071b2942036790165a95dec6ebe2fd7cc4b26a9db9",
+      "size_bytes": 76909,
+      "mime_type": "image/jpeg",
+      "object_key": "6e3fae86cffe8c024ca285071b2942036790165a95dec6ebe2fd7cc4b26a9db9.jpg"
+    },
+    "cases/approved_73fe077b7d230476/video": {
+      "id": "cases/approved_73fe077b7d230476/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_73fe077b7d230476.mp4",
+      "sha256": "b5c58c247eac9fc5ef5966564d4288b1c2d8cd9316accdb67c14103d3475177c",
+      "size_bytes": 16193782,
+      "mime_type": "video/mp4",
+      "object_key": "b5c58c247eac9fc5ef5966564d4288b1c2d8cd9316accdb67c14103d3475177c.mp4"
+    },
+    "cases/approved_768f3360343d5e16/cover": {
+      "id": "cases/approved_768f3360343d5e16/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_768f3360343d5e16.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "7a8b429d38b2823e25d6c6ab45db360a40ae7faca51f3dd2a928624ecb09ebb4",
+      "size_bytes": 48824,
+      "mime_type": "image/jpeg",
+      "object_key": "7a8b429d38b2823e25d6c6ab45db360a40ae7faca51f3dd2a928624ecb09ebb4.jpg"
+    },
+    "cases/approved_768f3360343d5e16/video": {
+      "id": "cases/approved_768f3360343d5e16/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_768f3360343d5e16.mp4",
+      "sha256": "52320c219102404ed3317552b7888b41d1c2b052fa82e9f9aed17587c5581464",
+      "size_bytes": 17082276,
+      "mime_type": "video/mp4",
+      "object_key": "52320c219102404ed3317552b7888b41d1c2b052fa82e9f9aed17587c5581464.mp4"
+    },
+    "cases/approved_785f44844bd3fb02/cover": {
+      "id": "cases/approved_785f44844bd3fb02/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_785f44844bd3fb02.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "ea6a230d3c4c20a855e1f400a74d9c119d6557748fb48cb25d4d89ccbef5376e",
+      "size_bytes": 53571,
+      "mime_type": "image/jpeg",
+      "object_key": "ea6a230d3c4c20a855e1f400a74d9c119d6557748fb48cb25d4d89ccbef5376e.jpg"
+    },
+    "cases/approved_785f44844bd3fb02/video": {
+      "id": "cases/approved_785f44844bd3fb02/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_785f44844bd3fb02.mp4",
+      "sha256": "2e7662cd6590c0fc602f26eebc8e8c69fb5678475b0cf2c118218f90470b9577",
+      "size_bytes": 14370001,
+      "mime_type": "video/mp4",
+      "object_key": "2e7662cd6590c0fc602f26eebc8e8c69fb5678475b0cf2c118218f90470b9577.mp4"
+    },
+    "cases/approved_79416855e7bc1800/cover": {
+      "id": "cases/approved_79416855e7bc1800/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_79416855e7bc1800.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6e1ec2bc0299df972d21ab43c8e4cc538d7ce6c611198be373b9f7acffcddfad",
+      "size_bytes": 87269,
+      "mime_type": "image/jpeg",
+      "object_key": "6e1ec2bc0299df972d21ab43c8e4cc538d7ce6c611198be373b9f7acffcddfad.jpg"
+    },
+    "cases/approved_79416855e7bc1800/video": {
+      "id": "cases/approved_79416855e7bc1800/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_79416855e7bc1800.mp4",
+      "sha256": "d93da567c6aefd945ec155dc41b2df12c7976f9ca2de98db054f5a4bf1bf248b",
+      "size_bytes": 18415272,
+      "mime_type": "video/mp4",
+      "object_key": "d93da567c6aefd945ec155dc41b2df12c7976f9ca2de98db054f5a4bf1bf248b.mp4"
+    },
+    "cases/approved_796d4315e25929f8/cover": {
+      "id": "cases/approved_796d4315e25929f8/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_796d4315e25929f8.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "913ecadd310a90d219ada8afdc576a9e3565ea96f29e62b000a188ef88162155",
+      "size_bytes": 47544,
+      "mime_type": "image/jpeg",
+      "object_key": "913ecadd310a90d219ada8afdc576a9e3565ea96f29e62b000a188ef88162155.jpg"
+    },
+    "cases/approved_796d4315e25929f8/video": {
+      "id": "cases/approved_796d4315e25929f8/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_796d4315e25929f8.mp4",
+      "sha256": "663bd8c631643aaeba60c3ab573803ffff82945c6b2587f5162cc2fe6988b39e",
+      "size_bytes": 13502462,
+      "mime_type": "video/mp4",
+      "object_key": "663bd8c631643aaeba60c3ab573803ffff82945c6b2587f5162cc2fe6988b39e.mp4"
+    },
+    "cases/approved_7d1ecbfa3869d0ac/cover": {
+      "id": "cases/approved_7d1ecbfa3869d0ac/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7d1ecbfa3869d0ac.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "a567e2cbfe6f7e371dff991391384930378a81fc161a82e457d59ab7d38f41e0",
+      "size_bytes": 35745,
+      "mime_type": "image/jpeg",
+      "object_key": "a567e2cbfe6f7e371dff991391384930378a81fc161a82e457d59ab7d38f41e0.jpg"
+    },
+    "cases/approved_7d1ecbfa3869d0ac/video": {
+      "id": "cases/approved_7d1ecbfa3869d0ac/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7d1ecbfa3869d0ac.mp4",
+      "sha256": "96f8ca8079b9c07b269467444fb5c15df37aa6697a5577a0dbb81cad078a3daf",
+      "size_bytes": 12736957,
+      "mime_type": "video/mp4",
+      "object_key": "96f8ca8079b9c07b269467444fb5c15df37aa6697a5577a0dbb81cad078a3daf.mp4"
+    },
+    "cases/approved_7f3c47d349b671a0/cover": {
+      "id": "cases/approved_7f3c47d349b671a0/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7f3c47d349b671a0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "55dcc4939420f5ab6c5ad71f4c1a7ccfa6fd9b90353267dc30a6eabc20586ca0",
+      "size_bytes": 68941,
+      "mime_type": "image/jpeg",
+      "object_key": "55dcc4939420f5ab6c5ad71f4c1a7ccfa6fd9b90353267dc30a6eabc20586ca0.jpg"
+    },
+    "cases/approved_7f3c47d349b671a0/video": {
+      "id": "cases/approved_7f3c47d349b671a0/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_7f3c47d349b671a0.mp4",
+      "sha256": "3e6d785a9e86d8f843cec20d5a58e1007709b5f82c8636f83853a9a953c37687",
+      "size_bytes": 13616351,
+      "mime_type": "video/mp4",
+      "object_key": "3e6d785a9e86d8f843cec20d5a58e1007709b5f82c8636f83853a9a953c37687.mp4"
+    },
+    "cases/approved_81714776c7fbd6ee/cover": {
+      "id": "cases/approved_81714776c7fbd6ee/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_81714776c7fbd6ee.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6dfa1d29ca27573c8a48e83245d2078fdc6a1f8514c66265c8d7c8703fe028c5",
+      "size_bytes": 35492,
+      "mime_type": "image/jpeg",
+      "object_key": "6dfa1d29ca27573c8a48e83245d2078fdc6a1f8514c66265c8d7c8703fe028c5.jpg"
+    },
+    "cases/approved_81714776c7fbd6ee/video": {
+      "id": "cases/approved_81714776c7fbd6ee/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_81714776c7fbd6ee.mp4",
+      "sha256": "2f53fa69460a2917dcdc90f4424f101b8bb7df52adfe4e94b6b7243f3711b434",
+      "size_bytes": 17157884,
+      "mime_type": "video/mp4",
+      "object_key": "2f53fa69460a2917dcdc90f4424f101b8bb7df52adfe4e94b6b7243f3711b434.mp4"
+    },
+    "cases/approved_844cb431b2384583/cover": {
+      "id": "cases/approved_844cb431b2384583/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_844cb431b2384583.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "5def33c060899da48d874d7d1de508d961c539de3a48b3ee64941450648fbb1b",
+      "size_bytes": 55450,
+      "mime_type": "image/jpeg",
+      "object_key": "5def33c060899da48d874d7d1de508d961c539de3a48b3ee64941450648fbb1b.jpg"
+    },
+    "cases/approved_844cb431b2384583/video": {
+      "id": "cases/approved_844cb431b2384583/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_844cb431b2384583.mp4",
+      "sha256": "889e45da7ac3773d6c5009c9c22fbbba66e4a5c93c4352d489f65649d179a0e3",
+      "size_bytes": 14232540,
+      "mime_type": "video/mp4",
+      "object_key": "889e45da7ac3773d6c5009c9c22fbbba66e4a5c93c4352d489f65649d179a0e3.mp4"
+    },
+    "cases/approved_853689c02d779c9c/cover": {
+      "id": "cases/approved_853689c02d779c9c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_853689c02d779c9c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "0ab0c2c6ad723233d191f90ae36053b9772d63423e3fee35e996701d02518c29",
+      "size_bytes": 47093,
+      "mime_type": "image/jpeg",
+      "object_key": "0ab0c2c6ad723233d191f90ae36053b9772d63423e3fee35e996701d02518c29.jpg"
+    },
+    "cases/approved_853689c02d779c9c/video": {
+      "id": "cases/approved_853689c02d779c9c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_853689c02d779c9c.mp4",
+      "sha256": "40172c08d8ae17a9fb9e090f773c571b5896f0ef9351f09a50340e4c03a2edc2",
+      "size_bytes": 15433295,
+      "mime_type": "video/mp4",
+      "object_key": "40172c08d8ae17a9fb9e090f773c571b5896f0ef9351f09a50340e4c03a2edc2.mp4"
+    },
+    "cases/approved_8726bf919da9a7b5/cover": {
+      "id": "cases/approved_8726bf919da9a7b5/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_8726bf919da9a7b5.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "55924c30248bc0ed9bbe941a6df7e3ca679afa55390f97c5b44e03b1df06ae23",
+      "size_bytes": 47076,
+      "mime_type": "image/jpeg",
+      "object_key": "55924c30248bc0ed9bbe941a6df7e3ca679afa55390f97c5b44e03b1df06ae23.jpg"
+    },
+    "cases/approved_8726bf919da9a7b5/video": {
+      "id": "cases/approved_8726bf919da9a7b5/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_8726bf919da9a7b5.mp4",
+      "sha256": "2e226157d61cb332456407baa3f3d78a3841349889f1c683dfccb0013ba98e64",
+      "size_bytes": 17065331,
+      "mime_type": "video/mp4",
+      "object_key": "2e226157d61cb332456407baa3f3d78a3841349889f1c683dfccb0013ba98e64.mp4"
+    },
+    "cases/approved_889be55e17d2465f/cover": {
+      "id": "cases/approved_889be55e17d2465f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_889be55e17d2465f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "cb858f4e8cfb2bed4b7c189631c85b8020f033e51a7da625524ecb10f4f0b4cd",
+      "size_bytes": 53818,
+      "mime_type": "image/jpeg",
+      "object_key": "cb858f4e8cfb2bed4b7c189631c85b8020f033e51a7da625524ecb10f4f0b4cd.jpg"
+    },
+    "cases/approved_889be55e17d2465f/video": {
+      "id": "cases/approved_889be55e17d2465f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_889be55e17d2465f.mp4",
+      "sha256": "a54fe689398905eb04007e69b078fb7470a06aa9931d2783dedbd02a8818539b",
+      "size_bytes": 14281775,
+      "mime_type": "video/mp4",
+      "object_key": "a54fe689398905eb04007e69b078fb7470a06aa9931d2783dedbd02a8818539b.mp4"
+    },
+    "cases/approved_97f688368e1c53bc/cover": {
+      "id": "cases/approved_97f688368e1c53bc/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_97f688368e1c53bc.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "f5c00b29f1d26a5d40fdfa22553cf14317b881776381a6613f85b881a76ee284",
+      "size_bytes": 66661,
+      "mime_type": "image/jpeg",
+      "object_key": "f5c00b29f1d26a5d40fdfa22553cf14317b881776381a6613f85b881a76ee284.jpg"
+    },
+    "cases/approved_97f688368e1c53bc/video": {
+      "id": "cases/approved_97f688368e1c53bc/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_97f688368e1c53bc.mp4",
+      "sha256": "d836b1dd09178d0a1c40998314d56fb2cb4691294abeafd2732e64052a6b538c",
+      "size_bytes": 16692138,
+      "mime_type": "video/mp4",
+      "object_key": "d836b1dd09178d0a1c40998314d56fb2cb4691294abeafd2732e64052a6b538c.mp4"
+    },
+    "cases/approved_99115ab883c3dbb4/cover": {
+      "id": "cases/approved_99115ab883c3dbb4/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_99115ab883c3dbb4.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "e80b7bdc607d48d31a28ce24ba09eebf9ef79b82563285165607bb4ddc9e901c",
+      "size_bytes": 56477,
+      "mime_type": "image/jpeg",
+      "object_key": "e80b7bdc607d48d31a28ce24ba09eebf9ef79b82563285165607bb4ddc9e901c.jpg"
+    },
+    "cases/approved_99115ab883c3dbb4/video": {
+      "id": "cases/approved_99115ab883c3dbb4/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_99115ab883c3dbb4.mp4",
+      "sha256": "e5a4549a61a97cab001ed6cb61659ee1f31772f473c2715d0efb43079b91798d",
+      "size_bytes": 18694769,
+      "mime_type": "video/mp4",
+      "object_key": "e5a4549a61a97cab001ed6cb61659ee1f31772f473c2715d0efb43079b91798d.mp4"
+    },
+    "cases/approved_9b7f2c9bc235c22e/cover": {
+      "id": "cases/approved_9b7f2c9bc235c22e/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9b7f2c9bc235c22e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "146370576935e5d5a1e793258a25c1c048f6f5556a180b3c69c3b34c2cd77a0b",
+      "size_bytes": 44663,
+      "mime_type": "image/jpeg",
+      "object_key": "146370576935e5d5a1e793258a25c1c048f6f5556a180b3c69c3b34c2cd77a0b.jpg"
+    },
+    "cases/approved_9b7f2c9bc235c22e/video": {
+      "id": "cases/approved_9b7f2c9bc235c22e/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9b7f2c9bc235c22e.mp4",
+      "sha256": "02b3871884985035d0dd779bb0f58ea8f40930689d1d156b4e55b5a05886e77f",
+      "size_bytes": 15820956,
+      "mime_type": "video/mp4",
+      "object_key": "02b3871884985035d0dd779bb0f58ea8f40930689d1d156b4e55b5a05886e77f.mp4"
+    },
+    "cases/approved_9ef920ce43da232e/cover": {
+      "id": "cases/approved_9ef920ce43da232e/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef920ce43da232e.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "96e801294b07688dddd0629a9d4241f5326d3824d2c8ee4fe1c89a980ce0e703",
+      "size_bytes": 54184,
+      "mime_type": "image/jpeg",
+      "object_key": "96e801294b07688dddd0629a9d4241f5326d3824d2c8ee4fe1c89a980ce0e703.jpg"
+    },
+    "cases/approved_9ef920ce43da232e/video": {
+      "id": "cases/approved_9ef920ce43da232e/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef920ce43da232e.mp4",
+      "sha256": "9fc2c7ff4cadb9ccde587bc56fd43383307a8664f92f2b18d5485fb3c9c94d1f",
+      "size_bytes": 9545111,
+      "mime_type": "video/mp4",
+      "object_key": "9fc2c7ff4cadb9ccde587bc56fd43383307a8664f92f2b18d5485fb3c9c94d1f.mp4"
+    },
+    "cases/approved_9ef94959bfed64a3/cover": {
+      "id": "cases/approved_9ef94959bfed64a3/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef94959bfed64a3.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "19795e30248679801b4820af69146a000cec5e2f01954f6e16971e850e34f39b",
+      "size_bytes": 45425,
+      "mime_type": "image/jpeg",
+      "object_key": "19795e30248679801b4820af69146a000cec5e2f01954f6e16971e850e34f39b.jpg"
+    },
+    "cases/approved_9ef94959bfed64a3/video": {
+      "id": "cases/approved_9ef94959bfed64a3/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_9ef94959bfed64a3.mp4",
+      "sha256": "5dc62ff15a800d9e041975f80726feb4a196a3603b2513138600ba218c405791",
+      "size_bytes": 2709980,
+      "mime_type": "video/mp4",
+      "object_key": "5dc62ff15a800d9e041975f80726feb4a196a3603b2513138600ba218c405791.mp4"
+    },
+    "cases/approved_a25a766bae6703f0/cover": {
+      "id": "cases/approved_a25a766bae6703f0/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a25a766bae6703f0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "2c4d0876018ad6d682905c416b13105e900605bcf08c282b40cf3226cc28a966",
+      "size_bytes": 35626,
+      "mime_type": "image/jpeg",
+      "object_key": "2c4d0876018ad6d682905c416b13105e900605bcf08c282b40cf3226cc28a966.jpg"
+    },
+    "cases/approved_a25a766bae6703f0/video": {
+      "id": "cases/approved_a25a766bae6703f0/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a25a766bae6703f0.mp4",
+      "sha256": "d4a670610c68ff8afc6d24b0f7cf4b0ff786e70d193c84a2de1c03a581835ab3",
+      "size_bytes": 15702348,
+      "mime_type": "video/mp4",
+      "object_key": "d4a670610c68ff8afc6d24b0f7cf4b0ff786e70d193c84a2de1c03a581835ab3.mp4"
+    },
+    "cases/approved_a934bdb2af4d3b28/cover": {
+      "id": "cases/approved_a934bdb2af4d3b28/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a934bdb2af4d3b28.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6156dfdeba9279e5742f2b6fd2a8a715649b53a9a88aab48acebe985ea777b8c",
+      "size_bytes": 56460,
+      "mime_type": "image/jpeg",
+      "object_key": "6156dfdeba9279e5742f2b6fd2a8a715649b53a9a88aab48acebe985ea777b8c.jpg"
+    },
+    "cases/approved_a934bdb2af4d3b28/video": {
+      "id": "cases/approved_a934bdb2af4d3b28/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_a934bdb2af4d3b28.mp4",
+      "sha256": "899a6c20728352c8e558b3a613b3d0a69f3d4c2592081026d65008370e4b2245",
+      "size_bytes": 13761290,
+      "mime_type": "video/mp4",
+      "object_key": "899a6c20728352c8e558b3a613b3d0a69f3d4c2592081026d65008370e4b2245.mp4"
+    },
+    "cases/approved_ab5c0f7cedd0233b/cover": {
+      "id": "cases/approved_ab5c0f7cedd0233b/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ab5c0f7cedd0233b.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "2e1c9f970942e625b6edd431c73df0f0558efad11c82267c5cbed56e2326f253",
+      "size_bytes": 23931,
+      "mime_type": "image/jpeg",
+      "object_key": "2e1c9f970942e625b6edd431c73df0f0558efad11c82267c5cbed56e2326f253.jpg"
+    },
+    "cases/approved_ab5c0f7cedd0233b/video": {
+      "id": "cases/approved_ab5c0f7cedd0233b/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ab5c0f7cedd0233b.mp4",
+      "sha256": "c230bb07517127f1ed0ec6447818a82f6c04fab6dff9b4a1b2239fb896c4b38f",
+      "size_bytes": 14434912,
+      "mime_type": "video/mp4",
+      "object_key": "c230bb07517127f1ed0ec6447818a82f6c04fab6dff9b4a1b2239fb896c4b38f.mp4"
+    },
+    "cases/approved_ac7d744e1fe6e6a4/cover": {
+      "id": "cases/approved_ac7d744e1fe6e6a4/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ac7d744e1fe6e6a4.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "5ddfda8d4d4c390d48fca7528dd273c7af7855df2d54e7e8331d8767386cdf9f",
+      "size_bytes": 62005,
+      "mime_type": "image/jpeg",
+      "object_key": "5ddfda8d4d4c390d48fca7528dd273c7af7855df2d54e7e8331d8767386cdf9f.jpg"
+    },
+    "cases/approved_ac7d744e1fe6e6a4/video": {
+      "id": "cases/approved_ac7d744e1fe6e6a4/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ac7d744e1fe6e6a4.mp4",
+      "sha256": "f2b3bd309ab8cb0794071e15896934a6358617bcc099706cda1beea7ff9f9268",
+      "size_bytes": 15054097,
+      "mime_type": "video/mp4",
+      "object_key": "f2b3bd309ab8cb0794071e15896934a6358617bcc099706cda1beea7ff9f9268.mp4"
+    },
+    "cases/approved_ad18b5910ac1ec04/cover": {
+      "id": "cases/approved_ad18b5910ac1ec04/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ad18b5910ac1ec04.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "83909514c2eabd3bc6e5ca0d3cc36609ed93cb64414d06ddde57ac5a3bd3691d",
+      "size_bytes": 48996,
+      "mime_type": "image/jpeg",
+      "object_key": "83909514c2eabd3bc6e5ca0d3cc36609ed93cb64414d06ddde57ac5a3bd3691d.jpg"
+    },
+    "cases/approved_ad18b5910ac1ec04/video": {
+      "id": "cases/approved_ad18b5910ac1ec04/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ad18b5910ac1ec04.mp4",
+      "sha256": "300a1f38fdd2c730e25230b7192bfce1b1053c093d3c5d6daa33d41fb00cf39d",
+      "size_bytes": 10521777,
+      "mime_type": "video/mp4",
+      "object_key": "300a1f38fdd2c730e25230b7192bfce1b1053c093d3c5d6daa33d41fb00cf39d.mp4"
+    },
+    "cases/approved_ae3bcda55a5cc747/cover": {
+      "id": "cases/approved_ae3bcda55a5cc747/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ae3bcda55a5cc747.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "5f4582e141562d276ba61a60c2ef30d20beafb8ba58e895332c73d7c6431cc5d",
+      "size_bytes": 68743,
+      "mime_type": "image/jpeg",
+      "object_key": "5f4582e141562d276ba61a60c2ef30d20beafb8ba58e895332c73d7c6431cc5d.jpg"
+    },
+    "cases/approved_ae3bcda55a5cc747/video": {
+      "id": "cases/approved_ae3bcda55a5cc747/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ae3bcda55a5cc747.mp4",
+      "sha256": "77b4cfa80bb9e57df4ed1463cefbb68e0a7a00ab9607cd02b9003a58773129e4",
+      "size_bytes": 14641819,
+      "mime_type": "video/mp4",
+      "object_key": "77b4cfa80bb9e57df4ed1463cefbb68e0a7a00ab9607cd02b9003a58773129e4.mp4"
+    },
+    "cases/approved_b06e20512b1f44a1/cover": {
+      "id": "cases/approved_b06e20512b1f44a1/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b06e20512b1f44a1.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "9a2cb7c728564dbe2e83024fe54d803b2c5ea6e80d35131bd24530702994fb7a",
+      "size_bytes": 47602,
+      "mime_type": "image/jpeg",
+      "object_key": "9a2cb7c728564dbe2e83024fe54d803b2c5ea6e80d35131bd24530702994fb7a.jpg"
+    },
+    "cases/approved_b06e20512b1f44a1/video": {
+      "id": "cases/approved_b06e20512b1f44a1/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b06e20512b1f44a1.mp4",
+      "sha256": "82330a147e3fec5831bb43f48cd2bfd9db1fefc0c16fe2edd713cb85ff26b741",
+      "size_bytes": 18333073,
+      "mime_type": "video/mp4",
+      "object_key": "82330a147e3fec5831bb43f48cd2bfd9db1fefc0c16fe2edd713cb85ff26b741.mp4"
+    },
+    "cases/approved_b075b0cd525a81d3/cover": {
+      "id": "cases/approved_b075b0cd525a81d3/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b075b0cd525a81d3.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "d6ce2c38cb9da4b93a2b76283e3ea718ce0ff5e24b5f99dd06410cdc88ca5732",
+      "size_bytes": 32524,
+      "mime_type": "image/jpeg",
+      "object_key": "d6ce2c38cb9da4b93a2b76283e3ea718ce0ff5e24b5f99dd06410cdc88ca5732.jpg"
+    },
+    "cases/approved_b075b0cd525a81d3/video": {
+      "id": "cases/approved_b075b0cd525a81d3/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b075b0cd525a81d3.mp4",
+      "sha256": "c0fe9d8e913a4d0fee7b763acebc96e5e77ff9f7eac1bb8ae7336d72c4eded58",
+      "size_bytes": 13231261,
+      "mime_type": "video/mp4",
+      "object_key": "c0fe9d8e913a4d0fee7b763acebc96e5e77ff9f7eac1bb8ae7336d72c4eded58.mp4"
+    },
+    "cases/approved_b0cbe50fb19dd7c8/cover": {
+      "id": "cases/approved_b0cbe50fb19dd7c8/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b0cbe50fb19dd7c8.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "f3d4b0eca886ccc879377530682e5ff296ded110bc952d7c0b7904a406ed4e90",
+      "size_bytes": 40289,
+      "mime_type": "image/jpeg",
+      "object_key": "f3d4b0eca886ccc879377530682e5ff296ded110bc952d7c0b7904a406ed4e90.jpg"
+    },
+    "cases/approved_b0cbe50fb19dd7c8/video": {
+      "id": "cases/approved_b0cbe50fb19dd7c8/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b0cbe50fb19dd7c8.mp4",
+      "sha256": "b8ce5ccb47f1c2175e042aeff4a8ada5b6e493c6498755361242239915aa84c9",
+      "size_bytes": 19380553,
+      "mime_type": "video/mp4",
+      "object_key": "b8ce5ccb47f1c2175e042aeff4a8ada5b6e493c6498755361242239915aa84c9.mp4"
+    },
+    "cases/approved_b24fda7260cb1a67/cover": {
+      "id": "cases/approved_b24fda7260cb1a67/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b24fda7260cb1a67.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "309e0433175618dacd74f8de3d75a0632fba20841c8e9b82ea12f8596299912d",
+      "size_bytes": 34973,
+      "mime_type": "image/jpeg",
+      "object_key": "309e0433175618dacd74f8de3d75a0632fba20841c8e9b82ea12f8596299912d.jpg"
+    },
+    "cases/approved_b24fda7260cb1a67/video": {
+      "id": "cases/approved_b24fda7260cb1a67/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b24fda7260cb1a67.mp4",
+      "sha256": "8920aa51ee7ecd9657437451ae14c7413c95773c1edbfb11dcf145e36703608a",
+      "size_bytes": 17785479,
+      "mime_type": "video/mp4",
+      "object_key": "8920aa51ee7ecd9657437451ae14c7413c95773c1edbfb11dcf145e36703608a.mp4"
+    },
+    "cases/approved_b2d77444f3aa702c/cover": {
+      "id": "cases/approved_b2d77444f3aa702c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b2d77444f3aa702c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "3eed61710e6aea8b6d76690ecd08bb04df42d352fa394f76a94630cc97a30cd3",
+      "size_bytes": 62511,
+      "mime_type": "image/jpeg",
+      "object_key": "3eed61710e6aea8b6d76690ecd08bb04df42d352fa394f76a94630cc97a30cd3.jpg"
+    },
+    "cases/approved_b2d77444f3aa702c/video": {
+      "id": "cases/approved_b2d77444f3aa702c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b2d77444f3aa702c.mp4",
+      "sha256": "3095084eb65294f7fbca93062d651ba0b2f16dae6a02614c3ca71e02168aea66",
+      "size_bytes": 14211311,
+      "mime_type": "video/mp4",
+      "object_key": "3095084eb65294f7fbca93062d651ba0b2f16dae6a02614c3ca71e02168aea66.mp4"
+    },
+    "cases/approved_b46262f65a2b677c/cover": {
+      "id": "cases/approved_b46262f65a2b677c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b46262f65a2b677c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "5f03947aee9ff084f8b08e586ba160ae1e7948a6cd18a37150ad969137fb09e8",
+      "size_bytes": 57384,
+      "mime_type": "image/jpeg",
+      "object_key": "5f03947aee9ff084f8b08e586ba160ae1e7948a6cd18a37150ad969137fb09e8.jpg"
+    },
+    "cases/approved_b46262f65a2b677c/video": {
+      "id": "cases/approved_b46262f65a2b677c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b46262f65a2b677c.mp4",
+      "sha256": "5b1b6cd2947c7aee66b8ca2c8d10eb719a5db9c8c3796ada1c841ec22737d5e6",
+      "size_bytes": 12048467,
+      "mime_type": "video/mp4",
+      "object_key": "5b1b6cd2947c7aee66b8ca2c8d10eb719a5db9c8c3796ada1c841ec22737d5e6.mp4"
+    },
+    "cases/approved_b4e43868dd486562/cover": {
+      "id": "cases/approved_b4e43868dd486562/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b4e43868dd486562.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "98e2210071da68a6524f17ca18f6d9f6671bc00a799dfdc1bc7899b68eeb8574",
+      "size_bytes": 47037,
+      "mime_type": "image/jpeg",
+      "object_key": "98e2210071da68a6524f17ca18f6d9f6671bc00a799dfdc1bc7899b68eeb8574.jpg"
+    },
+    "cases/approved_b4e43868dd486562/video": {
+      "id": "cases/approved_b4e43868dd486562/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_b4e43868dd486562.mp4",
+      "sha256": "64145e3696b87a0f5d9544611d518a7305ca8cbb405bba42024a962cdbf99885",
+      "size_bytes": 15881476,
+      "mime_type": "video/mp4",
+      "object_key": "64145e3696b87a0f5d9544611d518a7305ca8cbb405bba42024a962cdbf99885.mp4"
+    },
+    "cases/approved_bcf9f005c3c0a034/cover": {
+      "id": "cases/approved_bcf9f005c3c0a034/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_bcf9f005c3c0a034.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "739af4157c5528f65165e627763067ce7707019a107e7558c7822418865117f1",
+      "size_bytes": 87281,
+      "mime_type": "image/jpeg",
+      "object_key": "739af4157c5528f65165e627763067ce7707019a107e7558c7822418865117f1.jpg"
+    },
+    "cases/approved_bcf9f005c3c0a034/video": {
+      "id": "cases/approved_bcf9f005c3c0a034/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_bcf9f005c3c0a034.mp4",
+      "sha256": "efed8b5a9ccbbdb4ff5a4e978b4543c0e69ce29fe0884a30cc6d48bacd12f7c1",
+      "size_bytes": 15598785,
+      "mime_type": "video/mp4",
+      "object_key": "efed8b5a9ccbbdb4ff5a4e978b4543c0e69ce29fe0884a30cc6d48bacd12f7c1.mp4"
+    },
+    "cases/approved_c0d1ccd44dfcba4f/cover": {
+      "id": "cases/approved_c0d1ccd44dfcba4f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c0d1ccd44dfcba4f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "bf5801dd1d2b9a009a2a2a2e0a9a3850205f772ad4eb48b713c9316bbb3e706e",
+      "size_bytes": 93273,
+      "mime_type": "image/jpeg",
+      "object_key": "bf5801dd1d2b9a009a2a2a2e0a9a3850205f772ad4eb48b713c9316bbb3e706e.jpg"
+    },
+    "cases/approved_c0d1ccd44dfcba4f/video": {
+      "id": "cases/approved_c0d1ccd44dfcba4f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c0d1ccd44dfcba4f.mp4",
+      "sha256": "4ccb0eb72fe02a08a19e6fe6937d8096a2acebb08b46de06585fc10a5e0e54f1",
+      "size_bytes": 15399267,
+      "mime_type": "video/mp4",
+      "object_key": "4ccb0eb72fe02a08a19e6fe6937d8096a2acebb08b46de06585fc10a5e0e54f1.mp4"
+    },
+    "cases/approved_c52496bafd1c54ee/cover": {
+      "id": "cases/approved_c52496bafd1c54ee/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c52496bafd1c54ee.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "398619a9eea8f5ab60b328bcaed28f42e59b30c816407a694d370660e7ce85e3",
+      "size_bytes": 70943,
+      "mime_type": "image/jpeg",
+      "object_key": "398619a9eea8f5ab60b328bcaed28f42e59b30c816407a694d370660e7ce85e3.jpg"
+    },
+    "cases/approved_c52496bafd1c54ee/video": {
+      "id": "cases/approved_c52496bafd1c54ee/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c52496bafd1c54ee.mp4",
+      "sha256": "5b05bdd54a0adf339a43f936d106e24968855900f26858613d9f90a213b68438",
+      "size_bytes": 18367014,
+      "mime_type": "video/mp4",
+      "object_key": "5b05bdd54a0adf339a43f936d106e24968855900f26858613d9f90a213b68438.mp4"
+    },
+    "cases/approved_c61605ae50554865/cover": {
+      "id": "cases/approved_c61605ae50554865/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c61605ae50554865.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "b4c1667bc108a2eb2d2bde63c13b54db6f589e6b4e7191361a35146da0f02a65",
+      "size_bytes": 52831,
+      "mime_type": "image/jpeg",
+      "object_key": "b4c1667bc108a2eb2d2bde63c13b54db6f589e6b4e7191361a35146da0f02a65.jpg"
+    },
+    "cases/approved_c61605ae50554865/video": {
+      "id": "cases/approved_c61605ae50554865/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c61605ae50554865.mp4",
+      "sha256": "4810a44b4cdabe91b20157ce2dc66ae791e8f99368e01a3b01ffee0e7082e384",
+      "size_bytes": 15608279,
+      "mime_type": "video/mp4",
+      "object_key": "4810a44b4cdabe91b20157ce2dc66ae791e8f99368e01a3b01ffee0e7082e384.mp4"
+    },
+    "cases/approved_c6b01e828a8e304c/cover": {
+      "id": "cases/approved_c6b01e828a8e304c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c6b01e828a8e304c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "fbed0559652b9510bc885566f8c995a6e6d6b1633958953da0eac8dcdc0c6b9a",
+      "size_bytes": 32817,
+      "mime_type": "image/jpeg",
+      "object_key": "fbed0559652b9510bc885566f8c995a6e6d6b1633958953da0eac8dcdc0c6b9a.jpg"
+    },
+    "cases/approved_c6b01e828a8e304c/video": {
+      "id": "cases/approved_c6b01e828a8e304c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c6b01e828a8e304c.mp4",
+      "sha256": "1c23f706df28ed44d3a08e12dfa56dc237229f41a028fb55cfcadb2bba694a5a",
+      "size_bytes": 14954216,
+      "mime_type": "video/mp4",
+      "object_key": "1c23f706df28ed44d3a08e12dfa56dc237229f41a028fb55cfcadb2bba694a5a.mp4"
+    },
+    "cases/approved_c941ae5c0eca3f87/cover": {
+      "id": "cases/approved_c941ae5c0eca3f87/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c941ae5c0eca3f87.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "12515d1b54e6ba8fbfb5d71b8717388f1d4f283c0a2ae9c796160bba06267779",
+      "size_bytes": 18531,
+      "mime_type": "image/jpeg",
+      "object_key": "12515d1b54e6ba8fbfb5d71b8717388f1d4f283c0a2ae9c796160bba06267779.jpg"
+    },
+    "cases/approved_c941ae5c0eca3f87/video": {
+      "id": "cases/approved_c941ae5c0eca3f87/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c941ae5c0eca3f87.mp4",
+      "sha256": "9bab73c44d0736d382e629caa341eb0d32bff7a139dc59b9f67d9ba73ef030ec",
+      "size_bytes": 14582691,
+      "mime_type": "video/mp4",
+      "object_key": "9bab73c44d0736d382e629caa341eb0d32bff7a139dc59b9f67d9ba73ef030ec.mp4"
+    },
+    "cases/approved_c9dad4647593bae0/cover": {
+      "id": "cases/approved_c9dad4647593bae0/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c9dad4647593bae0.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "618556872969220bb12b7cf429ffcf46f6a56477ceac1e5014be86b28d800bfc",
+      "size_bytes": 24728,
+      "mime_type": "image/jpeg",
+      "object_key": "618556872969220bb12b7cf429ffcf46f6a56477ceac1e5014be86b28d800bfc.jpg"
+    },
+    "cases/approved_c9dad4647593bae0/video": {
+      "id": "cases/approved_c9dad4647593bae0/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_c9dad4647593bae0.mp4",
+      "sha256": "12fb26ab10f3003edb25c4c99857ee5ad08b1f16ec6870feb9d5f06a9f8fca76",
+      "size_bytes": 12057584,
+      "mime_type": "video/mp4",
+      "object_key": "12fb26ab10f3003edb25c4c99857ee5ad08b1f16ec6870feb9d5f06a9f8fca76.mp4"
+    },
+    "cases/approved_ce1b1a14ca3ab6a9/cover": {
+      "id": "cases/approved_ce1b1a14ca3ab6a9/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ce1b1a14ca3ab6a9.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "c4814297b9d8c993ba03042825fe1a399e118bae0ae645529c10e826c1993274",
+      "size_bytes": 66770,
+      "mime_type": "image/jpeg",
+      "object_key": "c4814297b9d8c993ba03042825fe1a399e118bae0ae645529c10e826c1993274.jpg"
+    },
+    "cases/approved_ce1b1a14ca3ab6a9/video": {
+      "id": "cases/approved_ce1b1a14ca3ab6a9/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ce1b1a14ca3ab6a9.mp4",
+      "sha256": "b9f5a081dcc0b531af30549f2c61fadba0cf56def69f41b38d53ec19985caa0e",
+      "size_bytes": 13773656,
+      "mime_type": "video/mp4",
+      "object_key": "b9f5a081dcc0b531af30549f2c61fadba0cf56def69f41b38d53ec19985caa0e.mp4"
+    },
+    "cases/approved_d01164d206bba114/cover": {
+      "id": "cases/approved_d01164d206bba114/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d01164d206bba114.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "251a75ceee478d7e2cef7327e4f62469367b9c5118a463cfae549bf25853528e",
+      "size_bytes": 87861,
+      "mime_type": "image/jpeg",
+      "object_key": "251a75ceee478d7e2cef7327e4f62469367b9c5118a463cfae549bf25853528e.jpg"
+    },
+    "cases/approved_d01164d206bba114/video": {
+      "id": "cases/approved_d01164d206bba114/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d01164d206bba114.mp4",
+      "sha256": "cb32c47608de48a7600f5d374cccb016160e231f06613a0227d91c2a634eae64",
+      "size_bytes": 17400309,
+      "mime_type": "video/mp4",
+      "object_key": "cb32c47608de48a7600f5d374cccb016160e231f06613a0227d91c2a634eae64.mp4"
+    },
+    "cases/approved_d2e12822d1936d54/cover": {
+      "id": "cases/approved_d2e12822d1936d54/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d2e12822d1936d54.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "260d4b028e257a7c85901da97ac67892d2a1258224361f94547442af903fbd43",
+      "size_bytes": 72109,
+      "mime_type": "image/jpeg",
+      "object_key": "260d4b028e257a7c85901da97ac67892d2a1258224361f94547442af903fbd43.jpg"
+    },
+    "cases/approved_d2e12822d1936d54/video": {
+      "id": "cases/approved_d2e12822d1936d54/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d2e12822d1936d54.mp4",
+      "sha256": "d770b0e2fc7c00f4505d846557f2aa3a5416c9efe6b7e89792db7e125abfa102",
+      "size_bytes": 12701659,
+      "mime_type": "video/mp4",
+      "object_key": "d770b0e2fc7c00f4505d846557f2aa3a5416c9efe6b7e89792db7e125abfa102.mp4"
+    },
+    "cases/approved_d4e10e305a8cafd6/cover": {
+      "id": "cases/approved_d4e10e305a8cafd6/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d4e10e305a8cafd6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "d34e77847ad74060dc0080c015378b2172f662cf9981940e5d9ddbb8905546da",
+      "size_bytes": 70946,
+      "mime_type": "image/jpeg",
+      "object_key": "d34e77847ad74060dc0080c015378b2172f662cf9981940e5d9ddbb8905546da.jpg"
+    },
+    "cases/approved_d4e10e305a8cafd6/video": {
+      "id": "cases/approved_d4e10e305a8cafd6/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d4e10e305a8cafd6.mp4",
+      "sha256": "d6db82f18fafc9346dc83837780846eb3c9578761696276e51e376d789e7c540",
+      "size_bytes": 19653861,
+      "mime_type": "video/mp4",
+      "object_key": "d6db82f18fafc9346dc83837780846eb3c9578761696276e51e376d789e7c540.mp4"
+    },
+    "cases/approved_d786efce249c42b9/cover": {
+      "id": "cases/approved_d786efce249c42b9/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d786efce249c42b9.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "dd3518d5531a893c13ac97d2ede52801c3431a4be9ec4fdc45123ce49d4fa33c",
+      "size_bytes": 31115,
+      "mime_type": "image/jpeg",
+      "object_key": "dd3518d5531a893c13ac97d2ede52801c3431a4be9ec4fdc45123ce49d4fa33c.jpg"
+    },
+    "cases/approved_d786efce249c42b9/video": {
+      "id": "cases/approved_d786efce249c42b9/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d786efce249c42b9.mp4",
+      "sha256": "7819d88c767ca37324bf43e1676b2cb62fe95679853c22bec85d4f144ab5e498",
+      "size_bytes": 17555800,
+      "mime_type": "video/mp4",
+      "object_key": "7819d88c767ca37324bf43e1676b2cb62fe95679853c22bec85d4f144ab5e498.mp4"
+    },
+    "cases/approved_d96006c380223257/cover": {
+      "id": "cases/approved_d96006c380223257/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d96006c380223257.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "0f88b0129cc73e3bd3b0494d227952767ecf4f30e0b1728eda77e4944d6335b2",
+      "size_bytes": 79631,
+      "mime_type": "image/jpeg",
+      "object_key": "0f88b0129cc73e3bd3b0494d227952767ecf4f30e0b1728eda77e4944d6335b2.jpg"
+    },
+    "cases/approved_d96006c380223257/video": {
+      "id": "cases/approved_d96006c380223257/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_d96006c380223257.mp4",
+      "sha256": "3269d0229d8c67ce28849a52a2eb12f8448025eccc9a88341d9037803c33a3bc",
+      "size_bytes": 11046702,
+      "mime_type": "video/mp4",
+      "object_key": "3269d0229d8c67ce28849a52a2eb12f8448025eccc9a88341d9037803c33a3bc.mp4"
+    },
+    "cases/approved_e0e65924b3b98cd6/cover": {
+      "id": "cases/approved_e0e65924b3b98cd6/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e0e65924b3b98cd6.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "6aac59802f3518540f342ea128f38ea6d74ce62956d1464235a63fe471c653b7",
+      "size_bytes": 48841,
+      "mime_type": "image/jpeg",
+      "object_key": "6aac59802f3518540f342ea128f38ea6d74ce62956d1464235a63fe471c653b7.jpg"
+    },
+    "cases/approved_e0e65924b3b98cd6/video": {
+      "id": "cases/approved_e0e65924b3b98cd6/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e0e65924b3b98cd6.mp4",
+      "sha256": "07ef681e2cb504716232681f4e3a5ee5c1b6a73ed761ab515e17ac3d8780a7c7",
+      "size_bytes": 15518454,
+      "mime_type": "video/mp4",
+      "object_key": "07ef681e2cb504716232681f4e3a5ee5c1b6a73ed761ab515e17ac3d8780a7c7.mp4"
+    },
+    "cases/approved_e5d95903b05ed15f/cover": {
+      "id": "cases/approved_e5d95903b05ed15f/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e5d95903b05ed15f.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "8dfaad151414b653cb91213597fa031c50ee3a691c9ab1035da201d8added7ee",
+      "size_bytes": 65630,
+      "mime_type": "image/jpeg",
+      "object_key": "8dfaad151414b653cb91213597fa031c50ee3a691c9ab1035da201d8added7ee.jpg"
+    },
+    "cases/approved_e5d95903b05ed15f/video": {
+      "id": "cases/approved_e5d95903b05ed15f/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e5d95903b05ed15f.mp4",
+      "sha256": "9b0669da2d32f674bae0ed08b1bed53d2dd85ccb15b80be7bac9aca0220f93c4",
+      "size_bytes": 15454204,
+      "mime_type": "video/mp4",
+      "object_key": "9b0669da2d32f674bae0ed08b1bed53d2dd85ccb15b80be7bac9aca0220f93c4.mp4"
+    },
+    "cases/approved_e7955dfc6898853a/cover": {
+      "id": "cases/approved_e7955dfc6898853a/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e7955dfc6898853a.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "103e9049a842b98c53890ee184949b9dbc34d156092bfc98537375ca1e54268e",
+      "size_bytes": 50552,
+      "mime_type": "image/jpeg",
+      "object_key": "103e9049a842b98c53890ee184949b9dbc34d156092bfc98537375ca1e54268e.jpg"
+    },
+    "cases/approved_e7955dfc6898853a/video": {
+      "id": "cases/approved_e7955dfc6898853a/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_e7955dfc6898853a.mp4",
+      "sha256": "842fbed560e00af9d0ce949e378808b86ce8d6350b9f1e9a36a05f2416344610",
+      "size_bytes": 13078689,
+      "mime_type": "video/mp4",
+      "object_key": "842fbed560e00af9d0ce949e378808b86ce8d6350b9f1e9a36a05f2416344610.mp4"
+    },
+    "cases/approved_ecc3f28f9a02dafc/cover": {
+      "id": "cases/approved_ecc3f28f9a02dafc/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ecc3f28f9a02dafc.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "fe823151c56a8ae675aad73ec5bff90c263282c8351c78c1ff08d300ded55054",
+      "size_bytes": 57584,
+      "mime_type": "image/jpeg",
+      "object_key": "fe823151c56a8ae675aad73ec5bff90c263282c8351c78c1ff08d300ded55054.jpg"
+    },
+    "cases/approved_ecc3f28f9a02dafc/video": {
+      "id": "cases/approved_ecc3f28f9a02dafc/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ecc3f28f9a02dafc.mp4",
+      "sha256": "40f6e9d67bfb9d68285fc15983c32a721573518e7cb69524f4288d60197c6a6c",
+      "size_bytes": 13463505,
+      "mime_type": "video/mp4",
+      "object_key": "40f6e9d67bfb9d68285fc15983c32a721573518e7cb69524f4288d60197c6a6c.mp4"
+    },
+    "cases/approved_ef64fa72a3b06242/cover": {
+      "id": "cases/approved_ef64fa72a3b06242/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ef64fa72a3b06242.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "24c9cb0388067bf7a93015bd4777c9c1c062d87082e39e94ec5465afd5d80419",
+      "size_bytes": 46512,
+      "mime_type": "image/jpeg",
+      "object_key": "24c9cb0388067bf7a93015bd4777c9c1c062d87082e39e94ec5465afd5d80419.jpg"
+    },
+    "cases/approved_ef64fa72a3b06242/video": {
+      "id": "cases/approved_ef64fa72a3b06242/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_ef64fa72a3b06242.mp4",
+      "sha256": "56c087ff1b76a8b107e82ff23b6aa51f1fba684f244bf463844183ff0e43e2ad",
+      "size_bytes": 19804149,
+      "mime_type": "video/mp4",
+      "object_key": "56c087ff1b76a8b107e82ff23b6aa51f1fba684f244bf463844183ff0e43e2ad.mp4"
+    },
+    "cases/approved_efd3903051d34f4d/cover": {
+      "id": "cases/approved_efd3903051d34f4d/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_efd3903051d34f4d.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "e007915f0477d52116571a8e0e343c05edeb39e1829eca1b0a24930622d7c8de",
+      "size_bytes": 86667,
+      "mime_type": "image/jpeg",
+      "object_key": "e007915f0477d52116571a8e0e343c05edeb39e1829eca1b0a24930622d7c8de.jpg"
+    },
+    "cases/approved_efd3903051d34f4d/video": {
+      "id": "cases/approved_efd3903051d34f4d/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_efd3903051d34f4d.mp4",
+      "sha256": "fa423c0374fdbec46512ad4f2dcb5d80256c8f7293b08528bfaa3db3973b794f",
+      "size_bytes": 13443526,
+      "mime_type": "video/mp4",
+      "object_key": "fa423c0374fdbec46512ad4f2dcb5d80256c8f7293b08528bfaa3db3973b794f.mp4"
+    },
+    "cases/approved_f262023d401f97a4/cover": {
+      "id": "cases/approved_f262023d401f97a4/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f262023d401f97a4.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "f31764e79ecf11577f387e6af2c07d009910d201655391536d07b90986fa6d54",
+      "size_bytes": 57976,
+      "mime_type": "image/jpeg",
+      "object_key": "f31764e79ecf11577f387e6af2c07d009910d201655391536d07b90986fa6d54.jpg"
+    },
+    "cases/approved_f262023d401f97a4/video": {
+      "id": "cases/approved_f262023d401f97a4/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f262023d401f97a4.mp4",
+      "sha256": "a3b02ef15757be2e45d0f13436de2e15030cfefddca27f15e4b132ec007fd9cc",
+      "size_bytes": 13981505,
+      "mime_type": "video/mp4",
+      "object_key": "a3b02ef15757be2e45d0f13436de2e15030cfefddca27f15e4b132ec007fd9cc.mp4"
+    },
+    "cases/approved_f4fc6c20748d8e57/cover": {
+      "id": "cases/approved_f4fc6c20748d8e57/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f4fc6c20748d8e57.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "4706a79bc05789e5e5f59947d90a61409b857051ff4643a42fac7fcb93f7cac0",
+      "size_bytes": 61540,
+      "mime_type": "image/jpeg",
+      "object_key": "4706a79bc05789e5e5f59947d90a61409b857051ff4643a42fac7fcb93f7cac0.jpg"
+    },
+    "cases/approved_f4fc6c20748d8e57/video": {
+      "id": "cases/approved_f4fc6c20748d8e57/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f4fc6c20748d8e57.mp4",
+      "sha256": "05943e7efe178208ef7593434836ff0fcc100d2ef5230771e17a10328cb3af5b",
+      "size_bytes": 11491935,
+      "mime_type": "video/mp4",
+      "object_key": "05943e7efe178208ef7593434836ff0fcc100d2ef5230771e17a10328cb3af5b.mp4"
+    },
+    "cases/approved_f6933500ece1b668/cover": {
+      "id": "cases/approved_f6933500ece1b668/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f6933500ece1b668.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "47fe85e24f31ccec8eb44c799e60383534e8c8493f617af2dff037d663018b43",
+      "size_bytes": 23936,
+      "mime_type": "image/jpeg",
+      "object_key": "47fe85e24f31ccec8eb44c799e60383534e8c8493f617af2dff037d663018b43.jpg"
+    },
+    "cases/approved_f6933500ece1b668/video": {
+      "id": "cases/approved_f6933500ece1b668/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f6933500ece1b668.mp4",
+      "sha256": "e0d01fae71c9778d90afa434c381dd84b85a66942cec2d9d4e0a17e07768b247",
+      "size_bytes": 10539664,
+      "mime_type": "video/mp4",
+      "object_key": "e0d01fae71c9778d90afa434c381dd84b85a66942cec2d9d4e0a17e07768b247.mp4"
+    },
+    "cases/approved_f9cdb415c15c2369/cover": {
+      "id": "cases/approved_f9cdb415c15c2369/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f9cdb415c15c2369.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "96442a517d7ed41c2d4d0b06f6458cd22498d21b963850b85db7844ad619ebd5",
+      "size_bytes": 61992,
+      "mime_type": "image/jpeg",
+      "object_key": "96442a517d7ed41c2d4d0b06f6458cd22498d21b963850b85db7844ad619ebd5.jpg"
+    },
+    "cases/approved_f9cdb415c15c2369/video": {
+      "id": "cases/approved_f9cdb415c15c2369/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_f9cdb415c15c2369.mp4",
+      "sha256": "03133dbffcd191eae543e83fab8f584326f56ac3c1917cee3adbdfa9b760e2a8",
+      "size_bytes": 15033991,
+      "mime_type": "video/mp4",
+      "object_key": "03133dbffcd191eae543e83fab8f584326f56ac3c1917cee3adbdfa9b760e2a8.mp4"
+    },
+    "cases/approved_fcab75214d9e0e3c/cover": {
+      "id": "cases/approved_fcab75214d9e0e3c/cover",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_fcab75214d9e0e3c.mp4?x-oss-process=video/snapshot,t_0,f_jpg,w_360,m_fast",
+      "sha256": "7e67d60536c58c605e605c1651edf278c611dcd46e53e1ff1f609d938b8a6723",
+      "size_bytes": 39221,
+      "mime_type": "image/jpeg",
+      "object_key": "7e67d60536c58c605e605c1651edf278c611dcd46e53e1ff1f609d938b8a6723.jpg"
+    },
+    "cases/approved_fcab75214d9e0e3c/video": {
+      "id": "cases/approved_fcab75214d9e0e3c/video",
+      "source_url": "https://static.skyproduction.cn/motioncomic/marketing-studio/approved-20261106/approved_fcab75214d9e0e3c.mp4",
+      "sha256": "244322a5b2f1a38bf01c6483409cb7284087f8849f9eab6d4491687d56305844",
+      "size_bytes": 14762541,
+      "mime_type": "video/mp4",
+      "object_key": "244322a5b2f1a38bf01c6483409cb7284087f8849f9eab6d4491687d56305844.mp4"
+    },
+    "methods/commercial-tvc": {
+      "id": "methods/commercial-tvc",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/commercial-tvc-B8Swip98.webp",
+      "sha256": "abe5932138cf470829b468352777c3305a94fda080b11e12c18d949371e02004",
+      "size_bytes": 4914,
+      "mime_type": "image/webp",
+      "object_key": "abe5932138cf470829b468352777c3305a94fda080b11e12c18d949371e02004.webp"
+    },
+    "methods/product-poster": {
+      "id": "methods/product-poster",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/marketing-creative-browser-CPZMMohK.js",
+      "sha256": "322b52108efeed42e641a747ea26b1d3a338fedb21ba49f0d99b73445cafa933",
+      "size_bytes": 4020,
+      "mime_type": "image/webp",
+      "object_key": "322b52108efeed42e641a747ea26b1d3a338fedb21ba49f0d99b73445cafa933.webp",
+      "source_document_sha256": "66710664a2c81c6d3ab46d0b23f6f54e89f3705f5c3c0c9e51890b43698d12e6",
+      "embedded_data_uri_sha256": "da1de6409d760658ec86f5fd2e40a0b1d27a0d2fc2a766b24d2d2825d02da84a"
+    },
+    "methods/product-visual-materials": {
+      "id": "methods/product-visual-materials",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/product-visual-materials-BgEzR3ZB.jpg",
+      "sha256": "c708d4fcb37038b33bc7d4f1158a4b53824658b47a67789050eb95b032c3f538",
+      "size_bytes": 117449,
+      "mime_type": "image/jpeg",
+      "object_key": "c708d4fcb37038b33bc7d4f1158a4b53824658b47a67789050eb95b032c3f538.jpg"
+    },
+    "methods/short-drama-commerce": {
+      "id": "methods/short-drama-commerce",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/short-drama-commerce-D7XRpKxL.webp",
+      "sha256": "8d8249b7f1499d5de63b53ecfa3e0dc58e33edb889ea40432f078a558601aebb",
+      "size_bytes": 5434,
+      "mime_type": "image/webp",
+      "object_key": "8d8249b7f1499d5de63b53ecfa3e0dc58e33edb889ea40432f078a558601aebb.webp"
+    },
+    "methods/ugc-commerce": {
+      "id": "methods/ugc-commerce",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/ugc-commerce-X6YEkdpZ.webp",
+      "sha256": "48e73f556b8c27b846b04329d02ca5863b7a3284707477bac2752776b2129509",
+      "size_bytes": 13126,
+      "mime_type": "image/webp",
+      "object_key": "48e73f556b8c27b846b04329d02ca5863b7a3284707477bac2752776b2129509.webp"
+    },
+    "methods/video-localization": {
+      "id": "methods/video-localization",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/video-localization-CJreqF5O.webp",
+      "sha256": "2956541140be9709f01d38a1406c85754e28cf3a941fd870923391d18a07adb6",
+      "size_bytes": 11134,
+      "mime_type": "image/webp",
+      "object_key": "2956541140be9709f01d38a1406c85754e28cf3a941fd870923391d18a07adb6.webp"
+    },
+    "methods/viral-creative-variation": {
+      "id": "methods/viral-creative-variation",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/viral-creative-variation-Ld9ezmEL.jpg",
+      "sha256": "3dc414daee9ca821c29627f6f029ed3ae525adc2e59bf1d86372075ac03c6db8",
+      "size_bytes": 120593,
+      "mime_type": "image/jpeg",
+      "object_key": "3dc414daee9ca821c29627f6f029ed3ae525adc2e59bf1d86372075ac03c6db8.jpg"
+    },
+    "methods/viral-video-clone": {
+      "id": "methods/viral-video-clone",
+      "source_url": "https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/viral-video-clone-BUWhckxi.webp",
+      "sha256": "85626b85208b08ef14ce9795351f9680777245c0e1f38fecf8dbf7238f6ffe68",
+      "size_bytes": 4574,
+      "mime_type": "image/webp",
+      "object_key": "85626b85208b08ef14ce9795351f9680777245c0e1f38fecf8dbf7238f6ffe68.webp"
+    }
+  }
+}

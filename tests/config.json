@@ -2435,6 +2435,17 @@
         "tests/project/unit/access_control_frontend.test.mjs",
         "tests/support/fixtures/frontend/panel_dom.cjs"
       ]
+    },
+    "assets.integration.test_marketing_media": {
+      "owner": "assets",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/marketing_media.py",
+        "src/vsc/assets/marketing-assets.json",
+        "src/vsc/interfaces/web/marketing_studio.py",
+        "tools/maintenance/marketing_media.py",
+        "scripts/maintenance/marketing_media.py"
+      ]
     }
   },
   "dependencies": {

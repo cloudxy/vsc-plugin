@@ -2,6 +2,8 @@
 
 每个 Python 文件只负责加载工作区并调用所属模块的 `main`。业务实现和测试直接使用 `src/vsc/` 的领域包；工程维护实现放在 `tools/maintenance/`。顶层保留此索引，命令归入下表目录。
 
+营销工作室展示媒体的本地完整性检查与显式恢复使用 `maintenance/marketing_media.py`，默认沿用已配置的媒体目录。
+
 | 目录 | 职责 | 主要入口 |
 | --- | --- | --- |
 | `kernel/` | 工作流路由、契约、宿主与规范派生 | `catalog.py`、`hosts.py`、`views.py` |
