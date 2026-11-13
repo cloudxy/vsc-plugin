@@ -105,7 +105,7 @@ class RoleMemoryTests(ResourceStoreFixture, unittest.TestCase):
             self.write("decide_role_memory", payload, actor="human:someone")
         self.assertEqual(error.exception.code, "human_confirmation_required")
         with tempfile.TemporaryDirectory() as root:
-            app = create_app({"projects_root": root, "access_token": "synthetic-token", "human_identity": "verified-user"}, service=self.service)
+            app = create_app({"projects_root": root, "access_token": "synthetic-token", "human_identity": "test-human"}, service=self.service)
             with TestClient(app, base_url="http://127.0.0.1") as client:
                 origin = {"Origin": "http://127.0.0.1:8765"}
                 endpoint = "/api/v1/projects/" + self.p + "/role-memory-decisions"
@@ -290,9 +290,11 @@ class RoleMemoryTests(ResourceStoreFixture, unittest.TestCase):
         from support.paths import ROOT
         from vsc.adapters.persistence.postgres import schema as S
         from vsc.assets.resource_service import ResourceError
+        from support.fixtures.postgres import snapshot_project_ownership, upgrade_with_project_ownership
         config = Config(str(ROOT / "migrations/postgres/alembic.ini"))
         with self.engine.begin() as conn:
             self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
+            ownership = snapshot_project_ownership(conn)
             config.attributes["connection"] = conn
             command.downgrade(config, "0008_script_note_baselines")
         try:
@@ -310,7 +312,7 @@ class RoleMemoryTests(ResourceStoreFixture, unittest.TestCase):
                 conn.execute(text("UPDATE alembic_version SET version_num='0007_script_suggestions'"))
         finally:
             with self.engine.begin() as conn:
-                config.attributes["connection"] = conn; command.upgrade(config, "head")
+                upgrade_with_project_ownership(config, conn, ownership)
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
 
     def test_typed_media_inputs_and_result_artifact_references(self):

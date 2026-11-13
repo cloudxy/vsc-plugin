@@ -90,7 +90,12 @@ class ScriptWorkspaceFlow(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(self.store.script_editor_choice_page(self.p,self.episode,'character','人物149')['items'][0]['id'],choice_ids[-1])
         from fastapi.testclient import TestClient
         from vsc.interfaces.web.app import create_app
-        client=TestClient(create_app({'allowed_hosts':['testserver']},service=self.service))
+        client=TestClient(create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],
+            'access_token':'test-token','human_identity':'test-human','background_enabled':False},service=self.service))
+        self.addCleanup(client.close)
+        self.assertEqual(client.get('/api/v1/projects/'+self.p+'/script-draft/choices',params={'scope_key':self.episode,'kind':'character'}).status_code,403)
+        login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
+        self.assertEqual(login.status_code,200,login.text)
         response=client.get('/api/v1/projects/'+self.p+'/script-draft/choices',params={'scope_key':self.episode,'kind':'character','query':'人物149'})
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['items'][0]['id'],choice_ids[-1])

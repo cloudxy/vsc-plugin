@@ -149,7 +149,11 @@ class EditPreviewTests(EditPreviewFixture, unittest.TestCase):
         from vsc.assets.resource_service import ResourceService
         rebuilt = ResourceService(self.store, self.storage)
         with TestClient(create_app({"projects_root": str(self.root/"empty"), "media_root": str(self.storage.root),
-                "allowed_hosts": ["testserver"]}, service=rebuilt)) as client:
+                "allowed_hosts": ["testserver"], "allowed_origins": ["http://testserver"],
+                "human_identity": "test-human", "access_token": "fixture-token", "background_enabled": False}, service=rebuilt)) as client:
+            self.assertEqual(client.get(job["output"]["content_url"]).status_code, 403)
+            login = client.post('/api/v1/session', headers={'Origin':'http://testserver'}, json={'token':'fixture-token'})
+            self.assertEqual(login.status_code, 200, login.text)
             media = client.get(job["output"]["content_url"])
             self.assertEqual(media.status_code, 200, media.text[:300] if media.status_code != 200 else "")
             self.assertEqual(media.content, path.read_bytes())

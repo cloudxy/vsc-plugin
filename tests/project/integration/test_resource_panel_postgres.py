@@ -280,7 +280,9 @@ class PostgresPanelTests(unittest.TestCase):
                 display_name='未授权成员', preferences={}, active=True))
             conn.execute(insert(S.access_workspaces).values(id=studio, name='私有父工作室', kind='studio', created_by=owner))
             conn.execute(insert(S.access_workspaces).values(id=child, name='私有子工作室', kind='substudio', parent_id=studio, created_by=owner))
-            conn.execute(insert(S.access_projects).values(project_id=self.p, workspace_id=child, assigned_by=owner, review_lanes=[]))
+            conn.execute(update(S.access_projects).where(S.access_projects.c.project_id==self.p).values(workspace_id=child, assigned_by=owner))
+            conn.execute(update(S.access_project_members).where(S.access_project_members.c.project_id==self.p,
+                S.access_project_members.c.identity_id==identity).values(active=False))
         self.assertNotIn(media, {row['id'] for row in self.client.get('/api/v1/project-media').json()['items']})
         self.assertEqual(self.client.get('/api/v1/project-media', params=dict(project_id=self.p)).status_code, 403)
         other = self.service.create_project({'name':'目录另一个可读项目'},actor='fixture-human')['id']
@@ -291,7 +293,8 @@ class PostgresPanelTests(unittest.TestCase):
         only_other = self.client.get('/api/v1/project-media',params=dict(query=marker)).json()
         self.assertEqual([row['id'] for row in only_other['items']],[other_media])
         with self.engine.begin() as conn:
-            conn.execute(insert(S.access_project_members).values(project_id=self.p, identity_id=identity, role='viewer', active=True))
+            conn.execute(update(S.access_project_members).where(S.access_project_members.c.project_id==self.p,
+                S.access_project_members.c.identity_id==identity).values(role='viewer',active=True))
         visible = self.client.get('/api/v1/project-media', params=dict(project_id=self.p))
         self.assertEqual(visible.status_code, 200, visible.text)
         self.assertEqual([row['id'] for row in visible.json()['items']], [media])

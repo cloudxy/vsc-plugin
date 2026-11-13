@@ -69,7 +69,10 @@ class ClassicControlsTests(ResourceStoreFixture, unittest.TestCase):
         with self.assertRaises(Conflict): self.favorite(first['id'],True,1)
         self.assertEqual(self.service.list_working_candidates(self.p,objects['shot'],'image',filter_kind='favorites')['total'],1)
         self.assertEqual(self.service.get_project(self.p)['revision'], revision)
-        second=self.service.ensure_local_access('other-human');token=set_principal(Principal(**second))
+        second=self.service.ensure_local_access('other-human')
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.access_project_members).values(project_id=self.p,identity_id=second['identity_id'],role='viewer',active=True))
+        token=set_principal(Principal(**second))
         try:
             self.assertEqual(self.service.list_working_candidates(self.p,objects['shot'],'image',filter_kind='favorites')['total'],0)
             with self.assertRaises(ResourceError): self.favorite(other['id'])

@@ -80,7 +80,7 @@ class ProjectManagementTests(ResourceStoreFixture,unittest.TestCase):
         from vsc.project.resource_catalog import ResourceCatalog
         self.hierarchy()
         with tempfile.TemporaryDirectory() as root:
-            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'browser-test','background_enabled':False},catalog=ResourceCatalog(root,self.service),service=self.service)
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'test-human','background_enabled':False},catalog=ResourceCatalog(root,self.service),service=self.service)
             with TestClient(app) as client:
                 login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
                 headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
@@ -170,7 +170,7 @@ class ProjectManagementTests(ResourceStoreFixture,unittest.TestCase):
         with self.assertRaises(ResourceError) as caught:self.write('request_edit_export',{'edit_version_id':saved['edit_version_id']})
         self.assertEqual(caught.exception.code,'object_recycled')
         with tempfile.TemporaryDirectory() as root:
-            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'browser-test'},catalog=ResourceCatalog(root,self.service),service=self.service)
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'test-human'},catalog=ResourceCatalog(root,self.service),service=self.service)
             with TestClient(app) as client:
                 login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'});self.assertEqual(login.status_code,200,login.text)
                 headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
@@ -313,7 +313,7 @@ class ProjectManagementTests(ResourceStoreFixture,unittest.TestCase):
         with self.engine.begin() as conn:
             conn.execute(insert(S.access_identities).values(id=identity,subject_key='remote:'+identity,actor=actor,display_name='viewer',preferences={},active=True))
             conn.execute(insert(S.access_workspaces).values(id=workspace,name='隔离工作室',kind='studio',created_by=identity))
-            conn.execute(insert(S.access_projects).values(project_id=self.p,workspace_id=workspace,assigned_by=identity,review_lanes=[]))
+            conn.execute(S.access_projects.update().where(S.access_projects.c.project_id==self.p).values(workspace_id=workspace,assigned_by=identity))
             conn.execute(insert(S.access_project_members).values(project_id=self.p,identity_id=identity,role='viewer',active=True))
         token=set_principal(Principal(identity_id=identity,actor=actor))
         try:
@@ -389,7 +389,7 @@ class ProjectManagementTests(ResourceStoreFixture,unittest.TestCase):
         from vsc.project.resource_catalog import ResourceCatalog
         canvas=self.write('create_creative_canvas',dict(document={'nodes':[],'edges':[]}))
         with tempfile.TemporaryDirectory() as root:
-            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'browser-test','background_enabled':False},catalog=ResourceCatalog(root,self.service),service=self.service)
+            app=create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],'access_token':'test-token','human_identity':'test-human','background_enabled':False},catalog=ResourceCatalog(root,self.service),service=self.service)
             with TestClient(app) as client:
                 login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
                 headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}

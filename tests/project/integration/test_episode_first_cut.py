@@ -200,6 +200,10 @@ class EpisodeFirstCutTests(IntelligentBatchSetup, ResourceStoreFixture, unittest
         from vsc.assets.access_control import Principal,set_principal,reset_principal
         from vsc.adapters.persistence.postgres import schema as S
         identity = self.service.ensure_local_access('test-human')
+        def restore_test_identity():
+            with self.engine.begin() as conn:
+                conn.execute(update(S.access_identities).where(S.access_identities.c.id==identity['identity_id']).values(active=True))
+        self.addCleanup(restore_test_identity)
         token = set_principal(Principal(**identity))
         try:batch = self.batch(overdue=True)
         finally:reset_principal(token)

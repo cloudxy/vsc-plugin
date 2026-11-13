@@ -5,6 +5,42 @@ import uuid
 from support.paths import ROOT
 
 
+def snapshot_project_ownership(connection):
+    """Retain actual synthetic ownership before a pre-access-schema downgrade."""
+    from sqlalchemy import select
+    from vsc.adapters.persistence.postgres import schema as S
+    return {name: [dict(row) for row in connection.execute(select(getattr(S, name))).mappings()]
+        for name in ('access_identities', 'access_workspaces', 'access_workspace_members',
+            'access_projects', 'access_project_members')}
+
+
+def upgrade_with_project_ownership(config, connection, snapshot):
+    """Restore fixed fixture owners before the strict 0058 ownership preflight.
+
+    No actor is inferred from revision/editor history. Each binding and owner
+    comes from the same test database's captured pre-downgrade facts.
+    """
+    from alembic import command
+    from sqlalchemy import insert
+    from vsc.adapters.persistence.postgres import schema as S
+    config.attributes['connection'] = connection
+    command.upgrade(config, '0057_service_feedback')
+    for name, rows in snapshot.items():
+        table = getattr(S, name)
+        if name == 'access_workspaces':
+            pending, restored = list(rows), set()
+            while pending:
+                ready = [row for row in pending if row['parent_id'] is None or row['parent_id'] in restored]
+                if not ready:
+                    raise AssertionError('captured fixture ownership contains a missing or cyclic workspace parent')
+                connection.execute(insert(table), ready)
+                restored.update(row['id'] for row in ready)
+                pending = [row for row in pending if row['id'] not in restored]
+        elif rows:
+            connection.execute(insert(table), rows)
+    command.upgrade(config, 'head')
+
+
 def drop_schema(engine, schema):
     """Drop one test schema. A full migrated schema can exceed the shared lock table, so fall back to one object per transaction."""
     from sqlalchemy import text

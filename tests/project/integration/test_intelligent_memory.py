@@ -48,7 +48,7 @@ class IntelligentMemoryTests(ResourceStoreFixture,unittest.TestCase):
         with self.assertRaises(ResourceError) as denied:self.write('decide_role_memory',payload,actor='human:label-only')
         self.assertEqual(denied.exception.code,'human_confirmation_required')
         with tempfile.TemporaryDirectory() as directory:
-            app=create_app({'projects_root':directory,'access_token':'isolated-memory-token','human_identity':'memory-reviewer','background_enabled':False},service=self.service)
+            app=create_app({'projects_root':directory,'access_token':'isolated-memory-token','human_identity':'test-human','background_enabled':False},service=self.service)
             with TestClient(app,base_url='http://127.0.0.1') as client:
                 origin={'Origin':'http://127.0.0.1:8765'}
                 login=client.post('/api/v1/session',json={'token':'isolated-memory-token'},headers=origin)

@@ -39,7 +39,7 @@ class GlobalRecycleTests(ResourceStoreFixture, unittest.TestCase):
             conn.execute(insert(S.access_workspaces).values(id=parent, name='parent', kind='studio', created_by=other))
             conn.execute(insert(S.access_workspaces).values(id=child, name='child', kind='substudio', parent_id=parent, created_by=other))
             for p in (self.p, secret_project):
-                conn.execute(insert(S.access_projects).values(project_id=p, workspace_id=child, assigned_by=other, review_lanes=[]))
+                conn.execute(update(S.access_projects).where(S.access_projects.c.project_id==p).values(workspace_id=child, assigned_by=other))
             conn.execute(insert(S.access_project_members).values(project_id=self.p, identity_id=identity, role='viewer', active=True))
         token = set_principal(Principal(identity_id=identity, actor='actor:'+identity))
         try:

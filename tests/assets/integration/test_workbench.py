@@ -42,7 +42,12 @@ class WorkbenchTest(ResourceStoreFixture,unittest.TestCase):
         with self.assertRaises(ResourceError):render_position(self.store,self.p,output['render_id'],100000)
         other=self.service.create_project({'name':'另一项目','profile_snapshot':{'profile_id':'vsc.synthetic','version':'1','stages':[]}},actor='test-human')['id']
         with self.assertRaises(ResourceError):render_position(self.store,other,output['render_id'],0)
-        client=TestClient(create_app({'allowed_hosts':['testserver']},service=self.service))
+        client=TestClient(create_app({'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],
+            'access_token':'test-token','human_identity':'test-human','background_enabled':False},service=self.service))
+        self.addCleanup(client.close)
+        self.assertEqual(client.get(f'/api/v1/projects/{self.p}/renders/{output["render_id"]}/position',params={'time_ms':2000}).status_code,403)
+        login=client.post('/api/v1/session',json={'token':'test-token'},headers={'Origin':'http://testserver'})
+        self.assertEqual(login.status_code,200,login.text)
         response=client.get(f'/api/v1/projects/{self.p}/renders/{output["render_id"]}/position',params={'time_ms':2000})
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['items'][0]['shot_id'],shot)

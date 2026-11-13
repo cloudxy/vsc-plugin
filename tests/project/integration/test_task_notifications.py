@@ -55,8 +55,12 @@ class TaskNotificationTests(ResourceStoreFixture,unittest.TestCase):
         self.assertFalse(any(r['id']==old_item['id'] for r in self.service.get_task_center(self.p,limit=100)['items']))
 
     def test_identity_project_read_isolation_and_idempotent_read_receipt(self):
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres import schema as S
         self.imports(2);first=self.service.get_task_notifications(self.p,limit=1);event=first['items'][0]
         other_identity=self.service.ensure_local_access('notice-second-member')
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.access_project_members).values(project_id=self.p,identity_id=other_identity['identity_id'],role='viewer',active=True))
         with self.as_identity(other_identity):
             self.assertEqual(self.service.get_task_notifications(self.p)['unread_count'],2)
             with self.assertRaises(ResourceError):self.service.get_task_notifications(self.p,cursor=first['next_cursor'])
