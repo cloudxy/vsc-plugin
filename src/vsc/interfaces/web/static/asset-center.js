@@ -371,7 +371,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  const REF_KINDS=new Set(['costume','pose','portrait']);
  const refState={costume:{top:'',source:'',category:'',tag:'',q:''},pose:{view:'group',system:'',category:'',angle:'',q:''},portrait:{section:'',hair:'',style:'',hot:false,q:''}};
  const refSummary={},refPageCache=new Map();
- let refDock=null,refPickers=[],refFocus='',refSafe=null,refDepth=null;
+ let refDock=null,refPickers=[],refFocus='',refSafe=null,refDepth=null,refreshRefDepth=null;
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,officialDetailSeq=0,searchTimer=null;
  let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
  if(official&&!canvas&&typeof location!=='undefined'){const k=new URLSearchParams(location.search||'').get('kind');if(k&&officialWorkbenchKinds.some(([v])=>v&&v===k))filters.asset_kind=k;}
@@ -379,9 +379,11 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   studio.configureStudio({notice:m=>ctx.notice?.(m),api:ctx.api,csrf:()=>ctx.session?.()?.csrf||''});
   studio.subscribe(s=>{
    if(disposed||!REF_KINDS.has(filters.asset_kind||'')||tab!=='gallery')return;
-   const changed=refSafe!==null&&(s.safeMode!==refSafe||(filters.asset_kind==='pose'&&s.poseDepthMode!==refDepth));
+   const changed=refSafe!==null&&s.safeMode!==refSafe;
+   const depthChanged=refDepth!==null&&filters.asset_kind==='pose'&&s.poseDepthMode!==refDepth;
    refSafe=s.safeMode;refDepth=s.poseDepthMode;
    if(changed){load();return;}
+   if(depthChanged)refreshRefDepth?.();
    for(const fn of refPickers)fn();
   });
  }
@@ -927,7 +929,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     const view=field(row,'视图','select');for(const [v,l]of [['group','分组'],['single','单张']])view.append(localizedOption(v,l));view.value=st.view;
     view.onchange=()=>{st.view=view.value;return reload();};
     const depth=field(row,'素体','select');for(const [v,l]of [['white','素体白模'],['depth','深度图 (Depth)']])depth.append(localizedOption(v,l));depth.value=studioState.poseDepthMode?'depth':'white';
-    depth.onchange=()=>studio.setPoseDepthMode(depth.value==='depth');
+    depth.onchange=()=>studio.setPoseDepthMode(depth.value==='depth');selects.depth=depth;
     input=search();
    }else{
     pickSelect('section','全部分区',(summary?.sections||[]).map(s=>[s.name,`${s.name} ${s.count}`]),()=>{st.style='';});
@@ -960,7 +962,13 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     }
    };
    syncPills(summary);root.append(pills);
-   const pageItems=[],grid=el('div','','costume-grid ref-grid'),pickers=[];
+   const pageItems=[],grid=el('div','','costume-grid ref-grid'),pickers=[],depthPickers=[];
+   let refreshModal=null;
+   refreshRefDepth=()=>{
+    if(selects.depth)selects.depth.value=studio.getState().poseDepthMode?'depth':'white';
+    for(const draw of depthPickers)draw();
+    refreshModal?.();
+   };
    let next=null,moreBtn=null,pagingBusy=false,sentinel=null,sentinelVisible=false;
    const params=offset=>{
     const q=new URLSearchParams();
@@ -1000,6 +1008,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     const card=el('article','','costume-card ref-card'),shot=el('div','','costume-shot'),open=button('',()=>refModal(index),'costume-open');
     bindAttribute(open,'aria-label','查看 '+titleOf(entry));
     const img=el('img');img.src=thumbOf(entry);img.loading=index<8?'eager':'lazy';img.decoding='async';bindAttribute(img,'alt',titleOf(entry)||'');
+    if(kind==='pose')depthPickers.push(()=>{img.src=thumbOf(entry);});
     open.append(img);shot.append(open);
     const item=pickItem(entry);
     if(kind==='costume'&&item.敏感)shot.append(el('span','18+','ref-badge ref-badge-warn'));
@@ -1049,8 +1058,18 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     let cursor=index;if(!pageItems[cursor])return;
     closeCostumeDialogs();
     const dialog=el('dialog','','costume-modal ref-modal'),viewport=el('div','','center-zoom-viewport'),img=el('img');viewport.append(img);
-    const caption=el('p'),down=el('a','下载原图'),levelEl=el('span','100%','center-zoom-level'),extra=el('div','','ref-modal-switch');
+    const caption=el('p'),down=el('a','下载原图'),original=el('a','新窗口原图'),levelEl=el('span','100%','center-zoom-level'),extra=el('div','','ref-modal-switch'),details=el('section','','ref-modal-details');
     down.target='_blank';down.rel='noopener';
+    original.target='_blank';original.rel='noopener';
+    const copy=(label,value,message)=>button(label,async()=>{
+     if(!navigator.clipboard?.writeText)throw new Error('无法访问剪贴板，请手动选择并复制');
+     await navigator.clipboard.writeText(value);ctx.notice?.(message);
+    });
+    const detailFields=rows=>{
+     const list=el('dl');
+     for(const [label,value]of rows)if(value){list.append(el('dt',label),el('dd',value));}
+     details.append(list);
+    };
     const zoomCtrl=attachImageZoomPan(viewport,img,{onScaleChange:({percent})=>setText(levelEl,`${percent}%`)});
     const pick=button('加入配方',()=>{togglePick(pageItems[cursor]);updatePick(pick,pageItems[cursor]);},'ref-pick-modal');
     const fullOf=entry=>{const item=pickItem(entry);if(kind==='pose')return poseImagePath(item,studio.getState().poseDepthMode);if(kind==='costume')return item.预览图||item.原图||item.缩略图;return item.原图||item.缩略图;};
@@ -1059,7 +1078,27 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
      const entry=pageItems[cursor];if(!entry)return;const item=pickItem(entry);
      img.src=resolveModalUrl(fullOf(entry));bindAttribute(img,'alt',titleOf(entry)||'');
      setText(caption,[item.id,titleOf(entry),metaOf(entry)].filter(Boolean).join(' · '));
-     down.href=resolveModalUrl(item.原图||fullOf(entry));down.setAttribute('download',String(item.id||'reference'));
+     down.href=resolveModalUrl(kind==='pose'?fullOf(entry):item.原图||fullOf(entry));original.href=down.href;
+     const suffix=kind==='pose'?(studio.getState().poseDepthMode?'_depth.webp':'.png'):String(item.原图||'').match(/\.[a-z0-9]+$/i)?.[0]||'.webp';
+     down.setAttribute('download',String(item.id||'reference')+suffix);
+     details.replaceChildren();
+     const identity=el('div','','ref-modal-identity'),label=kind==='pose'?'姿势':kind==='portrait'?'人像':'服装';
+     identity.append(el('code',item.id),copy(`复制${label} ID`,String(item.id),`已复制${label} ID`));details.append(identity);
+     if(kind==='costume'){
+      detailFields([['来源',item.来源],['分类',item.分类],['中文单品与色彩标签',(item.标签||[]).join(' · ')]]);
+      const prompt=el('div','','ref-modal-prompt');prompt.append(el('strong','英文 Prompt 词条'),copy('复制英文服装 Prompt',item.关键词||'','已复制英文服装 Prompt'),el('pre',item.关键词||''));details.append(prompt);
+      if(item.source==='shisei'){
+       details.append(el('p','Shisei / wquguru · CC0 · AI 生成服装参考，并非专业复原。'));
+       const base='https://github.com/wquguru/shisei',revision='8f61ceab10e45f8d3afd254900903733a0ba76ee';
+       for(const [label,url]of [['原仓库',base],['条目目录（固定版本）',`${base}/blob/${revision}/data/costumes.json`],['图片许可证（CC0）',`${base}/blob/${revision}/LICENSE-images`]]){
+        const link=el('a',label);link.href=url;link.target='_blank';link.rel='noopener noreferrer';details.append(link);
+       }
+      }
+      if(item.source==='charadb')details.append(el('p','图片仅作参考，禁止真人、未成年人及再分发；请查看原作者条件。'));
+      if(item.来源地址){const source=el('a','查看来源与使用说明');source.href=item.来源地址;source.target='_blank';source.rel='noopener noreferrer';details.append(source);}
+     }else if(kind==='pose'){
+      detailFields([['所属体系',item.体系],['动作分类',item.分类],['当前角度',item.角度],['当前模式',studio.getState().poseDepthMode?'深度图 (Depth Map)':'3D 素体白模'],['原图尺寸','900 × 1200 '+(studio.getState().poseDepthMode?'WebP':'PNG')]]);
+     }else detailFields([['分区',item.分区],['发长',item.发长],['发型款式',item.发型名称],['原图尺寸',item.宽&&item.高?`${item.宽} × ${item.高}`:''],['授权协议','CC0 1.0（来源标注）']]);
      extra.replaceChildren();
      if(kind==='costume'&&entry.item.views?.length){
       for(const view of entry.item.views){const b=button(view.label,()=>{entry.view=view.id;show();});b.setAttribute('aria-pressed',String((entry.view||entry.item.selectedView||'front')===view.id));extra.append(b);}
@@ -1072,14 +1111,15 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     };
     const stepItem=async delta=>{const target=cursor+delta;if(target>=pageItems.length&&delta>0)await pull();if(!dialog.isConnected||target<0||target>=pageItems.length)return;cursor=target;show();};
     const bar=el('div','','costume-modal-bar');
-    bar.append(button('缩小',()=>zoomCtrl.zoomOut()),levelEl,button('适应窗口',()=>zoomCtrl.reset()),button('放大',()=>zoomCtrl.zoomIn()),button('上一张',()=>stepItem(-1)),button('下一张',()=>stepItem(1)),pick,down,button('关闭',()=>dialog.close()));
-    dialog.append(viewport,extra,caption,bar);
+    bar.append(button('缩小',()=>zoomCtrl.zoomOut()),levelEl,button('适应窗口',()=>zoomCtrl.reset()),button('放大',()=>zoomCtrl.zoomIn()),button('上一张',()=>stepItem(-1)),button('下一张',()=>stepItem(1)),pick,down,original,button('关闭',()=>dialog.close()));
+    dialog.append(viewport,extra,caption,details,bar);
     dialog.addEventListener('keydown',event=>{
      if(event.key==='ArrowRight'){event.preventDefault?.();stepItem(1);}else if(event.key==='ArrowLeft'){event.preventDefault?.();stepItem(-1);}
      else if(event.key==='+'||event.key==='='){event.preventDefault?.();zoomCtrl.zoomIn();}else if(event.key==='-'){event.preventDefault?.();zoomCtrl.zoomOut();}else if(event.key==='0'){event.preventDefault?.();zoomCtrl.reset();}
     });
     dialog.addEventListener('click',event=>{if(zoomCtrl.consumeMoved())return;if(event.target===dialog)dialog.close();});
-    dialog.addEventListener('close',()=>dialog.remove());
+    refreshModal=show;
+    dialog.addEventListener('close',()=>{if(refreshModal===show)refreshModal=null;dialog.remove();});
     (document.body||root).append(dialog);dialog.showModal();show();
    }
    if(cached){appendEntries(cached.items);if(!pageItems.length)grid.append(el('p','没有符合条件的参考图','costume-empty'));next=cached.next_offset??null;setText(count,Number(cached.total||0).toLocaleString('zh-CN')+(kind==='pose'&&st.view==='group'?' 组':' 张'));}
@@ -1104,7 +1144,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    const unit=kind==='pose'&&st.view==='group'?' 组':' 张';
    setText(count,Number(data.total||0).toLocaleString('zh-CN')+unit+(data.hidden_sensitive_count&&studio.getState().safeMode?` · 已隐藏 ${data.hidden_sensitive_count} 项 18+`:''));
    if(!cached||sig(data.items)!==sig(pageItems.map(e=>e.group||e.item))){
-    pageItems.length=0;pickers.length=0;grid.replaceChildren();appendEntries(data.items);
+    pageItems.length=0;pickers.length=0;depthPickers.length=0;grid.replaceChildren();appendEntries(data.items);
     if(!pageItems.length)grid.append(el('p','没有符合条件的参考图','costume-empty'));
    }
    next=data.next_offset??null;
@@ -1157,7 +1197,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    refDock=studio.mountRecipeDock(root,{onCompose:composeNavigate,force:REF_KINDS.has(filters.asset_kind||'')});
   }
   function unmountRefs(){
-   refDock?.destroy();refDock=null;refPickers=[];
+   refDock?.destroy();refDock=null;refPickers=[];refreshRefDepth=null;
   }
 
  async function officialCatalog(g){

@@ -156,7 +156,10 @@ function hydrate(){
   }
   if(Array.isArray(history)){state.history=history;state.previewUrl=state.previewUrl||history[0]?.imageUrl||'';}
   state.hydrated=true;emit();
- }).catch(()=>{state.hydrated=true;emit();});
+ }).catch(()=>{
+  state.generationError='无法读取浏览器存储，已暂停生成；请恢复存储后刷新';
+  toast(state.generationError);emit();
+ });
  return hydration;
 }
 
@@ -310,11 +313,11 @@ export function currentPrompt(){return state.customPrompt??buildRecipePrompt(sta
 
 // ------------------------------------------------------------------ history & generation
 function persistHistory(update){
- const write=historyWrites.catch(()=>{}).then(async()=>{const next=update(state.history);await idbWrite(HISTORY_KEY,next).catch(()=>{});ls.remove(HISTORY_KEY);state.history=next;emit();});
+ const write=historyWrites.catch(()=>{}).then(async()=>{const next=update(state.history);await idbWrite(HISTORY_KEY,next);ls.remove(HISTORY_KEY);state.history=next;emit();});
  historyWrites=write;return write;
 }
-export function removeHistoryItem(id){persistHistory(c=>c.filter(x=>x.id!==id)).then(()=>toast('已删除该条记录'));}
-export function clearHistory(){persistHistory(()=>[]).then(()=>toast('已清空记录'));}
+export function removeHistoryItem(id){return persistHistory(c=>c.filter(x=>x.id!==id)).then(()=>toast('已删除该条记录')).catch(()=>toast('删除失败，请检查浏览器存储空间'));}
+export function clearHistory(){return persistHistory(()=>[]).then(()=>toast('已清空记录')).catch(()=>toast('清空记录失败，请检查浏览器存储空间'));}
 export function setPreviewUrl(url){state.previewUrl=url;emit();}
 export async function refreshStitchPreview(){
  try{state.previewUrl=await stitchRecipeCanvas(state.recipe);emit();toast('已合成参考拼图');return state.previewUrl;}
@@ -329,11 +332,14 @@ export async function snapshotGeneration(recipe,config,prompt){
 const throwIfAborted=signal=>{if(signal.aborted){const e=new Error('已停止');e.name='AbortError';throw e;}};
 async function completeGeneration(result,record,signal){
  throwIfAborted(signal);
- const imageUrl=await durableImage(result.imageUrl).catch(()=>result.imageUrl);
+ let imageUrl;
+ try{imageUrl=await durableImage(result.imageUrl);}
+ catch{state.previewUrl=result.imageUrl;throw new Error('图已生成，但图片转存失败，请先下载当前图片并检查网络与浏览器存储');}
  throwIfAborted(signal);
  state.previewUrl=imageUrl;
  const id=crypto.randomUUID?.()||String(Date.now());
- await persistHistory(c=>[{id,createdAt:Date.now(),imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot},...c.filter(x=>x.id!==id)].slice(0,30));
+ try{await persistHistory(c=>[{id,createdAt:Date.now(),imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot},...c.filter(x=>x.id!==id)].slice(0,30));}
+ catch{throw new Error('图已生成，但生成记录保存失败，请先下载当前图片并检查浏览器存储空间');}
  toast('角色图已完成并保存');
 }
 export function cancelGeneration(){
@@ -341,6 +347,7 @@ export function cancelGeneration(){
 }
 export async function startGeneration(overridePrompt){
  if(state.isGenerating)return;
+ if(!state.hydrated){toast(state.generationError||'正在读取浏览器存储，请稍后再生成');return;}
  const recipe=state.recipe,config=state.apiConfig,prompt=overridePrompt??currentPrompt();
  const record={prompt,summary:[recipe.portrait?.发型名称,recipe.costume?.服装名称,recipe.pose?.姿势名称].filter(Boolean).join(' + ')||'自定义合成'};
  state.isGenerating=true;state.generatingModel=config.activeProvider;state.generationError='';state.generationProgress=null;emit();

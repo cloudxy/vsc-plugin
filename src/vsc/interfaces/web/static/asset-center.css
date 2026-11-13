@@ -205,4 +205,14 @@ dialog.ref-modal .ref-modal-switch:empty{display:none}
 dialog.ref-modal .ref-modal-switch button{border:1px solid #35353e;border-radius:8px;padding:5px 11px;background:#232329;color:#d4d4d8;font:inherit;font-size:12px;cursor:pointer}
 dialog.ref-modal .ref-modal-switch button[aria-pressed=true]{background:#f4f4f2;color:#141416;border-color:#f4f4f2}
 dialog.ref-modal .ref-pick-modal[aria-pressed=true]{background:#74ff53;color:#0b080b;border-color:#74ff53}
+dialog.ref-modal .center-zoom-viewport{min-height:140px;flex:1 1 50%}
+.ref-modal-details{flex:0 1 auto;max-height:28dvh;overflow:auto;overscroll-behavior:contain;border-top:1px solid #343435;padding-top:10px;font-size:13px;user-select:text}
+.ref-modal-details dl{display:grid;grid-template-columns:minmax(80px,110px) minmax(0,1fr);gap:6px 12px;margin:10px 0}
+.ref-modal-details dt{color:#a1a1aa}.ref-modal-details dd{margin:0;overflow-wrap:anywhere}
+.ref-modal-identity{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.ref-modal-identity code{min-width:0;overflow-wrap:anywhere}
+.ref-modal-details button{border:1px solid #35353e;border-radius:8px;background:#232329;color:#fff;padding:7px 12px;min-height:36px;font:inherit;cursor:pointer}
+.ref-modal-prompt{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.ref-modal-prompt strong{margin-right:auto}
+.ref-modal-prompt pre{flex-basis:100%;margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,monospace;background:#202025;padding:10px;border-radius:8px}
+.ref-modal-details a{color:#b7eb9a;margin-right:14px}.ref-modal-details p{margin:8px 0!important;text-align:left!important}
 dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:#d4d4d8}

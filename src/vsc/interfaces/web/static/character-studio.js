@@ -338,34 +338,102 @@ export function createCharacterStudio(root,ctx){
 
  function compareDialog(result){
   const refs=comparisonReferences(result);
-  if(!refs.length){notice('这条记录没有可对比的参考图快照');return;}
-  let ref=refs[0],cmpMode='side',scale=1,split=50;
+  const returnFocus=document.activeElement,natural=new Map();
+  let ref=refs[0],cmpMode='side',view={zoom:1,x:0,y:0},split=50,surfaces=[],images=[],observers=[],resetGestures=[];
   const dialog=el('dialog','cs-dialog cs-compare');dialog.setAttribute('aria-label','对比参考');
-  const head=el('header','cs-dialog-head');head.append(el('h2','','对比参考'),action('×',()=>dialog.close(),'cs-icon-btn'));
-  const bar=el('div','cs-compare-bar'),stage=el('div','cs-compare-stage');
-  const draw=()=>{
-   bar.replaceChildren(select(refs.map(r=>[r.id,r.label]),ref.id,v=>{ref=refs.find(r=>r.id===v)||refs[0];draw();},{label:'参考图'}));
-   const seg=el('div','cs-seg');for(const [v,l]of [['side','并排'],['slider','滑杆']]){const b=el('button','',l);b.type='button';b.setAttribute('aria-pressed',String(cmpMode===v));b.onclick=()=>{cmpMode=v;draw();};seg.append(b);}
-   const zoomOut=el('button','','−'),zoomIn=el('button','','＋'),reset=el('button','','适应');for(const b of [zoomOut,zoomIn,reset])b.type='button';
-   zoomOut.onclick=()=>{scale=Math.max(0.5,scale-0.25);apply();};zoomIn.onclick=()=>{scale=Math.min(4,scale+0.25);apply();};reset.onclick=()=>{scale=1;apply();};
-   bar.append(seg,zoomOut,zoomIn,reset);
-   stage.replaceChildren();stage.dataset.mode=cmpMode;
-   const a=el('img'),b=el('img');a.src=ref.url;a.alt=ref.label;b.src=result.imageUrl;b.alt='生成结果';
-   if(cmpMode==='side'){
-    for(const [img,label]of [[a,ref.label],[b,'生成结果']]){const pane=el('figure','cs-compare-pane');const vp=el('div','cs-compare-viewport');vp.append(img);pane.append(vp,el('figcaption','',label));stage.append(pane);}
-    const vps=[...stage.querySelectorAll('.cs-compare-viewport')];
-    for(const vp of vps)vp.addEventListener('scroll',()=>{for(const other of vps)if(other!==vp){other.scrollLeft=vp.scrollLeft;other.scrollTop=vp.scrollTop;}});
-   }else{
-    const box=el('div','cs-compare-overlay');const over=el('div','cs-compare-top');over.append(b);box.append(a,over);
-    const range=el('input');range.type='range';range.min='0';range.max='100';range.value=String(split);range.setAttribute('aria-label','对比分割位置');
-    range.oninput=()=>{split=Number(range.value);over.style.clipPath=`inset(0 0 0 ${split}%)`;};
-    over.style.clipPath=`inset(0 0 0 ${split}%)`;
-    stage.append(box,range);
+  const head=el('header','cs-dialog-head'),close=action('×',()=>dialog.close(),'cs-icon-btn');close.setAttribute('aria-label','关闭参考对比');head.append(el('h2','','对比参考'),close);
+  const description=el('p','cs-compare-hint','参考来自这次生成保存的提交快照。两图共同缩放与移动，按原比例显示。');
+  const bar=el('div','cs-compare-bar'),stage=el('div','cs-compare-stage'),slider=el('label','cs-compare-slider'),range=el('input'),ratioLabel=el('span');
+  range.type='range';range.min='0';range.max='100';range.value=String(split);range.setAttribute('aria-label','参考图显示比例');
+  slider.append(el('span','','参考占比'),range,ratioLabel);
+  const control=(label,fn)=>{const b=el('button','',label);b.type='button';b.onclick=()=>{if(!b.disabled)fn();};return b;};
+  const level=el('span','cs-compare-level'),zoomOut=control('−',()=>zoomAt(view.zoom/1.25)),zoomIn=control('＋',()=>zoomAt(view.zoom*1.25)),reset=control('复位',()=>update({zoom:1,x:0,y:0}));
+  zoomOut.setAttribute('aria-label','共同缩小');zoomIn.setAttribute('aria-label','共同放大');level.setAttribute('aria-live','polite');
+  const controls=el('div','cs-compare-controls');controls.setAttribute('aria-label','共同缩放控制');controls.append(zoomOut,level,zoomIn,reset);
+  const disconnect=()=>{for(const observer of observers)observer.disconnect();observers=[];for(const clear of resetGestures)clear();resetGestures=[];};
+  const clamp=next=>{
+   const zoom=Math.max(1,Math.min(8,next.zoom)),bounds=[];
+   for(const {node,urls}of surfaces){
+    const box=node.getBoundingClientRect?.(),width=box?.width||node.clientWidth,height=box?.height||node.clientHeight;
+    for(const url of urls){
+     const size=natural.get(url);if(!size||!width||!height)continue;
+     const fit=Math.min(width/size.width,height/size.height);
+     bounds.push({x:Math.max(0,(size.width*fit*zoom/width-1)/2),y:Math.max(0,(size.height*fit*zoom/height-1)/2)});
+    }
    }
-   apply();
+   const maxX=bounds.length?Math.min(...bounds.map(b=>b.x)):0,maxY=bounds.length?Math.min(...bounds.map(b=>b.y)):0;
+   return {zoom,x:Math.max(-maxX,Math.min(maxX,next.x)),y:Math.max(-maxY,Math.min(maxY,next.y))};
   };
-  const apply=()=>{for(const img of stage.querySelectorAll('img')){img.style.transform=`scale(${scale})`;}};
-  dialog.append(head,bar,stage);dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal?.();draw();
+  const update=next=>{
+   view=clamp(next);
+   for(const img of images)img.style.transform=`translate(${view.x*100}%, ${view.y*100}%) scale(${view.zoom})`;
+   for(const {node}of surfaces)node.style.cursor=view.zoom>1?'grab':'default';
+   level.textContent=`${Math.round(view.zoom*100)}%`;zoomOut.disabled=view.zoom<=1;zoomIn.disabled=view.zoom>=8;
+  };
+  const zoomAt=(zoom,x=0,y=0)=>{
+   const nextZoom=Math.max(1,Math.min(8,zoom)),ratio=nextZoom/view.zoom;
+   update({zoom:nextZoom,x:x-(x-view.x)*ratio,y:y-(y-view.y)*ratio});
+  };
+  const surface=(label,urls,cls='')=>{
+   const node=el('div','cs-compare-viewport '+cls);node.tabIndex=0;node.setAttribute('role','region');node.setAttribute('aria-label',`${label}；共同缩放和移动`);
+   const pointers=new Map();let previous=null;
+   const point=(x,y)=>{const box=node.getBoundingClientRect?.()||{};return {x:(x-(box.left||0))/(box.width||node.clientWidth||1)-0.5,y:(y-(box.top||0))/(box.height||node.clientHeight||1)-0.5};};
+   const gesture=()=>{const p=[...pointers.values()];if(!p.length)return null;return p.length===1?{...p[0],distance:0}:{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2,distance:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y)};};
+   const clear=()=>{pointers.clear();previous=null;};resetGestures.push(clear);
+   node.addEventListener('wheel',event=>{event.preventDefault();const p=point(event.clientX,event.clientY);zoomAt(view.zoom*Math.exp(-event.deltaY*0.002),p.x,p.y);},{passive:false});
+   node.onkeydown=event=>{
+    const delta={ArrowLeft:[0.05,0],ArrowRight:[-0.05,0],ArrowUp:[0,0.05],ArrowDown:[0,-0.05]};
+    if(event.key==='+'||event.key==='='){event.preventDefault();zoomAt(view.zoom*1.25);}
+    else if(event.key==='-'){event.preventDefault();zoomAt(view.zoom/1.25);}
+    else if(event.key==='0'||event.key==='Home'){event.preventDefault();update({zoom:1,x:0,y:0});}
+    else if(delta[event.key]){event.preventDefault();const [x,y]=delta[event.key];update({...view,x:view.x+x,y:view.y+y});}
+   };
+   node.onpointerdown=event=>{if(event.button!==0)return;node.focus();node.setPointerCapture?.(event.pointerId);pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});previous=gesture();};
+   node.onpointermove=event=>{
+    if(!pointers.has(event.pointerId))return;
+    pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});const next=gesture(),old=previous;
+    if(next&&old){
+     const p=point(next.x,next.y),before=point(old.x,old.y),zoom=next.distance&&old.distance?Math.max(1,Math.min(8,view.zoom*next.distance/old.distance)):view.zoom,ratio=zoom/view.zoom;
+     update({zoom,x:p.x-(before.x-view.x)*ratio,y:p.y-(before.y-view.y)*ratio});
+    }
+    previous=next;
+   };
+   const release=event=>{pointers.delete(event.pointerId);previous=gesture();};
+   node.onpointerup=release;node.onpointercancel=release;node.onlostpointercapture=release;
+   surfaces.push({node,urls});
+   if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(()=>{clear();update(view);});observer.observe(node);observers.push(observer);}
+   return node;
+  };
+  const image=(url,label,container)=>{
+   const img=el('img'),status=el('div','cs-compare-image-status','图片加载中…');status.setAttribute('role','status');img.src=url;img.alt=label;img.draggable=false;
+   img.onload=()=>{if(img.naturalWidth&&img.naturalHeight)natural.set(url,{width:img.naturalWidth,height:img.naturalHeight});status.hidden=true;update(view);};
+   img.onerror=()=>{img.hidden=true;status.hidden=false;status.textContent=`${label}加载失败，可选择其他参考或稍后重试。`;};
+   images.push(img);container.append(img,status);return img;
+  };
+  const draw=()=>{
+   disconnect();surfaces=[];images=[];bar.replaceChildren();
+   if(ref){
+    bar.append(select(refs.map(r=>[r.id,r.label]),ref.id,v=>{ref=refs.find(r=>r.id===v)||refs[0];view={zoom:1,x:0,y:0};draw();},{label:'选择本次生成的参考'}));
+    const seg=el('div','cs-seg');for(const [v,l]of [['side','并排'],['slider','滑杆']]){const b=action(l,()=>{cmpMode=v;draw();});b.setAttribute('aria-pressed',String(cmpMode===v));seg.append(b);}bar.append(seg);
+   }else bar.append(el('p','cs-compare-hint',result.snapshot?'这条提交快照没有可用的参考图。仍可查看生成结果。':'这条旧记录没有生成快照，无法确定当时的参考图。仍可查看生成结果。'));
+   stage.replaceChildren();stage.dataset.mode=cmpMode;
+   slider.hidden=cmpMode!=='slider'||!ref;
+   if(ref&&cmpMode==='slider'){
+    const box=surface('滑杆对比',[ref.url,result.imageUrl],'cs-compare-overlay'),over=el('div','cs-compare-top');
+    image(result.imageUrl,'生成结果',box);image(ref.url,ref.label,over);box.append(over);stage.append(box);
+    const applySplit=()=>{split=Number(range.value);over.style.clipPath=`inset(0 ${100-split}% 0 0)`;ratioLabel.textContent=`${split}%`;range.setAttribute('aria-valuetext',`${split}% 参考图`);};
+    range.oninput=applySplit;applySplit();
+   }else{
+    const entries=ref?[[ref.url,ref.label],[result.imageUrl,'生成结果']]:[[result.imageUrl,'生成结果']];
+    stage.dataset.single=String(!ref);
+    for(const [url,label]of entries){const pane=el('figure','cs-compare-pane'),vp=surface(label,[url]);image(url,label,vp);pane.append(vp,el('figcaption','',label));stage.append(pane);}
+   }
+   update(view);
+  };
+  dialog.append(head,description,bar,controls,stage,slider,el('p','cs-compare-hint','滚轮或双指共同缩放 · 放大后拖动 · 加减键缩放、方向键移动、0 键复位'));
+  dialog.addEventListener('close',()=>{disconnect();dialog.remove();if(returnFocus?.isConnected)returnFocus.focus?.();});
+  dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});
+  document.body.append(dialog);dialog.showModal?.();draw();
  }
 
  function studioView(){
