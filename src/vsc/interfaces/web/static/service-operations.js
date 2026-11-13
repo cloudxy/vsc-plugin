@@ -93,14 +93,14 @@ export function parseTosSignedUrl(rawUrl,nowMs=Date.now()){
 export function feedbackDisplayStatus(status){
   if(status==='received')return {bucket:'received',label:'已收到'};
   if(['under_review','awaiting_configuration'].includes(status))return {bucket:'processing',label:'处理中'};
-  if(status==='local_approved')return {bucket:'contacted',label:'已联系'};
+  if(status==='local_approved')return {bucket:'reviewed',label:'已审核'};
   if(['rejected','withdrawn','account_closed','export_ready'].includes(status))return {bucket:'closed',label:'已关闭'};
   return {bucket:'processing',label:statuses[status]||status};
 }
 
 export function createServiceOperations(root,ctx){
   let scope=null,ticket=0,data=null,busy=false,subview='overview';
-  let engineTab='consumption',recordsMode='personal',recordsTab='jobs',feedbackFilter='all',feedbackDrawerOpen=false;
+  let engineTab='consumption',recordsMode='personal',recordsTab='jobs',feedbackDrawerOpen=false;
   let seedanceResult=null,diagnosticState={running:false,completed:0,items:[],lastReport:null};
   const drafts=new Map(),pending=new Map(),keyAttempts=new Map(),secrets=new Map();
 
@@ -194,9 +194,11 @@ export function createServiceOperations(root,ctx){
   }
 
   function switchSubview(next){
+    const previous=subview;
     subview=normalizeOperationsSubview(next);
     if(scope)scope.subview=subview;
     ctx.onSubviewChange?.(subview);
+    if(scope&&(previous==='feedback-records'||subview==='feedback-records'))return load({...scope,subview});
     resetScroll();
     render();
     resetScroll(true);
@@ -307,7 +309,7 @@ export function createServiceOperations(root,ctx){
       ['personal-info-export','个人信息导出'],
       ['account-close','账户注销']
     ]){
-      const b=button(label,()=>{menu.open=false;switchSubview(id);});
+      const b=button(label,()=>{menu.open=false;return switchSubview(id);});
       b.dataset.subview=id;
       b.setAttribute('aria-pressed',String(subview===id));
       panel.append(b);
@@ -621,108 +623,101 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderFeedbackRecords(t,s){
+    const filters=s.feedback,managing=filters.scope==='manage';
+    root.dataset.feedbackScope=filters.scope;
+    const categories={feature:'功能建议',quality:'生成效果与模型',billing:'账单与电子发票',ux:'界面与操作体验',bug:'异常报错'};
+    const reload=changes=>load({...s,subview:'feedback-records',feedback:{...filters,...changes}});
     const head=node('header',null,'so-hero-bar so-standalone-head');
     const titleWrap=node('div');
-    titleWrap.append(node('h1','我的意见反馈'),node('p','查看反馈处理进度，或提交新的问题和建议。','hint'));
+    titleWrap.append(node('h1',managing?'反馈管理':'我的意见反馈'),node('p',managing?'查看并处理当前项目成员提交的反馈。':'查看本人在当前项目的反馈进度，或提交新的问题和建议。','hint'));
     const headActions=node('div',null,'service-operations-actions');
     headActions.append(
       button(feedbackDrawerOpen?'收起反馈表单':'⊕ 提交新反馈',()=>{feedbackDrawerOpen=!feedbackDrawerOpen;render();},!writable(),'so-btn-primary'),
       renderQuickSwitch(s)
     );
-    head.append(titleWrap,headActions);
-    root.append(head);
-
+    head.append(titleWrap,headActions);root.append(head);
+    if(data.manage){
+      const modes=node('nav',null,'service-operations-actions');
+      bindAttribute(modes,'aria-label','反馈查看范围');
+      for(const [mode,label]of [['mine','我的反馈'],['manage','反馈管理']]){
+        const b=button(label,()=>reload({scope:mode,offset:0}));
+        b.setAttribute('aria-pressed',String(filters.scope===mode));modes.append(b);
+      }
+      root.append(modes);
+    }
     if(feedbackDrawerOpen){
       const drawer=box('提交新意见反馈',root,'service-operations-card so-feedback-drawer');
-      const defaultPage=typeof location!=='undefined'&&location?.pathname?location.pathname:'/feedback/records';
+      const defaultPage=typeof location!=='undefined'&&location?.pathname?location.pathname+location.search:'/feedback/records';
       const pageChannel=field(drawer,'提交页面 / 功能模块','fb-channel','text',getDraft('fb-channel',defaultPage));
-      select(drawer,'反馈分类',[['feature','功能建议'],['quality','生成效果与模型'],['billing','账单与电子发票'],['ux','界面与操作体验'],['bug','异常报错']],'fb-category','feature');
+      const category=select(drawer,'反馈分类',Object.entries(categories),'fb-category','feature');
       const fbTitle=field(drawer,'反馈标题','fb-title','text','');
       const fbBody=field(drawer,'问题与建议详情','fb-body','textarea','');
       const fbContact=field(drawer,'联系邮箱或飞书/手机号（选填）','fb-contact','text','');
       const drawerActions=node('div',null,'service-operations-actions');
       drawerActions.append(
-        button('提交反馈记录',async()=>{
-          await write('/requests',{
-            kind:'feedback',
-            title:fbTitle.value,
-            body:fbBody.value,
-            contact:fbContact.value,
-            channel:pageChannel.value||'/feedback/records',
-            artifact_id:null,
-            media_id:null,
-            requested_fields:[]
-          },()=>{
-            feedbackDrawerOpen=false;
-            setDraft('fb-title','');setDraft('fb-body','');
-          });
-        },!writable(),'so-btn-primary'),
+        button('提交反馈记录',()=>write('/requests',{
+          kind:'feedback',feedback_category:category.value,title:fbTitle.value,body:fbBody.value,
+          contact:fbContact.value,channel:pageChannel.value||'/feedback/records',artifact_id:null,media_id:null,requested_fields:[]
+        },()=>{
+          feedbackDrawerOpen=false;setDraft('fb-title','');setDraft('fb-body','');
+          s.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24};
+          ctx.notice('反馈已提交');
+        }),!writable(),'so-btn-primary'),
         button('取消',()=>{feedbackDrawerOpen=false;render();})
       );
       drawer.append(drawerActions);
     }
-
-    const listBox=node('section',null,'service-operations-card');
+    const listBox=box('反馈记录',root,'service-operations-card so-feedback-list');
     const toolbarRow=node('div',null,'so-filter-bar');
-    const searchInput=field(toolbarRow,'搜索反馈编号或内容','fb-search','search','');
+    const searchInput=field(toolbarRow,'搜索反馈编号或内容','fb-search','search',filters.query);
+    searchInput.value=filters.query;
     bindAttribute(searchInput,'placeholder','搜索反馈编号、摘要或内容');
-    searchInput.addEventListener('input',()=>paintTable());
-    toolbarRow.append(button('刷新',()=>load({...scope,subview})));
+    const categoryFilter=select(toolbarRow,'筛选反馈分类',[['','全部分类'],['uncategorized','未分类'],...Object.entries(categories)],'fb-category-filter',filters.category);
+    categoryFilter.value=filters.category;
+    const search=()=>reload({query:searchInput.value.trim(),category:categoryFilter.value,offset:0});
+    searchInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();return search();}});
+    toolbarRow.append(button('搜索',search),button('刷新',()=>reload({})));
     listBox.append(toolbarRow);
-
-    const allFeedback=data.requests.filter(r=>r.kind==='feedback');
     const tabBar=node('div',null,'so-underline-tabs');
-    for(const [code,label]of [['all','全部'],['received','已收到'],['processing','处理中'],['contacted','已联系'],['closed','已关闭']]){
-      const b=button(label,()=>{feedbackFilter=code;render();});
-      b.setAttribute('aria-pressed',String(feedbackFilter===code));
-      tabBar.append(b);
+    for(const [code,label]of [['all','全部'],['received','已收到'],['processing','处理中'],['reviewed','已审核'],['closed','已关闭']]){
+      const b=button(label,()=>reload({status:code,offset:0}));
+      b.setAttribute('aria-pressed',String(filters.status===code));tabBar.append(b);
     }
-    listBox.append(tabBar);
-    const tableHost=node('div');
-    listBox.append(tableHost);
-    root.append(listBox);
-
-    function paintTable(){
-      tableHost.replaceChildren();
-      const q=searchInput.value.trim().toLowerCase();
-      const feedbackRows=allFeedback.filter(r=>{
-        const mapped=feedbackDisplayStatus(r.status);
-        if(feedbackFilter!=='all'&&mapped.bucket!==feedbackFilter)return false;
-        if(q&&!`${r.id} ${r.title} ${r.body} ${r.channel||''}`.toLowerCase().includes(q))return false;
-        return true;
-      });
-      if(!feedbackRows.length){
-        const headFrame=node('div',null,'service-operations-table'),tHead=node('table'),tr=node('tr');
-        ['反馈编号','反馈内容','状态','提交页面','操作'].forEach(h=>tr.append(node('th',h)));
-        tHead.append(tr);headFrame.append(tHead);tableHost.append(headFrame);
-        const empty=node('div',null,'so-empty-state');
-        empty.append(
-          node('div','📦','so-empty-glyph'),
-          node('h3',q||feedbackFilter!=='all'?'当前筛选下暂无反馈记录':'暂无反馈记录'),
-          node('p','您的每一条反馈都会帮助我们持续改进短剧创作体验。'),
-          button('提交第一条反馈',()=>{feedbackDrawerOpen=true;render();},!writable(),'so-btn-primary')
-        );
-        tableHost.append(empty);
-        return;
-      }
-      table(tableHost,['反馈编号','反馈内容','状态','提交页面','操作'],feedbackRows.map(row=>{
-        const mapped=feedbackDisplayStatus(row.status);
-        const actions=node('div',null,'service-operations-actions');
-        actions.append(button('查看详情',()=>openModal(`反馈详情 · ${row.title}`,(body)=>{
-          body.append(node('p',`编号：${row.id}`),node('p',`提交页面：${row.channel||'工作台'}`),node('p',row.body));
-          for(const ev of row.events||[]){
-            body.append(node('p',`${new Date(ev.created_at).toLocaleString()} · ${statuses[ev.status]||ev.status} · ${ev.reason}`));
-          }
-        })));
-        const last=row.events?.at(-1);
-        const terminal=['withdrawn','rejected','export_ready','account_closed'].includes(row.status);
-        if(row.mine&&!terminal&&last){
-          actions.append(button('撤回',()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'用户主动撤回反馈'}),!writable()));
-        }
-        return [row.id,`${row.title}：${row.body.slice(0,60)}`,mapped.label,row.channel||'工作台默认页',actions];
-      }));
-    }
-    paintTable();
+    listBox.append(tabBar,node('p',`共 ${data.total} 条反馈`,'hint'));
+    const headers=['反馈编号','反馈内容','分类',...(managing?['提交人']:[]),'状态','提交时间','提交页面','操作'];
+    const feedbackFrame=table(listBox,headers,data.items.map(row=>{
+      const actions=node('div',null,'service-operations-actions');
+      actions.append(button('查看详情',()=>openModal(`反馈详情 · ${row.title}`,(body)=>{
+        body.append(node('p',`编号：${row.id}`),node('p',`分类：${categories[row.feedback_category]||'未分类'}`),
+          node('p',`提交人：${row.requester_name||'本人'}`),node('p',`联系方式：${row.contact||'未填写'}`),
+          node('p',`提交页面：${row.channel||'工作台'}`),node('p',row.body));
+        for(const ev of row.events||[])body.append(node('p',`${new Date(ev.created_at).toLocaleString()} · ${statuses[ev.status]||ev.status} · ${ev.reason}`));
+      })));
+      const last=row.events?.at(-1),terminal=['withdrawn','rejected','export_ready','account_closed'].includes(row.status);
+      if(row.mine&&!terminal&&last)actions.append(button('撤回',()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'用户主动撤回反馈'}),!writable()));
+      if(managing&&data.manage&&!terminal&&last)actions.append(button('处理反馈',()=>openModal('处理反馈 · '+row.title,(body,dialog)=>{
+        const status=select(body,'处理状态',[['under_review','处理中'],['local_approved','已审核'],['rejected','退回并关闭']],'fb-status:'+row.id,'under_review');
+        const reason=field(body,'处理说明','fb-reason:'+row.id,'textarea','');
+        body.append(button('保存处理记录',()=>write('/requests/process',{request_id:row.id,base_event_id:last.id,status:status.value,reason:reason.value},()=>dialog.close()),!writable()));
+      })));
+      const identifier=node('code',row.id.slice(0,8),'so-feedback-id');identifier.title=row.id;
+      const summary=node('div',null,'so-feedback-summary');summary.append(node('strong',row.title),node('p',row.body.slice(0,120)));
+      const page=node('span',row.channel||'工作台','so-feedback-page');page.title=row.channel||'工作台';
+      return [identifier,summary,categories[row.feedback_category]||'未分类',
+        ...(managing?[row.requester_name||row.requester_id]:[]),feedbackDisplayStatus(row.status).label,
+        row.created_at?new Date(row.created_at).toLocaleString():'—',page,actions];
+    }));
+    const feedbackTable=feedbackFrame.querySelector('table');
+    feedbackTable.classList.add('so-feedback-table');
+    const widths=node('colgroup');
+    for(const key of ['id','summary','category',...(managing?['requester']:[]),'status','time','page','actions'])widths.append(node('col',null,'so-feedback-col-'+key));
+    feedbackTable.prepend(widths);
+    if(!data.items.length)listBox.append(node('p',data.total?'这一页暂无记录，请返回上一页。':'暂无符合条件的反馈记录。','so-empty-state'));
+    const pages=node('nav',null,'service-operations-actions');bindAttribute(pages,'aria-label','反馈分页');
+    pages.append(button('上一页',()=>reload({offset:Math.max(0,filters.offset-filters.limit)}),filters.offset===0),
+      node('span',`第 ${Math.floor(filters.offset/filters.limit)+1} 页`),
+      button('下一页',()=>reload({offset:data.next_offset}),data.next_offset==null));
+    listBox.append(pages);
   }
 
   function renderAiDramaBase(s){
@@ -1252,8 +1247,10 @@ export function createServiceOperations(root,ctx){
       secrets.delete(identity(scope));
       if(scope.actor!==session().actor)keyAttempts.clear();
     }
+    const changed=!scope||scope.project!==value.project||scope.actor!==session().actor;
     scope={...value,actor:session().actor};
     subview=normalizeOperationsSubview(value?.subview);
+    if(subview==='feedback-records')scope.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24,...(!changed?value.feedback:{})};
     const s=scope,t=++ticket;busy=false;
     resetScroll();
     root.replaceChildren(node('p',msg("ui.loading_service_records")));
@@ -1266,14 +1263,18 @@ export function createServiceOperations(root,ctx){
     if(!s.project){root.replaceChildren(node('p',msg("ui.select_a_project_first")));return;}
     if(!session().actor){root.replaceChildren(node('p',msg("ui.sign_in_to_perform_this_action")));return;}
     try{
-      const result=await ctx.api(url(s.project),{headers:{'X-CSRF-Token':session().csrf}});
+      const path=subview==='feedback-records'?'/feedback?'+new URLSearchParams(s.feedback):'';
+      const result=await ctx.api(url(s.project,path),{headers:{'X-CSRF-Token':session().csrf}});
       if(!same(t,s))return;
       data=result;
       ctx.setRevision(result.revision,s.project);
       render();
       resetScroll(true);
     }catch(e){
-      if(same(t,s))root.replaceChildren(node('p',e.message),button(msg("ui.retry_loading"),()=>load(s)));
+      if(same(t,s)){
+        root.replaceChildren(node('p',e.message),button(msg("ui.retry_loading"),()=>load(s)));
+        if(subview==='feedback-records'&&s.feedback.scope==='manage')root.append(button('查看我的反馈',()=>load({...s,feedback:{...s.feedback,scope:'mine',offset:0}})));
+      }
     }
   }
 

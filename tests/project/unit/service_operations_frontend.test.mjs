@@ -56,7 +56,7 @@ const document={
   createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;}
 };
 
-async function opsFixture(){
+async function opsFixture({records=[],manage=true,apiHook}={}){
   const view=document.createElement('main'),requests=[],notices=[],navigations=[];
   let revision=4,clipboardText='';
   const state={
@@ -64,8 +64,8 @@ async function opsFixture(){
     revision,
     identity_id:'id-1',
     actor:'studio-lead',
-    manage:true,
-    capabilities:['read','execute','manage'],
+    manage,
+    capabilities:manage?['read','execute','manage']:['read'],
     configuration:{id:'cfg-1',version:1,document:{support_text:'技术支持 7×12',terms_url:'https://example.com/terms',privacy_url:'https://example.com/privacy',api_documentation:'Bearer 鉴权文档'}},
     announcements:[{id:'ann-1',announcement_key:'v1',title:'天工引擎升级公告',body:'开放接口速率边界上线',status:'published'}],
     requests:[
@@ -86,8 +86,19 @@ async function opsFixture(){
     }
   };
 
+  state.requests.push(...records);
   const api=async(path,init={})=>{
     requests.push({path,init});
+    if(apiHook){const result=await apiHook(path,init);if(result!==undefined)return result;}
+    if(path.includes('/feedback?')){
+      const filters=new URL(path,'http://fixture').searchParams;
+      let items=state.requests.filter(r=>r.kind==='feedback'&&(filters.get('scope')==='manage'||r.mine));
+      if(filters.get('status')!=='all')items=items.filter(r=>module.feedbackDisplayStatus(r.status).bucket===filters.get('status'));
+      if(filters.get('category'))items=items.filter(r=>filters.get('category')==='uncategorized'?!r.feedback_category:r.feedback_category===filters.get('category'));
+      const query=filters.get('query')||'';if(query)items=items.filter(r=>(r.title+' '+r.body).includes(query));
+      const offset=Number(filters.get('offset')),limit=Number(filters.get('limit')),total=items.length;items=items.slice(offset,offset+limit);
+      return structuredClone({project_id:state.project_id,revision:state.revision,actor:state.actor,identity_id:state.identity_id,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
+    }
     if(path.includes('/network-diagnostic/ping')){
       const probe=new URL(path,'http://fixture').searchParams.get('probe');
       return {ok:true,probe_key:probe,project_id:'proj-ops',revision,database:'connected',storage:'configured'};
@@ -149,7 +160,7 @@ async function opsFixture(){
   });
   const button=text=>view.querySelectorAll('button').find(n=>n.textContent===text);
   const input=label=>view.querySelectorAll('input,textarea,select').find(n=>n.getAttribute('aria-label')===label);
-  return {view,instance,module,requests,notices,navigations,button,input,getClipboard:()=>clipboardText};
+  return {view,instance,module,requests,notices,navigations,button,input,state,getClipboard:()=>clipboardText};
 }
 
 test('pure validators verify 16-hex Seedance task IDs, TOS signed URLs, and 5-tab feedback buckets',async()=>{
@@ -160,7 +171,7 @@ test('pure validators verify 16-hex Seedance task IDs, TOS signed URLs, and 5-ta
   assert.equal(tos.signed,true);
   assert.equal(tos.expired,false);
   assert.equal(tos.remainingSeconds,1800);
-  assert.equal(module.feedbackDisplayStatus('local_approved').label,'已联系');
+  assert.equal(module.feedbackDisplayStatus('local_approved').label,'已审核');
   assert.equal(module.feedbackDisplayStatus('withdrawn').bucket,'closed');
 });
 
@@ -209,14 +220,14 @@ test('data-records personal/studio modes, Seedance read-only verification, and 5
 
   await f.button('我的意见反馈').fire('click');
   assert.equal(f.view.dataset.subview,'feedback-records');
-  await f.button('已联系').fire('click');
+  await f.button('已审核').fire('click');
   assert.ok(f.view.textContent.includes('画布快捷键'));
   assert.equal(f.view.textContent.includes('字幕导出建议'),false);
   await f.button('⊕ 提交新反馈').fire('click');
   f.input('反馈标题').value='导出体验优化';await f.input('反馈标题').fire('input');
   f.input('问题与建议详情').value='希望支持一键复制报告链接';await f.input('问题与建议详情').fire('input');
   await f.button('提交反馈记录').fire('click');
-  assert.ok(f.requests.some(r=>r.path.endsWith('/requests')&&JSON.parse(r.init.body).payload.kind==='feedback'));
+  assert.ok(f.requests.some(r=>r.path.endsWith('/requests')&&JSON.parse(r.init.body).payload.kind==='feedback'&&JSON.parse(r.init.body).payload.feedback_category==='feature'));
   f.instance.suspend();
 });
 
@@ -274,7 +285,7 @@ test('standalone subviews stay focused without multi-tab admin clutter, support 
   await f.instance.load({project:'proj-ops',subview:'feedback-records'});
   await f.button('处理中').fire('click');
   assert.ok(f.view.querySelector('.so-empty-state'));
-  await f.button('提交第一条反馈').fire('click');
+  await f.button('⊕ 提交新反馈').fire('click');
   assert.ok(f.view.querySelector('.so-feedback-drawer'));
 
   await f.instance.load({project:'proj-ops',subview:'activity'});
@@ -320,4 +331,75 @@ test('network-diagnostic inside assisted-mode workspace restores vertical scroll
   assert.equal(f.view.dataset.subview,'feedback-records');
   assert.equal(workspace.scrollTop,0);
   f.instance.suspend();
+});
+
+test('personal feedback excludes peers, management is explicit, and category survives submission',async()=>{
+  const peer={id:'peer-feedback',kind:'feedback',feedback_category:'bug',title:'另一成员的反馈',body:'合成反馈',contact:'synthetic@example.invalid',requester_name:'合成成员',channel:'/canvas',status:'received',mine:false,events:[{id:'peer-event',status:'received',reason:'已保存',created_at:'2026-11-10T10:00:00Z'}]};
+  const f=await opsFixture({records:[peer]});
+  await f.instance.load({project:'proj-ops',subview:'feedback-records'});
+  assert.ok(f.view.textContent.includes('我的意见反馈'));
+  assert.equal(f.view.querySelector('.so-feedback-table').tagName,'TABLE');
+  assert.equal(f.view.querySelector('.so-feedback-table').querySelector('colgroup').children.length,7);
+  assert.equal(f.view.textContent.includes(peer.title),false);
+  assert.equal(f.requests.some(r=>r.path.endsWith('/service-operations')),false,'personal feedback must not load the all-requests snapshot');
+  await f.button('反馈管理').fire('click');
+  assert.equal(f.view.querySelector('.so-feedback-table').querySelector('colgroup').children.length,8);
+  assert.ok(f.view.textContent.includes(peer.title));
+  assert.ok(f.view.textContent.includes(peer.requester_name));
+  assert.ok(f.button('处理反馈'));
+  await f.button('我的反馈').fire('click');
+  assert.equal(f.view.textContent.includes(peer.title),false);
+  await f.button('⊕ 提交新反馈').fire('click');
+  f.input('反馈分类').value='bug';await f.input('反馈分类').fire('change');
+  f.input('反馈标题').value='合成报错';await f.input('反馈标题').fire('input');
+  f.input('问题与建议详情').value='验证分类和默认视图';await f.input('问题与建议详情').fire('input');
+  await f.button('提交反馈记录').fire('click');
+  const sent=JSON.parse(f.requests.findLast(r=>r.init.method==='POST').init.body);
+  assert.equal(sent.payload.feedback_category,'bug');
+  assert.ok(f.view.textContent.includes('异常报错'));
+  assert.ok(f.view.textContent.includes('合成报错'));
+  assert.equal(f.view.textContent.includes(peer.title),false);
+  const member=await opsFixture({manage:false});
+  await member.instance.load({project:'proj-ops',subview:'feedback-records'});
+  assert.equal(member.button('反馈管理'),undefined);
+});
+
+test('feedback pagination, search, category and reviewed status are sent to the server',async()=>{
+  const records=Array.from({length:55},(_,n)=>({id:'history-'+n,kind:'feedback',feedback_category:'bug',title:'历史报错 '+n,body:'合成测试记录',mine:true,status:'received',events:[]}));
+  const f=await opsFixture({records});
+  await f.instance.load({project:'proj-ops',subview:'feedback-records'});
+  assert.ok(f.view.textContent.includes('共 57 条反馈'));
+  assert.equal(f.button('上一页').disabled,true);
+  await f.button('下一页').fire('click');
+  assert.equal(new URL(f.requests.at(-1).path,'http://fixture').searchParams.get('offset'),'24');
+  assert.ok(f.view.textContent.includes('第 2 页'));
+  f.input('搜索反馈编号或内容').value='历史报错 54';await f.input('搜索反馈编号或内容').fire('input');
+  f.input('筛选反馈分类').value='bug';await f.input('筛选反馈分类').fire('change');
+  await f.button('搜索').fire('click');
+  const params=new URL(f.requests.at(-1).path,'http://fixture').searchParams;
+  assert.equal(params.get('query'),'历史报错 54');assert.equal(params.get('category'),'bug');assert.equal(params.get('offset'),'0');
+  assert.ok(f.view.textContent.includes('共 1 条反馈'));
+  assert.ok(f.view.textContent.includes('历史报错 54'));
+  await f.button('已审核').fire('click');
+  assert.equal(new URL(f.requests.at(-1).path,'http://fixture').searchParams.get('status'),'reviewed');
+  assert.equal(f.view.textContent.includes('已联系'),false);
+});
+
+test('late management response cannot replace a personal list and failed management reads offer recovery',async()=>{
+  let resolveManagement;
+  const f=await opsFixture({apiHook:(path)=>path.includes('scope=manage')?new Promise(resolve=>{resolveManagement=resolve;}):undefined});
+  await f.instance.load({project:'proj-ops',subview:'feedback-records'});
+  const pending=f.button('反馈管理').fire('click');
+  await Promise.resolve();
+  await f.instance.load({project:'proj-ops',subview:'feedback-records'});
+  resolveManagement({...f.state,items:[{id:'late-peer',title:'迟到的其他人反馈'}],total:1,next_offset:null});
+  await pending;
+  assert.ok(f.view.textContent.includes('我的意见反馈'));
+  assert.equal(f.view.textContent.includes('迟到的其他人反馈'),false);
+  const denied=await opsFixture({apiHook:(path)=>{if(path.includes('scope=manage'))throw Object.assign(new Error('管理权限已撤销'),{status:403});}});
+  await denied.instance.load({project:'proj-ops',subview:'feedback-records'});
+  await denied.button('反馈管理').fire('click');
+  assert.ok(denied.view.textContent.includes('管理权限已撤销'));
+  await denied.button('查看我的反馈').fire('click');
+  assert.ok(denied.view.textContent.includes('我的意见反馈'));
 });

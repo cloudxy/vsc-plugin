@@ -103,6 +103,99 @@ class ServiceOperationsTests(ResourceStoreFixture,unittest.TestCase):
 
     def snapshot(self):return self.service.service_operations_snapshot(self.p)
 
+    def test_feedback_personal_scope_and_explicit_management_http(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        own=self.request(feedback_category='bug',title='本人的反馈')
+        member=self.invite('viewer');credential=secrets.token_urlsafe(32)
+        with self.as_identity(member):
+            self.service.access_command('credential',{'secret':credential},expected_revision=self.service.access_snapshot()['access_revision'],idempotency_key=uuid.uuid4().hex,actor=member['actor'])
+            payload=dict(kind='feedback',feedback_category='ux',title='成员的反馈',body='合成反馈正文',contact='synthetic@example.invalid',channel='/audit',artifact_id=None,media_id=None,requested_fields=[])
+            other=self.service.create_service_request(self.p,payload,expected_revision=self.rev,idempotency_key=uuid.uuid4().hex,actor=member['actor']);self.rev=other['revision']
+        # Project ownership does not widen the personal list.
+        mine=self.service.service_feedback(self.p)
+        self.assertEqual([r['id'] for r in mine['items']],[own['id']]);self.assertTrue(mine['manage'])
+        managed=self.service.service_feedback(self.p,scope='manage')
+        self.assertEqual(managed['total'],2);self.assertEqual(sum(r['mine'] for r in managed['items']),1)
+        self.assertEqual(next(r for r in managed['items'] if r['id']==other['id'])['feedback_category'],'ux')
+        app=create_app(dict(projects_root=self.temp.name,allowed_hosts=['testserver'],allowed_origins=['http://testserver']),service=self.service)
+        with TestClient(app) as client:
+            self.assertEqual(client.post('/api/v1/access/login',json={'secret':credential},headers={'Origin':'http://testserver'}).status_code,200)
+            headers={'Origin':'http://testserver','X-CSRF-Token':client.get('/api/v1/session').json()['csrf_token']}
+            base='/api/v1/projects/'+self.p+'/service-operations'
+            response=client.get(base+'/feedback',headers=headers);self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual([r['id'] for r in response.json()['items']],[other['id']])
+            self.assertEqual(client.get(base+'/feedback?scope=manage',headers=headers).status_code,403)
+            self.assertEqual(client.get(base+'/feedback?requester_id='+self.owner['identity_id'],headers=headers).json()['items'][0]['id'],other['id'])
+            for query in ('limit=0','offset=-1','status=contacted','scope=all','category=invalid'):
+                self.assertEqual(client.get(base+'/feedback?'+query,headers=headers).status_code,422,query)
+            forged=client.post(base+'/requests',headers=headers,json=dict(payload=dict(payload,requester_id=self.owner['identity_id']),expected_revision=self.rev,idempotency_key=uuid.uuid4().hex))
+            self.assertEqual(forged.status_code,422)
+        with self.as_identity(member):
+            with self.assertRaises(ResourceError):self.service.service_feedback(self.p,scope='manage')
+        for category in ('unknown',[],True):
+            with self.subTest(category=category),self.assertRaises(ResourceError):self.request(feedback_category=category)
+        with self.assertRaises(ResourceError):self.request('support',feedback_category='bug')
+
+    def test_feedback_pagination_after_user_kind_search_and_latest_status_filters(self):
+        first=self.request(title='literal %_ feedback',feedback_category='bug')
+        for n in range(104):self.request(title='反馈 %03d'%n,feedback_category='feature')
+        for n in range(101):self.request('support',title='较新支持 %03d'%n)
+        pages=[self.service.service_feedback(self.p,offset=offset,limit=24) for offset in range(0,105,24)]
+        ids=[r['id'] for page in pages for r in page['items']]
+        self.assertEqual(len(ids),105);self.assertEqual(len(set(ids)),105);self.assertIn(first['id'],ids)
+        self.assertTrue(all(page['total']==105 for page in pages));self.assertIsNone(pages[-1]['next_offset'])
+        self.assertEqual(self.service.service_feedback(self.p,query='%_')['total'],1)
+        self.assertEqual(self.service.service_feedback(self.p,category='bug')['total'],1)
+        self.assertEqual(self.service.service_feedback(self.p,category='uncategorized')['total'],0)
+        row=self.service.service_feedback(self.p,query='literal')['items'][0]
+        self.write('process_service_request',dict(request_id=first['id'],base_event_id=row['events'][-1]['id'],status='local_approved',reason='已审核；没有伪造联系行为'))
+        reviewed=self.service.service_feedback(self.p,status='reviewed')
+        self.assertEqual([r['id'] for r in reviewed['items']],[first['id']])
+        self.write('process_service_request',dict(request_id=first['id'],base_event_id=reviewed['items'][0]['events'][-1]['id'],status='under_review',reason='继续处理'))
+        self.assertEqual(self.service.service_feedback(self.p,status='reviewed')['total'],0)
+        self.assertEqual(self.service.service_feedback(self.p,status='processing')['total'],1)
+
+    def test_feedback_migration_preserves_legacy_receipts_and_classifications(self):
+        from alembic import command
+        from alembic.config import Config
+        from alembic.autogenerate import compare_metadata
+        from alembic.migration import MigrationContext
+        from sqlalchemy import select,text
+        from sqlalchemy.exc import DBAPIError
+        from support.fixtures.postgres import isolated_postgres
+        from support.paths import ROOT
+        from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.resource_service import ResourceService
+        with isolated_postgres(TEST_URL) as engine:
+            service=ResourceService(PostgresResourceStore(engine=engine))
+            with self.as_identity(Principal()):
+                # Use an explicit trusted local identity in the separate schema.
+                person=service.ensure_local_access('migration-feedback-owner')
+            with self.as_identity(person):
+                p=service.create_project({'name':'历史反馈迁移'},actor=person['actor'])['id']
+                payload=dict(kind='feedback',title='旧客户端记录',body='原始正文',contact='',channel='/legacy',artifact_id=None,media_id=None,requested_fields=[])
+                args=dict(actor=person['actor'],expected_revision=0,idempotency_key='legacy-feedback-command')
+                legacy=service.create_service_request(p,payload,**args)
+                cfg=Config(str(ROOT/'migrations/postgres/alembic.ini'))
+                with engine.begin() as conn:
+                    cfg.attributes['connection']=conn;command.downgrade(cfg,'0056_library_media_lifecycle')
+                    before=conn.execute(text('SELECT to_jsonb(r) FROM service_requests r')).scalar_one()
+                    command.upgrade(cfg,'head')
+                    after=conn.execute(text("SELECT to_jsonb(r)-'feedback_category' FROM service_requests r")).scalar_one()
+                    self.assertEqual(before,after)
+                    self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
+                self.assertEqual(service.create_service_request(p,payload,**args),legacy)
+                self.assertIsNone(service.service_feedback(p)['items'][0]['feedback_category'])
+                categorized=service.create_service_request(p,dict(payload,feedback_category='bug'),actor=person['actor'],expected_revision=legacy['revision'],idempotency_key='new-feedback-command')
+                with self.assertRaises(DBAPIError):
+                    with engine.begin() as conn:
+                        cfg.attributes['connection']=conn;command.downgrade(cfg,'0056_library_media_lifecycle')
+                with engine.connect() as conn:
+                    self.assertEqual(conn.execute(select(S.service_requests.c.feedback_category).where(S.service_requests.c.id==categorized['id'])).scalar_one(),'bug')
+                    self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),S.SCHEMA_REVISION)
+
     def fixed_run(self):
         from vsc.adapters.persistence.postgres.budget_store import native_units,operation_key
         self.write('configure_budget',dict(limits={'remote_jobs':2,'images':2},reason='API原预算隔离验证'))

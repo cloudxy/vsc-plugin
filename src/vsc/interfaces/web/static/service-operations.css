@@ -118,6 +118,23 @@
 .service-operations-actions{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:.5rem 0}
 .service-operations-request{padding:1rem 0;border-bottom:1px solid var(--so-line);overflow-wrap:anywhere}
 .service-operations-table{max-width:100%;overflow:auto}
+.so-feedback-list{min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden}
+.so-feedback-list .service-operations-table{width:100%;min-width:0}
+.service-operations .so-feedback-table{table-layout:fixed;min-width:1070px}
+.service-operations[data-feedback-scope="manage"] .so-feedback-table{min-width:1190px}
+.so-feedback-col-id{width:100px}.so-feedback-col-summary{width:260px}.so-feedback-col-category{width:120px}
+.so-feedback-col-requester{width:120px}.so-feedback-col-status{width:90px}.so-feedback-col-time{width:150px}
+.so-feedback-col-page{width:200px}.so-feedback-col-actions{width:150px}
+.so-feedback-table th{white-space:nowrap}
+.so-feedback-table td{vertical-align:top}
+.so-feedback-table .service-operations-actions{margin:0;gap:.4rem}
+.so-feedback-table button{white-space:nowrap}
+.so-feedback-table :is(th:last-child,td:last-child){position:sticky;right:0;z-index:1;background:var(--so-card);box-shadow:-4px 0 8px var(--so-card)}
+.so-feedback-table :is(td:nth-child(3),td:nth-child(4)){white-space:nowrap}
+.service-operations[data-feedback-scope="manage"] .so-feedback-table td:nth-child(5){white-space:nowrap}
+.so-feedback-summary strong,.so-feedback-summary p,.so-feedback-page{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+.so-feedback-summary strong{-webkit-line-clamp:2}.so-feedback-summary p{margin:.35rem 0 0;color:var(--so-muted);-webkit-line-clamp:2}
+.so-feedback-page{-webkit-line-clamp:3}.so-feedback-id{white-space:nowrap}
 .service-operations table{width:100%;text-align:left;border-collapse:collapse;font-size:.88rem}
 .service-operations td,.service-operations th{padding:.65rem .55rem;border-bottom:1px solid var(--so-line);overflow-wrap:anywhere}
 .service-operations th{color:var(--so-muted);font-weight:500}
