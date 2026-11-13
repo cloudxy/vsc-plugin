@@ -85,4 +85,5 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .sidebar-settings-open:hover,.sidebar-settings-open[aria-current=page]{background:transparent;color:var(--text-1)}
 .sidebar-settings-open svg{width:16px;height:16px;flex:none}
 .sidebar-help summary:hover{color:var(--text-1)}
-.workspace:has(#character-studio-view:not([hidden])){overflow-x:hidden;overflow-y:auto;height:100%;min-height:0}
+.workspace:has(:is(#character-studio-view,#service-operations-view,#commerce-view,#community-view,#edit-workspace-view,#spatial-scene-view,#creative-tools-view,#media-imports-view):not([hidden])){flex:1;overflow-x:hidden;overflow-y:auto;height:100%;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
+.workspace>:is(#service-operations-view,#commerce-view,#community-view,#edit-workspace-view,#spatial-scene-view,#creative-tools-view,#media-imports-view){flex:none;width:100%;box-sizing:border-box}
