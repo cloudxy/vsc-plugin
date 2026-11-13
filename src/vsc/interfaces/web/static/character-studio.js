@@ -557,6 +557,23 @@ export function createCharacterStudio(root,ctx){
   return wrap;
  }
 
+ function codexSubscriptionSettings(){
+  const s=state(),info=s.authStatus.codex||{},sec=section('Codex 订阅授权');
+  sec.node.classList.add('cs-codex-auth');
+  const head=el('div','cs-auth-head');
+  head.append(el('span','cs-conn-badge',store.AUTH_STATUS_LABELS[info.status]||'未检测'));
+  if(s.authPolling==='codex')head.append(el('span','cs-auth-polling','等待 ChatGPT 授权完成…'));
+  const card=el('div','cs-auth-card'+(info.ready?' is-ok':''));
+  card.append(head,el('p','cs-auth-msg',info.message||'检测本机 Codex 的 ChatGPT 订阅登录状态。'));
+  const actions=el('div','cs-row-actions');
+  if(!info.ready)actions.append(action('登录 Codex',()=>store.startAuthLogin('codex'),'cs-primary','auth-login-codex'));
+  actions.append(action('检查本机授权',()=>store.verifyAuth('codex'),'','auth-verify-codex'),action('刷新状态',()=>store.refreshAuthStatus(),'','auth-refresh-codex'));
+  actions.append(action('复制登录命令',async()=>{await navigator.clipboard?.writeText('codex login');notice('已复制：codex login');}));
+  card.append(actions);
+  sec.body.append(card,el('p','cs-field-hint','此处登记本机 Codex CLI 的订阅授权，令牌由 Codex 管理；下方 GPT Image API 配置独立使用 API Key。'));
+  return sec.node;
+ }
+
  function imageSettingsPanel(panel){
   const cfg=state().apiConfig;
   const pid=PROVIDER_META[settingsProvider]?settingsProvider:cfg.activeProvider;
@@ -588,6 +605,7 @@ export function createCharacterStudio(root,ctx){
    }
    acts.append(action('恢复默认',()=>{store.updateProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复生图默认端点与模型');}));
   }
+  if(group.id==='gpt')panel.append(codexSubscriptionSettings());
   const sec=section(`${group.name} · 生图接入配置`,{actions:acts});
   const modeBar=modeSwitchBar(group,pid,{
    metaMap:PROVIDER_META,isAuthFn:isAuthProvider,statusFn:providerStatusText,

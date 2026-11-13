@@ -99,6 +99,7 @@ const emptyRecipe=()=>({portrait:null,costume:null,pose:null,extraImages:[]});
 const recipeBackup=r=>({portrait:r.portrait?.source==='upload'?null:r.portrait,costume:r.costume?.source==='upload'?null:r.costume,pose:r.pose?.source==='upload'?null:r.pose,extraImages:[]});
 
 const defaultAuthState=()=>({
+ codex:{provider:'codex',cli_installed:false,ready:false,status:'idle',account:null,message:'尚未检测本机 Codex 订阅授权',login_command:'codex login'},
  grok:{provider:'grok_auth',cli_installed:false,ready:false,status:'idle',account:null,message:'尚未检测本机 Grok 订阅授权状态',login_command:'grok login --oauth'},
  agy:{provider:'agy_auth',cli_installed:false,ready:false,status:'idle',account:null,message:'尚未检测本机 AGY 授权状态',login_command:'agy'},
 });
@@ -175,12 +176,17 @@ export async function refreshAuthStatus(){
   if(epoch!==authEpoch||!data||typeof data!=='object')return state.authStatus;
   if(data.grok)state.authStatus={...state.authStatus,grok:{...state.authStatus.grok,...data.grok}};
   if(data.agy)state.authStatus={...state.authStatus,agy:{...state.authStatus.agy,...data.agy}};
+  if(data.codex)state.authStatus={...state.authStatus,codex:{...state.authStatus.codex,...data.codex}};
   emit();
  }catch{}
  return state.authStatus;
 }
+function authVendor(vendor){
+ const key={grok:'grok',grok_auth:'grok',grok_video_auth:'grok',agy:'agy',agy_auth:'agy',codex:'codex',codex_auth:'codex'}[vendor];
+ if(!key)throw new Error('不支持的授权类型');return key;
+}
 export async function verifyAuth(vendor){
- const key=vendor==='grok'||vendor==='grok_auth'||vendor==='grok_video_auth'?'grok':'agy';
+ const key=authVendor(vendor);
  const data=await verifyAuthProvider(key,host.api);
  if(data&&typeof data==='object'){
   state.authStatus={...state.authStatus,[key]:{...state.authStatus[key],...data}};
@@ -190,10 +196,11 @@ export async function verifyAuth(vendor){
  return data;
 }
 export async function startAuthLogin(vendor){
- const key=vendor==='grok'||vendor==='grok_auth'||vendor==='grok_video_auth'?'grok':'agy';
+ const key=authVendor(vendor);
  stopAuthPolling();
  const res=await triggerAuthLogin(key,host.api);
  if(res?.message)toast(res.message);
+ if(res?.started===false)return res;
  state.authPolling=key;emit();
  let attempts=0;
  const poll=async()=>{
@@ -201,7 +208,7 @@ export async function startAuthLogin(vendor){
   const latest=await refreshAuthStatus();
   if(latest?.[key]?.ready){
    stopAuthPolling();
-   toast(key==='grok'?'Grok 订阅授权已生效':'AGY 授权登录已就绪');
+   toast({grok:'Grok 订阅授权已生效',agy:'AGY 授权登录已就绪',codex:'Codex 订阅授权已就绪'}[key]);
    return;
   }
   if(attempts<36&&state.authPolling===key){authPollTimer=setTimeout(poll,2500);}
@@ -216,6 +223,8 @@ export const AUTH_STATUS_LABELS={
  expired:'登录已过期',
  unauthorized:'未登录',
  cli_missing:'未安装 CLI',
+ api_key_only:'API Key 登录',
+ check_failed:'检查未完成',
 };
 
 // ------------------------------------------------------------------ safe mode
