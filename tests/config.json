@@ -1553,6 +1553,15 @@
         "tests/project/unit/asset_editors_and_folders.test.mjs"
       ]
     },
+    "project.unit.test_official_asset_presentation": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/asset-center.js",
+        "src/vsc/interfaces/web/static/asset-center.css",
+        "tests/project/unit/official_asset_presentation.test.mjs"
+      ]
+    },
     "project.unit.test_resource_catalog_content": {
       "owner": "project",
       "layer": "unit",

@@ -18,6 +18,7 @@ class Element {
   prepend(...nodes) { for (const node of nodes.reverse()) { node.parentElement=this; this.children.unshift(node); } }
   replaceChildren(...nodes) { for (const n of this.children) n.parentElement=null; this.children=[]; this.append(...nodes); }
   setAttribute(k,v) { this.attributes[k]=String(v); }
+  getAttribute(k) { return this.attributes[k]??null; }
   removeAttribute(k) { delete this.attributes[k]; }
   querySelectorAll(selector) {
     return this.walk().filter(n=>selector==='dialog' ? n.tagName==='DIALOG' :
@@ -176,7 +177,9 @@ test('official and shared tabs query their own sources and restore from the URL'
   assert.ok(calls.some(url=>url.includes('source=official')&&url.includes('asset_kind=location')));
   await button(root,'全部').onclick();
   assert.match(root.querySelector('.center-official-tags').textContent,/主角青年女/);
-  assert.ok(root.querySelector('.center-cover').querySelector('.center-actions'));
+  assert.ok(root.querySelector('.center-card').querySelector('.center-card-tools'));
+  assert.ok(button(root,'引用生成'));
+  assert.ok(root.querySelector('.center-card-menu'));
   assert.ok(calls[0].includes('source=official')&&calls[0].includes('media_only=true')&&!calls[0].includes('asset_kind='));
   assert.equal(button(root,'站位'),undefined);
   await button(root,'音频').onclick();
