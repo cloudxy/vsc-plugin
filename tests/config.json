@@ -2391,6 +2391,8 @@
       "owner": "project",
       "layer": "unit",
       "sources": [
+        "src/vsc/interfaces/web/static/asset-center.js",
+        "src/vsc/interfaces/web/static/asset-center.css",
         "src/vsc/interfaces/web/static/character-studio.js",
         "src/vsc/interfaces/web/static/character-studio.css",
         "src/vsc/interfaces/web/static/character-studio-ai.js",
@@ -2398,7 +2400,8 @@
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/static/workbench-shell.css",
         "src/vsc/interfaces/web/templates/index.html",
-        "tests/project/unit/character_studio.test.mjs"
+        "tests/project/unit/character_studio.test.mjs",
+        "tests/project/unit/character_studio_parity.test.mjs"
       ]
     }
   },

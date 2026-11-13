@@ -163,8 +163,10 @@ const click = async (container, text) => { const node = find(container, text); a
   assert.equal(root.querySelector('.costume-open').querySelector('img').src, '/api/v1/asset-center/pose-gallery/media/thumbs/full_std_P001_side.jpg');
   await root.querySelector('.ref-pick').onclick(); await flush();
   assert.equal(studio.getState().recipe.pose.id, 'full_std_P001_side');
+  const beforeDepthRequests = requests.length;
   studio.setPoseDepthMode(true); await flush(); await flush();
-  assert.equal(root.querySelector('.costume-open').querySelector('img').src, '/api/v1/asset-center/pose-gallery/media/thumbs/depth/full_std_P001_front.webp');
+  assert.equal(root.querySelector('.costume-open').querySelector('img').src, '/api/v1/asset-center/pose-gallery/media/thumbs/depth/full_std_P001_side.webp');
+  assert.equal(requests.length, beforeDepthRequests);
   assert.equal(studio.getState().recipe.pose.useDepth, true);
   studio.setPoseDepthMode(false); await flush(); await flush();
   // 人像颜值库: Top10 hot filter.
