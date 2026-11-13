@@ -26,6 +26,11 @@ def install_service_operations_routes(app,router,catalog,etag,actor,read_actor):
     def snapshot(project_id:str,request:Request):
         read_actor(request);return etag(request,service(project_id).service_operations_snapshot(project_id))
 
+    @router.get('/{project_id}/service-operations/feedback')
+    def feedback(project_id:str,request:Request,scope:str='mine',status:str='all',query:str='',category:str='',offset:int=0,limit:int=24):
+        read_actor(request)
+        return etag(request,service(project_id).service_feedback(project_id,scope=scope,status=status,query=query,category=category,offset=offset,limit=limit))
+
     async def write(p,request,body,method):
         identity=actor(request)
         if set(body)!={'payload','expected_revision','idempotency_key'}:raise HTTPException(422,'身份来自可信会话；提交固定版本和请求标识')

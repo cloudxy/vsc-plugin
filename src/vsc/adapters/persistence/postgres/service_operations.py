@@ -25,6 +25,35 @@ class ServiceOperationsRepository:
     def _latest(self,conn,p,request_id):
         return dict(conn.execute(select(S.service_request_events).where(S.service_request_events.c.project_id==p,S.service_request_events.c.request_id==request_id).order_by(S.service_request_events.c.sequence.desc()).limit(1)).mappings().one())
 
+    def feedback(self,p,*,scope,status,query,category,offset,limit):
+        from vsc.assets.service_operations import FEEDBACK_STATUSES
+        r,e=S.service_requests,S.service_request_events
+        latest=select(e.c.status).where(e.c.project_id==r.c.project_id,e.c.request_id==r.c.id).order_by(e.c.sequence.desc()).limit(1).correlate(r).scalar_subquery()
+        with self.store.engine.connect() as conn:
+            project=self.store._project(conn,p);person=self._identity(conn)
+            access=self.store._access_require(conn,p,'manage' if scope=='manage' else 'read')
+            conditions=[r.c.project_id==p,r.c.kind=='feedback']
+            if scope=='mine':conditions.append(r.c.requester_id==person['id'])
+            if status!='all':conditions.append(latest.in_(FEEDBACK_STATUSES[status]))
+            if category:conditions.append(r.c.feedback_category.is_(None) if category=='uncategorized' else r.c.feedback_category==category)
+            if query:
+                # contains(autoescape) treats user-entered % and _ literally.
+                from sqlalchemy import cast,Text
+                conditions.append(or_(*(cast(col,Text).icontains(query,autoescape=True) for col in (r.c.id,r.c.title,r.c.body,r.c.channel))))
+            total=conn.execute(select(func.count()).select_from(r).where(*conditions)).scalar_one()
+            rows=[dict(row) for row in conn.execute(select(r,latest.label('status'),S.access_identities.c.display_name.label('requester_name'))
+                .join(S.access_identities,S.access_identities.c.id==r.c.requester_id).where(*conditions)
+                .order_by(r.c.created_at.desc(),r.c.id.desc()).offset(offset).limit(limit)).mappings()]
+            histories={row['id']:[] for row in rows}
+            if rows:
+                for event in conn.execute(select(e).where(e.c.project_id==p,e.c.request_id.in_(histories)).order_by(e.c.sequence)).mappings():
+                    histories[event['request_id']].append(dict(event))
+            for row in rows:
+                row.update(events=histories[row['id']],mine=row['requester_id']==person['id'])
+            return clean(dict(project_id=p,revision=project['revision'],identity_id=person['id'],actor=person['actor'],
+                manage='manage' in access['capabilities'],capabilities=access['capabilities'],scope=scope,
+                items=rows,total=total,offset=offset,limit=limit,next_offset=offset+len(rows) if offset+len(rows)<total else None))
+
     def snapshot(self,p):
         with self.store.engine.connect() as conn:
             project=self.store._project(conn,p);person=self._identity(conn);scope=self.store._access_require(conn,p,'read');manage='manage' in scope.get('capabilities',[])

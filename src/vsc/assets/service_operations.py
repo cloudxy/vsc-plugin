@@ -6,6 +6,13 @@ import uuid
 
 KINDS={'feedback','support','fcp','studio','production_service','distribution','account_close','personal_export'}
 EXPORT_FIELDS={'profile','memberships','requests','orders'}
+FEEDBACK_CATEGORIES={'feature','quality','billing','ux','bug'}
+FEEDBACK_STATUSES={
+    'received':('received',),
+    'processing':('under_review','awaiting_configuration','error'),
+    'reviewed':('local_approved',),
+    'closed':('rejected','withdrawn','account_closed','export_ready'),
+}
 
 def api_capabilities(project_id):
     base='/api/v1/service-api/projects/'+project_id
@@ -81,6 +88,16 @@ class ServiceOperationsService:
     def service_operations_snapshot(self,p):
         self.authorize_access(p,'read');result=self._operations().snapshot(p);result['api_catalog']=api_capabilities(p);return result
 
+    def service_feedback(self,p,*,scope='mine',status='all',query='',category='',offset=0,limit=24):
+        self.authorize_access(p,'manage' if scope=='manage' else 'read')
+        if scope not in {'mine','manage'} or status not in {'all',*FEEDBACK_STATUSES}:
+            error('反馈范围或状态无效')
+        if category not in {'','uncategorized',*FEEDBACK_CATEGORIES}:error('反馈分类无效')
+        if type(offset)is not int or offset<0 or type(limit)is not int or not 1<=limit<=100:
+            error('反馈分页需要非负 offset 与 1–100 的 limit')
+        query=text(query,'反馈搜索',200,True)
+        return self._operations().feedback(p,scope=scope,status=status,query=query,category=category,offset=offset,limit=limit)
+
     def verify_seedance_task(self,p,payload):
         self.authorize_access(p,'read')
         if not isinstance(payload,dict) or set(payload)-{'task_id','tos_url'} or 'task_id' not in payload:
@@ -135,8 +152,11 @@ class ServiceOperationsService:
         return self._operations().publish(p,payload,**kw)
 
     def create_service_request(self,p,payload,**kw):
-        self._validate_write(payload,**kw);self.authorize_access(p,'read');fields(payload,'kind title body contact channel artifact_id media_id requested_fields')
+        self._validate_write(payload,**kw);self.authorize_access(p,'read')
+        fields(payload,'kind title body contact channel artifact_id media_id requested_fields'+(' feedback_category' if 'feedback_category' in payload else ''))
         if payload['kind'] not in KINDS:error('申请类型未支持')
+        category=payload.get('feedback_category')
+        if category is not None and (payload['kind']!='feedback' or not isinstance(category,str) or category not in FEEDBACK_CATEGORIES):error('反馈分类无效或用于非反馈申请')
         for name,limit,empty in (('title',200,False),('body',10000,False),('contact',254,True),('channel',200,True)):text(payload[name],name,limit,empty)
         selected=payload['requested_fields']
         if not isinstance(selected,list) or any(not isinstance(x,str) or x not in EXPORT_FIELDS for x in selected) or len(set(selected))!=len(selected):error('导出字段范围不正确')
