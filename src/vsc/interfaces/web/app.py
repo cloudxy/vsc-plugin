@@ -539,7 +539,7 @@ def create_app(config=None, catalog=None, service=None):
     install_canvas_library_routes(app, catalog, etag)
     install_canvas_collab_ws(app, catalog, allowed_hosts=allowed_hosts, origins=origins, hub=collab_hub)
     install_marketing_studio_routes(router, catalog, etag, actor)
-    install_marketing_case_routes(app, etag)
+    install_marketing_case_routes(app, etag, media_root=config.get('media_root'))
     install_production_batch_routes(router, catalog, etag, actor)
     install_classic_production_routes(router, catalog, etag, actor)
     install_project_management_routes(app, router, catalog, etag, actor, read_actor)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vsc-workflow"
-version = "0.47.72"
+version = "0.47.73"
 description = "Provider-neutral short drama workflow and resource panel"
 requires-python = ">=3.9"
 dependencies = [
@@ -32,7 +32,7 @@ include = ["vsc", "vsc.*", "tools", "tools.maintenance", "tools.maintenance.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-"vsc.assets" = ["marketing-cases.json"]
+"vsc.assets" = ["marketing-cases.json", "marketing-assets.json"]
 "vsc.interfaces.web" = ["templates/*", "static/*", "static/workbench-art/*"]
 
 [tool.setuptools.data-files]
@@ -75,7 +75,7 @@ namespaces = false
 "share/vsc-workflow/scripts/assets" = ["scripts/assets/library.py", "scripts/assets/resources.py", "scripts/assets/workbench.py"]
 "share/vsc-workflow/scripts/kernel" = ["scripts/kernel/catalog.py", "scripts/kernel/hosts.py", "scripts/kernel/views.py"]
 "share/vsc-workflow/scripts/knowledge" = ["scripts/knowledge/craft.py", "scripts/knowledge/learning.py", "scripts/knowledge/recipes.py", "scripts/knowledge/search.py"]
-"share/vsc-workflow/scripts/maintenance" = ["scripts/maintenance/local_ci.py", "scripts/maintenance/pre_commit.py", "scripts/maintenance/provider_sync.py", "scripts/maintenance/vendor_maintenance.sh", "scripts/maintenance/vendor_review.py", "scripts/maintenance/vendor_skills.py", "scripts/maintenance/vendor_sync.py", "scripts/maintenance/vendor_watch.py"]
+"share/vsc-workflow/scripts/maintenance" = ["scripts/maintenance/local_ci.py", "scripts/maintenance/marketing_media.py", "scripts/maintenance/pre_commit.py", "scripts/maintenance/provider_sync.py", "scripts/maintenance/vendor_maintenance.sh", "scripts/maintenance/vendor_review.py", "scripts/maintenance/vendor_skills.py", "scripts/maintenance/vendor_sync.py", "scripts/maintenance/vendor_watch.py"]
 "share/vsc-workflow/scripts/media" = ["scripts/media/procedural_audio.py", "scripts/media/qa.py", "scripts/media/temp_voice.py", "scripts/media/toolchain.py"]
 "share/vsc-workflow/scripts/post" = ["scripts/post/delivery.py", "scripts/post/export.py", "scripts/post/jianying.py", "scripts/post/remotion_plan.py", "scripts/post/selection.py", "scripts/post/subtitle_burn.py"]
 "share/vsc-workflow/scripts/production" = ["scripts/production/budget.py", "scripts/production/dispatch.py", "scripts/production/handoffs.py", "scripts/production/jobs.py", "scripts/production/plan.py", "scripts/production/quality.py", "scripts/production/query.py", "scripts/production/run.py", "scripts/production/series.py"]

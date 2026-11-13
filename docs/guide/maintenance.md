@@ -37,3 +37,14 @@ VSC_CI_SCOPE=targeted VSC_CI_TESTS="maintenance.integration.test_vsc_local_ci" g
 定向模式仍执行内核、相关测试、跟踪文件和链接检查，失败会阻止推送；不是跳过钩子。显式 `VSC_CI_SCOPE=full` 或手动运行 `scripts/maintenance/local_ci.py` 保留全量方式。不要把范围明确的小修改扩大为全仓库测试，也不要用定向模式掩盖影响不明的改动。
 
 临时审计与探索稿放 `tmp`；需要执行、持续维护的方案放本机 `docs/plans/`。该目录受 Git 忽略，计划与索引不提交、不打包；公开文档不链接其中的文件。
+
+## 营销工作室的本地展示资源
+
+案例视频、案例封面与技能封面保存于已配置的 `VSC_MEDIA_ROOT/marketing-studio/`，原始字节不进入源码仓库。复制或备份本机媒体目录时保留此子目录；来源、大小、类型及固定 SHA-256 在包内 `marketing-assets.json` 中追溯。网页只读取已校验的本地文件。
+
+```bash
+python3 -B scripts/maintenance/marketing_media.py         # 仅读取并校验本地完整性
+python3 -B scripts/maintenance/marketing_media.py --sync  # 显式联网恢复缺失或损坏的原文件
+```
+
+恢复只接受目录中的固定摘要，来源内容变化会报错并保留现有文件。配置继续沿用 `config/.env`；`--media-root` 可指定待校验或恢复的媒体目录。

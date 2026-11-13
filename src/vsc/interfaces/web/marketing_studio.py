@@ -3,8 +3,22 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 
-def install_marketing_case_routes(app, etag):
+def install_marketing_case_routes(app, etag, *, media_root=None):
     from vsc.assets.marketing_cases import list_cases, get_case
+    from vsc.assets.marketing_media import local_asset
+    from vsc.configuration import get_config
+    from fastapi.responses import FileResponse, Response
+
+    media_root = media_root or get_config('VSC_MEDIA_ROOT')
+
+    @app.api_route('/api/v1/marketing-assets/{asset_id:path}', methods=['GET', 'HEAD'])
+    def media(asset_id: str, request: Request):
+        path, item, stat = local_asset(media_root, asset_id)
+        tag = '"' + item['sha256'] + '"'
+        headers = {'ETag': tag, 'Cache-Control': 'private, max-age=3600'}
+        if request.headers.get('if-none-match') == tag:
+            return Response(status_code=304, headers=headers)
+        return FileResponse(path, media_type=item['mime_type'], stat_result=stat, headers=headers)
 
     @app.get("/api/v1/marketing-cases")
     def cases(request: Request, category_name: str = None, keyword: str = "", page: int = 1,

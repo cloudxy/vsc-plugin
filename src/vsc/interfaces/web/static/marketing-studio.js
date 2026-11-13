@@ -14,18 +14,12 @@ const CASE_FIELDS=['schema','id','version','sha256','source_origin','template_ke
 const casePin=spec=>({id:spec.id,version:spec.version,sha256:spec.sha256});
 const samePin=(a,b)=>Boolean(a&&b&&a.id===b.id&&a.version===b.version&&a.sha256===b.sha256);
 const stable=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(k=>[k,item[k]])):item);
-const mediaURL=value=>{try{const u=new URL(value);return ['https:','http:'].includes(u.protocol)&&!u.username&&!u.password?value:null;}catch{return null;}};
-// Public covers are display-only metadata from the locked source slug mapping.
-// The poster's embedded cover is intentionally represented by the same fallback.
-const METHOD_COVERS=Object.freeze({
-  'short-drama-commerce':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/short-drama-commerce-D7XRpKxL.webp',
-  'commercial-tvc':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/commercial-tvc-B8Swip98.webp',
-  'viral-video-clone':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/viral-video-clone-BUWhckxi.webp',
-  'ugc-commerce':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/ugc-commerce-X6YEkdpZ.webp',
-  'video-localization':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/video-localization-CJreqF5O.webp',
-  'viral-creative-variation':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/viral-creative-variation-Ld9ezmEL.jpg',
-  'product-visual-materials':'https://static.skyproduction.cn/frontend/skyproduction-web/prod/assets/product-visual-materials-BgEzR3ZB.jpg'
-});
+// Display bytes always come from the local mirror; case source URLs remain immutable provenance.
+const caseMediaURL=(spec,kind)=>'/api/v1/marketing-assets/cases/'+encodeURIComponent(spec.template_key)+'/'+kind;
+const METHOD_COVERS=Object.freeze(Object.fromEntries([
+  'short-drama-commerce','product-poster','commercial-tvc','viral-video-clone','ugc-commerce',
+  'video-localization','viral-creative-variation','product-visual-materials'
+].map(id=>[id,'/api/v1/marketing-assets/methods/'+id])));
 export async function marketingStartKey(prepareKey){return 'marketing-start:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(prepareKey))),n=>n.toString(16).padStart(2,'0')).join('');}
 
 export function createMarketingStudio(root,ctx){
@@ -293,9 +287,9 @@ export function createMarketingStudio(root,ctx){
   }
   function visual(s,spec,c,render,stamp){
     const requestSeq=c.requestSeq;
-    const cover=el('div',null,'marketing-case-cover'),image=el('img'),url=mediaURL(spec.cover_url);image.alt=spec.video_name||spec.group_name;image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';if(url)image.src=url;else image.hidden=true;cover.append(image);
+    const cover=el('div',null,'marketing-case-cover'),image=el('img'),url=caseMediaURL(spec,'cover');image.alt=spec.video_name||spec.group_name;image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';if(url)image.src=url;else image.hidden=true;cover.append(image);
     cover.style.aspectRatio=`${spec.width} / ${spec.height}`;const video=el('video'),play=caseButton(s,'播放预览',()=>{if(c.requestSeq===requestSeq)preview(s,video,image,play,c,stamp,render,true);},'marketing-case-play');video.muted=true;video.loop=true;video.playsInline=true;video.preload='none';video.crossOrigin='anonymous';video.hidden=true;
-    const source=mediaURL(spec.video_url);if(source)video.src=source;else play.disabled=true;video.onerror=()=>{if(caseViewLive(s,c)&&c.renderSeq===render&&caseScope(s)===stamp){if(c.preview?.video===video)stopPreview(c);play.textContent='预览暂不可用';}};image.onerror=()=>{if(caseViewLive(s,c)&&c.renderSeq===render&&caseScope(s)===stamp){image.hidden=true;cover.append(el('span','封面暂不可用','marketing-case-unavailable'));}};cover.append(video,play);return {cover,video,image,play};
+    const source=caseMediaURL(spec,'video');if(source)video.src=source;else play.disabled=true;video.onerror=()=>{if(caseViewLive(s,c)&&c.renderSeq===render&&caseScope(s)===stamp){if(c.preview?.video===video)stopPreview(c);play.textContent='预览暂不可用';}};image.onerror=()=>{if(caseViewLive(s,c)&&c.renderSeq===render&&caseScope(s)===stamp){image.hidden=true;cover.append(el('span','封面暂不可用','marketing-case-unavailable'));}};cover.append(video,play);return {cover,video,image,play};
   }
   function renderCases(s,c=s.cases){
     if(!caseViewLive(s,c)||!c.grid)return;stopCaseObserver(c);clearCasePreviews(c);c.masonry?.disconnect();c.layoutPending=true;const render=++c.renderSeq,requestSeq=c.requestSeq,stamp=caseScope(s),pin=s.pending?.request.payload.case_ref||s.draft.case;c.grid.replaceChildren();c.selectButtons=[];c.choices=[];c.displayed=new Map();
@@ -303,8 +297,8 @@ export function createMarketingStudio(root,ctx){
       const spec=c.compact?group.examples[0]:group.examples.find(item=>samePin(item,pin))||group.examples[0];if(!spec)continue;c.displayed.set(group.group_key,spec.template_key);
       if(c.compact){
         const current=()=>caseViewLive(s,c)&&c.requestSeq===requestSeq&&c.renderSeq===render&&caseScope(s)===stamp,option=caseButton(s,'',()=>{if(current())selectCase(s,spec);},'marketing-case-option');option.setAttribute('aria-label','选择创意 '+group.group_name);option.dataset.groupKey=group.group_key;option.dataset.caseId=spec.id;
-        const image=el('img');image.alt='';image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';const url=mediaURL(spec.cover_url);if(url)image.src=url;const text=el('span',null,'marketing-case-option-copy');text.append(el('span',group.group_name,'marketing-case-option-name'),el('span',group.group_description,'marketing-case-option-description'));const check=el('span','✓','marketing-case-option-check');check.setAttribute('aria-hidden','true');option.append(image,text,check);option.disabled=Boolean(s.pending||s.busy);c.grid.append(option);c.selectButtons.push(option);c.choices.push({node:option,button:option,group,check});
-        let previewBox=null,media=null;const show=()=>{if(!current()||!mediaURL(spec.video_url)||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;if(!previewBox){previewBox=el('div',null,'marketing-picker-preview');media=visual(s,spec,c,render,stamp);previewBox.append(media.cover);previewBox.hidden=true;root.append(previewBox);c.previewBoxes.push(previewBox);}const box=option.getBoundingClientRect(),width=globalThis.window?.innerWidth||globalThis.innerWidth||1024,height=globalThis.window?.innerHeight||globalThis.innerHeight||768;previewBox.style.left=Math.max(12,Math.min(box.right+8,width-262))+'px';previewBox.style.top=Math.max(12,Math.min(box.top,height-460))+'px';preview(s,media.video,media.image,media.play,c,stamp,render,false,previewBox);};option.onpointerenter=e=>{if(e.pointerType==='mouse'&&globalThis.matchMedia?.('(hover: hover) and (pointer: fine)').matches)show();};option.onpointerleave=()=>stopPreview(c);option.onfocus=show;option.onblur=()=>stopPreview(c);continue;
+        const image=el('img');image.alt='';image.loading='lazy';image.referrerPolicy='no-referrer';image.crossOrigin='anonymous';const url=caseMediaURL(spec,'cover');if(url)image.src=url;const text=el('span',null,'marketing-case-option-copy');text.append(el('span',group.group_name,'marketing-case-option-name'),el('span',group.group_description,'marketing-case-option-description'));const check=el('span','✓','marketing-case-option-check');check.setAttribute('aria-hidden','true');option.append(image,text,check);option.disabled=Boolean(s.pending||s.busy);c.grid.append(option);c.selectButtons.push(option);c.choices.push({node:option,button:option,group,check});
+        let previewBox=null,media=null;const show=()=>{if(!current()||!caseMediaURL(spec,'video')||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;if(!previewBox){previewBox=el('div',null,'marketing-picker-preview');media=visual(s,spec,c,render,stamp);previewBox.append(media.cover);previewBox.hidden=true;root.append(previewBox);c.previewBoxes.push(previewBox);}const box=option.getBoundingClientRect(),width=globalThis.window?.innerWidth||globalThis.innerWidth||1024,height=globalThis.window?.innerHeight||globalThis.innerHeight||768;previewBox.style.left=Math.max(12,Math.min(box.right+8,width-262))+'px';previewBox.style.top=Math.max(12,Math.min(box.top,height-460))+'px';preview(s,media.video,media.image,media.play,c,stamp,render,false,previewBox);};option.onpointerenter=e=>{if(e.pointerType==='mouse'&&globalThis.matchMedia?.('(hover: hover) and (pointer: fine)').matches)show();};option.onpointerleave=()=>stopPreview(c);option.onfocus=show;option.onblur=()=>stopPreview(c);continue;
       }
       const card=el('article',null,'marketing-case-card');card.dataset.groupKey=group.group_key;card.dataset.caseId=spec.id;card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','查看 '+group.group_name+' 的创意详情');
       const v=visual(s,spec,c,render,stamp);card.append(v.cover,el('h3',group.group_name),el('p',group.group_description,'marketing-case-description'));
