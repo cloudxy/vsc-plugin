@@ -337,11 +337,68 @@ export async function durableRecipe(recipe){
 }
 
 async function smartFetch(targetUrl,init,useProxy){
- if(!useProxy)return fetch(targetUrl,init);
+ if(!useProxy)return generationFetch(targetUrl,init);
  const headers=new Headers(init.headers);
  headers.set('x-target-url',targetUrl);
  const csrf=csrfProvider();if(csrf)headers.set('X-CSRF-Token',csrf);
- return fetch('/api/proxy',{method:'POST',headers,body:init.body,signal:init.signal,credentials:'same-origin'});
+ return generationFetch('/api/proxy',{method:'POST',headers,body:init.body,signal:init.signal,credentials:'same-origin'});
+}
+
+function safeFailureText(value,secret=''){
+ let text=String(value||'');
+ if(secret)text=text.split(secret).join('[REDACTED]');
+ return text.replace(/Bearer\s+[^\s"',;]+/gi,'Bearer [REDACTED]')
+  .replace(/\b(?:sk-|xai-|AIza)[\w-]+/gi,'[REDACTED]')
+  .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password)["']?\s*[:=]\s*["']?)[^\s"',;}]+/gi,'$1[REDACTED]')
+  .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g,'[REDACTED]')
+  .replace(/data:image\/[^\s"']+/gi,'[图片数据]')
+  .replace(/(?<![\w:/])\/(?:Users|home|private|tmp|var)\/[^\s"'<>]+/g,'[本机路径]').slice(0,3200);
+}
+async function generationFetch(url,options){
+ try{return await fetch(url,options);}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  throw new Error(`请求未完成，未收到生成服务的 HTTP 响应。\n浏览器信息：${error?.message||String(error)}`);
+ }
+}
+function failureMessage(value){
+ if(typeof value==='string'||typeof value==='number')return String(value);
+ if(Array.isArray(value))return value.map(failureMessage).filter(Boolean).join('; ');
+ if(value&&typeof value==='object')return [value.message||value.msg||value.reason, value.code, value.type].map(v=>typeof v==='string'||typeof v==='number'?String(v):'').filter(Boolean).join('; ');
+ return '';
+}
+function generationFailure(json,res,observation=''){
+ const primary=failureMessage(json?.detail)||failureMessage(json?.error)||failureMessage(json?.message);
+ const summary=primary.split('\n')[0];
+ const facts=[observation?`${observation}${summary?` ${summary}`:''}`:(summary||'图片生成失败：平台未提供具体失败原因。')];
+ if(res.status)facts.push(`HTTP 状态：${res.status}`);
+ const details=[failureMessage(json?.detail),failureMessage(json?.error),failureMessage(json?.message)];
+ if(json?.code)details.push(`错误码：${failureMessage(json.code)}`);
+ const requestId=json?.request_id||json?.requestId||json?.error?.request_id||res.headers?.get?.('x-request-id')||res.headers?.get?.('request-id');
+ if(requestId)facts.push(`请求编号：${requestId}`);
+ const feedback=json?.promptFeedback;
+ if(feedback?.blockReason)details.push(`提示词拦截原因：${feedback.blockReason}${feedback.blockReasonMessage?`；${feedback.blockReasonMessage}`:''}`);
+ for(const candidate of json?.candidates||[]){
+  if(candidate.finishReason)details.push(`模型结束原因：${candidate.finishReason}`);
+  for(const part of candidate.content?.parts||[])if(part.text)details.push(part.text);
+ }
+ const msg=json?.choices?.[0]?.message;
+ if(msg?.refusal)details.push(`模型拒绝：${msg.refusal}`);
+ if(typeof msg?.content==='string')details.push(msg.content);
+ if(Array.isArray(msg?.content))for(const part of msg.content)if(part.text||part.refusal)details.push(part.text||part.refusal);
+ if(json?.status)details.push(`响应状态：${json.status}`);
+ if(json?.incomplete_details?.reason)details.push(`未完成原因：${json.incomplete_details.reason}`);
+ if(Array.isArray(json?.output))for(const item of json.output)for(const part of item.content||[])if(part.type==='refusal')details.push(`模型拒绝：${part.refusal}`);
+ const unique=[...new Set(details.filter(Boolean))];
+ facts.push(unique.length?`具体信息：${unique.join('\n')}`:'平台未提供具体失败原因。');
+ return new Error(facts.join('\n'));
+}
+async function generationJson(res){
+ try{return await res.json();}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  throw generationFailure(null,res,'生成服务返回的内容无法解析为 JSON，未取得图片结果。');
+ }
 }
 
 function extractUniversalImage(json){
@@ -460,7 +517,16 @@ export function buildGrokVideoApiRequest({baseUrl,apiKey,model,prompt,firstFrame
 }
 
 // ------------------------------------------------------------------ Generation entry
-export async function generateCharacterImage({recipe,prompt,config,onProgress,signal}){
+export async function generateCharacterImage(options){
+ const {config}=options,provider=config.activeProvider,pCfg=config.providers[provider]||{},meta=PROVIDER_META[provider];
+ const model=pCfg.model==='custom'?pCfg.customModel:(pCfg.model||meta?.models[0]?.value||'未选择模型');
+ try{return await runCharacterGeneration(options);}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  throw new Error(`[${meta?.shortName||provider} · ${model}] ${safeFailureText(error?.message||'调用结束，未取得图片或错误详情。',pCfg.apiKey)}`);
+ }
+}
+async function runCharacterGeneration({recipe,prompt,config,onProgress,signal}){
  const provider=config.activeProvider,meta=PROVIDER_META[provider],pCfg=config.providers[provider]||{};
  if(!meta)throw new Error('未知的生图接口通道');
  const rawSources=[
@@ -486,10 +552,10 @@ export async function generateCharacterImage({recipe,prompt,config,onProgress,si
    aspect_ratio:provider==='codex_auth'?(config.codexParams?.aspectRatio||'3:4'):provider==='grok_auth'?(config.grokParams?.aspectRatio||'3:4'):(config.agyParams?.aspectRatio||'3:4'),
    resolution:config.grokParams?.resolution||'2k',
   };
-  const res=await fetch('/api/v1/character-studio/generate',{method:'POST',headers,body:JSON.stringify(payload),signal,credentials:'same-origin'});
-  const json=await res.json().catch(()=>({}));
-  if(!res.ok)throw new Error(json?.detail||json?.message||`[${meta.shortName}] 请求失败 (HTTP ${res.status})`);
-  if(!json?.image_url)throw new Error(`[${meta.shortName}] 服务未返回图像数据`);
+  const res=await generationFetch('/api/v1/character-studio/generate',{method:'POST',headers,body:JSON.stringify(payload),signal,credentials:'same-origin'});
+  const json=await generationJson(res);
+  if(!res.ok)throw generationFailure(json,res);
+  if(!json?.image_url)throw generationFailure(json,res,'生成服务已响应，但未返回图像数据。');
   return {imageUrl:json.image_url,modelUsed:json.model||model,providerUsed:provider};
  }
 
@@ -537,10 +603,10 @@ export async function generateCharacterImage({recipe,prompt,config,onProgress,si
   if(!endpoint.endsWith('/images/generations'))endpoint=endpoint.endsWith('/api/v3')||endpoint.endsWith('/v1')?`${endpoint}/images/generations`:`${endpoint}/api/v3/images/generations`;
   res=await smartFetch(endpoint,{method:'POST',headers:json_({Authorization:`Bearer ${apiKey}`}),body:JSON.stringify({model,prompt,image:allRefs,size:db.size,sequential_image_generation:db.sequentialImageGeneration,watermark:db.watermark,response_format:db.responseFormat}),signal},config.useProxy);
  }
- const json=await res.json().catch(()=>({}));
- if(!res.ok)throw new Error(`[${meta.shortName}] ${json?.error?.message||json?.message||json?.code||`请求失败 (HTTP ${res.status})`}`);
+ const json=await generationJson(res);
+ if(!res.ok)throw generationFailure(json,res);
  let imageUrl=extractUniversalImage(json);
- if(!imageUrl)throw new Error(`接口已响应但未解析到图片输出：${(json?.choices?.[0]?.message?.content||json?.output?.choices?.[0]?.message?.content?.[0]?.text||JSON.stringify(json)).slice(0,260)}`);
+ if(!imageUrl)throw generationFailure(json,res,'生成服务已响应，但未返回可读取的图片。');
  if(/^https:\/\//i.test(imageUrl)&&config.useProxy){
   onProgress?.({stage:'download',message:'正在转存临时生成图片…'});
   imageUrl=await fetchImageViaProxy(imageUrl,signal).catch(()=>imageUrl);

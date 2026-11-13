@@ -543,7 +543,7 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     self.assertIn("3h55m12s", res_429.json()["detail"])
                     self.assertNotIn("--mode auto", res_429.json()["detail"])
 
-                    # Safety moderation block (`no image generated in response`) surfaces actionable 422 error.
+                    # An empty image result alone does not establish a safety refusal.
                     safety_envelope = {
                         "conversation_id": "58307063-cc70-4810-ad27-e7b249e8a8d8",
                         "status": "SUCCESS",
@@ -569,8 +569,9 @@ class CharacterStudioHttpTests(unittest.TestCase):
                             },
                             headers=headers,
                         )
-                    self.assertEqual(res_safety.status_code, 422, res_safety.text)
-                    self.assertIn("安全策略拦截", res_safety.json()["detail"])
+                    self.assertEqual(res_safety.status_code, 502, res_safety.text)
+                    self.assertIn("no image generated in response", res_safety.json()["detail"])
+                    self.assertNotIn("安全策略拦截", res_safety.json()["detail"])
 
 
 
@@ -642,6 +643,34 @@ class CodexAuthorizationTests(unittest.TestCase):
 
 
 class CodexGenerationTests(unittest.TestCase):
+    def test_failure_facts_remain_specific_without_inventing_a_cause_or_leaking_secrets(self):
+        from fastapi import HTTPException
+        from vsc.interfaces.web import character_studio as module
+        samples = [
+            ("HTTP 429 Too Many Requests; retry after 30s; request_id=req-rate", 429, "请求限流", "配额已用尽"),
+            ("HTTP 429 RESOURCE_EXHAUSTED; quota reset after 3h55m12s", 429, "配额已用尽", "安全策略"),
+            ("IMAGE_SAFETY: image blocked; request_id=req-safe", 422, "安全策略拦截", "配额"),
+            ("no image generated in response", 502, "no image generated in response", "安全策略"),
+            ("HTTP 403 model access denied; request_id=req-access", 403, "访问权限", "登录凭证"),
+            ("", 502, "平台未提供具体失败原因", "重新登录"),
+        ]
+        for detail, code, expected, excluded in samples:
+            with self.subTest(detail=detail), self.assertRaises(HTTPException) as raised:
+                module._raise_agy_generation_error(0, detail)
+            self.assertEqual(raised.exception.status_code, code)
+            self.assertIn(expected, raised.exception.detail)
+            self.assertIn("CLI 退出码：0", raised.exception.detail)
+            self.assertNotIn(excluded, raised.exception.detail)
+            if detail:
+                self.assertIn(detail, raised.exception.detail)
+        detail = 'model_unavailable request_id=req-42 Bearer abc-secret api_key=some-key sk-private /Users/private/person/ref.png'
+        with self.assertRaises(HTTPException) as raised:
+            module._raise_grok_generation_error(503, detail, via_cli=False)
+        self.assertIn("model_unavailable request_id=req-42", raised.exception.detail)
+        self.assertIn("HTTP 状态：503", raised.exception.detail)
+        for secret in ("abc-secret", "some-key", "sk-private", "/Users/private"):
+            self.assertNotIn(secret, raised.exception.detail)
+
     def test_subscription_generation_uses_sanitized_cli_and_validates_output(self):
         from fastapi import HTTPException
         from vsc.interfaces.web import character_studio as module
@@ -689,6 +718,8 @@ class CodexGenerationTests(unittest.TestCase):
                         self.assertEqual(error.exception.status_code, code)
                         self.assertNotIn("sk-private", error.exception.detail)
                         self.assertNotIn("private-token", error.exception.detail)
+                        expected = {"outside": "不在本次允许", "old": "旧文件", "invalid": "不是受支持的有效图片", "quota": "quota exceeded", "auth": "token_revoked", "timeout": "300秒"}[kind]
+                        self.assertIn(expected, error.exception.detail)
                 runner.reset_mock()
                 for invalid in [{"references": []}, {"references": [reference] * 9}, {"model": "arbitrary-code-model"}, {"aspect_ratio": "invalid"}, {"prompt": ""}]:
                     with self.subTest(invalid=invalid):

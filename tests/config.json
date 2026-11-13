@@ -2405,7 +2405,8 @@
         "src/vsc/interfaces/web/static/workbench-shell.css",
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/character_studio.test.mjs",
-        "tests/project/unit/character_studio_parity.test.mjs"
+        "tests/project/unit/character_studio_parity.test.mjs",
+        "tests/project/unit/character_studio_errors.test.mjs"
       ]
     },
     "project.integration.test_project_workspace_catalog": {

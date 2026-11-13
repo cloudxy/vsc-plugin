@@ -68,7 +68,6 @@ _MODEL_ID_RE = re.compile(r"\b(?:gemini|claude|gpt)-[a-z0-9][a-z0-9.-]{2,60}\b",
 _GROK_MODEL_ID_RE = re.compile(r"\bgrok-[a-z0-9][a-z0-9.-]{1,60}\b", re.I)
 _SAFE_CONV_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{3,127}$")
 _ABS_IMAGE_PATH_RE = re.compile(r"(/[^\s`'\"<>()]+?\.(?:png|jpe?g|webp|gif))", re.I)
-_QUOTA_RESET_RE = re.compile(r"reset after\s+([0-9hms.]+)", re.I)
 _FALLBACK_BIN_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
 _CLI_PROXY_ENV_KEYS = (
     "HTTP_PROXY",
@@ -654,9 +653,78 @@ def _unwrap_grok_error_detail(detail: str, redact_secret: str = "") -> tuple[str
                 inner_msg = inner_msg.get("message")
             if isinstance(inner_msg, str) and inner_msg.strip():
                 text = inner_msg.strip()
+                for field in ("code", "request_id"):
+                    if isinstance(inner.get(field), (str, int)):
+                        text += f"; {field}={inner[field]}"
                 if redact_secret:
                     text = text.replace(redact_secret, "[REDACTED]")
+    status_match = re.search(r"\bHTTP\s+(\d{3})\b", text, re.I)
+    if inferred_status is None and status_match:
+        inferred_status = int(status_match.group(1))
     return re.sub(r"\s+", " ", text).strip(), inferred_status
+
+
+def _safe_generation_detail(detail: str, redact_secret: str = "") -> str:
+    """Expose failure facts, never credentials, image bytes or local file paths."""
+    text = _ANSI_RE.sub("", str(detail or ""))
+    secrets = [redact_secret, *(value for name, value in os.environ.items()
+        if re.search(r"(?:TOKEN|SECRET|API_KEY|ACCESS_KEY)", name, re.I) and len(value) >= 8)]
+    for secret in sorted(filter(None, secrets), key=len, reverse=True):
+        text = text.replace(secret, "[REDACTED]")
+    text = re.sub(r"(?i)\bBearer\s+[^\s\"',;]+", "Bearer [REDACTED]", text)
+    text = re.sub(r"(?i)\b(?:sk-|xai-|AIza)[a-z0-9_-]+", "[REDACTED]", text)
+    text = re.sub(r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password)[\"']?\s*[:=]\s*[\"']?)[^\s\"',;}]+", r"\1[REDACTED]", text)
+    text = re.sub(r"\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+", "[REDACTED]", text)
+    text = re.sub(r"data:image/[^\s\"']+", "[图片数据]", text)
+    text = re.sub(r"(?<![a-zA-Z0-9:/])/(?:Users|home|private|tmp|var)/[^\s\"'<>]+", "[本机路径]", text)
+    return re.sub(r"\s+", " ", text).strip()[:2400]
+
+
+def _raise_studio_generation_error(
+    provider: str, detail: str, *, returncode: int | None = None,
+    http_status: int | None = None, redact_secret: str = "",
+) -> None:
+    compact = _safe_generation_detail(detail, redact_secret)
+    lower = compact.lower()
+    if http_status is None:
+        status_match = re.search(r"\bHTTP\s+(\d{3})\b", compact, re.I)
+        if status_match:
+            http_status = int(status_match.group(1))
+    code = 502
+    reason = "未收到有效图片，平台未提供具体失败原因。"
+    action = ""
+    if http_status == 402 or any(word in lower for word in ("payment required", "usage balance exhausted", "insufficient credits", "run out of credits", "need a grok subscription")):
+        code = 402
+        reason = ("Grok Build 用量余额已耗尽。" if returncode is not None else "Imagine 订阅生图额度不足。") if provider == "Grok 授权" else "平台报告付费额度不足。"
+        action = "请核对当前通道的订阅与余额后再试。"
+    elif http_status == 403:
+        code, reason = 403, "平台拒绝访问当前生图功能。"
+        action = "请核对账号对当前模型的访问权限。"
+    elif http_status == 401 or any(word in lower for word in ("unauthenticated", "unauthorized", "not logged in", "not signed in", "login required", "token expired", "token_revoked", "invalid token", "invalid_grant", "authentication failed")):
+        code, reason = 401, "平台拒绝了当前登录凭证。"
+        action = "请重新登录当前生成通道。"
+    elif any(word in lower for word in ("quota exceeded", "quota exhausted", "quota_exhausted", "resource_exhausted", "exhausted your capacity", "usage limit")):
+        code, reason = 429, "平台报告当前模型配额已用尽。"
+        action = "请按平台给出的重置时间再试。"
+    elif http_status == 429 or any(word in lower for word in ("429", "rate limit", "rate_limit", "too many requests")):
+        code, reason = 429, "平台报告请求限流。"
+        action = "请按平台给出的等待时间再试。"
+    elif any(word in lower for word in ("image_safety", "content policy", "content_policy", "moderation", "safety block", "safety filter", "prohibited", "refusal")) or ("安全" in compact and any(word in compact for word in ("拦截", "过滤", "拒绝"))):
+        code, reason = 422, "平台报告安全策略拦截，未返回图像。"
+    elif compact:
+        reason = "生成通道返回错误，未收到有效图片。"
+        if http_status is not None and 400 <= http_status < 500:
+            code = http_status
+    facts = [f"[{provider}] 图片生成失败：{reason}"]
+    if http_status is not None:
+        facts.append(f"平台 HTTP 状态：{http_status}")
+    if returncode is not None:
+        facts.append(f"CLI 退出码：{returncode}")
+    if compact:
+        facts.append(f"具体信息：{compact}")
+    if action:
+        facts.append(action)
+    raise HTTPException(code, "\n".join(facts))
 
 
 def _raise_grok_generation_error(
@@ -668,82 +736,10 @@ def _raise_grok_generation_error(
 ) -> None:
     compact, inferred_status = _unwrap_grok_error_detail(detail, redact_secret=redact_secret)
     http_status = inferred_status or (status_or_rc if 100 <= status_or_rc <= 599 else None)
-    lower = compact.lower()
-    if (
-        http_status == 402
-        or "status 402" in lower
-        or "payment required" in lower
-        or "usage balance exhausted" in lower
-        or "run out of credits" in lower
-        or "need a grok subscription" in lower
-        or "insufficient credits" in lower
-    ):
-        if "grok build" in lower or via_cli:
-            raise HTTPException(
-                402,
-                "[Grok 授权] 当前账号的终端 Grok Build 用量余额已耗尽（HTTP 402）。"
-                "可在终端运行 grok 后输入 /usage 查看额度与重置时间，或在模型下拉框切换为「grok-imagine-image-2.0（Grok 订阅直连）」、"
-                "在「API 接口配置」切换为 AGY 授权登录 / Grok API 接口。",
-            )
-        raise HTTPException(
-            402,
-            "[Grok 授权] 当前 Grok 账号的 Imagine 订阅生图额度不足或未开通对应订阅（HTTP 402）。"
-            "请前往 grok.com 核对订阅与额度，或在模型下拉框切换为「image_edit（终端 grok CLI 内置生图）」、"
-            "在「API 接口配置」切换为 AGY 授权登录 / Grok API 接口。",
-        )
-    if (
-        http_status == 429
-        or "429" in lower
-        or "rate limit" in lower
-        or "rate_limit" in lower
-        or "too many requests" in lower
-        or "resource_exhausted" in lower
-        or "quota" in lower
-    ):
-        reset_match = _QUOTA_RESET_RE.search(compact)
-        reset_hint = f"（预计 {reset_match.group(1)} 后重置）" if reset_match else ""
-        raise HTTPException(
-            429,
-            f"[Grok 授权] 当前账号的 Grok 生图请求触发速率或配额限制{reset_hint}。"
-            "请稍后重试，或在「API 接口配置」切换为 AGY 授权登录 / Grok API 接口。",
-        )
-    if (
-        "moderation" in lower
-        or "image_safety" in lower
-        or "safety" in lower
-        or "content policy" in lower
-        or "prohibited" in lower
-        or "refusal" in lower
-        or ("blocked" in lower and ("prompt" in lower or "image" in lower or "content" in lower))
-        or ("安全" in compact and ("拦截" in compact or "过滤" in compact or "拒绝" in compact))
-    ):
-        raise HTTPException(
-            422,
-            "[Grok 授权] 生图请求触发平台安全策略拦截（未返回图像）。请尝试更换较温和的参考图或调整提示词描述后重试。",
-        )
-    if (
-        http_status in (401, 403)
-        or "unauthenticated" in lower
-        or "unauthorized" in lower
-        or "not logged in" in lower
-        or "not signed in" in lower
-        or "login required" in lower
-        or "token expired" in lower
-        or "invalid token" in lower
-    ):
-        code = http_status if http_status in (401, 403) else 401
-        raise HTTPException(
-            code,
-            "[Grok 授权] 本机 Grok 登录态已失效或无对应生图权限，请点击「调起浏览器授权登录」或在终端执行 grok login --oauth 重新授权。",
-        )
-    short = compact[:280]
-    if via_cli:
-        raise HTTPException(
-            502,
-            f"[Grok 授权] 终端 grok CLI 未返回有效生成图片（exit={status_or_rc}）{('：' + short) if short else ''}",
-        )
-    out_code = 502 if (http_status is None or http_status >= 500) else http_status
-    raise HTTPException(out_code, f"[Grok 授权] {short or '平台未返回有效图片'}")
+    _raise_studio_generation_error(
+        "Grok 授权", compact, returncode=status_or_rc if via_cli else None,
+        http_status=http_status, redact_secret=redact_secret,
+    )
 
 
 def _probe_studio_image_file(
@@ -1023,9 +1019,9 @@ def _generate_with_grok_cli(
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            raise HTTPException(504, "[Grok 授权] 调用终端 grok CLI 生图超时，请稍后重试") from None
+            raise HTTPException(504, "[Grok 授权] 等待 grok CLI 生图超过240秒，未收到图片结果。平台任务是否继续执行尚未确认，未自动重试。") from None
         except OSError as exc:
-            raise HTTPException(502, f"[Grok 授权] 无法启动 grok CLI：{type(exc).__name__}") from exc
+            raise HTTPException(502, f"[Grok 授权] 无法启动 grok CLI：{type(exc).__name__}；{_safe_generation_detail(str(exc))}") from None
 
         found, error_detail = _extract_grok_cli_result(proc.stdout, proc.stderr, tmp_dir, out_path, ref_names)
         if found is not None:
@@ -1074,20 +1070,21 @@ def _generate_with_grok_imagine_api(
         safe_msg = str(exc).replace(key, "[REDACTED]")
         raise HTTPException(502, f"[Grok 授权] 网络请求失败：{type(exc).__name__} ({safe_msg[:160]})") from None
 
-    denied = grok_credentials.permission_denied(upstream.status_code, "xAI Grok Imagine 接口")
-    if denied:
-        raise HTTPException(upstream.status_code, denied)
     try:
         result = upstream.json()
     except ValueError:
         result = {}
-    if upstream.status_code >= 400:
+    if upstream.status_code >= 400 or (isinstance(result, dict) and result.get("error")):
         err_obj = result.get("error") if isinstance(result, dict) else None
         err_msg = (
             (err_obj.get("message") if isinstance(err_obj, dict) else err_obj)
             or (result.get("message") if isinstance(result, dict) else None)
             or upstream.text[:240]
         )
+        err_code = err_obj.get("code") if isinstance(err_obj, dict) else None
+        request_id = result.get("request_id") if isinstance(result, dict) else None
+        request_id = request_id or upstream.headers.get("x-request-id")
+        err_msg = "; ".join(filter(None, (str(err_msg or ""), f"code={err_code}" if err_code else "", f"request_id={request_id}" if request_id else "")))
         _raise_grok_generation_error(
             upstream.status_code,
             str(err_msg or ""),
@@ -1108,7 +1105,7 @@ def _generate_with_grok_imagine_api(
             "model": model,
             "provider": "grok_auth",
         }
-    raise HTTPException(502, "[Grok 授权] 平台已响应但未返回有效图片")
+    _raise_studio_generation_error("Grok 授权", "平台已响应，但响应中没有图片或具体失败原因。", http_status=upstream.status_code)
 
 
 def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
@@ -1260,52 +1257,8 @@ def _extract_agy_result(
 
 
 def _raise_agy_generation_error(returncode: int, detail: str) -> None:
-    compact = re.sub(r"\s+", " ", detail or "").strip()
-    lower = compact.lower()
-    if (
-        "429" in lower
-        or "resource_exhausted" in lower
-        or "quota_exhausted" in lower
-        or "exhausted your capacity" in lower
-        or "rate_limit" in lower
-        or "too many requests" in lower
-    ):
-        reset_match = _QUOTA_RESET_RE.search(compact)
-        reset_hint = f"（预计 {reset_match.group(1)} 后重置）" if reset_match else ""
-        raise HTTPException(
-            429,
-            f"[AGY 授权] 当前账号的 AGY 生图模型配额已用尽{reset_hint}。"
-            "请等待配额重置后再试，或在「API 接口配置」中切换为 Gemini API 接口 / Grok 生图通道。",
-        )
-    if (
-        "no image generated in response" in lower
-        or "image_safety" in lower
-        or "safety" in lower
-        or "content policy" in lower
-        or "prohibited" in lower
-        or ("安全" in compact and ("拦截" in compact or "过滤" in compact or "拒绝" in compact))
-    ):
-        raise HTTPException(
-            422,
-            "[AGY 授权] 生图请求触发模型安全策略拦截（未返回图像）。请尝试更换较温和的参考图或调整提示词描述后重试。",
-        )
-    if (
-        "unauthenticated" in lower
-        or "not logged in" in lower
-        or "login required" in lower
-        or "invalid_grant" in lower
-        or "token expired" in lower
-        or "authentication failed" in lower
-    ):
-        raise HTTPException(
-            401,
-            "[AGY 授权] 本机 AGY 登录态已过期或未授权，请在终端执行 agy 重新完成 Google 登录。",
-        )
-    short = compact[:280]
-    raise HTTPException(
-        502,
-        f"[AGY 授权] 未获取到有效生成图片（exit={returncode}）{('：' + short) if short else ''}",
-    )
+    compact, http_status = _unwrap_grok_error_detail(detail)
+    _raise_studio_generation_error("AGY 授权", compact, returncode=returncode, http_status=http_status)
 
 
 def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
@@ -1377,9 +1330,9 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            raise HTTPException(504, "[AGY 授权] 调用 AGY 生图超时，请稍后重试") from None
+            raise HTTPException(504, "[AGY 授权] 等待 AGY 生图超过240秒，未收到图片结果。平台任务是否继续执行尚未确认，未自动重试。") from None
         except OSError as exc:
-            raise HTTPException(502, f"[AGY 授权] 无法启动 agy CLI：{type(exc).__name__}") from exc
+            raise HTTPException(502, f"[AGY 授权] 无法启动 agy CLI：{type(exc).__name__}；{_safe_generation_detail(str(exc))}") from None
 
         found, error_detail = _extract_agy_result(proc.stdout, proc.stderr, tmp_dir, out_path, ref_names)
         if found is not None:
@@ -1452,35 +1405,63 @@ def _generate_with_codex_auth(repo_root: Path, body: dict) -> dict:
         try:
             proc = _run_bounded(command, cwd=str(folder), env=env, timeout=300, maximum_bytes=8 * 1024 * 1024)
         except subprocess.TimeoutExpired:
-            raise HTTPException(504, "[Codex 授权] 生图超时，未自动重试，请稍后检查 Codex 状态") from None
-        except (OSError, ResourceError):
-            raise HTTPException(502, "[Codex 授权] 无法完成本机 Codex 生图调用，请检查 CLI 状态") from None
+            raise HTTPException(504, "[Codex 授权] 等待 Codex 生图超过300秒，未收到图片结果。平台任务是否继续执行尚未确认，未自动重试。") from None
+        except (OSError, ResourceError) as exc:
+            raise HTTPException(502, f"[Codex 授权] 本机生图调用失败：{type(exc).__name__}；{_safe_generation_detail(str(exc))}") from None
+        output_problem = ""
         try:
             payload = json.loads(result.read_text("utf-8"))
-        except (OSError, ValueError):
+        except OSError as exc:
             payload = {}
+            output_problem = f"无法读取 CLI 结果记录：{type(exc).__name__}。"
+        except ValueError:
+            payload = {}
+            output_problem = "CLI 结果记录不是有效 JSON。"
         if proc.returncode == 0 and isinstance(payload, dict) and payload.get("saved_path"):
             try:
                 candidate = Path(str(payload["saved_path"]))
                 path = candidate.resolve()
-                if candidate.is_absolute() and path.is_relative_to(generated) and path.is_file():
+                if not candidate.is_absolute() or not path.is_relative_to(generated):
+                    output_problem = "返回路径不在本次允许的生成图片目录内。"
+                elif not path.is_file():
+                    output_problem = "返回的图片文件不存在。"
+                else:
                     stat = path.stat()
-                    if stat.st_mtime >= started - 1 and 0 < stat.st_size <= MAX_PROXY_BYTES:
+                    if stat.st_mtime < started - 1:
+                        output_problem = "返回的是本次请求开始前的旧文件。"
+                    elif not 0 < stat.st_size <= MAX_PROXY_BYTES:
+                        output_problem = "返回文件为空或超过15 MiB大小限制。"
+                    else:
                         raw = path.read_bytes()
                         mime = _detect_image_mime(raw)
                         if mime:
                             return {"image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
                                 "model": "gpt-image-2", "provider": "codex_auth"}
-            except (OSError, ValueError):
-                pass
-        # Do not expose raw CLI output, local paths or credential diagnostics.
-        diagnostic = (str(payload.get("error", "")) if isinstance(payload, dict) else "") + proc.stdout + proc.stderr
-        lowered = diagnostic.lower()
-        if any(word in lowered for word in ("401", "unauthorized", "token_revoked", "not logged in", "token expired")):
-            raise HTTPException(401, "[Codex 授权] 订阅登录已失效，请在终端运行 codex login 后重试")
-        if any(word in lowered for word in ("quota", "usage limit", "rate limit", "429")):
-            raise HTTPException(429, "[Codex 授权] 订阅额度不足或触发限流，请稍后重试")
-        raise HTTPException(502, "[Codex 授权] 未获取到有效生成图片，未自动重试，请检查 Codex 授权与生图能力")
+                        output_problem = "返回文件不是受支持的有效图片。"
+            except (OSError, ValueError) as exc:
+                output_problem = f"读取生成图片文件失败：{type(exc).__name__}。"
+        # Only failure fields enter the response; never return the full CLI transcript.
+        diagnostic = str(payload.get("error") or "") if isinstance(payload, dict) else ""
+        if not diagnostic:
+            errors = []
+            for line in proc.stdout.splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                error = event.get("error")
+                if isinstance(error, dict):
+                    errors.append("; ".join(str(error[field]) for field in ("message", "code", "request_id") if isinstance(error.get(field), (str, int))))
+                elif isinstance(error, str):
+                    errors.append(error)
+                elif event.get("type") == "error":
+                    errors.append(str(event.get("message") or ""))
+            diagnostic = "\n".join(filter(None, errors)) or proc.stderr.strip()
+        if not diagnostic:
+            diagnostic = output_problem or "CLI 已结束，但未取得可用图片或具体失败原因。"
+        _raise_studio_generation_error("Codex 授权", diagnostic, returncode=proc.returncode)
 
 
 def install_character_studio_routes(app, etag, read_actor, origin):
@@ -1663,4 +1644,5 @@ def install_character_studio_routes(app, etag, read_actor, origin):
             upstream.content,
             status_code=upstream.status_code,
             media_type=upstream.headers.get("content-type") or "application/json; charset=utf-8",
+            headers={name: upstream.headers[name] for name in ("x-request-id", "request-id", "retry-after") if name in upstream.headers},
         )
