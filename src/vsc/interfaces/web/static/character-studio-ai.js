@@ -94,11 +94,11 @@ export function uploadedReferences(name,url,width=0,height=0,bytes=0){
  };
 }
 
-export const PROVIDER_ORDER=['agy_auth','grok_auth','gemini','grok','gpt','qwen','doubao'];
+export const PROVIDER_ORDER=['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao'];
 export const SETTINGS_GROUPS=[
  {id:'google',name:'Google · AGY / Gemini',modes:['agy_auth','gemini']},
  {id:'xai',name:'xAI · Grok',modes:['grok_auth','grok']},
- {id:'gpt',name:'OpenAI GPT Image',modes:['gpt']},
+ {id:'gpt',name:'OpenAI GPT Image',modes:['codex_auth','gpt']},
  {id:'qwen',name:'阿里云百炼 Qwen',modes:['qwen']},
  {id:'doubao',name:'字节火山方舟 Doubao',modes:['doubao']},
 ];
@@ -109,6 +109,9 @@ export const PROVIDER_META={
  grok_auth:{id:'grok_auth',name:'Grok 授权登录 (xAI 订阅 / CLI)',shortName:'Grok 授权',modeLabel:'Grok 授权登录',modeHint:'本机 grok CLI 登录态 · ~/.grok/auth.json',
   authMode:'oauth',authVendor:'grok',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/image-generations',
   models:[['image_edit','image_edit（终端 grok CLI 内置生图 · 推荐）'],['grok-imagine-image-2.0','grok-imagine-image-2.0（Grok 订阅直连多图合成）'],['grok-imagine-image','grok-imagine-image（Grok 订阅直连）'],['custom','指定 grok CLI 协调模型 ID（高级）']]},
+ codex_auth:{id:'codex_auth',name:'Codex 订阅授权 (OpenAI GPT Image)',shortName:'Codex 授权',modeLabel:'Codex 订阅授权',modeHint:'本机 ChatGPT 订阅登录 · 免填 API Key',
+  authMode:'oauth',authVendor:'codex',defaultBaseUrl:'',docUrl:'https://learn.chatgpt.com/docs/image-generation',
+  models:[['image-generation','Codex 内置生图（GPT Image 2）']]},
  gemini:{id:'gemini',name:'Google Gemini (API 接口)',shortName:'Gemini API',modeLabel:'Gemini API 接口',modeHint:'Google AI Studio API Key',
   authMode:'apikey',defaultBaseUrl:'https://generativelanguage.googleapis.com',docUrl:'https://ai.google.dev/gemini-api/docs/image-generation',
   keyPlaceholder:'输入 AIza... API Key（仅保存在本地浏览器）',
@@ -117,7 +120,7 @@ export const PROVIDER_META={
   authMode:'apikey',defaultBaseUrl:'https://api.x.ai/v1',docUrl:'https://docs.x.ai/docs/guides/image-generations',
   keyPlaceholder:'输入 xai-... API Key（仅保存在本地浏览器）',
   models:[['grok-imagine-image-2.0','grok-imagine-image-2.0（多图编辑 ≤5 张 · 推荐）'],['grok-imagine-image'],['grok-2-image-1212','grok-2-image-1212（仅文生图）'],['custom','自定义模型 ID']]},
- gpt:{id:'gpt',name:'OpenAI GPT Image',shortName:'GPT',modeLabel:'API 接口',modeHint:'OpenAI API Key',
+ gpt:{id:'gpt',name:'OpenAI GPT Image',shortName:'GPT',modeLabel:'GPT Image API 接口',modeHint:'使用 OpenAI API Key 生图',
   authMode:'apikey',defaultBaseUrl:'https://api.openai.com/v1',docUrl:'https://platform.openai.com/docs/guides/image-generation',
   keyPlaceholder:'输入 sk-... API Key（仅保存在本地浏览器）',
   models:[['gpt-image-2.5'],['gpt-image-2.5-sunburst'],['gpt-image-2.5-flare'],['gpt-image-2'],['gpt-image-1.5'],['gpt-image-1'],['custom','自定义模型 ID']]},
@@ -474,12 +477,13 @@ export async function generateCharacterImage({recipe,prompt,config,onProgress,si
   const localRefs=rawSources.map(referenceImageUrl);
   const allRefs=config.sendStitchedSheet?[...localRefs,await stitchRecipeCanvas(recipe)]:localRefs;
   if(provider==='grok_auth'&&allRefs.length>5)throw new Error('[Grok 授权] Grok 图像编辑一次最多支持 5 张参考图，请减少附加参考图或关闭附带合成拼图');
+  if(provider==='codex_auth'&&allRefs.length>8)throw new Error('[Codex 授权] 单次最多支持 8 张参考图');
   const isGrokCli=provider==='grok_auth'&&(model==='image_edit'||!model.startsWith('grok-imagine-'));
-  onProgress?.({stage:'running',message:provider==='agy_auth'?'正在通过终端 AGY 内置 image-generator 生成角色图…':isGrokCli?'正在通过终端 grok CLI 内置 image_edit 生成角色图…':'正在通过 Grok 订阅授权通道生成角色图…'});
+  onProgress?.({stage:'running',message:provider==='codex_auth'?'正在通过本机 Codex 订阅生成角色图…':provider==='agy_auth'?'正在通过终端 AGY 内置 image-generator 生成角色图…':isGrokCli?'正在通过终端 grok CLI 内置 image_edit 生成角色图…':'正在通过 Grok 订阅授权通道生成角色图…'});
   const csrf=csrfProvider(),headers={'Content-Type':'application/json'};if(csrf)headers['X-CSRF-Token']=csrf;
   const payload={
    provider,model,prompt,references:allRefs,
-   aspect_ratio:provider==='grok_auth'?(config.grokParams?.aspectRatio||'3:4'):(config.agyParams?.aspectRatio||'3:4'),
+   aspect_ratio:provider==='codex_auth'?(config.codexParams?.aspectRatio||'3:4'):provider==='grok_auth'?(config.grokParams?.aspectRatio||'3:4'):(config.agyParams?.aspectRatio||'3:4'),
    resolution:config.grokParams?.resolution||'2k',
   };
   const res=await fetch('/api/v1/character-studio/generate',{method:'POST',headers,body:JSON.stringify(payload),signal,credentials:'same-origin'});
