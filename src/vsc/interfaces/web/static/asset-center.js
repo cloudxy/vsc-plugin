@@ -1,5 +1,6 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 import * as studio from './character-studio-store.js';
+import {createCharacterHistory} from './character-studio-history.js';
 import {referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView} from './character-studio-ai.js';
 /* Catalog metadata and personal selections reference the original library. */
 const el=(tag,text='',cls='')=>{const n=document.createElement(tag);if(text!==null&&text!==undefined)setText(n,text);if(cls)n.className=cls;return n;};
@@ -21,6 +22,7 @@ const officialWorkbenchKinds=[
  ['costume','服装穿搭库'],
  ['pose','动作姿势库'],
  ['portrait','人像颜值库'],
+ ['composite','AI角色合成库'],
 ];
 const officialSelectKinds=[
  ['character','人设'],
@@ -367,11 +369,12 @@ function flyBetween(sourceNode,targetNode,durationMs=820){
 export function createAssetCenter(root,ctx,{source='global',embedded=false,canvas=false,workbench=false,onReference=null,onDragReference=null}={}){
  if(source==='global')return createGlobalAssetLibrary(root,ctx);
  const official=source==='official';
+ const browseKinds=canvas?officialWorkbenchKinds.filter(([kind])=>kind!=='composite'):officialWorkbenchKinds;
  const facetCache=new Map(),officialPageCache=new Map(),costumePageCache=new Map();
  const REF_KINDS=new Set(['costume','pose','portrait']);
  const refState={costume:{top:'',source:'',category:'',tag:'',q:''},pose:{view:'group',system:'',category:'',angle:'',q:''},portrait:{section:'',hair:'',style:'',hot:false,q:''}};
  const refSummary={},refPageCache=new Map();
- let refDock=null,refPickers=[],refFocus='',refSafe=null,refDepth=null,refreshRefDepth=null;
+ let refDock=null,refPickers=[],refFocus='',refSafe=null,refDepth=null,refreshRefDepth=null,characterHistory=null;
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,officialDetailSeq=0,searchTimer=null;
  let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
  if(official&&!canvas&&typeof location!=='undefined'){const k=new URLSearchParams(location.search||'').get('kind');if(k&&officialWorkbenchKinds.some(([v])=>v&&v===k))filters.asset_kind=k;}
@@ -893,7 +896,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    const reload=()=>{clearTimeout(costumeTimer);if(scrollRoot)scrollRoot.scrollTop=0;return load();};
    const studioState=studio.getState();
    const form=el('div','','center-official-filters ref-filters'),tabs=el('div','','center-official-kinds');
-   for(const [value,title]of officialWorkbenchKinds){
+   for(const [value,title]of browseKinds){
     const t=button(title,()=>switchKind(value));
     t.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));tabs.append(t);
    }
@@ -1197,10 +1200,21 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    refDock=studio.mountRecipeDock(root,{onCompose:composeNavigate,force:REF_KINDS.has(filters.asset_kind||'')});
   }
   function unmountRefs(){
+   characterHistory?.suspend();characterHistory=null;
    refDock?.destroy();refDock=null;refPickers=[];refreshRefDepth=null;
   }
 
  async function officialCatalog(g){
+  if(!canvas&&filters.asset_kind==='composite'){
+   const form=el('div','','center-official-filters'),tabs=el('div','','center-official-kinds');
+   for(const [value,title]of browseKinds){
+    const n=button(title,()=>switchKind(value));n.setAttribute('aria-pressed',String(value==='composite'));tabs.append(n);
+   }
+   form.append(tabs);root.append(form);
+   const host=el('div');root.append(host);
+   characterHistory=createCharacterHistory(host,ctx,{onCompose:composeNavigate,onZoom:(src,title)=>openAssetImageViewer({src,title,host:document.body||root})});
+   characterHistory.load();return;
+  }
   if(REF_KINDS.has(filters.asset_kind||'')){refSafe=studio.getState().safeMode;refDepth=studio.getState().poseDepthMode;return referenceBrowser(g,filters.asset_kind);}
   const form=el('form','','center-official-filters');
   const filterHost=workbench?el('div','','center-official-filter-row'):form;
@@ -1214,7 +1228,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   let count;
   if(workbench){
    const tabs=el('div','','center-official-kinds');
-   for(const [value,title]of officialWorkbenchKinds){
+   for(const [value,title]of browseKinds){
     const n=button(title,()=>switchKind(value));
     n.setAttribute('aria-pressed',String((filters.asset_kind||'')===value));
     tabs.append(n);

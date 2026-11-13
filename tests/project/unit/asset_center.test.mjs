@@ -160,7 +160,7 @@ test('official and shared tabs query their own sources and restore from the URL'
   location.search='?page=asset-center&tab=official';
   const root=new Element('main',document),panel=createAssetCenter(root,context([],api));await panel.load();
   assert.ok(root.querySelector('.center-workbench-official'));
-  assert.deepEqual(root.querySelector('.center-official-kinds').walk().filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','音频','服装穿搭库','动作姿势库','人像颜值库']);
+  assert.deepEqual(root.querySelector('.center-official-kinds').walk().filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','音频','服装穿搭库','动作姿势库','人像颜值库','AI角色合成库']);
   const filterRow=root.querySelector('.center-official-filter-row');
   assert.ok(filterRow);
   const filterChildren=root.querySelector('.center-official-filters').children.filter(n=>n.tagName!=='#TEXT');

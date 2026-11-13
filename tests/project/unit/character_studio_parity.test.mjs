@@ -28,7 +28,7 @@ function database(){
   queueMicrotask(()=>control.failOpen?request.onerror():request.onsuccess());return request;
  }}};
 }
-globalThis.indexedDB=database().api;
+const mainDb=database();globalThis.indexedDB=mainDb.api;
 const resizeObservers=[];
 globalThis.ResizeObserver=class{constructor(callback){this.callback=callback;resizeObservers.push(this);}observe(node){this.node=node;}disconnect(){this.disconnected=true;}};
 const store=await import('../../../src/vsc/interfaces/web/static/character-studio-store.js');
@@ -48,10 +48,10 @@ const ctx={session:()=>({actor:'audit',csrf:'csrf'}),notice:m=>notices.push(m),a
  if(url.includes('/portraits'))return {items:[portrait],total:1,next_offset:null,sections:[],hair_lengths:[],hair_styles:[]};
  throw new Error('Unexpected request '+url);
 }};
-async function gallery(kind){
+async function gallery(kind,overrides={}){
  globalThis.location={search:'?kind='+kind};
  const root=doc.createElement('main');doc.body.append(root);
- const center=createAssetCenter(root,ctx,{source:'official',workbench:true});await center.load();await flush();
+ const center=createAssetCenter(root,{...ctx,...overrides},{source:'official',workbench:true});await center.load();await flush();
  return {root,center};
 }
 function modal(){return doc.body.querySelector('.ref-modal');}
@@ -95,12 +95,67 @@ test('reference details retain English costume prompt, tags, source links, view 
  modal().close();center.suspend();root.remove();
 });
 
+test('AI composite library follows portraits and owns existing, live, filtered and recoverable generation history',async()=>{
+ const saved=structuredClone(store.getState()),oldConfirm=globalThis.confirm,oldFetch=globalThis.fetch,originalClick=Element.prototype.click;
+ const routes=[],downloads=[];let center,root,studio,studioRoot;
+ const old={id:'existing',createdAt:1,imageUrl:'data:image/png;base64,old-result',provider:'codex_auth',prompt:'雨夜人像',recipeSummary:'旧合成记录',snapshot:{recipe:{portrait,extraImages:[]}}};
+ Element.prototype.click=function(...args){if(this.tagName==='A'&&this.download){downloads.push(this.href);return;}return originalClick.apply(this,args);};
+ try{
+  store.getState().history=[old];
+  ({root,center}=await gallery('composite',{navigate:(...args)=>routes.push(args)}));
+  const tabs=root.querySelector('.center-official-kinds').querySelectorAll('button').map(b=>b.textContent);
+  assert.equal(tabs[tabs.indexOf('人像颜值库')+1],'AI角色合成库');
+  assert.equal(button(root,'AI角色合成库').getAttribute('aria-pressed'),'true');
+  assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,old.imageUrl);
+  assert.equal(store.getState().history[0],old);
+  await click(root,'查看详情');const detail=doc.body.querySelector('.cs-history-detail');assert.ok(detail.textContent.includes(old.recipeSummary));assert.ok(detail.textContent.includes(old.prompt));
+  await click(detail,'复制提示词');assert.equal(copied.at(-1),old.prompt);await click(detail,'×');assert.equal(doc.body.querySelector('.cs-history-detail'),null);assert.equal(doc.activeElement.tagName,'SUMMARY');
+  root.querySelector('.cs-history-item').querySelector('img').onerror();assert.match(root.textContent,/图片暂时无法显示/);
+  const menu=root.querySelector('.cs-history-menu');menu.open=true;menu.onkeydown(event({key:'Escape'}));assert.equal(menu.open,false);
+  store.getState().hydrated=false;store.getState().generationError='';store.setPreviewUrl(old.imageUrl);await flush();assert.equal(root.querySelectorAll('.cs-history-skeleton').length,2);assert.equal(root.querySelector('.cs-history').getAttribute('aria-busy'),'true');
+  store.getState().generationError='storage unavailable';store.setPreviewUrl(old.imageUrl);await flush();assert.match(root.textContent,/暂时无法读取合成记录/);assert.ok(button(root,'重试读取'));assert.doesNotMatch(root.textContent,/还没有合成记录/);
+  store.getState().hydrated=true;store.getState().generationError='';store.setPreviewUrl(old.imageUrl);await flush();
+  await click(root,'下载图片');assert.equal(downloads.at(-1),old.imageUrl);
+  await click(root,'复用提示词');assert.equal(store.getState().customPrompt,old.prompt);assert.deepEqual(routes.at(-1),['character-studio']);
+  const search=root.querySelector('input');search.value='不匹配';search.oninput();assert.equal(root.querySelectorAll('.cs-history-item').length,0);assert.match(root.textContent,/没有找到合成记录/);
+  search.value='CODEX';search.oninput();assert.equal(root.querySelectorAll('.cs-history-item').length,1);
+  search.value='';search.oninput();
+  store.getState().recipe={portrait:{...portrait,source:'upload',原图:'data:image/png;base64,AA=='},costume:null,pose:null,extraImages:[]};
+  globalThis.fetch=async()=>({ok:true,json:async()=>({image_url:'data:image/png;base64,bmV3',model:'synthetic'})});
+  await store.startGeneration();await flush();
+  const added=store.getState().history[0];assert.notEqual(added.id,old.id);assert.equal(mainDb.values.get('pose_atlas_history_v3')[0].id,added.id);
+  assert.equal(root.querySelectorAll('.cs-history-item').length,2);assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,added.imageUrl);
+  globalThis.confirm=()=>true;mainDb.control.failWrite=true;await click(root.querySelector('.cs-history-item'),'删除记录');assert.equal(root.querySelectorAll('.cs-history-item').length,2);assert.match(notices.at(-1),/删除失败/);
+  mainDb.control.failWrite=false;await click(root.querySelector('.cs-history-item'),'删除记录');assert.equal(root.querySelectorAll('.cs-history-item').length,1);assert.equal(mainDb.values.get('pose_atlas_history_v3')[0].id,old.id);
+  globalThis.confirm=()=>false;await click(root,'清空全部记录');assert.equal(store.getState().history.length,1);
+  studioRoot=doc.createElement('main');doc.body.append(studioRoot);studio=createCharacterStudio(studioRoot,{...ctx,navigate:(...args)=>routes.push(args)});await studio.load();await flush();
+  assert.equal(studioRoot.querySelector('.cs-history'),null);
+  await click(studioRoot,'AI角色合成库 (1)');assert.deepEqual(routes.at(-1),['asset-center',{tab:'official',kind:'composite'}]);
+  globalThis.confirm=()=>true;await click(root,'清空全部记录');assert.equal(mainDb.values.get('pose_atlas_history_v3').length,0);assert.match(root.textContent,/还没有合成记录/);assert.equal(button(root,'清空全部记录').disabled,true);
+  center.suspend();store.getState().history=[added];store.setPreviewUrl(added.imageUrl);await flush();assert.match(root.textContent,/还没有合成记录/);
+  center.suspend();await center.load();await flush();assert.equal(root.querySelectorAll('.cs-history-item').length,1);
+  await click(root,'人像颜值库');assert.ok(root.querySelector('.ref-library')||root.className.includes('ref-portrait'));assert.equal(root.querySelector('.cs-history-library'),null);
+  await click(root,'AI角色合成库');assert.equal(root.querySelectorAll('.cs-history-item').length,1);
+ }finally{
+  mainDb.control.failWrite=false;center?.suspend();root?.remove();studio?.suspend();studioRoot?.remove();Object.assign(store.getState(),saved);
+  globalThis.fetch=oldFetch;Element.prototype.click=originalClick;if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+ }
+});
+
+test('browser-only composite records are not offered as server catalog assets inside the canvas picker',async()=>{
+ const root=doc.createElement('main');doc.body.append(root);
+ const center=createAssetCenter(root,{...ctx,api:async(url,...args)=>url.startsWith('/api/v1/asset-center?')?{items:[],total:0,facets:{},next_offset:null}:ctx.api(url,...args)},{source:'official',canvas:true,workbench:true});
+ try{
+  await center.load();await flush();assert.equal(button(root,'AI角色合成库'),undefined);
+  await click(root,'人像颜值库');assert.equal(button(root,'AI角色合成库'),undefined);assert.ok(root.className.includes('ref-portrait'));
+ }finally{center.suspend();root.remove();}
+});
+
 async function comparison(result){
  store.getState().history=[result];
- const root=doc.createElement('main');doc.body.append(root);
- const studio=createCharacterStudio(root,ctx);await studio.load();await flush();
- const trigger=button(root,'对比参考');trigger.focus();await trigger.onclick();
- return {root,studio,trigger,dialog:doc.body.querySelector('.cs-compare')};
+ const {root,center}=await gallery('composite');
+ const compare=button(root,'对比参考'),trigger=compare.parentElement.parentElement.querySelector('summary');trigger.focus();await compare.onclick();
+ return {root,studio:center,trigger,dialog:doc.body.querySelector('.cs-compare')};
 }
 function loadImages(dialog,width=800,height=800){
  for(const img of dialog.querySelectorAll('img')){img.naturalWidth=width;img.naturalHeight=height;img.onload();}
@@ -236,4 +291,15 @@ test('reference sheet preview opens separately and never replaces or downloads a
   if(originalDataUrl===undefined)delete Element.prototype.toDataURL;else Element.prototype.toDataURL=originalDataUrl;
   Element.prototype.click=originalClick;
  }
+});
+
+
+test('saving a new character keeps older library entries beyond the former 30-record cutoff',async()=>{
+ const db=database(),older=Array.from({length:30},(_,i)=>({id:`old-${i}`,createdAt:i,imageUrl:image,prompt:'旧提示词',recipeSummary:'已保存角色'}));
+ db.values.set('pose_atlas_history_v3',older);
+ const {s}=await isolatedStore(db);
+ s.setSlot('portrait',{...portrait,source:'upload',原图:image,缩略图:image});await flush();
+ globalThis.fetch=async()=>({ok:true,json:async()=>({image_url:image,model:'synthetic'})});
+ await s.startGeneration();assert.equal(s.getState().history.length,31);assert.ok(s.getState().history.some(h=>h.id==='old-0'));
+ assert.equal((await isolatedStore(db)).s.getState().history.length,31);
 });
