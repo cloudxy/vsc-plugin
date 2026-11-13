@@ -1060,7 +1060,8 @@ const sidebarHelp=document.querySelector('.sidebar-help');
 sidebarHelp?.addEventListener('pointerenter',event=>{if(event.pointerType!=='touch')sidebarHelp.setAttribute('open','');});
 sidebarHelp?.addEventListener('pointerleave',()=>{if(!sidebarHelp.contains(document.activeElement))sidebarHelp.removeAttribute('open');});
 sidebarHelp?.querySelector('summary')?.addEventListener('click',event=>{if(event.detail>0){event.preventDefault();sidebarHelp.setAttribute('open','');}});
-sidebarHelp?.addEventListener('focusout',event=>{if(!sidebarHelp.contains(event.relatedTarget))sidebarHelp.removeAttribute('open');});
+// Safari can blur the summary before a menu click without focusing the button.
+sidebarHelp?.addEventListener('focusout',event=>{if(event.relatedTarget&&!sidebarHelp.contains(event.relatedTarget))sidebarHelp.removeAttribute('open');});
 sidebarHelp?.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();sidebarHelp.removeAttribute('open');sidebarHelp.querySelector('summary')?.focus();}});
 document.addEventListener('pointerdown',event=>{if(sidebarHelp&&!sidebarHelp.contains(event.target))sidebarHelp.removeAttribute('open');});
 // End sidebar disclosures.
