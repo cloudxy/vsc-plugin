@@ -116,9 +116,9 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .sidebar .recent-project-copy small,.sidebar .recent-project-detail{font-size:10px;line-height:14px;color:#a1a0a3}
 .sidebar .recent-project-detail{gap:4px}
 .sidebar .recent-project-detail .recent-project-kind{padding:2px 4px;border-radius:3px;background:#292929;color:#cccacb;font-size:10px;line-height:14px}
-.sidebar .sidebar-footer{flex:none;min-height:40px;margin-top:auto;padding:0;gap:8px;font-size:14px}
-.sidebar .sidebar-help{flex:1;min-width:0}
-.sidebar .sidebar-help summary{box-sizing:border-box;min-height:40px;padding:0 12px;gap:8px;border-radius:12px;color:#a1a0a3;font-size:14px}
+.sidebar .sidebar-footer{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));flex:none;min-height:40px;margin-top:auto;padding:0;gap:0;font-size:14px}
+.sidebar .sidebar-help{min-width:0;width:100%}
+.sidebar .sidebar-help summary{box-sizing:border-box;justify-content:center;min-height:40px;padding:0 12px;gap:8px;border-radius:12px;color:#a1a0a3;font-size:14px}
 .sidebar .sidebar-help summary:hover{background:var(--sidebar-hover);color:#fdfbfc}
 .sidebar .sidebar-help summary svg{width:20px;height:20px;flex:none}
 .sidebar .sidebar-help>div{box-sizing:border-box;bottom:46px;left:0;width:180px;padding:8px;gap:4px;border:0;border-radius:8px;background:#1d1d1d;box-shadow:0 8px 24px #0000003d}
@@ -126,7 +126,7 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .sidebar .sidebar-help>div button{display:flex;align-items:center;min-height:32px;padding:4px 12px;gap:8px;border-radius:8px;color:#cccacb;font-size:14px;line-height:20px}
 .sidebar .sidebar-help>div button svg{width:20px;height:20px;flex:none}
 .sidebar .sidebar-help>div button:hover{background:#292929;color:#fdfbfc}
-.sidebar .sidebar-settings-open{flex:none;justify-content:center;width:40px;height:40px;min-height:40px;padding:0;border-radius:12px;font-size:0}
+.sidebar .sidebar-settings-open{box-sizing:border-box;justify-content:center;min-width:0;width:100%;height:40px;min-height:40px;padding:0;border-radius:12px;font-size:0}
 .sidebar .sidebar-settings-open span{display:none}
 .sidebar .sidebar-settings-open svg{width:20px;height:20px}
 .sidebar .sidebar-settings-open:hover{background:var(--sidebar-hover)}
