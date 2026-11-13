@@ -8,6 +8,9 @@ import * as store from './character-studio-store.js';
 const SLOT_LABEL={portrait:'人像',costume:'服装',pose:'姿势'};
 const SLOT_GALLERY={portrait:'portrait',costume:'costume',pose:'pose'};
 const GALLERY_NAME={portrait:'人像颜值库',costume:'服装穿搭库',pose:'动作姿势库'};
+// Settings-only view: Codex authorization is not a generation provider.
+const CODEX_SETTINGS_META={modeLabel:'Codex 订阅授权',modeHint:'本机 ChatGPT 登录 · 仅登记授权',docUrl:'https://learn.chatgpt.com/docs/auth'};
+const OPENAI_SETTINGS_META={...PROVIDER_META,codex:CODEX_SETTINGS_META,gpt:{...PROVIDER_META.gpt,modeLabel:'GPT Image API 接口',modeHint:'使用 OpenAI API Key 生图'}};
 
 function el(tag,cls='',text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n;}
 function option(value,label,selected){const o=el('option','',label);o.value=value;if(selected)o.selected=true;return o;}
@@ -42,7 +45,7 @@ function svgIcon(kind){
 }
 
 export function createCharacterStudio(root,ctx){
- let mode='studio',disposed=false,renderSig='',settingsModality='image',settingsProvider=null,settingsVideoProvider=null,showKey=false,showVideoKey=false,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
+ let mode='studio',disposed=false,renderSig='',settingsModality='image',settingsProvider=null,settingsVideoProvider=null,settingsOpenAIMode='codex',showKey=false,showVideoKey=false,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
  store.configureStudio({notice:ctx.notice,api:ctx.api,csrf:()=>ctx.session().csrf});
  const notice=message=>ctx.notice(message);
  const state=()=>store.getState();
@@ -79,6 +82,7 @@ export function createCharacterStudio(root,ctx){
   const s=state();
   if(group.modes.length===1){
    const id=group.modes[0],ok=Boolean(s.apiConfig.providers[id]?.apiKey?.trim());
+   if(id==='gpt')return {label:`Codex ${store.AUTH_STATUS_LABELS[s.authStatus.codex?.status]||'未检测'} · ${ok?'Key 已配':'未配置 Key'}`,tone:ok?'is-set':''};
    return {label:ok?'已配置 Key':'未配置 Key',tone:ok?'is-set':''};
   }
   const [oauthId,apiId]=group.modes,vendor=PROVIDER_META[oauthId].authVendor;
@@ -475,6 +479,7 @@ export function createCharacterStudio(root,ctx){
    const m=metaMap[mid],active=pid===mid;
    const btn=el('button','cs-mode-btn'+(active?' is-active':''));btn.type='button';btn.setAttribute('aria-pressed',String(active));
    btn.dataset.modeId=mid;
+   btn.dataset.focusKey=`set-mode-${mid}`;
    const head=el('div','cs-mode-btn-head');
    head.append(el('strong','',m.modeLabel),el('span','cs-mode-pill '+(isAuthFn(mid)?'is-oauth':'is-apikey'),statusFn(mid)));
    btn.append(head,el('small','',m.modeHint));
@@ -484,28 +489,41 @@ export function createCharacterStudio(root,ctx){
   return wrap;
  }
 
+ function authSettingsCard(vendor,{loginLabel,verifyLabel,defaultCommand,fallbackMessage='',waitingMessage='等待授权完成并自动刷新…'}){
+  const s=state(),info=s.authStatus[vendor]||{};
+  const card=el('div','cs-auth-card '+(info.ready?'is-ok':['expired','cli_missing','check_failed'].includes(info.status)?'is-error':''));
+  const statusHead=el('div','cs-auth-head');
+  statusHead.append(el('span','cs-conn-badge',store.AUTH_STATUS_LABELS[info.status]||(info.ready?'已授权':'未登录')));
+  if(info.account)statusHead.append(el('span','cs-auth-account',`账号 ${info.account}`));
+  if(s.authPolling===vendor)statusHead.append(el('span','cs-auth-polling',waitingMessage));
+  card.append(statusHead,el('p','cs-auth-msg',info.message||fallbackMessage));
+  const acts=el('div','cs-row-actions');
+  acts.append(action(loginLabel,()=>store.startAuthLogin(vendor),'cs-primary',`auth-login-${vendor}`));
+  acts.append(action(verifyLabel,()=>store.verifyAuth(vendor),'',`auth-verify-${vendor}`));
+  acts.append(action('刷新授权状态',()=>store.refreshAuthStatus(),'',`auth-refresh-${vendor}`));
+  const cmdText=info.login_command||defaultCommand;
+  acts.append(action(`复制命令：${cmdText}`,async()=>{
+   try{
+    if(!globalThis.navigator?.clipboard?.writeText)throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(cmdText);notice(`已复制终端命令：${cmdText}`);
+   }catch{notice('复制失败，请手动复制下方命令');}
+  },'',`auth-copy-${vendor}`));
+  card.append(acts);
+  const cmdRow=el('div','cs-cmd-box');cmdRow.append(el('span','cs-cmd-label','终端授权命令'),el('code','',`$ ${cmdText}`));
+  card.append(cmdRow);
+  return card;
+ }
+
  function authSettingsBody(pid,{isVideo=false}={}){
   const s=state(),meta=(isVideo?VIDEO_PROVIDER_META:PROVIDER_META)[pid];
   const pc=(isVideo?s.apiConfig.videoProviders:s.apiConfig.providers)[pid];
   const updateFn=isVideo?store.updateVideoProviderConfig:store.updateProviderConfig;
-  const vendor=meta.authVendor,info=s.authStatus[vendor]||{};
-  const wrap=el('div','cs-auth-panel');
-  const card=el('div','cs-auth-card '+(info.ready?'is-ok':info.status==='expired'||info.status==='cli_missing'?'is-error':''));
-  const statusHead=el('div','cs-auth-head');
-  statusHead.append(el('span','cs-conn-badge',store.AUTH_STATUS_LABELS[info.status]||(info.ready?'已授权':'未登录')));
-  if(info.account)statusHead.append(el('span','cs-auth-account',`账号 ${info.account}`));
-  if(s.authPolling===vendor)statusHead.append(el('span','cs-auth-polling','等待授权完成并自动刷新…'));
-  card.append(statusHead,el('p','cs-auth-msg',info.message||''));
-  const acts=el('div','cs-row-actions');
-  acts.append(action(vendor==='grok'?'调起浏览器授权登录':'打开终端完成 AGY 授权',()=>store.startAuthLogin(vendor),'cs-primary',`auth-login-${vendor}`));
-  acts.append(action(vendor==='grok'?'在线验证授权 (grok models)':'在线验证授权 (agy models)',()=>store.verifyAuth(vendor),'',`auth-verify-${vendor}`));
-  acts.append(action('刷新授权状态',()=>store.refreshAuthStatus(),'',`auth-refresh-${vendor}`));
-  const cmdText=info.login_command||(vendor==='grok'?'grok login --oauth':'agy');
-  acts.append(action(`复制命令：${cmdText}`,async()=>{await navigator.clipboard?.writeText(cmdText);notice(`已复制终端命令：${cmdText}`);}));
-  card.append(acts);
-  const cmdRow=el('div','cs-cmd-box');cmdRow.append(el('span','cs-cmd-label','终端授权命令'),el('code','',`$ ${cmdText}`));
-  card.append(cmdRow);
-  wrap.append(card);
+  const vendor=meta.authVendor,wrap=el('div','cs-auth-panel');
+  wrap.append(authSettingsCard(vendor,{
+   loginLabel:vendor==='grok'?'调起浏览器授权登录':'打开终端完成 AGY 授权',
+   verifyLabel:vendor==='grok'?'在线验证授权 (grok models)':'在线验证授权 (agy models)',
+   defaultCommand:vendor==='grok'?'grok login --oauth':'agy',
+  }));
 
   wrap.append(field(isVideo?'默认视频模型':'默认模型 / 引擎',select(meta.models.map(m=>[m.value,m.label]),pc.model,v=>updateFn(pid,{model:v}))));
   if(pc.model==='custom'){
@@ -558,26 +576,19 @@ export function createCharacterStudio(root,ctx){
  }
 
  function codexSubscriptionSettings(){
-  const s=state(),info=s.authStatus.codex||{},sec=section('Codex 订阅授权');
-  sec.node.classList.add('cs-codex-auth');
-  const head=el('div','cs-auth-head');
-  head.append(el('span','cs-conn-badge',store.AUTH_STATUS_LABELS[info.status]||'未检测'));
-  if(s.authPolling==='codex')head.append(el('span','cs-auth-polling','等待 ChatGPT 授权完成…'));
-  const card=el('div','cs-auth-card'+(info.ready?' is-ok':''));
-  card.append(head,el('p','cs-auth-msg',info.message||'检测本机 Codex 的 ChatGPT 订阅登录状态。'));
-  const actions=el('div','cs-row-actions');
-  if(!info.ready)actions.append(action('登录 Codex',()=>store.startAuthLogin('codex'),'cs-primary','auth-login-codex'));
-  actions.append(action('检查本机授权',()=>store.verifyAuth('codex'),'','auth-verify-codex'),action('刷新状态',()=>store.refreshAuthStatus(),'','auth-refresh-codex'));
-  actions.append(action('复制登录命令',async()=>{await navigator.clipboard?.writeText('codex login');notice('已复制：codex login');}));
-  card.append(actions);
-  sec.body.append(card,el('p','cs-field-hint','此处登记本机 Codex CLI 的订阅授权，令牌由 Codex 管理；下方 GPT Image API 配置独立使用 API Key。'));
-  return sec.node;
+  const wrap=el('div','cs-auth-panel cs-codex-auth');
+  wrap.append(authSettingsCard('codex',{
+   loginLabel:'打开终端完成 Codex 授权',verifyLabel:'检查本机授权',defaultCommand:'codex login',
+   fallbackMessage:'检测本机 Codex 的 ChatGPT 订阅登录状态。',waitingMessage:'等待 ChatGPT 授权完成…',
+  }),el('p','cs-field-hint','此处仅登记本机 Codex 订阅授权，尚未接入本应用生图。使用 GPT Image 生图，请切换「GPT Image API 接口」并配置 API Key。'));
+  return wrap;
  }
 
  function imageSettingsPanel(panel){
   const cfg=state().apiConfig;
   const pid=PROVIDER_META[settingsProvider]?settingsProvider:cfg.activeProvider;
   const group=groupForProvider(pid),meta=PROVIDER_META[pid];
+  const isOpenAI=group.id==='gpt',isCodex=isOpenAI&&settingsOpenAIMode==='codex';
 
   const tabs=el('div','cs-provider-tabs');tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','生图服务商');
   for(const g of SETTINGS_GROUPS){
@@ -589,7 +600,9 @@ export function createCharacterStudio(root,ctx){
    b.append(text,dot);
    b.onclick=()=>{
     const nextPid=g.modes.includes(cfg.activeProvider)?cfg.activeProvider:g.modes[0];
-    settingsProvider=nextPid;store.updateApiConfig({activeProvider:nextPid});
+    settingsProvider=nextPid;
+    if(g.id==='gpt'){render(true);if(settingsOpenAIMode==='codex')store.refreshAuthStatus();return;}
+    store.updateApiConfig({activeProvider:nextPid});
     if(isAuthProvider(nextPid))store.refreshAuthStatus();
    };
    tabs.append(b);
@@ -597,24 +610,29 @@ export function createCharacterStudio(root,ctx){
   panel.append(tabs);
 
   const acts=el('div','cs-row-actions');
-  const doc=el('a','cs-link','文档');doc.href=meta.docUrl;doc.target='_blank';doc.rel='noreferrer';acts.append(doc);
-  if(!isAuthProvider(pid)){
+  const doc=el('a','cs-link','文档');doc.href=isCodex?CODEX_SETTINGS_META.docUrl:meta.docUrl;doc.target='_blank';doc.rel='noreferrer';acts.append(doc);
+  if(!isCodex&&!isAuthProvider(pid)){
    const peerVid=IMAGE_VIDEO_KEY_PEERS[pid],peerKey=peerVid?cfg.videoProviders?.[peerVid]?.apiKey?.trim():'';
    if(peerKey&&peerKey!==cfg.providers[pid]?.apiKey?.trim()){
     acts.append(action('复用「视频」同厂商 Key',()=>{store.updateProviderConfig(pid,{apiKey:peerKey});notice(`已从视频配置复用 ${meta.shortName} Key`);}));
    }
    acts.append(action('恢复默认',()=>{store.updateProviderConfig(pid,{baseUrl:meta.defaultBaseUrl,model:meta.models[0].value});notice('已恢复生图默认端点与模型');}));
   }
-  if(group.id==='gpt')panel.append(codexSubscriptionSettings());
   const sec=section(`${group.name} · 生图接入配置`,{actions:acts});
-  const modeBar=modeSwitchBar(group,pid,{
-   metaMap:PROVIDER_META,isAuthFn:isAuthProvider,statusFn:providerStatusText,
-   onPick:mid=>{settingsProvider=mid;store.updateApiConfig({activeProvider:mid});if(isAuthProvider(mid))store.refreshAuthStatus();},
+  const modeBar=modeSwitchBar(isOpenAI?{...group,modes:['codex','gpt']}:group,isOpenAI?settingsOpenAIMode:pid,{
+   metaMap:isOpenAI?OPENAI_SETTINGS_META:PROVIDER_META,isAuthFn:id=>id==='codex'||isAuthProvider(id),
+   statusFn:id=>id==='codex'?(store.AUTH_STATUS_LABELS[state().authStatus.codex?.status]||'未检测'):providerStatusText(id),
+   onPick:mid=>{
+    if(isOpenAI)settingsOpenAIMode=mid;
+    if(mid==='codex'){render(true);store.refreshAuthStatus();return;}
+    settingsProvider=mid;store.updateApiConfig({activeProvider:mid});if(isAuthProvider(mid))store.refreshAuthStatus();
+   },
   });
   if(modeBar)sec.body.append(modeBar);
-  sec.body.append(isAuthProvider(pid)?authSettingsBody(pid,{isVideo:false}):apiKeySettingsBody(pid,{isVideo:false}));
+  sec.body.append(isCodex?codexSubscriptionSettings():isAuthProvider(pid)?authSettingsBody(pid,{isVideo:false}):apiKeySettingsBody(pid,{isVideo:false}));
   panel.append(sec.node);
 
+  if(isCodex)return;
   if(!isAuthProvider(pid)){
    const g=section('生图全局请求选项');
    g.body.append(
@@ -762,7 +780,7 @@ export function createCharacterStudio(root,ctx){
  // ------------------------------------------------------------------ render loop
  function signature(){
   const s=state();
-  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.hydrated]);
+  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,settingsOpenAIMode,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.hydrated]);
  }
  function render(force=false){
   if(disposed)return;
@@ -790,6 +808,7 @@ export function createCharacterStudio(root,ctx){
     }
     settingsProvider=state().apiConfig.activeProvider;
     settingsVideoProvider=state().apiConfig.activeVideoProvider;
+    settingsOpenAIMode=settingsProvider==='gpt'||state().apiConfig.providers.gpt.apiKey?.trim()?'gpt':'codex';
    }
    unsub?.();unsub=store.subscribe(()=>render());
    if(!pasteHandler){
