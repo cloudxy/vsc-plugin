@@ -583,6 +583,7 @@ class CodexAuthorizationTests(unittest.TestCase):
             (0, "Logged in using an API key: sk-never-return-this", "api_key_only", False),
             (1, "Not logged in", "unauthorized", False),
             (0, "Not logged in with ChatGPT", "unauthorized", False),
+            (1, "Operation not permitted", "check_failed", False),
         ]
         for code, diagnostic, status, ready in cases:
             with self.subTest(status=status, diagnostic=diagnostic), \
@@ -638,6 +639,93 @@ class CodexAuthorizationTests(unittest.TestCase):
             terminal.assert_called_once_with("'/path with space/codex' login")
             unknown = client.post("/api/v1/character-studio/auth/verify", headers=headers, json={"provider": "unknown"})
             self.assertEqual(unknown.status_code, 422)
+
+
+class CodexGenerationTests(unittest.TestCase):
+    def test_subscription_generation_uses_sanitized_cli_and_validates_output(self):
+        from fastapi import HTTPException
+        from vsc.interfaces.web import character_studio as module
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "codex"
+            generated = home / "generated_images" / "test.png"
+            reference = "data:image/png;base64," + base64.b64encode(PNG_1X1).decode("ascii")
+            body = {"prompt": "reference test", "references": [reference], "model": "image-generation", "aspect_ratio": "1:1"}
+            outcome = {"kind": "valid"}
+            def run(command, **kwargs):
+                self.assertIn("--ignore-user-config", command)
+                self.assertIn('forced_login_method="chatgpt"', command)
+                self.assertEqual(command[command.index("--sandbox") + 1], "read-only")
+                self.assertEqual(command[-2], "--")
+                self.assertNotIn("OPENAI_API_KEY", kwargs["env"])
+                self.assertNotIn("CODEX_ACCESS_TOKEN", kwargs["env"])
+                self.assertEqual(kwargs["env"]["CODEX_HOME"], str(home))
+                self.assertEqual(kwargs["timeout"], 300)
+                image = Path(command[command.index("--image") + 1])
+                self.assertEqual(image.read_bytes(), PNG_1X1)
+                if outcome["kind"] == "timeout":
+                    raise subprocess.TimeoutExpired(command, 300)
+                target = generated if outcome["kind"] != "outside" else Path(tmp) / "private.png"
+                write(target, PNG_1X1)
+                if outcome["kind"] == "old":
+                    os.utime(target, (1, 1))
+                if outcome["kind"] == "invalid":
+                    target.write_bytes(b"not an image")
+                result = Path(command[command.index("--output-last-message") + 1])
+                write(result, {"saved_path": str(target), "error": ""})
+                error = {"quota": "quota exceeded sk-private", "auth": "token_revoked secret"}.get(outcome["kind"], "")
+                return subprocess.CompletedProcess(command, 1 if error else 0, stdout="", stderr=error)
+            with patch.object(module, "_codex_auth_status", return_value={"ready": True, "status": "authorized"}), \
+                 patch.object(module, "_resolve_cli_bin", return_value="/bin/codex"), \
+                 patch.dict(os.environ, {"CODEX_HOME": str(home), "OPENAI_API_KEY": "sk-private", "CODEX_ACCESS_TOKEN": "private-token"}), \
+                 patch.object(module, "_run_bounded", side_effect=run) as runner:
+                result = module._generate_with_codex_auth(Path(tmp), body)
+                self.assertEqual((result["provider"], result["model"]), ("codex_auth", "gpt-image-2"))
+                self.assertEqual(base64.b64decode(result["image_url"].split(",", 1)[1]), PNG_1X1)
+                for kind, code in [("outside", 502), ("old", 502), ("invalid", 502), ("quota", 429), ("auth", 401), ("timeout", 504)]:
+                    with self.subTest(kind=kind):
+                        outcome["kind"] = kind
+                        with self.assertRaises(HTTPException) as error:
+                            module._generate_with_codex_auth(Path(tmp), body)
+                        self.assertEqual(error.exception.status_code, code)
+                        self.assertNotIn("sk-private", error.exception.detail)
+                        self.assertNotIn("private-token", error.exception.detail)
+                runner.reset_mock()
+                for invalid in [{"references": []}, {"references": [reference] * 9}, {"model": "arbitrary-code-model"}, {"aspect_ratio": "invalid"}, {"prompt": ""}]:
+                    with self.subTest(invalid=invalid):
+                        with self.assertRaises(HTTPException) as error:
+                            module._generate_with_codex_auth(Path(tmp), {**body, **invalid})
+                        self.assertEqual(error.exception.status_code, 422)
+                runner.assert_not_called()
+            for status, code in [("unauthorized", 401), ("api_key_only", 401), ("cli_missing", 422), ("check_failed", 503)]:
+                with self.subTest(status=status), patch.object(module, "_codex_auth_status", return_value={"ready": False, "status": status, "message": "check failed"}), patch.object(module, "_run_bounded") as runner:
+                    with self.assertRaises(HTTPException) as error:
+                        module._generate_with_codex_auth(Path(tmp), body)
+                    self.assertEqual(error.exception.status_code, code)
+                    runner.assert_not_called()
+
+    def test_generation_http_route_enforces_actor_origin_and_dispatches_codex(self):
+        from fastapi import FastAPI, HTTPException
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web import character_studio as module
+        app = FastAPI()
+        def actor(request):
+            if request.headers.get("x-test-actor") != "user":
+                raise HTTPException(403, "actor")
+        def origin(request):
+            if request.headers.get("origin") != "http://testserver":
+                raise HTTPException(403, "origin")
+        module.install_character_studio_routes(app, lambda request, data: data, actor, origin)
+        headers = {"origin": "http://testserver", "x-test-actor": "user"}
+        body = {"provider": "codex_auth", "prompt": "test", "references": ["ref"]}
+        with TestClient(app) as client, patch.object(module, "_generate_with_codex_auth", return_value={"image_url": "data:image/png;base64,AA==", "provider": "codex_auth"}) as generate:
+            self.assertEqual(client.post("/api/v1/character-studio/generate", json=body).status_code, 403)
+            self.assertEqual(client.post("/api/v1/character-studio/generate", headers={"origin": "http://testserver"}, json=body).status_code, 403)
+            generate.assert_not_called()
+            response = client.post("/api/v1/character-studio/generate", headers=headers, json=body)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["provider"], "codex_auth")
+            generate.assert_called_once()
+            self.assertEqual(generate.call_args.args[1], body)
 
 
 if __name__ == "__main__":

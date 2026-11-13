@@ -23,7 +23,7 @@ const texts=(root,tag)=>root.querySelectorAll(tag).map(n=>n.textContent);
 
 test('ComfyUI is completely removed and AGY/Grok auth + Grok/Gemini API + Video modality providers are registered',()=>{
  assert.equal(existsSync(new URL('../../../src/vsc/interfaces/web/static/character-studio-workflows.js',import.meta.url)),false);
- assert.deepEqual(ai.PROVIDER_ORDER,['agy_auth','grok_auth','gemini','grok','gpt','qwen','doubao']);
+ assert.deepEqual(ai.PROVIDER_ORDER,['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao']);
  assert.equal(ai.PROVIDER_META.comfyui,undefined);
  assert.deepEqual(ai.SETTINGS_GROUPS.map(g=>g.id),['google','xai','gpt','qwen','doubao']);
  assert.deepEqual(ai.SETTINGS_GROUPS[0].modes,['agy_auth','gemini']);
@@ -160,7 +160,7 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  const headings=texts(root,'h2');
  for(const title of ['1. 参考图组合','2. 生图引擎与参数','3. 提示词 (Prompt)','生成结果','生成记录 (0)'])assert.ok(headings.includes(title),title);
  const providerSelect=root.querySelectorAll('select').find(s=>s.options.some(o=>o.value==='agy_auth'));
- assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','gemini','grok','gpt','qwen','doubao']);
+ assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao']);
  assert.equal(providerSelect.options.some(o=>/comfy/i.test(o.value+o.textContent)),false);
  assert.ok(root.querySelector('.cs-conn'));
 
@@ -287,93 +287,96 @@ test('sidebar places the studio under 资产库 and the settings icon right afte
  assert.doesNotMatch(html,/style="/);
 });
 
-test('OpenAI switches between shared authorization and API panels without losing credentials or focus',async()=>{
+test('OpenAI subscription mode activates Codex while keeping API configuration independent',async()=>{
  const root=doc.createElement('section');doc.body.append(root);
- const calls=[],notices=[],copied=[];let authorized=true,verifyFails=false;
+ const notices=[],copied=[],calls=[];let authorized=true;
  const originalNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async text=>copied.push(text)}}});
  const api=async(path,options={})=>{
   const body=options.body?JSON.parse(options.body):null;calls.push({path,body});
-  if(path.endsWith('/auth/status'))return {codex:{provider:'codex',ready:authorized,status:authorized?'authorized':'unauthorized',message:authorized?'Codex 订阅已登录':'请完成 Codex 登录',login_command:'codex login'}};
+  if(path.endsWith('/auth/status'))return {codex:{ready:authorized,status:authorized?'authorized':'unauthorized',login_command:'codex login'}};
   assert.equal(body.provider,'codex');
-  if(path.endsWith('/auth/verify')){
-   if(verifyFails)throw new Error('本机授权检查连接失败，请重试');
-   return {provider:'codex',ready:true,status:'authorized',verified:true,verification:'local_cli',message:'Codex 本机检查完成'};
-  }
-  if(path.endsWith('/auth/login'))return {started:false,command:'codex login',message:'请在终端完成登录'};
-  throw new Error('Unexpected request '+path);
+  if(path.endsWith('/auth/verify'))return {ready:true,status:'authorized',message:'Codex checked'};
+  return {started:false,command:'codex login'};
  };
- const savedConfig={apiKey:'existing-openai-test-key',baseUrl:'https://api.openai.com/v1',model:'custom',customModel:'retained-image-model'};
- store.updateApiConfig({activeProvider:'gpt'});store.updateProviderConfig('gpt',savedConfig);
- const studio=createCharacterStudio(root,{api,notice:m=>notices.push(m),session:()=>({actor:'user',csrf:'csrf'}),navigate(){}});
- await studio.load({mode:'settings',tab:'image'});await store.refreshAuthStatus();await flush();
+ const previous=structuredClone(store.getState().apiConfig);
+ const saved={apiKey:'existing-openai-key',baseUrl:'https://api.openai.com/v1',model:'custom',customModel:'retained-image-model'};
+ store.updateApiConfig({activeProvider:'gpt'});store.updateProviderConfig('gpt',saved);
+ const studio=createCharacterStudio(root,{api,notice:m=>notices.push(m),session:()=>({csrf:'csrf'}),navigate(){}});
  const mode=id=>root.querySelectorAll('.cs-mode-btn').find(node=>node.dataset.modeId===id);
  const control=key=>root.querySelectorAll('button').find(node=>node.dataset.busyKey===key);
- assert.deepEqual(root.querySelectorAll('.cs-mode-btn').map(node=>node.dataset.modeId),['codex','gpt']);
- assert.equal(mode('gpt').getAttribute('aria-pressed'),'true');
- assert.equal(root.querySelector('.cs-codex-auth'),null);
- assert.equal(root.querySelectorAll('input').find(node=>node.dataset.focusKey==='set-key').value,savedConfig.apiKey);
- mode('codex').focus();await mode('codex').onclick();await flush();
- assert.ok(doc.activeElement===mode('codex'),'mode switch keeps keyboard focus on the selected button');
- assert.equal(mode('codex').getAttribute('aria-pressed'),'true');
- assert.ok(root.querySelector('.cs-auth-panel').querySelector('.cs-auth-card'));
- assert.equal(root.querySelectorAll('.cs-apikey-panel').length,0);
- assert.equal(root.querySelectorAll('h2').filter(node=>/OpenAI/.test(node.textContent)).length,1);
- assert.equal(root.querySelectorAll('button').some(node=>node.textContent==='恢复默认'||node.textContent==='保存配置'),false);
- assert.equal(root.querySelectorAll('select').length,0);
- assert.match(root.querySelector('.cs-codex-auth').textContent,/已授权/);
- assert.match(root.querySelector('.cs-codex-auth').textContent,/仅登记.*尚未接入本应用生图/);
- assert.match(root.querySelector('.cs-cmd-box').textContent,/\$ codex login/);
- await control('auth-verify-codex').onclick();await flush();
- assert.equal(calls.at(-1).body.provider,'codex');assert.ok(notices.includes('Codex 本机检查完成'));
- verifyFails=true;await control('auth-verify-codex').onclick();await flush();
- assert.ok(notices.includes('本机授权检查连接失败，请重试'));
- assert.match(root.querySelector('.cs-conn-badge').textContent,/已授权/);
- await control('auth-copy-codex').onclick();assert.deepEqual(copied,['codex login']);
- navigator.clipboard.writeText=async()=>{throw new Error('clipboard denied');};
- await control('auth-copy-codex').onclick();assert.ok(notices.includes('复制失败，请手动复制下方命令'));
- assert.equal(store.getState().apiConfig.activeProvider,'gpt');
- authorized=false;await control('auth-refresh-codex').onclick();await flush();
- assert.match(root.querySelector('.cs-codex-auth').textContent,/未登录/);
- await control('auth-login-codex').onclick();await flush();
- assert.equal(calls.at(-1).body.provider,'codex');assert.equal(store.getState().authPolling,null);
- await mode('gpt').onclick();await flush();
- assert.equal(root.querySelector('.cs-codex-auth'),null);
- assert.ok(root.querySelector('.cs-apikey-panel'));
- for(const [key,value]of Object.entries(savedConfig))assert.equal(store.getState().apiConfig.providers.gpt[key],value);
- assert.equal(root.querySelectorAll('input').find(node=>node.dataset.focusKey==='set-custom').value,savedConfig.customModel);
- assert.equal(root.querySelectorAll('button').some(node=>node.textContent==='保存配置'),true);
- assert.equal(ai.PROVIDER_META.codex,undefined);
- assert.equal(ai.PROVIDER_ORDER.includes('codex'),false);
- await assert.rejects(store.verifyAuth('unknown-vendor'),/不支持/);
- studio.suspend();doc.activeElement=doc.body;
- store.updateProviderConfig('gpt',{apiKey:'',model:ai.PROVIDER_META.gpt.models[0].value,customModel:''});store.updateApiConfig({activeProvider:'agy_auth'});
- if(originalNavigator)Object.defineProperty(globalThis,'navigator',originalNavigator);else delete globalThis.navigator;
+ try{
+  await studio.load({mode:'settings',tab:'image'});await flush();
+  assert.deepEqual(root.querySelectorAll('.cs-mode-btn').map(node=>node.dataset.modeId),['codex_auth','gpt']);
+  mode('codex_auth').focus();await mode('codex_auth').onclick();await flush();
+  assert.ok(doc.activeElement===mode('codex_auth'));
+  assert.equal(store.getState().apiConfig.activeProvider,'codex_auth');
+  assert.ok(root.querySelector('.cs-auth-panel'));
+  assert.equal(root.querySelector('.cs-apikey-panel'),null);
+  assert.match(root.querySelector('.cs-auth-panel').textContent,/无需 API Key/);
+  assert.match(root.querySelector('.cs-cmd-box').textContent,/codex login/);
+  const tab=root.querySelectorAll('.cs-provider-tab').find(node=>node.dataset.groupId==='gpt');
+  assert.ok(tab.querySelector('.cs-dot').classList.contains('is-ok'));
+  await control('auth-verify-codex').onclick();await flush();
+  assert.ok(notices.includes('Codex checked'));
+  await control('auth-copy-codex').onclick();assert.deepEqual(copied,['codex login']);
+  navigator.clipboard.writeText=async()=>{throw new Error('denied');};
+  await control('auth-copy-codex').onclick();assert.ok(notices.includes('复制失败，请手动复制下方命令'));
+  authorized=false;await control('auth-refresh-codex').onclick();await flush();
+  assert.match(root.querySelector('.cs-conn-badge').textContent,/未登录/);
+  await control('auth-login-codex').onclick();assert.equal(store.getState().authPolling,null);
+  await mode('gpt').onclick();await flush();
+  assert.equal(store.getState().apiConfig.activeProvider,'gpt');
+  for(const [key,value]of Object.entries(saved))assert.equal(store.getState().apiConfig.providers.gpt[key],value);
+  await mode('codex_auth').onclick();await flush();
+  await studio.load({mode:'studio'});await flush();
+  assert.equal(root.querySelector('.cs-warn'),null);
+  assert.ok(root.querySelectorAll('select').some(node=>node.value==='codex_auth'));
+ }finally{
+  studio.suspend();doc.activeElement=doc.body;root.remove();store.updateApiConfig(previous);
+  if(originalNavigator)Object.defineProperty(globalThis,'navigator',originalNavigator);else delete globalThis.navigator;
+ }
 });
 
-test('browsing OpenAI authorization or saved API settings never replaces another active generation provider',async()=>{
+test('OpenAI configuration light follows Codex authorization and API configuration',async()=>{
  const root=doc.createElement('section');doc.body.append(root);
- const studio=createCharacterStudio(root,{api:async()=>({codex:{ready:true,status:'authorized'}}),notice(){},session:()=>({csrf:'csrf'}),navigate(){}});
- const openAI=()=>root.querySelectorAll('.cs-provider-tab').find(node=>node.dataset.groupId==='gpt');
- const mode=id=>root.querySelectorAll('.cs-mode-btn').find(node=>node.dataset.modeId===id);
- store.updateApiConfig({activeProvider:'grok_auth'});store.updateProviderConfig('gpt',{apiKey:''});
- await studio.load({mode:'settings'});await flush();
- const readyBefore=root.querySelector('#cs-modality-tab-image').textContent;
- await openAI().onclick();await flush();
- assert.equal(mode('codex').getAttribute('aria-pressed'),'true');
- assert.equal(store.getState().apiConfig.activeProvider,'grok_auth');
- assert.match(openAI().textContent,/Codex 已授权/);
- // Registration is visible but does not count as an available image generation channel.
- assert.equal(root.querySelector('#cs-modality-tab-image').textContent,readyBefore);
- await root.querySelector('#cs-modality-tab-video').onclick();await flush();
- await root.querySelector('#cs-modality-tab-image').onclick();await flush();
- assert.equal(mode('codex').getAttribute('aria-pressed'),'true');
- assert.equal(store.getState().apiConfig.activeProvider,'grok_auth');
- await mode('gpt').onclick();await flush();
- assert.equal(store.getState().apiConfig.activeProvider,'gpt');
- store.updateProviderConfig('gpt',{apiKey:'saved-openai-key'});store.updateApiConfig({activeProvider:'grok_auth'});
- await studio.load({mode:'settings'});await flush();await openAI().onclick();await flush();
- assert.equal(mode('gpt').getAttribute('aria-pressed'),'true');
- assert.equal(store.getState().apiConfig.activeProvider,'grok_auth');
- studio.suspend();store.updateProviderConfig('gpt',{apiKey:''});store.updateApiConfig({activeProvider:'agy_auth'});
+ const previous=structuredClone(store.getState().apiConfig);let codex={ready:false,status:'idle'};
+ const studio=createCharacterStudio(root,{api:async()=>({grok:{ready:false,status:'unauthorized'},agy:{ready:false,status:'unauthorized'},codex}),notice(){},session:()=>({csrf:'csrf'}),navigate(){}});
+ for(const id of ai.PROVIDER_ORDER)store.updateProviderConfig(id,{apiKey:''});
+ store.updateApiConfig({activeProvider:'codex_auth'});
+ try{
+  await studio.load({mode:'settings',tab:'image'});await flush();
+  for(const sample of [
+   {status:'idle',ready:false,key:'',tone:'',count:0},
+   {status:'authorized',ready:true,key:'',tone:'is-ok',count:1},
+   {status:'expired',ready:false,key:'',tone:'',count:0},
+   {status:'unauthorized',ready:false,key:'test-key',tone:'is-set',count:1},
+   {status:'authorized',ready:true,key:'test-key',tone:'is-ok',count:1},
+   {status:'check_failed',ready:false,key:'',tone:'',count:0},
+   {status:'api_key_only',ready:false,key:'',tone:'',count:0},
+  ]){
+   codex={ready:sample.ready,status:sample.status};store.updateProviderConfig('gpt',{apiKey:sample.key});
+   await store.refreshAuthStatus();await flush();
+   const tab=root.querySelectorAll('.cs-provider-tab').find(node=>node.dataset.groupId==='gpt');
+   assert.equal(tab.querySelector('.cs-dot').className,sample.tone?'cs-dot '+sample.tone:'cs-dot',sample.status);
+   assert.match(root.querySelector('.cs-conn-badge').textContent,new RegExp(store.AUTH_STATUS_LABELS[sample.status]));
+   assert.match(root.querySelector('#cs-modality-tab-image').textContent,new RegExp(`${sample.count}/5`));
+  }
+ }finally{studio.suspend();store.updateApiConfig(previous);root.remove();}
+});
+
+test('Codex subscription generation sends references without an API key and keeps API mode separate',async()=>{
+ const originalFetch=globalThis.fetch,calls=[];
+ globalThis.fetch=async(url,options)=>{calls.push({url,options,body:JSON.parse(options.body)});return {ok:true,json:async()=>({image_url:'data:image/png;base64,AA==',model:'gpt-image-2',provider:'codex_auth'})};};
+ const config=store.mergeStoredConfig({activeProvider:'codex_auth',codexParams:{aspectRatio:'1:1'},providers:{gpt:{apiKey:'',model:'gpt-image-2'}}});
+ try{
+  const result=await ai.generateCharacterImage({recipe:{extraImages:[{url:'data:image/png;base64,AA=='}]},prompt:'reference test',config});
+  assert.equal(result.providerUsed,'codex_auth');assert.equal(result.modelUsed,'gpt-image-2');
+  assert.equal(calls.length,1);assert.equal(calls[0].url,'/api/v1/character-studio/generate');
+  assert.equal(calls[0].body.provider,'codex_auth');assert.equal(calls[0].body.aspect_ratio,'1:1');
+  assert.equal(calls[0].body.model,'image-generation');assert.equal(calls[0].body.references.length,1);
+  assert.equal(calls[0].body.apiKey,undefined);assert.equal(calls[0].options.headers.Authorization,undefined);
+  await assert.rejects(ai.generateCharacterImage({recipe:{extraImages:[{url:'data:image/png;base64,AA=='}]},prompt:'test',config:{...config,activeProvider:'gpt'}}),/API Key/);
+  assert.equal(calls.length,1);
+ }finally{globalThis.fetch=originalFetch;}
 });
