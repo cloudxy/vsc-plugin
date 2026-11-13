@@ -1,5 +1,7 @@
 /* AI 角色合成台 / API 接口配置 / 配方浮条. Dark workbench tokens, no inline styles. */
 #character-studio-view{min-height:100%;box-sizing:border-box}
+/* The page host receives restored focus after its controls are re-rendered. */
+#character-studio-view:focus-visible{outline:none}
 .character-studio{color:var(--text-1,#fdfbfc);padding:20px 28px 96px;box-sizing:border-box}
 .character-studio *{box-sizing:border-box}
 .character-studio button,.character-studio input,.character-studio select,.character-studio textarea{font:inherit}
