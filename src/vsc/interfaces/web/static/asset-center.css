@@ -279,3 +279,21 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 .asset-center .official-drawer-thumb[aria-pressed=true]{border-color:var(--brand-6)}
 @media(max-width:760px){.asset-center.center-workbench-official .center-official-filter-row label{flex:1 1 128px}.asset-center.center-workbench-official .center-official-filter-row label:has(input[type=search]){flex-basis:100%;max-width:none}.center-workbench-official .center-official-kinds button{height:44px;min-height:44px}}
 @media(max-width:600px){.global-asset-library:has(.center-workbench-official){padding-inline:16px}.asset-center.center-workbench-official .center-grid{grid-template-columns:minmax(0,1fr)}.asset-center.ref-library .ref-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 12px}.asset-center.ref-library{padding-bottom:220px}.asset-center.ref-library .ref-pills button{height:44px;min-height:44px}.asset-center.ref-library .ref-card h3{margin-top:8px;font-size:13px}.asset-center .official-detail-drawer{inset:0;width:100%;max-width:100vw;padding:16px;border:0}.official-drawer-head{top:-16px}.asset-center.center-workbench-official .center-card-tools>button{font-size:13px}.center-continuous{padding-bottom:24px}}
+
+/* Project categories keep one toolbar while only their results are refreshed. */
+.global-asset-tools{display:flex;align-items:center;gap:12px;flex:0 0 auto;margin-left:auto;max-width:100%}
+.global-asset-tools .global-asset-count{box-sizing:border-box;flex:0 0 12em;width:12em;margin-left:0;text-align:right;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.global-asset-toolbar .global-asset-tools input{box-sizing:border-box;flex:0 0 150px;width:150px;min-width:150px}
+.global-asset-batch{display:flex;align-items:center;gap:12px;flex:none}
+.global-asset-batch>button{flex:none;border:1px solid #363636;border-radius:7px;padding:8px 10px;background:#252525;color:#eee;white-space:nowrap}
+.global-asset-status{min-height:1.6em;margin:0 0 12px;color:#999;font-size:13px;line-height:1.6}
+.global-asset-grid{min-height:240px}
+@media(max-width:700px){
+ .global-asset-toolbar>select{box-sizing:border-box;flex-basis:100%;width:100%;max-width:none}
+ .global-asset-categories{flex-basis:100%;padding-left:0;border-left:0}
+ .global-asset-tools{flex:1 0 100%;flex-wrap:wrap;margin-left:0;min-width:0}
+ .global-asset-tools .global-asset-count{text-align:left}
+ .global-asset-toolbar .global-asset-tools input{flex:1 0 150px;width:150px;max-width:100%}
+ .global-asset-batch{flex:1 0 100%}
+ .global-asset-batch>button{flex:1;min-width:0}
+}

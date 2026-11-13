@@ -1777,8 +1777,9 @@ function createGlobalAssetLibrary(root,ctx){
   const value=params.get('tab')||params.get('source')||(typeof location!=='undefined'&&String(location.pathname||'').replace(/\/+$/,'')==='/asset-center'?'shared':'');
   return value==='shared'||value==='official'?value:'project';
  };
- let disposed=false,generation=0,actor=null,tab=routeTab(),project='',kind='',query='',child=null,controller=null;
+ let disposed=false,generation=0,actor=null,tab=routeTab(),project='',kind='',query='',child=null,controller=null,projectView=null,loadingTimer=null;
  const current=g=>!disposed&&g===generation&&actor===ctx.session().actor;
+ const stopLoadingHint=()=>{clearTimeout(loadingTimer);loadingTimer=null;};
  const element=(tag,text,cls)=>{const n=el(tag,text);if(cls)n.className=cls;return n;};
  const btn=(parent,label,fn)=>{const n=element('button',label);n.type='button';n.onclick=async()=>{if(n.disabled)return;n.disabled=true;try{await fn();}catch(e){ctx.notice(e.message);}finally{n.disabled=false;}};parent.append(n);return n;};
  const projects=()=>ctx.projects().filter(p=>!p.unavailable&&!['vsc.text-tools','vsc.creative-tools'].includes(p.profile_id||p.profile));
@@ -1847,8 +1848,13 @@ function createGlobalAssetLibrary(root,ctx){
   box.append(cover,element('h3',row.name),element('p',p.name));grid.append(box);
  }
  async function load(){
-  controller?.abort();controller=new AbortController();const signal=controller.signal;disposed=false;const g=++generation;actor=ctx.session().actor;tab=routeTab();closeChildren();root.replaceChildren();root.className='global-asset-library';
+  const nextActor=ctx.session().actor,nextTab=routeTab();
+  const reuseProject=projectView&&!disposed&&actor===nextActor&&tab==='project'&&nextTab==='project'&&root.querySelector('.global-asset-toolbar')===projectView.toolbar;
+  if(actor!==null&&actor!==nextActor){project='';kind='';query='';}
+  controller?.abort();stopLoadingHint();controller=new AbortController();const signal=controller.signal;disposed=false;const g=++generation;actor=nextActor;tab=nextTab;closeChildren();
+  if(!reuseProject){root.replaceChildren();projectView=null;}root.className='global-asset-library';
   if(!document.querySelector('link[data-asset-cards]')){const css=document.createElement('link');css.rel='stylesheet';css.href='/static/asset-cards.css';css.dataset.assetCards='';document.head.append(css);}
+  if(!reuseProject){
   const chooseTab=value=>{const route=new URLSearchParams(location.search);route.set('page','asset-center');route.delete('source');if(value==='project')route.delete('tab');else route.set('tab',value);history.pushState(null,'','?'+route);return load();};
   const tabs=element('nav',null,'global-asset-tabs');
   for(const [value,title]of [['project','项目资产'],['official','官方资产']]){
@@ -1865,37 +1871,60 @@ function createGlobalAssetLibrary(root,ctx){
    child=createAssetCenter(host,ctx,tab==='official'?{source:'official',embedded:true,workbench:true}:{source:'shared'});
    await child.load();return;
   }
+  }
+  if(!projectView){
   const toolbar=element('div',null,'global-asset-toolbar'),select=element('select');select.setAttribute('aria-label','选择项目');
-  select.append(localizedOption('','所有项目'));for(const p of projects())select.append(localizedOption(p.id,p.name));
-  if(project&&!projects().some(p=>p.id===project))project='';
-  select.value=project;select.onchange=()=>{project=select.value;load();};toolbar.append(select);
+  select.onchange=()=>{project=select.value;query=projectView.search.value;return load();};toolbar.append(select);
   const categories=element('nav',null,'global-asset-categories');
   for(const [value,title]of [['','全部'],['character','人设'],['location','场景'],['prop','道具'],['blocking','站位'],['voice','音频']]){
-   const b=btn(categories,title,()=>{kind=value;return load();});b.setAttribute('aria-pressed',String(kind===value));
+   const b=element('button',title);b.type='button';b.dataset.kind=value;
+   b.onclick=()=>{if(kind===value)return;kind=value;query=projectView.search.value;return load();};categories.append(b);
   }
   toolbar.append(categories);
-  const count=element('span','加载中…','global-asset-count');count.setAttribute('role','status');toolbar.append(count);
+  const tools=element('div',null,'global-asset-tools'),count=element('span','资产数待读取','global-asset-count');count.setAttribute('role','status');tools.append(count);
   const search=element('input');search.type='search';search.value=query;search.placeholder='搜索资产…';search.setAttribute('aria-label','搜索资产');
   search.onkeydown=e=>{if(e.key==='Enter'){query=search.value;load();}};search.onsearch=()=>{query=search.value;load();};
-  toolbar.append(search);btn(toolbar,'批量操作',()=>pickProject(null));btn(toolbar,'批量导入',()=>pickProject('import'));root.append(toolbar);
+  const batch=element('div',null,'global-asset-batch');tools.append(search,batch);btn(batch,'批量操作',()=>pickProject(null));btn(batch,'批量导入',()=>pickProject('import'));toolbar.append(tools);root.append(toolbar);
+  const status=element('p','','global-asset-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.setAttribute('aria-atomic','true');root.append(status);
   const grid=element('div',null,'global-asset-grid');root.append(grid);
   const create=btn(grid,'',()=>pickProject('create'));create.className='global-asset-create';create.append(element('span','＋'),element('strong','新建资产'),element('small','选择类型'));
-  const selected=projects().filter(p=>!project||p.id===project),states=selected.map(p=>({p,offset:0,revision:null,status:'ready',error:null})),queue=[...states],size=24,limit=72,concurrency=3,readQuery=query,readKind=kind;
-  const controls=element('div',null,'global-asset-progress'),failureBox=element('div',null,'global-asset-failures');failureBox.setAttribute('role','alert');root.append(controls,failureBox);let inFlight=0,shown=0,loaded=0;
+  const controls=element('div',null,'global-asset-progress'),failureBox=element('div',null,'global-asset-failures');failureBox.setAttribute('role','alert');root.append(controls,failureBox);
+  projectView={toolbar,select,categories,count,search,status,grid,create,controls,failureBox,projectsKey:null};
+  }
+  const {select,categories,count,status,grid,create,controls,failureBox}=projectView;
+  const available=projects(),projectsKey=JSON.stringify(available.map(p=>[p.id,p.name]));
+  if(projectView.projectsKey!==projectsKey){select.replaceChildren(localizedOption('','所有项目'));for(const p of available)select.append(localizedOption(p.id,p.name));projectView.projectsKey=projectsKey;}
+  if(project&&!available.some(p=>p.id===project))project='';select.value=project;
+  for(const b of categories.children)b.setAttribute('aria-pressed',String(kind===b.dataset.kind));
+  const oldHeight=grid.getBoundingClientRect?.().height||0;
+  if(grid.style)grid.style.minHeight=Math.max(240,Math.min(oldHeight,typeof window!=='undefined'?window.innerHeight||600:600))+'px';
+  grid.replaceChildren(create);grid.setAttribute('aria-busy','true');setText(count,'资产数待读取');setText(status,'');controls.replaceChildren();failureBox.replaceChildren();failureBox.hidden=true;
+  const selected=available.filter(p=>!project||p.id===project),states=selected.map(p=>({p,offset:0,revision:null,status:'ready',error:null})),queue=[...states],size=24,limit=72,concurrency=3,readQuery=query,readKind=kind;
+  const kindName={character:'人设',location:'场景',prop:'道具',blocking:'站位',voice:'音频'}[readKind]||'全部';
+  let inFlight=0,shown=0,loaded=0,loadingHint=false,received=false;
+  const delayHint=()=>{stopLoadingHint();loadingHint=false;loadingTimer=setTimeout(()=>{if(current(g)){loadingTimer=null;loadingHint=true;paint();}},150);};
+  delayHint();
+  const text=(node,value)=>{if(node.textContent!==value)setText(node,value);};
   function paint(){
    if(!current(g))return;
    const failures=states.filter(s=>s.status==='failed'),waiting=queue.length>0,loading=inFlight>0;
-   setText(count,(loading||waiting||failures.length?'已加载 ':'共')+loaded+'个资产'+(loading?' · 正在加载':waiting?' · 尚有未加载资产':failures.length?' · 部分读取失败':''));
+   const complete=!loading&&!waiting&&!failures.length;
+   const countText=loaded||complete||failures.length?(complete?'共':'已加载')+loaded+'个资产':'资产数待读取';
+   text(count,countText);count.title=countText;count.setAttribute('aria-label',countText);
+   text(status,failures.length?(loaded?'部分项目未能完整读取，已加载的资产仍可使用。':'当前分类读取失败，请查看下方原因并重试。'):loading?(loaded?`正在读取${kindName}资产，已加载 ${loaded} 个。`:loadingHint?`正在读取${kindName}资产…`:''):waiting?'尚有未加载资产，可继续浏览。':'');
+   grid.setAttribute('aria-busy',String(loading));
+   if(loaded||failures.length||!loading)stopLoadingHint();else if(!loadingTimer&&!loadingHint)delayHint();
+   if((received||!loading)&&grid.style)grid.style.minHeight='';
    controls.replaceChildren();failureBox.replaceChildren();failureBox.hidden=!failures.length;
    if(waiting&&shown>0&&shown+(inFlight+1)*size>limit){btn(controls,'继续浏览',()=>{grid.replaceChildren(create);shown=0;pump();});controls.append(element('span','本页已展示 '+shown+' 个，继续浏览其余资产。'));}
    if(!waiting&&!loading&&loaded>shown)btn(controls,'从头查看',load);
    if(failures.length){
     failureBox.append(element('p','部分项目未能完整读取：'+failures.map(s=>s.p.name+'（'+s.error.message+'）').join('；')));
     const retryable=failures.filter(s=>!s.changed);
-    if(retryable.length)btn(failureBox,'重试失败项目',()=>{for(const s of retryable){s.status='ready';s.error=null;queue.push(s);}pump();});
+    if(retryable.length)btn(failureBox,'重试失败项目',()=>{loadingHint=false;for(const s of retryable){s.status='ready';s.error=null;queue.push(s);}pump();});
     if(failures.some(s=>s.changed))btn(failureBox,'从头重新读取',load);
    }
-   if(!waiting&&!loading&&!failures.length&&!loaded&&!grid.querySelector('.global-asset-empty'))grid.append(element('p',selected.length?'暂无资产':'暂无可访问的项目','global-asset-empty'));
+   if(!waiting&&!loading&&!failures.length&&!loaded&&!grid.querySelector('.global-asset-empty'))grid.append(element('p',!selected.length?'暂无可访问的项目':readQuery?'没有匹配的资产，可修改搜索条件。':'此分类还没有资产，可新建资产。','global-asset-empty'));
   }
   function pump(){
    if(!current(g))return;
@@ -1906,13 +1935,13 @@ function createGlobalAssetLibrary(root,ctx){
      if(!Array.isArray(data.items)||data.items.length>size)throw new Error('分页返回无效');
      if(state.revision!==null&&state.revision!==data.revision){state.changed=true;throw new Error('读取期间项目已变化，请从头重新读取');}
      if(data.next_offset!=null&&(!Number.isInteger(data.next_offset)||data.next_offset<=offset))throw new Error('分页游标无效');
-     state.revision=data.revision;for(const row of data.items)card(row,state.p,grid);shown+=data.items.length;loaded+=data.items.length;
+     received=true;state.revision=data.revision;for(const row of data.items)card(row,state.p,grid);shown+=data.items.length;loaded+=data.items.length;
      if(data.next_offset==null)state.status='done';else{state.offset=data.next_offset;state.status='ready';queue.push(state);}
-    }).catch(error=>{if(current(g)){state.status='failed';state.error=error;}}).finally(()=>{if(current(g)){inFlight--;pump();}});
+    }).catch(error=>{if(current(g)){received=true;state.status='failed';state.error=error;}}).finally(()=>{if(current(g)){inFlight--;pump();}});
    }
    paint();
   }
   pump();
  }
- return {load,suspend(){disposed=true;generation++;controller?.abort();closeChildren();}};
+ return {load,suspend(){disposed=true;generation++;controller?.abort();stopLoadingHint();closeChildren();}};
 }

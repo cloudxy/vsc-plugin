@@ -119,7 +119,8 @@ test('progressively loads all pages with bounded concurrency and retry',async()=
     {id:'fast',name:'快项目'},{id:'slow',name:'慢项目'},{id:'bad',name:'失败项目'}],api));
   await panel.load(); await settle();
   assert.equal(cards(root).length,48);
-  assert.match(root.querySelector('.global-asset-count').textContent,/正在加载/);
+  assert.equal(root.querySelector('.global-asset-count').textContent,'已加载48个资产');
+  assert.equal(root.querySelector('.global-asset-grid').getAttribute('aria-busy'),'true');
   assert.ok(requests.some(url=>url.includes('offset=24')));
   assert.match(root.querySelector('.global-asset-failures').textContent,/失败项目/);
   assert.equal(maxActive,3);
@@ -145,6 +146,44 @@ test('suspending aborts reads and ignores a late response even if abort is ignor
   await panel.load(); await tick(); panel.suspend(); assert.equal(signal.aborted,true);
   finish({items:[asset(999)],next_offset:null,revision:1}); await settle();
   assert.equal(cards(root).length,0);
+});
+
+test('category transitions retain the toolbar and search draft while ignoring late results and errors',async()=>{
+  location.search='?page=asset-center';const reads=[];
+  const api=(url,{signal}={})=>{
+    const q=new URL(url,'http://test').searchParams;
+    if(!q.get('asset_kind'))return Promise.resolve({items:[asset('initial')],next_offset:null,revision:1});
+    return new Promise((resolve,reject)=>reads.push({kind:q.get('asset_kind'),query:q.get('query'),signal,resolve,reject}));
+  };
+  const root=new Element('main',document),panel=createAssetCenter(root,context([{id:'p',name:'项目'}],api));await panel.load();await settle();
+  const toolbar=root.querySelector('.global-asset-toolbar'),count=root.querySelector('.global-asset-count'),search=toolbar.walk().find(n=>n.tagName==='INPUT'),batch=button(root,'批量操作'),grid=root.querySelector('.global-asset-grid');
+  search.value='茶馆草稿';search.selectionStart=1;search.selectionEnd=3;document.activeElement=search;
+  await button(root,'人设').onclick();await settle();
+  assert.equal(root.querySelector('.global-asset-toolbar'),toolbar);assert.equal(root.querySelector('.global-asset-count'),count);assert.equal(button(root,'批量操作'),batch);
+  assert.equal(toolbar.walk().find(n=>n.tagName==='INPUT'),search);assert.equal(search.value,'茶馆草稿');assert.equal(search.selectionStart,1);assert.equal(document.activeElement,search);
+  assert.equal(count.textContent,'资产数待读取');assert.equal(cards(root).length,0);assert.equal(root.querySelector('.global-asset-status').textContent,'');
+  assert.equal(button(root,'人设').getAttribute('aria-pressed'),'true');assert.notEqual(button(root,'人设').disabled,true);assert.equal(reads[0].query,'茶馆草稿');
+  await new Promise(resolve=>setTimeout(resolve,170));assert.match(root.querySelector('.global-asset-status').textContent,/正在读取人设资产/);
+  await button(root,'场景').onclick();await settle();assert.equal(reads[0].signal.aborted,true);assert.equal(count.textContent,'资产数待读取');
+  reads[1].resolve({items:[{...asset('scene'),asset_kind:'location'}],next_offset:null,revision:1});await settle();
+  assert.equal(count.textContent,'共1个资产');assert.equal(grid.getAttribute('aria-busy'),'false');assert.equal(root.querySelector('.global-asset-status').textContent,'');
+  reads[0].reject(Error('late old-category error'));await settle();assert.equal(cards(root).length,1);assert.match(cards(root)[0].textContent,/资产scene/);assert.equal(root.querySelector('.global-asset-failures').hidden,true);
+  const before=reads.length;await button(root,'场景').onclick();await settle();assert.equal(reads.length,before);
+  await button(root,'道具').onclick();await settle();reads[2].reject(Error('HTTP 403 permission denied'));await settle();
+  assert.equal(count.textContent,'已加载0个资产');assert.equal(root.querySelector('.global-asset-empty'),null);assert.match(root.querySelector('.global-asset-failures').textContent,/HTTP 403/);assert.match(root.querySelector('.global-asset-status').textContent,/读取失败/);
+  await button(root,'重试失败项目').onclick();await settle();reads[3].resolve({items:[],next_offset:null,revision:1});await settle();
+  assert.equal(count.textContent,'共0个资产');assert.match(root.querySelector('.global-asset-empty').textContent,/没有匹配的资产/);assert.equal(search.value,'茶馆草稿');
+  panel.suspend();
+});
+
+test('a retained toolbar never carries another actor’s content or search draft into a new session',async()=>{
+  location.search='?page=asset-center';let actor='first',finish;
+  const ctx=context([{id:'p',name:'项目'}],()=>actor==='first'?Promise.resolve({items:[asset('private')],next_offset:null,revision:1}):new Promise(resolve=>{finish=resolve;}));
+  ctx.session=()=>({actor});const root=new Element('main',document),panel=createAssetCenter(root,ctx);await panel.load();await settle();
+  const toolbar=root.querySelector('.global-asset-toolbar'),search=toolbar.walk().find(n=>n.tagName==='INPUT');search.value='private draft';
+  actor='second';await panel.load();await settle();assert.notEqual(root.querySelector('.global-asset-toolbar'),toolbar);assert.equal(cards(root).length,0);assert.equal(root.querySelector('.global-asset-toolbar').walk().find(n=>n.tagName==='INPUT').value,'');
+  actor=null;await panel.load();finish({items:[asset('late-second')],next_offset:null,revision:1});await settle();
+  assert.match(root.textContent,/请先建立操作会话/);assert.equal(root.querySelector('.global-asset-toolbar'),null);assert.equal(cards(root).length,0);panel.suspend();
 });
 
 test('official and shared tabs query their own sources and restore from the URL',async()=>{
