@@ -21,12 +21,17 @@ function setup({empty=false}={}){
   const help=node('details');help.className='sidebar-help';
   const summary=node('summary'),menu=node('div'),feedback=node('button','help-feedback'),feedbackIcon=node('svg'),feedbackLabel=node('span');
   feedback.append(feedbackIcon,feedbackLabel);
-  help.append(summary,menu);menu.append(feedback);
-  if(!empty)document.body.append(section,help);
+  const guide=node('button','help-guide'),network=node('button','help-network'),helpOpen=node('button','help-open');
+  guide.append(node('span'));network.append(node('span'));
+  help.append(summary,menu);menu.append(guide,feedback,network);
+  const actions=[];helpOpen.addEventListener('click',()=>actions.push(['guide']));
+  if(!empty)document.body.append(section,help,helpOpen);
   const query=document.querySelector.bind(document);
   document.querySelector=selector=>{const [first,...children]=selector.split(/\s*>\s*/);let found=query(first);for(const child of children)found=found?.children.find(item=>item.matches(child));return found||null;};
-  vm.runInNewContext(source.slice(start,end),{document,$:id=>document.getElementById(id)});
-  return {document,toggle,region,project,help,summary,feedback,heading,label,feedbackIcon,feedbackLabel};
+  const actionsEnd=source.indexOf("$('team-review-open').addEventListener",end);
+  assert.ok(actionsEnd>end);
+  vm.runInNewContext(source.slice(start,actionsEnd),{document,$:id=>document.getElementById(id),guard:callback=>callback,navigateModule:async(...args)=>actions.push(args)});
+  return {document,toggle,region,project,help,summary,feedback,heading,label,feedbackIcon,feedbackLabel,guide,network,actions};
 }
 
 test('recent creation disclosure supports keyboard activation and preserves rendered projects',async()=>{
@@ -67,4 +72,20 @@ test('shell locale binding updates the caption without replacing the live disclo
     setLocale('en',{persist:false});assert.equal(label.textContent,'Recent Creations');assert.equal(feedbackLabel.textContent,'Feedback');assert.equal(feedback.children[0],feedbackIcon);
     await toggle.click();assert.equal(region.hidden,true);assert.equal(heading.children[0],toggle);
   }finally{setLocale('zh-cn',{persist:false});}
+});
+
+for(const [item,expected] of [
+  ['guide',['guide']],
+  ['feedback',['service-operations','feedback-records']],
+  ['network',['service-operations','network-diagnostic']],
+])test(`help ${item} survives pointer-induced focus loss until its action runs`,async()=>{
+  const env=setup(),{document,help,summary,actions}=env,button=env[item],target=button.querySelector('span');
+  await summary.click();
+  // Safari may blur the summary without focusing a clicked button. The click
+  // follows this focusout and must still find the menu item on screen.
+  await document.body.dispatch('pointerdown',{target});
+  document.body.focus();await help.dispatch('focusout',{relatedTarget:null});
+  assert.notEqual(help.getAttribute('open'),null,'do not hide the target before click');
+  await button.dispatch('click',{target,detail:1});
+  assert.deepEqual(actions,[expected]);assert.equal(help.getAttribute('open'),null);
 });
