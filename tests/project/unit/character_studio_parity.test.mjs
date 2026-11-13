@@ -191,3 +191,49 @@ test('unreadable storage blocks generation and media transfer failures never rep
  await s.startGeneration();assert.equal(s.getState().history.length,0);assert.match(notes.at(-1),/图片转存失败/);
  assert.equal(s.getState().previewUrl,'https://imgen.x.ai/temp.png');
 });
+
+test('reference sheet preview opens separately and never replaces or downloads as the generated result',async()=>{
+ store.configureStudio({api:ctx.api,notice:ctx.notice});await flush();
+ const saved=structuredClone(store.getState()),originalImage=globalThis.Image;
+ const originalContext=Element.prototype.getContext,originalDataUrl=Element.prototype.toDataURL,originalClick=Element.prototype.click,downloads=[];
+ const result='data:image/png;base64,generated-result',sheet='data:image/jpeg;base64,reference-sheet';
+ let failImage=false;
+ globalThis.Image=class{
+  constructor(){this.width=100;this.height=100;}
+  set src(value){queueMicrotask(()=>failImage?this.onerror():this.onload());}
+ };
+ Element.prototype.getContext=()=>({fillRect(){},drawImage(){},fillText(){}});
+ Element.prototype.toDataURL=()=>sheet;
+ Element.prototype.click=function(...args){if(this.tagName==='A'&&this.download){downloads.push(this.href);return;}return originalClick.apply(this,args);};
+ const root=doc.createElement('main');doc.body.append(root);
+ const studio=createCharacterStudio(root,ctx);
+ try{
+  Object.assign(store.getState(),{recipe:{portrait:{...portrait,source:'upload',原图:'data:image/png;base64,reference'},costume:null,pose:null,extraImages:[]},previewUrl:result,isGenerating:false,generationError:''});
+  await studio.load();await flush();
+  const resultImage=()=>root.querySelector('.cs-result').querySelector('img');
+  assert.equal(resultImage().src,result);
+  for(let i=0;i<2;i++){
+   await click(root,'查看拼图');
+   const dialog=doc.body.querySelector('.cs-stitch');assert.ok(dialog.open);
+   assert.equal(dialog.querySelector('img').src,sheet);
+   assert.equal(resultImage().src,result);assert.equal(store.getState().previewUrl,result);
+   await click(dialog,'下载拼图');assert.equal(downloads.at(-1),sheet);
+   await click(dialog,'关闭');
+   assert.equal(resultImage().src,result);
+   await click(root,'下载 PNG');assert.equal(downloads.at(-1),result);
+  }
+  failImage=true;await click(root,'查看拼图');
+  assert.equal(doc.body.querySelector('.cs-stitch'),null);
+  assert.equal(resultImage().src,result);assert.equal(store.getState().previewUrl,result);
+  failImage=false;store.setPreviewUrl('');await flush();await click(root,'查看拼图');
+  assert.equal(root.querySelector('.cs-result').querySelector('img'),null);
+  assert.equal(store.getState().previewUrl,'');
+  doc.body.querySelector('.cs-stitch').close();
+ }finally{
+  studio.suspend();root.remove();Object.assign(store.getState(),saved);
+  if(originalImage===undefined)delete globalThis.Image;else globalThis.Image=originalImage;
+  if(originalContext===undefined)delete Element.prototype.getContext;else Element.prototype.getContext=originalContext;
+  if(originalDataUrl===undefined)delete Element.prototype.toDataURL;else Element.prototype.toDataURL=originalDataUrl;
+  Element.prototype.click=originalClick;
+ }
+});

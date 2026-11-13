@@ -331,7 +331,7 @@ export function removeHistoryItem(id){return persistHistory(c=>c.filter(x=>x.id!
 export function clearHistory(){return persistHistory(()=>[]).then(()=>toast('已清空记录')).catch(()=>toast('清空记录失败，请检查浏览器存储空间'));}
 export function setPreviewUrl(url){state.previewUrl=url;emit();}
 export async function refreshStitchPreview(){
- try{state.previewUrl=await stitchRecipeCanvas(state.recipe);emit();toast('已合成参考拼图');return state.previewUrl;}
+ try{const url=await stitchRecipeCanvas(state.recipe);toast('已合成参考拼图');return url;}
  catch(error){toast(error?.message||'拼图失败');return '';}
 }
 export async function snapshotGeneration(recipe,config,prompt){
