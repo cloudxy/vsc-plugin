@@ -158,7 +158,8 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  const studio=createCharacterStudio(root,{api:mockApi,notice:m=>notices.push(m),session:()=>({actor:'a',csrf:'c'}),navigate:(page,options)=>navigations.push([page,options])});
  await studio.load({mode:'studio'});await flush();
  const headings=texts(root,'h2');
- for(const title of ['1. 参考图组合','2. 生图引擎与参数','3. 提示词 (Prompt)','生成结果','生成记录 (0)'])assert.ok(headings.includes(title),title);
+ for(const title of ['1. 参考图组合','2. 生图引擎与参数','3. 提示词 (Prompt)','生成结果'])assert.ok(headings.includes(title),title);
+ assert.ok(texts(root,'button').includes('AI角色合成库 (0)'));
  const providerSelect=root.querySelectorAll('select').find(s=>s.options.some(o=>o.value==='agy_auth'));
  assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao']);
  assert.equal(providerSelect.options.some(o=>/comfy/i.test(o.value+o.textContent)),false);

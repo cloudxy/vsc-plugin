@@ -121,6 +121,51 @@
 .cs-history-meta small{font-size:10px;color:#8e8d91}
 .cs-history-item .cs-row-actions{padding:0 6px 8px;gap:4px}
 .character-studio .cs-history-item .cs-row-actions button{height:26px;min-height:26px;padding:0 6px;font-size:11px}
+/* SDLC designer's compact gallery; isolate the enclosing asset-center defaults. */
+.cs-history-library{padding:0 0 24px;--history-gap:16px;--history-radius:12px;--history-control:44px}
+.cs-history-heading{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.cs-history-toolbar{display:flex;align-items:center;gap:12px;margin:0 0 24px;min-width:0}
+.character-studio.cs-history-library .cs-history-toolbar input{flex:1;max-width:400px;min-width:0;min-height:var(--history-control);border-radius:var(--history-radius)}
+.cs-history-count,.cs-history-note{color:var(--text-3,#a1a0a3);font-size:12px;line-height:1.5}
+.cs-history-count{white-space:nowrap}
+.cs-history-toolbar-actions{margin-left:auto;flex-wrap:nowrap}
+.cs-history-library .cs-history{grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:24px var(--history-gap);align-items:start}
+.asset-center .cs-history-library .cs-history-item{padding:0;margin:0;border:0;border-radius:0;background:transparent;min-width:0;overflow:visible}
+.asset-center .cs-history-library button{margin:0}
+.asset-center .cs-history-library .cs-history-img{display:block;width:100%;height:auto;min-height:0;padding:0;margin:0;border:0;aspect-ratio:auto;border-radius:var(--history-radius);overflow:hidden;background:var(--surface-2,#131313)}
+.asset-center .cs-history-library .cs-history-img img{display:block;width:100%;height:auto;max-height:none;aspect-ratio:auto;object-fit:contain}
+.cs-history-library .cs-history-meta{padding:12px 0 0;gap:4px}
+.cs-history-meta h3{font-size:14px;line-height:1.5;font-weight:500;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-history-library .cs-history-meta small{font-size:12px;line-height:1.5;color:var(--text-3,#a1a0a3)}
+.cs-history-library .cs-history-item .cs-row-actions{padding:0;margin:8px 0 0;gap:8px;flex-wrap:nowrap}
+.character-studio.cs-history-library .cs-row-actions button{height:var(--history-control);min-height:var(--history-control);padding:0 12px;font-size:14px}
+.cs-history-library .cs-history-item .cs-row-actions>button{flex:1;min-width:0}
+.cs-history-menu{position:relative;flex:none}
+.cs-history-menu>summary{box-sizing:border-box;width:var(--history-control);height:var(--history-control);display:grid;place-items:center;list-style:none;border-radius:8px;font-size:24px;line-height:1;cursor:pointer;color:var(--text-1,#fdfbfc)}
+.cs-history-menu>summary::-webkit-details-marker{display:none}
+.cs-history-menu:not([open])>.cs-history-menu-panel{display:none}
+.cs-history-menu>summary:hover,.cs-history-menu[open]>summary{background:var(--fill-1,#1d1d1d)}
+.cs-history-menu-panel{position:absolute;right:0;top:calc(100% + 8px);z-index:30;display:flex;flex-direction:column;min-width:176px;padding:6px;border:1px solid var(--line-1,#343435);border-radius:12px;background:var(--surface-2,#131313);box-shadow:0 12px 36px #0008}
+.cs-history-item .cs-history-menu-panel{top:auto;bottom:calc(100% + 8px)}
+.character-studio.cs-history-library .cs-history-menu-panel button{width:100%;border:0;background:transparent;text-align:left;height:44px;min-height:44px}
+.character-studio.cs-history-library .cs-history-menu-panel button:hover{background:var(--fill-1,#1d1d1d)}
+.character-studio.cs-history-library .cs-history-menu-panel .cs-history-delete{color:var(--danger,#f87171);border-top:1px solid var(--line-1,#343435);border-radius:0;margin-top:4px}
+.cs-history-note{margin:32px 0 0}
+.cs-history-state{grid-column:1/-1;padding:48px 16px;text-align:center;border:1px dashed var(--line-1,#343435);border-radius:var(--history-radius)}
+.cs-history-state h3{margin:0 0 8px;font-size:16px;font-weight:500}
+.cs-history-state p{font-size:13px;line-height:1.6;color:var(--text-3,#a1a0a3);margin:0 0 16px}
+.cs-history-image-error{display:grid;place-items:center;min-height:220px;padding:16px;font-size:13px;line-height:1.6;color:var(--text-3,#a1a0a3)}
+.cs-history-skeleton{height:300px;border-radius:var(--history-radius);background:var(--surface-2,#131313)}
+.cs-history-detail-meta{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 20px;font-size:13px;line-height:1.6;margin:16px 0}
+.cs-history-detail-meta dt{color:var(--text-3,#a1a0a3)}
+.cs-history-detail-meta dd{margin:0;overflow-wrap:anywhere}
+.cs-history-detail-section{margin:20px 0}
+.cs-history-detail-section h3{font-size:14px;font-weight:500;margin:0 0 8px}
+.cs-history-detail-section p,.cs-history-detail-section pre{font:inherit;font-size:13px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-wrap}
+.cs-history-detail-section pre{padding:12px;max-height:36vh;overflow:auto;border-radius:8px;background:var(--surface-1,#0b080b)}
+.cs-history-detail button{min-height:44px}
+@media(max-width:600px){.cs-history-toolbar{flex-wrap:wrap;gap:12px}.character-studio.cs-history-library .cs-history-toolbar input{max-width:none;flex-basis:100%;width:100%}.cs-history-library .cs-history{grid-template-columns:minmax(0,1fr)}.cs-history-note{margin-top:24px}}
+
 .cs-modality-tabs{display:inline-grid;grid-template-columns:repeat(2,minmax(220px,280px));gap:6px;padding:5px;border-radius:14px;background:#111113;border:1px solid #2a2a2e;width:fit-content;max-width:100%}
 .character-studio .cs-modality-tab{height:auto;min-height:54px;padding:9px 14px;border-radius:10px;border:1px solid transparent;background:transparent;color:#a1a0a3;display:flex;align-items:center;gap:10px;text-align:left;transition:background .15s,border-color .15s,color .15s}
 .character-studio .cs-modality-tab:hover:not(:disabled){background:#1b1b1e;border-color:#34343a;color:#f3f2f5}

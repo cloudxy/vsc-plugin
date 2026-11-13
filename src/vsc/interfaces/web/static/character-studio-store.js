@@ -349,7 +349,7 @@ async function completeGeneration(result,record,signal){
  throwIfAborted(signal);
  state.previewUrl=imageUrl;
  const id=crypto.randomUUID?.()||String(Date.now());
- try{await persistHistory(c=>[{id,createdAt:Date.now(),imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot},...c.filter(x=>x.id!==id)].slice(0,30));}
+ try{await persistHistory(c=>[{id,createdAt:Date.now(),imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot},...c.filter(x=>x.id!==id)]);}
  catch{throw new Error('图已生成，但生成记录保存失败，请先下载当前图片并检查浏览器存储空间');}
  toast('角色图已完成并保存');
 }
