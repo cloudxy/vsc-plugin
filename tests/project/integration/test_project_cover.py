@@ -325,7 +325,6 @@ class ProjectCoverMigrationTests(unittest.TestCase):
         from vsc.assets.resource_service import ResourceService
         from vsc.adapters.persistence.postgres import schema as S
         with isolated_postgres(TEST_URL) as engine:
-            with engine.begin() as conn: migrate(conn, '0050_classic_frame_media', 'downgrade')
             service = ResourceService(PostgresResourceStore(engine=engine))
             project = service.create_project({'name':'0050保留项目'}, actor='test-human')
             data = image_bytes()
@@ -333,6 +332,9 @@ class ProjectCoverMigrationTests(unittest.TestCase):
                 size_bytes=len(data), mime_type='image/png', storage='local', object_key='old/retained.png',
                 rights='unknown', source=dict(kind='migration-fixture', content='pre-existing isolated media row')),
                 expected_revision=0, idempotency_key='old-media', actor='test-human')
+            # Populate common facts while the current writer's guard tables
+            # exist, then exercise the actual populated 0050 -> head migration.
+            with engine.begin() as conn: migrate(conn, '0050_classic_frame_media', 'downgrade')
             with engine.connect() as conn:
                 self.assertFalse(inspect(conn).has_table('project_cover_versions'))
                 before = conn.execute(text('SELECT id,name,profile_snapshot,revision FROM projects')).all()

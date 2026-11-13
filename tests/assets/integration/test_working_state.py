@@ -254,12 +254,14 @@ class WorkingStateTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(self.service.list_working_selections(self.p,shot_id=self.objects['shot'])['items'],[])
 
     def test_real_0033_upgrade_and_explicit_legacy_backfill(self):
-        from sqlalchemy import create_engine,text
+        from sqlalchemy import create_engine,text,insert
         from alembic import command
         from alembic.config import Config
         from support.paths import ROOT
         from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
         from vsc.assets.resource_service import ResourceService
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.persistence.postgres.values import canonical
         url=TEST_URL.replace('postgresql://','postgresql+psycopg://',1)
         schema='vsc_test_legacy_'+uuid.uuid4().hex;admin=create_engine(url);engine=None
         try:
@@ -270,18 +272,20 @@ class WorkingStateTests(ResourceStoreFixture, unittest.TestCase):
                 config.attributes['connection']=conn;command.upgrade(config,'head')
             fixture=ResourceStoreFixture();fixture.store=PostgresResourceStore(engine=engine);fixture.service=ResourceService(fixture.store);fixture.setUp()
             objects=fixture.hierarchy();media=fixture.media('legacy input');sha=fixture.service.get_media(fixture.p,media)['sha256']
-            # Seed the historical hierarchy before removing the newer copy
-            # graph tables; legacy draft setup below runs in actual 0033.
             with engine.begin() as conn:
                 config.attributes['connection']=conn;command.downgrade(config,'0033_creative_tool_imports')
                 self.assertEqual(conn.execute(text('SELECT version_num FROM alembic_version')).scalar_one(),'0033_creative_tool_imports')
                 self.assertIsNone(conn.execute(text("SELECT to_regclass('classic_draft_media')")).scalar_one())
-            # 0033 has no copy-source graph tables. Restrict this historical
-            # fixture writer to its sole project; runtime guards stay intact.
-            from unittest.mock import patch
-            with patch('vsc.adapters.persistence.postgres.copy_lineage.source_projects_for_copy',return_value=[fixture.p]):
-                legacy=fixture.write('create_artifact',dict(artifact_key='legacy-classic',artifact_type='classic-production-draft',
-                    document=dict(shot_id=objects['shot'],mode='single',references=[dict(role='first_frame',media_id=media,sha256=sha)]),object_ids=[objects['shot']]))
+                # Historical fixture data uses only 0033 tables. Current write
+                # guards deliberately require newer tables and typed members.
+                raw=canonical(dict(shot_id=objects['shot'],mode='single',references=[dict(role='first_frame',media_id=media,sha256=sha)])).encode()
+                legacy={'id':str(uuid.uuid4()),'sha256':hashlib.sha256(raw).hexdigest()}
+                conn.execute(insert(S.artifact_versions).values(project_id=fixture.p,id=legacy['id'],artifact_key='legacy-classic',version=1,
+                    artifact_type='classic-production-draft',stage='script',document=raw,mime_type='application/json',
+                    sha256=legacy['sha256'],project_wide=False,parser_version='vsc-resource-v1'))
+                conn.execute(insert(S.artifact_object_scopes).values(project_id=fixture.p,artifact_id=legacy['id'],object_id=objects['shot']))
+                stored=conn.execute(text('SELECT sha256 FROM artifact_versions WHERE id=CAST(:id AS uuid)'),{'id':legacy['id']}).scalar_one()
+                self.assertEqual(stored,legacy['sha256'])
             with engine.begin() as conn:
                 config.attributes['connection']=conn;command.upgrade(config,'head')
             self.assertTrue(fixture.service.get_classic_draft_inputs(fixture.p,legacy['id'])['legacy'])

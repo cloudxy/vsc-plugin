@@ -330,7 +330,7 @@ class PostgresPanelTests(unittest.TestCase):
                 auth_ref='none', enabled=False, rate_limit={}))
             conn.execute(insert(S.provider_models).values(id=model, provider_id=provider, model_key='offline', modality='image',
                 model_version='1', capabilities={}, default_params={}, cost_rule={}, enabled=False))
-        document = dict(shot_id=objects['shot'], mode='image', purpose='image', model_id=model,
+        document = dict(shot_id=objects['shot'], mode='image', purpose='storyboard', model_id=model,
             prompt='固定原稿的完整提示词', duration_ms=5000, width=1024, height=1024, count=1, params={}, references=[])
         draft = self.write('classic-production/drafts', dict(document=document, base_draft_id=None))
         fixed = self.service.get_artifact_version(self.p, draft['id'])
@@ -342,7 +342,7 @@ class PostgresPanelTests(unittest.TestCase):
                 job = str(uuid.uuid4());jobs.append(job)
                 request = {'prompt':'仅原生部分字段'}
                 conn.execute(insert(S.generation_jobs).values(project_id=self.p,id=job,run_version_id=runs[index],shot_id=objects['shot'],
-                    purpose='image',modality='image',candidate_no=0,provider_id=provider,model_id=model,model_version='1',
+                    purpose=document['purpose'],modality='image',candidate_no=0,provider_id=provider,model_id=model,model_version='1',
                     request_payload=request,request_sha256=digest(request),context_sha256='0'*64,idempotency_key='catalog-'+job,
                     status='succeeded',attempt=1))
                 conn.execute(insert(S.job_outputs).values(project_id=self.p,id=str(uuid.uuid4()),job_id=job,media_id=medium,asset_type='image'))
@@ -351,6 +351,7 @@ class PostgresPanelTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         by_id = {row['id']:row for row in response.json()['items']}
         self.assertEqual(by_id[original]['source_job_id'], jobs[0])
+        self.assertEqual(by_id[original]['category'],'shot_image')
         self.assertIn('reuse_media='+original, by_id[original]['reuse_href'])
         self.assertIn('kind=image', by_id[original]['reuse_href'])
         self.assertEqual(by_id[legacy]['source_job_id'], jobs[1])
