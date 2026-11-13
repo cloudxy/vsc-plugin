@@ -249,7 +249,7 @@ class CharacterStudioHttpTests(unittest.TestCase):
 
                     # Auth status & online verification never leak secret tokens.
                     with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
-                         patch("vsc.interfaces.web.character_studio.shutil.which", side_effect=lambda b: f"/usr/local/bin/{b}"), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", side_effect=lambda b: f"/usr/local/bin/{b}" if b in ("grok", "agy") else None), \
                          patch("vsc.adapters.providers.xai_grok.credentials.key_problem", return_value=None), \
                          patch("vsc.adapters.providers.xai_grok.credentials.account_id", return_value="alice@example.com"):
                         st = client.get("/api/v1/character-studio/auth/status", headers=headers)
@@ -296,7 +296,7 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     with patch("vsc.interfaces.web.character_studio._last_grok_auto_refresh_ts", -1e9), \
                          patch.object(grok_credentials, "LOGIN_FILE", fake_refresh_file), \
                          patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
-                         patch("vsc.interfaces.web.character_studio.shutil.which", side_effect=lambda b: f"/usr/local/bin/{b}"), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", side_effect=lambda b: f"/usr/local/bin/{b}" if b in ("grok", "agy") else None), \
                          patch("vsc.adapters.providers.xai_grok.credentials.key_problem", side_effect=expiring_key_problem), \
                          patch("vsc.adapters.providers.xai_grok.credentials.account_id", return_value="bob@example.com"), \
                          patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_auto_refresh) as auto_ref_mock:
@@ -571,6 +571,73 @@ class CharacterStudioHttpTests(unittest.TestCase):
                         )
                     self.assertEqual(res_safety.status_code, 422, res_safety.text)
                     self.assertIn("安全策略拦截", res_safety.json()["detail"])
+
+
+
+
+class CodexAuthorizationTests(unittest.TestCase):
+    def test_subscription_modes_and_sanitized_cli_environment(self):
+        from vsc.interfaces.web import character_studio as module
+        cases = [
+            (0, "Logged in using ChatGPT", "authorized", True),
+            (0, "Logged in using an API key: sk-never-return-this", "api_key_only", False),
+            (1, "Not logged in", "unauthorized", False),
+            (0, "Not logged in with ChatGPT", "unauthorized", False),
+        ]
+        for code, diagnostic, status, ready in cases:
+            with self.subTest(status=status, diagnostic=diagnostic), \
+                 patch.object(module, "_resolve_cli_bin", return_value="/bin/codex"), \
+                 patch.dict(os.environ, {"OPENAI_API_KEY": "sk-env-secret", "CODEX_ACCESS_TOKEN": "token-secret", "CODEX_HOME": "/tmp/codex-test-home"}), \
+                 patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], code, stdout="", stderr=diagnostic)) as run:
+                info = module._codex_auth_status()
+                self.assertEqual((info["status"], info["ready"]), (status, ready))
+                self.assertEqual(info["verification"], "local_cli")
+                self.assertEqual(run.call_args.args[0], ["/bin/codex", "login", "status"])
+                env = run.call_args.kwargs["env"]
+                self.assertNotIn("OPENAI_API_KEY", env)
+                self.assertNotIn("CODEX_ACCESS_TOKEN", env)
+                self.assertEqual(env["CODEX_HOME"], "/tmp/codex-test-home")
+                self.assertNotIn("sk-", json.dumps(info))
+                self.assertNotIn("token-secret", json.dumps(info))
+        with patch.object(module, "_resolve_cli_bin", return_value=None), patch.object(module.subprocess, "run") as run:
+            self.assertEqual(module._codex_auth_status()["status"], "cli_missing")
+            run.assert_not_called()
+        with patch.object(module, "_resolve_cli_bin", return_value="/bin/codex"), \
+             patch.object(module.subprocess, "run", side_effect=subprocess.TimeoutExpired("codex", 10)):
+            self.assertEqual(module._codex_auth_status()["status"], "check_failed")
+
+    def test_codex_status_verify_and_login_use_existing_authorized_routes(self):
+        from fastapi import FastAPI, HTTPException
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web import character_studio as module
+        app = FastAPI()
+        def actor(request):
+            if request.headers.get("x-test-actor") != "user":
+                raise HTTPException(403, "denied")
+        def origin(request):
+            if request.headers.get("origin") != "http://testserver":
+                raise HTTPException(403, "origin")
+        module.install_character_studio_routes(app, lambda request, data: data, actor, origin)
+        info = {"provider": "codex", "ready": True, "status": "authorized", "verification": "local_cli"}
+        headers = {"x-test-actor": "user", "origin": "http://testserver"}
+        with TestClient(app) as client, \
+             patch.object(module, "_grok_auth_status", return_value={}), \
+             patch.object(module, "_agy_auth_status", return_value={}), \
+             patch.object(module, "_codex_auth_status", return_value=info), \
+             patch.object(module, "_resolve_cli_bin", return_value="/path with space/codex"), \
+             patch.object(module, "_open_macos_terminal", return_value=True) as terminal:
+            self.assertEqual(client.get("/api/v1/character-studio/auth/status").status_code, 403)
+            result = client.get("/api/v1/character-studio/auth/status", headers=headers)
+            self.assertEqual(result.json()["codex"], info)
+            denied = client.post("/api/v1/character-studio/auth/verify", headers={"x-test-actor": "user"}, json={"provider": "codex"})
+            self.assertEqual(denied.status_code, 403)
+            verified = client.post("/api/v1/character-studio/auth/verify", headers=headers, json={"provider": "codex"})
+            self.assertTrue(verified.json()["verified"])
+            login = client.post("/api/v1/character-studio/auth/login", headers=headers, json={"provider": "codex"})
+            self.assertTrue(login.json()["started"])
+            terminal.assert_called_once_with("'/path with space/codex' login")
+            unknown = client.post("/api/v1/character-studio/auth/verify", headers=headers, json={"provider": "unknown"})
+            self.assertEqual(unknown.status_code, 422)
 
 
 if __name__ == "__main__":

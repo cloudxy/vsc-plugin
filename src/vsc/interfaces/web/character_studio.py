@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -424,6 +425,38 @@ def _verify_agy_online() -> dict:
     }
 
 
+def _codex_auth_status() -> dict:
+    """Ask the owning CLI about its login; never read or return its credentials."""
+    codex_bin = _resolve_cli_bin("codex")
+    info = {
+        "provider": "codex", "cli_installed": bool(codex_bin), "ready": False,
+        "status": "cli_missing", "account": None, "login_command": "codex login",
+        "verification": "local_cli",
+        "message": "未检测到本机 Codex CLI，请安装后运行 codex login 并选择 ChatGPT 登录。",
+    }
+    if not codex_bin:
+        return info
+    env = host_environment()
+    if os.environ.get("CODEX_HOME"):
+        env["CODEX_HOME"] = os.environ["CODEX_HOME"]
+    try:
+        proc = subprocess.run(
+            [codex_bin, "login", "status"], env=env, capture_output=True, text=True,
+            timeout=10, stdin=subprocess.DEVNULL, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {**info, "status": "check_failed", "message": "Codex 本机授权检查未完成，请稍后刷新或在终端运行 codex login status。"}
+    # CLI diagnostics can contain account/key details; only classify known modes.
+    output = _ANSI_RE.sub("", (proc.stdout or "") + "\n" + (proc.stderr or "")).lower()
+    if proc.returncode == 0 and re.search(r"(?m)^logged in (?:using|with) chatgpt\b", output.strip()):
+        return {**info, "ready": True, "status": "authorized",
+                "message": "本机 Codex 已通过 ChatGPT 订阅登录，授权由 Codex CLI 管理。"}
+    if proc.returncode == 0 and "api key" in output:
+        return {**info, "status": "api_key_only",
+                "message": "Codex 当前使用 API Key 登录。登记订阅授权时，请运行 codex login 并选择 ChatGPT 登录。"}
+    return {**info, "status": "unauthorized", "message": "未确认 Codex 的 ChatGPT 订阅登录，请在终端运行 codex login 完成授权。"}
+
+
 def _open_macos_terminal(command: str) -> bool:
     if sys.platform != "darwin" or not shutil.which("osascript"):
         return False
@@ -444,6 +477,14 @@ def _open_macos_terminal(command: str) -> bool:
 
 
 def _trigger_auth_login(provider: str) -> dict:
+    if provider in ("codex", "codex_auth"):
+        codex_bin = _resolve_cli_bin("codex")
+        started = bool(codex_bin and _open_macos_terminal(f"{shlex.quote(codex_bin)} login"))
+        return {
+            "started": started, "command": "codex login",
+            "message": "已打开 Codex 登录，请在浏览器完成 ChatGPT 授权。" if started else
+                       "请在终端运行 codex login 并选择 ChatGPT 登录，完成后刷新授权状态。",
+        }
     if provider in ("grok", "grok_auth", "grok_video_auth"):
         grok_bin = _resolve_cli_bin("grok")
         if not grok_bin:
@@ -1447,13 +1488,16 @@ def install_character_studio_routes(app, etag, read_actor, origin):
     @app.get("/api/v1/character-studio/auth/status")
     async def auth_status(request: Request):
         read_actor(request)
-        return await asyncio.to_thread(lambda: {"grok": _grok_auth_status(), "agy": _agy_auth_status()})
+        return await asyncio.to_thread(lambda: {"grok": _grok_auth_status(), "agy": _agy_auth_status(), "codex": _codex_auth_status()})
 
     @app.post("/api/v1/character-studio/auth/verify")
     async def auth_verify(request: Request, body: dict):
         origin(request)
         read_actor(request)
         provider = str(body.get("provider") or "").strip()
+        if provider in ("codex", "codex_auth"):
+            info = await asyncio.to_thread(_codex_auth_status)
+            return {**info, "verified": info["ready"]}
         if provider in ("grok", "grok_auth", "grok_video_auth"):
             return await asyncio.to_thread(_verify_grok_online)
         if provider in ("agy", "agy_auth"):

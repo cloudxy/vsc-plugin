@@ -280,3 +280,33 @@ test('sidebar places the studio under 资产库 and the settings icon right afte
  assert.match(html,/character-studio\.css/);
  assert.doesNotMatch(html,/style="/);
 });
+
+test('OpenAI configuration registers Codex subscription checks without changing image API credentials',async()=>{
+ const root=doc.createElement('section');doc.body.append(root);
+ const calls=[],notices=[];let authorized=true;
+ const api=async(path,options={})=>{
+  const body=options.body?JSON.parse(options.body):null;calls.push({path,body});
+  if(path.endsWith('/auth/status'))return {codex:{provider:'codex',ready:authorized,status:authorized?'authorized':'unauthorized',message:authorized?'Codex 订阅已登录':'请完成 Codex 登录',login_command:'codex login'}};
+  assert.equal(body.provider,'codex');
+  if(path.endsWith('/auth/verify'))return {provider:'codex',ready:true,status:'authorized',verified:true,verification:'local_cli',message:'Codex 本机检查完成'};
+  if(path.endsWith('/auth/login'))return {started:false,command:'codex login',message:'请在终端完成登录'};
+  throw new Error('Unexpected request '+path);
+ };
+ store.updateApiConfig({activeProvider:'gpt'});store.updateProviderConfig('gpt',{apiKey:'existing-openai-test-key'});
+ const studio=createCharacterStudio(root,{api,notice:m=>notices.push(m),session:()=>({actor:'user',csrf:'csrf'}),navigate(){}});
+ await studio.load({mode:'settings',tab:'image'});await store.refreshAuthStatus();await flush();
+ assert.match(root.querySelector('.cs-codex-auth').textContent,/已授权/);
+ assert.match(root.querySelector('.cs-codex-auth').textContent,/GPT Image API 配置独立使用 API Key/);
+ const control=key=>root.querySelectorAll('button').find(node=>node.dataset.busyKey===key);
+ await control('auth-verify-codex').onclick();await flush();
+ assert.equal(calls.at(-1).body.provider,'codex');assert.ok(notices.includes('Codex 本机检查完成'));
+ assert.equal(store.getState().apiConfig.providers.gpt.apiKey,'existing-openai-test-key');
+ assert.equal(store.getState().apiConfig.activeProvider,'gpt');
+ authorized=false;await control('auth-refresh-codex').onclick();await flush();
+ assert.match(root.querySelector('.cs-codex-auth').textContent,/未登录/);
+ await control('auth-login-codex').onclick();await flush();
+ assert.equal(calls.at(-1).body.provider,'codex');assert.equal(store.getState().authPolling,null);
+ assert.equal(store.getState().apiConfig.providers.gpt.apiKey,'existing-openai-test-key');
+ await assert.rejects(store.verifyAuth('unknown-vendor'),/不支持/);
+ store.updateProviderConfig('gpt',{apiKey:''});store.updateApiConfig({activeProvider:'agy_auth'});studio.suspend();
+});
