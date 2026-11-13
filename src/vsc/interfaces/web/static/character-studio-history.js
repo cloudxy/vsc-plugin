@@ -18,6 +18,26 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
   return Number.isNaN(d.getTime())?'合成角色':`合成角色 · ${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
  };
  const engine=h=>PROVIDER_META[h.provider]?.shortName||h.provider||'AI生成';
+ function closeMenus(keep=null,restoreFocus=false){
+  let trigger=null;
+  for(const menu of root.querySelectorAll('.cs-history-menu')){
+   if(menu===keep||!menu.open)continue;
+   menu.open=false;trigger=menu.querySelector('summary');trigger?.setAttribute('aria-expanded','false');
+  }
+  if(restoreFocus)trigger?.focus?.({preventScroll:true});
+  return Boolean(trigger);
+ }
+ function dismissOutside(event){
+  for(const menu of root.querySelectorAll('.cs-history-menu'))if(menu.open&&!menu.contains(event.target)){
+   menu.open=false;menu.querySelector('summary')?.setAttribute('aria-expanded','false');
+  }
+ }
+ function dismissEscape(event){if(event.key==='Escape'&&closeMenus(null,true))event.preventDefault();}
+ function menuListeners(listen){
+  const method=listen?'addEventListener':'removeEventListener';
+  for(const type of ['pointerdown','click','focusin'])document[method](type,dismissOutside,true);
+  document[method]('keydown',dismissEscape,true);
+ }
  function action(text,fn,cls=''){
   const b=el('button',cls,text);b.type='button';
   b.onclick=async()=>{if(b.disabled||disposed)return;b.disabled=true;b.setAttribute('aria-busy','true');
@@ -26,10 +46,11 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
   };return b;
  }
  function moreMenu(label,items){
-  const menu=el('details','cs-history-menu'),summary=el('summary','','⋯'),panel=el('div','cs-history-menu-panel');summary.setAttribute('aria-label',label);summary.title=label;
-  const buttons=items.map(([label,fn,cls])=>{const b=action(label,()=>{menu.open=false;summary.focus({preventScroll:true});return fn();},cls);panel.append(b);return b;});
-  menu.append(summary,panel);menu.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();menu.open=false;summary.focus();}};
-  menu.addEventListener('toggle',()=>{if(menu.open)for(const other of root.querySelectorAll('.cs-history-menu'))if(other!==menu)other.open=false;});
+  const menu=el('details','cs-history-menu'),summary=el('summary','','⋯'),panel=el('div','cs-history-menu-panel');summary.setAttribute('aria-label',label);summary.setAttribute('aria-expanded','false');summary.title=label;
+  const buttons=items.map(([label,fn,cls])=>{const b=action(label,()=>{menu.open=false;summary.setAttribute('aria-expanded','false');summary.focus({preventScroll:true});return fn();},cls);panel.append(b);return b;});
+  summary.onclick=event=>{event.preventDefault();closeMenus(menu);menu.open=!menu.open;summary.setAttribute('aria-expanded',String(menu.open));summary.focus({preventScroll:true});};
+  menu.append(summary,panel);menu.onkeydown=dismissEscape;
+  menu.addEventListener('toggle',()=>{summary.setAttribute('aria-expanded',String(menu.open));if(menu.open)closeMenus(menu);});
   return {node:menu,buttons};
  }
  function reuse(h){store.setCustomPrompt(h.prompt);notice('已恢复该图提示词');return onCompose?.();}
@@ -187,7 +208,7 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
 
  return {
   load(){
-   disposed=false;unsub?.();root.replaceChildren();root.className='character-studio cs-history-library';
+   disposed=false;unsub?.();menuListeners(false);closeMenus();root.replaceChildren();root.className='character-studio cs-history-library';
    root.append(el('h2','cs-history-heading','AI角色合成库'));
    const toolbar=el('div','cs-history-toolbar');
    search=el('input');search.type='search';search.placeholder='搜索提示词、配方或生成引擎';search.setAttribute('aria-label','搜索合成记录');search.value=query;search.oninput=()=>{query=search.value;render(true);};
@@ -197,8 +218,8 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
    ]);clear=more.buttons[0];
    actions.append(action('生成角色图',()=>onCompose?.(),'cs-primary'),more.node);toolbar.append(search,count,actions);
    grid=el('div','cs-history');note=el('p','cs-history-note');root.append(toolbar,grid,note);
-   window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);unsub=store.subscribe(()=>render());render(true);
+   window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);menuListeners(true);unsub=store.subscribe(()=>render());render(true);
   },
-  suspend(){disposed=true;unsub?.();unsub=null;window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},
+  suspend(){disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},
  };
 }
