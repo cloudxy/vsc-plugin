@@ -45,7 +45,7 @@ python3 -B scripts/assets/library.py search '雨' --kind ambience
 
 ## 豆包链与有界执行
 
-图像／视频／视觉复核使用 [方舟适配器](../architecture/generation-adapters.md)。固定音色对白使用 [豆包语音接口](../architecture/doubao-speech.md)，环境声／音效／音乐的可选生成接口见 [Seed-Audio](../architecture/doubao-audio.md)。服务开通与凭证权限分别核实；环境变量存在不能当作平台授权成功。
+图像／视频／视觉复核使用 [方舟适配器](../architecture/generation-adapters.md)。固定音色对白与环境声／音效／音乐的可选生成接口见 `scripts/providers/volcengine/speech.py` 与 `scripts/providers/volcengine/audio.py`。服务开通与凭证权限分别核实；环境变量存在不能当作平台授权成功。
 
 [批量生产](../guide/production-batch.md)先完整预检所有本地输入、媒体类别、输出目录、锚点、依赖和规模预算。计划 hash 绑定具体请求；显式执行后按依赖串行生产，失败停止，下次续接原任务。实际尾帧才能成为下镜输入。网络提交结果未知时保留凭证并停止，不能删记录重跑来掩盖可能的重复计费。
 

@@ -5,7 +5,7 @@ description: "Implement and verify VSC software changes across UI, application a
 
 # VSC 软件实现
 
-从 [vsc-architecture](../vsc-architecture/SKILL.md) 的维护路由进入，沿本次审查、规划或实施模式工作；主责是 `fullstack-engineer`。角色只按变化选用，不要求架构/产品/DBA全部到场。沿原 [维护验证、测试与提交](../../docs/guide/maintenance.md)和[命令归属](../../docs/adr/0006-command-ownership.md)，不另建状态、批准或测试入口；运行源码测试时再读该工作区的 `tests/README.md`。
+从 [vsc-architecture](../vsc-architecture/SKILL.md) 的维护路由进入，沿本次审查、规划或实施模式工作；主责是 `fullstack-engineer`。角色只按变化选用，不要求架构/产品/DBA全部到场。沿原 [维护验证、测试与提交](../../docs/guide/maintenance.md)，不另建状态、批准或测试入口；运行源码测试时再读该工作区的 `tests/README.md`。
 
 ## 从现象到完整路径
 
@@ -27,7 +27,7 @@ description: "Implement and verify VSC software changes across UI, application a
 
 ## 按需资料
 
-先读本机 [术语](../../GLOSSARY.md)、相关 [ADR](../../docs/adr/README.md)和上述维护/测试指南。上游方法仅使用 architecture Vendor 解析返回的锁定原文。以下官方章节核读于2026-10-24，只用于相应问题；实施核已安装版本，不从 `latest` 文档推定本机 API。
+先读本机 [术语](../../GLOSSARY.md)和上述维护/测试指南。上游方法仅使用 architecture Vendor 解析返回的锁定原文。以下官方章节核读于2026-10-24，只用于相应问题；实施核已安装版本，不从 `latest` 文档推定本机 API。
 
 | 资料与读取范围 | 用途与边界 |
 | --- | --- |

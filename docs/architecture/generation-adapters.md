@@ -37,7 +37,7 @@ VSC 核心保留稳定生成协议，已登记适配器可按明确路线使用 
 
 ## 豆包适配器
 
-[`scripts/providers/volcengine/ark.py`](../../scripts/providers/volcengine/ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读 `ARK_AGENT_PLAN_API_KEY`（方舟 Agent Plan 专属 key），图像／视频只走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`。套餐规则禁止用该 key 直接调用文本生成与向量化模型，因此视觉检查只能预检和读取已有报告。平台以 401／403 拒绝时，统一提示 key 没有该服务权限、请用户自行核对，不自动换 key 或重试（文案见 `src/vsc/adapters/providers/credentials.py`）。执行前应有本项目已批准输入、预算和授权。套餐边界与尚未接入能力见 [Agent Plan 个人版对照](ark-agent-plan-personal.md)。
+[`scripts/providers/volcengine/ark.py`](../../scripts/providers/volcengine/ark.py) 用标准库调用火山方舟。命令、模型默认值和参数以 `--help` 与代码为准；密钥只读 `ARK_AGENT_PLAN_API_KEY`（方舟 Agent Plan 专属 key），图像／视频只走套餐专属地址 `https://ark.cn-beijing.volces.com/api/plan/v3`。套餐规则禁止用该 key 直接调用文本生成与向量化模型，因此视觉检查只能预检和读取已有报告。平台以 401／403 拒绝时，统一提示 key 没有该服务权限、请用户自行核对，不自动换 key 或重试（文案见 `src/vsc/adapters/providers/credentials.py`）。执行前应有本项目已批准输入、预算和授权。
 
 ```bash
 # 一次生成规范资产图；模型需已在账号开通。
@@ -72,7 +72,7 @@ python3 -B scripts/providers/volcengine/ark.py inspect --project projects/示例
 
 凭证只读 grok CLI 登录态 `~/.grok/auth.json` 的 key，不读环境变量、不回显；缺失或过期时提示在终端运行 `grok` 登录刷新。请求统一带浏览器 User-Agent；结果 URL 是临时的，成功后立即转存并登记 SHA。同名任务先写提交意图再 POST，中断续查不重提；参考图按出现顺序写入语义摘要；每次生成写 `vsc.generation-record/v1`（`engine.provider=xai_grok`）。
 
-PostgreSQL worker 按 `worker_factory` 分发到 Grok 订阅适配器；series 栈同样放行 `xai_grok`。资源面板预设默认停用，按项目启用并绑定用途默认后生效。订阅授权与按量 `XAI_API_KEY`、Grok Build 宿主内置工具互不混用；401／403 不自动换凭证或重试。端点、全部模式参数与验证边界详见 [xAI Grok 订阅路线](xai-grok-subscription.md)。
+PostgreSQL worker 按 `worker_factory` 分发到 Grok 订阅适配器；series 栈同样放行 `xai_grok`。资源面板预设默认停用，按项目启用并绑定用途默认后生效。订阅授权与按量 `XAI_API_KEY`、Grok Build 宿主内置工具互不混用；401／403 不自动换凭证或重试。端点与模式参数以 `scripts/providers/xai/grok.py` 为准。
 
 ```bash
 # 资产图：文生图（9:16、2k 默认）；--ref（≤5）改走图像编辑/多图合成。
@@ -122,7 +122,7 @@ python3 -B scripts/media/procedural_audio.py --project projects/示例作品 \
   --name ambience-wind-01 --preset wind --duration 10 --seed 0
 ```
 
-声音均写 `kind=audio`、`purpose=asset` 的 `vsc.generation-record/v1`。TTS 保存请求、分块摘要、用量与原音频 SHA；Seed-Audio 保存任务 ID、提交／查询响应及用量，可续查原任务，已缓存完成响应可本地重验。未知提交不自动重新生成，坏媒体不报成功。详细用法与限制见[豆包语音](doubao-speech.md)、[Seed-Audio](doubao-audio.md)。人工确认后用 `scripts/assets/library.py promote/use` 复用；voice 条目保留供应商、音色、资源与模型，声音权属须独立核验。
+声音均写 `kind=audio`、`purpose=asset` 的 `vsc.generation-record/v1`。TTS 保存请求、分块摘要、用量与原音频 SHA；Seed-Audio 保存任务 ID、提交／查询响应及用量，可续查原任务，已缓存完成响应可本地重验。未知提交不自动重新生成，坏媒体不报成功。人工确认后用 `scripts/assets/library.py promote/use` 复用；voice 条目保留供应商、音色、资源与模型，声音权属须独立核验。
 
 <a id="provider-assessment"></a>
 ## 新供应商接入评估（2026-10-24）

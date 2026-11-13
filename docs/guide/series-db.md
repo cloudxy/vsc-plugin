@@ -45,7 +45,7 @@ python3 -B scripts/production/series.py link-boundary PROJECT --from-shot EP001-
 
 ## 统一生成任务入口
 
-`src/vsc/production/providers.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。`src/vsc/adapters/providers/volc_ark/provider.py` 已按此接口实现火山方舟图像、视频和 Agent Plan Seed TTS 2.0 的本地适配；图像／视频使用专属 key `ARK_AGENT_PLAN_API_KEY` 和 `https://ark.cn-beijing.volces.com/api/plan/v3`，语音使用同一 key 的专属 `/api/v3/plan/tts/unidirectional` 路由。图／视频／语音均未完成真实线上调用验证。模型能力、默认参数、版本与路由由 `scripts/production/jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。套餐能力和 AFP 预算边界见 [Agent Plan 个人版对照](../architecture/ark-agent-plan-personal.md)。
+`src/vsc/production/providers.py` 定义 Image/Video/Audio 三种逻辑请求和 `submit/poll/parse_result` 接口。`src/vsc/adapters/providers/volc_ark/provider.py` 已按此接口实现火山方舟图像、视频和 Agent Plan Seed TTS 2.0 的本地适配；图像／视频使用专属 key `ARK_AGENT_PLAN_API_KEY` 和 `https://ark.cn-beijing.volces.com/api/plan/v3`，语音使用同一 key 的专属 `/api/v3/plan/tts/unidirectional` 路由。图／视频／语音均未完成真实线上调用验证。模型能力、默认参数、版本与路由由 `scripts/production/jobs.py` 管理。准备 `vsc.generation-request/v1` JSON，引用现行 `ShotContext.sha256` 与已批准媒体 ID；`plan` 要求已批准 `production_run` 钉住该镜头的全部输入版本。
 
 ```bash
 python3 -B scripts/production/jobs.py provider-add PROJECT --name volc_ark --modality image --modality video --modality audio --auth-ref env:ARK_AGENT_PLAN_API_KEY

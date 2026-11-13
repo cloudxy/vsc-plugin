@@ -36,7 +36,7 @@ def render_hosts(root):
 
 def render_version(root):
     version = json.loads((root / ".zcode-plugin" / "plugin.json").read_text("utf-8"))["version"]
-    return f"当前版本：**v{version}**，各版本变化见 [版本记录](docs/releases/)。\n"
+    return f"当前版本：**v{version}**。\n"
 
 
 def render_marketplace(root):

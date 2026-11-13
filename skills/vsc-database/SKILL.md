@@ -31,7 +31,7 @@ description: "Review and implement VSC database constraints, queries, transactio
 
 ## 按需一手资料
 
-本机优先 [ADR-0005](../../docs/adr/0005-postgres-resource-authority.md)、[术语](../../GLOSSARY.md)、原 schema专项和领域测试。以下为2026-10-24核读范围，不代表整份手册或所有后端兼容验证；17版是资料定位，实施仍核真实服务版本。
+本机优先 [术语](../../GLOSSARY.md)、原 schema 专项和领域测试。以下为2026-10-24核读范围，不代表整份手册或所有后端兼容验证；17版是资料定位，实施仍核真实服务版本。
 
 | 资料与范围 | 用途 |
 | --- | --- |
