@@ -216,6 +216,7 @@ class AssetCenterRepository:
             return clean(dict(conn.execute(select(o).where(o.c.id == row["id"])).mappings().one()))
 
     def _search_official(self, filters):
+        from .library_media import available_member
         o, v, e = S.official_asset_publications, S.library_entry_versions, S.library_entries
         query = select(o).join(v, and_(v.c.id == o.c.library_version_id, v.c.entry_id == o.c.entry_id)).join(e, e.c.id == o.c.entry_id)
         query = query.where(
@@ -224,6 +225,9 @@ class AssetCenterRepository:
             e.c.visibility == "workspace",
             or_(v.c.expires_at.is_(None), v.c.expires_at > func.now()),
         )
+        newer = o.alias('newer_official_publication')
+        query = query.where(~exists(select(1).where(newer.c.entry_id == o.c.entry_id,
+            or_(newer.c.created_at > o.c.created_at, and_(newer.c.created_at == o.c.created_at, newer.c.id > o.c.id)))))
         if filters.get("asset_kind"):
             query = query.where(o.c.asset_kind == filters["asset_kind"])
         facet_base = query.subquery()
@@ -231,11 +235,16 @@ class AssetCenterRepository:
             if filters.get(key):
                 query = query.where(o.c[key] == filters[key])
         if filters.get("media_only"):
+            media, versions = S.library_version_media, S.library_entry_versions.alias('official_media_version')
+            backups = S.official_asset_backups
             query = query.where(
                 exists(
-                    select(1).where(
-                        S.library_version_media.c.library_version_id == o.c.library_version_id,
-                        S.library_version_media.c.modality.in_(["image", "video", "audio"]),
+                    select(1).select_from(media.join(versions, versions.c.id == media.c.library_version_id)).where(
+                        or_(versions.c.entry_id == o.c.entry_id, exists(select(1).where(
+                            backups.c.entry_id == o.c.entry_id, backups.c.library_version_id == media.c.library_version_id,
+                            backups.c.member_key == media.c.member_key)).correlate(o, media)),
+                        media.c.modality.in_(["image", "video", "audio"]),
+                        available_member(media.c.library_version_id, media.c.member_key),
                     )
                 )
             )
@@ -277,6 +286,12 @@ class AssetCenterRepository:
             by_version = {row["library_version_id"]: row for row in publications}
             for row in details:
                 row.update(source="official", official=by_version[row["version_id"]], can_edit_catalog=False)
+                if not row['members']:
+                    from .library_media import LibraryMediaRepository
+                    gallery = LibraryMediaRepository(self.store, self.storage).detail(row['id'], None)['gallery']
+                    row['members'] = gallery[:1]
+                    if gallery:
+                        row['version_id'] = gallery[0]['library_version_id']
             return clean(
                 {
                     "items": details,
@@ -365,7 +380,9 @@ class AssetCenterRepository:
             result = []
             for row in rows:
                 fixed = self.library._detail(conn, row["library_version_id"])
-                member = next(item for item in fixed["members"] if item["member_key"] == row["member_key"])
+                member = next((item for item in fixed["members"] if item["member_key"] == row["member_key"]), None)
+                if member is None:
+                    continue
                 official = publications.get(row["library_version_id"])
                 result.append(
                     dict(
@@ -385,6 +402,7 @@ class AssetCenterRepository:
         with self.store.engine.begin() as conn:
             self.library._lock_key(conn, "cart:" + actor)
             if payload["active"]:
+                self.library._fixed_reference(conn, payload)
                 count = conn.execute(
                     select(func.count())
                     .select_from(S.library_cart_items)

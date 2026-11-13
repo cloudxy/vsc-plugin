@@ -372,7 +372,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  const refState={costume:{top:'',source:'',category:'',tag:'',q:''},pose:{view:'group',system:'',category:'',angle:'',q:''},portrait:{section:'',hair:'',style:'',hot:false,q:''}};
  const refSummary={},refPageCache=new Map();
  let refDock=null,refPickers=[],refFocus='',refSafe=null,refDepth=null;
- let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,searchTimer=null;
+ let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,officialDetailSeq=0,searchTimer=null;
  let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
  if(official&&!canvas&&typeof location!=='undefined'){const k=new URLSearchParams(location.search||'').get('kind');if(k&&officialWorkbenchKinds.some(([v])=>v&&v===k))filters.asset_kind=k;}
  if(official){
@@ -577,17 +577,24 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   const drawer=el('aside','','official-detail-drawer');
   bindAttribute(drawer,'aria-label',row.title+' 详情预览');
   const head=el('div','','official-drawer-head');
-  head.append(el('h3',row.title),button('×',()=>{officialDrawerRow=null;drawer.remove();},'official-drawer-close'));
+  const close=button('×',()=>{officialDrawerRow=null;++officialDetailSeq;drawer.remove();},'official-drawer-close');bindAttribute(close,'aria-label','关闭资产详情');
+  head.append(el('h3',row.title),close);
   drawer.append(head);
-  const members=visibleMembers(row),primary=members.find(m=>m.modality==='image')||members[0];
-  const stage=el('div','','official-drawer-stage');
-  if(primary){
-   const previewNode=picture(primary);
-   if(primary.modality==='image')previewNode.addEventListener('click',()=>zoom(row,primary));
-   stage.append(previewNode);
-   if(primary.modality==='image')stage.append(button('查看大图',()=>zoom(row,primary),'official-drawer-zoom'));
+  const members=(row.gallery||visibleMembers(row)).filter(m=>['image','video','audio'].includes(m.modality));
+  if(!members.length)drawer.append(el('p','暂无可用媒体，可到回收站恢复。'));
+  for(const [index,member]of members.entries()){
+   const section=el('section','','official-drawer-member'),label=index===0?'主图':`备份图-${index}`,stage=el('div','','official-drawer-stage');
+   section.append(el('h4',label));
+   if(member.modality==='image'){
+    const preview=button('',()=>zoom(row,member),'official-drawer-preview');bindAttribute(preview,'aria-label',`查看${label}大图`);preview.append(picture(member));stage.append(preview);
+   }else stage.append(picture(member));
+   if(row.can_manage_media){
+    const remove=button('删除',()=>deleteOfficialMedia(row,member,label,g),'official-drawer-delete');bindAttribute(remove,'aria-label',`删除${label}`);stage.append(remove);
+   }
+   const fixed={...row,version_id:member.library_version_id||row.version_id};
+   const actions=el('div','','official-drawer-ctas');actions.append(button('引用生成',()=>reference(fixed,member),'center-primary-cta'),button(msg('gallery.add_project'),()=>addToProjects(fixed,member)));
+   section.append(stage,actions);drawer.append(section);
   }
-  drawer.append(stage);
   const meta=el('div','','official-drawer-meta');
   const labels={lead:'主角',supporting:'配角',extra:'群演'},bands={'child|male':'幼年男','child|female':'幼年女','teen|male':'少年男','teen|female':'少年女','young_adult|male':'青年男','young_adult|female':'青年女','middle_aged|male':'中年男','middle_aged|female':'中年女','senior|male':'老年男','senior|female':'老年女'};
   if(row.official){
@@ -599,17 +606,24 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   meta.append(el('span','🔥 '+String(row.download_count||0),'official-drawer-heat'));
   drawer.append(meta);
   if(row.description)drawer.append(el('p',row.description,'official-drawer-desc'));
-  if(primary){
-   const ctas=el('div','','official-drawer-ctas');
-   const refBtn=button('引用生成',()=>reference(row,primary),'center-primary-cta');
-   const addBtn=button(msg('gallery.add_project'),()=>addToProjects(row,primary));
-   ctas.append(refBtn,addBtn);
-   drawer.append(ctas);
-  }
   root.append(drawer);
  }
- function detail(row,g){
-  if(official&&!canvas){openOfficialDrawer(row,g);return;}
+ function deleteOfficialMedia(row,member,label,g){
+  const dialog=modal('删除'+label),request={library_version_id:member.library_version_id||row.version_id,member_key:member.member_key,operation:'trash',expected_revision:member.revision||0,reason:'从官方资产详情删除'+label,command_key:crypto.randomUUID()};
+  dialog.append(el('p',`${row.title} · ${label}将移入回收站，可恢复。`));
+  dialog.append(button('移入回收站',async()=>{
+   await ctx.api('/api/v1/asset-center/official/media-actions',{method:'POST',headers:headers(),body:JSON.stringify({confirmed:true,payload:request})});
+   dialog.close();officialPageCache.clear();
+   if(active(g)){ctx.notice('已移入回收站');await load();}
+  }),button('取消',()=>dialog.close()));
+ }
+ async function detail(row,g){
+  if(official&&!canvas){
+   const seq=++officialDetailSeq;officialDrawerRow=row;
+   const fresh=await get('/api/v1/asset-center/official/entries/'+encodeURIComponent(row.id));
+   if(active(g)&&seq===officialDetailSeq&&officialDrawerRow?.id===row.id)openOfficialDrawer(fresh,g);
+   return;
+  }
   if(canvas){
    const dialog=modal(row.title,'cc-asset-preview');dialog.replaceChildren();
    const members=visibleMembers(row);
@@ -1208,9 +1222,9 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    const card=el('article','','center-card');const members=visibleMembers(row),member=members.find(m=>m.modality==='image')||members[0],cover=el('div','','center-cover');
    if(member){
     if(member.modality==='image'){
-     const open=button('',()=>zoom(row,member),'center-preview'),imgNode=picture(member);
+     const open=button('',()=>detail(row,g),'center-preview'),imgNode=picture(member);
      if(workbench){imgNode.loading=index<12?'eager':'lazy';imgNode.decoding='async';}
-     bindAttribute(open,'aria-label','放大查看 '+row.title);open.append(imgNode);draggable(open,row,member);cover.append(open);
+     bindAttribute(open,'aria-label','查看资产详情 '+row.title);open.append(imgNode);draggable(open,row,member);cover.append(open);
     }else{const media=picture(member);draggable(media,row,member);cover.append(media);}
    }
    const badge=el('span',assetKind(row)==='character'?'人设':kinds.find(k=>k[0]===assetKind(row))?.[1]||msg('gallery.other'),'center-kind-badge');
@@ -1269,7 +1283,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    if(!data.items.length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
    root.append(grid);
   }
-  if(officialDrawerRow&&data.items.some(r=>r.id===officialDrawerRow.id))openOfficialDrawer(officialDrawerRow,g);
+  if(officialDrawerRow&&data.items.some(r=>r.id===officialDrawerRow.id))await detail(officialDrawerRow,g);
   if(data.total>24)paging(data.total,data.next_offset,g);
  }
  function addToProjects(row,member){return official?quickAddProjects(row,member):quickAdd(row,member,'add');}

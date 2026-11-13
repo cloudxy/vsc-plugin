@@ -91,6 +91,37 @@ def install_asset_center_routes(app, router, catalog, etag, actor, read_actor):
     def publish_official(request: Request, body: dict):
         return service().publish_official_asset(body.get("payload"), actor(request))
 
+    @app.get('/api/v1/asset-center/official/recycle')
+    def official_recycle(request: Request, offset: int = 0, limit: int = 24):
+        return etag(request, service().official_media_recycle(read_actor(request), offset, limit))
+
+    @app.get('/api/v1/asset-center/official/recycle/content/{version_id}/{member_key}')
+    def official_recycle_content(version_id: str, member_key: str, request: Request):
+        # Media elements send the session cookie, without a custom CSRF header.
+        # The HTTP boundary already authenticated this library member request.
+        from vsc.assets.access_control import current_principal
+        principal = current_principal()
+        path, mime = service().official_media_recycle_content(version_id, member_key, principal.actor if principal else None)
+        return FileResponse(path, media_type=mime, headers={'Cache-Control': 'no-store'}, content_disposition_type='inline')
+
+    @app.get('/api/v1/asset-center/official/entries/{entry_id}')
+    def official_detail(entry_id: str, request: Request):
+        return etag(request, service().official_asset_detail(entry_id, read_actor(request)))
+
+    @app.post('/api/v1/asset-center/official/media-actions')
+    def official_media_action(request: Request, body: dict):
+        if body.get('confirmed') is not True:
+            raise HTTPException(422, '请确认媒体操作')
+        return service().official_media_command(body.get('payload'), actor(request))
+
+    @app.post('/api/v1/asset-center/official/backups')
+    def official_backup(request: Request, body: dict):
+        return service().attach_official_backup(body.get('payload'), actor(request))
+
+    @app.post('/api/v1/asset-center/official/media-cleanup')
+    def official_media_cleanup(request: Request, body: dict):
+        return service().official_media_cleanup(body.get('payload'), actor(request))
+
     @app.post("/api/v1/asset-center/catalog")
     def edit(request: Request, body: dict):
         return service().edit_asset_catalog(body.get("payload"), actor(request))

@@ -1,8 +1,8 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)setText(n,text);if(cls)n.className=cls;return n;};
 const names={work:'部',episode:'集',scene:'场',sequence:'镜组',shot:'镜头',asset:'资产',canvas:'画布',image:'图片',video:'视频',audio:'音频',active:'可用',trashed:'已回收',parent_trashed:'父级已回收'};
-const recycleKindNames={project:'项目',episode:'剧集','storyboard-group':'分镜镜号','video-group':'视频镜号','storyboard-image':'分镜图',asset:'资产',video:'视频',canvas:'画布'};
-const RECYCLE_CATEGORIES=['all','project','episode','storyboard-group','video-group','storyboard-image','asset','video','canvas'];
+const recycleKindNames={project:'项目',episode:'剧集','storyboard-group':'分镜镜号','video-group':'视频镜号','storyboard-image':'分镜图',asset:'资产',video:'视频',canvas:'画布','official-media':'官方资产图片'};
+const RECYCLE_CATEGORIES=['all','project','episode','storyboard-group','video-group','storyboard-image','asset','video','canvas','official-media'];
 
 export function restoreTargetUrl(row){
   if(!row||row.kind==='canvas')return null;
@@ -92,14 +92,33 @@ export function createProjectManagement(root,ctx){
     }finally{if(recycleOpening===opening)recycleOpening=null;}
   }
   const supportedRecycle=category=>RECYCLE_CATEGORIES.includes(category);
+  function officialMediaAction(row,operation){
+    const dialog=el('dialog'),f=form(operation==='purge'?'彻底删除图片':'恢复图片'),status=el('p');status.setAttribute('role','status');
+    f.append(el('p',row.title));
+    if(operation==='purge')f.append(el('p','此图片将无法恢复；独占文件会被清理，其他资产或项目引用的共享文件保留。'));
+    const command={library_version_id:row.library_version_id,member_key:row.member_key,expected_revision:row.revision,operation,reason:operation==='purge'?'在回收站彻底删除官方资产媒体':'从回收站恢复官方资产媒体',command_key:crypto.randomUUID()};
+    const save=el('button',operation==='purge'?'确认彻底删除':'确认恢复');save.type='submit';f.append(status,save,button('取消',()=>dialog.close()));
+    const owner=identity,t=ticket;
+    f.onsubmit=async event=>{event.preventDefault();if(save.disabled||!same(t,null)||owner!==actorKey())return;save.disabled=true;
+      try{
+        const result=await ctx.api('/api/v1/asset-center/official/media-actions',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({confirmed:true,payload:command})});
+        if(!same(t,null)||owner!==actorKey())return;
+        if(result.cleanup_pending){setText(status,'删除已登记，文件清理尚未完成。请点击原按钮重试清理。');save.disabled=false;return;}
+        dialog.close();ctx.notice(operation==='restore'?'图片已恢复':result.shared_bytes_retained?'图片已彻底删除；其他引用共用的文件已保留':'图片已彻底删除');await readRecycle(recycleState?.cursor||null,recycleState?.stack||[]);
+      }catch(error){if(same(t,null)){setText(status,error.message);save.disabled=false;}}
+    };
+    dialog.append(f);root.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal();
+  }
   async function readRecycle(cursor=null,stack=[]){
     const t=ticket,category=recycleCategory,seq=++recycleSeq;if(!same(t,null))return;
     if(!supportedRecycle(category)){recycleState={status:'unsupported',cursor:null,stack:[]};render();return;}
     if(!session().actor){recycleState={status:'error',error:'请先建立操作会话后查看回收站。',cursor,stack};render();return;}
     recycleState={status:'loading',cursor,stack};render();
-    try{const query=new URLSearchParams({kind:category,limit:'24'});if(cursor)query.set('cursor',cursor);const page=await ctx.api('/api/v1/project-management/recycle-items?'+query,{headers:{'X-CSRF-Token':session().csrf||''}});
+    try{const query=new URLSearchParams({kind:category,limit:'24'});if(cursor)query.set('cursor',cursor);
+      const official=category==='official-media';
+      const page=await ctx.api(official?'/api/v1/asset-center/official/recycle?'+new URLSearchParams({offset:String(cursor||0),limit:'24'}):'/api/v1/project-management/recycle-items?'+query,{headers:{'X-CSRF-Token':session().csrf||''}});
       if(!same(t,null)||seq!==recycleSeq||category!==recycleCategory)return;
-      if(!Array.isArray(page.items))throw new Error('回收列表响应不完整');recycleState={status:'ready',items:page.items,next_cursor:page.next_cursor||null,cursor,stack};render();
+      if(!Array.isArray(page.items))throw new Error('回收列表响应不完整');recycleState={status:'ready',items:official?page.items.map(r=>({...r,kind:'official-media',target_id:r.library_version_id+':'+r.member_key,can_restore:r.state==='trashed'})):page.items,next_cursor:official?page.next_offset:page.next_cursor||null,cursor,stack};render();
     }catch(error){if(same(t,null)&&seq===recycleSeq&&category===recycleCategory){recycleState={status:'error',error:error.message,cursor,stack};render();}}
   }
   function render(force=false){
@@ -107,19 +126,26 @@ export function createProjectManagement(root,ctx){
     const choices=el('select');bindAttribute(choices,'aria-label',msg("ui.manage_project"));choices.append(localizedOption('',msg("ui.select_a_project_extra_2")));for(const r of data.projects)choices.append(localizedOption(r.id,r.name+(r.state==='trashed'?' · 已回收':'')));choices.value=project||'';choices.onchange=()=>{const next=choices.value||null;ctx.onScope?.(next,data.projects.find(r=>r.id===next));filters={folder:'',kind:'',q:'',offset:0};load({project:next});};
     if(!project||!data.project){
       const state=recycleState||{status:'loading',stack:[]},supported=supportedRecycle(recycleCategory),bar=el('div',null,'management-recycle-toolbar'),categories=el('nav',null,'management-recycle-categories');categories.setAttribute('role','tablist');categories.setAttribute('aria-label','回收站分类');
-      for(const [value,label]of [['all','全部'],['project','项目'],['episode','剧集'],['storyboard-group','分镜镜号'],['video-group','视频镜号'],['storyboard-image','分镜图'],['asset','资产'],['video','视频'],['canvas','画布']]){const b=button(label,()=>{if(recycleCategory!==value){recycleCategory=value;return readRecycle();}});b.setAttribute('role','tab');b.setAttribute('aria-selected',String(recycleCategory===value));if(!supportedRecycle(value))b.title='该分类尚未接入';categories.append(b);}
+      for(const [value,label]of [['all','项目与项目媒资'],['official-media','官方资产图片'],['project','项目'],['episode','剧集'],['storyboard-group','分镜镜号'],['video-group','视频镜号'],['storyboard-image','分镜图'],['asset','资产'],['video','视频'],['canvas','画布']]){const b=button(label,()=>{if(recycleCategory!==value){recycleCategory=value;return readRecycle();}});b.setAttribute('role','tab');b.setAttribute('aria-selected',String(recycleCategory===value));if(!supportedRecycle(value))b.title='该分类尚未接入';categories.append(b);}
       const count=el('span',state.status==='ready'?'本页 '+state.items.length+' 项':state.status==='loading'?'正在加载':supported?'':'暂未接入','management-recycle-count');count.setAttribute('role','status');bar.append(categories,count);root.append(bar);
       const grid=el('div',null,'management-recycled');
       if(state.status==='ready')for(const row of state.items){
         const card=el('article',null,'management-recycled-card'),cover=el('div',null,'management-cover'),info=el('div',null,'management-recycle-info'),actions=el('div',null,'management-recycle-actions');
         const kindLabel=recycleKindNames[row.kind]||row.kind,daysLeft=computeRecycleDaysLeft(row);
-        cover.append(el('span','▤','management-cover-glyph'),el('span',kindLabel,'management-type-badge'),el('span','剩余 '+daysLeft+' 天','management-days-badge'));
+        if(row.kind==='official-media'){
+          if(row.preview_url){const preview=el(row.modality==='audio'?'audio':row.modality==='video'?'video':'img',null,'management-media-preview');preview.src=row.preview_url;preview.setAttribute('alt',row.title);if(row.modality!=='image')preview.controls=true;cover.append(preview);}cover.append(el('span',kindLabel,'management-type-badge'));
+        }else cover.append(el('span','▤','management-cover-glyph'),el('span',kindLabel,'management-type-badge'),el('span','剩余 '+daysLeft+' 天','management-days-badge'));
         card.dataset.targetId=row.target_id;card.dataset.projectId=row.project_id;card.dataset.kind=row.kind;
         info.append(el('h3',row.title||row.target_id),el('p',kindLabel,'hint'));
         if(row.target_type==='object'||row.target_type==='media'||row.target_type==='canvas'){const owner=data.projects.find(item=>item.id===row.project_id);info.append(el('p',owner?'项目：'+owner.name:'项目 '+row.project_id,'hint'));}
         if(row.changed_at){const time=new Date(row.changed_at);info.append(el('p','回收于 '+(Number.isNaN(time.getTime())?row.changed_at:time.toLocaleString()),'hint'));}if(row.reason)info.append(el('p',row.reason,'management-recycle-reason'));
-        if(!row.can_restore){const explanation=row.blocked_by_project?'请先恢复所属项目':row.blocked_by_ancestor?'请先恢复上级对象':'当前账号无法恢复此项';info.append(el('p',explanation,'management-recycle-blocked'));}
-        actions.append(button('恢复',()=>restoreFromList(row),!row.can_restore||!session().actor),button(msg("ui.project_management"),async()=>{const known=data.projects.find(item=>item.id===row.project_id);ctx.onScope?.(row.project_id,known||{id:row.project_id,name:row.title});await load({project:row.project_id});}));info.append(actions);card.append(cover,info);grid.append(card);
+        if(!row.can_restore){const explanation=row.cleanup_pending?'图片已彻底删除，文件清理待重试':row.blocked_by_project?'请先恢复所属项目':row.blocked_by_ancestor?'请先恢复上级对象':'当前账号无法恢复此项';info.append(el('p',explanation,'management-recycle-blocked'));}
+        if(row.kind==='official-media'&&row.cleanup_pending)actions.append(button('继续清理',async()=>{
+          const result=await ctx.api('/api/v1/asset-center/official/media-cleanup',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload:{library_version_id:row.library_version_id,member_key:row.member_key}})});
+          ctx.notice(result.cleanup_pending?'文件仍未完成清理，请稍后重试':'文件清理已完成');await readRecycle(state.cursor,state.stack);
+        },!session().actor));
+        else if(row.kind==='official-media')actions.append(button('恢复',()=>officialMediaAction(row,'restore'),!session().actor),button('彻底删除',()=>officialMediaAction(row,'purge'),!session().actor));
+        else actions.append(button('恢复',()=>restoreFromList(row),!row.can_restore||!session().actor),button(msg("ui.project_management"),async()=>{const known=data.projects.find(item=>item.id===row.project_id);ctx.onScope?.(row.project_id,known||{id:row.project_id,name:row.title});await load({project:row.project_id});}));info.append(actions);card.append(cover,info);grid.append(card);
       }
       if(state.status==='ready'&&!state.items.length||state.status==='unsupported'){const empty=el('div',null,'management-empty'),art=el('div',null,'management-empty-illustration');art.setAttribute('aria-hidden','true');empty.append(art,el('p',state.status==='unsupported'?'该分类暂未接入':'暂无数据'));grid.append(empty);}
       if(state.status==='error'){const failure=el('div',null,'management-recycle-error');failure.setAttribute('role','alert');failure.append(el('p','回收列表读取失败：'+state.error),button(msg('ui.reload'),()=>readRecycle(state.cursor,state.stack)));grid.append(failure);}root.append(grid);

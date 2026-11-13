@@ -14,6 +14,55 @@ OFFICIAL_DIMENSIONS = {
 
 
 class AssetCenterService:
+    def _library_media(self):
+        from vsc.adapters.persistence.postgres.library_media import LibraryMediaRepository
+        return LibraryMediaRepository(self.store, self.storage)
+
+    def official_asset_detail(self, entry_id, actor):
+        from vsc.adapters.persistence.postgres.values import checked_id
+        return self._library_media().detail(checked_id(entry_id), actor)
+
+    def official_media_recycle(self, actor, offset=0, limit=24):
+        self._actor(actor)
+        self._center_page(offset, limit)
+        return self._library_media().recycle(actor, offset, limit)
+
+    def official_media_recycle_content(self, version_id, member_key, actor):
+        from vsc.adapters.persistence.postgres.values import checked_id
+        return self._library_media().recycle_content(checked_id(version_id), member_key, actor)
+
+    def official_media_cleanup(self, payload, actor):
+        self._actor(actor)
+        repo = self._library_media()
+        repo.publisher(actor)
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if not isinstance(payload, dict) or set(payload) != {'library_version_id', 'member_key'} or not isinstance(payload.get('member_key'), str):
+            raise ResourceError('继续清理需要固定媒体成员')
+        return repo._cleanup(checked_id(payload['library_version_id']), payload['member_key'])
+
+    def attach_official_backup(self, payload, actor):
+        self._actor(actor)
+        if not isinstance(payload, dict) or set(payload) != {'entry_id', 'library_version_id', 'member_key', 'reason'}:
+            raise ResourceError('备份关联需要原官方资产、固定媒体和依据')
+        from vsc.adapters.persistence.postgres.values import checked_id
+        checked_id(payload['entry_id']); checked_id(payload['library_version_id'])
+        if any(not isinstance(payload[k], str) or not 1 <= len(payload[k]) <= 2000 for k in ('member_key', 'reason')):
+            raise ResourceError('备份媒体或关联依据无效')
+        return self._library_media().attach_backup(payload, actor)
+
+    def official_media_command(self, payload, actor):
+        self._actor(actor)
+        fields = {'library_version_id', 'member_key', 'operation', 'expected_revision', 'reason', 'command_key'}
+        if not isinstance(payload, dict) or set(payload) != fields:
+            raise ResourceError('媒体操作需要固定成员、原版本、理由和请求标识')
+        from vsc.adapters.persistence.postgres.values import checked_id
+        checked_id(payload['library_version_id'])
+        if (not isinstance(payload['operation'], str) or payload['operation'] not in {'trash', 'restore', 'purge'} or type(payload['expected_revision']) is not int
+                or payload['expected_revision'] < 0 or any(not isinstance(payload[k], str) or not payload[k].strip()
+                or len(payload[k]) > maximum for k, maximum in (('member_key', 80), ('reason', 2000), ('command_key', 200)))):
+            raise ResourceError('媒体操作字段无效')
+        return self._library_media().command(payload, actor)
+
     def _center(self):
         from vsc.adapters.persistence.postgres.asset_center import AssetCenterRepository
         return AssetCenterRepository(self.store, self.storage)

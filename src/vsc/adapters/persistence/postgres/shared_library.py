@@ -166,12 +166,15 @@ class SharedLibraryRepository:
         raise ResourceError("库固定字节缺失或摘要不符", "library_missing_bytes")
 
     @staticmethod
-    def _members(conn, version_id):
+    def _members(conn, version_id, include_deleted=True):
         members = []
         version_ids = version_id if isinstance(version_id, (list, tuple)) else [version_id]
         query = select(S.library_version_media, *[c for c in S.media_blobs.c if c.name != "id"]).join(
             S.media_blobs, S.media_blobs.c.id == S.library_version_media.c.blob_id).where(
                 S.library_version_media.c.library_version_id.in_(version_ids)).order_by(S.library_version_media.c.ordinal)
+        if not include_deleted:
+            from .library_media import available_member
+            query = query.where(available_member(S.library_version_media.c.library_version_id, S.library_version_media.c.member_key))
         rows = list(conn.execute(query).mappings())
         locations = {}
         for item in conn.execute(select(S.blob_locations).where(
@@ -203,7 +206,7 @@ class SharedLibraryRepository:
             S.library_entries.c.id.in_({row["entry_id"] for row in versions.values()}),
             S.library_entries.c.visibility == "workspace")).mappings()}
         members = {}
-        for member in self._members(conn, version_ids):
+        for member in self._members(conn, version_ids, include_deleted=False):
             members.setdefault(member["library_version_id"], []).append(self._public_member(member))
         results = []
         for version_id in version_ids:
@@ -243,6 +246,8 @@ class SharedLibraryRepository:
 
     def content(self, version_id, member_key):
         with self.store.engine.connect() as conn:
+            from .library_media import require_available
+            require_available(conn, version_id, member_key)
             self._detail(conn, version_id)
             member = next((m for m in self._members(conn, version_id) if m["member_key"] == member_key), None)
             if member is None:
@@ -357,6 +362,11 @@ class SharedLibraryRepository:
         version = conn.execute(select(S.library_entry_versions).where(S.library_entry_versions.c.id == version_id)).mappings().first()
         if version is None:
             raise NotFound("库固定版本不存在")
+        # Serialize a new adoption against lifecycle changes for this entry.
+        if not conn.get_execution_options().get('vsc_readonly_preview'):
+            conn.execute(select(S.library_entries.c.id).where(S.library_entries.c.id == version['entry_id']).with_for_update(read=True)).one()
+        from .library_media import require_available
+        require_available(conn, version_id, required(payload, 'member_key'))
         member = next((m for m in self._members(conn, version_id) if m["member_key"] == required(payload, "member_key")), None)
         if member is None:
             raise NotFound("库媒体成员不存在")

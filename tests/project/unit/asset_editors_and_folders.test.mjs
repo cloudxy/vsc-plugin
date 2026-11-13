@@ -218,11 +218,35 @@ test('05A folder cards, breadcrumb drill-down, cross-project drag block & cross-
  root.remove();
 });
 
+test('official gallery numbers backup media and retries the original delete request',async()=>{
+ const root=doc.createElement('main');doc.body.append(root);const requests=[],notices=[];
+ const row={id:'official-gallery',version_id:'primary-version',version:1,title:'Synthetic gallery',source:'official',allowed_purposes:['*'],
+  official:{asset_kind:'character'},can_manage_media:true,members:[{member_key:'main',modality:'image',preview_url:'/main.png'}]};
+ let gallery=[{...row.members[0],library_version_id:'primary-version',revision:0},
+  {member_key:'old',library_version_id:'backup-version-1',modality:'image',preview_url:'/old.png',revision:2},
+  {member_key:'older',library_version_id:'backup-version-2',modality:'image',preview_url:'/older.png',revision:0}];
+ const ctx={session:()=>({actor:'u1',csrf:'c1'}),notice:m=>notices.push(m),projects:()=>[],api:async(url,init)=>{
+  if(url.includes('/official/entries/'))return {...row,gallery};
+  if(url.endsWith('/official/media-actions')){const body=JSON.parse(init.body);requests.push(body);if(requests.length===1)throw new Error('temporary connection error');gallery=gallery.filter(m=>m.member_key!==body.payload.member_key);return {revision:3};}
+  return {items:[row],total:1,facets:{},next_offset:null};
+ }};
+ const center=createAssetCenter(root,ctx,{source:'official',embedded:true,workbench:true});await center.load();
+ await root.querySelector('.center-preview').onclick();
+ let drawer=root.querySelector('.official-detail-drawer');assert.deepEqual(drawer.querySelectorAll('h4').map(n=>n.textContent),['主图','备份图-1','备份图-2']);
+ await drawer.querySelectorAll('button').find(b=>b.getAttribute('aria-label')==='删除备份图-1').onclick();
+ let confirm=root.querySelector('dialog');await findBtn(confirm,'移入回收站').onclick();assert.ok(notices.includes('temporary connection error'));
+ await findBtn(confirm,'移入回收站').onclick();
+ assert.equal(requests.length,2);assert.equal(requests[0].payload.command_key,requests[1].payload.command_key);
+ assert.equal(requests[1].payload.library_version_id,'backup-version-1');assert.equal(requests[1].payload.expected_revision,2);assert.equal(requests[1].confirmed,true);
+ drawer=root.querySelector('.official-detail-drawer');assert.deepEqual(drawer.querySelectorAll('h4').map(n=>n.textContent),['主图','备份图-1']);center.suspend();
+});
+
 test('05B official right drawer, 05C review modal .tag-unverified chips & openAssetLibraryModal dblclick',async()=>{
  sessionMap.clear();
  const root=doc.createElement('main');
  doc.body.append(root);
  const api=async url=>{
+  if(url.startsWith('/api/v1/asset-center/official/entries/'))return (await api('/api/v1/asset-center?source=official')).items[0];
   if(url.includes('source=official')){
    return {
     items:[{
@@ -417,6 +441,7 @@ test('05B official asset image viewer fits viewport, zooms in/out below 100%, pr
  const root=doc.createElement('section');
  doc.body.append(root);
  const api=async url=>{
+  if(url.startsWith('/api/v1/asset-center/official/entries/'))return (await api('/api/v1/asset-center?source=official')).items[0];
   if(url.startsWith('/api/v1/asset-center?')&&url.includes('source=official')){
    return {
     items:[{
@@ -445,6 +470,8 @@ test('05B official asset image viewer fits viewport, zooms in/out below 100%, pr
  const previewBtn=root.querySelector('.center-preview');
  assert.ok(previewBtn,'official card should render .center-preview button');
  await previewBtn.onclick();
+ assert.ok(root.querySelector('.official-detail-drawer'),'clicking official image opens its media details');
+ await root.querySelector('.official-drawer-preview').onclick();
 
  const zoomDialog=[...doc.body.querySelectorAll('dialog')].find(d=>d.className.includes('center-zoom'));
  assert.ok(zoomDialog,'clicking official asset image opens dialog.center-zoom');

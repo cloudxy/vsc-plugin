@@ -82,6 +82,13 @@ dialog.costume-modal::backdrop,dialog.costume-note::backdrop{background:#000c}
 .official-drawer-desc{margin:0;font-size:13px;line-height:1.6;color:#a1a1aa}
 .official-drawer-ctas{margin-top:auto;padding-top:12px;border-top:1px solid #26262a;display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .official-drawer-ctas button{margin:0!important;height:40px}
+.official-drawer-member{flex:none;min-width:0}
+.official-drawer-member h4{margin:0 0 8px;font-size:14px}
+.official-drawer-preview{width:100%;height:100%;padding:0!important;border:0!important;background:transparent!important;cursor:zoom-in}
+.official-drawer-delete{position:absolute;top:10px;left:10px;z-index:1;background:#8e2525!important;color:#fff!important;border:1px solid #d35f5f!important;padding:6px 12px!important}
+.official-drawer-delete:hover{background:#b63232!important}
+.official-drawer-delete:focus-visible,.official-drawer-preview:focus-visible{outline:2px solid #b2ff68;outline-offset:-3px}
+.official-detail-drawer{overscroll-behavior:contain}
 
 /* 05C: Enterprise Asset Center Mode Bar, Stat Pills, Heat Badge & Cart */
 .center-platform-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:0 0 18px;padding:10px 14px;border-radius:12px;background:#141416;border:1px solid #26262a}

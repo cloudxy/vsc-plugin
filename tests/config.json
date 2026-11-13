@@ -1430,6 +1430,8 @@
         "src/vsc/adapters/persistence/postgres/asset_center.py",
         "src/vsc/adapters/persistence/postgres/schema_asset_center.py",
         "migrations/postgres/versions/0048_official_asset_catalog.py",
+        "migrations/postgres/versions/0056_library_media_lifecycle.py",
+        "src/vsc/adapters/persistence/postgres/library_media.py",
         "src/vsc/interfaces/web/asset_center.py",
         "src/vsc/interfaces/web/static/asset-center.js",
         "src/vsc/assets/task_center.py",
