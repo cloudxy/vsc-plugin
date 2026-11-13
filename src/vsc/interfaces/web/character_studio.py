@@ -17,6 +17,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -209,12 +211,48 @@ def _resolve_cli_bin(name: str) -> str | None:
     return None
 
 
-def _grok_auth_status() -> dict:
+_GROK_REFRESH_LOCK = threading.Lock()
+_GROK_REFRESH_COOLDOWN_SEC = 60.0
+_last_grok_auto_refresh_ts = -1e9
+
+
+def _grok_refresh_token_meta() -> tuple[bool, str | None]:
+    """Check whether ~/.grok/auth.json holds a refresh_token without exposing secrets."""
+    if not grok_credentials.LOGIN_FILE.is_file():
+        return False, None
+    try:
+        data = json.loads(grok_credentials.LOGIN_FILE.read_text("utf-8"))
+    except (OSError, ValueError):
+        return False, None
+    if not isinstance(data, dict):
+        return False, None
+    for entry in data.values():
+        if isinstance(entry, dict) and str(entry.get("refresh_token") or "").strip():
+            raw_id = str(entry.get("user_id") or entry.get("email") or "").strip()
+            return True, _mask_identity(raw_id) if raw_id else None
+    return False, None
+
+
+def _grok_auth_status(*, allow_refresh: bool = True) -> dict:
+    global _last_grok_auto_refresh_ts
     cli_installed = bool(_resolve_cli_bin("grok"))
     problem = grok_credentials.key_problem()
-    ready = problem is None
     has_file = grok_credentials.LOGIN_FILE.is_file()
-    account = _mask_identity(grok_credentials.account_id()) if ready else None
+    if problem is not None and allow_refresh and cli_installed and has_file and "已过期" in problem:
+        with _GROK_REFRESH_LOCK:
+            problem = grok_credentials.key_problem()
+            now_mono = time.monotonic()
+            if (
+                problem is not None
+                and "已过期" in problem
+                and (now_mono - _last_grok_auto_refresh_ts) >= _GROK_REFRESH_COOLDOWN_SEC
+            ):
+                _last_grok_auto_refresh_ts = now_mono
+                _refresh_grok_auth_via_cli()
+                problem = grok_credentials.key_problem()
+    ready = problem is None
+    has_refresh, fallback_account = _grok_refresh_token_meta() if (has_file and not ready) else (False, None)
+    account = _mask_identity(grok_credentials.account_id()) if ready else fallback_account
     if ready:
         status = "authorized"
         acct_note = f"（账号：{account}）" if account else ""
@@ -224,8 +262,8 @@ def _grok_auth_status() -> dict:
             message = f"Grok 订阅凭证已就绪{acct_note}（未检测到 grok CLI，仅支持 Imagine 直连模型）"
     elif has_file:
         status = "expired"
-        if cli_installed and problem and "已过期" in problem:
-            message = "Grok 本地访问令牌已过有效期；点击「在线验证」或直接发起生图将通过本机 grok CLI 自动刷新令牌"
+        if cli_installed and has_refresh and problem and "已过期" in problem:
+            message = "Grok 6 小时短期访问令牌待联网续期（长期授权仍在有效期内，联网后点击「在线验证」或刷新即可自动续期，无需重新登录）"
         else:
             message = problem or "Grok 登录态不可用，请重新授权登录"
     elif not cli_installed:
@@ -265,7 +303,7 @@ def _refresh_grok_auth_via_cli() -> bool:
 
 
 def _verify_grok_online() -> dict:
-    info = _grok_auth_status()
+    info = _grok_auth_status(allow_refresh=False)
     grok_bin = _resolve_cli_bin("grok")
     if not grok_bin:
         return {**info, "verified": False}
@@ -285,7 +323,7 @@ def _verify_grok_online() -> dict:
             "verified": False,
             "message": f"Grok CLI 在线验证未完成（{type(exc).__name__}），请确认网络或在终端执行 grok models",
         }
-    info = _grok_auth_status()
+    info = _grok_auth_status(allow_refresh=False)
     cleaned = _ANSI_RE.sub("", (proc.stdout or "") + "\n" + (proc.stderr or ""))
     lower = cleaned.lower()
     models = sorted(set(_GROK_MODEL_ID_RE.findall(cleaned)))
@@ -1407,9 +1445,9 @@ def install_character_studio_routes(app, etag, read_actor, origin):
         )
 
     @app.get("/api/v1/character-studio/auth/status")
-    def auth_status(request: Request):
+    async def auth_status(request: Request):
         read_actor(request)
-        return {"grok": _grok_auth_status(), "agy": _agy_auth_status()}
+        return await asyncio.to_thread(lambda: {"grok": _grok_auth_status(), "agy": _agy_auth_status()})
 
     @app.post("/api/v1/character-studio/auth/verify")
     async def auth_verify(request: Request, body: dict):

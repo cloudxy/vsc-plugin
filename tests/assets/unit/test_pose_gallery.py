@@ -278,6 +278,37 @@ class CharacterStudioHttpTests(unittest.TestCase):
                         self.assertEqual(grok_ver_mock.call_args.args[0], ["/usr/local/bin/grok", "models"])
                         self.assertNotIn("XAI_API_KEY", grok_ver_mock.call_args.kwargs["env"])
 
+                    # Auth status auto-refreshes expired 6-hour Grok access token via `grok models` when refresh_token exists.
+                    fake_refresh_file = repo / "fake_grok_refresh.json"
+                    fake_refresh_file.write_text(
+                        json.dumps({"slot": {"key": "old-tok", "refresh_token": "rt-secret", "user_id": "bob@example.com"}}),
+                        encoding="utf-8",
+                    )
+                    kp_calls = [0]
+
+                    def expiring_key_problem():
+                        kp_calls[0] += 1
+                        if kp_calls[0] <= 2:
+                            return "grok 登录态已过期：请在终端运行 grok 刷新登录后再使用 Grok 路线"
+                        return None
+
+                    proc_auto_refresh = subprocess.CompletedProcess(["grok", "models"], 0, stdout="You are logged in\n", stderr="")
+                    with patch("vsc.interfaces.web.character_studio._last_grok_auto_refresh_ts", -1e9), \
+                         patch.object(grok_credentials, "LOGIN_FILE", fake_refresh_file), \
+                         patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \
+                         patch("vsc.interfaces.web.character_studio.shutil.which", side_effect=lambda b: f"/usr/local/bin/{b}"), \
+                         patch("vsc.adapters.providers.xai_grok.credentials.key_problem", side_effect=expiring_key_problem), \
+                         patch("vsc.adapters.providers.xai_grok.credentials.account_id", return_value="bob@example.com"), \
+                         patch("vsc.interfaces.web.character_studio.subprocess.run", return_value=proc_auto_refresh) as auto_ref_mock:
+                        st_refreshed = client.get("/api/v1/character-studio/auth/status", headers=headers)
+                    self.assertEqual(st_refreshed.status_code, 200, st_refreshed.text)
+                    self.assertTrue(st_refreshed.json()["grok"]["ready"])
+                    self.assertEqual(st_refreshed.json()["grok"]["status"], "authorized")
+                    self.assertEqual(st_refreshed.json()["grok"]["account"], "bo***@example.com")
+                    self.assertNotIn("rt-secret", st_refreshed.text)
+                    self.assertEqual(auto_ref_mock.call_count, 1)
+                    self.assertEqual(auto_ref_mock.call_args.args[0], ["/usr/local/bin/grok", "models"])
+
                     # Backend Grok subscription generation (`grok_auth` with `grok-imagine-image-2.0`) uses `~/.grok/auth.json`,
                     # auto-refreshes expired OAuth tokens via `grok models`, and immediately stores temporary URL.
                     fake_login_file = repo / "fake_grok_auth.json"
