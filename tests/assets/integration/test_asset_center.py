@@ -18,9 +18,9 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.service.storage=LocalStorage(self.tmp.name)
 
-    def shared(self,key=None):
+    def shared(self,key=None,content=None):
         key=key or "center-"+uuid.uuid4().hex
-        staged=self.service.storage.stage_upload(io.BytesIO(png_bytes()),"reference.png")
+        staged=self.service.storage.stage_upload(io.BytesIO(png_bytes() if content is None else content),"reference.png")
         return self.service.import_library({"library_key":key,"title":"合成共享人物","category":"image","description":"Synthetic owned reference",
             "specification":{},"allowed_purposes":["identity_face"],"license":{"outcome":"owned","allow_workspace_reuse":True,"evidence":"owned synthetic bytes"},
             "import_key":uuid.uuid4().hex,"members":[{"member_key":"front","staged_upload":staged["staged_upload"]}]},actor="test-human")
@@ -171,6 +171,37 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
                 'expected_revision':1,'reason':'synthetic shared-byte purge','command_key':uuid.uuid4().hex},'test-human')
         self.assertTrue(purged['shared_bytes_retained'])
         path,_=self.service.library_member_content(other['version_id'],'front');self.assertTrue(path.exists())
+
+    def test_official_media_purge_preserves_project_rendition_bytes(self):
+        from PIL import Image
+        from sqlalchemy import select,insert
+        from vsc.adapters.persistence.postgres import schema as S
+        stream=io.BytesIO();Image.new('RGB',(7,4),(17,131,201)).save(stream,format='PNG')
+        content=stream.getvalue();fixed=self.shared(content=content)
+        self.publish(self.official_payload(fixed))
+        source_id=self.media('independent rendition source '+uuid.uuid4().hex)
+        with self.engine.begin() as conn:
+            source=conn.execute(select(S.media_items.c.blob_id,S.media_blobs.c.sha256).join(S.media_blobs).where(
+                S.media_items.c.project_id==self.p,S.media_items.c.id==source_id)).mappings().one()
+            blob_id=conn.execute(select(S.library_version_media.c.blob_id).where(
+                S.library_version_media.c.library_version_id==fixed['version_id'])).scalar_one()
+            # Rendition outputs have their own blob, independent of media_items.blob_id.
+            self.assertIsNone(conn.execute(select(S.media_items.c.id).where(S.media_items.c.blob_id==blob_id)).first())
+            conn.execute(insert(S.media_renditions).values(project_id=self.p,id=str(uuid.uuid4()),media_id=source_id,
+                blob_id=blob_id,purpose='thumbnail',recipe_version='1',tool='synthetic',tool_version='1',parameters={},
+                source_blob_id=source['blob_id'],source_sha256=source['sha256'],request_sha256='a'*64))
+        path,_=self.service.library_member_content(fixed['version_id'],'front')
+        request={'library_version_id':fixed['version_id'],'member_key':'front','operation':'trash',
+            'expected_revision':0,'reason':'synthetic rendition sharing','command_key':uuid.uuid4().hex}
+        with patch('vsc.configuration.get_config',return_value=['test-human']):
+            self.service.official_media_command(request,'test-human')
+            result=self.service.official_media_command(dict(request,operation='purge',expected_revision=1,
+                command_key=uuid.uuid4().hex),'test-human')
+        self.assertTrue(result.get('shared_bytes_retained'),result)
+        self.assertEqual(path.read_bytes(),content)
+        rendition=self.service.get_media_rendition(self.p,source_id,purpose='thumbnail')
+        location=next(row for row in rendition['locations'] if row['available'])
+        self.assertEqual(self.service.storage.resolve(location['object_key']).read_bytes(),content)
 
     def publish(self,payload):
         with patch("vsc.configuration.get_config",return_value=["test-human"]):
