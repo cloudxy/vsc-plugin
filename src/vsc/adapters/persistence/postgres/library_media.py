@@ -189,7 +189,16 @@ class LibraryMediaRepository:
             shared = conn.execute(select(m.c.member_key).where(m.c.blob_id == member['blob_id'],
                 ~exists(select(1).where(s.c.library_version_id == m.c.library_version_id,
                     s.c.member_key == m.c.member_key, s.c.state == 'purged'))).limit(1)).first()
-            used = conn.execute(select(S.media_items.c.id).where(S.media_items.c.blob_id == member['blob_id']).limit(1)).first()
+            # Renditions and render outputs may reference bytes without a
+            # media_items row for that blob. Follow every owning FK so shared
+            # project content remains readable. Locations describe storage;
+            # library references use the lifecycle-aware check above.
+            references = [exists(select(1).where(table.c[column] == member['blob_id']))
+                for table in S.metadata.tables.values()
+                if table.name not in {'blob_locations', 'library_version_media'}
+                for column in sorted({fk.parent.name for fk in table.foreign_keys
+                    if fk.column is S.media_blobs.c.id})]
+            used = conn.execute(select(or_(*references))).scalar_one()
             if shared or used:
                 conn.execute(update(s).where(s.c.library_version_id == version_id, s.c.member_key == key).values(cleanup_pending=False))
                 return {'cleanup_pending': False, 'bytes_removed': False, 'shared_bytes_retained': True}
