@@ -35,6 +35,10 @@ class Element {
   get id() { return this.attributes.get('id') || ''; }
   get childElementCount() { return this.children.length; }
   get childNodes() { return this.children; }
+  contains(target) {
+    for (let node = target; node; node = node.parentElement) if (node === this) return true;
+    return false;
+  }
   get options() { return this.children.filter(node=>node.tagName==='OPTION'); }
   get selectedOptions() { return this.options.filter(node=>node.value===this.value); }
   get text() { return this.textContent; }
@@ -108,6 +112,7 @@ class Document {
   }
   createElement(tag) { return new Element(this, tag); }
   createTextNode(text) { const node = new Element(this, '#text'); node.textContent = text; return node; }
+  addEventListener(type, callback) { this.body.addEventListener(type, callback); }
   getElementById(id) { return this.body.querySelectorAll('#' + id)[0] || null; }
   querySelectorAll(selector) { return this.body.querySelectorAll(selector); }
   querySelector(selector) { return this.body.querySelector(selector); }

@@ -87,3 +87,49 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .sidebar-help summary:hover{color:var(--text-1)}
 .workspace:has(:is(#character-studio-view,#service-operations-view,#commerce-view,#community-view,#edit-workspace-view,#spatial-scene-view,#creative-tools-view,#media-imports-view):not([hidden])){flex:1;overflow-x:hidden;overflow-y:auto;height:100%;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
 .workspace>:is(#service-operations-view,#commerce-view,#community-view,#edit-workspace-view,#spatial-scene-view,#creative-tools-view,#media-imports-view){flex:none;width:100%;box-sizing:border-box}
+
+/* Sky sidebar reference: 218px rail, bounded recent list and fixed help row. */
+.platform-mode .sidebar,.sidebar{min-height:0;overflow:hidden;padding:0 12px 8px;border-right-width:.5px;--sidebar-text:#cccacb;--sidebar-hover:#1d1d1d}
+.sidebar .new-canvas-project{box-sizing:border-box;min-height:34px;height:34px;margin:8px 0 16px;padding:4px 8px;gap:4px;font-size:14px;font-weight:500;line-height:20px}
+.sidebar .new-canvas-project svg{width:20px;height:20px;flex:none}
+.sidebar .main-nav{flex:none;gap:0;margin:0;padding:0;border:0}
+.sidebar .main-nav a{box-sizing:border-box;min-height:38px;padding:8px;gap:8px;font-size:14px;line-height:22px;font-weight:400;color:var(--sidebar-text);border-radius:8px;transition:background-color .15s,color .15s}
+.sidebar .main-nav a svg{width:20px;height:20px;flex:none}
+.sidebar .main-nav a:hover{background:var(--sidebar-hover);color:#fdfbfc}
+.sidebar .main-nav a[aria-current=page]{background:#292929;color:#fdfbfc;font-weight:500}
+.sidebar .main-nav a small{flex:none;margin-left:auto;padding:0 6px;font-size:12px;font-weight:700;line-height:17px;border-radius:4px;background:linear-gradient(90deg,#f0ff94,#a2fd53);color:#0b080b}
+.sidebar .main-nav #nav-marketing-studio{margin-top:0;border-top:0;padding:8px}
+.sidebar-marketing{margin:16px 0;padding:12px 0;border-block:1px solid #343435}
+.sidebar .recent-projects{display:flex;flex:1;flex-direction:column;min-height:0;margin:0;padding:0;overflow:hidden}
+.sidebar .recent-projects h2{flex:none;margin:0 0 4px;font-size:12px;font-weight:400;line-height:20px}
+.sidebar .recent-projects-toggle{display:flex;width:100%;min-height:28px;height:28px;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#a1a0a3;font-size:12px;font-weight:400;text-align:left}
+.sidebar .recent-projects-toggle:hover{background:var(--sidebar-hover);color:#fdfbfc}
+.recent-projects-toggle svg{width:12px;height:12px;flex:none;transition:transform .15s;transform:rotate(90deg)}
+.recent-projects-toggle[aria-expanded=false] svg{transform:rotate(0)}
+.sidebar #recent-projects{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#343435 transparent}
+.sidebar .recent-project{display:flex;box-sizing:border-box;gap:8px;align-items:center;min-height:54px;margin:0 0 2px;padding:8px;border-radius:12px;color:#fdfbfc;text-decoration:none}
+.sidebar .recent-project:hover{background:var(--sidebar-hover);color:#fdfbfc}
+.sidebar .recent-project>img{flex:none;width:38px;height:38px;border-radius:8px;background:#292929;object-fit:cover}
+.sidebar .recent-project:not(:has(img)):before{flex:none;width:38px;height:38px;margin:0;border-radius:8px;background:#292929;color:#a1a0a3;font-size:20px}
+.sidebar .recent-project-copy{display:grid;flex:1;min-width:0;gap:0}
+.sidebar .recent-project-copy strong{font-size:13px;font-weight:400;line-height:20px;color:#fdfbfc}
+.sidebar .recent-project-copy small,.sidebar .recent-project-detail{font-size:10px;line-height:14px;color:#a1a0a3}
+.sidebar .recent-project-detail{gap:4px}
+.sidebar .recent-project-detail .recent-project-kind{padding:2px 4px;border-radius:3px;background:#292929;color:#cccacb;font-size:10px;line-height:14px}
+.sidebar .sidebar-footer{flex:none;min-height:40px;margin-top:auto;padding:0;gap:8px;font-size:14px}
+.sidebar .sidebar-help{flex:1;min-width:0}
+.sidebar .sidebar-help summary{box-sizing:border-box;min-height:40px;padding:0 12px;gap:8px;border-radius:12px;color:#a1a0a3;font-size:14px}
+.sidebar .sidebar-help summary:hover{background:var(--sidebar-hover);color:#fdfbfc}
+.sidebar .sidebar-help summary svg{width:20px;height:20px;flex:none}
+.sidebar .sidebar-help>div{box-sizing:border-box;bottom:46px;left:0;width:180px;padding:8px;gap:4px;border:0;border-radius:8px;background:#1d1d1d;box-shadow:0 8px 24px #0000003d}
+.sidebar .sidebar-help>div:after{content:"";position:absolute;inset:100% 0 auto;height:6px}
+.sidebar .sidebar-help>div button{display:flex;align-items:center;min-height:32px;padding:4px 12px;gap:8px;border-radius:8px;color:#cccacb;font-size:14px;line-height:20px}
+.sidebar .sidebar-help>div button svg{width:20px;height:20px;flex:none}
+.sidebar .sidebar-help>div button:hover{background:#292929;color:#fdfbfc}
+.sidebar .sidebar-settings-open{flex:none;justify-content:center;width:40px;height:40px;min-height:40px;padding:0;border-radius:12px;font-size:0}
+.sidebar .sidebar-settings-open span{display:none}
+.sidebar .sidebar-settings-open svg{width:20px;height:20px}
+.sidebar .sidebar-settings-open:hover{background:var(--sidebar-hover)}
+@media(min-width:541px){body:not(.production-shell) .layout,body:not(.production-shell) .platform-mode{grid-template-columns:218px minmax(0,1fr)}body:not(.production-shell) .brand{box-sizing:border-box;width:218px;border-right-width:.5px}}
+@media(max-width:540px){.platform-mode .sidebar,.sidebar{padding:8px 6px}.sidebar .main-nav a{justify-content:center;padding:8px}.sidebar .main-nav a span,.sidebar .main-nav a small,.sidebar .recent-projects{display:none}.sidebar-marketing{margin:12px 0;padding:8px 0}.sidebar .new-canvas-project{display:flex;justify-content:center;width:100%;min-height:38px;height:38px;margin:0 0 12px;padding:8px;font-size:0;gap:0}.sidebar .sidebar-footer{display:flex;flex-direction:column;gap:0}.sidebar .sidebar-help{flex:none;width:100%}.sidebar .sidebar-help summary{justify-content:center;padding:0}.sidebar .sidebar-help summary span{display:none}.sidebar .sidebar-help>div{left:40px;bottom:0}.sidebar .sidebar-settings-open{width:100%}.sidebar{overflow:visible}}
+@media(prefers-reduced-motion:reduce){.sidebar .main-nav a,.recent-projects-toggle svg{transition:none}}
