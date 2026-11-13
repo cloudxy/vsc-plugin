@@ -175,8 +175,9 @@ class CanvasSourceHandoffTests(ResourceStoreFixture,unittest.TestCase):
                 headers={'X-CSRF-Token':login.json()['csrf_token'],'Origin':'http://testserver'}
                 response=client.get('/api/v1/projects/'+self.p+'/creative-canvas-run-options',headers=headers)
                 self.assertEqual(response.status_code,200,response.text);body=response.json()
-                self.assertEqual(set(body['image_tools']),{'angle','lighting','three_view','headshot','face_views'});self.assertEqual(body['image_tools']['angle']['include_instructions'],True)
-                for tool in ('three_view','headshot','face_views'):self.assertEqual(body['image_tools'][tool],TOOLS[tool][1])
+                self.assertEqual(set(body['image_tools']),set(TOOLS));self.assertEqual(body['image_tools']['angle']['include_instructions'],True)
+                self.assertTrue({'angle','lighting','three_view','headshot','face_views'}<=set(body['image_tools']))
+                for tool in set(TOOLS)-{'angle','lighting'}:self.assertEqual(body['image_tools'][tool],TOOLS[tool][1])
                 self.assertEqual(body['image_tools']['lighting']['intensity'],0.5);self.assertEqual(body['image_tools']['lighting']['view'],'perspective');self.assertEqual(TOOLS['lighting'][1]['intensity'],1);self.assertEqual(TOOLS['lighting'][1]['view'],'front')
                 self.assertIn('nodes',body);self.assertIn('models',body);self.assertIn('revision',body)
 

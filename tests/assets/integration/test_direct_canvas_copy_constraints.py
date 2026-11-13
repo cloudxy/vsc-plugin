@@ -133,7 +133,7 @@ class DirectCanvasCopyConstraintTests(ResourceStoreFixture, unittest.TestCase):
             self.assertEqual(legacy(),before)
         self.clone()
         with self.assertRaisesRegex(DBAPIError,'facts exist'),self.engine.begin() as c:cfg.attributes['connection']=c;command.downgrade(cfg,'0052_canvas_lifecycle')
-        with self.engine.connect() as c:self.assertEqual(c.scalar(text('SELECT version_num FROM alembic_version')),'0053_canvas_direct_copies')
+        with self.engine.connect() as c:self.assertEqual(c.scalar(text('SELECT version_num FROM alembic_version')),S.SCHEMA_REVISION)
 
     def test_typed_domain_closure_new_identity_and_sealed_domain_rows(self):
         from sqlalchemy import insert,text
