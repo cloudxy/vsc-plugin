@@ -7,7 +7,7 @@ description: "Review VSC relational schema or migrations for atomic facts, typed
 
 从 `vsc-architecture` 的维护路由进入；不增加创作阶段或人工批准，不承担网页展示。
 
-1. 读 [权威与迁移决定](../../docs/adr/0005-postgres-resource-authority.md) 和本次受影响领域。规范表定义是 `src/vsc/adapters/persistence/postgres/schema.py`，已发布迁移是 `migrations/postgres/versions/`；不在本 Skill 复制 SQL。
+1. 读本次受影响领域。规范表定义是 `src/vsc/adapters/persistence/postgres/schema.py`，已发布迁移是 `migrations/postgres/versions/`；不在本 Skill 复制 SQL。
 2. 说明每张新表的一行表示什么、候选键是什么。固定 1:N 用外键，M:N 或有生命周期的关系用中间表；引用对象必须有类型与外键。项目内引用检查复合外键，不能仅靠调用方过滤。
 3. 检查同一事实是否出现多个可写来源。正文、参数、工具输出可用 JSON；对象引用、用途绑定、来源、选择和任务输入必须可用关系查询。标明不可变快照和可重建投影的来源、版本及摘要。
 4. 检查 nullable unique、并发选择、图无环、审批历史、删除策略。跨行规则要有事务锁或数据库触发器，不能用读后写的应用检查冒充约束。

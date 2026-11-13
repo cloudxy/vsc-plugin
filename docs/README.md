@@ -6,8 +6,6 @@
 
 | 文档 | 内容 |
 |---|---|
-| [v0.42.1](releases/v0.42.1.md) | 修正退回首稿后修订稿的首次批准与旧分支保护 |
-| [v0.42.0](releases/v0.42.0.md) | 对象工作台、共享库固定版与三项工程维护角色 |
 | [AI 客户端接入](guide/workspace-setup.md) | Codex、Claude Code、Grok Build、Kimi Code、ZCode 的入口与验证 |
 | [资源配置与画布](guide/resource-settings.md) | 全局模型配置、默认用途、官方更新与素材关系 |
 | [创作工作台](guide/creative-workbench.md) | 场镜资料、资产使用实例、跨镜声音、专业动作与关系查阅 |
@@ -38,12 +36,7 @@
 |---|---|
 | [通用架构](architecture/reference-architecture.md) | 产物、活动、决策、策略、版本、事件与可扩展内核 |
 | [生成适配器边界](architecture/generation-adapters.md) | 供应商中立的生成接缝、每次生成需记录的字段与已实现的媒体检查适配器 |
-| [xAI Grok 订阅路线](architecture/xai-grok-subscription.md) | Grok Imagine 订阅登录凭证、图像与图生视频参数、实现位置与验证边界 |
-| [豆包固定音色语音](architecture/doubao-speech.md) | TTS 请求绑定、流式记录、媒体检查与权限边界 |
-| [豆包 Seed-Audio](architecture/doubao-audio.md) | MediaKit 音频任务、恢复与实际验证状态 |
-| [内核重构](architecture/kernel-refactor.md) | v0.6 从分散声明到可验证内核：结构问题与扩展规则 |
 | [工作流内核](../workflow/README.md) | 单一事实来源、稳定查询/校验接口与扩展方式 |
-| [ADR](adr/README.md) | 影响长期结构的可追溯决定 |
 
 ## governance · 治理与证据
 
@@ -52,38 +45,3 @@
 | [Vendor 治理](governance/vendor-governance.md) | 本地开源 Skill/工具的审核、锁定和同步 |
 | [Vendor 候选更新](governance/vendor-updates.md) | 手动候选脚本、Skill 分析、采用与快照保留 |
 | [专业制作证据](governance/production-evidence.md) | 媒体范围、真实成片检查与人工审片 |
-
-## research · 研究依据
-
-| 文档 | 内容 |
-|---|---|
-| [思想基础与跨行业研究](research/foundations.md) | 哲学、设计、影视、软件和系统工程的共性与边界 |
-| [来源与证据边界](research/sources.md) | 公开研究资料与项目推论的边界 |
-
-## releases · 版本记录
-
-| 文档 | 内容 |
-|---|---|
-| [v0.25.0](releases/v0.25.0.md) | 命令按职责分组、删除旧导入与路径别名、调用与安装包同步 |
-| [v0.24.0](releases/v0.24.0.md) | 创作关系工作台、大规模查阅、专业制作接续与官方 SDK |
-| [v0.23.0](releases/v0.23.0.md) | 专业创作、返工控制、资源配置与无限画布 |
-| [v0.20.0](releases/v0.20.0.md) | 资产设定兼容修订不再让已批准产物失效 |
-| [v0.19.2](releases/v0.19.2.md) | 测试目录按领域／层级重组，结构检查与旧选择名兼容 |
-| [v0.19.1](releases/v0.19.1.md) | 测试工程配置、影响选择、公共夹具与规则／媒体验证分层 |
-| [v0.19.0](releases/v0.19.0.md) | 状态时间线支持逐镜地点与入画实体 |
-| [v0.18.4](releases/v0.18.4.md) | key 无权限时统一提示用户自行核对 |
-| [v0.18.3](releases/v0.18.3.md) | 去掉套餐档位的本地声明与视频预检 |
-| [v0.17.1](releases/v0.17.1.md) | 缺少火山 key 时只提示配置火山方舟 Agent 版本 API Key |
-| [v0.17.2](releases/v0.17.2.md) | Agent Plan 个人版专属地址与视频档位离线预检，明确 AFP 和语音能力边界 |
-| [v0.17.0](releases/v0.17.0.md) | 火山凭证统一为方舟 Agent Plan 专属 key，旧变量提示已更换 |
-| [v0.16.0](releases/v0.16.0.md) | 系列选片清单编译，与素材库权属及已批准选片一致 |
-| [v0.15.0](releases/v0.15.0.md) | 批准 run 不因单镜选片失效、批量续查、生成记录导出、关系查询与静帧运镜 |
-| [v0.14.0](releases/v0.14.0.md) | 系列正式运行、统一执行入口、媒体转存与权属决定 |
-| [v0.13.1](releases/v0.13.1.md) | 火山图像／视频 Provider 实现与离线契约检查 |
-| [v0.13.0](releases/v0.13.0.md) | 数据库连续短剧 Profile、按镜上下文与离线任务接口 |
-| [v0.12.0](releases/v0.12.0.md) | 制作交接、正式运行与交付验证 |
-| [v0.11.1](releases/v0.11.1.md) | 缺钥时提醒配置位置与加载方式 |
-| [v0.11](releases/v0.11.md) | 工程化 Profile、批量生产、20 类规格与声音接口 |
-| [v0.9](releases/v0.9.md) | 创作目标、批准版本、依赖与范围验收、试用评测和真实媒体证据 |
-| [v0.10](releases/v0.10.md) | 豆包适配器、素材复用、创作方法检索和集／场衔接 |
-| [v0.2](releases/v0.2.md) | 架构如何落为插件骨架 |

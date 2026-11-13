@@ -1,6 +1,6 @@
 # VSC 通用架构
 
-版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/kernel/catalog.py`、`scripts/project/state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。设计依据见 [思想基础与跨行业研究](../research/foundations.md)，早期升级记录见 [v0.2](../releases/v0.2.md)，长期结构决定见 [ADR-0001](../adr/0001-workflow-kernel.md)。
+版本：0.6。本文中的通用对象和语义仍是架构设计；当前最小可运行骨架由 `workflow/`、`scripts/kernel/catalog.py`、`scripts/project/state.py`、`profiles/` 和 VSC 命令/角色组成，尚未接入真实媒体生成、任务队列或供应商适配器。
 
 ## 1. 架构目标与边界
 

@@ -35,7 +35,7 @@ python3 -B scripts/maintenance/vendor_skills.py --resolve architecture
 
 涉及成果展示、接续或存储时，架构责任读取[成果的权威与真实引用](references/product-experience.md#result-authority)，将创作工具的顺序和就近操作落到原领域消费者；实际引用、检查、采用与消费分别核验，文档和卡片数量不能代替成果。
 
-先读 `GLOSSARY.md`、相关 `docs/adr/` 与 `workflow/`，核对当前 HEAD、工作区差异、相关提交和证据适用范围。旧审计不能直接代表新实现；已有提交先核消费者与验收缺口，不重复建设。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题。
+先读 `GLOSSARY.md` 与 `workflow/`，核对当前 HEAD、工作区差异、相关提交和证据适用范围。旧审计不能直接代表新实现；已有提交先核消费者与验收缺口，不重复建设。用模块、接口、实现、深度、接缝、适配器、杠杆和局部性描述问题。
 
 临时审计、探索稿与中间产物放系统 tmp；需要执行或持续维护的方案存入本机 `docs/plans/`，沿已有主题入口按职责组织，当前状态只维护一处。该目录受 Git 忽略，不提交、不打包、不进入公开文档索引。公开 Skill 只保存通用方法，不链接私有计划或复制作品证据。
 
@@ -53,7 +53,7 @@ VSC 通过本机作品（`projects/`）发现问题，再改进 VSC 本身；结
 2. 修改：直接在 `main` 上修改，不建分支或 PR。只改工作流源码（`skills/`、`agents/`、`workflow/`、`profiles/`、`templates/`、`scripts/`、`tests/`、`docs/` 等）；作品、vendor 源码与本机配置不进仓库。`workflow/hosts.json` 声明的宿主入口不手改，改动来源后运行 `python3 -B scripts/kernel/hosts.py sync`。行为变化须补测试。
 3. 验证：纯文案只检查内容、链接与格式；用户指定功能点位的小修改只运行相关测试和必要检查，提交／推送不要求全量。小修改使用 `VSC_CI_SCOPE=targeted`，必要时用 `VSC_CI_TESTS` 指定模块／方法；未指定时按推送差异选择受影响测试。跨模块、契约、关系模型或影响不明的改动才在最终推送阶段执行一次全量。启用钩子时由 pre-push 完成，不提前重复；未启用时手动执行同等范围的检查。无法验证的部分如实说明。
 4. 提交：钩子失败时按维护指南处理，不得绕过。提交说明沿用 `feat:`/`fix:`/`refactor:`/`docs:`/`chore:`，正文写现象、根因与验证。仓库公开：提交说明和文件中不写作品原文、人物、素材或其他受限内容，按 `capability export` 的去项目化标准描述。
-5. 推送：`git push origin main`。行为、契约或 schema 变化时，更新 `.zcode-plugin/plugin.json` 的版本号，并在 `docs/releases/` 写明变化。
+5. 推送：`git push origin main`。行为、契约或 schema 变化时，更新 `.zcode-plugin/plugin.json` 的版本号。
 
 ## 制作交接 v2
 

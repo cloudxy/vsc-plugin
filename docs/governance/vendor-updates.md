@@ -32,7 +32,7 @@ Git 更新只安装官方仓库里的 Skill 源码，**不安装 npm CLI、执�
 更新报告保存在 `vendor/.reviews/`，包含这次操作人和采用范围；新 Skill 不会自动获得 VSC 阶段路由。
 凭证、账号、套餐和付费策略不随工具更新改变，也不进行付费生成实测。
 
-正式生成采用可选的固定官方 `arkruntime` Python SDK，见[Agent Plan 执行边界](../architecture/ark-agent-plan-personal.md#2026-10-16官方工具与受控-sdk-执行)。
+正式生成采用可选的固定官方 `arkruntime` Python SDK。
 SDK 属于 VSC 已测试可选依赖，随 VSC 的依赖发布维护，不由 CLI 包更新按钮偷偷升级。
 旧任务的 SDK／依赖／适配器环境摘要必须一致才能续查；环境不一致时恢复原环境，不重提付费任务。
 

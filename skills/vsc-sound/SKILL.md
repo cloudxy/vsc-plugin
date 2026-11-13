@@ -35,7 +35,7 @@ python3 scripts/kernel/catalog.py contract validate vsc.sound-cue-sheet/v1 ./07-
 
 制作前运行 `python3 -B scripts/media/toolchain.py --project <作品目录> --json`，分别核对实现、凭证配置与当前作品候选证据。诊断不探测网络权限、不进行审听或批准。TTS 与 Seed-Audio 默认读 `ARK_AGENT_PLAN_API_KEY`（找不到时提示配置火山方舟 Agent 版本的 API Key）；可用 `--key-env <环境变量名>` 显式选择其他 key，不能由方舟图像／视频可用推定声音权限。2026-10-11 当前语音音色列表探测为 HTTP 401，MediaKit key 未配置，尚无成功豆包声音实测。
 
-离线声音可用 `scripts/media/procedural_audio.py --preset wind|rain|cloth|footsteps|ceramic|bell|music_pad`，固定 seed 和参数可复现。它不使用豆包模型或外部采样，输出仍需按 Cue 的叙事功能、对白空间和声音接点试听。所有声音候选写 `kind=audio`、`purpose=asset` 的生成记录，人工确认后用 `scripts/assets/library.py promote/use` 复用并保留来源与授权。使用说明见[生成适配器边界](../../docs/architecture/generation-adapters.md)、[豆包语音](../../docs/architecture/doubao-speech.md)和[Seed-Audio](../../docs/architecture/doubao-audio.md)。
+离线声音可用 `scripts/media/procedural_audio.py --preset wind|rain|cloth|footsteps|ceramic|bell|music_pad`，固定 seed 和参数可复现。它不使用豆包模型或外部采样，输出仍需按 Cue 的叙事功能、对白空间和声音接点试听。所有声音候选写 `kind=audio`、`purpose=asset` 的生成记录，人工确认后用 `scripts/assets/library.py promote/use` 复用并保留来源与授权。使用说明见[生成适配器边界](../../docs/architecture/generation-adapters.md)。
 
 图像／视频可用[批量生产队列](../../docs/guide/production-batch.md)按 plan hash 执行，但当前队列不包含声音任务；声音按场景／段落生产后由剪辑阶段放入独立音轨。
 
