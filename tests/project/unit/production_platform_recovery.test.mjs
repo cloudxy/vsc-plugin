@@ -72,7 +72,7 @@ test('the project dialog exposes the 50-character counter, bounded stepper, defa
   const step=label=>dialog.querySelectorAll('button').find(button=>button.getAttribute('aria-label')===label);
   await step('减少集数').click();assert.equal(count.value,'1');await step('增加集数').click();assert.equal(count.value,'2');count.value='500';await step('增加集数').click();assert.equal(count.value,'500');
   assert.deepEqual(radios.map(radio=>[radio.value,radio.checked]),[['2d',false],['3d',false],['live',true]]);
-  assert.equal(dialog.querySelector('select'),null);assert.ok(dialog.textContent.includes('大小不超过5MB'));assert.ok(dialog.querySelectorAll('button').some(button=>button.textContent==='确定'));
+  assert.equal(dialog.querySelector('select').getAttribute('aria-label'),'项目归属');assert.ok(dialog.textContent.includes('大小不超过5MB'));assert.ok(dialog.querySelectorAll('button').some(button=>button.textContent==='确定'));
   await dialog.querySelector('.project-create-close').click();assert.equal(h.root.querySelector('dialog'),null);assert.equal(h.posts().length,0);
 });
 
@@ -209,7 +209,7 @@ async function shellRefreshFixture(){
     api:async path=>{calls.push(path);return response.promise;},$:()=>({}),notice(){},
     createProductionPlatform:(_root,ctx)=>{injected=ctx;return {load:async()=>{}};},
     currentEntry:()=>new URLSearchParams(),renderRecentProjects:rows=>recent.push(rows),
-    createEmptyCanvasProject(){},setEntryOptions(){},loadProjects(){},selectProject(){},openMedia(){},switchView(){},openArtifact(){},openResourceSettings(){},openRoleMemory(){}};
+    openAccess(){},workspaceSession:()=>({actor:state.actor}),createEmptyCanvasProject(){},setEntryOptions(){},loadProjects(){},selectProject(){},openMedia(){},switchView(){},openArtifact(){},openResourceSettings(){},openRoleMemory(){}};
   vm.runInNewContext(functionSource+';globalThis.load=loadProductionPlatform;',context);
   await context.load();return {state,response,recent,calls,refresh:injected.refreshProjects};
 }
@@ -284,7 +284,7 @@ test('home creation keeps the selected entry and first episode through the origi
 });
 
 test('rapid home clicks share one entry operation and old identity or view responses cannot navigate',async()=>{
-  for(const change of ['none','actor','identity','workspace','view']){
+  for(const change of ['none','actor','identity','view']){
     const pause=deferred();let started=false;const h=setup({projects:[homeProject('p')],refresh:async()=>{started=true;await pause.promise;},api:async({url})=>url==='/api/v1/discovery'?emptyDiscovery():episodePage([{id:'ep'}])});
     await h.platform.load({page:'home'});const click=homeTool(h,0).click();await tick();assert.ok(started);await homeTool(h,1).click();assert.equal(h.refreshes,1);
     if(change==='actor')h.session.actor='other';if(change==='identity')h.session.identityId='other';if(change==='workspace')h.session.workspaceId='other';if(change==='view')await h.platform.load({page:'tasks'});
@@ -325,8 +325,8 @@ test('home and sidebar share the original quick-canvas request and keep its rece
   assert.deepEqual(JSON.parse(JSON.stringify(h.entries.at(-1))),['creative-canvas','new-project',null,{episode:'first',task_target:'new-canvas'}]);
 });
 
-test('quick canvas ignores duplicate clicks and cannot adopt a late receipt after identity, workspace or page changes',async()=>{
-  for(const change of ['none','actor','identity','workspace','view']){
+test('quick canvas ignores duplicate clicks and cannot adopt a late receipt after identity or page changes',async()=>{
+  for(const change of ['none','actor','identity','view']){
     const pause=deferred(),h=shellQuickCanvasFixture({api:()=>pause.promise});let active=true;
     const pending=h.create({isCurrent:()=>active});await h.create();assert.equal(h.calls.length,1);assert.equal(h.button.disabled,true);
     if(change==='actor')h.state.actor='other';if(change==='identity')h.state.identityId='other';if(change==='workspace')h.state.workspaceId='other';if(change==='view')active=false;

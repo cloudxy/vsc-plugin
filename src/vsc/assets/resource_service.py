@@ -177,14 +177,14 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         payload["profile"] = snapshot["profile_id"]
         return self.store.create_project(payload, actor=actor, **kwargs)
 
-    def create_empty_canvas_project(self, payload, actor=None, idempotency_key=None):
+    def create_empty_canvas_project(self, payload, actor=None, idempotency_key=None, *, workspace_id=None):
         """Create one light-short project, its first episode and an empty canvas for one request."""
         self._actor(actor)
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 160:
             raise ResourceError("创建请求需要有效操作标识", "invalid_idempotency_key")
         if payload != {"mode": "empty_canvas"}:
             raise ResourceError("新建画布项目只创建空画布", "invalid_canvas_project")
-        project = self.create_project({"name": "未命名项目", "profile": "vsc.light-short"}, actor=actor, idempotency_key=idempotency_key)
+        project = self.create_project({"name": "未命名项目", "profile": "vsc.light-short"}, actor=actor, idempotency_key=idempotency_key,workspace_id=workspace_id)
         project_id = project["id"]
         current = self.get_project(project_id)
         episode = self.create_episode_batch(project_id, {"titles": ["第一集"], "initial_shot_count": 0}, actor=actor, expected_revision=current["revision"], idempotency_key="empty-canvas-episode:" + idempotency_key)
@@ -210,11 +210,13 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                                          limit=limit, modality=modality, **filters)
 
     def list_project_media(self, *, project_id=None, episode_id=None, modality=None, category=None, query='',
-                           created_after=None, created_before=None, order='created_desc', offset=0, limit=24):
+                           created_after=None, created_before=None, order='created_desc', offset=0, limit=24,
+                           workspace_id=None, relation=None, owner_kind=None):
         """Read original project media with SQL pagination and complete-project ACLs."""
         from datetime import datetime, timedelta, timezone
         from vsc.adapters.persistence.postgres.media_catalog import ProjectMediaCatalog, CATEGORIES
         from vsc.adapters.persistence.postgres.values import checked_id
+        from vsc.adapters.persistence.postgres.project_presentation import catalog_scope
         if (type(offset) is not int or not 0 <= offset <= 2147483647
                 or type(limit) is not int or not 1 <= limit <= 100):
             raise ResourceError('分页要求 offset >= 0，1 <= limit <= 100', 'invalid_page')
@@ -248,6 +250,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         if after and before and after >= before:
             raise ResourceError('开始时间必须早于结束时间', 'invalid_media_filter')
         return ProjectMediaCatalog(self.store, self.classic_candidate_configuration).search(dict(
+            **catalog_scope(workspace_id, relation, owner_kind),
             project_id=checked_id(project_id) if project_id else None,
             episode_id=checked_id(episode_id) if episode_id else None, modality=modality or None,
             category=category or None, query=query.strip(), created_after=after, created_before=before, order=order, offset=offset, limit=limit))

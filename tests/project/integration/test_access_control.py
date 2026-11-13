@@ -89,7 +89,7 @@ class AccessControlTests(ResourceStoreFixture,unittest.TestCase):
     def test_explicit_migration_workspace_hierarchy_and_fixed_preview(self):
         studio=self.command('workspace',{'name':'工程工作室','parent_id':None})['workspace_id']
         child=self.command('workspace',{'name':'工程子工作室','parent_id':studio})['workspace_id']
-        self.assertTrue(next(r for r in self.service.access_snapshot()['projects'] if r['id']==self.p)['unassigned'])
+        self.assertEqual(self.service.access_scope(self.p)['workspace_id'],self.owner['workspace_id'])
         preview=self.service.access_migration_preview(self.p,child)
         self.write('create_object',{'kind':'work','display_code':'NEW'})
         with self.assertRaises(Conflict):self.command('assign-project',{'project_id':self.p,'workspace_id':child,'preview_sha256':preview['sha256']})
@@ -279,6 +279,203 @@ class AccessControlTests(ResourceStoreFixture,unittest.TestCase):
             replay=self.service.accept_access_invitation(body);self.assertEqual(replay,joined)
             self.assertIn('editor',self.service.authorize_workspace(studio,'edit')['roles'])
             self.assertEqual(len(self.service.access_snapshot()['credentials']),2)
+
+    def test_personal_workspace_rejects_new_members_and_keeps_explicit_legacy_members(self):
+        from sqlalchemy import insert,select
+        from vsc.adapters.persistence.postgres import schema as S
+        self.assign();other=self.service.ensure_local_access('personal-scope-other-'+uuid.uuid4().hex)
+        payload={'scope':'workspace','scope_id':self.owner['workspace_id'],'identity_id':other['identity_id'],'role':'viewer','active':True}
+        with self.assertRaises(ResourceError) as error:self.command('member',payload)
+        self.assertEqual(error.exception.code,'personal_workspace_membership')
+        with self.assertRaises(ResourceError):self.command('invitation',{'scope':'workspace','scope_id':self.owner['workspace_id'],'role':'viewer','secret':secrets.token_urlsafe(32),'expires_at':(datetime.now(timezone.utc)+timedelta(days=1)).isoformat()})
+        self.invite('viewer')
+        # A synthetic legacy membership remains until a user explicitly removes it.
+        with self.engine.begin() as conn:conn.execute(insert(S.access_workspace_members).values(workspace_id=self.owner['workspace_id'],identity_id=other['identity_id'],role='viewer',active=True))
+        self.command('profile',{'display_name':self.owner['actor'],'preferences':{}})
+        with self.engine.connect() as conn:self.assertTrue(conn.execute(select(S.access_workspace_members.c.active).where(S.access_workspace_members.c.workspace_id==self.owner['workspace_id'],S.access_workspace_members.c.identity_id==other['identity_id'])).scalar_one())
+        self.command('member',{**payload,'active':False})
+        with self.assertRaises(ResourceError):self.command('member',payload)
+
+    def test_new_team_project_uses_workspace_role_and_personal_project_keeps_owner(self):
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        self.assign();studio=self.command('workspace',{'name':'团队项目授权测试','parent_id':None})['workspace_id']
+        member,_,_=self.invite('editor',scope='workspace',target=studio)
+        with self.as_member(member):
+            team=self.service.create_project({'name':'由团队编辑创建'},actor=member['actor'],workspace_id=studio)
+            self.assertEqual(self.service.access_scope(team['id'])['roles'],['editor'])
+        with self.engine.connect() as conn:
+            self.assertFalse(conn.execute(select(S.access_project_members).where(S.access_project_members.c.project_id==team['id'])).first())
+        self.command('member',{'scope':'workspace','scope_id':studio,'identity_id':member['identity_id'],'role':'editor','active':False})
+        with self.as_member(member):
+            with self.assertRaises(ResourceError):self.service.authorize_access(team['id'])
+        personal=self.service.create_project({'name':'个人项目创建者所有权'},actor=self.owner['actor'])
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(select(S.access_project_members.c.role).where(S.access_project_members.c.project_id==personal['id'],S.access_project_members.c.identity_id==self.owner['identity_id'])).scalar_one(),'owner')
+
+    def test_http_creation_defaults_personal_and_uses_only_explicit_team_target(self):
+        from fastapi.testclient import TestClient
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        studio=self.command('workspace',{'name':'历史会话团队','parent_id':None})['workspace_id']
+        target=self.command('workspace',{'name':'明确归属团队','parent_id':None})['workspace_id']
+        with TestClient(self.app()) as client:
+            headers=self.client_login(client)
+            # A legacy tab may retain a workspace choice; it never owns a new project implicitly.
+            switched=client.post('/api/v1/access/switch-workspace',json={'workspace_id':studio},headers=headers)
+            self.assertEqual(switched.status_code,200,switched.text)
+            for endpoint,payload,id_field in (('/api/v1/projects',{'name':'空间一致性创建'},'id'),('/api/v1/projects/empty-canvas',{'mode':'empty_canvas'},'project_id')):
+                with self.subTest(endpoint=endpoint):
+                    key=uuid.uuid4().hex
+                    personal=client.post(endpoint,json={'payload':payload,'idempotency_key':key},headers=headers)
+                    self.assertEqual(personal.status_code,200,personal.text)
+                    replay=client.post(endpoint,json={'payload':payload,'idempotency_key':key},headers=headers)
+                    self.assertEqual(replay.json(),personal.json())
+                    conflicting=client.post(endpoint,json={'payload':payload,'idempotency_key':key,'workspace_id':target},headers=headers)
+                    self.assertEqual(conflicting.status_code,409,conflicting.text)
+                    team=client.post(endpoint,json={'payload':payload,'idempotency_key':uuid.uuid4().hex,'workspace_id':target},headers=headers)
+                    self.assertEqual(team.status_code,200,team.text)
+                    for response,owner_container in ((personal,self.owner['workspace_id']),(team,target)):
+                        with self.engine.connect() as conn:self.assertEqual(conn.execute(select(S.access_projects.c.workspace_id).where(S.access_projects.c.project_id==response.json()[id_field])).scalar_one(),owner_container)
+
+    def test_team_editor_http_empty_canvas_creation_and_viewer_rejection(self):
+        from fastapi.testclient import TestClient
+        from sqlalchemy import select,func
+        from vsc.adapters.persistence.postgres import schema as S
+        studio=self.command('workspace',{'name':'空画布团队权限测试','parent_id':None})['workspace_id']
+        for role in ('editor','viewer'):
+            member,credential,_=self.invite(role,scope='workspace',target=studio)
+            with self.subTest(role=role),TestClient(self.app()) as client:
+                headers=self.client_login(client,credential)
+                with self.engine.connect() as conn:count=conn.execute(select(func.count()).select_from(S.projects)).scalar_one()
+                response=client.post('/api/v1/projects/empty-canvas',json={'payload':{'mode':'empty_canvas'},'idempotency_key':uuid.uuid4().hex,'workspace_id':studio},headers=headers)
+                if role=='editor':
+                    self.assertEqual(response.status_code,200,response.text);project=response.json()['project_id']
+                    with self.engine.connect() as conn:
+                        self.assertEqual(conn.execute(select(S.access_projects.c.workspace_id).where(S.access_projects.c.project_id==project)).scalar_one(),studio)
+                        self.assertFalse(conn.execute(select(S.access_project_members).where(S.access_project_members.c.project_id==project)).first())
+                    self.assertEqual(client.get('/api/v1/projects/'+project+'/creative-canvases/'+response.json()['canvas_id']).status_code,200)
+                else:
+                    self.assertEqual(response.status_code,403,response.text)
+                    with self.engine.connect() as conn:self.assertEqual(conn.execute(select(func.count()).select_from(S.projects)).scalar_one(),count)
+
+    def test_trusted_creation_always_binds_personal_owner_and_deactivation_keeps_references(self):
+        from sqlalchemy import select,update,delete
+        from sqlalchemy.exc import IntegrityError
+        from vsc.adapters.persistence.postgres import schema as S
+        actor='retained-owner-'+uuid.uuid4().hex;key=uuid.uuid4().hex
+        token=set_principal(None)
+        try:
+            project=self.service.create_project({'name':'可信创建的归属保留'},actor=actor,idempotency_key=key)
+            self.assertEqual(self.service.create_project({'name':'可信创建的归属保留'},actor=actor,idempotency_key=key),project)
+        finally:reset_principal(token)
+        with self.engine.connect() as conn:
+            binding=conn.execute(select(S.access_projects).where(S.access_projects.c.project_id==project['id'])).mappings().one()
+            workspace=conn.execute(select(S.access_workspaces).where(S.access_workspaces.c.id==binding['workspace_id'])).mappings().one()
+            owner=conn.execute(select(S.access_identities).where(S.access_identities.c.id==workspace['created_by'])).mappings().one()
+            self.assertEqual(workspace['kind'],'personal');self.assertEqual(owner['actor'],actor)
+        with self.engine.begin() as conn:conn.execute(update(S.access_identities).where(S.access_identities.c.id==owner['id']).values(active=False))
+        with self.assertRaises(IntegrityError),self.engine.begin() as conn:conn.execute(delete(S.access_identities).where(S.access_identities.c.id==owner['id']))
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(select(S.access_projects.c.workspace_id).where(S.access_projects.c.project_id==project['id'])).scalar_one(),workspace['id'])
+            self.assertEqual(conn.execute(select(S.access_workspaces.c.created_by).where(S.access_workspaces.c.id==workspace['id'])).scalar_one(),owner['id'])
+            self.assertEqual(conn.execute(select(S.projects.c.created_by).where(S.projects.c.id==project['id'])).scalar_one(),actor)
+        with self.assertRaises(ResourceError):self.service.ensure_local_access(actor)
+
+    def test_invitation_preview_http_existing_identity_team_landing_and_expiry(self):
+        from fastapi.testclient import TestClient
+        from sqlalchemy import select,func,insert
+        from vsc.assets.access_control import secret_hash
+        from vsc.adapters.persistence.postgres import schema as S
+        self.assign();member,credential,_=self.invite('viewer')
+        studio=self.command('workspace',{'name':'邀请目标团队','parent_id':None})['workspace_id']
+        secret=secrets.token_urlsafe(32);new_credential=secrets.token_urlsafe(32)
+        invitation=self.command('invitation',{'scope':'workspace','scope_id':studio,'role':'editor','secret':secret,'expires_at':(datetime.now(timezone.utc)+timedelta(days=1)).isoformat()})
+        with self.engine.connect() as conn:count=conn.execute(select(func.count()).select_from(S.access_identities)).scalar_one()
+        with TestClient(self.app()) as client:
+            preview=client.post('/api/v1/access/invitation-preview',json={'invitation_secret':secret},headers={'Origin':'http://testserver'})
+            self.assertEqual(preview.status_code,200,preview.text);self.assertEqual(preview.json()['target_name'],'邀请目标团队');self.assertEqual(preview.json()['role'],'editor');self.assertEqual(preview.headers['cache-control'],'no-store')
+            with self.engine.connect() as conn:self.assertEqual(conn.execute(select(func.count()).select_from(S.access_identities)).scalar_one(),count)
+            headers=self.client_login(client,credential)
+            body={'invitation_secret':secret,'credential_secret':new_credential,'display_name':'沿用账户','use_current_identity':True}
+            joined=client.post('/api/v1/access/join',json=body,headers=headers)
+            self.assertEqual(joined.status_code,200,joined.text);value=joined.json()
+            self.assertEqual(value['identity_id'],member['identity_id']);self.assertEqual(value['workspace_id'],studio)
+            self.assertEqual(value['joined_workspace_id'],studio);self.assertIsNone(value['joined_project_id']);self.assertEqual(value['target_name'],'邀请目标团队')
+            self.assertEqual(client.get('/api/v1/session').json()['workspace_id'],studio)
+            with self.engine.connect() as conn:self.assertEqual(conn.execute(select(func.count()).select_from(S.access_identities)).scalar_one(),count)
+            # Authentication still defaults to the account's personal creation space.
+            self.assertNotEqual(self.service.authenticate_access(new_credential)['workspace_id'],studio)
+            project_secret=secrets.token_urlsafe(32)
+            self.command('invitation',{'scope':'project','scope_id':self.p,'role':'viewer','secret':project_secret,'expires_at':(datetime.now(timezone.utc)+timedelta(days=1)).isoformat()})
+            project_preview=client.post('/api/v1/access/invitation-preview',json={'invitation_secret':project_secret},headers={'Origin':'http://testserver'})
+            self.assertEqual(project_preview.json()['target_name'],self.project['name'])
+            joined_project=client.post('/api/v1/access/join',json={**body,'invitation_secret':project_secret,'credential_secret':secrets.token_urlsafe(32)},headers={'Origin':'http://testserver'}).json()
+            self.assertEqual(joined_project['joined_project_id'],self.p);self.assertIsNone(joined_project['joined_workspace_id'])
+            self.assertEqual(joined_project['workspace_id'],member['workspace_id'])
+            expired_secret=secrets.token_urlsafe(32)
+            with self.engine.begin() as conn:conn.execute(insert(S.access_invitations).values(id=str(uuid.uuid4()),workspace_id=studio,project_id=None,role='viewer',secret_sha256=secret_hash(expired_secret),expires_at=datetime.now(timezone.utc)-timedelta(seconds=1),created_by=self.owner['identity_id']))
+            expired=client.post('/api/v1/access/invitation-preview',json={'invitation_secret':expired_secret},headers={'Origin':'http://testserver'})
+            self.assertEqual(expired.status_code,403,expired.text)
+
+    def test_transfer_preview_names_permission_changes_direct_grants_and_live_shares(self):
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        a=self.command('workspace',{'name':'转出团队','parent_id':None})['workspace_id'];b=self.command('workspace',{'name':'转入团队','parent_id':None})['workspace_id']
+        self.assign(workspace=a)
+        lost,_,_=self.invite('viewer',scope='workspace',target=a);gained,_,_=self.invite('reviewer',scope='workspace',target=b);direct,_,_=self.invite('editor')
+        canvas=self.canvas();share,_=self.share(canvas)
+        preview=self.service.access_migration_preview(self.p,b);plan=preview['plan']
+        by_id={row['identity_id']:row for row in plan['access_changes']}
+        self.assertEqual(by_id[lost['identity_id']]['change'],'lost');self.assertEqual(by_id[gained['identity_id']]['change'],'gained')
+        self.assertEqual(by_id[direct['identity_id']]['change'],'retained');self.assertEqual(by_id[direct['identity_id']]['display_name'],'工程成员')
+        self.assertEqual(plan['shares'][0]['id'],share['share_id']);self.assertEqual(plan['shares'][0]['canvas_title'],'共享工程画布')
+        self.command('member',{'scope':'workspace','scope_id':b,'identity_id':gained['identity_id'],'role':'editor','active':True})
+        with self.assertRaises(Conflict):self.command('assign-project',{'project_id':self.p,'workspace_id':b,'preview_sha256':preview['sha256']})
+        preview=self.service.access_migration_preview(self.p,b)
+        payload={'project_id':self.p,'workspace_id':b,'preview_sha256':preview['sha256']};key=uuid.uuid4().hex
+        first=self.command('assign-project',payload,key);self.assertEqual(self.command('assign-project',payload,key),first)
+        for binding,allowed in ((lost,False),(gained,True),(direct,True)):
+            with self.as_member(binding):
+                if allowed:self.assertIn('read',self.service.access_scope(self.p)['capabilities'])
+                else:
+                    with self.assertRaises(ResourceError):self.service.access_scope(self.p)
+        with self.engine.connect() as conn:
+            self.assertFalse(conn.execute(select(S.access_shares.c.revoked).where(S.access_shares.c.id==share['share_id'])).scalar_one())
+            self.assertTrue(conn.execute(select(S.access_project_members.c.active).where(S.access_project_members.c.project_id==self.p,S.access_project_members.c.identity_id==direct['identity_id'])).scalar_one())
+        self.assertEqual(self.service.get_creative_canvas(self.p,canvas['id'])['version_id'],canvas['version_id'])
+
+    def test_workspace_member_removal_preserves_then_explicitly_revokes_legacy_direct_owner(self):
+        from fastapi.testclient import TestClient
+        studio=self.command('workspace',{'name':'移除预览团队','parent_id':None})['workspace_id'];self.assign(workspace=studio)
+        member,_,_=self.invite('editor',scope='workspace',target=studio)
+        self.command('member',{'scope':'project','scope_id':self.p,'identity_id':member['identity_id'],'role':'owner','active':True})
+        canvas=self.canvas();share,_=self.share(canvas)
+        with TestClient(self.app()) as client:
+            headers=self.client_login(client)
+            response=client.post('/api/v1/access/workspaces/'+studio+'/member-removal-preview',json={'identity_id':member['identity_id']},headers=headers)
+            self.assertEqual(response.status_code,200,response.text);preview=response.json()
+        self.assertEqual(preview['plan']['retained_project_grants'],[{'project_id':self.p,'project_name':self.project['name'],'role':'owner','can_revoke':True}])
+        payload={'scope':'workspace','scope_id':studio,'identity_id':member['identity_id'],'role':'editor','active':False}
+        self.command('member',{**payload,'preview_sha256':preview['sha256'],'revoke_project_access':False})
+        with self.as_member(member):self.assertIn('owner',self.service.access_scope(self.p)['roles'])
+        self.command('member',{**payload,'active':True})
+        with self.assertRaises(Conflict):self.command('member',{**payload,'preview_sha256':preview['sha256'],'revoke_project_access':True})
+        with self.as_member(member):self.assertIn('owner',self.service.access_scope(self.p)['roles'])
+        preview=self.service.access_member_removal_preview(studio,member['identity_id']);key=uuid.uuid4().hex
+        final={**payload,'preview_sha256':preview['sha256'],'revoke_project_access':True}
+        removed=self.command('member',final,key);self.assertEqual(removed['revoked_project_ids'],[self.p]);self.assertEqual(self.command('member',final,key),removed)
+        with self.as_member(member):
+            with self.assertRaises(ResourceError):self.service.access_scope(self.p)
+        self.assertFalse(next(row for row in self.service.access_snapshot()['shares'] if row['id']==share['share_id'])['revoked'])
+        self.command('member',{'scope':'project','scope_id':self.p,'identity_id':self.owner['identity_id'],'role':'owner','active':True})
+        last=self.service.access_member_removal_preview(studio,self.owner['identity_id'])
+        self.assertFalse(last['plan']['retained_project_grants'][0]['can_revoke'])
+        with self.assertRaises(Conflict) as error:self.command('member',{**payload,'identity_id':self.owner['identity_id'],'role':'owner','preview_sha256':last['sha256'],'revoke_project_access':True})
+        self.assertEqual(error.exception.code,'last_owner')
+        self.assertIn('owner',self.service.authorize_workspace(studio)['roles'])
+        self.assertIn('owner',self.service.access_scope(self.p)['roles'])
+
 
     def test_fixed_share_members_exact_set_commits_atomically_and_rejects_extension(self):
         from sqlalchemy import insert,select,update,delete,text

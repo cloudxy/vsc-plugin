@@ -28,7 +28,7 @@ def authorize_http(service,request):
         return
     if principal and principal.api_key_id:denied('API凭据不能用于界面与其他接口')
     # Credential exchange and same-origin session lifecycle perform their own checks.
-    if path.startswith('/api/v1/authentication/') or path.startswith('/api/v1/session') or path in {'/api/v1/access/login','/api/v1/access/join'}:return
+    if path.startswith('/api/v1/authentication/') or path.startswith('/api/v1/session') or path in {'/api/v1/access/login','/api/v1/access/join','/api/v1/access/invitation-preview'}:return
     if path=='/api/v1/access/share-view':return
     if path=='/api/v1/user-preferences':
         if not principal or not principal.identity_id:denied('偏好设置需要成员身份')
@@ -37,6 +37,9 @@ def authorize_http(service,request):
     if path.startswith('/api/v1/access'):
         if not principal or not principal.identity_id:denied('账户与团队管理需要成员身份')
         with service.store.engine.connect() as conn:service.store._access_principal(conn)
+        return
+    if path in {'/api/v1/projects','/api/v1/projects/empty-canvas'}:
+        if method!='GET' and (not principal or not principal.identity_id):denied('创建项目需要成员身份')
         return
     if path.startswith('/api/v1/projects/'):
         bits=path.strip('/').split('/');project=bits[3];rest=bits[4:]
@@ -64,9 +67,6 @@ def authorize_http(service,request):
         elif len(rest)==3 and rest[0]=='media' and rest[2]=='content':target_type,target_id='media',rest[1]
         if principal and principal.share_id and not principal.identity_id and method in {'GET','HEAD'} and target_type=='canvas':denied('协作链接使用独立分享视图')
         service.authorize_access(project,capability,target_type=target_type,target_id=target_id)
-        return
-    if path=='/api/v1/projects':
-        if method!='GET' and (not principal or not principal.identity_id):denied('创建项目需要成员身份')
         return
     if principal and principal.share_id and not principal.identity_id:denied('分享会话只能访问明确共享的画布与媒体')
     if path.startswith('/api/v1/library') or path.startswith('/api/v1/asset-center'):
@@ -96,8 +96,22 @@ def install_access_routes(app,router,catalog,etag,actor,origin,new_session,sessi
     @app.post('/api/v1/access/join')
     async def join(request:Request,body:dict):
         origin(request)
-        binding=await run_in_threadpool(service().accept_access_invitation,body)
-        return new_session(binding)
+        binding=await run_in_threadpool(service().accept_access_invitation,body,include_target=True)
+        target={key:binding.pop(key) for key in ('joined_project_id','joined_workspace_id','target_name','role')}
+        response=new_session(binding)
+        # Keep navigation metadata in the response, outside the session's authority.
+        import json
+        response.body=json.dumps({**json.loads(response.body),**target},ensure_ascii=False).encode('utf-8')
+        response.headers['content-length']=str(len(response.body))
+        return response
+
+    @app.post('/api/v1/access/invitation-preview')
+    async def invitation_preview(request:Request,body:dict):
+        origin(request)
+        if set(body)!={'invitation_secret'}:raise HTTPException(422,'邀请预览仅接受邀请凭据')
+        result=await run_in_threadpool(service().access_invitation_preview,body['invitation_secret'])
+        from fastapi.responses import JSONResponse
+        return JSONResponse(result,headers={'Cache-Control':'no-store'})
 
     @app.get('/api/v1/access')
     def snapshot(request:Request):return etag(request,service().access_snapshot())
@@ -105,6 +119,11 @@ def install_access_routes(app,router,catalog,etag,actor,origin,new_session,sessi
     @app.get('/api/v1/access/workspaces/{workspace_id}/resources')
     def resources(workspace_id:str,request:Request,offset:int=0,limit:int=24,query:str=''):
         return etag(request,service().access_workspace_resources(workspace_id,offset=offset,limit=limit,query=query))
+
+    @app.post('/api/v1/access/workspaces/{workspace_id}/member-removal-preview')
+    def member_removal_preview(workspace_id:str,request:Request,body:dict):
+        if set(body)!={'identity_id'}:raise HTTPException(422,'选择要移除的空间成员')
+        return etag(request,service().access_member_removal_preview(workspace_id,body['identity_id']))
 
     @app.post('/api/v1/access/commands/{action}')
     async def command(action:str,request:Request,body:dict):

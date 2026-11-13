@@ -143,15 +143,19 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             raise NotFound()
         return dict(row)
 
-    @staticmethod
-    def _project(conn, project_id, lock=False):
-        query = select(S.projects).where(S.projects.c.id == checked_id(project_id))
+    def _project(self, conn, project_id, lock=False):
+        columns = list(S.projects.c)
+        if not lock and getattr(self, '_historical_read_schema', None) is not None:
+            # Only the explicitly accepted historical status/next facade can
+            # omit new columns. Query errors never trigger an authority fallback.
+            columns = [column for column in columns if column.name != 'created_by']
+        query = select(*columns).where(S.projects.c.id == checked_id(project_id))
         if lock:
             query = query.with_for_update()
         row = conn.execute(query).mappings().first()
         if row is None:
             raise NotFound("项目不存在")
-        return dict(row)
+        return dict(created_by=None, **row) if 'created_by' not in row else dict(row)
 
     def _mutate(self, project_id, action, payload, expected_revision, idempotency_key, actor, callback,
                 _transaction=None, _library_versions=(), _related_projects=()):
@@ -258,11 +262,15 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
 
     def create_project(self, payload, actor, **kwargs):
         key = kwargs.get("idempotency_key")
+        workspace_id = checked_id(kwargs['workspace_id']) if kwargs.get('workspace_id') is not None else None
         if key is not None and (not isinstance(key, str) or not 1 <= len(key) <= 200):
             raise ResourceError("创建请求需要有效操作标识", "invalid_idempotency_key")
         project_id = checked_id(payload.get("id", str(uuid.uuid5(
             uuid.NAMESPACE_URL, "vsc:project:" + actor + ":" + key)) if key else new_id()))
-        request_sha = digest({"payload": payload, "actor": actor})
+        request_document = {"payload": payload, "actor": actor}
+        if workspace_id is not None:
+            request_document['workspace_id'] = workspace_id
+        request_sha = digest(request_document)
         profile = payload.get("profile", "vsc.series-pg")
         snapshot = payload.get("profile_snapshot", {})
         # Creation is an explicit PG operation; never inferred from a directory.
@@ -271,9 +279,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
         try:
             with self.engine.begin() as conn:
                 from vsc.assets.access_control import current_principal
-                if current_principal() is not None:
-                    from .access_control import authority_lock
-                    authority_lock(conn)
+                from .access_control import authority_lock
+                authority_lock(conn,exclusive=current_principal() is None)
                 if key:
                     conn.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
                                  {"key": "vsc-create:" + project_id})
@@ -286,8 +293,8 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
                         if hasattr(self,"_access_require"):self._access_require(conn,project_id,"read")
                         return receipt["response"]
                 conn.execute(insert(S.projects).values(id=project_id, name=required(payload, "name"),
-                    profile=profile, profile_snapshot=snapshot, storage_policy="postgres-series-v1"))
-                if hasattr(self,'access_bind_new_project'):self.access_bind_new_project(conn,project_id,actor)
+                    profile=profile, profile_snapshot=snapshot, storage_policy="postgres-series-v1", created_by=actor))
+                if hasattr(self,'access_bind_new_project'):self.access_bind_new_project(conn,project_id,actor,workspace_id=workspace_id)
                 result = clean(self._project(conn, project_id))
                 if key:
                     conn.execute(insert(S.command_receipts).values(project_id=project_id,

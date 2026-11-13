@@ -254,8 +254,10 @@ def create_app(config=None, catalog=None, service=None):
     @app.get('/api/v1/project-media')
     def project_media(request: Request, project_id: str = None, episode_id: str = None,
                       modality: str = None, category: str = None, query: str = '', created_after: str = None,
-                      created_before: str = None, order: str = 'created_desc', offset: int = 0, limit: int = 24):
+                      created_before: str = None, order: str = 'created_desc', offset: int = 0, limit: int = 24,
+                      workspace_id: str = None, relation: str = None, owner_kind: str = None):
         return etag(request, catalog.project_media(project_id=project_id, episode_id=episode_id,
+            workspace_id=workspace_id, relation=relation, owner_kind=owner_kind,
             modality=modality, category=category, query=query, created_after=created_after, created_before=created_before,
             order=order, offset=offset, limit=limit))
 
@@ -353,7 +355,7 @@ def create_app(config=None, catalog=None, service=None):
             raise HTTPException(422, "填写项目名称；创建请求需要有效的操作标识")
         if catalog.service is None:
             raise HTTPException(409, "本次服务没有配置项目数据库")
-        return catalog.service.create_project(payload, actor=identity, idempotency_key=key)
+        return catalog.service.create_project(payload, actor=identity, idempotency_key=key,workspace_id=body.get('workspace_id'))
 
     @router.post("/empty-canvas")
     def create_empty_canvas_project(request: Request, body: dict):
@@ -363,7 +365,7 @@ def create_app(config=None, catalog=None, service=None):
             raise HTTPException(422, "新建画布项目需要固定请求和操作标识")
         if catalog.service is None:
             raise HTTPException(409, "本次服务没有配置项目数据库")
-        return catalog.service.create_empty_canvas_project(payload, actor=identity, idempotency_key=key)
+        return catalog.service.create_empty_canvas_project(payload, actor=identity, idempotency_key=key,workspace_id=body.get('workspace_id'))
 
     @router.get("/{project_id}/tree")
     def tree(project_id: str, request: Request):

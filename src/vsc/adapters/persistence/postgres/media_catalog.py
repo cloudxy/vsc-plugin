@@ -16,6 +16,7 @@ from vsc.assets.resource_service import ResourceError, NotFound
 from . import schema as S
 from .access_control import authority_lock
 from .values import clean
+from .project_presentation import scope_projects, workspace_columns, project_relation, PROJECT_OWNER
 
 CATEGORIES = {'asset_image','shot_image','composite_video','canvas_image','canvas_audio','canvas_video'}
 # These are original production purposes/shot slots, not all media references.
@@ -193,6 +194,7 @@ class ProjectMediaCatalog:
         with self.store.engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
             authority_lock(conn)
             allowed=self._readable_projects(conn).where(~exists(select(1).where(S.management_project_states.c.project_id==projects.c.id,S.management_project_states.c.state!='active')))
+            allowed=scope_projects(self.store,conn,allowed,filters)
             if filters['project_id']:
                 self.store._access_require(conn,filters['project_id'],'read')
                 allowed=allowed.where(projects.c.id==filters['project_id'])
@@ -207,8 +209,11 @@ class ProjectMediaCatalog:
                 .where(life.c.project_id.in_(allowed_ids)).cte('media_lifecycle_ranked')
             recycled=exists(select(1).select_from(latest.join(S.media_recycle_actions,and_(S.media_recycle_actions.c.project_id==latest.c.project_id,S.media_recycle_actions.c.decision_id==latest.c.id)))\
                 .where(latest.c.project_id==media.c.project_id,latest.c.media_id==media.c.id,latest.c.rank==1,latest.c.outcome=='deprecate'))
-            query=select(media,projects.c.name.label('project_name'),blob.c.width,blob.c.height,blob.c.duration_ms,producer.c.resolved_category.label('category'),producer.c.category_reason)\
+            query=select(media,projects.c.name.label('project_name'),*workspace_columns(),blob.c.width,blob.c.height,blob.c.duration_ms,producer.c.resolved_category.label('category'),producer.c.category_reason)\
                 .join(projects,projects.c.id==media.c.project_id).join(blob,blob.c.id==media.c.blob_id)\
+                .outerjoin(S.access_projects,S.access_projects.c.project_id==projects.c.id)\
+                .outerjoin(S.access_workspaces,S.access_workspaces.c.id==S.access_projects.c.workspace_id)\
+                .outerjoin(PROJECT_OWNER,PROJECT_OWNER.c.id==S.access_workspaces.c.created_by)\
                 .outerjoin(producer,and_(producer.c.project_id==media.c.project_id,producer.c.media_id==media.c.id)).where(media.c.project_id.in_(allowed_ids),~recycled)
             if media_id:query=query.where(media.c.id==media_id)
             if filters['episode_id']:
@@ -248,9 +253,11 @@ class ProjectMediaCatalog:
                 renditions.setdefault((r['project_id'],r['media_id']),set()).add(r['purpose'])
             editable=set(conn.execute(self.store._access_project_query(conn,'edit').where(S.projects.c.id.in_({r['project_id'] for r in rows}))).scalars())
             items=[]
+            _,person,_=self.store._access_principal(conn)
             for row in rows:
                 key=row['project_id'],row['id'];fixed=producers.get(key);references=uses.get(key,[])
                 item=self._item(row,fixed,references,episode_names,renditions.get(key,set()),filters['episode_id'])
+                item['project_relation']=project_relation(row['project_created_by'],person['actor'] if person else None)
                 if fixed and fixed['active'] and fixed['kind']=='shot_generation' and row['category'] in {'shot_image','composite_video'} and row['project_id'] in editable and self.configuration:
                     try:configuration=self.configuration(row['project_id'],fixed['target_id'],row['id'])
                     except ResourceError:configuration=None
@@ -281,7 +288,8 @@ class ProjectMediaCatalog:
 
     def _item(self,row,fixed,uses,episode_names,renditions,episode_filter):
         base='/api/v1/projects/'+row['project_id']+'/media/'+row['id']
-        item={k:row[k] for k in ('id','project_id','project_name','name','modality','created_at','updated_at','category','width','height','duration_ms')}
+        item={k:row[k] for k in ('id','project_id','project_name','name','modality','created_at','updated_at','category','width','height','duration_ms',
+            'workspace_id','workspace_name','workspace_kind','project_created_by','owner_kind','owner_actor','owner_name')}
         source=None;producer=None;reason='source_unknown'
         if fixed:
             if fixed['active'] and row['category_reason']!='ambiguous_source':source=producer=self._source(fixed)

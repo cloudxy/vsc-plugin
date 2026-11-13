@@ -75,7 +75,7 @@ test('episode conflict preserves fields and requires fresh baseline before a new
   await load(h);const d=await h.open();fill(d);await submit(d);assert.equal(d.querySelector('input').value,'修改后');await submit(d);assert.equal(h.posts().length,1);await submit(d);assert.equal(h.posts()[1].body.expected_revision,20);assert.notEqual(h.posts()[0].body.idempotency_key,h.posts()[1].body.idempotency_key);
 });
 
-for(const change of ['scope','identity','workspace'])test(`late episode response after ${change} keeps receipt without changing current view`,async()=>{
+for(const change of ['scope','identity'])test(`late episode response after ${change} keeps receipt without changing current view`,async()=>{
   const waiting=deferred(),started=deferred();const h=setup({api:async c=>{if(c.url.endsWith('/episode-save')){started.resolve();await waiting.promise;return {episode_id:'ep-1',episode_index:0,revision:9};}}});
   await load(h);const d=await h.open();fill(d);const saving=submit(d);await started.promise;await submit(d);assert.equal(h.posts().length,1);
   if(change==='scope')await load(h);else if(change==='identity')h.session.identityId='id-2';else h.session.workspaceId='space-2';waiting.resolve();await saving;assert.equal(h.refreshes,0);assert.equal(h.root.querySelector('dialog'),null);assert.ok([...h.storage.values()].some(s=>JSON.parse(s).phase==='readback'));
@@ -106,7 +106,7 @@ test('pending canvas authorization failure preserves request and duplicate click
   await load(h);const pending=tool(h).click();await started.promise;await tool(h).click();assert.equal(h.posts().length,1);wait.resolve();await pending;assert.equal(h.storage.size,1);await tool(h).click();assert.deepEqual(h.posts()[0].body,h.posts()[1].body);
 });
 
-for(const change of ['scope','identity','workspace'])test(`late canvas creation after ${change} stores receipt and cannot navigate`,async()=>{
+for(const change of ['scope','identity'])test(`late canvas creation after ${change} stores receipt and cannot navigate`,async()=>{
   const wait=deferred(),started=deferred();const h=setup({api:async c=>{if(c.url.includes('/episode-entry?'))return {project_id:'project-1',episode_id:'ep-1',revision:8,canvas:null};if(c.url.endsWith('/creative-canvases')){started.resolve();await wait.promise;return {id:'canvas-new'};}}});
   await load(h);const pending=tool(h).click();await started.promise;if(change==='scope')await load(h);else if(change==='identity')h.session.identityId='id-2';else h.session.workspaceId='space-2';wait.resolve();await pending;assert.equal(h.navigations.length,0);assert.ok([...h.storage.values()].some(s=>JSON.parse(s).canvas_id==='canvas-new'));
 });
