@@ -211,7 +211,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
 
     def list_project_media(self, *, project_id=None, episode_id=None, modality=None, category=None, query='',
                            created_after=None, created_before=None, order='created_desc', offset=0, limit=24,
-                           workspace_id=None, relation=None, owner_kind=None):
+                           workspace_id=None, relation=None, owner_kind=None, project_category=None):
         """Read original project media with SQL pagination and complete-project ACLs."""
         from datetime import datetime, timedelta, timezone
         from vsc.adapters.persistence.postgres.media_catalog import ProjectMediaCatalog, CATEGORIES
@@ -250,7 +250,7 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
         if after and before and after >= before:
             raise ResourceError('开始时间必须早于结束时间', 'invalid_media_filter')
         return ProjectMediaCatalog(self.store, self.classic_candidate_configuration).search(dict(
-            **catalog_scope(workspace_id, relation, owner_kind),
+            **catalog_scope(workspace_id, relation, owner_kind, project_category),
             project_id=checked_id(project_id) if project_id else None,
             episode_id=checked_id(episode_id) if episode_id else None, modality=modality or None,
             category=category or None, query=query.strip(), created_after=after, created_before=before, order=order, offset=offset, limit=limit))
