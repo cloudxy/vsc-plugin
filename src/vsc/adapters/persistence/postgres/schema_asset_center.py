@@ -1,10 +1,33 @@
 """Catalog annotations and personal selection lists over fixed shared-library versions."""
-from sqlalchemy import Table, Column, Text, Integer, Boolean, ForeignKeyConstraint, UniqueConstraint, PrimaryKeyConstraint, CheckConstraint, Index
+from sqlalchemy import Table, Column, Text, Integer, Boolean, DateTime, func, ForeignKeyConstraint, UniqueConstraint, PrimaryKeyConstraint, CheckConstraint, Index
 
-CENTER_IMMUTABLE = ("library_catalog_edits", "library_catalog_tags", "library_cart_imports", "library_download_requests", "official_asset_publications")
+CENTER_IMMUTABLE = ("library_catalog_edits", "library_catalog_tags", "library_cart_imports", "library_download_requests", "official_asset_publications", "official_asset_backups", "library_media_actions")
 
 
 def declare_asset_center(metadata, project_table, ref, uid, stamp):
+    backups = Table("official_asset_backups", metadata,
+        uid("entry_id", nullable=False), uid("library_version_id", nullable=False), Column("member_key", Text, nullable=False),
+        Column("actor", Text, nullable=False), Column("reason", Text, nullable=False), stamp(),
+        PrimaryKeyConstraint("entry_id", "library_version_id", "member_key"),
+        ForeignKeyConstraint(["entry_id"], ["library_entries.id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(["library_version_id", "member_key"], ["library_version_media.library_version_id", "library_version_media.member_key"], ondelete="RESTRICT"))
+    states = Table("library_media_states", metadata,
+        uid("library_version_id", nullable=False), Column("member_key", Text, nullable=False),
+        Column("state", Text, nullable=False), Column("revision", Integer, nullable=False),
+        Column("actor", Text, nullable=False), Column("reason", Text, nullable=False), Column("changed_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+        Column("cleanup_pending", Boolean, nullable=False, server_default="false"),
+        PrimaryKeyConstraint("library_version_id", "member_key"),
+        ForeignKeyConstraint(["library_version_id", "member_key"], ["library_version_media.library_version_id", "library_version_media.member_key"], ondelete="RESTRICT"),
+        CheckConstraint("state IN ('active','trashed','purged') AND revision > 0 AND (NOT cleanup_pending OR state='purged')", name="lifecycle"))
+    actions = Table("library_media_actions", metadata, uid(primary_key=True),
+        uid("library_version_id", nullable=False), Column("member_key", Text, nullable=False),
+        Column("operation", Text, nullable=False), Column("revision", Integer, nullable=False),
+        Column("actor", Text, nullable=False), Column("reason", Text, nullable=False),
+        Column("command_key", Text, nullable=False), Column("request_sha256", Text, nullable=False), stamp(),
+        ForeignKeyConstraint(["library_version_id", "member_key"], ["library_version_media.library_version_id", "library_version_media.member_key"], ondelete="RESTRICT"),
+        UniqueConstraint("actor", "command_key"), UniqueConstraint("library_version_id", "member_key", "revision"),
+        CheckConstraint("operation IN ('trash','restore','purge') AND revision > 0", name="operation"))
+    Index("ix_library_media_states_recycle", states.c.state, states.c.changed_at)
     # One immutable publisher classification of one original fixed library
     # version. No copy of its rights, bytes, membership or selection authority.
     official = Table("official_asset_publications", metadata, uid(primary_key=True),
@@ -56,4 +79,4 @@ def declare_asset_center(metadata, project_table, ref, uid, stamp):
         ForeignKeyConstraint(["library_version_id", "member_key"], ["library_version_media.library_version_id", "library_version_media.member_key"]))
     for table, columns in ((edits,("entry_id","revision")), (cart,("actor","active")), (downloads,("actor","created_at")), (imported,("project_id","cart_id"))):
         Index("ix_"+table.name+"_browse", *(table.c[name] for name in columns))
-    return {table.name:table for table in (edits,tags,cart,imported,downloads,official)}
+    return {table.name:table for table in (edits,tags,cart,imported,downloads,official,backups,states,actions)}

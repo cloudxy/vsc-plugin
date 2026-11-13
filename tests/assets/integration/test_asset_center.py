@@ -91,6 +91,87 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             role_level="lead",role_tag="test-"+uuid.uuid4().hex,gender="female",age_band="young_adult",
             notes="合成自有测试素材的官方分类；不代表第三方素材许可",command_key=uuid.uuid4().hex),**changes)
 
+    def test_official_media_http_delete_restore_purge_backups_and_permissions(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from sqlalchemy import select
+        from vsc.adapters.persistence.postgres import schema as S
+        # Distinct real PNG bytes prevent accidental deduplication with other tests.
+        from PIL import Image
+        def imported(color):
+            stream=io.BytesIO();Image.new('RGB',(3,3),color).save(stream,format='PNG');stream.seek(0)
+            staged=self.service.storage.stage_upload(stream,'media.png')
+            return self.service.import_library({'library_key':uuid.uuid4().hex,'title':'合成媒体生命周期','category':'image','description':'owned test bytes',
+                'specification':{},'allowed_purposes':['identity_face'],'license':{'outcome':'owned','allow_workspace_reuse':True,'evidence':'owned synthetic bytes'},
+                'import_key':uuid.uuid4().hex,'members':[{'member_key':'sheet','staged_upload':staged['staged_upload']}]},actor='test-human')
+        primary,backup=imported((100,23,67)),imported((20,199,87))
+        self.publish(self.official_payload(primary))
+        app=create_app({'projects_root':self.tmp.name,'allowed_hosts':['testserver'],'allowed_origins':['http://testserver'],
+            'access_token':'media-test','human_identity':'test-human','background_enabled':False},service=self.service)
+        with patch('vsc.configuration.get_config',return_value=['test-human']),TestClient(app) as client:
+            login=client.post('/api/v1/session',json={'token':'media-test'},headers={'Origin':'http://testserver'})
+            headers={'Origin':'http://testserver','X-CSRF-Token':login.json()['csrf_token']}
+            base='/api/v1/asset-center/official'
+            attached=client.post(base+'/backups',headers=headers,json={'payload':{'entry_id':primary['entry_id'],'library_version_id':backup['version_id'],'member_key':'sheet','reason':'explicit synthetic replacement receipt'}})
+            self.assertEqual(attached.status_code,200,attached.text)
+            detail=client.get(base+'/entries/'+primary['entry_id'],headers=headers).json()
+            self.assertTrue(detail['can_manage_media']);self.assertEqual(len(detail['gallery']),2)
+            request={'library_version_id':primary['version_id'],'member_key':'sheet','operation':'trash','expected_revision':0,'reason':'synthetic lifecycle test','command_key':uuid.uuid4().hex}
+            self.assertEqual(client.post(base+'/media-actions',headers=headers,json={'payload':request}).status_code,422)
+            def action(payload):
+                return client.post(base+'/media-actions',headers=headers,json={'confirmed':True,'payload':payload})
+            deleted=action(request);self.assertEqual(deleted.status_code,200,deleted.text)
+            self.assertEqual(action(request).json()['id'],deleted.json()['id'])
+            self.assertEqual(action(dict(request,command_key=uuid.uuid4().hex)).status_code,409)
+            self.assertEqual(client.get('/api/v1/library/versions/'+primary['version_id']+'/members/sheet/content',headers=headers).status_code,409)
+            cart=client.post('/api/v1/asset-center/cart',headers=headers,json={'payload':{'library_version_id':primary['version_id'],'member_key':'sheet','active':True}})
+            self.assertEqual(cart.status_code,409,cart.text)
+            recycled=client.get(base+'/recycle',headers=headers).json()['items']
+            row=next(r for r in recycled if r['library_version_id']==primary['version_id'])
+            self.assertEqual(client.get(row['preview_url']).status_code,200)
+            restored=action(dict(request,operation='restore',expected_revision=1,command_key=uuid.uuid4().hex))
+            self.assertEqual(restored.status_code,200,restored.text)
+            self.assertEqual(client.get('/api/v1/library/versions/'+primary['version_id']+'/members/sheet/content',headers=headers).status_code,200)
+            trashed=action(dict(request,expected_revision=2,command_key=uuid.uuid4().hex));self.assertEqual(trashed.status_code,200,trashed.text)
+            path,_=self.service._library_media().recycle_content(primary['version_id'],'sheet','test-human');self.assertTrue(path.exists())
+            purge=dict(request,operation='purge',expected_revision=3,command_key=uuid.uuid4().hex)
+            with patch('pathlib.Path.unlink',side_effect=OSError('synthetic storage failure')):
+                pending=action(purge)
+            self.assertEqual(pending.status_code,200,pending.text);self.assertTrue(pending.json()['cleanup_pending'])
+            pending_row=next(r for r in client.get(base+'/recycle',headers=headers).json()['items'] if r['library_version_id']==primary['version_id'])
+            self.assertEqual(pending_row['state'],'purged');self.assertIsNone(pending_row['preview_url'])
+            result=client.post(base+'/media-cleanup',headers=headers,json={'payload':{'library_version_id':primary['version_id'],'member_key':'sheet'}})
+            self.assertEqual(result.status_code,200,result.text);self.assertTrue(result.json()['bytes_removed'])
+            self.assertFalse(path.exists());self.assertTrue(action(purge).json()['bytes_removed'])
+            self.assertEqual(action(dict(request,operation='restore',expected_revision=4,command_key=uuid.uuid4().hex)).status_code,409)
+            self.assertEqual(client.get(row['preview_url'],headers=headers).status_code,404)
+            self.assertEqual(len(client.get(base+'/entries/'+primary['entry_id'],headers=headers).json()['gallery']),1)
+            with patch('vsc.configuration.get_config',return_value=[]):
+                self.assertEqual(client.get(base+'/recycle',headers=headers).status_code,403)
+                self.assertEqual(action(dict(request,library_version_id=backup['version_id'],command_key=uuid.uuid4().hex)).status_code,403)
+        with self.engine.connect() as conn:
+            self.assertEqual(len(conn.execute(select(S.library_version_media).where(S.library_version_media.c.library_version_id==primary['version_id'])).all()),1)
+
+    def test_official_media_concurrent_delete_and_purge_preserve_shared_bytes(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        fixed=self.shared();self.publish(self.official_payload(fixed))
+        # Another immutable library reference has identical content.
+        other=self.shared()
+        barrier=Barrier(2)
+        def attempt(n):
+            barrier.wait(timeout=10)
+            try:return self.service.official_media_command({'library_version_id':fixed['version_id'],'member_key':'front','operation':'trash',
+                'expected_revision':0,'reason':'concurrent synthetic test','command_key':uuid.uuid4().hex},'test-human')
+            except Conflict:return 'conflict'
+        with patch('vsc.configuration.get_config',return_value=['test-human']):
+            with ThreadPoolExecutor(max_workers=2) as workers:results=list(workers.map(attempt,range(2)))
+            self.assertEqual(sum(isinstance(r,dict) for r in results),1);self.assertEqual(results.count('conflict'),1)
+            purged=self.service.official_media_command({'library_version_id':fixed['version_id'],'member_key':'front','operation':'purge',
+                'expected_revision':1,'reason':'synthetic shared-byte purge','command_key':uuid.uuid4().hex},'test-human')
+        self.assertTrue(purged['shared_bytes_retained'])
+        path,_=self.service.library_member_content(other['version_id'],'front');self.assertTrue(path.exists())
+
     def publish(self,payload):
         with patch("vsc.configuration.get_config",return_value=["test-human"]):
             return self.service.publish_official_asset(payload,"test-human")

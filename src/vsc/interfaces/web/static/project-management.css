@@ -6,3 +6,4 @@
 #project-management-view .management-recycle-pager{justify-content:center;margin:24px 0;gap:12px}
 #project-management-view .management-recycle-info .management-recycle-blocked{color:#d3af73;margin-top:6px}
 #project-management-view .management-recycle-reason{overflow-wrap:anywhere}
+#project-management-view .management-cover .management-media-preview{width:100%;height:100%;object-fit:contain}

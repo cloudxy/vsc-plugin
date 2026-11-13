@@ -65,7 +65,7 @@ def install_shared_library_routes(app, router, catalog, etag, actor, config=None
             path,
             media_type=mime if safe else "application/octet-stream",
             content_disposition_type="inline" if safe else "attachment",
-            headers={"Cache-Control": "private, max-age=3600"},
+            headers={"Cache-Control": "no-store"},
         )
 
     @app.post("/api/v1/library/import")
