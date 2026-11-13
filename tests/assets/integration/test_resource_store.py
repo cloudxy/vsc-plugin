@@ -34,12 +34,13 @@ class PostgresResourceTest(ResourceStoreFixture, unittest.TestCase):
         from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
         from vsc.assets.resource_service import ResourceService,ResourceError
         from vsc.interfaces.cli.pg_state import handle_project_command
-        from support.fixtures.postgres import isolated_postgres
+        from support.fixtures.postgres import isolated_postgres, snapshot_project_ownership, upgrade_with_project_ownership
         with isolated_postgres(TEST_URL) as engine, tempfile.TemporaryDirectory() as directory:
             service=ResourceService(PostgresResourceStore(engine=engine))
             project=service.create_project({'name':'Historical synthetic fixture','profile_snapshot':{'profile_id':'vsc.synthetic','version':'1','stages':[]}},actor='fixture-human')
             cfg=Config(str(ROOT/'migrations/postgres/alembic.ini'))
             with engine.begin() as conn:
+                ownership=snapshot_project_ownership(conn)
                 cfg.attributes['connection']=conn;command.downgrade(cfg,'0007_script_suggestions')
             with self.assertRaises(ResourceError):service.check_schema()
             (Path(directory)/'.vsc-postgres.json').write_text(json.dumps({'project_id':project['id'],'storage_policy':'postgres-series-v1'}))
@@ -67,7 +68,7 @@ class PostgresResourceTest(ResourceStoreFixture, unittest.TestCase):
             with self.assertRaises(ResourceError):service.check_schema(read_only=True)
             with engine.begin() as conn:
                 conn.execute(text("UPDATE alembic_version SET version_num='0007_script_suggestions'"))
-                cfg.attributes['connection']=conn;command.upgrade(cfg,'head')
+                upgrade_with_project_ownership(cfg,conn,ownership)
             self.assertTrue(service.check_schema()['ready'])
 
 

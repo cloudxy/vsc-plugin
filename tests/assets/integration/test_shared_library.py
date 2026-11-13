@@ -565,6 +565,8 @@ class SharedLibraryTest(ResourceStoreFixture, unittest.TestCase):
                         "library_reuses": "project_id,id,media_id,source_id,library_key,library_version,reuse_mode"}.items()}
             with engine.connect() as conn:
                 before_facts = old_facts(conn)
+                from support.fixtures.postgres import snapshot_project_ownership, upgrade_with_project_ownership
+                ownership = snapshot_project_ownership(conn)
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
             with engine.begin() as conn:
                 cfg.attributes["connection"] = conn
@@ -573,7 +575,7 @@ class SharedLibraryTest(ResourceStoreFixture, unittest.TestCase):
                 self.assertEqual(conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one(), "0012_assisted_workflow")
             with engine.begin() as conn:
                 cfg.attributes["connection"] = conn
-                command.upgrade(cfg, "head")
+                upgrade_with_project_ownership(cfg, conn, ownership)
                 self.assertEqual(old_facts(conn), before_facts)
                 self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
 

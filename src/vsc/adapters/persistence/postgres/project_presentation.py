@@ -103,6 +103,9 @@ def project_cards(store, projects):
             .where(S.projects.c.id.in_(ids))).mappings()} if ids else {}
         for source in projects:
             row = dict(source)
+            if row.get('storage_policy') != 'postgres-series-v1' or row.get('unavailable'):
+                result.append(row)
+                continue
             facts = metadata.get(row['id'], {})
             row.update(workspace_id=facts.get('workspace_id'), workspace_name=facts.get('workspace_name'),
                 workspace_kind=facts.get('workspace_kind'), created_by=facts.get('project_created_by'),
@@ -110,9 +113,6 @@ def project_cards(store, projects):
                 owner_actor=facts.get('owner_actor', source.get('owner_actor')),
                 owner_name=facts.get('owner_name', source.get('owner_name')),
                 project_relation=project_relation(facts.get('project_created_by'), actor), my_role=None)
-            if row.get('storage_policy') != 'postgres-series-v1' or row.get('unavailable'):
-                result.append(row)
-                continue
             scope = store._access_require(conn, row['id'])
             row['my_role'] = scope.get('effective_role')
             p = row['id']; hidden = hidden_object_ids(conn, p)

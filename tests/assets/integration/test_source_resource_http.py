@@ -21,7 +21,7 @@ class SourceResourceHTTP(ResourceStoreFixture, unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.service = ResourceService(self.store, storage=LocalStorage(self.temp.name))
         app = create_app({"projects_root": self.temp.name, "access_token": "synthetic-token",
-            "human_identity": "synthetic-human", "allowed_hosts": ["testserver"],
+            "human_identity": "test-human", "allowed_hosts": ["testserver"],
             "allowed_origins": ["http://testserver"]}, service=self.service)
         self.client = TestClient(app)
         self.addCleanup(self.client.close)

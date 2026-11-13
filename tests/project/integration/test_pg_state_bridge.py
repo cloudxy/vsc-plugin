@@ -152,7 +152,12 @@ class PGStateBridgeTests(unittest.TestCase):
         if importlib.util.find_spec("fastapi") and importlib.util.find_spec("httpx"):
             from fastapi.testclient import TestClient
             from vsc.interfaces.web.app import create_app
-            with TestClient(create_app({"projects_root": Path(self.temp.name) / "empty", "allowed_hosts": ["testserver"]}, service=self.service)) as client:
+            with TestClient(create_app({"projects_root": Path(self.temp.name) / "empty", "allowed_hosts": ["testserver"],
+                    "allowed_origins": ["http://testserver"], "access_token": "fixture-token", "human_identity": "fixture-human",
+                    "background_enabled": False}, service=self.service)) as client:
+                self.assertEqual(client.get("/api/v1/projects/" + self.p + "/sources/" + source_id).status_code,403)
+                login=client.post('/api/v1/session',json={'token':'fixture-token'},headers={'Origin':'http://testserver'})
+                self.assertEqual(login.status_code,200,login.text)
                 response = client.get("/api/v1/projects/" + self.p + "/sources/" + source_id)
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual(response.json()["content"].encode(), raw)

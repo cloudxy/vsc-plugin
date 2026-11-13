@@ -1,5 +1,4 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption,mountLocalePicker,getLocale,getLocaleRevision,setLocale} from './i18n.js';
-import {scopedProjects} from './project-scope.js';
 import {readCanvasLibraryPending} from './canvas-library.js';
 import {createTaskNotifications} from './task-notifications.js';
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
@@ -262,7 +261,7 @@ function renderRecentProjects(rows){
   if(!actor){recent.replaceChildren(el('p','hint',msg("ui.start_a_session_to_see_recent_creations")));return;}
   api('/api/v1/discovery',{headers:{'X-CSRF-Token':state.csrf}}).then(data=>{
     if(state.actor!==actor||ticket!==recentRequest)return;recent.replaceChildren();
-    const visible=new Set(scopedProjects(rows,ownershipSession()).map(row=>row.id));const recentRows=data.recent.filter(row=>visible.has(row.project_id));for(const row of recentRows.slice(0,8)){
+    const visible=new Set(rows.map(row=>row.id));const recentRows=data.recent.filter(row=>visible.has(row.project_id));for(const row of recentRows.slice(0,8)){
       const a=el('a','recent-project');a.href=row.href;a.title=[row.project_name,row.episode_name,row.title].filter(Boolean).join(' · ');
       if(row.cover?.modality==='image'){const image=el('img');image.src=row.cover.content_url;bindAttribute(image,"alt",'');image.loading='lazy';a.append(image);}
       const copy=el('span','recent-project-copy');copy.append(el('strong','',row.project_name||row.title||row.kind_label));
