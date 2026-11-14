@@ -22,6 +22,31 @@ def install_service_operations_routes(app,router,catalog,etag,actor,read_actor):
         from vsc.assets.discovery import tutorial as read_tutorial
         return etag(request,read_tutorial(identifier))
 
+    @app.get('/api/v1/discovery/capabilities')
+    def capability_catalog(request:Request,source:str=None):
+        read_actor(request)
+        from vsc.assets.capability_catalog import CapabilityCatalog
+        from vsc.assets.resource_service import ResourceError
+        from fastapi.responses import JSONResponse
+        if set(request.query_params)-{'source'} or len(request.query_params.getlist('source'))>1:
+            raise ResourceError('能力来源无效','invalid_capability_source',422)
+        if request.headers.get('content-length','0')!='0' or request.headers.get('transfer-encoding'):
+            raise ResourceError('只读目录不接受请求正文','invalid_payload',422)
+        result=CapabilityCatalog().capabilities(source)
+        if result['status']=='unavailable':return JSONResponse(result,status_code=503)
+        return etag(request,result)
+
+    @app.get('/api/v1/discovery/documents/{document_id:path}')
+    def capability_document(document_id:str,request:Request):
+        read_actor(request)
+        from vsc.assets.capability_catalog import CapabilityCatalog
+        from vsc.assets.resource_service import ResourceError
+        if request.query_params:
+            raise ResourceError('文档不存在','document_not_found',404)
+        if request.headers.get('content-length','0')!='0' or request.headers.get('transfer-encoding'):
+            raise ResourceError('只读文档不接受请求正文','invalid_payload',422)
+        return etag(request,CapabilityCatalog().document(document_id))
+
     @router.get('/{project_id}/service-operations')
     def snapshot(project_id:str,request:Request):
         read_actor(request);return etag(request,service(project_id).service_operations_snapshot(project_id))

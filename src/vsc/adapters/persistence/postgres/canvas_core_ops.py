@@ -340,7 +340,7 @@ class CanvasCoreOpsMixin:
                 ).mappings()
             )
             if not sessions:
-                return []
+                return clean({"items": [], "revision": project["revision"]})
             session_ids = [row["id"] for row in sessions]
             state_map = {
                 row["session_id"]: dict(row)

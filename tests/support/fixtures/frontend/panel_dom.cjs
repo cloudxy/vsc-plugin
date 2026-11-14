@@ -95,6 +95,8 @@ class Element {
     return event;
   }
   focus() { this.ownerDocument.activeElement = this; }
+  showModal() { this.open = true; }
+  close() { const wasOpen = Boolean(this.open); this.open = false; if (wasOpen) this.dispatch('close'); }
   visible() {
     for (let node = this; node; node = node.parentElement) if (node.hidden) return false;
     return true;
@@ -163,7 +165,9 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
   vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/task-notifications.js'),'utf8')).replace('export function createTaskNotifications','function createTaskNotifications')+';globalThis.createTaskNotifications=createTaskNotifications;})()',context,{filename:'task-notifications.js'});
   vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/canvas-library.js'),'utf8')).replaceAll('export async function ','async function ').replaceAll('export function ','function ')+';globalThis.readCanvasLibraryPending=readCanvasLibraryPending;})()',context,{filename:'canvas-library.js'});
   vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/notice.js'),'utf8')).replace('export function createNotice','function createNotice')+';globalThis.createNotice=createNotice;})()',context,{filename:'notice.js'});
-  const source = withI18n(fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8')).replace("import {readCanvasLibraryPending} from './canvas-library.js';",'const {readCanvasLibraryPending}=globalThis;').replace("import {createTaskNotifications} from './task-notifications.js';",'const {createTaskNotifications}=globalThis;').replace("import {createNotice} from './notice.js';",'const {createNotice}=globalThis;').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'const {artifactTitle,renderArtifactContent}=globalThis.artifactReader;').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})');
+  vm.runInContext('(()=>{'+fs.readFileSync(path.join(folder,'static/project-scope.js'),'utf8').replaceAll('export function ','function ')+';globalThis.projectScope={directoryScope,projectCategory,scopedProjects,directoryParams,scopedDirectoryPath};})()',context,{filename:'project-scope.js'});
+  vm.runInContext('(()=>{'+withI18n(fs.readFileSync(path.join(folder,'static/capability-center.js'),'utf8')).replace("import {scopedProjects} from './project-scope.js';",'const {scopedProjects}=globalThis.projectScope;').replaceAll('export const ','const ').replaceAll('export function ','function ')+';globalThis.createCapabilityCenter=createCapabilityCenter;})()',context,{filename:'capability-center.js'});
+  const source = withI18n(fs.readFileSync(path.join(folder, 'static/panel.js'), 'utf8')).replace("import {readCanvasLibraryPending} from './canvas-library.js';",'const {readCanvasLibraryPending}=globalThis;').replace("import {createTaskNotifications} from './task-notifications.js';",'const {createTaskNotifications}=globalThis;').replace("import {createNotice} from './notice.js';",'const {createNotice}=globalThis;').replace("import {artifactTitle, renderArtifactContent} from './artifact-reader.js';",'const {artifactTitle,renderArtifactContent}=globalThis.artifactReader;').replace("await import('./workbench.js')",'await Promise.resolve({createCreativeWorkbench:globalThis.createCreativeWorkbench})').replace("await import('./capability-center.js')",'await Promise.resolve({createCapabilityCenter:globalThis.createCapabilityCenter})');
   vm.runInContext(source + '\nglobalThis.panel = {state, notice, applySession, renderTree, selectProject, selectObject, loadProjects, reviewForm, switchView, loadArtifacts, openArtifact, syncRoute, openedCreativeTarget, resolvePathnameEntry};', context, {filename: 'panel.js'});
   return {document, requests, writes, confirmations, panel: context.panel};
 }

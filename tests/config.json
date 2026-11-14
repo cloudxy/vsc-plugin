@@ -2489,6 +2489,39 @@
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/task_center.test.mjs"
       ]
+    },
+    "assets.unit.test_capability_catalog": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/capability_catalog.py",
+        "src/vsc/assets/service_operations.py"
+      ]
+    },
+    "project.integration.test_capability_discovery": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/capability_catalog.py",
+        "src/vsc/assets/service_operations.py",
+        "src/vsc/interfaces/web/service_operations.py",
+        "src/vsc/interfaces/web/app.py"
+      ]
+    },
+    "project.unit.test_capability_center_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/capability-center.js",
+        "src/vsc/interfaces/web/static/capability-center.css",
+        "src/vsc/interfaces/web/static/discovery.js",
+        "src/vsc/interfaces/web/static/i18n-messages.js",
+        "src/vsc/interfaces/web/static/workbench-shell.css",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/capability_center.test.mjs",
+        "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
     }
   },
   "dependencies": {
