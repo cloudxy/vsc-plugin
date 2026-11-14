@@ -66,7 +66,7 @@ test('sidebar mounts 短剧能力中心 directly below 营销工作室 and stand
  const html=readFileSync(path.join(repoRoot,'src/vsc/interfaces/web/templates/index.html'),'utf8');
  assert.doesNotMatch(html,/style="/);
  assert.match(html,/href="\/static\/capability-center\.css"/);
- assert.match(html,/<div class="sidebar-marketing"><a id="nav-marketing-studio" href="\?page=marketing-studio">[\s\S]*?<span>营销工作室<\/span><small>NEW<\/small><\/a><a id="nav-capability-center" href="\?page=capability-center" title="短剧能力中心">[\s\S]*?<span>短剧能力中心<\/span><\/a><\/div>/);
+ assert.match(html,/<div class="sidebar-marketing"><a id="nav-marketing-studio" href="\?page=marketing-studio">[\s\S]*?<span>营销工作室<\/span><small>NEW<\/small><\/a><a id="nav-capability-center" href="\?page=capability-center" title="短剧能力中心">[\s\S]*?<span>短剧能力中心<\/span><\/a><a id="nav-character-studio" href="\?page=character-studio">[\s\S]*?<span>AI 角色合成台<\/span><small>NEW<\/small><\/a><\/div>/);
  assert.match(html,/<section id="marketing-studio-view"[^>]*><\/section>\s*<section id="capability-center-view" tabindex="-1" aria-label="短剧能力中心" hidden><\/section>/);
 
  const location={pathname:'/capability-center',search:'',hash:''};

@@ -306,9 +306,11 @@ test('costume image helpers enforce local-only media paths and block external UR
  store.setSlot('costume',null);
 });
 
-test('sidebar places the studio under 资产库 and the settings icon right after 帮助',()=>{
+test('sidebar places the studio after 短剧能力中心 and the settings icon right after 帮助',()=>{
  const html=readFileSync(new URL('../../../src/vsc/interfaces/web/templates/index.html',import.meta.url),'utf8');
- assert.match(html,/id="nav-asset-center"[^]*?<\/a><a id="nav-character-studio" href="\?page=character-studio">/);
+ assert.match(html,/id="nav-home"[\s\S]*id="nav-projects"[\s\S]*id="nav-asset-center"[\s\S]*id="nav-capability-center"[\s\S]*<span>短剧能力中心<\/span><\/a><a id="nav-character-studio" href="\?page=character-studio">/);
+ assert.match(html,/<a id="nav-asset-center"[^>]*>(?:(?!<\/a>)[\s\S])*<\/a><a id="nav-project-management"/);
+ assert.doesNotMatch(html,/<a id="nav-asset-center"[^>]*>(?:(?!<\/a>)[\s\S])*<\/a><a id="nav-character-studio"/);
  assert.match(html,/<\/details><button type="button" id="api-settings-open" class="sidebar-settings-open" aria-label="API 接口配置"/);
  assert.match(html,/id="api-settings-open"[^>]*><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"/);
  assert.match(html,/<section id="character-studio-view"/);
