@@ -4,7 +4,7 @@ const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)se
 const isDomNode=v=>Boolean(v&&typeof v==='object'&&typeof v.tagName==='string');
 const clipWrite=async text=>{const nav=typeof navigator!=='undefined'?navigator:globalThis.navigator;await nav?.clipboard?.writeText?.(text);};
 const perfNow=()=>typeof performance!=='undefined'&&performance?.now?performance.now():Date.now();
-const names={feedback:'意见反馈',support:'支持申请',fcp:'FCP合作申请',studio:'短剧基地申请',production_service:'承制服务申请',distribution:'站外分发申请',account_close:'账户注销申请',personal_export:'个人信息导出'};
+const names={feedback:'意见反馈',support:'支持申请',fcp:'FCP合作申请',studio:'团队合作申请',production_service:'承制需求',distribution:'站外分发申请',account_close:'账户注销申请',personal_export:'个人信息导出'};
 const statuses={received:'已收到本地申请',under_review:'本地处理中',awaiting_configuration:'外部服务待配置',local_approved:'本地审核通过，外部操作尚未完成',rejected:'已退回',withdrawn:'已撤回',export_ready:'本地导出文件已生成',error:'处理失败，申请保留',account_closed:'本地账户已停用，原审计记录保留'};
 
 const NETWORK_PROBES=[
@@ -18,15 +18,6 @@ const NETWORK_PROBES=[
   ['idempotency_channel','8. 幂等请求与回执通道'],
   ['media_chunk_gateway','9. 媒体分片上传网关'],
   ['roundtrip_confirm','10. 端到端综合往返确认']
-];
-
-const DRAMA_WAVE_SHOWCASE=[
-  {title:'《Reborn Heiress: Crown of Ashes》',region:'北美 / 英语区',genre:'女频逆袭爽剧',tag:'全流程 AI 分镜 + 多语精校'},
-  {title:'《El Alfa Oculto de Medianoche》',region:'拉美 / 墨西哥西语',genre:'豪门悬疑情感',tag:'海外重制 + 口型对齐'},
-  {title:'《灰烬王座：第99次重启》',region:'日韩 / 繁体华语',genre:'无限流高燃男频',tag:'Seedance 连续性动作生成'},
-  {title:'《Contract Bride of the Tech Titan》',region:'欧美 / 东南亚',genre:'都市契约甜宠',tag:'4x DramaWave 流量加权'},
-  {title:'《Mahkota Terlarang》',region:'印尼 / 泰语市场',genre:'本土化家庭伦理',tag:'多语种字幕质检零返工'},
-  {title:'《Shattered Starlight》',region:'全球同步首发',genre:'科幻微短剧精品',tag:'昆仑短剧基地算力扶持标杆'}
 ];
 
 export function normalizeOperationsSubview(raw){
@@ -107,7 +98,7 @@ export function createServiceOperations(root,ctx){
   const url=(p,path='')=>`/api/v1/projects/${encodeURIComponent(p)}/service-operations${path}`;
   const session=()=>ctx.session();
   const same=(t,s)=>t===ticket&&s===scope&&session().actor===s.actor;
-  const writable=()=>!!session().actor&&session().actor===scope?.actor&&data?.capabilities.includes('read');
+  const writable=()=>!!session().actor&&session().actor===scope?.actor&&scope?.project&&data?.capabilities?.includes('read');
   const identity=s=>s.actor+':'+s.project;
   const getDraft=(key,fallback='')=>{const k=identity(scope)+':'+key;return drafts.has(k)?drafts.get(k):fallback;};
   const setDraft=(key,val)=>{drafts.set(identity(scope)+':'+key,val);return val;};
@@ -198,7 +189,7 @@ export function createServiceOperations(root,ctx){
     subview=normalizeOperationsSubview(next);
     if(scope)scope.subview=subview;
     ctx.onSubviewChange?.(subview);
-    if(scope&&(previous==='feedback-records'||subview==='feedback-records'))return load({...scope,subview});
+    if(scope&&[previous,subview].some(v=>['feedback-records','ai-drama-base'].includes(v)))return load({...scope,subview});
     resetScroll();
     render();
     resetScroll(true);
@@ -304,7 +295,7 @@ export function createServiceOperations(root,ctx){
       ['data-records','数据与消耗记录'],
       ['seedance-verify','Seedance 视频验真'],
       ['feedback-records','我的意见反馈'],
-      ['ai-drama-base','昆仑 AI 短剧基地'],
+      ['ai-drama-base','VSC短剧工作台'],
       ['network-diagnostic','网络诊断'],
       ['personal-info-export','个人信息导出'],
       ['account-close','账户注销']
@@ -721,77 +712,104 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderAiDramaBase(s){
-    const openOnboarding=()=>openModal('申请入驻昆仑万维 AI 短剧基地',(body,dlg)=>{
-      const team=field(body,'工作室 / 公司名称','studio-team-name','text','');
-      const capacity=field(body,'代表作品、团队规模与月产能说明','studio-capacity','textarea','');
-      const contact=field(body,'商务负责人及联系方式','studio-contact','text','');
-      const market=field(body,'主攻出海市场（如欧美 / 拉美 / 日韩 / 东南亚）','studio-market','text','北美与拉美');
-      body.append(button('提交基地入驻申请',async()=>{
-        await write('/requests',{
-          kind:'studio',
-          title:team.value,
-          body:capacity.value,
-          contact:contact.value,
-          channel:market.value||'DramaWave 全球出海',
-          artifact_id:null,
-          media_id:null,
-          requested_fields:[]
-        },()=>{dlg.close();ctx.notice('基地入驻申请已保存至本地运营记录');});
-      },!writable(),'so-btn-primary'));
+    const filters=s.drama||{scope:'mine',status:'all',query:'',offset:0,limit:12};
+    const managing=filters.scope==='manage'&&data.manage;
+    const reload=patch=>load({...s,drama:{...filters,...patch},subview});
+    const statusLabel=status=>({received:'已提交',awaiting_configuration:'待对接',under_review:'内部处理中',local_approved:'内部审核通过',rejected:'已退回',withdrawn:'已撤回',error:'处理异常'}[status]||status);
+    const date=value=>value?new Date(value).toLocaleString():'—';
+    const errorText=error=>error.status===409?'申请或项目已有新进展，请刷新后重试。输入已保留。':error.message||String(error);
+    const openApplication=()=>openModal('新建申请',(body,dlg)=>{
+      body.append(node('p','选择申请类型，填写需求后提交。','hint'));
+      const kind=select(body,'申请类型',[['production_service','承制需求'],['studio','团队合作']],'drama-kind','production_service');
+      const fieldsHost=node('div');body.append(fieldsHost);
+      function renderFields(){
+        fieldsHost.replaceChildren();
+        const prefix='drama-'+kind.value+'-',team=kind.value==='studio';
+        const title=field(fieldsHost,team?'团队名称':'需求名称',prefix+'title');
+        const description=field(fieldsHost,team?'团队介绍与合作需求':'制作目标与交付要求',prefix+'body','textarea');
+        title.required=true;title.maxLength=200;description.required=true;description.maxLength=10000;
+        title.placeholder=team?'例如：某某短剧制作团队':'例如：都市短剧第一季制作';
+        description.placeholder=team?'介绍代表作品、制作能力，以及希望合作的内容。':'说明题材、集数、时长、预计交付时间等。';
+        const extra=node('details',null,'so-drama-extra');extra.append(node('summary','联系方式与合作方向（选填）'));fieldsHost.append(extra);
+        const contact=field(extra,'联系方式（选填）',prefix+'contact');contact.maxLength=254;
+        const market=field(extra,'目标渠道或合作方向（选填）',prefix+'channel');market.maxLength=200;
+        const error=node('p',null,'so-drama-error');error.setAttribute('role','alert');fieldsHost.append(error);
+        const submit=button('提交申请',async()=>{
+          if(!title.value.trim()||!description.value.trim()){setText(error,'请填写名称和需求说明。');(!title.value.trim()?title:description).focus();return;}
+          if(title.value.length>200||description.value.length>10000||contact.value.length>254||market.value.length>200){setText(error,'填写内容超过允许长度，请缩短后提交。');return;}
+          submit.disabled=true;setText(submit,'提交中…');setText(error,'');
+          try{
+            await write('/requests',{kind:kind.value,title:title.value.trim(),body:description.value.trim(),contact:contact.value.trim(),channel:market.value.trim(),artifact_id:null,media_id:null,requested_fields:[]},()=>{
+              for(const key of ['title','body','contact','channel'])drafts.delete(identity(s)+':'+prefix+key);
+              s.drama={...filters,scope:'mine',status:'all',query:'',offset:0};
+              dlg.close();ctx.notice('申请已保存，可在“我的申请”查看进度。');
+            });
+          }catch(e){setText(error,errorText(e));}
+          finally{submit.disabled=!writable();setText(submit,'提交申请');}
+        },!writable(),'so-btn-primary');
+        const actions=node('div',null,'service-operations-actions so-drama-form-actions');
+        actions.append(button('取消',()=>dlg.close()),submit);fieldsHost.append(actions);
+      }
+      kind.addEventListener('change',renderFields);renderFields();
+    });
+    const openDetail=row=>openModal('申请详情',(body,dlg)=>{
+      const last=row.events.at(-1),terminal=['rejected','withdrawn'].includes(row.status);
+      body.append(node('span',names[row.kind],'so-drama-type'),node('h3',row.title),node('span',statusLabel(row.status),'so-drama-status'),node('p',row.body,'so-drama-body'));
+      const info=node('dl',null,'so-drama-details');
+      for(const [label,value]of [['提交人',row.mine?'本人':row.requester_name||'项目成员'],['提交时间',date(row.created_at)],['联系方式',row.contact||'未填写'],['渠道或合作方向',row.channel||'未填写']]){info.append(node('dt',label),node('dd',value));}body.append(info);
+      if(row.artifact_id||row.media_id){const refs=node('details');refs.append(node('summary','关联项目资料'),node('p',[row.artifact_id&&'内容版本：'+row.artifact_id,row.media_id&&'素材：'+row.media_id].filter(Boolean).join('\n')));body.append(refs);}
+      const history=node('ol',null,'so-drama-history');
+      for(const event of row.events){const item=node('li');item.append(node('strong',statusLabel(event.status)),node('small',date(event.created_at)),node('p',event.reason));history.append(item);}
+      body.append(node('h3','处理记录'),history);
+      if(row.mine&&!terminal&&last){
+        const actions=node('div',null,'service-operations-actions');
+        const showWithdraw=()=>actions.replaceChildren(button('撤回申请',()=>{
+          actions.replaceChildren(node('span','确认撤回这条申请？'),button('取消',showWithdraw),button('确认撤回',()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'本人撤回申请'},()=>dlg.close()),!writable()));
+        },!writable()));showWithdraw();body.append(actions);
+      }
+      if(managing&&!terminal&&last){
+        const management=node('section',null,'so-drama-handling');management.append(node('h3','处理申请'));
+        const status=select(management,'处理状态',[['under_review','内部处理中'],['awaiting_configuration','待对接'],['local_approved','内部审核通过'],['rejected','已退回']],'drama-status-'+row.id,'under_review');
+        const reason=field(management,'处理说明','drama-reason-'+row.id,'textarea');reason.maxLength=3000;
+        const error=node('p',null,'so-drama-error');error.setAttribute('role','alert');
+        management.append(error,button('保存处理记录',async()=>{
+          if(!reason.value.trim()){setText(error,'请填写处理说明。');reason.focus();return;}
+          try{await write('/requests/process',{request_id:row.id,base_event_id:last.id,status:status.value,reason:reason.value.trim()},()=>dlg.close());}
+          catch(e){setText(error,errorText(e));}
+        },!writable(),'so-btn-primary'));body.append(management);
+      }
+      const id=node('details',null,'so-drama-extra');id.append(node('summary','申请编号'),node('p',row.id));body.append(id);
     });
 
-    const anchorNav=node('header',null,'so-drama-topbar');
-    const brand=button('天工工作台',()=>ctx.navigate?.('home'),'','so-drama-brand');
-    const links=node('nav',null,'service-operations-actions so-drama-nav');
-    for(const [label,selector]of [['线上入驻','.so-drama-hero'],['基地建设','.so-drama-policy'],['出海战绩','.so-drama-showcase']]){
-      links.append(button(label,()=>{
-        root.querySelector(selector)?.scrollIntoView?.({behavior:'smooth',block:'start'});
-        ctx.notice(`已定位至：${label}`);
-      }));
+    const heading=node('header',null,'so-drama-heading');
+    const title=node('div');title.append(node('span','短剧承制','so-drama-eyebrow'),node('h1','VSC短剧工作台'),node('p','提交承制需求或团队合作申请，随时查看处理进度。'));
+    const actions=node('div',null,'service-operations-actions');actions.append(button('刷新',()=>reload({})),renderQuickSwitch(s),button('新建申请',openApplication,!writable(),'so-btn-primary'));
+    heading.append(title,actions);root.append(heading);
+    const notice=node('aside',null,'so-drama-notice');notice.append(node('strong','提交需求 → 内部处理 → 查看进展'),node('p','当前用于登记和内部处理申请，尚未接入外部承制或发行服务。内部审核通过后，仍需另行对接。'));root.append(notice);
+    if(!s.project||!session().actor){
+      const empty=node('section',null,'so-empty-state');empty.append(node('h2',session().actor?'请先选择项目':'登录后提交申请'),node('p',session().actor?'在页面顶部选择项目后，即可提交和查看本人的申请。':'登录并选择项目后，即可提交和查看本人的申请。'));root.append(empty);return;
     }
-    const rightBar=node('div',null,'service-operations-actions');
-    rightBar.append(button('入驻申请',openOnboarding,!writable(),'so-btn-light'),renderQuickSwitch(s));
-    anchorNav.append(brand,links,rightBar);
-    root.append(anchorNav);
-
-    const hero=node('section',null,'service-operations-card so-drama-hero');
-    const heroLeft=node('div',null,'so-drama-hero-copy');
-    const heroActions=node('div',null,'service-operations-actions');
-    heroActions.append(
-      button('立即申请线上入驻',openOnboarding,!writable(),'so-btn-primary'),
-      button('了解基地建设 →',()=>root.querySelector('.so-drama-policy')?.scrollIntoView?.({behavior:'smooth',block:'start'}),false,'so-btn-light'),
-      button('前往钱包兑换基地算力码',()=>ctx.navigate?.('commerce','wallet',s.project))
-    );
-    const heroHeading=node('h1');
-    heroHeading.append(node('span','入驻'),node('span','昆仑万维AI短剧基地','so-lime-accent'),node('span','，一站式生产直达全球出海'));
-    heroLeft.append(
-      node('span','✦ 昆仑万维 AI 短剧基地 - 线上专区 · 入驻招募中','so-drama-kicker'),
-      heroHeading,
-      node('p','入驻即享 5% 入驻奖励、500万算力补贴 + 20% 充值奖励、DramaWave 短剧承制 + 4x 流量扶持 与 基地全周期扶持。依托 天工工作台 SkyProduction 工业化制片工作台与 DramaWave 全球发行网络，让 AI 短剧「造得出、卖得掉」。'),
-      heroActions
-    );
-    const posterGrid=node('div',null,'so-showcase-grid so-drama-showcase');
-    for(const item of DRAMA_WAVE_SHOWCASE){
-      const card=node('article',null,'so-showcase-card');
-      card.append(node('span',item.region,'so-drama-kicker'),node('h3',item.title),node('p',item.genre),node('small',item.tag));
-      posterGrid.append(card);
+    const section=node('section',null,'so-drama-records');
+    const tabs=node('nav',null,'so-underline-tabs');tabs.setAttribute('aria-label','申请范围');
+    for(const [value,label]of [['mine','我的申请'],...(data.manage?[['manage','项目申请管理']]:[])]){const tab=button(label,()=>reload({scope:value,offset:0}));tab.setAttribute('aria-pressed',String(filters.scope===value));tabs.append(tab);}
+    section.append(tabs,node('p',`当前项目：${data.project_name||'已选项目'} · ${managing?'包含本项目成员的申请，可记录处理进展。':'仅显示本人在本项目提交的申请。'}`,'so-drama-scope'));
+    const toolbar=node('form',null,'so-drama-filters');
+    const query=field(toolbar,'搜索申请','drama-search','search',filters.query);query.value=filters.query;query.maxLength=200;query.placeholder='名称、内容或申请编号';
+    const status=select(toolbar,'申请状态',[['all','全部状态'],['pending','待对接'],['processing','内部处理中'],['reviewed','内部审核通过'],['closed','已退回或撤回']],'drama-filter-status',filters.status);status.value=filters.status;
+    toolbar.append(button('查询',()=>reload({query:query.value.trim(),status:status.value,offset:0})));
+    toolbar.addEventListener('submit',event=>{event.preventDefault();return reload({query:query.value.trim(),status:status.value,offset:0});});section.append(toolbar);
+    const list=node('div',null,'so-drama-list');
+    const items=(data.items||[]).filter(row=>['studio','production_service'].includes(row.kind)&&(managing||row.mine));
+    for(const row of items){
+      const item=node('article',null,'so-drama-row'),copy=node('div',null,'so-drama-row-copy');
+      copy.append(node('span',names[row.kind],'so-drama-type'),node('h3',row.title),node('p',row.events.at(-1)?.reason||row.body),node('small',`${managing?(row.mine?'本人':row.requester_name||'项目成员')+' · ':''}${date(row.created_at)}`));
+      const end=node('div',null,'so-drama-row-actions');end.append(node('span',statusLabel(row.status),'so-drama-status'),button('查看详情',()=>openDetail(row)));
+      item.append(copy,end);list.append(item);
     }
-    hero.append(heroLeft,posterGrid);
-    root.append(hero);
-
-    const policyWrap=node('section',null,'so-drama-policy');
-    summaryGrid(policyWrap,[
-      ['5% 入驻奖励','认证即享算力返还','通过基地资质审核后按季度结算奖励额度'],
-      ['500万 算力补贴 + 20% 充值福利','精品短剧专项扶持','重点签约项目享受天工全模态算力包直补'],
-      ['4x 流量加权','直通 DramaWave 出海','全球超百个国家与地区冷启动曝光加权']
-    ]);
-    root.append(policyWrap);
-
-    const myStudio=data.requests.filter(r=>r.kind==='studio');
-    const statusBox=box('本项目的短剧基地入驻申请记录');
-    table(statusBox,['申请编号','工作室/项目名称','主攻市场','当前状态'],myStudio.map(r=>[
-      r.id,r.title,r.channel||'—',statuses[r.status]||r.status
-    ]));
+    if(!items.length){const empty=node('div',null,'so-empty-state');empty.append(node('h3',data.total?'这一页暂无申请':filters.query||filters.status!=='all'?'暂无匹配的申请':managing?'本项目暂无申请':'还没有申请'),node('p',filters.query||filters.status!=='all'?'调整搜索内容或状态后再试。':'点击“新建申请”，填写需求即可开始。'));list.append(empty);}
+    section.append(list);
+    const pages=node('nav',null,'so-drama-pagination');pages.setAttribute('aria-label','申请分页');
+    pages.append(node('span',`共 ${data.total||0} 条 · 第 ${Math.floor(filters.offset/filters.limit)+1} / ${Math.max(1,Math.ceil((data.total||0)/filters.limit))} 页`),button('上一页',()=>reload({offset:Math.max(0,filters.offset-filters.limit)}),filters.offset===0),button('下一页',()=>reload({offset:data.next_offset}),data.next_offset==null));section.append(pages);root.append(section);
   }
 
   async function runNetworkDiagnostics(t,s){
@@ -1125,7 +1143,7 @@ export function createServiceOperations(root,ctx){
         root.append(head);
         summaryGrid(root,[
           ['充值解锁 DramaWave 承制权益','单部短剧保底出海分发','前往会员与钱包解锁承制合作名额'],
-          ['投稿享 4x 流量分发加权','昆仑 AI 短剧基地联合扶持','支持多语种精校与海外渠道直发'],
+          ['投稿享 4x 流量分发加权','VSC短剧工作台联合扶持','支持多语种精校与海外渠道直发'],
           ['全模态创作算力活动','Seedance / 图像 / 剧本工具联动','所有消耗明细均记录在项目商业账本']
         ]);
         const actCard=box('当期活动与项目公告');
@@ -1142,7 +1160,7 @@ export function createServiceOperations(root,ctx){
         const actions=node('div',null,'service-operations-actions');
         actions.append(
           button('前往会员与钱包 →',()=>ctx.navigate?.('commerce','wallet',s.project),false,'so-btn-primary'),
-          button('了解 AI 短剧基地 →',()=>switchSubview('ai-drama-base'),false,'so-btn-ghost')
+          button('打开 VSC短剧工作台 →',()=>switchSubview('ai-drama-base'),false,'so-btn-ghost')
         );
         actCard.append(actions);
         return;
@@ -1225,7 +1243,7 @@ export function createServiceOperations(root,ctx){
         ['data-records','数据与消耗记录'],
         ['seedance-verify','Seedance 视频验真'],
         ['feedback-records','我的意见反馈'],
-        ['ai-drama-base','昆仑 AI 短剧基地'],
+        ['ai-drama-base','VSC短剧工作台'],
         ['network-diagnostic','网络诊断'],
         ['personal-info-export','个人信息导出'],
         ['account-close','账户注销']
@@ -1250,6 +1268,7 @@ export function createServiceOperations(root,ctx){
     const changed=!scope||scope.project!==value.project||scope.actor!==session().actor;
     scope={...value,actor:session().actor};
     subview=normalizeOperationsSubview(value?.subview);
+    if(subview==='ai-drama-base')scope.drama={scope:'mine',status:'all',query:'',offset:0,limit:12,...(!changed?value.drama:{})};
     if(subview==='feedback-records')scope.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24,...(!changed?value.feedback:{})};
     const s=scope,t=++ticket;busy=false;
     resetScroll();
@@ -1263,7 +1282,7 @@ export function createServiceOperations(root,ctx){
     if(!s.project){root.replaceChildren(node('p',msg("ui.select_a_project_first")));return;}
     if(!session().actor){root.replaceChildren(node('p',msg("ui.sign_in_to_perform_this_action")));return;}
     try{
-      const path=subview==='feedback-records'?'/feedback?'+new URLSearchParams(s.feedback):'';
+      const path=subview==='feedback-records'?'/feedback?'+new URLSearchParams(s.feedback):subview==='ai-drama-base'?'/drama-requests?'+new URLSearchParams(s.drama):'';
       const result=await ctx.api(url(s.project,path),{headers:{'X-CSRF-Token':session().csrf}});
       if(!same(t,s))return;
       data=result;
@@ -1273,6 +1292,7 @@ export function createServiceOperations(root,ctx){
     }catch(e){
       if(same(t,s)){
         root.replaceChildren(node('p',e.message),button(msg("ui.retry_loading"),()=>load(s)));
+        if(subview==='ai-drama-base'&&s.drama.scope==='manage')root.append(button('查看我的申请',()=>load({...s,drama:{...s.drama,scope:'mine',offset:0}})));
         if(subview==='feedback-records'&&s.feedback.scope==='manage')root.append(button('查看我的反馈',()=>load({...s,feedback:{...s.feedback,scope:'mine',offset:0}})));
       }
     }
