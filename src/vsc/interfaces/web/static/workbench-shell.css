@@ -164,3 +164,10 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 @media(max-width:1050px){#production-platform.platform-projects{padding:20px 24px 28px}#production-platform.platform-projects .project-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){#production-platform.platform-projects{padding:16px}#production-platform.platform-projects .platform-heading{gap:8px;margin-bottom:12px}.project-directory-navigation{flex-wrap:wrap;gap:4px}.project-category-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.project-category-tabs a{padding:10px 4px}.project-library-links{margin-left:auto;gap:16px}.project-directory-toolbar input{flex:1;width:0}#production-platform.platform-projects .project-grid{grid-template-columns:1fr}#production-platform.platform-projects .project-tile{padding:0}}
 @media(prefers-reduced-motion:reduce){.project-category-tabs a{transition:none}}
+/* Floating feedback never moves the work area. Timed notices fade after their caller's delay. */
+#notice{padding:12px 16px 12px 42px;opacity:1;transition:opacity .3s ease,transform .3s ease}
+#notice.notice-leaving{opacity:0;transform:translate(-50%,-8px)}
+#notice .notice-close{position:absolute;left:4px;top:4px;width:26px;height:26px;min-height:0;padding:0;border:0;border-radius:4px;background:transparent;color:inherit;font-size:20px;line-height:26px;cursor:pointer}
+#notice .notice-close:hover{background:#ffffff14}
+#notice .notice-close:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+@media(prefers-reduced-motion:reduce){#notice{transition:none}}

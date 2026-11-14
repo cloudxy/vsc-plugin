@@ -138,7 +138,7 @@ function emit(){
  const run=()=>{emitQueued=false;for(const fn of [...listeners]){try{fn(state);}catch(error){console.error(error);}}};
  if(typeof queueMicrotask==='function')queueMicrotask(run);else Promise.resolve().then(run);
 }
-const toast=message=>host.notice?.(message);
+const toast=(message,options)=>host.notice?.(message,options);
 
 function persistRecipe(){
  if(!state.hydrated)return;
@@ -297,7 +297,7 @@ async function postRandom(payload){
 export async function randomizeAll(){
  const data=await postRandom({slot:'recipe'});
  setRecipe({...state.recipe,portrait:data.portrait||state.recipe.portrait,costume:data.costume||state.recipe.costume,pose:data.pose?{...data.pose,useDepth:state.poseDepthMode}:state.recipe.pose});
- toast(state.safeMode?'已随机抽取一套角色配方（安全模式）':'已随机抽取一套角色配方');
+ toast(state.safeMode?'已随机抽取一套角色配方（安全模式）':'已随机抽取一套角色配方',{duration:3000});
 }
 export async function randomizeSlot(slot,scope){
  const current=state.recipe[slot],expected=current?.id??null;

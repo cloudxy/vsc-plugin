@@ -18,6 +18,7 @@ function select(options,value,onChange,{label='',key=''}={}){
  s.value=String(value??'');s.onchange=()=>onChange(s.value);return s;
 }
 function field(label,control,hint){
+ if(['SELECT','INPUT','TEXTAREA'].includes(control.tagName)){if(!control.dataset.focusKey)control.dataset.focusKey=label;if(!control.getAttribute('aria-label'))control.setAttribute('aria-label',label);}
  const wrap=el('label','cs-field');wrap.append(el('span','cs-field-label',label),control);
  if(hint)wrap.append(el('small','cs-field-hint',hint));return wrap;
 }
@@ -672,11 +673,13 @@ export function createCharacterStudio(root,ctx){
   renderSig=sig;
   const active=document.activeElement,focusKey=root.contains?.(active)?active?.dataset?.focusKey:null;
   const selStart=focusKey&&typeof active.selectionStart==='number'?active.selectionStart:null,selEnd=focusKey&&typeof active.selectionEnd==='number'?active.selectionEnd:null;
-  const scrollTop=root.scrollTop,openDetails=[...root.querySelectorAll('details[open]')].map(d=>d.className);
+  // Removing the page can clamp an outer work area's scroll before the new content is laid out.
+  const scrollPositions=[];for(let host=root;host;host=host.parentElement)scrollPositions.push([host,host.scrollTop||0,host.scrollLeft||0]);
+  const openDetails=[...root.querySelectorAll('details[open]')].map(d=>d.className);
   root.className='character-studio';
   root.replaceChildren(mode==='settings'?settingsView():studioView());
   for(const d of root.querySelectorAll('details'))if(openDetails.includes(d.className))d.open=true;
-  root.scrollTop=scrollTop;
+  for(const [host,top,left]of scrollPositions){host.scrollTop=top;host.scrollLeft=left;}
   if(focusKey){const next=root.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);if(next){next.focus({preventScroll:true});if(selStart!=null)try{next.setSelectionRange(selStart,selEnd);}catch{}}}
  }
 

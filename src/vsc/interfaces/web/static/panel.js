@@ -1,6 +1,7 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption,mountLocalePicker,getLocale,getLocaleRevision,setLocale} from './i18n.js';
 import {readCanvasLibraryPending} from './canvas-library.js';
 import {createTaskNotifications} from './task-notifications.js';
+import {createNotice} from './notice.js';
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
 const $ = (id) => document.getElementById(id);
 function resolvePathnameEntry(pathname='/',search=''){
@@ -116,7 +117,8 @@ const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', sh
   image: '图片', video: '视频', audio: '音频', text: '文本', document: '文档', approved: '已批准', draft: '草稿', rejected: '已拒绝', retired: '已退役', selected: '已选',
   verified: '摘要一致', unverified: '摘要未核验', mismatch: '摘要变化', missing: '字节缺失', blocked: '读取受阻', owned: '自有', licensed: '已授权', unknown: '权利未登记',video_take:'镜头视频',vfx_overlay:'透明特效叠层',first_frame:'镜头首帧',last_frame:'镜头尾帧',dialogue_dry:'对白干声',identity_face:'人物正脸',composition:'构图参考',voice_sample:'声音参考',music:'配乐',ambience:'环境声',sfx:'音效'};
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) setText(node,text); return node; }
-function notice(message) { setText($('notice'),message || ''); $('notice').hidden = !message; }
+let applicationNotice=null;
+function notice(message,options) { applicationNotice??=createNotice($('notice'));applicationNotice.show(message,options); }
 function applySession(session) {
   const previousIdentity=state.identityId||state.actor;
   if(previousIdentity!==(session.identity_id||session.actor)||state.shareId!==session.share_id){taskNotifications?.suspend();taskNotificationKey=null;$('task-notifications').hidden=true;}
