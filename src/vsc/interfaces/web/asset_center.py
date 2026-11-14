@@ -87,6 +87,10 @@ def install_asset_center_routes(app, router, catalog, etag, actor, read_actor):
             params["order_by"] = order_by
         return etag(request, service().search_asset_center(params, identity))
 
+    @app.get("/api/v1/asset-center/official/capabilities")
+    def official_capabilities(request: Request):
+        return service().official_asset_capabilities(read_actor(request))
+
     @app.post("/api/v1/asset-center/official/publish")
     def publish_official(request: Request, body: dict):
         return service().publish_official_asset(body.get("payload"), actor(request))

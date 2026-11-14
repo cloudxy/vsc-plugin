@@ -379,9 +379,10 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  let disposed=false,generation=0,identity=null,offset=0,filters={},tab='gallery',cart=[],cartOpen=false,selection=new Set(),workspaces=[],officialDrawerRow=null,officialDetailSeq=0,searchTimer=null,officialSearchFocus=false,officialSearchCaret=null;
  let costumeCat='',costumeQuery='',costumeTimer=0,costumeFocus=false,costumeObserver=null,costumeScrollCleanup=null;
  let officialKindTabs=null,officialKindScroll=0,officialKindFocus=null,officialKindRevealed=false,officialKindActor=null;
+ let initialOfficialEntry=official&&!canvas&&typeof location!=='undefined'?new URLSearchParams(location.search||'').get('entry'):null;
  if(official&&!canvas&&typeof location!=='undefined'){const k=new URLSearchParams(location.search||'').get('kind');if(k&&officialWorkbenchKinds.some(([v])=>v&&v===k))filters.asset_kind=k;}
  if(official){
-  studio.configureStudio({notice:m=>ctx.notice?.(m),api:ctx.api,csrf:()=>ctx.session?.()?.csrf||''});
+  studio.configureStudio({notice:m=>ctx.notice?.(m),api:ctx.api,session:ctx.session,csrf:()=>ctx.session?.()?.csrf||''});
   studio.subscribe(s=>{
    if(disposed||!REF_KINDS.has(filters.asset_kind||'')||tab!=='gallery')return;
    const changed=refSafe!==null&&s.safeMode!==refSafe;
@@ -1232,6 +1233,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   }
   function switchKind(value){
    clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();
+   initialOfficialEntry=null;
    if(value)filters.asset_kind=value;else delete filters.asset_kind;
    if(value&&value!=='character'){delete filters.role_level;delete filters.age_band;delete filters.gender;delete filters.role_tag;}
    refFocus='';offset=0;syncKindRoute();
@@ -1240,6 +1242,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   function syncKindRoute(){
    if(!official||canvas||typeof window==='undefined'||typeof location==='undefined'||!location?.search?.includes('page=asset-center'))return;
    const route=new URLSearchParams(location.search);
+   route.delete('entry');
    if(filters.asset_kind)route.set('kind',filters.asset_kind);else route.delete('kind');
    const nextSearch='?'+route;if(location.search!==nextSearch)history.replaceState?.(null,'',nextSearch);
   }
@@ -1617,6 +1620,14 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    if(!official&&ctx.workspaces)workspaces=await ctx.workspaces();
    if(!active(g))return;
    if(tab==='cart')await selectionList(g);else if(tab==='downloads')await downloads(g);else await catalog(g);
+   if(active(g)&&initialOfficialEntry&&!REF_KINDS.has(filters.asset_kind)&&filters.asset_kind!=='composite'&&tab==='gallery'){
+    const entry=initialOfficialEntry;
+    const openEntry=async()=>{
+     try{await detail({id:entry},g);if(active(g)&&initialOfficialEntry===entry)initialOfficialEntry=null;}
+     catch(error){if(active(g)){const errorHost=el('div','','center-entry-error'),note=el('p','无法打开入库资产：'+error.message,'center-load-error');note.setAttribute('role','status');errorHost.append(note,button('重试查看资产',async()=>{errorHost.remove();await openEntry();}));root.append(errorHost);}}
+    };
+    await openEntry();
+   }
   }catch(e){if(active(g)){
    if(official&&workbench){const count=root.querySelector('.center-count');if(count)setText(count,'加载失败');for(const grid of [...root.querySelectorAll('.center-grid'),...root.querySelectorAll('.ref-grid')])grid.setAttribute('aria-busy','false');}
    const error=el('p',e.message,'center-load-error');error.setAttribute('role','status');root.append(error,button(msg('ui.reload'),load));

@@ -4,6 +4,7 @@ import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,SETTINGS_MODALITIES,VIDEO_P
  STYLE_PRESETS,isAuthProvider,groupForProvider,isVideoAuthProvider,groupForVideoProvider,VIDEO_IMAGE_KEY_PEERS,IMAGE_VIDEO_KEY_PEERS,
  referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
+import {imageExtension,officialResultRoute,openCharacterPublication} from './character-studio-publication.js';
 
 const SLOT_LABEL={portrait:'人像',costume:'服装',pose:'姿势'};
 const SLOT_GALLERY={portrait:'portrait',costume:'costume',pose:'pose'};
@@ -43,7 +44,8 @@ function svgIcon(kind){
 
 export function createCharacterStudio(root,ctx){
  let mode='studio',disposed=false,renderSig='',settingsModality='image',settingsProvider=null,settingsVideoProvider=null,showKey=false,showVideoKey=false,busy=new Set(),scopes={portrait:'similar',costume:'similar',pose:'similar'},unsub=null,pasteHandler=null,progressNode=null,errorNode=null;
- store.configureStudio({notice:ctx.notice,api:ctx.api,csrf:()=>ctx.session().csrf});
+ store.configureStudio({notice:ctx.notice,api:ctx.api,csrf:()=>ctx.session().csrf,session:ctx.session});
+ let viewEpoch=0;
  const notice=message=>ctx.notice(message);
  const state=()=>store.getState();
 
@@ -288,22 +290,39 @@ export function createCharacterStudio(root,ctx){
   if(s.customPrompt!=null)sec.body.append(el('small','cs-field-hint','已手动修改提示词；更换参考图后可点「重置」重新组装。'));
   const count=store.recipeCount(s.recipe);
   const gen=action(s.isGenerating?'生成中…':`生成角色图${count?` (${count} 张参考)`:''}`,()=>store.startGeneration(),'cs-primary cs-generate');
-  gen.disabled=s.isGenerating||!s.hydrated;
+  gen.disabled=s.isGenerating||Boolean(s.publicationTask)||!s.hydrated;
   sec.body.append(gen);
   return sec.node;
  }
 
  function resultSection(){
   const s=state(),sec=section('本次生成结果',{actions:action(`AI角色合成库 (${s.history.length})`,()=>ctx.navigate?.('asset-center',{tab:'official',kind:'composite'}),'cs-ghost')});
+  sec.body.append(el('small','cs-field-hint','AI角色合成库为本机历史；入库位置：官方资产 · 人设。'));
   progressNode=el('div','cs-progress');updateProgress();
   sec.body.append(progressNode);
   errorNode=el('pre','cs-error-box');errorNode.hidden=!s.generationError;errorNode.textContent=s.generationError||'';sec.body.append(errorNode);
   const stage=el('div','cs-result');
   if(s.previewUrl){
+   const result=s.currentResult,receipt=result?.publication?.officialReceipt;
+   if(s.isGenerating)stage.append(el('p','cs-result-note','上次生成结果 · 正在生成新图片'));
    const btn=el('button','cs-result-img');btn.type='button';btn.setAttribute('aria-label','放大生成结果');
    const img=el('img');img.src=s.previewUrl;img.alt='生成结果';btn.append(img);btn.onclick=()=>zoom(s.previewUrl,'生成结果');
    stage.append(btn);
-   const acts=el('div','cs-row-actions');acts.append(action('下载 PNG',()=>download(s.previewUrl,`character-${Date.now()}.png`)));stage.append(acts);
+   const acts=el('div','cs-row-actions cs-result-actions');acts.setAttribute('aria-label','生成结果操作');
+   const remove=action('删除',async()=>{if(result&&confirm('删除本次生成结果及对应的本地合成记录？此操作无法撤销，不影响已发布的官方资产和项目引用。'))await store.deleteCurrentResult(result.id);},'cs-danger','result-delete');
+   const phase=s.publicationTask&&s.publicationTask.resultId===result?.id?s.publicationTask.phase:'';
+   const labels={checking:'检查权限中…',uploading:'上传图片中…',importing:'保存共享库中…',publishing:'发布官方资产中…'};
+   const publish=action(receipt?'已入官方资产库':labels[phase]||'放入官方资产库',()=>{const epoch=viewEpoch;return result&&openCharacterPublication(result,ctx,store,{isActive:()=>!disposed&&mode==='studio'&&epoch===viewEpoch&&state().currentResult?.id===result.id,restoreFocus:()=>{if(!disposed&&epoch===viewEpoch)root.querySelector('[data-focus-key="result-publish"]')?.focus({preventScroll:true});}});},'cs-primary','result-publish');
+   const save=action('下载',()=>download(result?.imageUrl||s.previewUrl,`character-${result?.id||Date.now()}.${imageExtension(result?.imageUrl||s.previewUrl)}`),'','result-download');
+   remove.disabled=!result||s.isGenerating||Boolean(s.publicationTask)||busy.has('result-delete');
+   publish.disabled=!result||s.isGenerating||Boolean(s.publicationTask)||Boolean(receipt)||busy.has('result-publish');
+   if(phase)publish.setAttribute('aria-busy','true');
+   save.disabled=s.isGenerating;
+   remove.dataset.focusKey='result-delete';publish.dataset.focusKey='result-publish';save.dataset.focusKey='result-download';
+   acts.append(remove,publish,save);stage.append(acts);
+   if(receipt){const link=el('a','cs-link cs-result-official','查看官方资产');link.href='?page=asset-center&tab=official&kind=character&entry='+encodeURIComponent(receipt.entry_id);link.onclick=event=>{event.preventDefault();ctx.navigate?.('asset-center',officialResultRoute(receipt));};stage.append(link);}
+   if(result?.publication?.recoveryError)stage.append(el('p','cs-warn',result.publication.recoveryError));
+   if(s.resultError&&s.resultErrorId===result?.id){const feedback=el('p','cs-result-feedback',s.resultError);feedback.setAttribute('role','status');stage.append(feedback);}
   }else stage.append(el('p','cs-empty','生成后在此查看本次结果；历史图片请到「AI角色合成库」。'));
   sec.body.append(stage);
   return sec.node;
@@ -644,7 +663,7 @@ export function createCharacterStudio(root,ctx){
  // ------------------------------------------------------------------ render loop
  function signature(){
   const s=state();
-  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.isGenerating,s.generationError,s.hydrated]);
+  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.currentResult?.id,s.currentResult?.publication,s.publicationTask,s.resultError,s.isGenerating,s.generationError,s.hydrated]);
  }
  function render(force=false){
   if(disposed)return;
@@ -663,6 +682,7 @@ export function createCharacterStudio(root,ctx){
 
  return {
   async load({mode:nextMode='studio',tab}={}){
+   viewEpoch++;
    disposed=false;mode=nextMode==='settings'?'settings':'studio';
    if(mode==='settings'){
     if(tab==='video'||tab==='image')settingsModality=tab;
@@ -688,6 +708,7 @@ export function createCharacterStudio(root,ctx){
    render(true);
   },
   suspend(){
+   viewEpoch++;
    disposed=true;unsub?.();unsub=null;store.stopAuthPolling();
    if(pasteHandler){document.removeEventListener('paste',pasteHandler);pasteHandler=null;}
    for(const d of document.querySelectorAll('dialog.cs-dialog'))d.close?.();

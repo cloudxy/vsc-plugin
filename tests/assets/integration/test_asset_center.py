@@ -350,15 +350,22 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             "access_token":"official-local-test","human_identity":"test-human","background_enabled":False},service=self.service)
         with TestClient(app) as client:
             self.assertEqual(client.get('/api/v1/asset-center?source=official').status_code,403)
+            self.assertEqual(client.get('/api/v1/asset-center/official/capabilities').status_code,403)
             login=client.post('/api/v1/session',json={"token":"official-local-test"},headers={"Origin":"http://testserver"})
             self.assertEqual(login.status_code,200,login.text)
             headers={"Origin":"http://testserver","X-CSRF-Token":login.json()["csrf_token"]}
             with patch("vsc.configuration.get_config",return_value=[]):
+                capability=client.get('/api/v1/asset-center/official/capabilities',headers=headers)
+                self.assertEqual(capability.status_code,200,capability.text)
+                self.assertEqual(capability.json(),{"can_publish":False})
                 denied=client.post('/api/v1/asset-center/official/publish',headers=headers,json={"payload":payload})
             self.assertEqual(denied.status_code,403,denied.text)
             with patch("vsc.configuration.get_config",return_value=["test-human"]):
+                self.assertEqual(client.get('/api/v1/asset-center/official/capabilities',headers=headers).json(),{"can_publish":True})
                 published=client.post('/api/v1/asset-center/official/publish',headers=headers,json={"payload":payload})
             self.assertEqual(published.status_code,200,published.text)
+            with patch("vsc.configuration.get_config",return_value="misconfigured"):
+                self.assertEqual(client.get('/api/v1/asset-center/official/capabilities',headers=headers).status_code,503)
             response=client.get('/api/v1/asset-center',headers=headers,params={"source":"official","asset_kind":"character","role_tag":payload["role_tag"],"gender":"female","age_band":"young_adult","role_level":"lead","media_only":"true"})
             self.assertEqual(response.status_code,200,response.text)
             self.assertEqual(response.json()["total"],1)
@@ -369,6 +376,40 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             result=client.post('/api/v1/projects/'+self.p+'/asset-center/import',headers=headers,json={"payload":{"cart_id":cart.json()["id"],"asset_kind":"character","role":"identity_face"},"expected_revision":self.rev,"idempotency_key":"official-http-import"})
             self.assertEqual(result.status_code,200,result.text)
             self.assertEqual(self.service.get_asset_card(self.p,result.json()["target_object_id"])["forms"][0]["media_id"],result.json()["media_id"])
+
+    def test_character_result_official_upload_publish_roundtrip(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        app=create_app({"projects_root":self.tmp.name,"allowed_hosts":["testserver"],"allowed_origins":["http://testserver"],
+            "access_token":"studio-result-test","human_identity":"test-human","background_enabled":False},service=self.service)
+        title="Synthetic character result "+uuid.uuid4().hex
+        with TestClient(app) as client:
+            login=client.post('/api/v1/session',json={"token":"studio-result-test"},headers={"Origin":"http://testserver"})
+            self.assertEqual(login.status_code,200,login.text)
+            headers={"Origin":"http://testserver","X-CSRF-Token":login.json()["csrf_token"]}
+            content=png_bytes()
+            upload=client.post('/api/v1/library/uploads',headers=dict(headers,**{"X-Filename":"character.png","Content-Type":"image/png"}),content=content)
+            self.assertEqual(upload.status_code,200,upload.text)
+            payload={"library_key":"studio-"+uuid.uuid4().hex,"title":title,"category":"image","description":"Synthetic generated result",
+                "specification":{"source":"character-studio","provider":"synthetic","model":"test-model"},"allowed_purposes":["identity_face"],
+                "license":{"outcome":"licensed","allow_workspace_reuse":True,"evidence":"Explicit synthetic test reuse confirmation"},
+                "import_key":uuid.uuid4().hex,"members":[{"member_key":"front","staged_upload":upload.json()["staged_upload"]}]}
+            fixed=client.post('/api/v1/library/import',headers=headers,json={"confirmed":True,"payload":payload})
+            self.assertEqual(fixed.status_code,200,fixed.text)
+            self.assertEqual(client.post('/api/v1/library/import',headers=headers,json={"confirmed":True,"payload":payload}).json(),fixed.json())
+            publication=self.official_payload(fixed.json(),role_level="unspecified",gender="unspecified",age_band="unspecified",role_tag="AI角色合成")
+            with patch("vsc.configuration.get_config",return_value=["test-human"]):
+                published=client.post('/api/v1/asset-center/official/publish',headers=headers,json={"payload":publication})
+                self.assertEqual(published.status_code,200,published.text)
+                self.assertEqual(client.post('/api/v1/asset-center/official/publish',headers=headers,json={"payload":publication}).json(),published.json())
+            response=client.get('/api/v1/asset-center',headers=headers,params={"source":"official","asset_kind":"character","query":title})
+            self.assertEqual(response.status_code,200,response.text)
+            rows=response.json()
+            self.assertEqual(rows["total"],1,rows)
+            self.assertEqual(rows["items"][0]["version_id"],fixed.json()["version_id"])
+            media=client.get('/api/v1/library/versions/'+fixed.json()["version_id"]+'/members/front/content',headers=headers)
+            self.assertEqual(media.status_code,200,media.text)
+            self.assertEqual(media.content,content)
 
     def test_official_migration_preserves_legacy_and_refuses_lost_publications(self):
         from alembic import command

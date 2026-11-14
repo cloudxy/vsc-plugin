@@ -61,6 +61,45 @@ test('official scrolling serializes requests, preserves cards on failure and exp
  assert.equal(observer.disconnected,true);view.cleanup();
 });
 
+test('a published entry link opens its exact official detail outside the first page',async()=>{
+ const row=official('published');
+ const view=await mount('character&entry='+row.id,async url=>url.includes('/entries/')?row:{items:[],total:0,next_offset:null});
+ assert.ok(view.requests.some(url=>url.endsWith('/entries/'+row.id)));
+ assert.equal(view.root.querySelector('.official-drawer-head').querySelector('h3').textContent,row.title);
+ assert.equal(view.root.querySelector('.official-drawer-preview').querySelector('img').src,row.members[0].preview_url);
+ const close=view.root.querySelector('.official-drawer-close');await close.onclick();
+ await view.center.load();assert.equal(view.root.querySelector('.official-detail-drawer'),null,'closing a detail does not reopen it on list refresh');
+ view.cleanup();
+});
+
+test('an obsolete entry detail response cannot reopen the drawer after changing category',async()=>{
+ let release;
+ const loading=mount('character&entry=old-entry',async url=>{
+  if(url.includes('/entries/'))return new Promise(resolve=>{release=()=>resolve(official('old-entry'));});
+  return {items:[],total:0,next_offset:null};
+ });
+ await settle();const root=doc.body.children.at(-1);
+ await button(root,'场景').onclick();
+ release();const view=await loading;
+ assert.equal(root.querySelector('.official-detail-drawer'),null);
+ view.cleanup();
+});
+
+test('a failed linked detail keeps the asset list and retries only that detail',async()=>{
+ const row=official('retry-entry');let details=0;
+ const view=await mount('character&entry='+row.id,async url=>{
+  if(url.includes('/entries/')){if(++details===1)throw Error('temporary detail outage');return row;}
+  return {items:[official('visible')],total:1,next_offset:null};
+ });
+ assert.equal(view.root.querySelectorAll('.center-card').length,1);
+ assert.match(view.root.querySelector('.center-entry-error').textContent,/temporary detail outage/);
+ await button(view.root,'重试查看资产').onclick();
+ assert.equal(details,2);assert.equal(view.requests.filter(url=>!url.includes('/entries/')).length,1);
+ assert.equal(view.root.querySelector('.center-entry-error'),null);
+ assert.equal(view.root.querySelector('.official-drawer-head').querySelector('h3').textContent,row.title);
+ view.cleanup();
+});
+
 test('an old append response cannot enter the newly selected official category',async()=>{
  let finish;
  const view=await mount('',async(_url,q)=>{

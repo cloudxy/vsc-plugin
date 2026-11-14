@@ -174,6 +174,15 @@ class AssetCenterRepository:
         if actor not in publishers:
             raise ResourceError("当前身份没有平台官方资产发布权限", "official_publisher_required", 403)
 
+    def official_capabilities(self, actor):
+        try:
+            self._official_publisher(actor)
+        except ResourceError as error:
+            if error.code != "official_publisher_required":
+                raise
+            return {"can_publish": False}
+        return {"can_publish": True}
+
     def publish_official(self, payload, actor):
         self._official_publisher(actor)
         request_sha = digest(payload)

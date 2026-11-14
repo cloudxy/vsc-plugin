@@ -1,6 +1,7 @@
 // Saved character generations: one browser history, consumed by the official-assets library.
 import * as store from './character-studio-store.js';
 import {PROVIDER_META,comparisonReferences} from './character-studio-ai.js';
+import {openCharacterPublication,officialResultRoute,imageExtension} from './character-studio-publication.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n;};
 function select(options,value,onChange,{label=''}={}){
@@ -11,8 +12,9 @@ function select(options,value,onChange,{label=''}={}){
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
 
 export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
- let disposed=false,unsub=null,grid=null,count=null,clear=null,search=null,note=null,query='',lastHistory=null,lastHydrated=null,lastError=null;
+ let disposed=false,unsub=null,grid=null,count=null,clear=null,search=null,note=null,query='',lastHistory=null,lastHydrated=null,lastError=null,lastPublicationTask=null;
  const notice=message=>ctx.notice?.(message),dialogs=new Set();
+ let viewEpoch=0;
  const recordTitle=h=>{
   const d=new Date(h.createdAt),pad=v=>String(v).padStart(2,'0');
   return Number.isNaN(d.getTime())?'合成角色':`合成角色 · ${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -54,6 +56,17 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
   return {node:menu,buttons};
  }
  function reuse(h){store.setCustomPrompt(h.prompt);notice('已恢复该图提示词');return onCompose?.();}
+ async function publish(h){
+  const epoch=viewEpoch;
+  const dialog=await openCharacterPublication(h,ctx,store,{isActive:()=>!disposed&&viewEpoch===epoch,restoreFocus:()=>{
+   if(disposed)return;
+   const card=[...root.querySelectorAll('.cs-history-item')].find(n=>n.dataset.resultId===h.id);
+   card?.querySelector('summary')?.focus?.({preventScroll:true});
+  }});
+  if(!dialog)return;
+  if(disposed){dialog.close?.();return;}
+  dialogs.add(dialog);dialog.addEventListener('close',()=>dialogs.delete(dialog));
+ }
  function detail(h){
   const returnFocus=document.activeElement,dialog=el('dialog','cs-dialog cs-history-detail');dialog.setAttribute('aria-label','合成记录详情');
   const head=el('header','cs-dialog-head'),close=action('×',()=>dialog.close(),'cs-icon-btn');close.setAttribute('aria-label','关闭合成记录详情');head.append(el('h2','',recordTitle(h)),close);
@@ -74,14 +87,14 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
  function render(force=false){
   if(disposed||!grid)return;
   const s=store.getState();
-  if(!force&&s.history===lastHistory&&s.hydrated===lastHydrated&&s.generationError===lastError)return;
-  lastHistory=s.history;lastHydrated=s.hydrated;lastError=s.generationError;
+  if(!force&&s.history===lastHistory&&s.hydrated===lastHydrated&&s.generationError===lastError&&s.publicationTask===lastPublicationTask)return;
+  lastHistory=s.history;lastHydrated=s.hydrated;lastError=s.generationError;lastPublicationTask=s.publicationTask;
   const focused=root.contains?.(document.activeElement)?document.activeElement:null;
   const restoreFocus=()=>{if(focused&&!focused.isConnected)search.focus?.({preventScroll:true});};
   const key=query.trim().toLocaleLowerCase();
   const items=[...s.history].sort((a,b)=>b.createdAt-a.createdAt).filter(h=>!key||[h.recipeSummary,h.prompt,h.model,engine(h),h.provider].some(v=>String(v||'').toLocaleLowerCase().includes(key)));
   count.textContent=!s.hydrated?'正在读取…':key?`${items.length} / ${s.history.length} 条记录`:`${s.history.length} 条记录`;
-  clear.disabled=!s.history.length||!s.hydrated;grid.setAttribute('aria-busy',String(!s.hydrated&&!s.generationError));grid.replaceChildren();updateNote();
+  clear.disabled=!s.history.length||!s.hydrated||Boolean(s.publicationTask);grid.setAttribute('aria-busy',String(!s.hydrated&&!s.generationError));grid.replaceChildren();updateNote();
   if(!s.hydrated){
    if(s.generationError)status('暂时无法读取合成记录','请确认当前浏览器允许本地存储，再重试。',action('重试读取',()=>window.location.reload()));
    else{for(let i=0;i<2;i++){const skel=el('div','cs-history-skeleton');skel.setAttribute('aria-hidden','true');grid.append(skel);}status('正在读取合成记录…','');}
@@ -94,14 +107,21 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
   }
   for(const h of items){
    const title=recordTitle(h),card=el('article','cs-history-item official-list-card'),preview=action('',()=>onZoom?.(h.imageUrl,h.recipeSummary||title),'cs-history-img official-list-media');
+   card.dataset.resultId=h.id;
    preview.setAttribute('aria-label',`查看生成记录：${h.recipeSummary||title}`);
    const img=el('img');img.src=h.imageUrl;img.alt=h.recipeSummary||title;img.loading='lazy';img.decoding='async';
    img.onerror=()=>{img.hidden=true;if(!preview.querySelector('.cs-history-image-error'))preview.append(el('span','cs-history-image-error','图片暂时无法显示 · 仍可查看记录详情'));};preview.append(img);
    const meta=el('div','cs-history-meta official-list-info'),heading=el('h3','official-list-title',title);heading.title=title;meta.append(heading,el('small','official-list-meta',`${engine(h)} · ${new Date(h.createdAt).toLocaleString()}`));
    const tools=el('div','cs-row-actions official-list-actions'),more=moreMenu(title+'的更多操作',[
-    ['查看详情',()=>detail(h)],['对比参考',()=>compareDialog(h)],['下载图片',()=>download(h.imageUrl,`character-${h.createdAt}.png`)],
-    ['删除记录',()=>{if(confirm('删除这条合成记录及参考快照？此操作无法撤销，已下载的图片不受影响。'))return store.removeHistoryItem(h.id);},'cs-history-delete'],
+    ['查看详情',()=>detail(h)],['对比参考',()=>compareDialog(h)],['下载图片',()=>download(h.imageUrl,`character-${h.createdAt}.${imageExtension(h.imageUrl)}`)],
+    ...(h.publication?.officialReceipt?[
+     ['查看官方资产',()=>ctx.navigate?.('asset-center',officialResultRoute(h.publication.officialReceipt))],
+    ]:[
+     [h.publication?'继续入库':'放入官方资产库',()=>publish(h)],
+    ]),
+    ['删除记录',()=>{if(confirm('删除这条本机合成记录及参考快照？此操作无法撤销，已入库的官方资产、项目引用和已下载图片不受影响。'))return store.removeHistoryItem(h.id);},'cs-history-delete'],
    ]);
+   if(s.publicationTask)for(const b of more.buttons)if(['删除记录','放入官方资产库','继续入库'].includes(b.textContent))b.disabled=true;
    tools.append(action('复用提示词',()=>reuse(h)),more.node);card.append(preview,meta,tools);grid.append(card);
   }
   restoreFocus();
@@ -208,6 +228,7 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
 
  return {
   load(){
+   viewEpoch++;
    disposed=false;unsub?.();menuListeners(false);closeMenus();root.replaceChildren();root.className='character-studio cs-history-library';
    root.append(el('h2','cs-history-heading','AI角色合成库'));
    const toolbar=el('div','cs-history-toolbar');
@@ -220,6 +241,6 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
    grid=el('div','cs-history official-list-grid');note=el('p','cs-history-note');root.append(toolbar,grid,note);
    window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);menuListeners(true);unsub=store.subscribe(()=>render());render(true);
   },
-  suspend(){disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},
+  suspend(){viewEpoch++;disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},
  };
 }
