@@ -52,7 +52,9 @@
         "tests/project/unit/project_scope.test.mjs",
         "tests/project/unit/task_notifications.test.mjs",
         "src/vsc/interfaces/web/static/task-notifications.js",
-        "src/vsc/interfaces/web/static/task-notifications.css"
+        "src/vsc/interfaces/web/static/task-notifications.css",
+        "src/vsc/interfaces/web/static/notice.js",
+        "tests/project/unit/notice.test.mjs"
       ]
     },
     "assets.integration.test_edit_preview": {
@@ -2419,7 +2421,8 @@
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/character_studio.test.mjs",
         "tests/project/unit/character_studio_parity.test.mjs",
-        "tests/project/unit/character_studio_errors.test.mjs"
+        "tests/project/unit/character_studio_errors.test.mjs",
+        "tests/project/unit/character_studio_continuity.test.mjs"
       ]
     },
     "project.integration.test_project_workspace_catalog": {
