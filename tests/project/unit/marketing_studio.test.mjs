@@ -9,10 +9,14 @@ import {fileURLToPath} from 'node:url';
 // Component self-checks exercise request ownership and recovery. This small DOM
 // does not stand in for the browser, authenticated HTTP, PostgreSQL or providers.
 class Element {
-  constructor(tag,doc){this.tagName=tag.toUpperCase();this.ownerDocument=doc;this.children=[];this.parentElement=null;this.attributes={};this.dataset={};this.className='';this.style={};this.clientWidth=Element.layoutWidth??1024;this.offsetHeight=560;this.disabled=false;this.hidden=false;this.value='';this.isConnected=true;this.classList={add:(v)=>{this.className+=' '+v;},remove:(...values)=>{this.className=this.className.split(' ').filter(v=>!values.includes(v)).join(' ');}};}
+  constructor(tag,doc){this.tagName=tag.toUpperCase();this.ownerDocument=doc;this.children=[];this.parentElement=null;this.attributes={};this.dataset={};this.className='';this.style={};this.clientWidth=Element.layoutWidth??1024;this.offsetHeight=560;this.scrollLeft=0;this._scrollTop=0;this.disabled=false;this.hidden=false;this.value='';this.isConnected=true;this.classList={add:(v)=>{this.className+=' '+v;},remove:(...values)=>{this.className=this.className.split(' ').filter(v=>!values.includes(v)).join(' ');}};}
   append(...nodes){for(const node of nodes)if(node instanceof Element){if(node.parentElement)node.parentElement.children=node.parentElement.children.filter(n=>n!==node);node.parentElement=this;this.children.push(node);}}
   get firstElementChild(){return this.children[0]||null;}
-  replaceChildren(...nodes){this.children=[];this._text=null;this.append(...nodes);}
+  get scrollTop(){return this._scrollTop;}
+  set scrollTop(value){const next=Math.max(0,Number(value)||0);this._scrollTop=this.contentHeight()<next?0:next;}
+  contentHeight(){const grid=this.walk().find(n=>n.className.split(' ').includes('marketing-case-grid'));if(!grid)return 100000;return grid.children.some(n=>n.className.split(' ').includes('marketing-case-card'))?100000:0;}
+  reclampScroll(){this.scrollTop=this._scrollTop;if(this.parentElement)this.parentElement.reclampScroll();}
+  replaceChildren(...nodes){this.children=[];this._text=null;this.append(...nodes);if(this.className.split(' ').includes('marketing-case-categories'))this.scrollLeft=0;if(this.className.split(' ').includes('marketing-case-grid'))this.reclampScroll();}
   setAttribute(k,v){this.attributes[k]=String(v);}
   removeAttribute(k){delete this.attributes[k];}
   removeEventListener(type,fn){this.listeners[type]=(this.listeners[type]||[]).filter(n=>n!==fn);}
@@ -353,6 +357,38 @@ test('category filtering uses real names and available totals while retaining th
   storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();await chooseCase(e);const name=cls(e.root,'marketing-case-chip').textContent;
   for(const row of caseFixture.pages[0].categories){await category(e,row.category_name).onclick();while(btn(e.root,'加载更多创意'))await btn(e.root,'加载更多创意').onclick();assert.equal(caseCards(e).length,row.available_group_count);assert.equal(cls(e.root,'marketing-case-chip').textContent,name);}
   assert.equal(writes(e).length,0);e.panel.suspend();
+});
+
+test('clicking the last category restores the category-row and page scroll positions',async()=>{
+  storage.clear();const e=environment();await e.panel.load({project:'p'});await settle();
+  const last=caseFixture.pages[0].categories.at(-1);
+  assert.equal(last.category_label,'活动促销');assert.equal(last.category_name,'活动促销');
+  const beforeLeft=328,beforeTop=640;
+  cls(e.root,'marketing-case-categories').scrollLeft=beforeLeft;e.root.scrollTop=beforeTop;
+  await category(e,last.category_name).onclick();await settle();
+  assert.deepEqual([cls(e.root,'marketing-case-categories').scrollLeft,e.root.scrollTop],[beforeLeft,beforeTop]);
+  assert.equal(category(e,last.category_name).attributes['aria-pressed'],'true');
+  assert.match(category(e,last.category_name).textContent,/^活动促销/);
+  assert.equal(new URL(caseLists(e).at(-1).url,'http://test').searchParams.get('category_name'),'活动促销');
+  assert.ok(caseCards(e).length>0);
+  const popup=await openPicker(e),compactLeft=176,pageTop=e.root.scrollTop;
+  popup.querySelector('.marketing-case-categories').scrollLeft=compactLeft;
+  await popup.querySelectorAll('.marketing-case-category').find(n=>n.dataset.category==='活动促销').onclick();await settle();
+  assert.equal(popup.querySelector('.marketing-case-categories').scrollLeft,compactLeft);
+  assert.equal(e.root.scrollTop,pageTop);
+  assert.equal(e.root.querySelectorAll('.marketing-case-categories').find(n=>!popup.contains(n)).scrollLeft,beforeLeft);
+  e.panel.suspend();
+});
+
+test('a delayed category response keeps the page scroll and the cards already on screen',async()=>{
+  storage.clear();let finish;const wait=new Promise(r=>finish=r),e=environment(url=>url.startsWith('/api/v1/marketing-cases?')&&new URL(url,'http://test').searchParams.get('category_name')==='活动促销'?wait:undefined);
+  await e.panel.load({project:'p'});await settle();assert.ok(caseCards(e).length>0);
+  const beforeTop=2558,beforeLeft=355;e.root.scrollTop=beforeTop;cls(e.root,'marketing-case-categories').scrollLeft=beforeLeft;
+  const pending=category(e,'活动促销').onclick();
+  assert.equal(e.root.scrollTop,beforeTop);assert.notEqual(caseCards(e).length,0);
+  finish(listCases('/api/v1/marketing-cases?category_name=活动促销'));await pending;await settle();
+  assert.equal(e.root.scrollTop,beforeTop);assert.equal(cls(e.root,'marketing-case-categories').scrollLeft,beforeLeft);
+  assert.equal(category(e,'活动促销').attributes['aria-pressed'],'true');assert.ok(caseCards(e).length>0);e.panel.suspend();
 });
 
 test('search waits 300 ms and sends only the final trimmed keyword without rewriting raw prompt',async()=>{
