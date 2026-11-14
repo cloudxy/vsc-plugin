@@ -680,6 +680,11 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
     def budget_status(self, project_id):
         return self.store.budget_status(project_id)
 
+    def get_task_usage(self,project_id,offset=0,limit=24):
+        if type(offset)is not int or not 0<=offset<=10000 or type(limit)is not int or not 1<=limit<=100:
+            raise ResourceError('用量分页无效')
+        return self.store.task_usage_page(project_id,offset,limit)
+
     def preview_generation_quote(self, project_id, payload):
         from vsc.adapters.persistence.postgres.quotes import preview
         return preview(self.store, project_id, payload)

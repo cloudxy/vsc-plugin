@@ -1,7 +1,7 @@
 """Project-shared native-unit budgets, reserved before a paid submission."""
 import json
 import math
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import case, func, insert, select, update
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
 from .values import clean, new_id, checked_id
@@ -75,6 +75,7 @@ class BudgetRepository:
         from vsc.production.quotes import reconcile_quote
         with self.engine.connect() as conn:
             project = self._project(conn, checked_id(project_id))
+            self._access_require(conn,project['id'],'read')
             job = self._one(conn, S.generation_jobs, project['id'], checked_id(job_id))
             event = conn.execute(select(S.job_events.c.evidence).where(S.job_events.c.project_id == project['id'],
                 S.job_events.c.job_id == job['id'], S.job_events.c.event_type == 'intent_recorded').limit(1)).scalar_one_or_none()
@@ -83,9 +84,11 @@ class BudgetRepository:
                 import json
                 run = self._one(conn, S.artifact_versions, project['id'], job['run_version_id'])
                 document = json.loads(run['document'])
-                operation = operation_key(job['request_payload'], job['candidate_no'])
-                quote = next((item for item in document.get('generation_quote', {}).get('jobs', [])
-                              if item.get('operation') == operation), None)
+                request=job['request_payload']
+                if request.get('purpose') and (request.get('asset_id') or request.get('shot_id')):
+                    operation = operation_key(request, job['candidate_no'])
+                    quote = next((item for item in document.get('generation_quote', {}).get('jobs', [])
+                                  if item.get('operation') == operation), None)
             actual = {row['unit']: row['actual'] for row in conn.execute(select(S.job_budget_reservations).where(
                 S.job_budget_reservations.c.project_id == project['id'], S.job_budget_reservations.c.job_id == job['id'],
                 S.job_budget_reservations.c.actual.is_not(None))).mappings()}
@@ -132,6 +135,7 @@ class BudgetRepository:
     def budget_status(self, project_id):
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
+            self._access_require(conn,project['id'],'read')
             limits, used = self._limits(conn, project["id"]), self._used(conn, project["id"])
             from vsc.production.quotes import reconcile_quote
             actuals = {}
@@ -154,6 +158,77 @@ class BudgetRepository:
                 "bounded_reservations": [dict(r) for r in conn.execute(select(S.job_budget_reservations).where(
                     S.job_budget_reservations.c.project_id == project["id"], S.job_budget_reservations.c.actual.is_(None),
                     S.job_budget_reservations.c.status != "released")).mappings()]})
+
+    @staticmethod
+    def _usage_unit(row):
+        """Use exactly the same reservation row and precedence as _used."""
+        released=row['status']=='released'
+        actual=row['actual']
+        occupied=0 if released else actual if row['status']=='settled' and actual is not None else row['bound']
+        return {'unit':row['unit'],'bound':row['bound'],'actual':actual,'status':row['status'],
+            'occupied':occupied,'released':max(0,row['bound']-occupied),
+            'basis':'released' if released else 'actual' if row['status']=='settled' and actual is not None else 'bound'}
+
+    def task_usage_detail(self,project_id,job_id):
+        value=self.job_quote_status(project_id,job_id)
+        with self.engine.connect() as conn:
+            project=self._project(conn,checked_id(project_id));self._access_require(conn,project['id'],'read')
+            bill=self._recorded_bills(conn,project['id'],checked_id(job_id)).get(job_id)
+        return clean({'coverage':'native_reservations','units':[self._usage_unit(row) for row in value['reservations']],
+            'quote':value['quote'],'reconciliation':value['reconciliation'],'actual_cost':bill,
+            'amount_known':bill is not None,'detail':'按原预留、结算和释放记录追溯；无账单登记时实际金额未知'})
+
+    def task_usage_page(self,project_id,offset=0,limit=24):
+        """Project native usage, paged once per job rather than per unit/child."""
+        from .task_center import task_sources,decorate_tasks
+        with self.engine.connect() as conn:
+            project=self._project(conn,checked_id(project_id));p=project['id']
+            self._access_require(conn,p,'read')
+            reservation=S.job_budget_reservations;jobs=S.generation_jobs
+            occupied=case((reservation.c.status=='released',0),
+                ((reservation.c.status=='settled')&reservation.c.actual.is_not(None),reservation.c.actual),
+                else_=reservation.c.bound)
+            reported=case(((reservation.c.status=='settled')&reservation.c.actual.is_not(None),reservation.c.actual),else_=0)
+            summaries=conn.execute(select(reservation.c.unit,func.sum(occupied).label('used'),
+                func.sum(reported).label('reported_actual'),func.sum(occupied-reported).label('bounded'),
+                func.sum(case((reservation.c.status!='released',1),else_=0)).label('active_count'),
+                func.sum(case((reservation.c.actual.is_not(None),1),else_=0)).label('actual_count')).where(
+                reservation.c.project_id==p).group_by(reservation.c.unit)).mappings().all()
+            limits={unit:value['amount'] for unit,value in self._limits(conn,p).items()}
+            summary={key:{r['unit']:r[key] for r in summaries
+                if r['actual_count' if key=='reported_actual' else 'active_count']>0}
+                for key in ('used','reported_actual','bounded')}
+            # A complete project reservation query proves zero occupancy for
+            # configured units. Absence of an actual report remains unknown.
+            for unit in limits:
+                summary['used'].setdefault(unit,0)
+                summary['bounded'].setdefault(unit,0)
+            total=conn.execute(select(func.count(func.distinct(reservation.c.job_id))).where(reservation.c.project_id==p)).scalar_one()
+            reserved=select(reservation.c.id).where(reservation.c.project_id==p,reservation.c.job_id==jobs.c.id).exists()
+            ids=list(conn.execute(select(jobs.c.id).where(jobs.c.project_id==p,reserved).order_by(
+                jobs.c.created_at.desc(),jobs.c.id.desc()).offset(offset).limit(limit)).scalars())
+            items=[]
+            if ids:
+                source=dict(task_sources(p))['generation'].subquery()
+                records=[dict(row) for row in conn.execute(select(source).where(source.c.id.in_(ids))).mappings()]
+                decorate_tasks(conn,p,records)
+                records={r['id']:r for r in records}
+                units={identifier:[] for identifier in ids}
+                for row in conn.execute(select(reservation).where(reservation.c.project_id==p,
+                        reservation.c.job_id.in_(ids)).order_by(reservation.c.unit)).mappings():
+                    units[row['job_id']].append(self._usage_unit(row))
+                bills={row['job_id']:row['evidence']['actual_cost'] for row in conn.execute(select(
+                    S.job_events.c.job_id,S.job_events.c.evidence).where(S.job_events.c.project_id==p,
+                    S.job_events.c.job_id.in_(ids),S.job_events.c.event_type=='bill_recorded')).mappings()}
+                for identifier in ids:
+                    row=records[identifier]
+                    items.append({key:row[key] for key in ('id','kind','title','status','href','presentation')})
+                    items[-1].update(job_id=identifier,units=units[identifier],actual_cost=bills.get(identifier),
+                        amount_known=identifier in bills)
+            return clean({'project_id':p,'revision':project['revision'],'scope':'project','limits':limits,**summary,
+                'remaining':{unit:amount-summary['used'].get(unit,0) for unit,amount in limits.items()},
+                'items':items,'total':total,'next_offset':offset+limit if offset+limit<total else None,
+                'coverage':'仅覆盖本项目媒体任务的原生预留记录；未接入的宿主、文本等计量不代表免费'})
 
     def _reserve_budget(self, conn, project, job):
         run = self._one(conn, S.artifact_versions, project["id"], job["run_version_id"])
