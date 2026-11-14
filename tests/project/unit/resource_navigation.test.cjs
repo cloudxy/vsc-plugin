@@ -214,3 +214,16 @@ test('clean pathname entry resolves script studios, invoice portal, Seedance tas
   assert.deepEqual(Object.fromEntries(resolve('/','?page=storyboard&project=p1')),{page:'classic-production',project:'p1',kind:'image',mode:'image'});
   assert.deepEqual(Object.fromEntries(resolve('/','?page=shots&project=p1')),{page:'classic-production',project:'p1',kind:'video'});
 });
+
+
+test('browser history restores a team management route without inheriting the last film project', async()=>{
+  const location={search:'?page=assets&project=A',hash:'',pathname:'/'};
+  const handlers=new Map(),history={pushState(_a,_b,url){location.search=url;},replaceState(_a,_b,url){location.search=url;}};
+  const app=createPanel(root,new Map([['A',project('A')]]),null,{window:{location,history,addEventListener(type,fn){handlers.set(type,fn);}}});
+  app.panel.state.project='A';location.search='?page=access&area=resources&team=team-one';
+  const before=app.requests.length;await handlers.get('popstate')();
+  assert.equal(app.panel.state.project,null);assert.equal(app.panel.state.view,'access');
+  assert.equal(app.requests.slice(before).some(url=>url.includes('/projects/A/')),false);
+  assert.equal(new URLSearchParams(location.search).get('team'),'team-one');
+  location.search='?page=access&area=members&project=A';await handlers.get('popstate')();assert.equal(app.panel.state.project,'A');
+});
