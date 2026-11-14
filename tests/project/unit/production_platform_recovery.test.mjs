@@ -41,6 +41,7 @@ test('platform background control is explicitly global and remains usable when m
   return {enabled:true,scope:'application',message:'已有远端任务继续查询',generation:{available:true,accepting_submissions:accepting}};
  }});
  await h.platform.load({page:'maintenance'});
+ assert.ok(h.root.textContent.includes('工作区维护'));assert.ok(h.root.textContent.includes('查看本机是否还接收新的生成提交，并查看诊断；维护不会创建项目。'));assert.ok(h.root.querySelector('details'));
  assert.ok(h.root.textContent.includes('影响所有项目'));assert.ok(h.root.textContent.includes('剪辑预览'));assert.ok(h.root.textContent.includes('model settings unavailable'));
  const pause=h.buttons('暂停后台后续处理')[0];assert.ok(pause);await pause.click();
  assert.equal(h.posts().length,1);assert.ok(h.buttons('继续后台处理')[0]);
@@ -228,9 +229,20 @@ test('switching pages while reading the directory prevents the old creation navi
 test('home discovery authentication failures stay local and retry without reloading the homepage',async()=>{
   let denied=true;const h=setup({api:()=>{if(denied)throw Object.assign(new Error('need session'),{status:403});return emptyDiscovery();}});
   await h.platform.load({page:'home'});
-  assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.ok(h.root.querySelector('.home-canvas-card'));assert.ok(h.root.querySelector('.home-footer'));
-  const region=h.root.querySelector('.home-discovery');assert.ok(region.textContent.includes('会话'));assert.ok(!h.root.textContent.includes('加载不完整'));assert.equal(h.notices.length,0);
+  assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.ok(h.root.querySelector('.home-canvas-card'));assert.equal(h.root.querySelector('.home-footer'),null);
+  const duty=h.root.querySelectorAll('.duty-card');assert.equal(duty.length,3);
+  assert.ok(h.root.querySelector('.home-duty-group').textContent.includes('VSC · 创作工作台'));
+  assert.ok(duty[0].textContent.includes('资源与模型设置'));assert.ok(duty[0].textContent.includes('管理模型和后续任务要用的配置'));assert.ok(duty[0].href.includes('page=settings'));
+  assert.ok(duty[1].textContent.includes('制作任务'));assert.ok(duty[1].textContent.includes('查看所选项目的任务记录和用量'));assert.ok(duty[1].href.includes('page=tasks'));
+  assert.ok(duty[2].textContent.includes('工作区维护'));assert.ok(duty[2].textContent.includes('查看本机是否还接收新任务'));assert.ok(duty[2].href.includes('page=maintenance'));
+  assert.ok(h.root.children.indexOf(h.root.querySelector('.home-duty-group'))<h.root.children.indexOf(h.root.querySelector('.home-tools')));
+  const region=h.root.querySelector('.home-discovery');
+  assert.ok(region.textContent.includes('need session'));assert.ok(region.textContent.includes('重新读取'));
+  assert.ok(!region.textContent.includes('最近创作'));assert.ok(!region.textContent.includes('在画布中发布固定版本后'));
+  assert.ok(!h.root.textContent.includes('加载不完整'));assert.equal(h.notices.length,0);
   denied=false;await region.querySelector('button').click();assert.ok(region.querySelector('.discovery'));assert.equal(region.getAttribute('aria-busy'),null);
+  assert.ok(region.textContent.includes('团队模板'));assert.ok(region.textContent.includes('在画布中发布固定版本后，有权限的团队成员可在这里找到模板。'));
+  assert.equal(region.querySelectorAll('.recent-creation-card').length,0);assert.ok(!h.root.textContent.includes('最近创作'));
   assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.equal(h.calls.length,2);
 });
 
@@ -281,6 +293,34 @@ const homeProject=id=>({id,name:id,storage_policy:'postgres-series-v1',profile:'
 const homeTool=(h,index)=>h.root.querySelectorAll('.home-tool')[index];
 const homeCanvas=h=>h.root.querySelector('.home-canvas-card');
 const episodePage=(items,next_offset=null)=>({revision:4,episodes:{items,total:items.length,next_offset}});
+
+test('home lists team templates and duty entries without a recent-creation work list',async()=>{
+  const h=setup({projects:[homeProject('p')],api:async({url})=>{
+    if(url==='/api/v1/discovery')return {...emptyDiscovery(),recent:[{project_id:'p',project_name:'个人片段',title:'不在首页',href:'?page=creative-canvas',kind_label:'画布',created_at:new Date().toISOString()}],templates:[{id:'t1',project_id:'p',project_name:'个人片段',title:'竖屏悬疑模板',version:1,href:'?page=creative-canvas&project=p',favorite:false}]};
+    return emptyDiscovery();
+  }});
+  await h.platform.load({page:'home'});
+  assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.ok(h.root.querySelector('.home-canvas-card'));
+  assert.equal(h.root.querySelectorAll('.recent-creation-card').length,0);assert.ok(!h.root.textContent.includes('不在首页'));assert.ok(!h.root.textContent.includes('最近创作'));
+  assert.ok(h.root.textContent.includes('团队模板'));assert.ok(h.root.textContent.includes('竖屏悬疑模板'));assert.ok(h.root.textContent.includes('打开来源画布'));
+  await h.root.querySelectorAll('.duty-card')[2].click();assert.equal(h.routes.at(-1)[0],'maintenance');
+  const signedOut=setup({api:async({url})=>url==='/api/v1/discovery'?emptyDiscovery():{}});signedOut.session.actor=null;
+  await signedOut.platform.load({page:'home'});
+  assert.ok(!signedOut.root.textContent.includes('最近创作'));assert.equal(signedOut.root.querySelectorAll('.recent-creation-card').length,0);
+  assert.equal(signedOut.root.querySelectorAll('.home-tool').length,8);
+});
+
+test('destination pages name their duty before the existing controls',async()=>{
+  const settings=setup({api:async()=>({configurations:[]})});
+  await settings.platform.load({page:'settings'});
+  assert.ok(settings.root.textContent.includes('资源与模型设置'));assert.ok(settings.root.textContent.includes('配置供后续任务使用，固定任务继续保留原参数。'));
+  assert.ok(!settings.root.querySelector('h1').textContent.includes('设置与维护'));
+  for(const label of ['模型、默认用途与更新','角色记忆','本机管理凭据','运行与连接诊断','回收站'])assert.ok(settings.root.textContent.includes(label),label);
+  const tasks=setup();await tasks.platform.load({page:'tasks'});
+  assert.ok(tasks.root.textContent.includes('制作任务'));assert.ok(tasks.root.textContent.includes('先选择项目，再查看该项目的任务记录和各集共享的用量。'));
+  assert.ok(tasks.root.textContent.includes('选择项目查看任务与用量'));assert.ok(tasks.root.textContent.includes('未选项目，任务记录和用量还不能看。'));
+  tasks.platform.suspend();
+});
 
 test('home video, storyboard, Agent and canvas enter the same recent project and episode without a selector',async()=>{
   for(const [index,page,kind]of [[0,'classic-production','video'],[1,'classic-production','image'],[3,'intelligent-creation',null],[-1,'creative-canvas',null]]){

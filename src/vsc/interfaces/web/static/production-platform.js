@@ -25,6 +25,9 @@ export function createProductionPlatform(root,ctx){
   function field(form,title,input){const f=el('label',title,'field');bindAttribute(input,'aria-label',title);f.append(input);form.append(f);return input;}
   function card(title){const n=el('article',null,'platform-card');n.append(el('h3',title));return n;}
   function header(title,description){const h=el('header',null,'platform-heading');h.append(el('p',msg("ui.vsc_creative_workbench"),'platform-kicker'),el('h1',title));if(description)h.append(el('p',description,'hint'));root.append(h);return h;}
+  function markDuty(heading){const duty=Array.from(heading.querySelectorAll('p')).find(node=>node.classList.contains('hint'));if(duty)duty.classList.add('page-duty');return heading;}
+  function connectionDropped(error){if(error?.status)return false;if(error?.offline===true)return true;if(typeof navigator!=='undefined'&&navigator.onLine===false)return true;return error instanceof TypeError&&/network|fetch|failed to fetch/i.test(String(error.message||''));}
+  function visibleDiscovery(){return async(path,options)=>{const data=await ctx.api(path,options);if(path!=='/api/v1/discovery'||!data)return data;const visible=new Set(scopedProjects(ctx.projects(),session()).map(row=>row.id));return {...data,recent:(data.recent||[]).filter(row=>visible.has(row.project_id)),projects:(data.projects||[]).filter(row=>visible.has(row.id)),templates:(data.templates||[]).filter(row=>visible.has(row.project_id))};};}
   function actions(...children){const n=el('div',null,'platform-actions');n.append(...children);return n;}
   function empty(title,detail){const n=card(title);n.append(el('p',detail,'hint'));return n;}
   function pagination(total,next,read){const nav=el('nav',null,'pagination');bindAttribute(nav,'aria-label',msg("ui.page_navigation"));nav.append(button(msg("common.previous_page"),()=>read(Math.max(0,offset-24)),offset===0),el('span',joinMessages(["",total?offset+1:0,"–",Math.min(total,offset+24)," / ",total,""])),button(msg("common.next_page"),()=>read(next),next==null));return nav;}
@@ -105,23 +108,43 @@ export function createProductionPlatform(root,ctx){
     const features=el('div',null,'home-feature-grid');
     for(const [title,desc,file,tool,badges]of [[msg('replica.commerce_skills_title'),msg('replica.commerce_skills_description'),'commerce-skills.webp','skills',['Agent']],['AI MV',msg("ui.upload_music_and_let_ai_direct_your_mv"),'aimv.jpg','mv',['Agent',msg('replica.skill_tag')]],[msg("home.creation_segment_remake_title"),msg("home.creation_segment_remake_description"),'remake.jpg','segment_remake',['SD 2.5',msg('replica.official_example')]],[msg("home.creation_video_depth_title"),msg("home.creation_video_depth_description"),'motion.jpg','breakdown',['SD 2.5',msg('replica.official_example')]]]){
       const card=tool==='skills'?link('', 'marketing-studio',null,null):tool==='mv'?button('',()=>openHomeCreation('creative-canvas',{ai_mv:'1'})):link('', 'creative-tools',null,null,{tool});card.className='home-feature';const tags=el('small',null,'home-feature-badge');for(const badge of badges)tags.append(el('span',badge));card.append(artwork(file),tags);if(tool==='skills')card.append(el('span','NEW','home-feature-new'));const copy=el('div',null,'home-feature-copy');copy.append(el('h3',title),el('p',desc));card.append(copy);features.append(card);
-    }hero.append(features);root.append(hero,el('h2',msg("ui.start_creating_with_agent_tools"),'home-tool-heading'));
+    }hero.append(features);root.append(hero,homeDutyGroup(),el('h2',msg("ui.start_creating_with_agent_tools"),'home-tool-heading'));
     const grid=el('div',null,'home-tools');
     for(const [title,desc,page,tool,icon,tag]of [[msg("home.creation_ai_video_generation_title"),msg("home.creation_ai_video_generation_description"),'classic-production','video','video',msg("home.creation_tag_tool")],[msg("home.creation_ai_storyboard_title"),msg("home.creation_ai_storyboard_description"),'classic-production','image','image',msg("home.creation_tag_tool")],[msg("ui.script_breakdown"),msg("ui.reconstruct_dialogue_and_shots_frame_by_frame_to_create"),'text-tools','breakdown','breakdown','Agent'],[msg("home.creation_agent_creation_title"),msg("home.creation_agent_creation_description"),'intelligent-creation','','agent','Agent'],[msg("nav.script_scoring"),msg("home.creation_script_scoring_description"),'text-tools','scoring','scoring','Agent'],[msg("nav.novel_parser"),msg("home.creation_novel_parser_description"),'text-tools','novel','novel','Agent'],[msg("nav.script_translation"),msg("home.creation_script_translation_description"),'text-tools','translation','translation','Agent'],[msg("nav.video_quality_check"),msg("ui.check_video_subtitle_and_content_issues"),'text-tools','qc','qc','Agent']]){
       const card=page==='classic-production'||page==='intelligent-creation'?button('',()=>openHomeCreation(page,page==='classic-production'?{kind:tool}:{})):link('',page,null,null,{tool});card.className='home-tool';card.append(artwork(icon+'.svg'),el('small',tag,'home-tool-tag'));const copy=el('div'),titleRow=el('div',null,'home-tool-title');titleRow.append(el('h3',title));if(tool==='breakdown')titleRow.append(el('span','NEW','home-tool-new'));copy.append(titleRow,el('p',desc));card.append(copy);grid.append(card);
-    }root.append(grid);
-    const footer=el('footer',null,'home-footer');footer.append(el('span',msg("ui.vsc_creative_workbench")),link(msg("ui.resource_and_model_settings"),'settings',null),link(msg("shell.tasks"),'tasks'),link(msg("ui.workspace_maintenance"),'maintenance',null));root.append(footer);await homeDiscovery(t);
+    }root.append(grid);await homeDiscovery(t);
   }
-  async function homeDiscovery(t){
-    const region=el('section',null,'home-discovery');bindAttribute(region,'aria-label',msg('home.recent_creations'));root.append(region);
+  function homeDutyGroup(){
+    const group=el('section',null,'home-duty-group');group.id='home-duty-group';bindAttribute(group,'aria-label',msg('ui.vsc_creative_workbench'));group.append(el('h2',msg('ui.vsc_creative_workbench')));
+    for(const [name,duty,page]of [[msg('ui.resource_and_model_settings'),msg('ui.duty_settings_before'),'settings'],[msg('shell.tasks'),msg('ui.duty_tasks_before'),'tasks'],[msg('ui.workspace_maintenance'),msg('ui.duty_maintenance_before'),'maintenance']]){
+      const card=link(name,page,null);card.className='duty-card';card.append(el('span',duty,'duty-sentence'));group.append(card);
+    }
+    return group;
+  }
+  async function showDiscovery(region,t,view){
+    let refreshing=false;
+    const copy=view==='recent'
+      ?{loading:msg('ui.loading_recent_creations'),offline:msg('ui.recent_creations_offline'),unread:msg('ui.recent_creations_unread')}
+      :{loading:msg('ui.team_templates_loading'),offline:msg('ui.team_templates_offline'),unread:msg('ui.team_templates_unread')};
     async function refresh(){
+      if(refreshing)return;
       const identity=session().actor,current=()=>same(t)&&identity===session().actor;
-      if(!current())return;const loading=el('p',msg('ui.loading_recent_creations'),'hint');region.replaceChildren(loading);region.setAttribute('aria-busy','true');
-      try{const visible=new Set(scopedProjects(ctx.projects(),session()).map(row=>row.id));await mountDiscovery(region,{...ctx,api:async(path,options)=>{const data=await ctx.api(path,options);if(path==='/api/v1/discovery')return {...data,recent:data.recent.filter(row=>visible.has(row.project_id)),projects:data.projects.filter(row=>visible.has(row.id)),templates:data.templates.filter(row=>visible.has(row.project_id))};return data;}},{isCurrent:current});if(current())loading.remove();}
-      catch(error){if(current()){const heading=el('div',null,'home-section-heading');heading.append(el('h2',msg('home.recent_creations')));region.replaceChildren(heading,el('p',error.status===403?msg('ui.start_a_session_to_see_recent_creations'):error.message,'hint'),button(msg('ui.reload'),refresh));}}
-      finally{if(current())region.removeAttribute('aria-busy');}
+      if(!current())return;
+      refreshing=true;region.replaceChildren(el('p',copy.loading,'hint'));region.setAttribute('aria-busy','true');
+      try{
+        if(view==='recent'&&!session().actor){region.replaceChildren(el('p',msg('ui.start_a_session_to_see_recent_creations'),'hint'));return;}
+        await mountDiscovery(region,{...ctx,api:visibleDiscovery()},{isCurrent:current,view});if(!current())return;
+        for(const child of [...region.children])if(child.tagName==='P'&&child.classList.contains('hint'))child.remove();
+      }catch(error){
+        if(!current())return;
+        if(view==='recent'&&(error.status===401||error.status===403)){region.replaceChildren(el('p',msg('ui.start_a_session_to_see_recent_creations'),'hint'));return;}
+        region.replaceChildren(el('p',connectionDropped(error)?copy.offline:(error.message||copy.unread),'hint'),button(msg('ui.reload'),refresh));
+      }finally{refreshing=false;if(current())region.removeAttribute('aria-busy');}
     }
     await refresh();
+  }
+  async function homeDiscovery(t){
+    const region=el('section',null,'home-discovery');bindAttribute(region,'aria-label',msg('ui.team_templates'));root.append(region);await showDiscovery(region,t,'templates');
   }
   function projectCover(row,title,open){
     const tile=el('article',null,'project-tile'),cover=button('',open);cover.className='project-cover';bindAttribute(cover,'aria-label',msg("ui.open_value0",{value0:title}));
@@ -129,27 +152,32 @@ export function createProductionPlatform(root,ctx){
     const mark=el('span',null,'project-cover-mark');mark.innerHTML='<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect x="17" y="11" width="32" height="42" rx="3" fill="currentColor"/><path d="M13 16v40h31" stroke="currentColor" stroke-width="3"/><path d="M24 20h18M24 26h14" stroke="#1d1d1d" stroke-width="2"/></svg>';if(!row.cover)cover.append(mark);
     tile.append(cover,el('h3',title,'project-title'));return {tile,cover};
   }
-  const projectCategories=[['personal','workspace.personal_projects'],['participating','workspace.participating_projects'],['team','workspace.team_projects']];
+  const projectCategories=[['personal','workspace.personal_projects'],['participating','workspace.participating_projects'],['team','workspace.team_projects'],['recent','home.recent_creations']];
+  function categoryRoute(key){
+    if(key==='recent'){const legal=['personal','participating','team'].includes(scope.projectScope)?scope.projectScope:null;return {tab:'recent',...(legal?{project_scope:legal}:{})};}
+    const tab=scope.tab&&scope.tab!=='recent'?scope.tab:null;return {...(tab?{tab}:{}),project_scope:key};
+  }
   function projectCategoryTabs(){
-    const current=directoryScope(scope.projectScope),viewTab=scope.tab,nav=el('nav',null,'project-category-tabs');
+    const selected=scope.tab==='recent'?'recent':directoryScope(scope.projectScope),nav=el('nav',null,'project-category-tabs');
     nav.setAttribute('role','tablist');bindAttribute(nav,'aria-label',msg('workspace.project_categories'));
-    const activate=async key=>{await ctx.navigate('projects',null,null,{...(viewTab?{tab:viewTab}:{}),project_scope:key});root.querySelector('#project-category-'+key)?.focus?.();};
+    const activate=async key=>{await ctx.navigate('projects',null,null,categoryRoute(key));root.querySelector('#project-category-'+key)?.focus?.();};
     projectCategories.forEach(([key,label],index)=>{
-      const tab=el('a',msg(label));tab.href='?'+new URLSearchParams({page:'projects',...(viewTab?{tab:viewTab}:{}),project_scope:key});tab.id='project-category-'+key;
-      tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(key===current));tab.setAttribute('aria-controls','project-category-results');tab.tabIndex=key===current?0:-1;
+      const tab=el('a',msg(label));tab.href='?'+new URLSearchParams({page:'projects',...categoryRoute(key)});tab.id='project-category-'+key;
+      tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(key===selected));tab.setAttribute('aria-controls','project-category-results');tab.tabIndex=key===selected?0:-1;
       tab.addEventListener('click',async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await activate(key);});
-      tab.addEventListener('keydown',async event=>{const next=event.key==='ArrowRight'?(index+1)%3:event.key==='ArrowLeft'?(index+2)%3:event.key==='Home'?0:event.key==='End'?2:null;if(next==null)return;event.preventDefault();await activate(projectCategories[next][0]);});nav.append(tab);
+      tab.addEventListener('keydown',async event=>{const count=projectCategories.length,next=event.key==='ArrowRight'?(index+1)%count:event.key==='ArrowLeft'?(index+count-1)%count:event.key==='Home'?0:event.key==='End'?count-1:null;if(next==null)return;event.preventDefault();await activate(projectCategories[next][0]);});nav.append(tab);
     });return nav;
   }
   async function projects(t){
-    const category=directoryScope(scope.projectScope),canvases=scope.tab==='canvases'||scope.tab==='canvas',media=scope.tab==='media';
+    const recentView=scope.tab==='recent',category=directoryScope(scope.projectScope),canvases=!recentView&&(scope.tab==='canvases'||scope.tab==='canvas'),media=!recentView&&scope.tab==='media';
     root.classList.add('platform-projects');
     const heading=header(msg('workspace.project_directory')),add=button(msg('ui.new_project'),()=>createFlow(),!session().actor||!session().writeAvailable);add.className='primary project-create-action';heading.append(add);
     const navigation=el('div',null,'project-directory-navigation'),libraries=el('nav',null,'project-library-links');bindAttribute(libraries,'aria-label',msg('ui.project_category'));
     if(canvases||media)libraries.append(link(msg('workspace.back_to_projects'),'projects',null,null,{project_scope:category}));
     for(const [label,tab]of [['workspace.canvas_library','canvases'],['workspace.media_library','media']]){const a=link(msg(label),'projects',null,null,{tab,project_scope:category});if((canvases&&tab==='canvases')||(media&&tab==='media'))a.setAttribute('aria-current','page');libraries.append(a);}
     navigation.append(projectCategoryTabs(),libraries);root.append(navigation);
-    const region=el('section',null,'project-category-results');region.id='project-category-results';region.setAttribute('role','tabpanel');region.setAttribute('aria-labelledby','project-category-'+category);
+    const region=el('section',null,'project-category-results');region.id='project-category-results';region.setAttribute('role','tabpanel');region.setAttribute('aria-labelledby','project-category-'+(recentView?'recent':category));
+    if(recentView){root.append(region);await showDiscovery(region,t,'recent');return;}
     if(canvases||media){root.append(region);if(canvases)await canvasCatalog(t);else{const slot=el('div',null,'project-toolbar');region.append(slot);await mediaCatalog(t,slot);}return;}
     const toolbar=el('div',null,'project-directory-toolbar'),query=el('input'),total=el('span',null,'project-total');query.type='search';bindAttribute(query,'placeholder',msg('replica.search_projects'));bindAttribute(query,'aria-label',msg('ui.search_projects'));total.setAttribute('role','status');toolbar.append(query,total);root.append(toolbar,region);
     const rows=currentProjects().filter(row=>!['vsc.text-tools','vsc.creative-tools'].includes(row.profile)&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind)),grid=el('div',null,'project-grid');region.append(grid);
@@ -505,9 +533,9 @@ export function createProductionPlatform(root,ctx){
     }catch(error){if(same(t,s)&&turn===request)report.replaceChildren(el('p',error.message));}finally{if(same(t,s)&&turn===request)preview.disabled=false;}};
     const preview=button(msg("ui.summarize_selected_episode_requirements"),run);box.append(preview,report);if(selected.size)await run();
   }
-  async function settings(t){header(msg("ui.settings_and_maintenance"),msg("ui.configuration_applies_to_future_tasks_fixed_tasks_retain_original"));root.append(actions(button(msg("ui.models_default_purposes_and_updates"),ctx.settings),button(msg("ui.role_memory"),ctx.memory),button(msg("settings.local_management_credential"),ctx.account),link(msg("ui.runtime_and_connection_diagnostics"),'maintenance'),link(msg("common.route_recycle_bin"),'trash')));const value=await read('/api/v1/resource-settings',t);if(!value)return;const grid=el('div',null,'platform-grid');for(const row of value.configurations||[]){const box=card(row.name||row.model_key);box.append(el('p',joinMessages(["",row.model_key," · ",row.model_version,""]),'hint'),el('p',joinMessages(["",row.enabled?msg("common.enabled"):msg("ui.disabled")," · ",typeof row.connection_status==='object'?(row.connection_status.message||row.connection_status.status):row.connection_status||msg("ui.not_verified_online_yet"),""])),button(msg("ui.view_and_edit_configuration"),ctx.settings));grid.append(box);}if(!value.configurations?.length)grid.append(empty(msg("ui.no_model_configurations"),msg("ui.open_models_default_purposes_and_updates_to_configure_routes")));root.append(grid);}
+  async function settings(t){markDuty(header(msg("ui.resource_and_model_settings"),msg("ui.configuration_applies_to_future_tasks_fixed_tasks_retain_original")));root.append(actions(button(msg("ui.models_default_purposes_and_updates"),ctx.settings),button(msg("ui.role_memory"),ctx.memory),button(msg("settings.local_management_credential"),ctx.account),link(msg("ui.runtime_and_connection_diagnostics"),'maintenance'),link(msg("common.route_recycle_bin"),'trash')));const value=await read('/api/v1/resource-settings',t);if(!value)return;const grid=el('div',null,'platform-grid');for(const row of value.configurations||[]){const box=card(row.name||row.model_key);box.append(el('p',joinMessages(["",row.model_key," · ",row.model_version,""]),'hint'),el('p',joinMessages(["",row.enabled?msg("common.enabled"):msg("ui.disabled")," · ",typeof row.connection_status==='object'?(row.connection_status.message||row.connection_status.status):row.connection_status||msg("ui.not_verified_online_yet"),""])),button(msg("ui.view_and_edit_configuration"),ctx.settings));grid.append(box);}if(!value.configurations?.length)grid.append(empty(msg("ui.no_model_configurations"),msg("ui.open_models_default_purposes_and_updates_to_configure_routes")));root.append(grid);}
   async function maintenance(t){
-    header(msg('ui.workspace_maintenance'),msg('ui.service_status_and_connection_settings_come_from_the_local'));
+    markDuty(header(msg('ui.workspace_maintenance'),msg('ui.duty_maintenance_page')));
     root.append(actions(link(msg('ui.back_to_project'),'projects',null),link(msg('ui.models_and_settings'),'settings'),button(msg('ui.refresh_diagnostics'),reload)));
     const results=await Promise.allSettled([ctx.api('/api/v1/execution'),ctx.api('/api/v1/resource-settings')]);if(!same(t))return;
     const execution=results[0].status==='fulfilled'?results[0].value:null,settings=results[1].status==='fulfilled'?results[1].value:null;
