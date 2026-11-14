@@ -1344,6 +1344,15 @@
         "src/vsc/production/creative_tools.py"
       ]
     },
+    "project.unit.test_creative_tools_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/creative-tools.js",
+        "tests/project/unit/creative_tools_tabs.test.mjs",
+        "tests/project/unit/test_creative_tools_frontend.py"
+      ]
+    },
     "assets.integration.test_spatial_scene": {
       "owner": "assets",
       "layer": "integration",
