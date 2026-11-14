@@ -406,3 +406,25 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 .asset-center.center-workbench-official:not(.center-canvas) .cs-history-item.official-list-card{padding:8px;border-radius:20px;background:#1c1c20;overflow:hidden}
 .asset-center.center-workbench-official:not(.center-canvas) .cs-history-library .cs-history-img.official-list-media{aspect-ratio:2/3;border-radius:16px;background:#111114}
 .asset-center .cs-history-toolbar{box-sizing:border-box;padding:12px;border-radius:22px;background:#1a1a1f}
+/* Standalone sidebar libraries are full pages, not the two-row official chrome. */
+.global-asset-library.ref-standalone .asset-center.center-workbench-official .center-official-filters,
+.asset-center.ref-library .center-official-filters{height:auto;max-height:none;overflow:visible;gap:16px}
+.global-asset-library.ref-standalone .center-workbench-official .center-official-filter-row{height:auto;max-height:none;min-height:0;overflow:visible;flex-wrap:wrap}
+.global-asset-library.ref-standalone .asset-center.ref-library .ref-pills,
+.asset-center.ref-library .ref-pills{flex:none;height:auto;max-height:none;flex-wrap:wrap;overflow:visible;gap:8px}
+.asset-center.ref-library .ref-page-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.asset-center.ref-library .ref-page-title,.ref-page-head .cs-history-heading{position:static!important;width:auto;height:auto;margin:0;overflow:visible;clip-path:none;font-size:24px;line-height:1.3;font-weight:700;white-space:normal}
+.asset-center.ref-library .ref-page-actions,.asset-center.ref-library .ref-type-row,.asset-center.ref-library .ref-seg{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.asset-center.ref-library .ref-type,.asset-center.ref-library .ref-seg button,.asset-center.ref-library .ref-page-actions>.ref-hot{height:32px;min-height:32px;padding:0 12px;border:1px solid #3a3a42;border-radius:8px;background:transparent;color:#f4f4f2;font:inherit;font-size:13px;cursor:pointer}
+.asset-center.ref-library .ref-type[aria-pressed=true],.asset-center.ref-library .ref-seg button[aria-pressed=true],.asset-center.ref-library .ref-page-actions>.ref-hot[aria-pressed=true]{background:#f4f4f2;color:#141416;border-color:#f4f4f2}
+.asset-center.ref-library .ref-type-row{justify-content:space-between}
+.asset-center.ref-library .ref-type-pills{display:flex;flex-wrap:wrap;gap:8px}
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar{flex:1 1 100%;margin:0;padding:0;border-radius:0;background:transparent}
+.asset-center.ref-library .ref-keywords{margin:6px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px/1.4 ui-monospace,monospace;color:#8e8d91}
+/* Pose and portrait frames follow the gallery pages: 3:4 and 4:5. Costumes stay 2:3. */
+.asset-center.ref-library.ref-pose.center-workbench-official:not(.center-canvas){--official-cover-ratio:3/4}
+.asset-center.ref-library.ref-pose .costume-shot,
+.asset-center.ref-library.ref-pose.center-workbench-official:not(.center-canvas) .costume-shot.official-list-media{aspect-ratio:3/4}
+.asset-center.ref-library.ref-portrait.center-workbench-official:not(.center-canvas){--official-cover-ratio:4/5}
+.asset-center.ref-library.ref-portrait .costume-shot,
+.asset-center.ref-library.ref-portrait.center-workbench-official:not(.center-canvas) .costume-shot.official-list-media{aspect-ratio:4/5}

@@ -11,7 +11,7 @@ function select(options,value,onChange,{label=''}={}){
 }
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
 
-export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent}={}){
+export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,headingParent}={}){
  let disposed=false,unsub=null,grid=null,count=null,clear=null,search=null,note=null,query='',lastHistory=null,lastHydrated=null,lastError=null,lastPublicationTask=null;
  const notice=message=>ctx.notice?.(message),dialogs=new Set();
  let viewEpoch=0;
@@ -237,7 +237,8 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent}
   load(){
    viewEpoch++;
    disposed=false;unsub?.();menuListeners(false);closeMenus();root.replaceChildren();root.className='character-studio cs-history-library';
-   root.append(el('h2','cs-history-heading','AI角色合成库'));
+   headingParent?.querySelector('.cs-history-heading')?.remove();
+   (headingParent||root).append(el('h2','cs-history-heading','AI角色合成库'));
    const toolbar=el('div','cs-history-toolbar');
    search=el('input');search.type='search';search.placeholder='搜索提示词、配方或生成引擎';search.setAttribute('aria-label','搜索合成记录');search.value=query;search.oninput=()=>{query=search.value;render(true);};
    count=el('span','cs-history-count');count.setAttribute('role','status');count.setAttribute('aria-live','polite');

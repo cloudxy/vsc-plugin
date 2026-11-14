@@ -77,7 +77,7 @@ test('Depth preview, download, angle, copied ID and recipe stay aligned without 
  assert.equal(download().getAttribute('download'),'p-侧面.png');
  assert.ok(original.textContent.includes('900 × 1200 PNG'));
  original.close();
- const view=root.querySelectorAll('select').find(s=>s.getAttribute('aria-label')==='视图');view.value='single';await view.onchange();await flush();
+ await click(root,'单张');
  await root.querySelector('.costume-open').onclick();await click(modal(),'Depth');
  assert.equal(modal().querySelectorAll('a').find(a=>a.textContent==='下载原图').href,modal().querySelector('img').src);
  modal().close();center.suspend();root.remove();
@@ -137,9 +137,8 @@ test('AI composite library follows portraits and owns existing, live, filtered a
  try{
   store.getState().history=[old];
   ({root,center}=await gallery('composite',{navigate:(...args)=>routes.push(args)}));
-  const tabs=root.querySelector('.center-official-kinds').querySelectorAll('button').map(b=>b.textContent);
-  assert.equal(tabs[tabs.indexOf('人像颜值库')+1],'AI角色合成库');
-  assert.equal(button(root,'AI角色合成库').getAttribute('aria-pressed'),'true');
+  assert.equal(root.querySelector('.center-official-kinds'),null);
+  assert.equal(root.querySelector('.cs-history-heading').textContent,'AI角色合成库');
   assert.equal(root.querySelector('.center-official-filter-row').contains(root.querySelector('.cs-history-toolbar')), true);
   assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,old.imageUrl);
   assert.equal(store.getState().history[0],old);
@@ -169,8 +168,8 @@ test('AI composite library follows portraits and owns existing, live, filtered a
   globalThis.confirm=()=>true;await click(root,'清空全部记录');assert.equal(mainDb.values.get('pose_atlas_history_v3').length,0);assert.match(root.textContent,/还没有合成记录/);assert.equal(button(root,'清空全部记录').disabled,true);
   center.suspend();store.getState().history=[added];store.setPreviewUrl(added.imageUrl);await flush();assert.match(root.textContent,/还没有合成记录/);
   center.suspend();await center.load();await flush();assert.equal(root.querySelectorAll('.cs-history-item').length,1);
-  await click(root,'人像颜值库');assert.ok(root.querySelector('.ref-library')||root.className.includes('ref-portrait'));assert.equal(root.querySelector('.cs-history-library'),null);
-  await click(root,'AI角色合成库');assert.equal(root.querySelectorAll('.cs-history-item').length,1);
+  assert.equal(button(root,'人像颜值库'),undefined);
+  assert.equal(button(root,'服装穿搭库'),undefined);
  }finally{
   mainDb.control.failWrite=false;center?.suspend();root?.remove();studio?.suspend();studioRoot?.remove();Object.assign(store.getState(),saved);
   globalThis.fetch=oldFetch;Element.prototype.click=originalClick;if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
@@ -181,8 +180,9 @@ test('browser-only composite records are not offered as server catalog assets in
  const root=doc.createElement('main');doc.body.append(root);
  const center=createAssetCenter(root,{...ctx,api:async(url,...args)=>url.startsWith('/api/v1/asset-center?')?{items:[],total:0,facets:{},next_offset:null}:ctx.api(url,...args)},{source:'official',canvas:true,workbench:true});
  try{
-  await center.load();await flush();assert.equal(button(root,'AI角色合成库'),undefined);
-  await click(root,'人像颜值库');assert.equal(button(root,'AI角色合成库'),undefined);assert.ok(root.className.includes('ref-portrait'));
+  await center.load();await flush();
+  for(const label of ['服装穿搭库','动作姿势库','人像颜值库','AI角色合成库'])assert.equal(button(root,label),undefined);
+  assert.deepEqual(root.querySelector('.center-official-kinds').querySelectorAll('button').map(b=>b.textContent),['全部','人设','场景','道具','音频']);
  }finally{center.suspend();root.remove();}
 });
 
