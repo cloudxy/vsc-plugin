@@ -263,6 +263,29 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 .center-load-error{margin:12px 0;color:var(--text-3);font-size:13px;text-align:center}
 .ref-load-complete{margin:24px 0;text-align:center;color:var(--text-3);font-size:12px}
 @media(max-width:600px){.asset-center.ref-library .cs-recipe-dock{box-sizing:border-box;width:calc(100vw - 24px);max-width:calc(100vw - 24px);flex-direction:column;gap:8px}.asset-center.ref-library .cs-dock-slots{justify-content:center}.asset-center.ref-library .cs-dock-actions{width:100%}.asset-center.ref-library .cs-dock-actions button{min-height:44px;height:44px;flex:1;padding:0 10px}.asset-center.ref-library .cs-dock-actions .cs-dock-clear{flex:none;width:44px}}
+/* Gallery layout borrowed from ai-pose-gallery-zh: title, pills, rounded search, 2:3 cards. */
+.asset-center.ref-library .ref-page-title{margin:0 0 8px;font-size:24px;line-height:1.3;font-weight:700}
+.asset-center.ref-library .ref-filter-row{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:0;background:transparent}
+.asset-center.ref-library .ref-pills{order:0;flex-basis:auto;margin:0;min-height:32px;gap:8px}
+.asset-center.ref-library .ref-pills button{height:32px;min-height:32px;padding:0 14px;border:0;border-radius:999px;background:#2a2a30;color:#c8c8ce;font-size:13px}
+.asset-center.ref-library .ref-pills button[aria-pressed=true]{background:#f4f4f2;color:#141416}
+.asset-center.ref-library .ref-search-panel{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px;border-radius:22px;background:#1a1a1f}
+.asset-center.ref-library .ref-search-panel label{flex:1 1 160px;min-width:140px;margin:0}
+.asset-center.ref-library .ref-grid{grid-template-columns:repeat(auto-fill,minmax(min(168px,100%),1fr));gap:16px}
+@media(min-width:1100px){.asset-center.ref-library .ref-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.asset-center.ref-library .ref-card{display:flex;flex-direction:column;padding:8px;border-radius:20px;background:#1c1c20;overflow:hidden}
+.asset-center.ref-library .costume-shot,.asset-center.ref-library.ref-portrait .costume-shot{position:relative;aspect-ratio:2/3;border-radius:16px;overflow:hidden;background:#111114}
+.asset-center.ref-library .costume-open{position:relative;display:block;width:100%;height:100%;aspect-ratio:auto}
+.asset-center.ref-library .costume-open img{width:100%;height:100%;object-fit:contain}
+.asset-center.ref-library .ref-id{left:8px;top:8px;font-family:ui-monospace,monospace;font-size:10px;font-weight:700}
+.asset-center.ref-library .ref-badge-right{background:rgba(255,255,255,.92);color:#18181b}
+.asset-center.ref-library .ref-views{top:auto;bottom:40px;left:auto;right:8px}
+.asset-center.ref-library .ref-pick{position:absolute;left:8px;bottom:8px;z-index:2;width:auto;height:28px;min-height:28px;padding:0 10px;border:0;border-radius:8px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;font-weight:600}
+.asset-center.ref-library .ref-pick[aria-pressed=true]{background:#059669;border-color:#059669;color:#fff}
+.asset-center.ref-library .ref-card-copy{display:flex;flex-direction:column;gap:4px;padding:10px 6px 4px}
+.asset-center.ref-library .ref-card h3{margin:0;font-size:12px;line-height:1.4;font-weight:600;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.asset-center.ref-library .ref-tags{display:flex;flex-wrap:wrap;gap:4px}
+.asset-center.ref-library .ref-tags span{padding:1px 6px;border-radius:4px;background:#111114;color:#a1a1aa;font-size:10px}
 .asset-center .official-detail-drawer{width:460px;padding:24px;gap:16px;max-height:none;border-radius:0;top:56px;left:auto;right:0;bottom:0;overscroll-behavior:contain}
 .official-drawer-head{position:sticky;top:-24px;z-index:2;background:var(--surface-2);padding:0 0 12px}
 .official-drawer-head h3{font-size:16px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
@@ -327,3 +350,59 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 @media(max-width:600px){.asset-center.center-workbench-official:not(.center-canvas) .official-list-grid{grid-template-columns:minmax(0,1fr)}}
 .asset-center.center-workbench-official:not(.center-canvas) .official-list-media img[hidden]{display:none}
 .asset-center.center-workbench-official:not(.center-canvas) .official-list-placeholder,.asset-center.center-workbench-official:not(.center-canvas) .official-list-media .center-media-error{position:absolute;inset:0;display:grid;place-items:center;box-sizing:border-box;min-height:0;margin:0;padding:12px;text-align:center;font-size:12px;line-height:18px;color:var(--text-3,#a1a0a3)}
+
+/* Project assets and official assets share one category row and one tool row.
+   Kind switches must not change those heights or the gaps around them. */
+.global-asset-library{--library-row:44px;--library-gap:16px}
+.global-asset-library .global-asset-tabs{box-sizing:border-box;height:auto;min-height:34px;margin:0 0 var(--library-gap)}
+.global-asset-library .global-asset-toolbar{display:grid;grid-template-columns:max-content minmax(0,1fr);grid-template-rows:var(--library-row) var(--library-row);column-gap:12px;row-gap:var(--library-gap);align-items:center;height:calc(var(--library-row) * 2 + var(--library-gap));max-height:calc(var(--library-row) * 2 + var(--library-gap));margin:0 0 var(--library-gap);overflow:hidden}
+.global-asset-library .global-asset-toolbar>select{grid-column:1;grid-row:1;box-sizing:border-box;width:auto;max-width:180px;height:var(--library-row);min-height:0;margin:0;padding:0 8px 0 0;line-height:var(--library-row)}
+.global-asset-library .global-asset-categories{grid-column:2;grid-row:1;box-sizing:border-box;display:flex;align-items:center;flex-wrap:nowrap;gap:4px;height:var(--library-row);min-height:0;min-width:0;margin:0;padding:0 0 0 12px;border-left:1px solid #333;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.global-asset-library .global-asset-categories button{box-sizing:border-box;flex:none;height:var(--library-row);min-height:var(--library-row);margin:0;padding:0 14px}
+.global-asset-library .global-asset-tools{grid-column:1 / -1;grid-row:2;box-sizing:border-box;display:flex;align-items:center;flex-wrap:nowrap;gap:12px;width:auto;height:var(--library-row);min-height:0;min-width:0;margin:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.global-asset-library .global-asset-tools .global-asset-count{flex:none;margin:0}
+.global-asset-library .global-asset-status{flex:1 1 auto;min-width:0;min-height:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:var(--library-row)}
+.global-asset-library .global-asset-status:empty{display:none}
+.global-asset-library .global-asset-toolbar .global-asset-tools input{box-sizing:border-box;flex:1 1 180px;width:auto;min-width:150px;max-width:400px;height:var(--library-row);margin:0;padding:0 12px}
+.global-asset-library .global-asset-batch{flex:none;margin-left:auto}
+.global-asset-library .global-asset-batch>button{box-sizing:border-box;height:var(--library-row);margin:0;padding:0 12px}
+.global-asset-library .asset-center.center-workbench-official .center-official-filters{display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:var(--library-gap);box-sizing:border-box;height:calc(var(--library-row) * 2 + var(--library-gap));max-height:calc(var(--library-row) * 2 + var(--library-gap));margin:0 0 var(--library-gap);overflow:hidden}
+.global-asset-library .asset-center.center-workbench-official .center-official-kinds{flex:none;box-sizing:border-box;height:var(--library-row);min-height:var(--library-row);max-height:var(--library-row);margin:0;padding:0;overflow-x:auto;overflow-y:hidden}
+.global-asset-library .asset-center.center-workbench-official .center-official-kinds button{box-sizing:border-box;height:var(--library-row);min-height:var(--library-row);margin:0}
+.global-asset-library .center-workbench-official .center-official-filter-row{flex:none;flex-wrap:nowrap;box-sizing:border-box;height:var(--library-row);min-height:var(--library-row);max-height:var(--library-row);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.global-asset-library .asset-center.center-workbench-official .center-official-filter-row label,
+.global-asset-library .asset-center.center-workbench-official .center-official-filter-row label:has(input[type=search]){flex:0 0 140px;height:var(--library-row);max-width:none;min-width:120px;overflow:hidden}
+.global-asset-library .asset-center.center-workbench-official .center-official-filter-row label:has(input[type=search]){flex:1 1 220px;max-width:400px;min-width:180px}
+.global-asset-library .asset-center.ref-library .ref-pills{flex:1 0 160px;align-items:center;height:var(--library-row);min-height:0;max-height:var(--library-row);margin:0;padding:0;overflow-x:auto;overflow-y:hidden}
+.global-asset-library .asset-center.ref-library .ref-pills button{height:36px;min-height:36px;margin:0}
+.global-asset-library .center-official-filter-row>.cs-history-toolbar{display:flex;flex:1 1 auto;flex-wrap:nowrap;align-items:center;gap:12px;width:100%;height:var(--library-row);min-height:0;min-width:0;margin:0;overflow:hidden}
+.global-asset-library .center-official-filter-row>.cs-history-toolbar input{box-sizing:border-box;flex:1 1 220px;width:auto;max-width:400px;min-width:160px;height:var(--library-row);min-height:0;margin:0}
+.global-asset-library .center-official-filter-row>.cs-history-toolbar button,
+.global-asset-library .center-official-filter-row>.cs-history-toolbar summary{margin:0}
+@media(max-width:760px){
+ .global-asset-library .asset-center.center-workbench-official .center-official-filter-row label,
+ .global-asset-library .asset-center.center-workbench-official .center-official-filter-row label:has(input[type=search]){flex:0 0 140px;max-width:none;min-width:120px}
+ .global-asset-library .asset-center.center-workbench-official .center-official-filter-row label:has(input[type=search]){flex-basis:180px}
+ .global-asset-library .center-workbench-official .center-official-kinds button{height:var(--library-row);min-height:var(--library-row)}
+}
+@media(max-width:700px){
+ .global-asset-library .global-asset-toolbar>select{flex-basis:auto;width:auto;max-width:140px}
+ .global-asset-library .global-asset-categories{flex-basis:auto;padding-left:12px;border-left:1px solid #333}
+ .global-asset-library .global-asset-tools{flex:1 1 auto;flex-wrap:nowrap;margin-left:0}
+}
+@media(max-width:600px){
+ .global-asset-library .asset-center.ref-library .ref-pills button{height:36px;min-height:36px}
+ .global-asset-library .center-official-filter-row>.cs-history-toolbar{flex-wrap:nowrap}
+ .global-asset-library .center-official-filter-row>.cs-history-toolbar input{flex-basis:180px;max-width:400px;width:auto}
+}
+
+/* Reference libraries follow the pose-gallery page: 2:3 frame, pills, overlay pick. */
+.asset-center.ref-library.center-workbench-official:not(.center-canvas){--official-cover-ratio:2/3;--official-card-min:168px;--official-card-radius:16px;--official-row-gap:16px}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .ref-card.official-list-card{padding:8px;border-radius:20px;background:#1c1c20;overflow:hidden}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .costume-shot.official-list-media{aspect-ratio:2/3;border-radius:16px;background:#111114}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .official-list-media>.costume-open{height:100%;border-radius:0;background:transparent}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .official-list-media>.ref-pick{position:absolute;left:8px;bottom:8px;z-index:2;flex:none;width:auto;height:28px;min-height:28px;padding:0 10px;border:0;border-radius:8px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;font-weight:600}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .official-list-media>.ref-pick[aria-pressed=true]{background:#059669;color:#fff}
+.asset-center.center-workbench-official:not(.center-canvas) .cs-history-item.official-list-card{padding:8px;border-radius:20px;background:#1c1c20;overflow:hidden}
+.asset-center.center-workbench-official:not(.center-canvas) .cs-history-library .cs-history-img.official-list-media{aspect-ratio:2/3;border-radius:16px;background:#111114}
+.asset-center .cs-history-toolbar{box-sizing:border-box;padding:12px;border-radius:22px;background:#1a1a1f}

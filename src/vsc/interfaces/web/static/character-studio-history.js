@@ -11,7 +11,7 @@ function select(options,value,onChange,{label=''}={}){
 }
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
 
-export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
+export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent}={}){
  let disposed=false,unsub=null,grid=null,count=null,clear=null,search=null,note=null,query='',lastHistory=null,lastHydrated=null,lastError=null,lastPublicationTask=null;
  const notice=message=>ctx.notice?.(message),dialogs=new Set();
  let viewEpoch=0;
@@ -20,9 +20,16 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
   return Number.isNaN(d.getTime())?'合成角色':`合成角色 · ${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
  };
  const engine=h=>PROVIDER_META[h.provider]?.shortName||h.provider||'AI生成';
+ const historyMenus=()=>{
+  const seen=new Set(),found=[];
+  for(const scope of toolbarParent&&toolbarParent!==root?[toolbarParent,root]:[root]){
+   for(const menu of scope.querySelectorAll('.cs-history-menu'))if(!seen.has(menu)){seen.add(menu);found.push(menu);}
+  }
+  return found;
+ };
  function closeMenus(keep=null,restoreFocus=false){
   let trigger=null;
-  for(const menu of root.querySelectorAll('.cs-history-menu')){
+  for(const menu of historyMenus()){
    if(menu===keep||!menu.open)continue;
    menu.open=false;trigger=menu.querySelector('summary');trigger?.setAttribute('aria-expanded','false');
   }
@@ -30,7 +37,7 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
   return Boolean(trigger);
  }
  function dismissOutside(event){
-  for(const menu of root.querySelectorAll('.cs-history-menu'))if(menu.open&&!menu.contains(event.target)){
+  for(const menu of historyMenus())if(menu.open&&!menu.contains(event.target)){
    menu.open=false;menu.querySelector('summary')?.setAttribute('aria-expanded','false');
   }
  }
@@ -238,7 +245,8 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
     ['清空全部记录',()=>{if(confirm('确定清空当前浏览器中的全部合成记录及参考快照？此操作无法撤销。'))return store.clearHistory();},'cs-history-delete'],
    ]);clear=more.buttons[0];
    actions.append(action('生成角色图',()=>onCompose?.(),'cs-primary'),more.node);toolbar.append(search,count,actions);
-   grid=el('div','cs-history official-list-grid');note=el('p','cs-history-note');root.append(toolbar,grid,note);
+   grid=el('div','cs-history official-list-grid');note=el('p','cs-history-note');
+   (toolbarParent||root).append(toolbar);root.append(grid,note);
    window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);menuListeners(true);unsub=store.subscribe(()=>render());render(true);
   },
   suspend(){viewEpoch++;disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},

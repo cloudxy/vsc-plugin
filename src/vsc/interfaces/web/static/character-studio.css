@@ -137,16 +137,18 @@ dialog.cs-dialog.cs-publication{width:min(520px,94vw)}
 /* SDLC designer's compact gallery; isolate the enclosing asset-center defaults. */
 .cs-history-library{padding:0 0 24px;--history-gap:16px;--history-radius:12px;--history-control:44px}
 .cs-history-heading{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.cs-history-library .cs-history-heading{position:static!important;width:auto;height:auto;margin:0 0 12px;overflow:visible;clip-path:none;font-size:24px;line-height:1.3;font-weight:700;white-space:normal}
 .cs-history-toolbar{display:flex;align-items:center;gap:12px;margin:0 0 24px;min-width:0}
 .character-studio.cs-history-library .cs-history-toolbar input{flex:1;max-width:400px;min-width:0;min-height:var(--history-control);border-radius:var(--history-radius)}
 .cs-history-count,.cs-history-note{color:var(--text-3,#a1a0a3);font-size:12px;line-height:1.5}
 .cs-history-count{white-space:nowrap}
 .cs-history-toolbar-actions{margin-left:auto;flex-wrap:nowrap}
-.cs-history-library .cs-history{grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:24px var(--history-gap);align-items:start}
-.asset-center .cs-history-library .cs-history-item{padding:0;margin:0;border:0;border-radius:0;background:transparent;min-width:0;overflow:visible}
+.cs-history-library .cs-history{grid-template-columns:repeat(auto-fill,minmax(min(168px,100%),1fr));gap:16px;align-items:start}
+.asset-center .cs-history-library .cs-history-item{display:flex;flex-direction:column;padding:8px;margin:0;border:0;border-radius:20px;background:#1c1c20;min-width:0;overflow:hidden}
 .asset-center .cs-history-library button{margin:0}
-.asset-center .cs-history-library .cs-history-img{display:block;width:100%;height:auto;min-height:0;padding:0;margin:0;border:0;aspect-ratio:auto;border-radius:var(--history-radius);overflow:hidden;background:var(--surface-2,#131313)}
-.asset-center .cs-history-library .cs-history-img img{display:block;width:100%;height:auto;max-height:none;aspect-ratio:auto;object-fit:contain}
+.asset-center .cs-history-library .cs-history-img{display:block;width:100%;height:100%;min-height:0;padding:0;margin:0;border:0;aspect-ratio:2/3;border-radius:16px;overflow:hidden;background:#111114}
+.asset-center .cs-history-library .cs-history-img img{display:block;width:100%;height:100%;max-height:none;aspect-ratio:auto;object-fit:contain}
+.cs-history-library .cs-history-toolbar{padding:12px;border-radius:22px;background:#1a1a1f}
 .cs-history-library .cs-history-meta{padding:12px 0 0;gap:4px}
 .cs-history-meta h3{font-size:14px;line-height:1.5;font-weight:500;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cs-history-library .cs-history-meta small{font-size:12px;line-height:1.5;color:var(--text-3,#a1a0a3)}

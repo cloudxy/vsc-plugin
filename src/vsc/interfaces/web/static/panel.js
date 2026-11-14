@@ -602,6 +602,9 @@ async function switchView(view, focus = null) {
   document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('object-production',['workbench','candidates','delivery','designs','library'].includes(view)));
   if($('specialist-tools'))$('specialist-tools').open=false;
   for(const key of navViews){const link=$(`nav-${key}`);if(!link)continue;link.href='?'+new URLSearchParams({page:key,...(!['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)&&state.project?{project:state.project}:{}),...(!['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)&&state.object?{scope:state.object}:{})});if(key===state.primary || key==='projects'&&['project','production'].includes(state.primary))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+  const referenceKind=state.view==='asset-center'?currentEntry().get('kind')||'':'';
+  for(const [kind,id] of [['costume','nav-ref-costume'],['pose','nav-ref-pose'],['portrait','nav-ref-portrait'],['composite','nav-ref-composite']]){const link=$(id);if(!link)continue;if(referenceKind===kind)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+  if(['costume','pose','portrait','composite'].includes(referenceKind))$('nav-asset-center')?.removeAttribute('aria-current');
   if(!assisted)syncRoute();
   if(view!=='source')sourceIntake?.suspend();if(view!=='designs')designWorkspace?.suspend();if(view!=='library')resourceLibrary?.suspend();
   document.querySelectorAll('.workspace').forEach(node=>{node.classList.toggle('reading-artifacts',view==='artifacts');node.classList.toggle('reading-production',['source','designs','library'].includes(view));});
@@ -1038,7 +1041,8 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const key of navViews)$(`nav-${key}`)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)){state.project=null;state.object=null;episodeScope=null;}await switchView(key);}));
+for(const key of navViews)$(`nav-${key}`)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)){state.project=null;state.object=null;episodeScope=null;}if(key==='asset-center'&&typeof window!=='undefined'){const route=currentEntry();route.set('page','asset-center');route.delete('kind');route.delete('tab');window.history.replaceState(null,'','?'+route);}await switchView(key);}));
+for(const [id,kind] of [['nav-ref-costume','costume'],['nav-ref-pose','pose'],['nav-ref-portrait','portrait'],['nav-ref-composite','composite']])$(id)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await navigateStandalone('asset-center',{tab:'official',kind});}));
 $('api-settings-open')?.addEventListener('click',guard(async()=>{closeHelp();await navigateStandalone('api-settings');}));
 $('back-to-desk').addEventListener('click',guard(()=>switchView(episodeScope?'production':state.primary)));
 if($('specialist-tools'))$('specialist-tools').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();$('specialist-tools').open=false;$('specialist-tools').querySelector('summary').focus();}});

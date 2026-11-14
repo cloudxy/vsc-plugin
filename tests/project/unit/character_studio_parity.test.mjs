@@ -140,6 +140,7 @@ test('AI composite library follows portraits and owns existing, live, filtered a
   const tabs=root.querySelector('.center-official-kinds').querySelectorAll('button').map(b=>b.textContent);
   assert.equal(tabs[tabs.indexOf('人像颜值库')+1],'AI角色合成库');
   assert.equal(button(root,'AI角色合成库').getAttribute('aria-pressed'),'true');
+  assert.equal(root.querySelector('.center-official-filter-row').contains(root.querySelector('.cs-history-toolbar')), true);
   assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,old.imageUrl);
   assert.equal(store.getState().history[0],old);
   await click(root,'查看详情');const detail=doc.body.querySelector('.cs-history-detail');assert.ok(detail.textContent.includes(old.recipeSummary));assert.ok(detail.textContent.includes(old.prompt));

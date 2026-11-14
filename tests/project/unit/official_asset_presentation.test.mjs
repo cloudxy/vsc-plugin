@@ -183,7 +183,7 @@ test('official and source-specific category strips retain their position across 
  });
  const tabs=view.root.querySelector('.center-official-kinds');tabs.scrollLeft=320;
  await button(view.root,'服装穿搭库').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,320);
- const costumePills=view.root.querySelector('.ref-pills');costumePills.scrollLeft=410;
+ const costumePills=view.root.querySelector('.ref-pills');assert.equal(view.root.querySelector('.center-official-filter-row').contains(costumePills),true);costumePills.scrollLeft=410;
  const chosen=costumePills.children[12];chosen.focus();await chosen.onclick();
  assert.equal(view.root.querySelector('.ref-pills'),costumePills);assert.equal(costumePills.scrollLeft,410);assert.equal(doc.activeElement,chosen);
  tabs.scrollLeft=460;await button(view.root,'人像颜值库').onclick();
