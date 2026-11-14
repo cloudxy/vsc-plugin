@@ -135,3 +135,65 @@ test('initial failure leaves a visible retry state instead of a permanent loadin
  assert.equal(view.root.querySelector('.center-grid').getAttribute('aria-busy'),'false');
  await button(view.root,'重新读取').onclick();assert.equal(view.root.querySelectorAll('.center-card').length,1);view.cleanup();
 });
+
+test('official and source-specific category strips retain their position across categories, filtering and history',async()=>{
+ const categoryNames=Array.from({length:18},(_,i)=>'分类'+i);
+ const view=await mount('',async(url)=>{
+  if(url.includes('/pose-gallery/'))return {items:[],total:0,next_offset:null,categories:categoryNames.map(name=>({name,count:1})),tops:[],sources:[],tags:[],sections:[],hair_lengths:[{name:'长发',count:1}],hair_styles:[],systems:[],angles:[]};
+  return {items:[official('one')],total:1,next_offset:null};
+ });
+ const tabs=view.root.querySelector('.center-official-kinds');tabs.scrollLeft=320;
+ await button(view.root,'服装穿搭库').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,320);
+ const costumePills=view.root.querySelector('.ref-pills');costumePills.scrollLeft=410;
+ const chosen=costumePills.children[12];chosen.focus();await chosen.onclick();
+ assert.equal(view.root.querySelector('.ref-pills'),costumePills);assert.equal(costumePills.scrollLeft,410);assert.equal(doc.activeElement,chosen);
+ tabs.scrollLeft=460;await button(view.root,'人像颜值库').onclick();
+ const portraitPills=view.root.querySelector('.ref-pills');assert.notEqual(portraitPills,costumePills);assert.equal(portraitPills.scrollLeft,0);portraitPills.scrollLeft=95;
+ await button(view.root,'AI角色合成库').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,460);
+ await button(view.root,'服装穿搭库').onclick();assert.equal(view.root.querySelector('.ref-pills'),costumePills);assert.equal(costumePills.scrollLeft,410);assert.equal(tabs.scrollLeft,460);
+ await button(view.root,'全部').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,460);view.cleanup();
+});
+
+test('initial deep links reveal only the horizontal strip and later clicks keep its position and focus',async()=>{
+ const width=Object.getOwnPropertyDescriptor(Element.prototype,'clientWidth'),rect=Element.prototype.getBoundingClientRect,scroll=Element.prototype.scrollIntoView;
+ let outerScrollCalls=0;
+ Object.defineProperty(Element.prototype,'clientWidth',{configurable:true,get(){return this.classList.contains('center-official-kinds')?200:0;}});
+ Element.prototype.getBoundingClientRect=function(){return this.classList.contains('center-official-kinds')?{left:0,right:200}:{left:this.dataset.kind==='portrait'?600:0,right:this.dataset.kind==='portrait'?700:100};};
+ Element.prototype.scrollIntoView=()=>{outerScrollCalls++;};
+ let view;
+ try{
+  view=await mount('portrait',async()=>({items:[],total:0,next_offset:null,sections:[],hair_lengths:[],hair_styles:[]}));
+  const tabs=view.root.querySelector('.center-official-kinds');assert.equal(tabs.scrollLeft,500);assert.equal(outerScrollCalls,0);
+  tabs.scrollLeft=360;const all=button(view.root,'全部');all.focus();await all.onclick();assert.equal(tabs.scrollLeft,360);assert.equal(doc.activeElement,all);assert.equal(outerScrollCalls,0);
+ }finally{
+  view?.cleanup();if(width)Object.defineProperty(Element.prototype,'clientWidth',width);else delete Element.prototype.clientWidth;
+  if(rect)Element.prototype.getBoundingClientRect=rect;else delete Element.prototype.getBoundingClientRect;
+  if(scroll)Element.prototype.scrollIntoView=scroll;else delete Element.prototype.scrollIntoView;
+ }
+});
+
+test('reused category controls allow returning to a still-pending category and ignore its older response',async()=>{
+ let finishKind,finishPill,kindCalls=0,pillCalls=0;
+ const data={items:[],total:0,next_offset:null,categories:[{name:'后部分类',count:1},{name:'相邻分类',count:1}],tops:[],sources:[],tags:[],sections:[],hair_lengths:[],hair_styles:[]};
+ const view=await mount('',async(url,q)=>{
+  if(url.includes('/costumes')){
+   if(q.get('category')==='后部分类'&&++pillCalls===1)return new Promise(resolve=>{finishPill=()=>resolve(data);});
+   if(!q.get('category')&&++kindCalls===1)return new Promise(resolve=>{finishKind=()=>resolve(data);});
+   return data;
+  }
+  return url.includes('/pose-gallery/')?data:{items:[official('initial')],total:1,next_offset:null};
+ });
+ try{
+  const tabs=view.root.querySelector('.center-official-kinds');tabs.scrollLeft=320;
+  const first=button(view.root,'服装穿搭库').onclick();await settle();
+  await button(view.root,'人像颜值库').onclick();await button(view.root,'服装穿搭库').onclick();
+  assert.equal(kindCalls,2,'return click must start the current request while its first request is pending');
+  finishKind();await first;assert.equal(tabs.scrollLeft,320);
+  const pills=view.root.querySelector('.ref-pills');pills.scrollLeft=410;
+  const target=pills.children[1],neighbor=pills.children[2];
+  const pending=target.onclick();await settle();await neighbor.onclick();await target.onclick();
+  assert.equal(pillCalls,2,'a reused pill must not keep the busy state of its obsolete request');
+  finishPill();await pending;
+  assert.equal(view.root.querySelector('.ref-pills'),pills);assert.equal(pills.scrollLeft,410);assert.equal(target.getAttribute('aria-pressed'),'true');
+ }finally{finishKind?.();finishPill?.();view.cleanup();}
+});
