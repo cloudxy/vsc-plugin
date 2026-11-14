@@ -41,24 +41,24 @@ function setup({workspace='team-a',identity=true,hook}={}){
 
 test('explicit task area renders only its controls and retains accessible navigation',async()=>{
  const h=setup();await h.panel.load({area:'account'});assert.equal(h.root.querySelector('h1').textContent,'账户设置');assert.ok(input(h,'显示名称'));assert.equal(input(h,'新团队名称'),undefined);assert.equal(h.calls.some(c=>c.url.includes('/resources?')||c.url.includes('creative-canvases')),false);
- assert.equal(h.root.querySelector('nav').getAttribute('aria-label'),'账户与团队分区');await click(h,'团队与项目归属');assert.equal(h.root.querySelector('h1').textContent,'团队与项目归属');assert.ok(input(h,'新团队名称'));assert.equal(select(h,'当前空间'),undefined);assert.match(h.root.textContent,/个人 · Alice/);assert.match(h.root.textContent,/账户注销后，项目归属及历史记录继续保留/);assert.doesNotMatch(h.root.textContent,/当前空间|未归属/);h.panel.suspend();
+ assert.equal(h.root.querySelector('nav').getAttribute('aria-label'),'账户与团队分区');await click(h,'团队管理');assert.equal(h.root.querySelector('h1').textContent,'团队管理');assert.equal(input(h,'新团队名称'),undefined);assert.ok(button(h,'新建团队'));assert.doesNotMatch(h.root.textContent,/个人 · Alice|个人项目归属于/);await click(h,'项目协作');assert.equal(select(h,'当前空间'),undefined);assert.match(h.root.textContent,/个人 · Alice/);assert.match(h.root.textContent,/账户注销后，项目归属及历史记录继续保留/);assert.doesNotMatch(h.root.textContent,/当前空间|未归属/);h.panel.suspend();
 });
 
 test('personal workspace hides new workspace invitations but project invitations stay available',async()=>{
  const h=setup({workspace:'personal'});h.data.members=[{workspace_id:'personal',identity_id:'legacy',display_name:'历史成员',scope_name:'个人空间',role:'viewer',active:true}];await h.panel.load({area:'members',team:'personal'});assert.equal(button(h,'创建一次邀请'),undefined);assert.match(h.root.textContent,/已有成员记录保留/);assert.match(h.root.textContent,/历史成员/);
- await h.panel.load({area:'members',project:'p-personal'});assert.deepEqual(select(h,'成员所属范围').options.map(o=>o.value),['project:p-personal']);await click(h,'创建一次邀请');const call=h.posts().find(c=>c.url.endsWith('/commands/invitation'));assert.equal(call.body.payload.scope,'project');assert.equal(call.body.payload.scope_id,'p-personal');assert.equal(call.body.payload.role,'editor');h.panel.suspend();
+ await h.panel.load({area:'members',project:'p-personal'});assert.equal(select(h,'成员所属范围'),undefined);assert.match(h.root.textContent,/项目：个人项目/);await click(h,'创建一次邀请');const call=h.posts().find(c=>c.url.endsWith('/commands/invitation'));assert.equal(call.body.payload.scope,'project');assert.equal(call.body.payload.scope_id,'p-personal');assert.equal(call.body.payload.role,'editor');h.panel.suspend();
 });
 
 test('creating a team displays its details without changing the session or repeating the command',async()=>{
- const waiting=deferred();const h=setup({hook:async c=>{if(c.url.endsWith('/commands/workspace'))return waiting.promise;}});await h.panel.load({area:'workspace'});const name=input(h,'新团队名称');name.value='新团队';name.oninput();const b=button(h,'创建团队'),first=b.onclick();await settle();await b.onclick();assert.equal(h.posts().filter(c=>c.url.endsWith('/commands/workspace')).length,1);h.data.workspaces.push({id:'team-new',name:'新团队',kind:'studio',roles:['owner'],manageable:true,project_count:0});waiting.resolve({workspace_id:'team-new',access_revision:9});await first;assert.equal(h.current().workspaceId,'team-a');assert.equal(h.sessions.length,0);assert.equal(h.calls.some(c=>c.url.includes('switch-workspace')),false);assert.equal(select(h,'要管理的团队').value,'team-new');assert.match(h.root.textContent,/团队 · 新团队/);h.panel.suspend();
+ const waiting=deferred();const h=setup({hook:async c=>{if(c.url.endsWith('/commands/workspace'))return waiting.promise;}});await h.panel.load({area:'workspace'});await click(h,'新建团队');const name=input(h,'新团队名称');name.value='新团队';name.oninput();const b=button(h,'创建团队'),first=b.onclick();await settle();await b.onclick();assert.equal(h.posts().filter(c=>c.url.endsWith('/commands/workspace')).length,1);h.data.workspaces.push({id:'team-new',name:'新团队',kind:'studio',roles:['owner'],manageable:true,project_count:0});waiting.resolve({workspace_id:'team-new',access_revision:9});await first;assert.equal(h.current().workspaceId,'team-a');assert.equal(h.sessions.length,0);assert.equal(h.calls.some(c=>c.url.includes('switch-workspace')),false);assert.equal(h.root.querySelector('h1').textContent,'团队 · 新团队');assert.match(h.root.textContent,/团队 · 新团队/);h.panel.suspend();
 });
 
 test('successful team creation survives detail read failure without creating another team',async()=>{
- let committed=false,fail=true;const h=setup({hook:async c=>{if(c.url.endsWith('/commands/workspace'))committed=true;if(c.url==='/api/v1/access'&&committed&&fail){fail=false;throw Error('detail offline');}}});await h.panel.load({area:'workspace'});const name=input(h,'新团队名称');name.value='保留团队';name.oninput();await click(h,'创建团队');assert.ok(h.notices.includes('detail offline'));await click(h,'创建团队');assert.equal(h.posts().filter(c=>c.url.endsWith('/commands/workspace')).length,1);assert.equal(h.current().workspaceId,'team-a');assert.equal(h.sessions.length,0);assert.equal(select(h,'要管理的团队').value,'team-new');h.panel.suspend();
+ let committed=false,fail=true;const h=setup({hook:async c=>{if(c.url.endsWith('/commands/workspace'))committed=true;if(c.url==='/api/v1/access'&&committed&&fail){fail=false;throw Error('detail offline');}}});await h.panel.load({area:'workspace'});await click(h,'新建团队');const name=input(h,'新团队名称');name.value='保留团队';name.oninput();await click(h,'创建团队');assert.ok(h.notices.includes('detail offline'));await click(h,'创建团队');assert.equal(h.posts().filter(c=>c.url.endsWith('/commands/workspace')).length,1);assert.equal(h.current().workspaceId,'team-a');assert.equal(h.sessions.length,0);assert.equal(h.root.querySelector('h1').textContent,'团队 · 保留团队');h.panel.suspend();
 });
 
 test('invitation preview defaults to current identity and joins the named project',async()=>{
- const h=setup();await h.panel.load({area:'workspace',invite:'invite-one'});await settle();assert.match(h.root.textContent,/项目 · 乙项目/);assert.match(h.root.textContent,/加入角色：编辑成员/);assert.equal(select(h,'加入时使用的账户').value,'current');assert.equal(input(h,'新账户显示名称').parentElement.hidden,true);await click(h,'确认接受此邀请');const call=h.posts().find(c=>c.url.endsWith('/join'));assert.equal(call.body.use_current_identity,true);assert.equal(call.body.display_name,'Alice');assert.equal(h.root.querySelector('h1').textContent,'项目协作者');assert.deepEqual(select(h,'成员所属范围').options.map(o=>o.value),['project:p-b']);assert.equal(h.navigations.length,0);h.panel.suspend();
+ const h=setup();await h.panel.load({area:'workspace',invite:'invite-one'});await settle();assert.match(h.root.textContent,/项目 · 乙项目/);assert.match(h.root.textContent,/加入角色：编辑成员/);assert.equal(select(h,'加入时使用的账户').value,'current');assert.equal(input(h,'新账户显示名称').parentElement.hidden,true);await click(h,'确认接受此邀请');const call=h.posts().find(c=>c.url.endsWith('/join'));assert.equal(call.body.use_current_identity,true);assert.equal(call.body.display_name,'Alice');assert.equal(h.root.querySelector('h1').textContent,'项目协作者');assert.equal(select(h,'成员所属范围'),undefined);assert.match(h.root.textContent,/项目：乙项目/);assert.equal(h.navigations.length,0);h.panel.suspend();
 });
 
 test('changed invitation credentials invalidate approval and late preview cannot re-enable join',async()=>{
@@ -74,7 +74,7 @@ for(const revoke of [false,true])test(`team removal shows named retained grants 
 });
 
 test('migration renders actual named access and links, and target changes discard its confirmation',async()=>{
- const h=setup();await h.panel.load({area:'workspace'});const destination=select(h,'目标归属');destination.value='team-b';await click(h,'预览归属变化');assert.match(h.root.textContent,/Bob · 失去访问/);assert.match(h.root.textContent,/Carol · 新增访问/);assert.match(h.root.textContent,/保留项目直接授权：Dana/);assert.match(h.root.textContent,/甲画布 · 实时画布协作/);destination.value='personal';destination.onchange();assert.equal(button(h,'确认按此预览迁移'),undefined);assert.equal(h.posts().some(c=>c.url.endsWith('/commands/assign-project')),false);h.panel.suspend();
+ const h=setup();await h.panel.load({area:'transfer',project:'p-a'});const destination=select(h,'目标归属');destination.value='team-b';await click(h,'预览归属变化');assert.match(h.root.textContent,/Bob · 失去访问/);assert.match(h.root.textContent,/Carol · 新增访问/);assert.match(h.root.textContent,/保留项目直接授权：Dana/);assert.match(h.root.textContent,/甲画布 · 实时画布协作/);destination.value='personal';destination.onchange();assert.equal(button(h,'确认按此预览迁移'),undefined);assert.equal(h.posts().some(c=>c.url.endsWith('/commands/assign-project')),false);h.panel.suspend();
 });
 
 test('sharing is scoped to the requested canvas and explains fixed versus later editable content',async()=>{
@@ -90,7 +90,7 @@ test('unknown mutation outcome recovers the original request and retains later u
 });
 
 test('team invitation opens target members without a current-space switch',async()=>{
- const h=setup({hook:async c=>{if(c.url.endsWith('/join'))return {actor:'alice',csrf:'new-csrf',workspaceId:'personal',joined_workspace_id:'team-b',joined_project_id:null,target_name:'乙团队'};}});await h.panel.load({invite:'team-invite'});await settle();await click(h,'确认接受此邀请');assert.equal(select(h,'成员所属范围').value,'workspace:team-b');assert.equal(h.calls.some(c=>c.url.includes('switch-workspace')),false);assert.equal(h.navigations.length,0);h.panel.suspend();
+ const h=setup({hook:async c=>{if(c.url.endsWith('/join'))return {actor:'alice',csrf:'new-csrf',workspaceId:'personal',joined_workspace_id:'team-b',joined_project_id:null,target_name:'乙团队'};}});await h.panel.load({invite:'team-invite'});await settle();await click(h,'确认接受此邀请');assert.equal(select(h,'成员所属范围'),undefined);assert.equal(h.root.querySelector('h1').textContent,'团队 · 乙团队');assert.equal(h.calls.some(c=>c.url.includes('switch-workspace')),false);assert.equal(h.navigations.length,0);h.panel.suspend();
 });
 
 test('uncertain invitation acceptance retries the same credential and blocks changing account',async()=>{
@@ -98,7 +98,7 @@ test('uncertain invitation acceptance retries the same credential and blocks cha
 });
 
 test('late migration preview does not restore confirmation after target changes',async()=>{
- const preview=deferred();const h=setup({hook:async c=>{if(c.url.endsWith('/access-migration-preview'))return preview.promise;}});await h.panel.load({area:'workspace'});const destination=select(h,'目标归属');destination.value='team-b';const loading=click(h,'预览归属变化');await settle();destination.value='personal';destination.onchange();preview.resolve({sha256:'stale',plan:{from_workspace_id:'team-a',to_workspace_id:'team-b',effect:'旧影响'}});await loading;assert.doesNotMatch(h.root.textContent,/旧影响/);assert.equal(button(h,'确认按此预览迁移'),undefined);h.panel.suspend();
+ const preview=deferred();const h=setup({hook:async c=>{if(c.url.endsWith('/access-migration-preview'))return preview.promise;}});await h.panel.load({area:'transfer',project:'p-a'});const destination=select(h,'目标归属');destination.value='team-b';const loading=click(h,'预览归属变化');await settle();destination.value='personal';destination.onchange();preview.resolve({sha256:'stale',plan:{from_workspace_id:'team-a',to_workspace_id:'team-b',effect:'旧影响'}});await loading;assert.doesNotMatch(h.root.textContent,/旧影响/);assert.equal(button(h,'确认按此预览迁移'),undefined);h.panel.suspend();
 });
 
 test('completed share keeps its receipt when the selected mode changes during submission',async()=>{
@@ -106,7 +106,10 @@ test('completed share keeps its receipt when the selected mode changes during su
 });
 
 test('team management selection only changes its view and shares still include every authorized project',async()=>{
- const h=setup(),switches=[];h.ctx.switchWorkspace=async id=>switches.push(id);await h.panel.load({area:'workspace'});const team=select(h,'要管理的团队');team.value='team-b';await team.onchange();assert.equal(select(h,'要管理的团队').value,'team-b');assert.match(h.root.textContent,/团队 · 乙团队/);assert.deepEqual(switches,[]);assert.equal(h.sessions.length,0);assert.equal(h.posts().length,0);assert.equal(h.current().workspaceId,'team-a');await h.panel.load({area:'share',team:'team-b'});await settle();assert.deepEqual(select(h,'分享项目').options.map(o=>o.value),['p-a','p-b','p-personal']);h.panel.suspend();
+ const h=setup(),switches=[];h.ctx.switchWorkspace=async id=>switches.push(id);await h.panel.load({area:'workspace'});
+ const card=h.root.querySelectorAll('.access-team-card').find(card=>card.textContent.includes('乙团队'));await card.querySelector('button').onclick();
+ assert.equal(h.root.querySelector('h1').textContent,'团队 · 乙团队');assert.match(h.root.textContent,/乙项目/);assert.doesNotMatch(h.root.textContent,/甲项目|个人项目归属于/);
+ assert.deepEqual(switches,[]);assert.equal(h.sessions.length,0);assert.equal(h.posts().length,0);assert.equal(h.current().workspaceId,'team-a');await h.panel.load({area:'share',team:'team-b'});await settle();assert.deepEqual(select(h,'分享项目').options.map(o=>o.value),['p-a','p-b','p-personal']);h.panel.suspend();
 });
 
 test('a late forbidden snapshot cannot erase a newer task snapshot',async()=>{
@@ -118,13 +121,71 @@ test('share success with refresh failure recovers its link without resending the
 });
 
 test('team members default to a team, while active legacy personal members retain explicit role management',async()=>{
- const h=setup({workspace:'personal'});h.data.members=[{workspace_id:'personal',identity_id:'legacy',display_name:'历史成员',scope_name:'个人归属',role:'viewer',active:true},{workspace_id:'personal',identity_id:'removed',display_name:'已移除成员',scope_name:'个人归属',role:'viewer',active:false}];await h.panel.load({area:'members'});assert.equal(select(h,'成员所属范围').value,'workspace:team-a');await h.panel.load({area:'members',team:'personal'});assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(button(h,'恢复此成员').disabled,true);const role=h.root.querySelectorAll('select').find(node=>node.getAttribute('aria-label')?.includes('历史成员'));assert.equal(role.disabled,false);role.value='editor';await click(h,'保存此成员角色');const command=h.posts().find(c=>c.url.endsWith('/commands/member'));assert.equal(command.body.payload.scope,'workspace');assert.equal(command.body.payload.scope_id,'personal');assert.equal(command.body.payload.role,'editor');assert.equal(command.body.payload.active,true);h.panel.suspend();
+ const h=setup({workspace:'personal'});h.data.members=[{workspace_id:'personal',identity_id:'legacy',display_name:'历史成员',scope_name:'个人归属',role:'viewer',active:true},{workspace_id:'personal',identity_id:'removed',display_name:'已移除成员',scope_name:'个人归属',role:'viewer',active:false}];await h.panel.load({area:'members'});assert.equal(select(h,'成员所属范围').value,'workspace:team-a');await h.panel.load({area:'members',team:'personal'});assert.equal(select(h,'成员所属范围'),undefined);assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(button(h,'恢复此成员').disabled,true);const role=h.root.querySelectorAll('select').find(node=>node.getAttribute('aria-label')?.includes('历史成员'));assert.equal(role.disabled,false);role.value='editor';await click(h,'保存此成员角色');const command=h.posts().find(c=>c.url.endsWith('/commands/member'));assert.equal(command.body.payload.scope,'workspace');assert.equal(command.body.payload.scope_id,'personal');assert.equal(command.body.payload.role,'editor');assert.equal(command.body.payload.active,true);h.panel.suspend();
 });
 
 test('personal ownership uses the durable owner identity rather than the viewing account',async()=>{
- const h=setup();h.data.workspaces[0].owner_name='xuyun';h.data.workspaces[0].owner_actor='xuyun';h.data.workspaces[0].owner_active=false;await h.panel.load({area:'workspace'});assert.match(h.root.textContent,/个人 · xuyun/);assert.match(h.root.textContent,/账户注销后，项目归属及历史记录继续保留/);assert.doesNotMatch(h.root.textContent,/当前空间|未归属/);assert.equal(h.posts().length,0);h.panel.suspend();
+ const h=setup();h.data.workspaces[0].owner_name='xuyun';h.data.workspaces[0].owner_actor='xuyun';h.data.workspaces[0].owner_active=false;await h.panel.load({area:'projects'});assert.match(h.root.textContent,/个人 · xuyun/);assert.match(h.root.textContent,/账户注销后，项目归属及历史记录继续保留/);assert.doesNotMatch(h.root.textContent,/当前空间|未归属/);assert.equal(h.posts().length,0);h.panel.suspend();
 });
 
 test('invitation landing delegates its explicit project collaborator destination to the shell',async()=>{
  const h=setup(),routes=[];h.ctx.navigateAccess=async value=>routes.push(value);await h.panel.load({invite:'project-target'});await settle();await click(h,'确认接受此邀请');assert.deepEqual(routes,[{page:'access',area:'members',project:'p-b',team:null,canvas:null}]);assert.equal(h.calls.some(c=>c.url.includes('switch-workspace')),false);h.panel.suspend();
+});
+
+
+test('empty team home is separate from personal projects and creation is an explicit dialog',async()=>{
+ const h=setup();h.data.workspaces=h.data.workspaces.filter(row=>row.kind==='personal');await h.panel.load({area:'workspace'});
+ assert.match(h.root.textContent,/你还没有创建或加入团队/);assert.equal(h.root.querySelectorAll('.access-project-row').length,0);assert.equal(select(h,'目标归属'),undefined);assert.equal(input(h,'新团队名称'),undefined);
+ await click(h,'新建团队');assert.ok(h.root.querySelector('dialog'));await click(h,'创建团队');assert.match(h.root.textContent,/请填写团队名称/);assert.equal(h.posts().length,0);await click(h,'关闭');assert.equal(h.root.querySelector('dialog'),null);
+ await click(h,'项目协作');assert.ok(h.root.querySelectorAll('.access-project-row').some(card=>card.textContent.includes('个人项目')));h.panel.suspend();
+});
+
+test('explicit unmanageable or missing teams cannot fall back to another manageable team',async()=>{
+ const h=setup();h.data.workspaces.find(row=>row.id==='team-b').manageable=false;
+ await h.panel.load({area:'members',team:'team-b'});assert.equal(h.root.querySelector('h1').textContent,'团队 · 乙团队');assert.match(h.root.textContent,/你没有此团队的成员管理权限/);assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(select(h,'成员所属范围'),undefined);
+ await h.panel.load({area:'members',team:'missing'});assert.match(h.root.textContent,/无法访问此团队/);assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(h.posts().length,0);h.panel.suspend();
+});
+
+test('requested project permission failures never select another project',async()=>{
+ const h=setup();h.data.projects.find(row=>row.id==='p-b').capabilities=['read'];
+ for(const area of ['members','review','share','transfer']){await h.panel.load({area,project:'p-b'});assert.match(h.root.textContent,/没有此项目的/);assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(button(h,'预览归属变化'),undefined);}
+ await h.panel.load({area:'projects'});const readOnly=h.root.querySelectorAll('.access-project-row').find(card=>card.textContent.includes('乙项目'));assert.equal(readOnly.querySelectorAll('button').length,2);
+ await h.panel.load({area:'share',project:'missing'});assert.match(h.root.textContent,/无法访问此项目/);assert.equal(h.posts().length,0);h.panel.suspend();
+});
+
+test('team tabs keep the exact team and load resources only in the resources area',async()=>{
+ const h=setup();await h.panel.load({area:'workspace',team:'team-b'});assert.equal(h.calls.some(c=>c.url.includes('/resources?')),false);assert.doesNotMatch(h.root.textContent,/甲项目/);
+ await click(h,'团队成员');assert.match(h.root.textContent,/团队 · 乙团队/);assert.equal(select(h,'成员所属范围'),undefined);
+ await click(h,'团队素材');await settle();assert.ok(h.calls.at(-1).url.includes('/team-b/resources?'));assert.match(h.root.textContent,/此团队暂无你可以查看/);
+ await click(h,'团队项目');assert.match(h.root.textContent,/乙项目/);assert.doesNotMatch(h.root.textContent,/甲项目/);h.panel.suspend();
+});
+
+test('resource failures have retry and late team responses cannot contaminate the new team',async()=>{
+ const waiting=deferred();let first=true;const h=setup({hook:async c=>{if(c.url.includes('/team-a/resources?'))return waiting.promise;if(c.url.includes('/team-b/resources?')&&first){first=false;throw Error('offline resources');}}});
+ await h.panel.load({area:'resources',team:'team-a'});await settle();await h.panel.load({area:'resources',team:'team-b'});await settle();assert.match(h.root.textContent,/offline resources/);
+ waiting.resolve({items:[{id:'wrong',name:'不应混入的甲素材',project_id:'p-a',project_name:'甲项目',modality:'image'}],total:1,next_offset:null});await settle();assert.doesNotMatch(h.root.textContent,/不应混入/);
+ await click(h,'重新读取团队素材');await settle();assert.match(h.root.textContent,/此团队暂无你可以查看/);h.panel.suspend();
+});
+
+test('team resource pagination, search and source navigation retain the team',async()=>{
+ const h=setup({hook:async c=>{if(c.url.includes('/resources?')){const q=new URL(c.url,'http://fixture').searchParams;return {items:[{id:'m-'+q.get('offset'),name:'素材'+q.get('offset'),project_name:'乙项目',project_id:'p-b',modality:'image'}],total:25,next_offset:q.get('offset')==='0'?24:null};}}});
+ await h.panel.load({area:'resources',team:'team-b'});await settle();await click(h,'下一页');await settle();assert.match(h.calls.at(-1).url,/team-b.*offset=24/);assert.equal(button(h,'下一页').disabled,true);
+ input(h,'搜索此团队媒体').value='literal %_';await click(h,'搜索素材');await settle();const q=new URL(h.calls.at(-1).url,'http://fixture').searchParams;assert.equal(q.get('query'),'literal %_');assert.equal(q.get('offset'),'0');await click(h,'在项目中查看');assert.deepEqual(h.navigations.at(-1),['assets',null,'p-b']);h.panel.suspend();
+});
+
+
+test('new invitations read back into the current list while the one-time link remains available',async()=>{
+ const h=setup({hook:async(c,{data})=>{if(c.url.endsWith('/commands/invitation'))data.invitations.push({id:'inv-new',workspace_id:'team-b',scope_name:'新邀请记录',role:c.body.payload.role,expires_at:c.body.payload.expires_at});}});
+ await h.panel.load({area:'members',team:'team-b'});await click(h,'创建一次邀请');assert.match(h.root.textContent,/新邀请记录/);assert.ok(h.root.querySelectorAll('textarea').some(n=>n.value.includes('#invite=')));assert.equal(h.posts().filter(c=>c.url.endsWith('/commands/invitation')).length,1);h.panel.suspend();
+});
+
+test('failed invitation list refresh keeps its successful link and recovery does not resend the command',async()=>{
+ let committed=false,fail=true;const h=setup({hook:async c=>{if(c.url.endsWith('/commands/invitation'))committed=true;if(c.url==='/api/v1/access'&&committed&&fail){fail=false;throw Error('offline after invitation');}}});
+ await h.panel.load({area:'members',team:'team-a'});await click(h,'创建一次邀请');assert.ok(h.notices.some(n=>n.includes('邀请已创建')));assert.ok(h.root.querySelectorAll('textarea').some(n=>n.value.includes('#invite=')));
+ await click(h,'恢复未确认请求');assert.equal(h.posts().filter(c=>c.url.endsWith('/commands/invitation')).length,1);assert.ok(h.root.querySelectorAll('textarea').some(n=>n.value.includes('#invite=')));h.panel.suspend();
+});
+
+
+test('legacy personal membership remains reachable from its explained project context',async()=>{
+ const h=setup();h.data.members=[{workspace_id:'personal',identity_id:'legacy',display_name:'保留历史成员',scope_name:'个人归属',role:'viewer',active:true}];await h.panel.load({area:'projects'});await click(h,'管理个人归属的历史成员');assert.match(h.root.textContent,/保留历史成员/);assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(h.posts().length,0);h.panel.suspend();
 });

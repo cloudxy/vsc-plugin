@@ -101,36 +101,111 @@ export function createAccessControl(root,ctx){
   const credentials=section(msg("ui.advanced_login_credentials"));let ownSecret=null;const ownOutput=el('div');credentials.append(btn(msg("ui.create_a_login_credential_for_yourself"),async()=>{ownSecret||=secret();await command('credential',{secret:ownSecret},'own-credential');if(n!==epoch)return;copyValue(ownOutput,'登录凭据',ownSecret);ownSecret=null;}),ownOutput);
   for(const row of snapshot.credentials)credentials.append(el('p',row.id+(row.revoked?' · 已撤销':'')),btn(msg("ui.revoke_credential_value0",{value0:row.id}),async()=>{await command('revoke-credential',{credential_id:row.id},row.id);if(n===epoch&&await refresh())render();},row.revoked));
  }
+ function teamPath(team){
+  const names=[team.name],seen=new Set([team.id]);let parent=team.parent_id;
+  while(parent&&!seen.has(parent)){seen.add(parent);const row=snapshot.workspaces.find(row=>row.id===parent);if(!row)break;names.unshift(row.name);parent=row.parent_id;}
+  return names.join(' / ');
+ }
+ function openDialog(title,build){
+  const opener=document.activeElement,dialog=el('dialog',null,'access-dialog'),head=el('header',null,'access-dialog-head');bindAttribute(dialog,'aria-label',title);
+  const finish=()=>{dialog.remove();if(opener?.isConnected)opener.focus();};
+  const close=()=>dialog.close?dialog.close():finish();
+  head.append(el('h2',title),btn('关闭',close));const body=el('div',null,'access-dialog-body');build(body,close);dialog.append(head,body);dialog.addEventListener('close',finish,{once:true});root.append(dialog);if(dialog.showModal)dialog.showModal();else dialog.open=true;
+ }
+ function createTeam(n){
+  openDialog('新建团队',body=>{
+   body.append(el('p','团队用于集中管理成员和团队项目。创建后不会改变现有项目归属。','access-description'));
+   const name=field(body,'新团队名称','','workspace-name');name.maxLength=200;name.required=true;
+   const parentKey=(session().actor||'anonymous')+':workspace-parent';
+   const parent=select(body,'上级团队',[{value:'',label:'独立团队'},...snapshot.workspaces.filter(row=>row.kind!=='personal'&&row.manageable).map(row=>({value:row.id,label:teamPath(row)}))],drafts.get(parentKey)||'');parent.onchange=()=>drafts.set(parentKey,parent.value);
+   body.append(el('p','选填。上级团队的所有者可管理下级团队；其他成员需要单独加入。','access-description'));
+   const error=el('p',null,'access-error');error.setAttribute('role','alert');body.append(error);
+   body.append(btn('创建团队',async()=>{
+    if(!name.value.trim()){setText(error,'请填写团队名称。');name.focus();return;}
+    const actor=session().actor,payload={name:name.value.trim(),parent_id:parent.value||null};let created=createdTeams.get(actor);
+    if(!created){const value=await command('workspace',payload);created={id:value.workspace_id,name:payload.name};createdTeams.set(actor,created);}
+    if(n!==epoch)return;drafts.delete((actor||'anonymous')+':workspace-name');drafts.delete(parentKey);await showCreatedTeam(created,n);
+   }));
+  });
+ }
+ function renderProjects(team=null){
+  const content=section(team?'团队项目':'项目协作'),rows=snapshot.projects.filter(row=>(!scope.project||row.id===scope.project)&&(!team||row.workspace_id===team.id));
+  content.classList.add('access-projects');
+  if(!team)content.querySelector('h2')?.remove();
+  if(!team){const ownership=el('details',null,'access-explanation');ownership.append(el('summary','个人项目和团队项目有什么区别？'));for(const owner of snapshot.workspaces.filter(row=>row.kind==='personal')){ownership.append(el('p',ownershipLabel(owner)+'：个人项目归属于该用户身份。账户注销后，项目归属及历史记录继续保留。'));if(owner.manageable&&snapshot.members.some(member=>member.workspace_id===owner.id&&member.identity_id!==owner.created_by))ownership.append(btn('管理个人归属的历史成员',()=>navigateAccess({page:'access',area:'members',team:owner.id,project:null,canvas:null})));}ownership.append(el('p','团队项目归属团队，成员按团队或项目授权访问；浏览团队不会改变新项目的默认归属。'));content.append(ownership);}
+  content.append(el('p',team?'这里只显示你可以访问的直属项目，下级团队的项目请进入对应团队查看。':'个人项目与团队项目都在这里按各自归属显示。成员、分享和审核分别作用于所选项目。','access-description'));
+  const search=field(content,'搜索项目','','project-query:'+(team?.id||'all'),'search'),list=el('div',null,'access-project-list');content.append(list);
+  const draw=()=>{
+   list.replaceChildren();const matches=rows.filter(row=>row.name.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase()));
+   for(const row of matches){
+    const card=el('article',null,'access-project-row'),copy=el('div'),owner=snapshot.workspaces.find(owner=>owner.id===row.workspace_id);
+    copy.append(el('h3',row.name),el('p',owner?ownershipLabel(owner):'项目归属：'+(row.workspace_name||'当前账户不可见'),'access-description'));
+    const actions=el('div',null,'access-row-actions');actions.append(btn(msg('ui.open_project'),()=>ctx.navigate('project',null,row.id)));
+    const more=el('details',null,'access-more');more.append(el('summary','项目操作'));const menu=el('div',null,'access-more-menu');
+    menu.append(btn(msg('shell.project_assets'),()=>ctx.navigate('assets',null,row.id)));
+    if(row.capabilities.includes('manage'))menu.append(btn('项目协作者',()=>navigateAccess({page:'access',area:'members',project:row.id,team:null,canvas:null})),btn('审核设置',()=>navigateAccess({page:'access',area:'review',project:row.id,team:null,canvas:null})),btn('转移项目归属',()=>navigateAccess({page:'access',area:'transfer',project:row.id,team:null,canvas:null})));
+    if(row.capabilities.includes('publish'))menu.append(btn('画布分享',()=>navigateAccess({page:'access',area:'share',project:row.id,team:null,canvas:null})));
+    more.append(menu);actions.append(more);card.append(copy,actions);list.append(card);
+   }
+   if(!matches.length)list.append(el('p',search.value?'没有匹配的项目，请调整搜索内容。':team?'此团队暂无你可以访问的直属项目。':'当前没有可协作的项目。','access-empty'));
+  };search.oninput=()=>{drafts.set((session().actor||'anonymous')+':project-query:'+(team?.id||'all'),search.value);draw();};draw();
+ }
  function renderWorkspace(n){
-  const owners=section('个人归属');
-  for(const row of snapshot.workspaces.filter(row=>row.kind==='personal')){const card=el('article');card.append(el('h3',ownershipLabel(row)),el('p','个人项目归属于该用户身份。账户注销后，项目归属及历史记录继续保留。'));owners.append(card);}
-  const spaces=section('团队管理'),teams=snapshot.workspaces.filter(row=>row.kind!=='personal'),selected=teams.find(row=>row.id===scope.team),team=select(spaces,'要管理的团队',[{value:'',label:'查看全部团队'},...teams.map(row=>({value:row.id,label:row.name}))],selected?.id||'');
-  team.onchange=()=>navigateAccess({...scope,area:'workspace',team:team.value||null,project:null,canvas:null});spaces.append(el('p','这里选择团队只影响管理页。新建项目默认个人归属，团队归属需在创建时明确指定。'));
-  const workspaceName=field(spaces,'新团队名称','','workspace-name'),parent=select(spaces,'上级团队',[{value:'',label:'独立团队'},...teams.filter(row=>row.manageable).map(row=>({value:row.id,label:row.name}))]);
-  const created=createdTeams.get(session().actor);if(created)spaces.append(el('p','团队“'+created.name+'”已创建，详情尚未读回。'),btn('读取已创建团队',()=>showCreatedTeam(created,n)));
-  spaces.append(btn('创建团队',async()=>{const actor=session().actor,payload={name:workspaceName.value,parent_id:parent.value||null};let created=createdTeams.get(actor);if(!created){const value=await command('workspace',payload);created={id:value.workspace_id,name:payload.name};createdTeams.set(actor,created);}if(n!==epoch)return;drafts.delete((actor||'anonymous')+':workspace-name');await showCreatedTeam(created,n);}),el('p','上级团队所有者可管理下级团队，其他成员需要明确加入。'));
-  const detail=section(selected?'团队 · '+selected.name:'可访问的团队');
-  for(const row of selected?[selected]:teams){const card=el('article');card.append(el('h3',row.name),el('p','项目数：'+row.project_count+' · 我的角色：'+row.roles.map(value=>String(roles[value]||value)).join('/')));if(!selected)card.append(btn('查看团队详情',()=>navigateAccess({...scope,area:'workspace',team:row.id,project:null,canvas:null})));if(row.manageable)card.append(btn('管理此团队成员',()=>navigateAccess({page:'access',area:'members',team:row.id,project:null,canvas:null})));detail.append(card);}if(!teams.length)detail.append(el('p','尚未创建或加入团队。'));
-  const content=section(selected?selected.name+' · 项目':'可访问的项目'),projects=areaProjects().filter(row=>!selected||row.workspace_id===selected.id);
-  for(const row of projects){const card=el('article');card.append(el('h3',row.name),el('p',ownershipLabel(snapshot.workspaces.find(owner=>owner.id===row.workspace_id))),btn(msg("ui.open_project"),()=>ctx.navigate('project',null,row.id)),btn(msg('shell.project_assets'),()=>ctx.navigate('assets',null,row.id)),btn('项目协作者',()=>navigateAccess({page:'access',area:'members',project:row.id,team:null,canvas:null})),btn('审核设置',()=>navigateAccess({page:'access',area:'review',project:row.id,team:null,canvas:null})));content.append(card);}if(!projects.length)content.append(el('p',selected?'此团队暂无可访问项目。':'暂无可访问项目。'));
-  if(selected){const search=field(content,'搜索此团队媒体',resourceQuery),list=el('div',null,'access-resource-grid');content.append(btn(msg("ui.search_media"),()=>{resourceQuery=search.value;resourceOffset=0;render();}),list);
-   ctx.api('/api/v1/access/workspaces/'+selected.id+'/resources?'+new URLSearchParams({offset:String(resourceOffset),query:resourceQuery})).then(value=>{if(n!==epoch)return;list.replaceChildren(el('p',msg("ui.value0_media_items",{value0:value.total})));for(const row of value.items){const card=el('article');card.append(el('h3',row.name),el('p',row.project_name));const media=el(row.modality==='image'?'img':row.modality==='audio'?'audio':'video');media.src='/api/v1/projects/'+row.project_id+'/media/'+row.id+'/content';if(row.modality==='image'){bindAttribute(media,'alt',row.name);media.loading='lazy';media.width=row.width||320;media.height=row.height||180;}else{media.controls=true;media.preload='metadata';}card.append(media,btn(msg("ui.view_in_project"),()=>ctx.navigate('assets',null,row.project_id)));list.append(card);}list.append(btn(msg("common.previous_page"),()=>{resourceOffset=Math.max(0,resourceOffset-24);render();},resourceOffset===0),btn(msg("common.next_page"),()=>{resourceOffset=value.next_offset;render();},value.next_offset==null));}).catch(error=>{if(n===epoch)list.replaceChildren(el('p',error.message));});
+  const teams=snapshot.workspaces.filter(row=>row.kind!=='personal').sort((a,b)=>teamPath(a).localeCompare(teamPath(b),'zh-CN')),selected=teams.find(row=>row.id===scope.team);
+  if(selected){
+   const detail=section('团队概况');detail.classList.add('access-team-context');
+   detail.append(el('p',`我的角色：${selected.roles.map(value=>String(roles[value]||value)).join('/')}；可访问的直属项目：${selected.project_count} 个。`));
+   if(selected.parent_id)detail.append(el('p','上级团队：'+(selected.parent_name||snapshot.workspaces.find(row=>row.id===selected.parent_id)?.name||'当前账户不可见'),'access-description'));
+   const children=teams.filter(row=>row.parent_id===selected.id);if(children.length){const list=el('div',null,'access-row-actions');list.append(el('span','下级团队'));for(const child of children)list.append(btn(child.name,()=>navigateAccess({page:'access',area:'workspace',team:child.id,project:null,canvas:null})));detail.append(list);}
+   renderProjects(selected);return;
   }
+  const content=section('我的团队');content.classList.add('access-team-list');
+  if(!teams.length){const empty=el('div',null,'access-empty');empty.append(el('h3','你还没有创建或加入团队'),el('p','需要多人一起管理项目时，可以新建团队或接受邀请。个人项目请进入“项目协作”。'));content.append(empty);}
+  const list=el('div',null,'access-team-grid');
+  for(const team of teams){const card=el('article',null,'access-team-card');card.append(el('h3',team.name),el('p',team.parent_id?'上级团队：'+(team.parent_name||snapshot.workspaces.find(row=>row.id===team.parent_id)?.name||'当前账户不可见'):'独立团队','access-description'),el('p',`我的角色：${team.roles.map(value=>String(roles[value]||value)).join('/')} · 可访问的直属项目 ${team.project_count} 个`),btn('进入团队',()=>navigateAccess({page:'access',area:'workspace',team:team.id,project:null,canvas:null})));list.append(card);}content.append(list);
+  const actions=el('div',null,'access-row-actions');actions.append(btn('接受邀请',()=>navigateAccess({page:'access',area:'join',project:null,team:null,canvas:null})));content.append(actions);
+  const created=createdTeams.get(session().actor);if(created)content.append(el('p','团队“'+created.name+'”已创建，详情尚未读回。'),btn('读取已创建团队',()=>showCreatedTeam(created,n)));
+ }
+ function renderResources(n){
+  const team=snapshot.workspaces.find(row=>row.id===scope.team),content=section('团队素材');
+  if(!team||team.kind==='personal'){content.append(el('p','请先进入一个团队，再查看团队素材。'));return;}
+  content.append(el('p','汇总你在此团队直属项目中有权限查看的素材；素材仍保存在原项目。','access-description'));
+  const toolbar=el('form',null,'access-search'),search=field(toolbar,'搜索此团队媒体',resourceQuery,null,'search'),list=el('div',null,'access-resource-grid');
+  const query=()=>{resourceQuery=search.value;resourceOffset=0;render();};toolbar.append(btn(msg('ui.search_media'),query));toolbar.onsubmit=event=>{event.preventDefault();query();};content.append(toolbar,list);
+  const read=async()=>{
+   list.replaceChildren(el('p','正在读取团队素材…','access-loading'));
+   try{const value=await ctx.api('/api/v1/access/workspaces/'+team.id+'/resources?'+new URLSearchParams({offset:String(resourceOffset),limit:'24',query:resourceQuery}));if(n!==epoch)return;
+    list.replaceChildren(el('p',`共 ${value.total} 项素材`));
+    for(const row of value.items){const card=el('article');card.append(el('h3',row.name),el('p',row.project_name));const media=el(row.modality==='image'?'img':row.modality==='audio'?'audio':'video');media.src='/api/v1/projects/'+row.project_id+'/media/'+row.id+'/content';if(row.modality==='image'){bindAttribute(media,'alt',row.name);media.loading='lazy';}else{media.controls=true;media.preload='metadata';}card.append(media,btn(msg('ui.view_in_project'),()=>ctx.navigate('assets',null,row.project_id)));list.append(card);}
+    if(!value.items.length)list.append(el('p',resourceQuery?'没有匹配的素材，请调整搜索内容。':'此团队暂无你可以查看的项目素材。','access-empty'));
+    const pages=el('nav',null,'access-pagination');bindAttribute(pages,'aria-label','团队素材分页');pages.append(el('span',`第 ${Math.floor(resourceOffset/24)+1} 页`),btn(msg('common.previous_page'),()=>{resourceOffset=Math.max(0,resourceOffset-24);render();},resourceOffset===0),btn(msg('common.next_page'),()=>{resourceOffset=value.next_offset;render();},value.next_offset==null));content.append(pages);
+   }catch(error){if(n===epoch)list.replaceChildren(el('p',error.message,'access-error'),btn('重新读取团队素材',read));}
+  };void read();
+ }
+ function renderTransfer(n){
   const migration=section('项目归属转移'),sourceRows=areaProjects('manage'),project=select(migration,msg("ui.move_project"),sourceRows.map(row=>({value:row.id,label:row.name})),scope.project||sourceRows[0]?.id),destinations=snapshot.workspaces.filter(row=>row.manageable),destination=select(migration,'目标归属',destinations.map(row=>({value:row.id,label:ownershipLabel(row)})),destinations.find(row=>row.kind==='personal')?.id),difference=el('div',null,'access-impact');let previewSerial=0;
   const clear=()=>{previewSerial++;difference.replaceChildren();};project.onchange=clear;destination.onchange=clear;
   migration.append(btn(msg("ui.preview_ownership_change"),async()=>{const serial=++previewSerial,request={project_id:project.value,workspace_id:destination.value};if(!request.project_id||!request.workspace_id)throw new Error('请选择项目与目标归属。');const value=await post('/api/v1/projects/'+request.project_id+'/access-migration-preview',{workspace_id:request.workspace_id});if(n!==epoch||serial!==previewSerial||project.value!==request.project_id||destination.value!==request.workspace_id)return;difference.replaceChildren(el('p',ownershipLabel(snapshot.workspaces.find(row=>row.id===value.plan.from_workspace_id))+' → '+ownershipLabel(snapshot.workspaces.find(row=>row.id===value.plan.to_workspace_id))));permissionImpact(difference,value.plan);difference.append(btn(msg("ui.confirm_move_using_this_preview"),async()=>{if(serial!==previewSerial||project.value!==request.project_id||destination.value!==request.workspace_id)throw new Error('选择已改变，请重新预览。');await command('assign-project',{...request,preview_sha256:value.sha256});if(n===epoch&&await refresh())render();}));}),difference);
  }
  function renderMembers(n){
   const projects=areaProjects('manage'),teams=snapshot.workspaces.filter(row=>row.manageable&&(row.kind!=='personal'||snapshot.members.some(member=>member.workspace_id===row.id))).sort((a,b)=>Number(a.kind==='personal')-Number(b.kind==='personal')),rows=scope.project?projects.map(row=>({value:'project:'+row.id,label:'项目 · '+row.name})):teams.map(row=>({value:'workspace:'+row.id,label:row.kind==='personal'?'个人归属的历史成员 · '+ownershipLabel(row):'团队 · '+row.name}));
-  const grants=section(scope.project?'项目协作者':'团队成员与项目协作者');if(!rows.length){grants.append(el('p','当前范围没有可管理的成员。'));return;}
+  const grants=section(scope.project?'项目协作者':'团队成员与邀请');
+  if(scope.team&&!teams.some(row=>row.id===scope.team)){grants.append(el('p','你没有此团队的成员管理权限。请联系团队所有者；这里不会切换到其他团队。','access-empty'));return;}
+  if(!rows.length){grants.append(el('p',scope.project?'你没有此项目的成员管理权限。':'请先创建或加入可管理的团队，再邀请团队成员。','access-empty'));return;}
   if(!rows.some(row=>row.value===memberScope))memberScope=scope.project?'project:'+scope.project:rows.some(row=>row.value==='workspace:'+scope.team)?'workspace:'+scope.team:rows[0].value;
-  const target=select(grants,'成员所属范围',rows,memberScope);target.onchange=()=>{const [kind,id]=target.value.split(':');return navigateAccess({...scope,area:'members',project:kind==='project'?id:null,team:kind==='workspace'?id:null,canvas:null});};const [kind,id]=memberScope.split(':'),personal=kind==='workspace'&&snapshot.workspaces.find(row=>row.id===id)?.kind==='personal';
+  const target=scope.team||scope.project?null:select(grants,'成员所属范围',rows,memberScope);if(target)target.onchange=()=>{const [kind,id]=target.value.split(':');return navigateAccess({...scope,area:'members',project:kind==='project'?id:null,team:kind==='workspace'?id:null,canvas:null});};const [kind,id]=memberScope.split(':'),personal=kind==='workspace'&&snapshot.workspaces.find(row=>row.id===id)?.kind==='personal';
+  grants.append(el('p',kind==='workspace'?'这里管理团队的直接成员。项目协作者单独授权；移除团队成员不一定撤销其项目权限。':'这里管理此项目的直接协作者。来自团队的权限和独立画布分享链接分别管理。','access-description'));
   if(personal)grants.append(el('p','个人归属不新增团队成员。请在具体项目中邀请协作者；已有成员记录保留。'));
-  else{const role=select(grants,msg("ui.granted_role"),Object.entries(roles).filter(([key])=>key!=='owner').map(([value,label])=>({value,label}))),expiry=field(grants,msg("ui.invitation_expiry_with_timezone"),future(),memberScope+':invite-expiry');let inviteSecret=null;const link=el('div');grants.append(btn(msg("ui.create_one_invitation"),async()=>{inviteSecret||=secret();await command('invitation',{scope:kind,scope_id:id,role:role.value,secret:inviteSecret,expires_at:expiry.value},'invitation:'+memberScope);if(n!==epoch)return;copyValue(link,'邀请链接',location.origin+'/?page=access#invite='+inviteSecret);inviteSecret=null;}),link);}
+  else{const form=el('details',null,'access-invite-form');form.append(el('summary','邀请新成员'));const invite=el('div');form.append(invite);grants.append(form);const role=select(invite,msg("ui.granted_role"),Object.entries(roles).filter(([key])=>key!=='owner').map(([value,label])=>({value,label}))),expiry=field(invite,msg("ui.invitation_expiry_with_timezone"),future(),memberScope+':invite-expiry');let inviteSecret=null;const link=el('div');invite.append(btn(msg("ui.create_one_invitation"),async()=>{inviteSecret||=secret();await command('invitation',{scope:kind,scope_id:id,role:role.value,secret:inviteSecret,expires_at:expiry.value},'invitation:'+memberScope);if(n!==epoch)return;copyValue(link,'邀请链接',location.origin+'/?page=access#invite='+inviteSecret);inviteSecret=null;try{if(await refresh(false))drawInvitations();}catch(error){if(n===epoch)ctx.notice('邀请已创建，邀请记录暂未刷新；链接已保留，可刷新后查看。');}}),link);}
   const matches=row=>kind==='workspace'?row.workspace_id===id:row.project_id===id;
-  for(const row of snapshot.invitations.filter(matches))grants.append(el('p',joinMessages([row.scope_name,' · ',row.accepted_by?msg("ui.joined"):row.revoked?msg("ui.revoked"):msg("ui.waiting_to_join")])),btn(msg("ui.revoke_invitation"),async()=>{await command('revoke-invitation',{invitation_id:row.id},row.id);if(n===epoch&&await refresh())render();},row.revoked||Boolean(row.accepted_by)));
+  const help=el('details',null,'access-explanation');help.append(el('summary','成员角色有什么区别？'),el('p','所有者：管理成员、项目、审核和分享。编辑者：编辑与生成。审核者：查看并提交审核意见。查看者：只读。团队权限与项目直接授权会共同生效。'));grants.append(help);
+  grants.append(el('h3','邀请记录'));const invitationList=el('div');grants.append(invitationList);
+  function drawInvitations(){invitationList.replaceChildren();if(!snapshot.invitations.some(matches))invitationList.append(el('p','暂无邀请记录。','access-description'));
+  for(const row of snapshot.invitations.filter(matches)){const record=el('div',null,'access-invitation-row'),expiry=row.expires_at?new Date(row.expires_at):null;const state=row.accepted_by?'已加入':row.revoked?'已撤销':expiry&&expiry.getTime()<=Date.now()?'已过期':'等待加入';record.append(el('p',joinMessages([row.scope_name,' · ',roles[row.role]||row.role||'角色未提供',' · ',state,' · 到期：',expiry?expiry.toLocaleString():'未提供'])),btn(msg('ui.revoke_invitation'),async()=>{await command('revoke-invitation',{invitation_id:row.id},row.id);if(n===epoch&&await refresh())render();},row.revoked||Boolean(row.accepted_by)));invitationList.append(record);}
+  }drawInvitations();
+  grants.append(el('h3','成员列表'));if(!snapshot.members.some(matches))grants.append(el('p','当前范围没有直接成员记录，继承权限仍按团队关系生效。','access-description'));
   for(const member of snapshot.members.filter(matches)){
-   const card=el('article');card.append(el('h3',member.display_name),el('p',joinMessages([member.scope_name,' · ',member.active?msg("ui.active"):msg("ui.removed")])));const choice=select(card,msg("ui.member_role_value0",{value0:member.display_name}),Object.entries(roles).map(([value,label])=>({value,label})),member.role),impact=el('div',null,'access-impact');choice.disabled=personal&&!member.active;
+   const card=el('article',null,'access-member-card');card.append(el('h3',member.display_name),el('p',joinMessages([member.scope_name,' · ',member.active?msg("ui.active"):msg("ui.removed")])));const choice=select(card,msg("ui.member_role_value0",{value0:member.display_name}),Object.entries(roles).map(([value,label])=>({value,label})),member.role),impact=el('div',null,'access-impact');choice.disabled=personal&&!member.active;
    const key='member:'+memberScope+':'+member.identity_id,payload={scope:kind,scope_id:id,identity_id:member.identity_id,role:member.role,active:!member.active};
    if(!personal||member.active)card.append(btn(msg("ui.save_this_member_s_role"),async()=>{await command('member',{...payload,role:choice.value,active:true},key);if(n===epoch&&await refresh())render();}));
    card.append(btn(member.active?'移除此成员前预览':msg("ui.restore_this_member"),async()=>{
@@ -161,10 +236,24 @@ export function createAccessControl(root,ctx){
  }
  function render(){
   for(const url of graphicUrls)URL.revokeObjectURL(url);graphicUrls.clear();const n=++epoch;
-  const titles={account:'账户设置',workspace:'团队与项目归属',members:scope.project?'项目协作者':'团队成员与邀请',share:'画布分享',review:'项目审核设置'};
-  root.replaceChildren();root.className='access-control';root.append(el('h1',scope.invite?'接受邀请':titles[activeArea]));const target=snapshot?.projects.find(row=>row.id===scope.project);if(target)root.append(el('p','项目：'+target.name+' · '+ownershipLabel(snapshot.workspaces.find(row=>row.id===target.workspace_id))));
+  const titles={account:'账户设置',workspace:'团队管理',members:scope.project?'项目协作者':'团队成员',share:'画布分享',review:'项目审核设置',projects:'项目协作',resources:'团队素材',transfer:'项目归属转移',join:'接受邀请'};
+  root.replaceChildren();root.className='access-control';root.dataset.area=activeArea;
+  const selected=snapshot?.workspaces.find(row=>row.id===scope.team),target=snapshot?.projects.find(row=>row.id===scope.project);
+  const header=el('header',null,'access-page-head'),heading=el('div');
+  heading.append(el('h1',scope.invite?'接受邀请':selected&&!scope.project&&['workspace','members','resources','projects'].includes(activeArea)?'团队 · '+selected.name:titles[activeArea]));
+  heading.append(el('p',selected&&!scope.project?teamPath(selected):target?'项目：'+target.name+' · '+(snapshot.workspaces.find(row=>row.id===target.workspace_id)?ownershipLabel(snapshot.workspaces.find(row=>row.id===target.workspace_id)):target.workspace_name||'归属当前不可见'):activeArea==='workspace'?'先选择一个团队，再管理成员、项目和素材。个人项目请进入“项目协作”。':'操作只影响当前选定的对象。','access-description'));header.append(heading);root.append(header);
   if(!snapshot||scope.invite){login();if(!snapshot||scope.invite)return;}
-  const nav=el('nav',null,'access-tabs');bindAttribute(nav,'aria-label',msg("ui.account_and_team_sections"));for(const [key,title]of Object.entries(titles)){const tab=btn(title,()=>{return navigateAccess({...scope,area:key,...(['account','workspace'].includes(key)?{project:null,canvas:null}:{})});});tab.setAttribute('aria-pressed',String(activeArea===key));nav.append(tab);}root.append(nav);
+  const nav=el('nav',null,'access-primary-nav');bindAttribute(nav,'aria-label',msg('ui.account_and_team_sections'));
+  for(const [key,label]of [['workspace','团队管理'],['projects','项目协作'],['account','账户设置']]){const tab=btn(label,()=>navigateAccess({page:'access',area:key,project:null,team:null,canvas:null}));tab.setAttribute('aria-pressed',String(key==='workspace'?Boolean(scope.team)||activeArea==='workspace':key==='projects'?!scope.team&&(Boolean(scope.project)||activeArea==='projects'):activeArea==='account'));nav.append(tab);}root.append(nav);
+  if(scope.team&&!selected){root.append(el('p','当前账户无法访问此团队，或团队已不存在。请返回团队列表重新选择。','access-empty'));return;}
+  if(scope.project&&!target){root.append(el('p','当前账户无法访问此项目，或项目已不存在。请返回项目协作重新选择。','access-empty'));return;}
+  if(scope.project&&['members','review','transfer','share'].includes(activeArea)&&!target.capabilities.includes(activeArea==='share'?'publish':'manage')){root.append(el('p','你没有此项目的'+(activeArea==='share'?'分享':'管理')+'权限，请联系项目所有者。','access-empty'));return;}
+  if(selected&&!scope.project&&selected.kind!=='personal'){
+   const nav=el('nav',null,'access-tabs');bindAttribute(nav,'aria-label','当前团队功能');
+   for(const [key,label]of [['workspace','团队项目'],['members','团队成员'],['resources','团队素材']]){const tab=btn(label,()=>navigateAccess({page:'access',area:key,team:selected.id,project:null,canvas:null}));tab.setAttribute('aria-pressed',String(activeArea===key||key==='workspace'&&activeArea==='projects'));nav.append(tab);}root.append(nav);
+  }
+  if(target){const context=el('nav',null,'access-tabs');bindAttribute(context,'aria-label','当前项目协作功能');for(const [key,label,cap]of [['members','项目协作者','manage'],['share','画布分享','publish'],['review','审核设置','manage'],['transfer','项目归属转移','manage']]){if(!target.capabilities.includes(cap))continue;const tab=btn(label,()=>navigateAccess({page:'access',area:key,project:target.id,team:null,canvas:null}));tab.setAttribute('aria-pressed',String(activeArea===key));context.append(tab);}root.append(context);}
+  if(activeArea==='workspace'&&!scope.team){const actions=el('div',null,'access-page-actions');actions.append(btn('新建团队',()=>createTeam(n)));header.append(actions);}
   const utilities=el('div',null,'access-utilities');utilities.append(btn(msg("ui.refresh_permissions_and_members"),async()=>{if(await refresh())render();}),btn(msg("ui.recover_unconfirmed_request"),async()=>{
    const actor=session().actor;for(const op of [...pending.values()].filter(row=>row.actor===actor)){
     if(n!==epoch||session().actor!==actor)return;const value=await command(op.action,op.payload,op.localKey);if(n!==epoch||session().actor!==actor)return;
@@ -172,8 +261,8 @@ export function createAccessControl(root,ctx){
    }
    if(n!==epoch||!await refresh())return;render();ctx.notice(msg("ui.original_request_receipt_recovered_later_unsaved_inputs_remain"));
    for(const op of [...secretReceipts.values()].filter(row=>row.actor===actor)){const output=section(msg("ui.original_request_recovered"));copyValue(output,op.action==='credential'?'登录凭据':'链接',op.action==='credential'?op.payload.secret:location.origin+'/?page='+(op.action==='share'?'access-share#share=':'access#invite=')+op.payload.secret);}
-  }));root.append(utilities);
-  ({account:renderAccount,workspace:renderWorkspace,members:renderMembers,share:renderShare,review:renderReview}[activeArea]||renderWorkspace)(n);
+  }));const tools=el('details',null,'access-tools');tools.append(el('summary','刷新与请求恢复'),utilities);root.append(tools);
+  ({account:renderAccount,workspace:renderWorkspace,members:renderMembers,share:renderShare,review:renderReview,projects:()=>renderProjects(selected?.kind!=='personal'?selected:null),resources:renderResources,transfer:renderTransfer,join:()=>invitationForm(section('接受团队或项目邀请'))}[activeArea]||renderWorkspace)(n);
  }
  async function saveLanguage(code){
   const actor=session().actor;if(!actor)return;if(!snapshot||snapshot.identity.actor!==actor){if(!await refresh(false))return;}if(session().actor!==actor)return;
@@ -183,6 +272,6 @@ export function createAccessControl(root,ctx){
   const data=await ctx.api('/api/v1/access/share-view');if(n!==epoch)return;
   await sharedCanvas.loadShared(root,data);
  }
- async function load(value){sharedCanvas.suspend();if(scope.team!==value.team){resourceOffset=0;resourceQuery='';}scope={...value};activeArea=['account','workspace','members','share','review'].includes(value.area)?value.area:'workspace';memberScope=null;const n=++epoch;root.replaceChildren(el('p',msg("ui.loading_identity_and_scope")));try{if(value.page==='access-share')return await renderSharedView(n);const options=await ctx.api('/api/v1/authentication/options');if(n!==epoch)return;authenticationOptions=options;const callback=new URL(location.href);if(callback.searchParams.get('auth_result')){const attempt=callback.searchParams.get('auth_result'),status=callback.searchParams.get('auth_status');callback.searchParams.delete('auth_result');callback.searchParams.delete('auth_status');history.replaceState(null,'',callback);if(status==='verified'){try{const result=await post('/api/v1/authentication/oidc/'+encodeURIComponent(attempt)+'/complete',{});if(n!==epoch)return;await ctx.onSession(result);}catch(error){ctx.notice(error.message);}}else ctx.notice(msg("ui.third_party_login_is_incomplete_or_its_receipt_is"));}try{if(!await refresh())return;}catch(error){if(n!==epoch)return;if(error.status!==403)throw error;snapshot=null;}if(n===epoch)render(); }catch(error){if(n===epoch){if(value.page==='access-share'){const card=el('section');card.className='access-share-guard-card';const badge=el('span','画布协作分享');badge.className='access-share-guard-badge';const title=el('h2','访问受限或分享链接无效'),desc=el('p',error.message),actions=el('div');actions.className='access-share-guard-actions';const home=el('a','返回工作台首页');home.href='/home';home.className='access-share-home-link';actions.append(btn(msg("ui.reload"),()=>load(value)),home);card.append(badge,title,desc,actions);root.replaceChildren(card);}else root.replaceChildren(el('p',error.message),btn(msg("ui.reload"),()=>load(value)));}}}
+ async function load(value){sharedCanvas.suspend();if(scope.team!==value.team){resourceOffset=0;resourceQuery='';}scope={...value};if(['account','join'].includes(value.area))scope={...scope,team:null,project:null,canvas:null};else if(['share','review','transfer'].includes(value.area)||value.area==='members'&&value.project)scope.team=null;activeArea=['account','workspace','members','share','review','projects','resources','transfer','join'].includes(value.area)?value.area:'workspace';memberScope=null;const n=++epoch;root.replaceChildren(el('p',msg("ui.loading_identity_and_scope")));try{if(value.page==='access-share')return await renderSharedView(n);const options=await ctx.api('/api/v1/authentication/options');if(n!==epoch)return;authenticationOptions=options;const callback=new URL(location.href);if(callback.searchParams.get('auth_result')){const attempt=callback.searchParams.get('auth_result'),status=callback.searchParams.get('auth_status');callback.searchParams.delete('auth_result');callback.searchParams.delete('auth_status');history.replaceState(null,'',callback);if(status==='verified'){try{const result=await post('/api/v1/authentication/oidc/'+encodeURIComponent(attempt)+'/complete',{});if(n!==epoch)return;await ctx.onSession(result);}catch(error){ctx.notice(error.message);}}else ctx.notice(msg("ui.third_party_login_is_incomplete_or_its_receipt_is"));}try{if(!await refresh())return;}catch(error){if(n!==epoch)return;if(error.status!==403)throw error;snapshot=null;}if(n===epoch)render(); }catch(error){if(n===epoch){if(value.page==='access-share'){const card=el('section');card.className='access-share-guard-card';const badge=el('span','画布协作分享');badge.className='access-share-guard-badge';const title=el('h2','访问受限或分享链接无效'),desc=el('p',error.message),actions=el('div');actions.className='access-share-guard-actions';const home=el('a','返回工作台首页');home.href='/home';home.className='access-share-home-link';actions.append(btn(msg("ui.reload"),()=>load(value)),home);card.append(badge,title,desc,actions);root.replaceChildren(card);}else root.replaceChildren(el('p',error.message),btn(msg("ui.reload"),()=>load(value)));}}}
  return {load,saveLanguage,suspend(){epoch++;for(const url of graphicUrls)URL.revokeObjectURL(url);graphicUrls.clear();sharedCanvas.suspend();},workspaces:()=>snapshot?.workspaces||[]};
 }
