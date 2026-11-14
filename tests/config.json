@@ -2460,6 +2460,31 @@
         "tools/maintenance/marketing_media.py",
         "scripts/maintenance/marketing_media.py"
       ]
+    },
+    "project.integration.test_task_center_presentation": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/adapters/persistence/postgres/task_center.py",
+        "src/vsc/assets/task_center.py",
+        "src/vsc/adapters/persistence/postgres/budget_store.py",
+        "src/vsc/assets/resource_service.py",
+        "src/vsc/interfaces/web/production_platform.py",
+        "src/vsc/interfaces/web/task_notifications.py"
+      ]
+    },
+    "project.unit.test_task_center_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/task-center.js",
+        "src/vsc/interfaces/web/static/task-center.css",
+        "src/vsc/interfaces/web/static/i18n-messages.js",
+        "src/vsc/interfaces/web/static/production-platform.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/task_center.test.mjs"
+      ]
     }
   },
   "dependencies": {

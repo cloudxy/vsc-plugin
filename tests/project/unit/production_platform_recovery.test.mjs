@@ -32,6 +32,50 @@ function setup({storage=new Map(),api,refresh,navigate,projects=[],createEmptyCa
   return {root,session,platform,storage,calls,routes,notices,posts,buttons,open,get refreshes(){return refreshes;}};
 }
 
+test('platform background control is explicitly global and remains usable when model settings fail',async()=>{
+ let accepting=true;
+ const h=setup({api:call=>{
+  if(call.url==='/api/v1/resource-settings')throw new Error('model settings unavailable');
+  assert.equal(call.url,'/api/v1/execution');
+  if(call.options.method==='POST'){assert.equal(call.options.headers['X-CSRF-Token'],'csrf');assert.deepEqual(call.body,{action:'pause'});accepting=false;}
+  return {enabled:true,scope:'application',message:'已有远端任务继续查询',generation:{available:true,accepting_submissions:accepting}};
+ }});
+ await h.platform.load({page:'maintenance'});
+ assert.ok(h.root.textContent.includes('影响所有项目'));assert.ok(h.root.textContent.includes('剪辑预览'));assert.ok(h.root.textContent.includes('model settings unavailable'));
+ const pause=h.buttons('暂停后台后续处理')[0];assert.ok(pause);await pause.click();
+ assert.equal(h.posts().length,1);assert.ok(h.buttons('继续后台处理')[0]);
+ h.session.actor=null;await h.platform.load({page:'maintenance'});assert.equal(h.buttons('继续后台处理').length,0);h.platform.suspend();
+});
+
+test('late platform diagnostics never replace a newer project page',async()=>{
+ const pending=deferred();const h=setup({api:call=>call.url==='/api/v1/execution'?pending.promise:{configurations:[]}});
+ const loading=h.platform.load({page:'maintenance'});await tick();await h.platform.load({page:'projects'});const before=h.root.textContent;
+ pending.reject(new Error('old execution error'));await loading;assert.equal(h.root.textContent,before);assert.equal(h.notices.length,0);h.platform.suspend();
+});
+
+test('the platform consumer preserves task controls and budget drafts across refresh and navigation',async()=>{
+ const h=setup({projects:[{id:'p',name:'Test'}],api:call=>{
+  if(call.url.includes('/task-center?'))return {revision:1,items:[],total:0,next_offset:null,groups:{all:0}};
+  if(call.url.includes('/task-usage?'))return {revision:1,limits:{images:20},used:{images:0},bounded:{images:0},reported_actual:{},remaining:{images:20},items:[],total:0,next_offset:null};
+  if(call.url.endsWith('/objects'))return {items:[]};
+  if(call.url==='/api/v1/execution')return {enabled:false,generation:{available:false}};
+  if(call.url==='/api/v1/discovery')return emptyDiscovery();
+  return {items:[],revision:1};
+ }});
+ try{
+  await h.platform.load({page:'tasks',project:'p',taskView:'usage'});
+  const toolbar=h.root.querySelector('.tc-toolbar');
+  const form=h.root.querySelector('.tc-budget').querySelector('form'),fields=form.querySelectorAll('input');
+  fields[2].value='70';fields.at(-1).value='Keep my draft';await form.dispatch('input');
+  await h.platform.load({page:'tasks',project:'p',taskView:'usage'});
+  assert.equal(h.root.querySelector('.tc-toolbar'),toolbar);assert.equal(fields[2].value,'70');
+  h.platform.suspend();await h.platform.load({page:'projects'});
+  await h.platform.load({page:'tasks',project:'p',taskView:'usage'});
+  const restored=h.root.querySelector('.tc-budget').querySelector('form').querySelectorAll('input');
+  assert.equal(restored[2].value,'70');assert.equal(restored.at(-1).value,'Keep my draft');assert.equal(h.posts().length,0);
+ }finally{h.platform.suspend();}
+});
+
 function fill(dialog,{name='新片',count=2,style='3d'}={}){
   const inputs=dialog.querySelectorAll('input'),title=inputs[0],episodes=inputs[1];title.value=name;episodes.value=String(count);for(const radio of inputs.filter(input=>input.type==='radio'))radio.checked=radio.value===style;
 }
