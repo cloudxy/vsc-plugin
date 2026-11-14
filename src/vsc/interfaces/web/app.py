@@ -202,6 +202,8 @@ def create_app(config=None, catalog=None, service=None):
         "/recycle-bin",
         "/marketing",
         "/marketing-studio",
+        "/capability-center",
+        "/capabilities",
         "/members",
         "/sub-studios",
         "/subscription",

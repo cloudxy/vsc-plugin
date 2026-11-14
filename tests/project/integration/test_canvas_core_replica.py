@@ -583,6 +583,9 @@ class CanvasCoreReplicaIntegrationTests(ResourceStoreFixture, unittest.TestCase)
         self.assertEqual(created.status_code, 200, created.text)
         canvas_id = created.json()["id"]
         path = "/creative-canvases/" + canvas_id
+        empty_sessions = self.client.get(self.base + path + "/agent-sessions", headers=self.headers)
+        self.assertEqual(empty_sessions.status_code, 200, empty_sessions.text)
+        self.assertEqual(empty_sessions.json()["items"], [])
 
         turn = self.command(
             path + "/agent-turns",

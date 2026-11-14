@@ -103,7 +103,7 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .sidebar .main-nav a[aria-current=page]{background:#292929;color:#fdfbfc;font-weight:500}
 .sidebar .main-nav a small{flex:none;margin-left:auto;padding:0 6px;font-size:12px;font-weight:700;line-height:17px;border-radius:4px;background:linear-gradient(90deg,#f0ff94,#a2fd53);color:#0b080b}
 .sidebar .main-nav #nav-marketing-studio{margin-top:0;border-top:0;padding:8px}
-.sidebar-marketing{margin:16px 0;padding:12px 0;border-block:1px solid #343435}
+.sidebar-marketing{display:grid;gap:2px;margin:16px 0;padding:12px 0;border-block:1px solid #343435}
 .sidebar .recent-projects{display:flex;flex:1;flex-direction:column;min-height:0;margin:0;padding:0;overflow:hidden}
 .sidebar .recent-projects h2{flex:none;margin:0 0 4px;font-size:12px;font-weight:400;line-height:20px}
 .sidebar .recent-projects-toggle{display:flex;width:100%;min-height:28px;height:28px;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#a1a0a3;font-size:12px;font-weight:400;text-align:left}
