@@ -784,7 +784,7 @@ export function createServiceOperations(root,ctx){
     });
 
     const heading=node('header',null,'so-drama-heading');
-    const title=node('div');title.append(node('span','短剧承制','so-drama-eyebrow'),node('h1','VSC短剧工作台'),node('p','提交承制需求或团队合作申请，随时查看处理进度。'));
+    const title=node('div'),headingTitle=node('h1','VSC短剧工作台');headingTitle.prepend(node('span','短剧承制','so-drama-eyebrow'));title.append(headingTitle,node('p','提交承制需求或团队合作申请，随时查看处理进度。','hint'));
     const actions=node('div',null,'service-operations-actions');actions.append(button('刷新',()=>reload({})),renderQuickSwitch(s),button('新建申请',openApplication,!writable(),'so-btn-primary'));
     heading.append(title,actions);root.append(heading);
     const notice=node('aside',null,'so-drama-notice');notice.append(node('strong','提交需求 → 内部处理 → 查看进展'),node('p','当前用于登记和内部处理申请，尚未接入外部承制或发行服务。内部审核通过后，仍需另行对接。'));root.append(notice);

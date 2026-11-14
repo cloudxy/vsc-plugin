@@ -226,8 +226,8 @@ test('switching pages while reading the directory prevents the old creation navi
   assert.equal(h.routes.length,0);assert.equal(JSON.parse([...h.storage.values()][0]).phase,'readback');
 });
 
-test('home discovery authentication failures stay local and retry without reloading the homepage',async()=>{
-  let denied=true;const h=setup({api:()=>{if(denied)throw Object.assign(new Error('need session'),{status:403});return emptyDiscovery();}});
+test('home keeps duty entries and a team-template link without loading the template grid',async()=>{
+  const h=setup();
   await h.platform.load({page:'home'});
   assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.ok(h.root.querySelector('.home-canvas-card'));assert.equal(h.root.querySelector('.home-footer'),null);
   const duty=h.root.querySelectorAll('.duty-card');assert.equal(duty.length,3);
@@ -236,20 +236,17 @@ test('home discovery authentication failures stay local and retry without reload
   assert.ok(duty[1].textContent.includes('制作任务'));assert.ok(duty[1].textContent.includes('查看所选项目的任务记录和用量'));assert.ok(duty[1].href.includes('page=tasks'));
   assert.ok(duty[2].textContent.includes('工作区维护'));assert.ok(duty[2].textContent.includes('查看本机是否还接收新任务'));assert.ok(duty[2].href.includes('page=maintenance'));
   assert.ok(h.root.children.indexOf(h.root.querySelector('.home-duty-group'))<h.root.children.indexOf(h.root.querySelector('.home-tools')));
-  const region=h.root.querySelector('.home-discovery');
-  assert.ok(region.textContent.includes('need session'));assert.ok(region.textContent.includes('重新读取'));
-  assert.ok(!region.textContent.includes('最近创作'));assert.ok(!region.textContent.includes('在画布中发布固定版本后'));
-  assert.ok(!h.root.textContent.includes('加载不完整'));assert.equal(h.notices.length,0);
-  denied=false;await region.querySelector('button').click();assert.ok(region.querySelector('.discovery'));assert.equal(region.getAttribute('aria-busy'),null);
-  assert.ok(region.textContent.includes('团队模板'));assert.ok(region.textContent.includes('在画布中发布固定版本后，有权限的团队成员可在这里找到模板。'));
-  assert.equal(region.querySelectorAll('.recent-creation-card').length,0);assert.ok(!h.root.textContent.includes('最近创作'));
-  assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.equal(h.calls.length,2);
+  assert.equal(h.root.querySelector('.home-discovery'),null);
+  const templateLink=[...h.root.querySelectorAll('a')].find(node=>node.textContent==='查看团队模板');
+  assert.ok(templateLink);assert.ok(templateLink.href.includes('tab=templates'));
+  assert.ok(!h.root.textContent.includes('竖屏悬疑模板'));assert.ok(!h.root.textContent.includes('最近创作'));
+  assert.equal(h.calls.length,0);assert.equal(h.notices.length,0);
 });
 
-test('a late homepage discovery failure cannot append an error to the new page',async()=>{
-  const discovery=deferred();const h=setup({api:()=>discovery.promise});const pending=h.platform.load({page:'home'});await tick();
+test('a late team-template read cannot append an error to the project list',async()=>{
+  const discovery=deferred();const h=setup({api:()=>discovery.promise});const pending=h.platform.load({page:'projects',tab:'templates'});await tick();
   await h.platform.load({page:'projects'});const before=h.root.textContent;discovery.reject(Object.assign(new Error('old denied'),{status:403}));await pending;
-  assert.equal(h.root.textContent,before);assert.equal(h.root.querySelector('.home-discovery'),null);assert.equal(h.notices.length,0);
+  assert.equal(h.root.textContent,before);assert.ok(!h.root.textContent.includes('old denied'));assert.equal(h.notices.length,0);
 });
 
 // Execute the owning shell function from the real source. Only module creation
@@ -294,16 +291,26 @@ const homeTool=(h,index)=>h.root.querySelectorAll('.home-tool')[index];
 const homeCanvas=h=>h.root.querySelector('.home-canvas-card');
 const episodePage=(items,next_offset=null)=>({revision:4,episodes:{items,total:items.length,next_offset}});
 
-test('home lists team templates and duty entries without a recent-creation work list',async()=>{
-  const h=setup({projects:[homeProject('p')],api:async({url})=>{
+test('home links to team templates and keeps the template cards on the project tab',async()=>{
+  const discovery=async({url})=>{
     if(url==='/api/v1/discovery')return {...emptyDiscovery(),recent:[{project_id:'p',project_name:'个人片段',title:'不在首页',href:'?page=creative-canvas',kind_label:'画布',created_at:new Date().toISOString()}],templates:[{id:'t1',project_id:'p',project_name:'个人片段',title:'竖屏悬疑模板',version:1,href:'?page=creative-canvas&project=p',favorite:false}]};
     return emptyDiscovery();
-  }});
+  };
+  const h=setup({projects:[homeProject('p')],api:discovery});
   await h.platform.load({page:'home'});
   assert.equal(h.root.querySelectorAll('.home-tool').length,8);assert.ok(h.root.querySelector('.home-canvas-card'));
-  assert.equal(h.root.querySelectorAll('.recent-creation-card').length,0);assert.ok(!h.root.textContent.includes('不在首页'));assert.ok(!h.root.textContent.includes('最近创作'));
-  assert.ok(h.root.textContent.includes('团队模板'));assert.ok(h.root.textContent.includes('竖屏悬疑模板'));assert.ok(h.root.textContent.includes('打开来源画布'));
+  assert.equal(h.root.querySelectorAll('.recent-creation-card').length,0);assert.ok(!h.root.textContent.includes('不在首页'));assert.ok(!h.root.textContent.includes('竖屏悬疑模板'));
+  const templateLink=[...h.root.querySelectorAll('a')].find(node=>node.textContent==='查看团队模板');
+  assert.ok(templateLink);assert.ok(templateLink.href.includes('tab=templates'));
+  await templateLink.click();assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'templates'}]);
   await h.root.querySelectorAll('.duty-card')[2].click();assert.equal(h.routes.at(-1)[0],'maintenance');
+  const projects=setup({projects:[homeProject('p')],api:discovery});
+  await projects.platform.load({page:'projects',tab:'templates'});
+  assert.equal(projects.root.querySelector('#project-category-templates').getAttribute('aria-selected'),'true');
+  assert.equal(projects.root.querySelector('#project-category-recent').getAttribute('aria-selected'),'false');
+  assert.ok(projects.root.textContent.includes('竖屏悬疑模板'));assert.ok(projects.root.textContent.includes('打开来源画布'));
+  assert.equal(projects.root.querySelectorAll('.recent-creation-card').length,0);assert.ok(!projects.root.textContent.includes('不在首页'));
+  assert.equal(projects.root.querySelectorAll('.project-tile').length,0);
   const signedOut=setup({api:async({url})=>url==='/api/v1/discovery'?emptyDiscovery():{}});signedOut.session.actor=null;
   await signedOut.platform.load({page:'home'});
   assert.ok(!signedOut.root.textContent.includes('最近创作'));assert.equal(signedOut.root.querySelectorAll('.recent-creation-card').length,0);

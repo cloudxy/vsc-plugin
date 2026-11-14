@@ -102,7 +102,7 @@ export function createProductionPlatform(root,ctx){
   }
   async function home(t){
     root.classList.add('platform-home');header(msg("home.creation_hero_title"));
-    const section=el('div',null,'home-section-heading');section.append(el('h2',msg("home.creation_canvas_subtitle")),link(msg("ui.view_existing_canvases"),'projects',null,null,{tab:'canvases'}));root.append(section);
+    const section=el('div',null,'home-section-heading'),links=el('div',null,'home-section-links');links.append(link(msg("ui.view_existing_canvases"),'projects',null,null,{tab:'canvases'}),link(msg("ui.view_team_templates"),'projects',null,null,{tab:'templates'}));section.append(el('h2',msg("home.creation_canvas_subtitle")),links);root.append(section);
     const hero=el('div',null,'home-hero'),main=button('',()=>openHomeCreation('creative-canvas'));main.className='home-canvas-card';
     main.append(artwork('canvas.svg'),el('span',msg("ui.connect_your_creative_ideas_on_one_canvas"),'home-canvas-slogan'),el('span',msg("ui.open_intelligent_canvas"),'home-canvas-action'));hero.append(main);
     const features=el('div',null,'home-feature-grid');
@@ -112,7 +112,7 @@ export function createProductionPlatform(root,ctx){
     const grid=el('div',null,'home-tools');
     for(const [title,desc,page,tool,icon,tag]of [[msg("home.creation_ai_video_generation_title"),msg("home.creation_ai_video_generation_description"),'classic-production','video','video',msg("home.creation_tag_tool")],[msg("home.creation_ai_storyboard_title"),msg("home.creation_ai_storyboard_description"),'classic-production','image','image',msg("home.creation_tag_tool")],[msg("ui.script_breakdown"),msg("ui.reconstruct_dialogue_and_shots_frame_by_frame_to_create"),'text-tools','breakdown','breakdown','Agent'],[msg("home.creation_agent_creation_title"),msg("home.creation_agent_creation_description"),'intelligent-creation','','agent','Agent'],[msg("nav.script_scoring"),msg("home.creation_script_scoring_description"),'text-tools','scoring','scoring','Agent'],[msg("nav.novel_parser"),msg("home.creation_novel_parser_description"),'text-tools','novel','novel','Agent'],[msg("nav.script_translation"),msg("home.creation_script_translation_description"),'text-tools','translation','translation','Agent'],[msg("nav.video_quality_check"),msg("ui.check_video_subtitle_and_content_issues"),'text-tools','qc','qc','Agent']]){
       const card=page==='classic-production'||page==='intelligent-creation'?button('',()=>openHomeCreation(page,page==='classic-production'?{kind:tool}:{})):link('',page,null,null,{tool});card.className='home-tool';card.append(artwork(icon+'.svg'),el('small',tag,'home-tool-tag'));const copy=el('div'),titleRow=el('div',null,'home-tool-title');titleRow.append(el('h3',title));if(tool==='breakdown')titleRow.append(el('span','NEW','home-tool-new'));copy.append(titleRow,el('p',desc));card.append(copy);grid.append(card);
-    }root.append(grid);await homeDiscovery(t);
+    }root.append(grid);
   }
   function homeDutyGroup(){
     const group=el('section',null,'home-duty-group');group.id='home-duty-group';bindAttribute(group,'aria-label',msg('ui.vsc_creative_workbench'));group.append(el('h2',msg('ui.vsc_creative_workbench')));
@@ -143,22 +143,20 @@ export function createProductionPlatform(root,ctx){
     }
     await refresh();
   }
-  async function homeDiscovery(t){
-    const region=el('section',null,'home-discovery');bindAttribute(region,'aria-label',msg('ui.team_templates'));root.append(region);await showDiscovery(region,t,'templates');
-  }
   function projectCover(row,title,open){
     const tile=el('article',null,'project-tile'),cover=button('',open);cover.className='project-cover';bindAttribute(cover,'aria-label',msg("ui.open_value0",{value0:title}));
     if(row.cover){const preview=el(row.cover.modality==='video'?'video':'img');preview.src=row.cover.content_url;if(preview.tagName==='VIDEO'){preview.muted=true;preview.preload='metadata';}else{bindAttribute(preview,"alt",'');preview.loading='lazy';}preview.addEventListener('error',()=>{preview.remove();cover.append(el('span',msg("ui.preview_is_currently_unavailable"),'project-cover-empty'));},{once:true});cover.append(preview);}else cover.append(el('span',msg("ui.no_project_preview_yet"),'project-cover-empty'));
     const mark=el('span',null,'project-cover-mark');mark.innerHTML='<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect x="17" y="11" width="32" height="42" rx="3" fill="currentColor"/><path d="M13 16v40h31" stroke="currentColor" stroke-width="3"/><path d="M24 20h18M24 26h14" stroke="#1d1d1d" stroke-width="2"/></svg>';if(!row.cover)cover.append(mark);
     tile.append(cover,el('h3',title,'project-title'));return {tile,cover};
   }
-  const projectCategories=[['personal','workspace.personal_projects'],['participating','workspace.participating_projects'],['team','workspace.team_projects'],['recent','home.recent_creations']];
+  const projectCategories=[['personal','workspace.personal_projects'],['participating','workspace.participating_projects'],['team','workspace.team_projects'],['recent','home.recent_creations'],['templates','ui.team_templates']];
+  const catalogTabs=new Set(['recent','templates']);
   function categoryRoute(key){
-    if(key==='recent'){const legal=['personal','participating','team'].includes(scope.projectScope)?scope.projectScope:null;return {tab:'recent',...(legal?{project_scope:legal}:{})};}
-    const tab=scope.tab&&scope.tab!=='recent'?scope.tab:null;return {...(tab?{tab}:{}),project_scope:key};
+    if(catalogTabs.has(key)){const legal=['personal','participating','team'].includes(scope.projectScope)?scope.projectScope:null;return {tab:key,...(legal?{project_scope:legal}:{})};}
+    const tab=scope.tab&&!catalogTabs.has(scope.tab)?scope.tab:null;return {...(tab?{tab}:{}),project_scope:key};
   }
   function projectCategoryTabs(){
-    const selected=scope.tab==='recent'?'recent':directoryScope(scope.projectScope),nav=el('nav',null,'project-category-tabs');
+    const selected=catalogTabs.has(scope.tab)?scope.tab:directoryScope(scope.projectScope),nav=el('nav',null,'project-category-tabs');
     nav.setAttribute('role','tablist');bindAttribute(nav,'aria-label',msg('workspace.project_categories'));
     const activate=async key=>{await ctx.navigate('projects',null,null,categoryRoute(key));root.querySelector('#project-category-'+key)?.focus?.();};
     projectCategories.forEach(([key,label],index)=>{
@@ -169,15 +167,15 @@ export function createProductionPlatform(root,ctx){
     });return nav;
   }
   async function projects(t){
-    const recentView=scope.tab==='recent',category=directoryScope(scope.projectScope),canvases=!recentView&&(scope.tab==='canvases'||scope.tab==='canvas'),media=!recentView&&scope.tab==='media';
+    const catalogView=catalogTabs.has(scope.tab),category=directoryScope(scope.projectScope),canvases=!catalogView&&(scope.tab==='canvases'||scope.tab==='canvas'),media=!catalogView&&scope.tab==='media';
     root.classList.add('platform-projects');
     const heading=header(msg('workspace.project_directory')),add=button(msg('ui.new_project'),()=>createFlow(),!session().actor||!session().writeAvailable);add.className='primary project-create-action';heading.append(add);
     const navigation=el('div',null,'project-directory-navigation'),libraries=el('nav',null,'project-library-links');bindAttribute(libraries,'aria-label',msg('ui.project_category'));
     if(canvases||media)libraries.append(link(msg('workspace.back_to_projects'),'projects',null,null,{project_scope:category}));
     for(const [label,tab]of [['workspace.canvas_library','canvases'],['workspace.media_library','media']]){const a=link(msg(label),'projects',null,null,{tab,project_scope:category});if((canvases&&tab==='canvases')||(media&&tab==='media'))a.setAttribute('aria-current','page');libraries.append(a);}
     navigation.append(projectCategoryTabs(),libraries);root.append(navigation);
-    const region=el('section',null,'project-category-results');region.id='project-category-results';region.setAttribute('role','tabpanel');region.setAttribute('aria-labelledby','project-category-'+(recentView?'recent':category));
-    if(recentView){root.append(region);await showDiscovery(region,t,'recent');return;}
+    const region=el('section',null,'project-category-results');region.id='project-category-results';region.setAttribute('role','tabpanel');region.setAttribute('aria-labelledby','project-category-'+(catalogView?scope.tab:category));
+    if(catalogView){root.append(region);await showDiscovery(region,t,scope.tab);return;}
     if(canvases||media){root.append(region);if(canvases)await canvasCatalog(t);else{const slot=el('div',null,'project-toolbar');region.append(slot);await mediaCatalog(t,slot);}return;}
     const toolbar=el('div',null,'project-directory-toolbar'),query=el('input'),total=el('span',null,'project-total');query.type='search';bindAttribute(query,'placeholder',msg('replica.search_projects'));bindAttribute(query,'aria-label',msg('ui.search_projects'));total.setAttribute('role','status');toolbar.append(query,total);root.append(toolbar,region);
     const rows=currentProjects().filter(row=>!['vsc.text-tools','vsc.creative-tools'].includes(row.profile)&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind)),grid=el('div',null,'project-grid');region.append(grid);
