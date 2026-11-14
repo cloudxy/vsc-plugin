@@ -119,7 +119,7 @@ const state={
  customPrompt:null,previewUrl:'',isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',
  hydrated:false,
 };
-state.previewUrl=state.history?.[0]?.imageUrl||'';
+// The result belongs to this page session. Saved history is opened explicitly.
 const listeners=new Set();
 let host={notice:()=>{},api:null,csrf:()=>''};
 let activeController=null,historyWrites=Promise.resolve(),hydration=null,authPollTimer=null,authEpoch=0;
@@ -157,7 +157,7 @@ function hydrate(){
    if(recipe.pose?.useDepth!==undefined)state.poseDepthMode=Boolean(recipe.pose.useDepth);
    state.recipe={portrait:recipe.portrait??null,costume:sanitizeCostumeItem(recipe.costume)??null,pose:recipe.pose??null,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
   }
-  if(Array.isArray(history)){state.history=history;state.previewUrl=state.previewUrl||history[0]?.imageUrl||'';}
+  if(Array.isArray(history))state.history=history;
   state.hydrated=true;emit();
  }).catch(()=>{
   state.generationError='无法读取浏览器存储，已暂停生成；请恢复存储后刷新';
