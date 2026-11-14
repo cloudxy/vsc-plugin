@@ -181,3 +181,115 @@ test('text tools require an existing text workspace instead of an arbitrary prod
  await h.center.load();await (await h.open('novel')).querySelector('.cc-primary').click();const picker=h.root.querySelector('#project');assert.equal(picker.querySelectorAll('input').length,1);assert.equal(picker.querySelector('input').value,'text');
  await picker.querySelector('.cc-primary').click();assert.equal(new URLSearchParams(h.routes[0].split('?')[1]).get('project'),'text');
 });
+
+function parseStylesheet(cssText){
+ const stripped=cssText.replace(/\/\*[\s\S]*?\*\//g,'');
+ const parseRules=block=>{
+  const map=new Map();
+  for(const match of block.matchAll(/([^{}]+)\{([^{}]*)\}/g)){
+   const decls=Object.fromEntries(match[2].split(';').map(s=>s.trim()).filter(Boolean).map(pair=>{const idx=pair.indexOf(':');return [pair.slice(0,idx).trim(),pair.slice(idx+1).trim()];}));
+   for(const sel of match[1].split(',').map(s=>s.trim()).filter(Boolean))map.set(sel,{...(map.get(sel)||{}),...decls});
+  }
+  return map;
+ };
+ const media=[];let top='',i=0;
+ while(i<stripped.length){
+  if(stripped.startsWith('@media',i)){
+   const open=stripped.indexOf('{',i);let depth=1,end=open+1;
+   while(end<stripped.length&&depth>0){if(stripped[end]==='{')depth++;else if(stripped[end]==='}')depth--;end++;}
+   media.push({condition:stripped.slice(i,open).trim(),rules:parseRules(stripped.slice(open+1,end-1))});
+   i=end;
+  }else top+=stripped[i++];
+ }
+ return {top:parseRules(top),media};
+}
+
+test('anti-jitter stylesheet contract enforces stable 60px result bar, 44px touch targets, uniform chip font-weight and local class isolation',()=>{
+ const css=readFileSync(path.join(repoRoot,'src/vsc/interfaces/web/static/capability-center.css'),'utf8');
+ const {top,media}=parseStylesheet(css);
+ assert.equal(top.get('.capability-center')?.['--cc-control'],'#777777');
+ const resultRule=top.get('.capability-center .cc-result')||{};
+ assert.equal(resultRule['min-height'],'60px');
+ assert.equal(resultRule['align-items'],'center');
+ assert.equal(resultRule['padding-bottom'],'var(--cc-s4)');
+ for(const m of media){
+  const mobileResult=m.rules.get('.capability-center .cc-result');
+  assert.notEqual(mobileResult?.['align-items'],'flex-start',`${m.condition} must not revert .cc-result align-items to flex-start`);
+ }
+ const linkRule=top.get('.capability-center button.cc-link')||{};
+ assert.equal(linkRule['min-height'],'44px');
+ assert.equal(linkRule['flex-shrink'],'0');
+ assert.equal(linkRule['white-space'],'nowrap');
+ for(const sel of ['.capability-center .cc-kinds button','.capability-center .cc-stages button']){
+  const chip=top.get(sel)||{};
+  const pressed=top.get(`${sel}[aria-pressed=true]`)||{};
+  assert.equal(chip['min-height'],'44px',`${sel} min-height`);
+  assert.equal(chip['border-color'],'var(--cc-control)',`${sel} border-color`);
+  assert.equal(chip['font-weight'],'400',`${sel} unselected font-weight`);
+  assert.equal(pressed['font-weight'],'400',`${sel}[aria-pressed=true] font-weight must stay 400`);
+ }
+ assert.equal(top.get('.capability-center .cc-card-foot button')?.['min-height'],'44px');
+ const toolbarRule=top.get('.capability-center .cc-toolbar')||{};
+ assert.equal(toolbarRule['position'],'static');
+ assert.equal(toolbarRule['inset'],'auto');
+ assert.equal(toolbarRule['z-index'],'auto');
+ assert.equal(toolbarRule['pointer-events'],'auto');
+ const statusRule=top.get('.capability-center .cc-status')||{};
+ assert.equal(statusRule['padding'],'0');
+ assert.equal(statusRule['white-space'],'normal');
+});
+
+test('stage and kind filter switches reuse chip DOM nodes in place to preserve keyboard focus, and clearing restores focus to search',async()=>{
+ const rows=[
+  tool('adapt-1',undefined,{stages:['adapt'],kind:'canvas_skill'}),
+  tool('script-1',undefined,{stages:['script'],kind:'builtin_tool'}),
+  guide('guide-1','tutorial'),
+ ];
+ const h=setup({items:rows});
+ await h.center.load();
+ const stagesNav=h.root.querySelector('#stages'),kindsNav=h.root.querySelector('#kinds'),clearBtn=h.root.querySelector('#clear'),searchInput=h.root.querySelector('#search');
+ assert.equal(clearBtn.hidden,true);
+ const stageNodesBefore=[...stagesNav.children],kindNodesBefore=[...kindsNav.children];
+ const adaptBtn=find(stagesNav,'创意与改编'),allStageBtn=find(stagesNav,'全部');
+ await adaptBtn.pressKey('Enter');
+ assert.equal(stagesNav.children.length,stageNodesBefore.length);
+ stageNodesBefore.forEach((node,i)=>assert.equal(stagesNav.children[i]===node,true,`stage chip ${i} must be reused in place`));
+ assert.equal(adaptBtn.getAttribute('aria-pressed'),'true');
+ assert.equal(allStageBtn.getAttribute('aria-pressed'),'false');
+ assert.equal(h.root.contains(h.document.activeElement),true,'activeElement must remain connected in root');
+ assert.equal(h.document.activeElement===adaptBtn,true,'activeElement must remain on activated stage button');
+ assert.equal(clearBtn.hidden,false);
+
+ await allStageBtn.pressKey(' ');
+ assert.equal(stagesNav.children.length,stageNodesBefore.length);
+ stageNodesBefore.forEach((node,i)=>assert.equal(stagesNav.children[i]===node,true,`stage chip ${i} must stay reused after returning to 全部`));
+ assert.equal(allStageBtn.getAttribute('aria-pressed'),'true');
+ assert.equal(adaptBtn.getAttribute('aria-pressed'),'false');
+ assert.equal(h.document.activeElement===allStageBtn,true,'activeElement must remain on 全部 stage button');
+ assert.equal(clearBtn.hidden,true);
+
+ const canvasKindBtn=find(kindsNav,'画布 Skill'),allKindBtn=find(kindsNav,'全部类型');
+ await canvasKindBtn.pressKey('Enter');
+ assert.equal(kindsNav.children.length,kindNodesBefore.length);
+ kindNodesBefore.forEach((node,i)=>assert.equal(kindsNav.children[i]===node,true,`kind chip ${i} must be reused in place`));
+ assert.equal(canvasKindBtn.getAttribute('aria-pressed'),'true');
+ assert.equal(allKindBtn.getAttribute('aria-pressed'),'false');
+ assert.equal(h.root.contains(h.document.activeElement),true,'activeElement must remain connected in root');
+ assert.equal(h.document.activeElement===canvasKindBtn,true,'activeElement must remain on activated kind button');
+ assert.equal(clearBtn.hidden,false);
+
+ await clearBtn.pressKey('Enter');
+ assert.equal(clearBtn.hidden,true);
+ assert.equal(allKindBtn.getAttribute('aria-pressed'),'true');
+ assert.equal(h.document.activeElement===searchInput,true,'activating #clear must restore focus to #search');
+
+ await h.search('完全不存在的关键词');
+ assert.equal(h.root.querySelector('#list-state').hidden,false);
+ const emptyClearBtn=find(h.root.querySelector('#list-state'),'清空条件');
+ assert.ok(emptyClearBtn);
+ await emptyClearBtn.pressKey('Enter');
+ assert.equal(h.root.querySelector('#list-state').hidden,true);
+ assert.equal(clearBtn.hidden,true);
+ assert.equal(searchInput.value,'');
+ assert.equal(h.document.activeElement===searchInput,true,'activating empty-state clear button must restore focus to #search');
+});

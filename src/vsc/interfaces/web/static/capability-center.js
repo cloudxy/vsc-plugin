@@ -78,14 +78,22 @@ export function createCapabilityCenter(root,ctx,{isCurrent=()=>true,navigate=hre
  function frame(d,label){const h=el('header',null,'cc-modal-head'),title=el('h2',label);title.id=d.id+'-title';const x=button('×',()=>requestClose(d),'cc-close');bindAttribute(x,'aria-label',copy('close_title',{title:translate(label)}));h.append(title,x);const body=el('div',null,'cc-modal-body'),foot=el('footer',null,'cc-modal-foot');d.replaceChildren(h,body,foot);return {body,foot};}
  function show(d){if(!d.open)d.showModal();}
  function panel(title,description,action){const n=el('div',null,'cc-state');n.append(el('h3',title));if(description)n.append(el('p',description,'cc-muted'));if(action)n.append(action);return n;}
- function reset(){query='';stage='';kind='';search.value='';render();save();}
+ function reset(){const active=search.ownerDocument?.activeElement;const fromClear=active===clear||Boolean(active&&state.contains(active));query='';stage='';kind='';search.value='';render();if(fromClear)search.focus();save();}
  function offline(){return typeof navigator!=='undefined'&&navigator.onLine===false;}
+ function syncChips(nav,entries,selected,assign){
+  const key=entries.map(([id])=>id).join('\u0000');
+  if(nav.dataset.chipKey===key&&nav.children.length===entries.length){
+   entries.forEach(([id,label],index)=>{const node=nav.children[index];if(node.textContent!==label)setText(node,label);node.setAttribute('aria-pressed',String(selected===id));});
+   return;
+  }
+  nav.replaceChildren();nav.dataset.chipKey=key;
+  for(const [id,label] of entries){const node=button(label,()=>{assign(id);render();save();});node.setAttribute('aria-pressed',String(selected===id));nav.append(node);}
+ }
  function render(){
   if(!current())return;
   const available=new Set(items.flatMap(row=>row.stages)),availableKinds=new Set(items.map(row=>row.kind));
-  stages.replaceChildren();kindNav.replaceChildren();
-  for(const [id,label]of [['','全部'],...STAGES.filter(([id])=>available.has(id)||stage===id)]){const b=button(label,()=>{stage=id;render();save();});b.setAttribute('aria-pressed',String(stage===id));stages.append(b);}
-  for(const [id,label]of [['',copy('all_kinds')],...KINDS.filter(([id])=>availableKinds.has(id)||kind===id)]){const b=button(label,()=>{kind=id;render();save();});b.setAttribute('aria-pressed',String(kind===id));kindNav.append(b);}
+  syncChips(stages,[['', '全部'],...STAGES.filter(([id])=>available.has(id)||stage===id)],stage,id=>{stage=id;});
+  syncChips(kindNav,[['',copy('all_kinds')],...KINDS.filter(([id])=>availableKinds.has(id)||kind===id)],kind,id=>{kind=id;});
   clear.hidden=!query&&!stage&&!kind;notice.replaceChildren();notice.hidden=true;
   if(offline()){notice.hidden=false;notice.append(el('p',copy('offline')),button(copy('retry_catalog'),()=>load()));}
   for(const source of sources.values())if(source.status==='error'){notice.hidden=false;notice.append(el('p',copy('source_error',{source:source.id})),button(copy('retry_source'),()=>load(source.id)));}
