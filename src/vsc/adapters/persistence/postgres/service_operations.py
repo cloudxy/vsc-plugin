@@ -27,14 +27,21 @@ class ServiceOperationsRepository:
 
     def feedback(self,p,*,scope,status,query,category,offset,limit):
         from vsc.assets.service_operations import FEEDBACK_STATUSES
+        return self._request_page(p,kinds=('feedback',),scope=scope,statuses=FEEDBACK_STATUSES.get(status),query=query,category=category,offset=offset,limit=limit)
+
+    def drama_requests(self,p,*,scope,status,query,offset,limit):
+        from vsc.assets.service_operations import DRAMA_STATUSES
+        return self._request_page(p,kinds=('studio','production_service'),scope=scope,statuses=DRAMA_STATUSES.get(status),query=query,category='',offset=offset,limit=limit)
+
+    def _request_page(self,p,*,kinds,scope,statuses,query,category,offset,limit):
         r,e=S.service_requests,S.service_request_events
         latest=select(e.c.status).where(e.c.project_id==r.c.project_id,e.c.request_id==r.c.id).order_by(e.c.sequence.desc()).limit(1).correlate(r).scalar_subquery()
         with self.store.engine.connect() as conn:
             project=self.store._project(conn,p);person=self._identity(conn)
             access=self.store._access_require(conn,p,'manage' if scope=='manage' else 'read')
-            conditions=[r.c.project_id==p,r.c.kind=='feedback']
+            conditions=[r.c.project_id==p,r.c.kind.in_(kinds)]
             if scope=='mine':conditions.append(r.c.requester_id==person['id'])
-            if status!='all':conditions.append(latest.in_(FEEDBACK_STATUSES[status]))
+            if statuses:conditions.append(latest.in_(statuses))
             if category:conditions.append(r.c.feedback_category.is_(None) if category=='uncategorized' else r.c.feedback_category==category)
             if query:
                 # contains(autoescape) treats user-entered % and _ literally.
@@ -50,7 +57,7 @@ class ServiceOperationsRepository:
                     histories[event['request_id']].append(dict(event))
             for row in rows:
                 row.update(events=histories[row['id']],mine=row['requester_id']==person['id'])
-            return clean(dict(project_id=p,revision=project['revision'],identity_id=person['id'],actor=person['actor'],
+            return clean(dict(project_id=p,project_name=project['name'],revision=project['revision'],identity_id=person['id'],actor=person['actor'],
                 manage='manage' in access['capabilities'],capabilities=access['capabilities'],scope=scope,
                 items=rows,total=total,offset=offset,limit=limit,next_offset=offset+len(rows) if offset+len(rows)<total else None))
 

@@ -156,6 +156,58 @@ class ServiceOperationsTests(ResourceStoreFixture,unittest.TestCase):
         self.assertEqual(self.service.service_feedback(self.p,status='reviewed')['total'],0)
         self.assertEqual(self.service.service_feedback(self.p,status='processing')['total'],1)
 
+    def test_drama_personal_management_http_and_owner_only_withdraw(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        own=self.request('production_service',title='本人的承制需求')
+        member=self.invite('viewer');credential=secrets.token_urlsafe(32)
+        with self.as_identity(member):
+            self.service.access_command('credential',{'secret':credential},expected_revision=self.service.access_snapshot()['access_revision'],idempotency_key=uuid.uuid4().hex,actor=member['actor'])
+            other=self.write('create_service_request',dict(kind='studio',title='成员团队合作',body='代表作品与合作需求',contact='',channel='',artifact_id=None,media_id=None,requested_fields=[]),actor=member['actor'])
+        mine=self.service.service_drama_requests(self.p)
+        self.assertEqual([r['id'] for r in mine['items']],[own['id']])
+        self.assertEqual(mine['items'][0]['status'],'awaiting_configuration')
+        managed=self.service.service_drama_requests(self.p,scope='manage')
+        self.assertEqual(managed['total'],2);self.assertEqual(sum(r['mine'] for r in managed['items']),1)
+        other_row=next(r for r in managed['items'] if r['id']==other['id'])
+        with self.assertRaises(ResourceError):self.write('withdraw_service_request',dict(request_id=other['id'],base_event_id=other_row['events'][-1]['id'],reason='禁止代他人撤回'))
+        app=create_app(dict(projects_root=self.temp.name,allowed_hosts=['testserver'],allowed_origins=['http://testserver']),service=self.service)
+        with TestClient(app) as client:
+            self.assertEqual(client.post('/api/v1/access/login',json={'secret':credential},headers={'Origin':'http://testserver'}).status_code,200)
+            headers={'X-CSRF-Token':client.get('/api/v1/session').json()['csrf_token']}
+            url='/api/v1/projects/'+self.p+'/service-operations/drama-requests'
+            response=client.get(url,headers=headers);self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual([r['id'] for r in response.json()['items']],[other['id']])
+            self.assertEqual(client.get(url+'?scope=manage',headers=headers).status_code,403)
+            for query in ('limit=0','limit=101','offset=-1','status=completed','scope=all'):
+                self.assertEqual(client.get(url+'?'+query,headers=headers).status_code,422,query)
+            self.assertEqual(client.get(url+'?requester_id='+self.owner['identity_id'],headers=headers).json()['items'][0]['id'],other['id'])
+        with self.as_identity(member):
+            with self.assertRaises(ResourceError):self.service.service_drama_requests(self.p,scope='manage')
+
+    def test_drama_pagination_filters_before_limit_and_preserves_events(self):
+        first=self.request('studio',title='literal %_ team')
+        for n in range(13):self.request('production_service',title='承制 %03d'%n)
+        for n in range(101):self.request('feedback',title='较新意见 %03d'%n)
+        pages=[self.service.service_drama_requests(self.p,offset=offset,limit=12) for offset in (0,12)]
+        ids=[r['id'] for page in pages for r in page['items']]
+        self.assertEqual(len(ids),14);self.assertEqual(len(set(ids)),14);self.assertIn(first['id'],ids)
+        self.assertTrue(all(page['total']==14 for page in pages));self.assertIsNone(pages[-1]['next_offset'])
+        self.assertEqual(self.service.service_drama_requests(self.p,query='%_')['total'],1)
+        row=self.service.service_drama_requests(self.p,query='literal')['items'][0]
+        event=row['events'][-1]['id']
+        payload=dict(request_id=row['id'],base_event_id=event,status='local_approved',reason='内部审核；尚未开始外部承制')
+        self.write('process_service_request',payload)
+        with self.assertRaises(Conflict):self.write('process_service_request',payload)
+        reviewed=self.service.service_drama_requests(self.p,status='reviewed')
+        self.assertEqual([r['id'] for r in reviewed['items']],[row['id']]);self.assertEqual(len(reviewed['items'][0]['events']),2)
+        self.assertEqual(self.service.service_drama_requests(self.p,status='pending')['total'],13)
+        self.write('withdraw_service_request',dict(request_id=row['id'],base_event_id=reviewed['items'][0]['events'][-1]['id'],reason='本人取消'))
+        self.assertEqual(self.service.service_drama_requests(self.p,status='closed')['total'],1)
+        self.assertEqual(self.service.service_drama_requests(self.p,status='reviewed')['total'],0)
+        other=self.service.create_project({'name':'其他项目','profile_snapshot':{'profile_id':'vsc.synthetic','version':'1','stages':[]}},actor='test-human')
+        self.assertEqual(self.service.service_drama_requests(other['id'])['total'],0)
+
     def test_feedback_migration_preserves_legacy_receipts_and_classifications(self):
         from alembic import command
         from alembic.config import Config

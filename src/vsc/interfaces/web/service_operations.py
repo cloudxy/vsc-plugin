@@ -31,6 +31,11 @@ def install_service_operations_routes(app,router,catalog,etag,actor,read_actor):
         read_actor(request)
         return etag(request,service(project_id).service_feedback(project_id,scope=scope,status=status,query=query,category=category,offset=offset,limit=limit))
 
+    @router.get('/{project_id}/service-operations/drama-requests')
+    def drama_requests(project_id:str,request:Request,scope:str='mine',status:str='all',query:str='',offset:int=0,limit:int=12):
+        read_actor(request)
+        return etag(request,service(project_id).service_drama_requests(project_id,scope=scope,status=status,query=query,offset=offset,limit=limit))
+
     async def write(p,request,body,method):
         identity=actor(request)
         if set(body)!={'payload','expected_revision','idempotency_key'}:raise HTTPException(422,'身份来自可信会话；提交固定版本和请求标识')

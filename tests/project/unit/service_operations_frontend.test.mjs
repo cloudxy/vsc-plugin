@@ -99,6 +99,15 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
       const offset=Number(filters.get('offset')),limit=Number(filters.get('limit')),total=items.length;items=items.slice(offset,offset+limit);
       return structuredClone({project_id:state.project_id,revision:state.revision,actor:state.actor,identity_id:state.identity_id,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
     }
+    if(path.includes('/drama-requests?')){
+      const filters=new URL(path,'http://fixture').searchParams;
+      const buckets={pending:['received','awaiting_configuration'],processing:['under_review','error'],reviewed:['local_approved'],closed:['rejected','withdrawn']};
+      let items=state.requests.filter(r=>['studio','production_service'].includes(r.kind)&&(filters.get('scope')==='manage'||r.mine));
+      if(buckets[filters.get('status')])items=items.filter(r=>buckets[filters.get('status')].includes(r.status));
+      const query=filters.get('query')||'';items=items.filter(r=>(r.title+' '+r.body+' '+r.id).includes(query));
+      const offset=Number(filters.get('offset')),limit=Number(filters.get('limit')),total=items.length;items=items.slice(offset,offset+limit);
+      return structuredClone({project_id:state.project_id,project_name:'测试短剧项目',revision:state.revision,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
+    }
     if(path.includes('/network-diagnostic/ping')){
       const probe=new URL(path,'http://fixture').searchParams.get('probe');
       return {ok:true,probe_key:probe,project_id:'proj-ops',revision,database:'connected',storage:'configured'};
@@ -129,9 +138,15 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
         return {id:'key-1',prefix:body.payload.secret.slice(0,8),revision};
       }
       if(path.endsWith('/requests')){
-        const req={id:`req-${state.requests.length+1}`,...body.payload,status:body.payload.kind==='studio'?'awaiting_configuration':'received',mine:true,events:[{id:`ev-${revision}`,status:'received',reason:'已保存',created_at:'2026-11-11T10:00:00Z'}]};
+        const req={id:`req-${state.requests.length+1}`,...body.payload,status:['studio','production_service'].includes(body.payload.kind)?'awaiting_configuration':'received',mine:true,events:[{id:`ev-${revision}`,status:'received',reason:'已保存',created_at:'2026-11-11T10:00:00Z'}]};
         state.requests.unshift(req);
         return {id:req.id,status:req.status,revision};
+      }
+      if(path.endsWith('/requests/withdraw')||path.endsWith('/requests/process')){
+        const target=state.requests.find(r=>r.id===body.payload.request_id);
+        target.status=body.payload.status||'withdrawn';
+        target.events.push({id:'ev-'+revision,status:target.status,reason:body.payload.reason,created_at:'2026-11-11T12:00:00Z'});
+        return {id:target.id,status:target.status,revision};
       }
       if(path.endsWith('/exports/build')){
         const target=state.requests.find(r=>r.id===body.payload.request_id);
@@ -231,20 +246,9 @@ test('data-records personal/studio modes, Seedance read-only verification, and 5
   f.instance.suspend();
 });
 
-test('Kunlun AI drama base onboarding, 10-probe light network diagnostics, personal export, and account close execute cleanly',async()=>{
+test('light network diagnostics, personal export, and account close execute cleanly',async()=>{
   const f=await opsFixture();
-  await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});
-  assert.ok(f.view.textContent.includes('入驻昆仑万维AI短剧基地，一站式生产直达全球出海'));
-  assert.ok(f.view.textContent.includes('5% 入驻奖励'));
-  assert.ok(f.view.textContent.includes('500万 算力补贴 + 20% 充值福利'));
-  assert.ok(f.view.textContent.includes('4x 流量加权'));
-  assert.equal(f.view.querySelectorAll('.so-showcase-card').length,6);
-  await f.button('立即申请线上入驻').fire('click');
-  f.input('工作室 / 公司名称').value='山海短剧工坊';await f.input('工作室 / 公司名称').fire('input');
-  f.input('代表作品、团队规模与月产能说明').value='月产 8 部精品出海短剧';await f.input('代表作品、团队规模与月产能说明').fire('input');
-  await f.button('提交基地入驻申请').fire('click');
-  assert.ok(f.requests.some(r=>r.path.endsWith('/requests')&&JSON.parse(r.init.body).payload.kind==='studio'));
-
+  await f.instance.load({project:'proj-ops',subview:'network-diagnostic'});
   await f.button('网络诊断').fire('click');
   assert.equal(f.view.dataset.subview,'network-diagnostic');
   assert.ok(f.view.querySelector('.so-network-light'));
@@ -402,4 +406,79 @@ test('late management response cannot replace a personal list and failed managem
   assert.ok(denied.view.textContent.includes('管理权限已撤销'));
   await denied.button('查看我的反馈').fire('click');
   assert.ok(denied.view.textContent.includes('我的意见反馈'));
+});
+
+const dramaRecord=(id,mine=true,kind='production_service')=>({id,kind,title:'需求 '+id,body:'制作目标 '+id,status:'awaiting_configuration',mine,requester_name:mine?'本人':'其他成员',created_at:'2026-11-11T10:00:00Z',events:[{id:'ev-'+id,status:'awaiting_configuration',reason:'申请已登记，待对接',created_at:'2026-11-11T10:00:00Z'}]});
+
+test('drama requests default to mine, paginate on server, and keep project management explicit',async()=>{
+  const f=await opsFixture({records:[...Array.from({length:13},(_,i)=>dramaRecord('own-'+i)),dramaRecord('other',false,'studio')]});
+  await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});
+  assert.ok(f.view.textContent.includes('VSC短剧工作台'));
+  assert.ok(!f.view.textContent.includes('昆仑')&&!f.view.textContent.includes('500万'));
+  assert.ok(!f.view.textContent.includes('需求 other'));
+  assert.equal(f.view.querySelectorAll('.so-drama-row').length,12);
+  assert.ok(f.requests.at(-1).path.includes('/drama-requests?scope=mine'));
+  await f.button('下一页').fire('click');assert.equal(f.view.querySelectorAll('.so-drama-row').length,1);
+  await f.button('项目申请管理').fire('click');
+  assert.ok(f.requests.at(-1).path.includes('scope=manage'));assert.ok(f.view.textContent.includes('共 14 条'));
+  await f.button('下一页').fire('click');assert.ok(f.view.textContent.includes('需求 other'));
+  await f.view.querySelectorAll('.so-drama-row').at(-1).querySelector('button').fire('click');assert.ok(f.view.textContent.includes('处理申请'));
+  assert.equal(f.button('撤回申请'),undefined);
+  await f.button('关闭').fire('click');
+  await f.button('我的申请').fire('click');assert.ok(!f.view.textContent.includes('需求 other'));
+  await f.instance.load({project:'proj-ops',subview:'engine'});assert.ok(f.view.textContent.includes('天工引擎'));
+  const member=await opsFixture({manage:false});await member.instance.load({project:'proj-ops',subview:'ai-drama-base'});
+  assert.equal(member.button('项目申请管理'),undefined);
+});
+
+test('drama applications preserve per-kind drafts, validate, submit both kinds and show event history',async()=>{
+  const f=await opsFixture();await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});
+  await f.button('新建申请').fire('click');await f.button('提交申请').fire('click');
+  assert.ok(f.view.textContent.includes('请填写名称和需求说明'));assert.equal(f.requests.filter(r=>r.init.method==='POST').length,0);
+  f.input('需求名称').value='第一季制作';await f.input('需求名称').fire('input');
+  f.input('制作目标与交付要求').value='12集，每集2分钟';await f.input('制作目标与交付要求').fire('input');
+  f.input('申请类型').value='studio';await f.input('申请类型').fire('change');
+  assert.equal(f.input('团队名称').value,'');f.input('团队名称').value='合作团队';await f.input('团队名称').fire('input');
+  f.input('团队介绍与合作需求').value='代表作及产能';await f.input('团队介绍与合作需求').fire('input');
+  f.input('申请类型').value='production_service';await f.input('申请类型').fire('change');assert.equal(f.input('需求名称').value,'第一季制作');
+  await f.button('提交申请').fire('click');
+  assert.equal(JSON.parse(f.requests.find(r=>r.init.method==='POST').init.body).payload.kind,'production_service');
+  await f.button('查看详情').fire('click');assert.ok(f.view.textContent.includes('12集，每集2分钟'));assert.ok(f.view.textContent.includes('处理记录'));
+  assert.equal(f.button('保存处理记录'),undefined);await f.button('撤回申请').fire('click');await f.button('取消').fire('click');assert.ok(f.view.querySelector('dialog'));assert.ok(f.button('撤回申请'));await f.button('撤回申请').fire('click');await f.button('确认撤回').fire('click');
+  assert.ok(f.view.textContent.includes('已撤回'));
+  await f.button('新建申请').fire('click');assert.equal(f.input('需求名称').value,'');
+  f.input('申请类型').value='studio';await f.input('申请类型').fire('change');assert.equal(f.input('团队名称').value,'合作团队');
+  await f.button('提交申请').fire('click');
+  assert.equal(JSON.parse(f.requests.filter(r=>r.path.endsWith('/requests')&&r.init.method==='POST').at(-1).init.body).payload.kind,'studio');
+});
+
+test('drama submit conflicts retain inputs and missing projects show a disabled entry',async()=>{
+  let fail=true;
+  const f=await opsFixture({apiHook:async(path,init)=>{if(path.endsWith('/requests')&&fail){const e=new Error('revision');e.status=409;throw e;}}});
+  await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});await f.button('新建申请').fire('click');
+  f.input('需求名称').value='保留的需求';await f.input('需求名称').fire('input');f.input('制作目标与交付要求').value='正文';await f.input('制作目标与交付要求').fire('input');
+  await f.button('提交申请').fire('click');assert.ok(f.view.textContent.includes('输入已保留'));assert.equal(f.input('需求名称').value,'保留的需求');assert.equal(f.button('提交申请').disabled,false);
+  fail=false;await f.button('提交申请').fire('click');assert.ok(!f.view.querySelector('dialog'));
+  await f.instance.load({project:null,subview:'ai-drama-base'});assert.ok(f.view.textContent.includes('请先选择项目'));assert.equal(f.button('新建申请').disabled,true);
+});
+
+test('new drama application returns from a later management page to its own first page',async()=>{
+  const f=await opsFixture({records:Array.from({length:13},(_,i)=>dramaRecord('own-'+i))});
+  await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});await f.button('项目申请管理').fire('click');await f.button('下一页').fire('click');
+  await f.button('新建申请').fire('click');f.input('需求名称').value='刚刚提交的新需求';f.input('制作目标与交付要求').value='明确制作目标';await f.button('提交申请').fire('click');
+  const filters=new URL(f.requests.at(-1).path,'http://fixture').searchParams;
+  assert.equal(filters.get('scope'),'mine');assert.equal(filters.get('offset'),'0');assert.equal(filters.get('status'),'all');assert.ok(f.view.textContent.includes('刚刚提交的新需求'));
+});
+
+test('late drama management reads cannot replace mine and denied management offers personal recovery',async()=>{
+  let resolve;
+  const f=await opsFixture({apiHook:async(path)=>{if(path.includes('/drama-requests?scope=manage'))return new Promise(r=>{resolve=r;});}});
+  await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});
+  const delayed=f.button('项目申请管理').fire('click');
+  await f.instance.load({project:'proj-ops',subview:'ai-drama-base',drama:{scope:'mine'}});
+  resolve({manage:true,capabilities:['read','manage'],items:[dramaRecord('private-other',false)],total:1,next_offset:null});await delayed;
+  assert.ok(!f.view.textContent.includes('private-other'));assert.ok(f.view.textContent.includes('还没有申请'));
+  const denied=await opsFixture({apiHook:async(path)=>{if(path.includes('/drama-requests?scope=manage'))throw new Error('权限已失效');}});
+  await denied.instance.load({project:'proj-ops',subview:'ai-drama-base'});await denied.button('项目申请管理').fire('click');
+  await denied.button('查看我的申请').fire('click');assert.ok(denied.view.textContent.includes('还没有申请'));
 });

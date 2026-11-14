@@ -13,6 +13,12 @@ FEEDBACK_STATUSES={
     'reviewed':('local_approved',),
     'closed':('rejected','withdrawn','account_closed','export_ready'),
 }
+DRAMA_STATUSES={
+    'pending':('received','awaiting_configuration'),
+    'processing':('under_review','error'),
+    'reviewed':('local_approved',),
+    'closed':('rejected','withdrawn'),
+}
 
 def api_capabilities(project_id):
     base='/api/v1/service-api/projects/'+project_id
@@ -97,6 +103,14 @@ class ServiceOperationsService:
             error('反馈分页需要非负 offset 与 1–100 的 limit')
         query=text(query,'反馈搜索',200,True)
         return self._operations().feedback(p,scope=scope,status=status,query=query,category=category,offset=offset,limit=limit)
+
+    def service_drama_requests(self,p,*,scope='mine',status='all',query='',offset=0,limit=12):
+        self.authorize_access(p,'manage' if scope=='manage' else 'read')
+        if scope not in {'mine','manage'} or status not in {'all',*DRAMA_STATUSES}:error('申请范围或状态无效')
+        if type(offset)is not int or offset<0 or type(limit)is not int or not 1<=limit<=100:
+            error('申请分页需要非负 offset 与 1–100 的 limit')
+        query=text(query,'申请搜索',200,True)
+        return self._operations().drama_requests(p,scope=scope,status=status,query=query,offset=offset,limit=limit)
 
     def verify_seedance_task(self,p,payload):
         self.authorize_access(p,'read')
