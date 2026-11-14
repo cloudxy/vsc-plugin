@@ -9,7 +9,7 @@ from vsc.assets.resource_service import ResourceError
 from . import schema as S
 from .values import checked_id,clean,new_id
 from .schema_task_notifications import ORIGINS
-from .task_center import task_sources
+from .task_center import task_sources,task_origin_href
 
 NOTIFY_STATES=('succeeded','completed','failed','submission_unknown','needs_input','result_ready','planned','applied','rejected','stopped','cancelled','awaiting_upload','uploaded')
 
@@ -71,18 +71,24 @@ class TaskNotificationRepository:
                 if not selected:continue
                 source=source_query.subquery()
                 origins={r['id']:dict(r) for r in conn.execute(select(source).where(source.c.id.in_([r['origin_id']for r in selected]))).mappings()}
+                batch_counts={}
+                if kind=='text_batch':
+                    members=S.text_tool_batch_items
+                    for batch_id,state,count in conn.execute(select(members.c.batch_id,members.c.status,func.count()).where(
+                        members.c.project_id==p,members.c.batch_id.in_(list(origins))).group_by(members.c.batch_id,members.c.status)):
+                        batch_counts.setdefault(batch_id,{})[state]=count
                 for event in selected:
                     original=origins[event['origin_id']]
-                    key='episode' if kind=='editing' else 'scope' if kind=='generation' else 'task_target'
-                    params={'page':original['page'],'project':p,key:original['target_id'],'task_id':event['origin_id']}
-                    if original.get('scope_id'):params['episode']=original['scope_id']
-                    if original.get('tool_id'):params['tool']=original['tool_id']
+                    current=event['source_token']==original['source_token']
                     item={k:event[k] for k in ('id','sequence','kind','origin_id','observed_status','created_at','unread')}
-                    item.update(title=original['title'],current_status=original['status'],error=original['error'],href='/?'+urlencode(params),task_created_at=original['created_at'])
+                    # Events retain only the observed state/token. Current errors
+                    # and batch progress cannot be reconstructed as past facts.
+                    item.update(title=original['title'],current_status=original['status'],current_error=original['error'],
+                        is_current_event=current,error=original['error'] if current else None,
+                        href=task_origin_href(p,original),task_created_at=original['created_at'])
                     item['task_href']='/?'+urlencode({'page':'tasks','project':p,'task_kind':kind,'task_id':event['origin_id']})
-                    if kind=='text_batch':
-                        members=S.text_tool_batch_items
-                        counts=dict(conn.execute(select(members.c.status,func.count()).where(members.c.project_id==p,members.c.batch_id==event['origin_id']).group_by(members.c.status)).all())
+                    if kind=='text_batch' and current:
+                        counts=batch_counts.get(event['origin_id'],{})
                         item['progress']={state:counts.get(state,0) for state in ('pending','running','completed','failed','blocked','skipped')};item['progress']['total']=sum(counts.values())
                         item['outcome']='stopped' if original['status']=='stopped' else 'partial' if counts.get('failed') or counts.get('blocked') else 'completed' if original['status']=='completed' else original['status']
                     items.append(item)

@@ -119,6 +119,7 @@ function el(tag, className, text) { const node = document.createElement(tag); if
 function notice(message) { setText($('notice'),message || ''); $('notice').hidden = !message; }
 function applySession(session) {
   const previousIdentity=state.identityId||state.actor;
+  if(previousIdentity!==(session.identity_id||session.actor)||state.shareId!==session.share_id){taskNotifications?.suspend();taskNotificationKey=null;$('task-notifications').hidden=true;}
   if(previousIdentity!==(session.identity_id||session.actor)||state.workspaceId!==session.workspace_id)closeCanvasManagement();
   if((state.identityId||state.actor)!==(session.identity_id||session.actor))editWorkspace?.suspend?.();
   if(previousIdentity&&previousIdentity!==(session.identity_id||session.actor)||state.workspaceId&&state.workspaceId!==session.workspace_id){state.project=null;state.object=null;episodeScope=null;state.treeNodes=[];state.revision=0;}
@@ -189,9 +190,9 @@ async function readAccountLocale(){const actor=state.actor,languageRevision=getL
 let taskNotifications=null,taskNotificationKey=null;
 async function loadTaskNotifications(){
   const project=state.projectRows.get(state.project)?.storage_policy==='postgres-series-v1'&&state.identityId&&state.view!=='access-share'?state.project:null;
-  const key=project?state.identityId+':'+project:null;
+  const key=state.identityId&&state.view!=='access-share'?state.identityId+':'+(project||''):null;
   $('task-notifications').hidden=!key;if(key===taskNotificationKey)return;taskNotificationKey=key;
-  if(!taskNotifications&&key)taskNotifications=createTaskNotifications($('task-notifications'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf})});
+  if(!taskNotifications&&key)taskNotifications=createTaskNotifications($('task-notifications'),{api,notice,projects:()=>[...state.projectRows.values()].filter(row=>row.storage_policy==='postgres-series-v1'&&!row.unavailable),projectName:id=>state.projectRows.get(id)?.name,session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf})});
   if(key)await taskNotifications.load({project});else taskNotifications?.suspend();
 }
 let pendingInvite=null;
@@ -665,6 +666,8 @@ async function selectProject(id,{scope}={}) {
   }
   if(scope!==undefined)state.object=scope;
   state.project = id; state.offset = 0; state.resourceRequest++; state.artifactRequest++; state.comparisons.clear(); updateCompare();
+  // Notification scope changes immediately, even if the workbench read is slow or fails.
+  loadTaskNotifications().catch(error=>{if(state.project===id)notice(error.message);});
   const request = ++state.treeRequest;
   const paged=state.projectRows.get(id)?.storage_policy==='postgres-series-v1';
   const data = await api(paged?`${base()}/workbench?section=children&limit=60`:`${base()}/tree`);
