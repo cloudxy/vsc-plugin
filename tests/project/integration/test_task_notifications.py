@@ -9,6 +9,7 @@ import secrets
 import tempfile
 import unittest
 import uuid
+from urllib.parse import parse_qs,urlparse
 import support.paths
 from support.paths import ROOT
 from support.fixtures.resource_store import ResourceStoreFixture,HAS_DB_DEPS,TEST_URL
@@ -34,6 +35,164 @@ class TaskNotificationTests(ResourceStoreFixture,unittest.TestCase):
     def imports(self,count=1,title='原上传'):
         sha=hashlib.sha256(b'x').hexdigest()
         return self.write('create_media_import',dict(title=title,files=[dict(filename=title+str(i)+'.txt',size_bytes=1,sha256=sha) for i in range(count)],rights='unknown',source_evidence=''))
+
+    def generation_record(self,shot_id,status='failed',working=False):
+        """Original task facts only; no generation adapter or remote request."""
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres import schema as S
+        draft=None
+        if working:
+            draft=self.write('create_artifact',dict(artifact_key='notice-draft:'+uuid.uuid4().hex,
+                artifact_type='classic-production-draft',document=dict(shot_id=shot_id,mode='image_text',references=[])))
+            with self.engine.begin() as conn:
+                project=self.store._project(conn,self.p,lock=True)
+                run=self.store._create_artifact(conn,project,dict(artifact_key='notice-run:'+uuid.uuid4().hex,
+                    artifact_type='workbench-generation-run',document={'workbench_draft':{'id':draft['id'],'sha256':draft['sha256']}}))
+                conn.execute(insert(S.workbench_run_inputs).values(project_id=self.p,id=str(uuid.uuid4()),run_version_id=run['id'],
+                    shot_id=shot_id,draft_version_id=draft['id'],draft_sha256=draft['sha256'],output_kind='image'))
+        else:
+            run=self.write('create_artifact',dict(artifact_key='notice-run:'+uuid.uuid4().hex,
+                artifact_type='production-run',document={'synthetic_notification_fixture':True}))
+        provider='notice-fixture-'+uuid.uuid4().hex;model=str(uuid.uuid4());identifier=str(uuid.uuid4())
+        with self.engine.begin() as conn:
+            conn.execute(insert(S.providers).values(id=provider,name='isolated notification fixture',modality='image',
+                base_url='https://example.invalid',auth_ref='none',enabled=True,rate_limit={}))
+            conn.execute(insert(S.provider_models).values(id=model,provider_id=provider,model_key='fixture',modality='image',
+                model_version='1',capabilities={},default_params={},cost_rule={},enabled=True))
+            conn.execute(insert(S.generation_jobs).values(project_id=self.p,id=identifier,run_version_id=run['id'],
+                shot_id=shot_id,purpose='first_frame',modality='image',candidate_no=0,provider_id=provider,model_id=model,
+                model_version='1',request_payload={},request_sha256='0'*64,context_sha256='0'*64,
+                idempotency_key=identifier,status=status,attempt=1))
+        return dict(id=identifier,run_id=run['id'],draft_id=draft['id'] if draft else None)
+
+    def test_generation_uses_fixed_canvas_producer_and_episode_without_retargeting_later_uses(self):
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres import schema as S
+        objects=self.hierarchy()
+        episode=self.write('create_object',dict(kind='episode',display_code='CANVAS_EPISODE',parent_id=objects['work'],ordinal=1))['id']
+        for producer in ('run','preparation','working_input','later_use_only'):
+            with self.subTest(producer=producer):
+                job=self.generation_record(objects['shot'],working=producer=='working_input')
+                canvas_episode=objects['episode'] if producer=='preparation' else episode
+                canvas=self.write('create_creative_canvas',dict(episode_id=canvas_episode,document=dict(
+                    nodes=[dict(id='output',type='image',job_id=job['id'] if producer=='preparation' else None)],edges=[])))
+                with self.engine.begin() as conn:
+                    facts=dict(project_id=self.p,version_id=canvas['version_id'],node_key='output')
+                    if producer=='run':
+                        conn.execute(insert(S.creative_canvas_runs).values(**facts,id=str(uuid.uuid4()),artifact_id=job['run_id'],preview_sha256='1'*64))
+                    elif producer=='preparation':
+                        conn.execute(insert(S.creative_canvas_preparations).values(**facts,id=str(uuid.uuid4()),job_id=job['id'],
+                            input_sha256='1'*64,prompt='isolated fixture',params={},gaps=[],created_by='test-human'))
+                if producer=='working_input':
+                    with self.engine.begin() as conn:
+                        conn.execute(insert(S.canvas_generation_inputs).values(**facts,draft_version_id=job['draft_id'],shot_id=objects['shot']))
+                later=self.write('create_creative_canvas',dict(episode_id=objects['episode'],document=dict(
+                    nodes=[dict(id='later',type='image',job_id=job['id'])],edges=[])))
+                original=self.service.get_task_origin(self.p,'generation',job['id'])['task']
+                notice=next(row for row in self.service.get_task_notifications(self.p,limit=100)['items'] if row['origin_id']==job['id'])
+                self.assertEqual(notice['href'],original['href'])
+                params=parse_qs(urlparse(notice['href']).query)
+                self.assertEqual(params['task_id'],[job['id']]);self.assertTrue(notice['is_current_event'])
+                if producer=='later_use_only':
+                    self.assertEqual(params['page'],['candidates']);self.assertEqual(params['scope'],[objects['shot']])
+                    self.assertNotIn('focus_node_key',params)
+                else:
+                    self.assertEqual(params['page'],['creative-canvas']);self.assertEqual(params['task_target'],[canvas['id']])
+                    self.assertEqual(params['focus_node_key'],['output']);self.assertEqual(params['episode'],[canvas_episode])
+                    scoped=self.service.get_task_center(self.p,kind='generation',episode_id=canvas_episode)['items']
+                    self.assertIn(job['id'],{row['id'] for row in scoped})
+                    if canvas_episode!=objects['episode']:
+                        shot_scoped=self.service.get_task_center(self.p,kind='generation',episode_id=objects['episode'])['items']
+                        self.assertNotIn(job['id'],{row['id'] for row in shot_scoped})
+                self.assertNotEqual(original['target_id'],later['id'])
+
+    def test_canvas_turn_origin_and_history_keep_current_errors_separate(self):
+        from sqlalchemy import update
+        from vsc.adapters.persistence.postgres import schema as S
+        class UnknownPlanner:
+            name='isolated-unknown-canvas'
+            def available(self):return True
+            def generate(self,*args):raise TimeoutError('synthetic unknown receipt')
+        objects=self.hierarchy();canvas=self.write('create_creative_canvas',dict(episode_id=objects['episode'],
+            document=dict(nodes=[dict(id='target',type='image')],edges=[])))
+        turn=self.write('create_canvas_agent_turn',dict(canvas_id=canvas['id'],canvas_revision=1,message='固定隔离任务',
+            skill_id='vsc-assets',target_node_id='target'))
+        self.service.canvas_agent_backend=UnknownPlanner();self.addCleanup(delattr,self.service,'canvas_agent_backend')
+        result=self.service.execute_canvas_agent_turn(self.p,turn['id']);self.rev=self.service.get_project(self.p)['revision']
+        self.assertEqual(result['status'],'submission_unknown')
+        first=self.service.get_task_notifications(self.p)['items'][0]
+        self.assertEqual(first['error'],'canvas_agent_submission_unknown');self.assertTrue(first['is_current_event'])
+        params=parse_qs(urlparse(first['href']).query)
+        self.assertEqual(params['task_target'],[canvas['id']]);self.assertEqual(params['agent_turn'],[turn['id']])
+        self.assertEqual(params['focus_node_key'],['target']);self.assertEqual(params['episode'],[objects['episode']])
+        self.assertEqual(first['href'],self.service.get_task_origin(self.p,'canvas',turn['id'])['task']['href'])
+        self.write('decide_canvas_agent_turn',dict(turn_id=turn['id'],outcome='stop',reason='隔离测试明确停止'))
+        stopped=self.service.get_task_notifications(self.p)['items'][0]
+        self.assertEqual(stopped['observed_status'],'stopped')
+        # A changed current error is another source observation even if its
+        # status is unchanged; no historical error snapshot is invented.
+        with self.engine.begin() as conn:
+            conn.execute(update(S.canvas_agent_turns).where(S.canvas_agent_turns.c.project_id==self.p,
+                S.canvas_agent_turns.c.id==turn['id']).values(error='synthetic-current-error'))
+        items=self.service.get_task_notifications(self.p)['items'];old=next(row for row in items if row['id']==first['id'])
+        self.assertFalse(old['is_current_event']);self.assertIsNone(old['error'])
+        self.assertEqual(old['observed_status'],'submission_unknown');self.assertEqual(old['current_status'],'stopped')
+        self.assertEqual(old['current_error'],'synthetic-current-error')
+        current=items[0];self.assertTrue(current['is_current_event']);self.assertEqual(current['error'],'synthetic-current-error')
+        previous=next(row for row in items if row['id']==stopped['id'])
+        self.assertFalse(previous['is_current_event']);self.assertIsNone(previous['error'])
+        self.assertEqual(len(self.service.get_task_notifications(self.p)['items']),len(items))
+
+    def test_generation_attempt_changes_discover_one_new_observation(self):
+        from sqlalchemy import update
+        from vsc.adapters.persistence.postgres import schema as S
+        objects=self.hierarchy();job=self.generation_record(objects['shot'],status='submission_unknown')
+        first=self.service.get_task_notifications(self.p)['items'][0]
+        with self.engine.begin() as conn:
+            conn.execute(update(S.generation_jobs).where(S.generation_jobs.c.project_id==self.p,
+                S.generation_jobs.c.id==job['id']).values(attempt=2))
+        revision=self.rev;value=self.service.get_task_notifications(self.p)
+        self.assertEqual(len(value['items']),2);self.assertEqual(value['items'][0]['observed_status'],'submission_unknown')
+        self.assertTrue(value['items'][0]['is_current_event'])
+        self.assertFalse(next(row for row in value['items'] if row['id']==first['id'])['is_current_event'])
+        self.assertEqual(self.service.get_task_notifications(self.p)['through_sequence'],value['through_sequence'])
+        self.assertEqual(self.service.get_project(self.p)['revision'],revision)
+
+    def test_lyrics_notification_returns_to_original_tool_request(self):
+        class Planner:
+            name='isolated-notice-lyrics';calls=0
+            def available(self):return True
+            def generate(self,*args):self.calls+=1;return dict(title='隔离歌词',lyrics='合成文字建议',notes='无供应商调用')
+        objects=self.hierarchy();planner=Planner();self.service.lyric_planner=planner;self.addCleanup(delattr,self.service,'lyric_planner')
+        draft=self.write('save_creative_tool_draft',dict(base_draft_id=None,document=dict(tool='lyrics',
+            episode_id=objects['episode'],prompt='隔离主题',lyrics='人工原稿')))
+        request=self.write('create_creative_lyrics',dict(draft_version_id=draft['id'],new_attempt=False))
+        self.rev=self.service.get_project(self.p)['revision']
+        notice=self.service.get_task_notifications(self.p)['items'][0];params=parse_qs(urlparse(notice['href']).query)
+        self.assertEqual(notice['origin_id'],request['id']);self.assertEqual(params['page'],['creative-tools'])
+        self.assertEqual(params['tool'],['lyrics']);self.assertEqual(params['task_target'],[request['id']])
+        self.assertEqual(params['episode'],[objects['episode']]);self.assertEqual(planner.calls,1)
+        self.assertEqual(notice['href'],self.service.get_task_origin(self.p,'lyrics',request['id'])['task']['href'])
+
+    def test_concurrent_discovery_keeps_one_event_and_later_observations_unread(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from sqlalchemy import select,func
+        from vsc.adapters.persistence.postgres import schema as S
+        self.imports(2);revision=self.rev;barrier=Barrier(2)
+        def discover():
+            with self.as_identity(self.owner):
+                barrier.wait(timeout=10)
+                return self.service.get_task_notifications(self.p)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures=[pool.submit(discover) for _ in range(2)];first,second=[future.result(timeout=20) for future in futures]
+        self.assertEqual({row['id'] for row in first['items']},{row['id'] for row in second['items']})
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.scalar(select(func.count()).select_from(S.task_notification_events).where(S.task_notification_events.c.project_id==self.p)),2)
+        self.assertEqual(self.service.get_project(self.p)['revision'],revision)
+        self.imports(title='读取位置之后');self.service.get_task_notifications(self.p)
+        self.service.read_task_notifications(self.p,{'through_sequence':first['through_sequence']})
+        self.assertEqual(self.service.get_task_notifications(self.p,unread_only=True)['unread_count'],1)
 
     def test_late_old_task_beyond_latest_hundred_and_stable_pages(self):
         old=self.imports(title='旧任务');old_item=self.service.get_media_import(self.p,old['id'])['items'][0]
@@ -86,6 +245,8 @@ class TaskNotificationTests(ResourceStoreFixture,unittest.TestCase):
         notice=self.service.get_task_notifications(self.p)['items'][0];self.assertEqual(notice['origin_id'],queued['id']);self.assertEqual(notice['observed_status'],'failed');self.assertTrue(notice['error'])
 
     def test_batch_partial_completion_is_not_reported_as_all_success(self):
+        from sqlalchemy import event,update
+        from vsc.adapters.persistence.postgres import schema as S
         from vsc.assets.text_tools import COMMON,DEFAULTS
         class Host:
             name='isolated-notification-host'
@@ -102,9 +263,26 @@ class TaskNotificationTests(ResourceStoreFixture,unittest.TestCase):
         self.assertEqual(notice['outcome'],'partial');self.assertEqual(notice['progress']['completed'],1);self.assertEqual(notice['progress']['failed'],1)
         self.assertEqual(notice['current_status'],'running');self.assertEqual(notice['observed_status'],'running')
         fixed=self.service.get_task_origin(self.p,'text_batch',batch['id'])['task'];self.assertEqual(len(fixed['children']),2)
+        with self.engine.begin() as conn:
+            conn.execute(update(S.text_tool_batch_items).where(S.text_tool_batch_items.c.project_id==self.p,
+                S.text_tool_batch_items.c.batch_id==batch['id'],S.text_tool_batch_items.c.status=='failed').values(error_code='changed-batch-error'))
+        changed=self.service.get_task_notifications(self.p)['items']
+        latest=next(row for row in changed if row['kind']=='text_batch')
+        self.assertNotEqual(latest['id'],notice['id']);self.assertTrue(latest['is_current_event'])
+        historical=next(row for row in changed if row['id']==notice['id'])
+        self.assertFalse(historical['is_current_event']);self.assertNotIn('progress',historical);self.assertNotIn('outcome',historical)
         self.write('stop_text_batch',dict(batch_id=batch['id']))
-        stopped=next(r for r in self.service.get_task_notifications(self.p)['items'] if r['kind']=='text_batch')
+        statements=[]
+        def record(conn,cursor,statement,parameters,context,executemany):statements.append(statement.lower())
+        event.listen(self.engine,'before_cursor_execute',record)
+        try:page=self.service.get_task_notifications(self.p)
+        finally:event.remove(self.engine,'before_cursor_execute',record)
+        stopped=next(r for r in page['items'] if r['kind']=='text_batch')
         self.assertEqual(stopped['outcome'],'stopped');self.assertEqual(stopped['observed_status'],'stopped')
+        old=next(row for row in page['items'] if row['id']==latest['id'])
+        self.assertEqual(old['observed_status'],'running');self.assertEqual(old['current_status'],'stopped')
+        self.assertNotIn('outcome',old);self.assertNotIn('progress',old)
+        self.assertEqual(sum('group by text_tool_batch_items.batch_id, text_tool_batch_items.status' in sql for sql in statements),1)
 
     def test_http_viewer_can_read_personal_notices_without_project_edit_authority(self):
         from fastapi.testclient import TestClient

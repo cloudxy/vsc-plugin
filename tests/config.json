@@ -49,7 +49,10 @@
         "src/vsc/assets/marketing_cases.py",
         "src/vsc/assets/marketing-cases.json",
         "src/vsc/interfaces/web/static/project-scope.js",
-        "tests/project/unit/project_scope.test.mjs"
+        "tests/project/unit/project_scope.test.mjs",
+        "tests/project/unit/task_notifications.test.mjs",
+        "src/vsc/interfaces/web/static/task-notifications.js",
+        "src/vsc/interfaces/web/static/task-notifications.css"
       ]
     },
     "assets.integration.test_edit_preview": {
