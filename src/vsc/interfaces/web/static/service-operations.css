@@ -12,10 +12,12 @@
 .so-btn-primary{background:linear-gradient(100deg,#d8ff66,var(--so-lime))!important;color:#0b1205!important;border-color:transparent!important;font-weight:700;border-radius:999px;padding:.5rem 1.05rem}
 .so-btn-light{background:#f8fafc!important;color:#0b1205!important;border-color:transparent!important;font-weight:700;border-radius:999px;padding:.45rem 1rem}
 .so-quick-switch{position:relative}
-.so-quick-switch>summary{list-style:none;cursor:pointer;padding:.45rem .8rem;border-radius:8px;border:1px solid var(--so-line);background:var(--so-card);font-size:.84rem;color:var(--so-muted);user-select:none}
+.service-operations :is(.so-hero-bar,.so-topbar,.so-drama-heading) .service-operations-actions>button,.so-quick-switch>summary{box-sizing:border-box;min-height:44px;padding:10px 14px;border-radius:8px;font:inherit;line-height:22px}
+.so-quick-switch>summary{display:flex;align-items:center;justify-content:center;gap:6px;list-style:none;cursor:pointer;border:1px solid #343435;background:#1d1d1d;color:var(--so-ink);user-select:none;white-space:nowrap}
+.so-quick-switch>summary:hover,.so-quick-switch[open]>summary{background:#292929;border-color:#4e4f50}
 .so-quick-switch>summary::-webkit-details-marker{display:none}
-.so-quick-switch-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:20;min-width:210px;display:grid;gap:.3rem;padding:.55rem;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:#181b22;box-shadow:0 16px 40px rgba(0,0,0,.55)}
-.so-quick-switch-menu button{width:100%;text-align:left;font-size:.84rem;padding:.45rem .65rem;background:transparent;border:1px solid transparent;border-radius:7px}
+.so-quick-switch-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:20;box-sizing:border-box;width:240px;max-width:calc(100vw - 32px);max-height:min(65dvh,520px);overflow-y:auto;overscroll-behavior:contain;display:grid;gap:4px;padding:8px;border-radius:12px;border:1px solid #3a3d44;background:#181b22;color:var(--so-ink);box-shadow:0 16px 40px rgba(0,0,0,.55)}
+.so-quick-switch-menu button{box-sizing:border-box;width:100%;min-height:44px;margin:0;text-align:left;font:inherit;font-size:.875rem;font-weight:400;line-height:22px;padding:10px 12px;background:transparent;color:inherit;border:1px solid transparent;border-radius:7px}
 .so-quick-switch-menu button:hover,.so-quick-switch-menu button[aria-pressed="true"]{background:rgba(158,255,0,.12);border-color:rgba(158,255,0,.35);color:#f3ffd6}
 .so-segmented{display:inline-flex;gap:.25rem;padding:.25rem;border-radius:10px;background:#101217;border:1px solid var(--so-line);margin:.5rem 0 1rem}
 .so-segmented button{border:0;background:transparent;color:var(--so-muted);border-radius:7px;padding:.45rem .95rem;font-size:.86rem}
@@ -72,7 +74,7 @@
 .so-drama-eyebrow{color:var(--so-lime);font-size:.78rem;font-weight:600;letter-spacing:.08em}
 .so-drama-heading h1{font-size:1.5rem;line-height:1.35;margin:.35rem 0}
 .so-drama-heading p,.so-drama-scope{font-size:.86rem;color:var(--so-muted);margin:.4rem 0}
-.so-drama-heading button,.so-drama-records button,.so-dialog button{min-height:44px;padding:.55rem .9rem}
+.so-drama-records button,.so-dialog button{min-height:44px;padding:.55rem .9rem}
 .so-drama-notice{display:grid;gap:.3rem;padding:1rem 1.2rem;border:1px solid var(--so-line);border-left:3px solid var(--so-lime);border-radius:10px;background:var(--so-card)}
 .so-drama-notice strong{font-size:.88rem;font-weight:600}.so-drama-notice p{margin:0;color:var(--so-muted);font-size:.82rem;line-height:1.7}
 .so-drama-records{margin-top:1.7rem;min-width:0}.so-drama-records .so-underline-tabs{margin-bottom:.75rem}
@@ -108,7 +110,7 @@
 .so-network-light .service-operations-table{background:#ffffff;border:1px solid #e2e8f0;border-radius:12px}
 .so-network-light th{background:#f1f5f9;color:#475569;padding:.75rem .85rem}
 .so-network-light td{border-bottom-color:#eef2f7;color:#0f172a;padding:.8rem .85rem}
-.so-network-light button,.so-network-light .so-quick-switch>summary{color:#172033;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px}
+.so-network-light .so-hero-bar .service-operations-actions>button{color:#172033;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px}
 .so-network-light .so-diag-copy{background:#18181b!important;color:#ffffff!important;border-color:#18181b!important;border-radius:999px}
 .so-network-light .so-diag-primary{background:#65c93d!important;color:#0b1205!important;border-color:#57b831!important;font-weight:700;border-radius:10px}
 .so-diag-progress-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.85rem;align-items:center;margin:1rem 0}
