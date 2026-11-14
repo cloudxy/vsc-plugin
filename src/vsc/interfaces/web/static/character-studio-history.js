@@ -93,12 +93,12 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
    restoreFocus();return;
   }
   for(const h of items){
-   const title=recordTitle(h),card=el('article','cs-history-item'),preview=action('',()=>onZoom?.(h.imageUrl,h.recipeSummary||title),'cs-history-img');
+   const title=recordTitle(h),card=el('article','cs-history-item official-list-card'),preview=action('',()=>onZoom?.(h.imageUrl,h.recipeSummary||title),'cs-history-img official-list-media');
    preview.setAttribute('aria-label',`查看生成记录：${h.recipeSummary||title}`);
    const img=el('img');img.src=h.imageUrl;img.alt=h.recipeSummary||title;img.loading='lazy';img.decoding='async';
    img.onerror=()=>{img.hidden=true;if(!preview.querySelector('.cs-history-image-error'))preview.append(el('span','cs-history-image-error','图片暂时无法显示 · 仍可查看记录详情'));};preview.append(img);
-   const meta=el('div','cs-history-meta');meta.append(el('h3','',title),el('small','',`${engine(h)} · ${new Date(h.createdAt).toLocaleString()}`));
-   const tools=el('div','cs-row-actions'),more=moreMenu(title+'的更多操作',[
+   const meta=el('div','cs-history-meta official-list-info'),heading=el('h3','official-list-title',title);heading.title=title;meta.append(heading,el('small','official-list-meta',`${engine(h)} · ${new Date(h.createdAt).toLocaleString()}`));
+   const tools=el('div','cs-row-actions official-list-actions'),more=moreMenu(title+'的更多操作',[
     ['查看详情',()=>detail(h)],['对比参考',()=>compareDialog(h)],['下载图片',()=>download(h.imageUrl,`character-${h.createdAt}.png`)],
     ['删除记录',()=>{if(confirm('删除这条合成记录及参考快照？此操作无法撤销，已下载的图片不受影响。'))return store.removeHistoryItem(h.id);},'cs-history-delete'],
    ]);
@@ -217,7 +217,7 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose}={}){
     ['清空全部记录',()=>{if(confirm('确定清空当前浏览器中的全部合成记录及参考快照？此操作无法撤销。'))return store.clearHistory();},'cs-history-delete'],
    ]);clear=more.buttons[0];
    actions.append(action('生成角色图',()=>onCompose?.(),'cs-primary'),more.node);toolbar.append(search,count,actions);
-   grid=el('div','cs-history');note=el('p','cs-history-note');root.append(toolbar,grid,note);
+   grid=el('div','cs-history official-list-grid');note=el('p','cs-history-note');root.append(toolbar,grid,note);
    window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);menuListeners(true);unsub=store.subscribe(()=>render());render(true);
   },
   suspend(){disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},
