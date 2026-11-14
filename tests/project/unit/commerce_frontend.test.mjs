@@ -207,12 +207,12 @@ test('studio quota subview allocates member credits and transfers cross-project 
   f.instance.suspend();
 });
 
-test('wallet formats minor currency for humans, links to Tiangong Engine billing, and guides empty invoice-apply back to wallet',async()=>{
+test('wallet formats minor currency for humans, links to vsc-engine billing, and guides empty invoice-apply back to wallet',async()=>{
   const f=await commerceFixture();
   assert.equal(f.module.formatMinorAmount(9900,'CNY'),'¥99.00 (9900 CNY)');
   await f.instance.load({project:'proj-1'});
   assert.ok(f.view.textContent.includes('本人 (member-1)'));
-  await f.button('天工引擎 API 账单 →').fire('click');
+  await f.button('vsc-engine API 账单 →').fire('click');
   assert.deepEqual(f.navigations.at(-1),['service-operations','engine','proj-1']);
 
   f.state.orders=[];

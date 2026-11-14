@@ -67,7 +67,7 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
     manage,
     capabilities:manage?['read','execute','manage']:['read'],
     configuration:{id:'cfg-1',version:1,document:{support_text:'技术支持 7×12',terms_url:'https://example.com/terms',privacy_url:'https://example.com/privacy',api_documentation:'Bearer 鉴权文档'}},
-    announcements:[{id:'ann-1',announcement_key:'v1',title:'天工引擎升级公告',body:'开放接口速率边界上线',status:'published'}],
+    announcements:[{id:'ann-1',announcement_key:'v1',title:'vsc-engine升级公告',body:'开放接口速率边界上线',status:'published'}],
     requests:[
       {id:'req-fb-1',kind:'feedback',title:'字幕导出建议',body:'建议增加 8 列质检报告入口',channel:'/script/qc',status:'received',mine:true,events:[{id:'ev-1',status:'received',reason:'已保存',created_at:'2026-11-10T10:00:00Z'}]},
       {id:'req-fb-2',kind:'feedback',title:'画布快捷键',body:'已联系产品确认快捷键方案',channel:'/canvas',status:'local_approved',mine:true,events:[{id:'ev-2',status:'local_approved',reason:'已联系',created_at:'2026-11-10T11:00:00Z'}]}
@@ -120,7 +120,7 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
         is_seedance_hex16:/^[0-9a-f]{16}$/.test(payload.task_id),
         read_only:true,
         credits_consumed:0,
-        co_brand:'天工工作台 × 火山引擎',
+        co_brand:'VSC 创作工作台 · 项目任务回执核对',
         verified:payload.task_id==='8f3a19c04b2e7d11',
         job:payload.task_id==='8f3a19c04b2e7d11'?{id:'job-1',status:'succeeded',model_version:'seedance-2.0'}:null,
         tos_signature:payload.tos_url?{status:'valid',message:'签名链接仍在有效期内（剩余 1800 秒）。'}:null,
@@ -180,6 +180,7 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
 
 test('pure validators verify 16-hex Seedance task IDs, TOS signed URLs, and 5-tab feedback buckets',async()=>{
   const {module}=await opsFixture();
+  assert.equal(module.normalizeOperationsSubview('vsc-engine'),'engine');
   assert.equal(module.validateSeedanceTaskId('8F3A19C04B2E7D11').isHex16,true);
   assert.equal(module.validateSeedanceTaskId('short').valid,false);
   const tos=module.parseTosSignedUrl('https://tos.volces.com/a.mp4?X-Tos-Date=20261111T100000Z&X-Tos-Expires=3600',Date.UTC(2026,10,11,10,30,0));
@@ -190,19 +191,29 @@ test('pure validators verify 16-hex Seedance task IDs, TOS signed URLs, and 5-ta
   assert.equal(module.feedbackDisplayStatus('withdrawn').bucket,'closed');
 });
 
-test('engine API subview enforces SPV compliance gate, issues one-time secret, and switches consumption/recharge CSV views',async()=>{
+test('engine API subview acknowledges scoped API credential usage, issues one-time secret, and switches consumption/recharge CSV views',async()=>{
   const f=await opsFixture();
   await f.instance.load({project:'proj-ops',subview:'engine'});
   assert.equal(f.view.dataset.subview,'engine');
   assert.ok(f.view.textContent.includes('1850 信用'));
+  assert.ok(f.view.textContent.includes('VSC 创作工作台（vsc-workflow）'));
+  assert.ok(f.view.textContent.includes('查询生成任务、查看原生用量'));
+  assert.ok(!f.view.textContent.includes('天工')&&!f.view.textContent.includes('SPV'));
+  assert.ok(!f.view.textContent.includes('18.50 CNY'));
+  await f.button('API 文档').fire('click');
+  assert.ok(f.view.textContent.includes('项目级 Bearer 凭据'));
+  await f.button('关闭').fire('click');
+  await f.button('显示偏好').fire('click');
+  assert.ok(f.view.textContent.includes('IP 限制备忘（不改变凭据授权）'));
+  await f.button('关闭').fire('click');
   f.input('API 凭据名称').value='生产管线密钥';
   await f.input('API 凭据名称').fire('input');
   await f.button('生成并登记 API 凭据').fire('click');
-  assert.ok(f.notices.some(m=>m.includes('SPV 企业合规协议')));
+  assert.ok(f.notices.some(m=>m.includes('vsc-engine API 凭据使用说明')));
   assert.equal(f.requests.some(r=>r.path.endsWith('/api-keys')),false);
 
-  const spv=f.input('确认天工引擎开放接口与SPV合规协议');
-  spv.checked=true;await spv.fire('change');
+  const usage=f.input('确认 vsc-engine API 凭据使用说明');
+  usage.checked=true;await usage.fire('change');
   await f.button('生成并登记 API 凭据').fire('click');
   assert.ok(f.requests.some(r=>r.path.endsWith('/api-keys')));
   assert.ok(f.input('本次新 API 凭据（仅此页面可见）').value.length>20);
@@ -217,7 +228,7 @@ test('engine API subview enforces SPV compliance gate, issues one-time secret, a
 test('data-records personal/studio modes, Seedance read-only verification, and 5-tab feedback records work end-to-end',async()=>{
   const f=await opsFixture();
   await f.instance.load({project:'proj-ops',subview:'data-records'});
-  assert.ok(f.view.textContent.includes('API 账户 · 天工引擎'));
+  assert.ok(f.view.textContent.includes('API 账户 · vsc-engine'));
   await f.button('工作室团队成本核算').fire('click');
   assert.ok(f.view.textContent.includes('团队成员消耗与项目单集成本核算表'));
   assert.ok(f.view.textContent.includes('420'));
@@ -426,7 +437,7 @@ test('drama requests default to mine, paginate on server, and keep project manag
   assert.equal(f.button('撤回申请'),undefined);
   await f.button('关闭').fire('click');
   await f.button('我的申请').fire('click');assert.ok(!f.view.textContent.includes('需求 other'));
-  await f.instance.load({project:'proj-ops',subview:'engine'});assert.ok(f.view.textContent.includes('天工引擎'));
+  await f.instance.load({project:'proj-ops',subview:'engine'});assert.ok(f.view.textContent.includes('vsc-engine'));
   const member=await opsFixture({manage:false});await member.instance.load({project:'proj-ops',subview:'ai-drama-base'});
   assert.equal(member.button('项目申请管理'),undefined);
 });

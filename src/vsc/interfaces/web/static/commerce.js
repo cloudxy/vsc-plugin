@@ -629,7 +629,7 @@ export function createCommerce(root,ctx){
     const portalBar=el('div',null,'commerce-actions');
     portalBar.append(
       button('进入电子发票中心 →',()=>switchSubview('invoice-overview'),false,'commerce-btn-primary'),
-      button('天工引擎 API 账单 →',()=>ctx.navigate?.('service-operations','engine',s.project))
+      button('vsc-engine API 账单 →',()=>ctx.navigate?.('service-operations','engine',s.project))
     );
     if(billableCount>0)portalBar.append(button(`立即开票（${billableCount} 笔待开票）`,()=>switchSubview('invoice-apply')));
     status.append(portalBar);
