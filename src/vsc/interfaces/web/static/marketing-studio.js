@@ -237,7 +237,7 @@ export function createMarketingStudio(root,ctx){
     head.append(c.filters,query);c.summary=compact?null:el('p',null,'marketing-case-count');c.grid=el('div',null,compact?'marketing-case-options':'marketing-case-grid');c.feedback=el('div',null,'marketing-case-feedback');c.feedback.setAttribute('role','status');c.pager=el('div',null,'marketing-case-pager');const results=el('div',null,compact?'marketing-picker-results':'marketing-case-results');if(c.summary)results.append(c.summary);results.append(c.grid,c.feedback,c.pager);c.scrollRoot=compact?results:root;section.append(head,results);host.append(section);
     const changed=c.input.trim()!==c.keyword;if(changed){c.keyword=c.input.trim();remember(key(compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});}renderCaseFilters(s,c);renderCases(s,c);if(changed||!c.loaded&&!c.loading)readCases(s,1,true,false,c);
   }
-  function renderCaseFilters(s,c=s.cases){if(!caseViewLive(s,c)||!c.filters)return;c.filters.replaceChildren();for(const category of [{category_name:'',category_label:'全部创意'},...c.categories]){const b=caseButton(s,category.category_label,()=>{if(!caseViewLive(s,c))return;clearTimeout(c.debounce);c.category=category.category_name;c.keyword=c.input.trim();remember(key(c.compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});return readCases(s,1,true,false,c);},'marketing-case-category');b.setAttribute('aria-pressed',String(c.category===category.category_name));b.dataset.category=category.category_name;if(!c.compact&&category.available_group_count!=null)b.append(el('small',String(category.available_group_count)));c.filters.append(b);}}
+  function renderCaseFilters(s,c=s.cases){if(!caseViewLive(s,c)||!c.filters)return;const scrollLeft=c.filters.scrollLeft||0;c.filters.replaceChildren();for(const category of [{category_name:'',category_label:'全部创意'},...c.categories]){const b=caseButton(s,category.category_label,()=>{if(!caseViewLive(s,c))return;clearTimeout(c.debounce);c.category=category.category_name;c.keyword=c.input.trim();remember(key(c.compact?'case-browser-compact':'case-browser',s.actor,s.project),{category:c.category,keyword:c.keyword});return readCases(s,1,true,false,c);},'marketing-case-category');b.setAttribute('aria-pressed',String(c.category===category.category_name));b.dataset.category=category.category_name;if(!c.compact&&category.available_group_count!=null)b.append(el('small',String(category.available_group_count)));c.filters.append(b);}c.filters.scrollLeft=scrollLeft;}
   function rebindCaseLocale(s){
     closeMethodPicker(s);if(live(s))s.methodScope=caseScope(s);
     closePicker(s,false);
@@ -252,16 +252,17 @@ export function createMarketingStudio(root,ctx){
     else renderCases(s);
   }
   async function readCases(s,page,reset=false,fresh=false,c=s.cases){
-    if(!caseViewLive(s,c))return;const seq=++c.requestSeq,stamp=caseScope(s);clearTimeout(c.debounce);stopCaseObserver(c);closeCase(s,false,c);stopPreview(c);if(fresh)c.H=null;
-    if(reset){c.items=[];c.loaded=false;c.next=1;c.total=0;}c.activeRead={page,reset,fresh};c.loading=true;c.failed=false;renderCases(s,c);c.feedback.replaceChildren(el('p','正在读取创意…'));renderCasePager(s,c);
+    if(!caseViewLive(s,c))return;const seq=++c.requestSeq,stamp=caseScope(s),pageScroll=c.compact?null:root.scrollTop;clearTimeout(c.debounce);stopCaseObserver(c);closeCase(s,false,c);stopPreview(c);if(fresh)c.H=null;
+    // A reset must not paint an empty grid before the response. Load-more still rebinds the cards already on screen, then puts the page scroll back in that same turn.
+    if(reset){c.items=[];c.loaded=false;c.next=1;c.total=0;}c.activeRead={page,reset,fresh};c.loading=true;c.failed=false;if(!reset){renderCases(s,c);if(pageScroll!=null)root.scrollTop=pageScroll;}c.feedback.replaceChildren(el('p','正在读取创意…'));renderCasePager(s,c);
     const params=new URLSearchParams({page:String(page),page_size:'20'});if(c.H)params.set('catalog_sha256',c.H);if(c.category)params.set('category_name',c.category);if(c.keyword)params.set('keyword',c.keyword);
     try{
       const data=await ctx.api('/api/v1/marketing-cases?'+params);if(!caseLive(s,c,seq,stamp))return;
       if(!data.catalog_sha256||c.H&&c.H!==data.catalog_sha256||data.page!==page||data.page_size!==20)throw Object.assign(Error('创意目录版本或分页不一致，请重新载入目录'),{code:'marketing_catalog_changed'});
       const merged=new Map(c.items.map(item=>[item.group_key,item]));for(const group of data.items){const prior=merged.get(group.group_key);if(prior&&stable(prior)!==stable(group))throw Object.assign(Error('创意目录出现不一致内容，请重新载入目录'),{code:'marketing_catalog_changed'});if(!prior)merged.set(group.group_key,group);}
-      c.H=data.catalog_sha256;c.categories=data.categories;c.items=[...merged.values()];c.next=data.next_page;c.total=data.total_available;c.lastPageCount=data.items.length;c.loaded=true;c.feedback.replaceChildren();renderCaseFilters(s,c);renderCases(s,c);
+      c.H=data.catalog_sha256;c.categories=data.categories;c.items=[...merged.values()];c.next=data.next_page;c.total=data.total_available;c.lastPageCount=data.items.length;c.loaded=true;c.feedback.replaceChildren();renderCaseFilters(s,c);renderCases(s,c);if(pageScroll!=null)root.scrollTop=pageScroll;
     }catch(error){if(caseLive(s,c,seq,stamp)){c.failed=true;c.feedback.replaceChildren(el('p',error.message));const changed=error.code==='marketing_catalog_changed'||error.status===409;c.feedback.append(caseButton(s,changed?'重新载入目录':'重试读取创意',()=>readCases(s,changed?1:page,changed||reset,changed,c)));}}
-    finally{if(caseLive(s,c,seq,stamp)){c.loading=false;c.activeRead=null;renderCasePager(s,c);}}
+    finally{if(caseLive(s,c,seq,stamp)){c.loading=false;c.activeRead=null;if(pageScroll!=null)root.scrollTop=pageScroll;renderCasePager(s,c);}}
   }
   function renderCasePager(s,c=s.cases){
     if(!caseViewLive(s,c)||!c.pager)return;stopCaseObserver(c);c.pager.replaceChildren();if(c.summary)c.summary.textContent=c.loaded?`已显示 ${c.items.length} / ${c.total} 个创意`:'';
