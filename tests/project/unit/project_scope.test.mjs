@@ -25,7 +25,7 @@ function setup(extra={}){
 const ids=h=>h.root.querySelectorAll('.project-tile').filter(row=>row.dataset.projectId).map(row=>row.dataset.projectId);
 test('three visible tabs partition every authorized project by owner, independent of creator',async()=>{
  const h=setup();await h.platform.load({page:'projects'});assert.deepEqual(h.notices,[]);assert.deepEqual(ids(h),['personal','history']);
- const tabs=h.root.querySelectorAll('a').filter(node=>node.getAttribute('role')==='tab');assert.deepEqual(tabs.map(node=>node.textContent),['个人项目','参与项目','团队项目','最近创作']);assert.equal(tabs[0].getAttribute('aria-selected'),'true');assert.equal(h.root.querySelectorAll('select').length,0);
+ const tabs=h.root.querySelectorAll('a').filter(node=>node.getAttribute('role')==='tab');assert.deepEqual(tabs.map(node=>node.textContent),['个人项目','参与项目','团队项目','最近创作','团队模板']);assert.equal(tabs[0].getAttribute('aria-selected'),'true');assert.equal(h.root.querySelectorAll('select').length,0);
  await tabs[1].dispatch('click');assert.deepEqual(h.routes.at(-1),['projects',null,null,{project_scope:'participating'}]);
  await tabs[1].dispatch('keydown',{key:'ArrowRight'});assert.deepEqual(h.routes.at(-1),['projects',null,null,{project_scope:'team'}]);
  const partition=[];for(const category of ['personal','participating','team']){await h.platform.load({page:'projects',projectScope:category});partition.push(...ids(h));}
@@ -72,7 +72,7 @@ test('recent creation shows work cards for tab=recent and never sends project_sc
  assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'recent',project_scope:'team'}]);
  assert.ok(!String(h.routes.at(-1)[3].tab).includes('canvases'));
 });
-test('keyboard order wraps the four category controls and keeps focus on the activated tab',async()=>{
+test('keyboard order wraps the category controls and keeps focus on the activated tab',async()=>{
  const h=setup({api:discoveryOf([workCard()])});
  await h.platform.load({page:'projects',projectScope:'team'});
  const team=()=>tabsOf(h).find(node=>node.id==='project-category-team');
@@ -81,6 +81,9 @@ test('keyboard order wraps the four category controls and keeps focus on the act
  assert.equal(globalThis.document.activeElement.id,'project-category-recent');
  await h.platform.load({page:'projects',tab:'recent',projectScope:'team'});
  const recent=tabsOf(h).find(node=>node.id==='project-category-recent');
+ await recent.dispatch('keydown',{key:'ArrowRight'});
+ assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'templates',project_scope:'team'}]);
+ assert.equal(globalThis.document.activeElement.id,'project-category-templates');
  await recent.dispatch('keydown',{key:'ArrowLeft'});
  assert.deepEqual(h.routes.at(-1),['projects',null,null,{project_scope:'team'}]);
  assert.equal(globalThis.document.activeElement.id,'project-category-team');
@@ -88,14 +91,14 @@ test('keyboard order wraps the four category controls and keeps focus on the act
  assert.deepEqual(h.routes.at(-1),['projects',null,null,{project_scope:'personal'}]);
  assert.equal(globalThis.document.activeElement.id,'project-category-personal');
  await globalThis.document.activeElement.dispatch('keydown',{key:'End'});
- assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'recent',project_scope:'team'}]);
- assert.equal(globalThis.document.activeElement.id,'project-category-recent');
+ assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'templates',project_scope:'team'}]);
+ assert.equal(globalThis.document.activeElement.id,'project-category-templates');
  await h.platform.load({page:'projects'});
  const fresh=tabsOf(h);
  await fresh[3].dispatch('keydown',{key:'ArrowRight'});
- assert.deepEqual(h.routes.at(-1),['projects',null,null,{project_scope:'personal'}]);
+ assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'templates'}]);
  await fresh[0].dispatch('keydown',{key:'ArrowLeft'});
- assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'recent'}]);
+ assert.deepEqual(h.routes.at(-1),['projects',null,null,{tab:'templates'}]);
  assert.equal(h.routes.at(-1)[3].project_scope,undefined);
 });
 test('recent states keep loading, empty, logged-out and failure apart from project tiles',async()=>{
@@ -124,7 +127,7 @@ test('recent states keep loading, empty, logged-out and failure apart from proje
  await retry.platform.load({page:'projects',tab:'recent'});
  assert.ok(retry.root.textContent.includes('recent read failed'));assert.ok(retry.root.textContent.includes('重新读取'));
  assert.ok(!retry.root.textContent.includes('还没有最近创作。从首页的创作入口做出作品后'));
- assert.ok(tabsOf(retry).length===4);
+ assert.ok(tabsOf(retry).length===5);
  const routes=retry.routes.length;await retry.root.querySelectorAll('button').find(node=>node.textContent==='重新读取').click();
  assert.equal(retry.routes.length,routes);assert.equal(retry.root.querySelectorAll('.recent-creation-card').length,1);
  assert.ok(!retry.root.textContent.includes('recent read failed'));assert.ok(noRecentScope(retry));
@@ -138,7 +141,7 @@ test('a hand-typed project_scope=recent stays off the project list and off the w
  const h=setup();await h.platform.load({page:'projects',projectScope:'recent'});
  assert.deepEqual(ids(h),['personal','history']);
  assert.equal(h.root.querySelectorAll('.recent-creation-card').length,0);
- assert.deepEqual(tabsOf(h).map(node=>node.textContent),['个人项目','参与项目','团队项目','最近创作']);
+ assert.deepEqual(tabsOf(h).map(node=>node.textContent),['个人项目','参与项目','团队项目','最近创作','团队模板']);
  assert.ok(tabsOf(h).every(node=>!String(node.href).includes('project_scope=recent')));
  assert.equal(h.calls.length,0);
  const both=setup({api:discoveryOf([workCard()])});

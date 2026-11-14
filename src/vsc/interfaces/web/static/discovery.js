@@ -14,7 +14,7 @@ export async function mountDiscovery(root,ctx,{isCurrent=()=>true,view='all'}={}
  }
  if(view!=='recent'){
   const button=(label,fn)=>{const b=el('button',label);b.type='button';b.onclick=async()=>{b.disabled=true;try{await fn();}catch(e){ctx.notice(e.message);}finally{if(b.isConnected)b.disabled=false;}};return b;};
-  const templates=el('div',null,'discovery-grid');section.append(el('h2',msg("ui.team_templates")),templates);
+  const templates=el('div',null,'discovery-grid');if(view!=='templates')section.append(el('h2',msg("ui.team_templates")));section.append(templates);
   for(const row of data.templates||[]){const card=el('article',null,'discovery-card'),sourceLink=el('a',msg("ui.open_source_canvas"));sourceLink.href=row.href;card.append(el('small',joinMessages([row.project_name," · v",row.version])),el('h3',row.title),sourceLink,button(msg("asset.copy_to_project"),()=>openTemplateCopy(root,ctx,row,data.projects,{isCurrent})),button(row.favorite?msg("ui.favorited_remove"):msg("ui.favorite_template"),async()=>{const project=await ctx.api('/api/v1/projects/'+row.project_id+'/creative-canvas-templates');await ctx.api('/api/v1/projects/'+row.project_id+'/creative-canvas-templates/'+row.id+'/favorite',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':ctx.session().csrf},body:JSON.stringify({payload:{active:!row.favorite},expected_revision:project.revision,idempotency_key:crypto.randomUUID()})});row.favorite=!row.favorite;ctx.notice(row.favorite?msg("ui.template_favorited"):msg("ui.favorite_removed"));}));templates.append(card);}
   if(!(data.templates||[]).length)templates.append(el('p',msg("ui.publish_a_fixed_version_from_a_canvas_so_authorized")));
  }
