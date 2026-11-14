@@ -117,6 +117,10 @@ class AssetCenterService:
             raise ResourceError("人物分类筛选需要选择官方来源")
         return self._center().search(dict(filters, offset=filters.get("offset", 0), limit=filters.get("limit", 24)), actor)
 
+    def official_asset_capabilities(self, actor):
+        self._actor(actor)
+        return self._center().official_capabilities(actor)
+
     def publish_official_asset(self, payload, actor):
         """Classify a fixed library version; the original license remains authoritative."""
         self._actor(actor)

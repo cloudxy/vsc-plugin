@@ -18,8 +18,36 @@ Element.prototype.matches=function(selector){
 const ai=await import('../../../src/vsc/interfaces/web/static/character-studio-ai.js');
 const store=await import('../../../src/vsc/interfaces/web/static/character-studio-store.js');
 const {createCharacterStudio}=await import('../../../src/vsc/interfaces/web/static/character-studio.js');
+const {createCharacterHistory}=await import('../../../src/vsc/interfaces/web/static/character-studio-history.js');
 const flush=()=>new Promise(resolve=>setTimeout(resolve,15));
 const texts=(root,tag)=>root.querySelectorAll(tag).map(n=>n.textContent);
+
+test('local history resumes the original publication and opens its exact official asset',async()=>{
+ const previousWindow=globalThis.window;globalThis.window={location:{protocol:'http:',hostname:'localhost'},addEventListener(){},removeEventListener(){}};
+ const saved={...store.getState()},root=doc.createElement('main'),routes=[],requests=[];
+ doc.body.append(root);
+ const ctx={session:()=>({actor:'history-user',csrf:'history-csrf'}),notice(){},navigate:(...args)=>routes.push(args),api:async(url,options)=>{requests.push([url,options]);return {can_publish:true};}};
+ store.configureStudio({api:ctx.api,notice:ctx.notice,session:ctx.session,csrf:()=>ctx.session().csrf});
+ await flush();
+ const record={id:'history-with-intent',createdAt:1,imageUrl:'data:image/png;base64,AA==',prompt:'submitted prompt',recipeSummary:'history result',publication:{actor:'history-user',title:'Frozen original name',phase:'imported'}};
+ Object.assign(store.getState(),{hydrated:true,history:[record],currentResult:null,previewUrl:'',isGenerating:false,publicationTask:null});
+ const view=createCharacterHistory(root,ctx);
+ try{
+  view.load();
+  await root.querySelectorAll('button').find(b=>b.textContent==='继续入库').onclick();
+  const dialog=doc.body.querySelector('.cs-publication');assert.ok(dialog);
+  assert.equal(dialog.querySelector('input').value,'Frozen original name');assert.equal(dialog.querySelector('input').disabled,true);
+  assert.equal(requests.length,1);assert.ok(requests[0][0].endsWith('/official/capabilities'));
+  assert.equal(requests[0][1].headers['X-CSRF-Token'],'history-csrf');
+  await dialog.querySelectorAll('button').find(b=>b.textContent==='取消').onclick();
+  assert.equal(store.getState().currentResult,null,'resuming publication does not populate the current generation');
+  const receipt={entry_id:'exact-entry',library_version_id:'exact-version',id:'published-id'};
+  store.getState().history=[{...record,publication:{...record.publication,officialReceipt:receipt}}];
+  view.load();await root.querySelectorAll('button').find(b=>b.textContent==='查看官方资产').onclick();
+  assert.deepEqual(routes,[['asset-center',{tab:'official',kind:'character',entry:'exact-entry'}]]);
+  assert.equal(requests.length,1,'opening a receipt does not repeat upload or publication');
+ }finally{view.suspend();root.remove();Object.assign(store.getState(),saved);if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}
+});
 
 test('ComfyUI is completely removed and AGY/Grok auth + Grok/Gemini API + Video modality providers are registered',()=>{
  assert.equal(existsSync(new URL('../../../src/vsc/interfaces/web/static/character-studio-workflows.js',import.meta.url)),false);
@@ -380,4 +408,16 @@ test('Codex subscription generation sends references without an API key and keep
   await assert.rejects(ai.generateCharacterImage({recipe:{extraImages:[{url:'data:image/png;base64,AA=='}]},prompt:'test',config:{...config,activeProvider:'gpt'}}),/API Key/);
   assert.equal(calls.length,1);
  }finally{globalThis.fetch=originalFetch;}
+});
+
+test('standalone official-entry navigation retains the exact asset through shell route synchronization',async()=>{
+ const {runInNewContext}=await import('node:vm');
+ const source=readFileSync(new URL('../../../src/vsc/interfaces/web/static/panel.js',import.meta.url),'utf8');
+ const sync=source.slice(source.indexOf('function syncRoute(){'),source.indexOf('async function openResourceSettings'));
+ const location={pathname:'/',search:'?page=asset-center&tab=official&kind=character&entry=exact-official-entry'};
+ const apply=(_state,_title,link)=>{location.search=link;};
+ const context={URLSearchParams,window:{location,history:{pushState:apply,replaceState:apply}},state:{view:'asset-center',project:null,object:null},episodeScope:null,restoringDeskRoute:false,deskRouteReady:true,currentEntry:()=>new URLSearchParams(location.search)};
+ runInNewContext(sync+';syncRoute();',context);
+ assert.equal(new URLSearchParams(location.search).get('entry'),'exact-official-entry');
+ assert.equal(new URLSearchParams(location.search).get('tab'),'official');
 });

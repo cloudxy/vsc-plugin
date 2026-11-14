@@ -2410,6 +2410,7 @@
         "src/vsc/interfaces/web/static/asset-center.css",
         "src/vsc/interfaces/web/static/character-studio.js",
         "src/vsc/interfaces/web/static/character-studio-history.js",
+        "src/vsc/interfaces/web/static/character-studio-publication.js",
         "src/vsc/interfaces/web/static/character-studio.css",
         "src/vsc/interfaces/web/static/character-studio-ai.js",
         "src/vsc/interfaces/web/static/character-studio-store.js",

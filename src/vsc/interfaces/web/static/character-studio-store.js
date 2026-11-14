@@ -2,6 +2,7 @@
 // history and active generation. Lives at module scope so switching pages keeps progress.
 import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,PROVIDER_META,PROVIDER_ORDER,VIDEO_PROVIDER_META,VIDEO_PROVIDER_ORDER,
  stitchRecipeCanvas,referenceImageUrl,localCostumeImageUrl,poseThumbPath,sanitizeCostumeItem,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin} from './character-studio-ai.js';
+import {generatedImageBlob,imageExtension,newPublication,publicationPayload} from './character-studio-publication.js';
 
 const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',SAFE_KEY='pose_atlas_safe_mode_v1';
 const DB_NAME='pose_atlas_studio_db',STORE_NAME='kv_store';
@@ -116,12 +117,12 @@ const state={
  history:readJson(HISTORY_KEY,[]),
  safeMode:ls.get(SAFE_KEY)===null?true:ls.get(SAFE_KEY)!=='false',
  poseDepthMode:Boolean(storedRecipe?.pose?.useDepth),
- customPrompt:null,previewUrl:'',isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',
+ customPrompt:null,previewUrl:'',currentResult:null,publicationTask:null,resultError:'',resultErrorId:null,isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',
  hydrated:false,
 };
 // The result belongs to this page session. Saved history is opened explicitly.
 const listeners=new Set();
-let host={notice:()=>{},api:null,csrf:()=>''};
+let host={notice:()=>{},api:null,csrf:()=>'',session:()=>({})};
 let activeController=null,historyWrites=Promise.resolve(),hydration=null,authPollTimer=null,authEpoch=0;
 
 export function configureStudio(options={}){
@@ -327,9 +328,94 @@ function persistHistory(update){
  const write=historyWrites.catch(()=>{}).then(async()=>{const next=update(state.history);await idbWrite(HISTORY_KEY,next);ls.remove(HISTORY_KEY);state.history=next;emit();});
  historyWrites=write;return write;
 }
-export function removeHistoryItem(id){return persistHistory(c=>c.filter(x=>x.id!==id)).then(()=>toast('已删除该条记录')).catch(()=>toast('删除失败，请检查浏览器存储空间'));}
-export function clearHistory(){return persistHistory(()=>[]).then(()=>toast('已清空记录')).catch(()=>toast('清空记录失败，请检查浏览器存储空间'));}
-export function setPreviewUrl(url){state.previewUrl=url;emit();}
+function clearLinkedResult(id){if(id&&state.currentResult?.id===id){state.currentResult=null;state.previewUrl='';state.resultError='';emit();}}
+export async function removeHistoryItem(id){
+ if(state.publicationTask?.resultId===id){toast('正在放入官方资产库，请完成后再删除');return false;}
+ try{await persistHistory(c=>c.filter(x=>x.id!==id));clearLinkedResult(id);toast('已删除该条记录');return true;}
+ catch{toast('删除失败，请检查浏览器存储空间');return false;}
+}
+export async function clearHistory(){
+ if(state.publicationTask){toast('正在放入官方资产库，请完成后再清空');return false;}
+ const ids=new Set(state.history.map(x=>x.id)),currentId=state.currentResult?.id;
+ try{await persistHistory(c=>c.filter(x=>!ids.has(x.id)));if(ids.has(currentId))clearLinkedResult(currentId);toast('已清空记录');return true;}
+ catch{toast('清空记录失败，请检查浏览器存储空间');return false;}
+}
+export async function deleteCurrentResult(id){
+ if(state.isGenerating||state.publicationTask||state.currentResult?.id!==id)return false;
+ const ok=await removeHistoryItem(id);
+ if(!ok&&state.currentResult?.id===id){state.resultError='删除失败，当前图片与本地记录已保留，请恢复浏览器存储后重试';state.resultErrorId=id;emit();}
+ return ok;
+}
+export function setPreviewUrl(url){state.previewUrl=url;state.currentResult=null;emit();}
+
+const sessionActor=()=>String(host.session?.()?.actor||'');
+function assertActor(actor){if(!actor||sessionActor()!==actor)throw new Error('登录身份已更改，本次入库已停止；请使用原账号继续');}
+function resultFor(id){return state.currentResult?.id===id?state.currentResult:state.history.find(x=>x.id===id);}
+async function officialCapability(actor){
+ assertActor(actor);if(!host.api)throw new Error('合成台尚未连接资产服务');
+ const receipt=await host.api('/api/v1/asset-center/official/capabilities',{headers:{'X-CSRF-Token':host.csrf?.()||''}});
+ assertActor(actor);
+ if(receipt?.can_publish===false)throw new Error('当前账号没有发布官方资产的权限；图片与本地记录保持原状，可继续下载');
+ if(receipt?.can_publish!==true)throw new Error('无法读取官方资产发布权限，请重试');
+}
+export async function checkOfficialPublication(id){
+ if(state.isGenerating||state.publicationTask||!resultFor(id))return false;
+ const actor=sessionActor(),task={resultId:id,actor,phase:'checking'};state.publicationTask=task;state.resultError='';state.resultErrorId=id;emit();
+ try{await officialCapability(actor);return resultFor(id)?{actor}:false;}
+ catch(error){const message=error?.message||'无法检查官方资产发布权限，请重试';if(!state.currentResult||state.currentResult.id===id){state.resultError=message;state.resultErrorId=id;}toast(message);emit();return false;}
+ finally{if(state.publicationTask===task){state.publicationTask=null;emit();}}
+}
+async function checkpointResult(result,publication){
+ // Keep an actual server receipt in memory even when browser persistence fails.
+ result.publication=publication;
+ if(state.currentResult?.id===result.id){state.currentResult={...state.currentResult,publication};emit();}
+ await persistHistory(c=>[{...result,publication},...c.filter(x=>x.id!==result.id)]);
+}
+export async function publishCurrentResult(id,{title,allowWorkspaceReuse=false,actor:confirmedActor}={}){
+ if(state.isGenerating||state.publicationTask)return false;
+ const result=resultFor(id);if(!result)return false;
+ const actor=sessionActor(),task={resultId:id,actor,phase:'checking'};
+ if(confirmedActor&&confirmedActor!==actor){state.resultError='登录身份已更改，请重新确认入库';state.resultErrorId=id;emit();return false;}
+ if(!allowWorkspaceReuse){state.resultError='请明确确认有权在工作区共享与复用这张图片';state.resultErrorId=id;emit();return false;}
+ if(result.publication?.officialReceipt&&result.publication.actor===actor){return result.publication.officialReceipt;}
+ state.publicationTask=task;state.resultError='';state.resultErrorId=id;emit();let publication=result.publication;
+ const setPhase=phase=>{task.phase=phase;emit();};
+ const post=async(path,payload)=>{assertActor(actor);const response=await host.api(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':host.csrf?.()||''},body:JSON.stringify(payload)});assertActor(actor);return response;};
+ try{
+  await officialCapability(actor);
+  if(publication&&publication.actor!==actor)throw new Error('这次入库由另一账号发起，请切回原账号继续，不能复用另一身份的回执');
+  if(!publication){const name=String(title||'').trim();if(!name||name.length>200)throw new Error('请输入 1–200 字的资产名称');publication=await newPublication(result,actor,name);}
+  assertActor(actor);await checkpointResult(result,publication);assertActor(actor);
+  if(!publication.uploadReceipt){
+   setPhase('uploading');const blob=await generatedImageBlob(result);assertActor(actor);
+   const response=await host.api('/api/v1/library/uploads',{method:'POST',headers:{'Content-Type':blob.type,'X-Filename':encodeURIComponent(`character-${result.id}.${imageExtension(result.imageUrl,blob.type)}`),'X-CSRF-Token':host.csrf?.()||''},body:blob});
+   assertActor(actor);if(!response?.staged_upload)throw new Error('上传未返回图片回执，请重试');
+   publication={...publication,phase:'uploaded',uploadReceipt:response,importPayload:{...publication.importPayload,members:[{member_key:'front',staged_upload:response.staged_upload}]}};
+   await checkpointResult(result,publication);assertActor(actor);
+  }
+  if(!publication.importReceipt){
+   setPhase('importing');const receipt=await post('/api/v1/library/import',{confirmed:true,payload:publication.importPayload});
+   if(!receipt?.entry_id||!(receipt.library_version_id||receipt.version_id))throw new Error('共享库未返回固定版本回执，请重试');
+   publication={...publication,phase:'imported',importReceipt:receipt};
+   await checkpointResult(result,publication);assertActor(actor);
+  }
+  setPhase('publishing');
+  publication={...publication,publishPayload:publication.publishPayload||publicationPayload(publication)};
+  await checkpointResult(result,publication);assertActor(actor);
+  const receipt=await post('/api/v1/asset-center/official/publish',{payload:publication.publishPayload});
+  if(!receipt?.id||receipt.entry_id!==publication.publishPayload.entry_id||receipt.library_version_id!==publication.publishPayload.library_version_id)throw new Error('官方资产未返回有效发布回执，请重试以恢复结果');
+  publication={...publication,phase:'published',officialReceipt:receipt};
+  try{await checkpointResult(result,publication);toast('已放入官方资产库 · 人设');}
+  catch{publication.recoveryError='已成功入库，但浏览器未能保存回执；请查看官方资产，并保留当前页面中的回执';result.publication=publication;if(state.currentResult?.id===id){state.currentResult={...state.currentResult,publication};emit();}toast(publication.recoveryError);}
+  return receipt;
+ }catch(error){
+  const message=(error?.message||'入库失败，请重试')+'；本次图片已保留';
+  if(publication){publication.lastError=message;result.publication=publication;if(state.currentResult?.id===id)state.currentResult={...state.currentResult,publication};}
+  if(sessionActor()===actor&&(!state.currentResult||state.currentResult.id===id)){state.resultError=message;state.resultErrorId=id;}
+  emit();
+  return false;
+ }finally{if(state.publicationTask===task){state.publicationTask=null;emit();}}
+}
 export async function refreshStitchPreview(){
  try{const url=await stitchRecipeCanvas(state.recipe);toast('已合成参考拼图');return url;}
  catch(error){toast(error?.message||'拼图失败');return '';}
@@ -343,13 +429,16 @@ export async function snapshotGeneration(recipe,config,prompt){
 const throwIfAborted=signal=>{if(signal.aborted){const e=new Error('已停止');e.name='AbortError';throw e;}};
 async function completeGeneration(result,record,signal){
  throwIfAborted(signal);
+ const id=crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+ const entry={id,createdAt:Date.now(),imageUrl:result.imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot};
+ state.currentResult=entry;state.previewUrl=entry.imageUrl;state.resultError='';emit();
  let imageUrl;
  try{imageUrl=await durableImage(result.imageUrl);}
  catch{state.previewUrl=result.imageUrl;throw new Error('图已生成，但图片转存失败，请先下载当前图片并检查网络与浏览器存储');}
  throwIfAborted(signal);
- state.previewUrl=imageUrl;
- const id=crypto.randomUUID?.()||String(Date.now());
- try{await persistHistory(c=>[{id,createdAt:Date.now(),imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot},...c.filter(x=>x.id!==id)]);}
+ entry.imageUrl=imageUrl;
+ if(state.currentResult?.id===id){state.currentResult=entry;state.previewUrl=imageUrl;emit();}
+ try{await persistHistory(c=>[entry,...c.filter(x=>x.id!==id)]);}
  catch{throw new Error('图已生成，但生成记录保存失败，请先下载当前图片并检查浏览器存储空间');}
  toast('角色图已完成并保存');
 }
@@ -357,7 +446,7 @@ export function cancelGeneration(){
  activeController?.abort();
 }
 export async function startGeneration(overridePrompt){
- if(state.isGenerating)return;
+ if(state.isGenerating||state.publicationTask)return;
  if(!state.hydrated){toast(state.generationError||'正在读取浏览器存储，请稍后再生成');return;}
  const recipe=state.recipe,config=state.apiConfig,prompt=overridePrompt??currentPrompt();
  const record={prompt,summary:[recipe.portrait?.发型名称,recipe.costume?.服装名称,recipe.pose?.姿势名称].filter(Boolean).join(' + ')||'自定义合成'};
