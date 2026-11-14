@@ -11,7 +11,7 @@ const NETWORK_PROBES=[
   ['session_gateway','1. 可信会话与网关鉴权'],
   ['postgres_revision','2. PostgreSQL 主库读写修订'],
   ['controlled_storage','3. 本地受控对象存储状态'],
-  ['service_api_catalog','4. 天工引擎开放接口目录'],
+  ['service_api_catalog','4. vsc-engine 开放接口目录'],
   ['commerce_ledger','5. 商业账本与票据路由'],
   ['discovery_index','6. 创作目录与模板索引'],
   ['static_baseline','7. 静态资源与时延基线'],
@@ -22,7 +22,7 @@ const NETWORK_PROBES=[
 
 export function normalizeOperationsSubview(raw){
   const v=String(raw||'overview').trim().toLowerCase();
-  if(['engine','api','tiangong-engine'].includes(v))return 'engine';
+  if(['engine','api','vsc-engine','tiangong-engine'].includes(v))return 'engine';
   if(['data-records','records','usage-records'].includes(v))return 'data-records';
   if(['seedance-verify','seedance','verify','video_check'].includes(v))return 'seedance-verify';
   if(['feedback-records','feedback'].includes(v))return 'feedback-records';
@@ -248,18 +248,18 @@ export function createServiceOperations(root,ctx){
     const networks=field(parent,msg("ui.allowed_ips_or_cidrs_one_per_line_empty_means"),'key-networks','textarea');
     const rate=field(parent,msg("ui.requests_per_minute_0_means_unrestricted"),'key-rate','number','60');
     rate.min='0';rate.max='10000';
-    let spvCheck=null;
+    let usageCheck=null;
     if(requireCompliance){
-      spvCheck=node('input');spvCheck.type='checkbox';
-      spvCheck.checked=Boolean(getDraft('spv-compliance',false));
-      spvCheck.addEventListener('change',()=>setDraft('spv-compliance',spvCheck.checked));
-      bindAttribute(spvCheck,'aria-label','确认天工引擎开放接口与SPV合规协议');
-      const line=node('label','我已阅读并确认《天工引擎开放接口与 SPV 企业合规协议》（禁止将密钥嵌入公开客户端或超范围转售）','so-checkbox-line');
-      line.prepend(spvCheck);
+      usageCheck=node('input');usageCheck.type='checkbox';
+      usageCheck.checked=Boolean(getDraft('api-usage-acknowledged',false));
+      usageCheck.addEventListener('change',()=>setDraft('api-usage-acknowledged',usageCheck.checked));
+      bindAttribute(usageCheck,'aria-label','确认 vsc-engine API 凭据使用说明');
+      const line=node('label','我已了解 vsc-engine API 凭据使用说明：仅用于获授权的项目和能力，不将密钥嵌入公开客户端，并自行安全保存。','so-checkbox-line');
+      line.prepend(usageCheck);
       parent.append(line);
     }
     parent.append(button(msg("ui.create_and_register_api_credential"),async()=>{
-      if(requireCompliance&&!spvCheck?.checked)throw new Error('请先勾选确认《天工引擎开放接口与 SPV 企业合规协议》');
+      if(requireCompliance&&!usageCheck?.checked)throw new Error('请先确认 vsc-engine API 凭据使用说明');
       const selected={name:keyName.value,capabilities:cap.value==='execute'?['read','execute']:['read'],expires_at:expiry.value,ip_allowlist:networks.value.split(/[\n,]/).map(v=>v.trim()).filter(Boolean),requests_per_minute:Number(rate.value)};
       const signature=JSON.stringify(selected);
       let attempt=keyAttempts.get(identity(s));
@@ -291,7 +291,7 @@ export function createServiceOperations(root,ctx){
     bindAttribute(panel,'aria-label','平台服务快速切换');
     for(const [id,label]of [
       ['overview','综合服务总览'],
-      ['engine','天工引擎 API'],
+      ['engine','vsc-engine API'],
       ['data-records','数据与消耗记录'],
       ['seedance-verify','Seedance 视频验真'],
       ['feedback-records','我的意见反馈'],
@@ -314,7 +314,7 @@ export function createServiceOperations(root,ctx){
     const overview=data.engine_overview||{credit_balance:0,total_consumed_credits:0,ledger_records:[],recharge_orders:[],reservations:[],recent_jobs:[],member_usage:[]};
     const head=node('header',null,'so-hero-bar so-standalone-head');
     const titleWrap=node('div');
-    titleWrap.append(node('h1','天工引擎'),node('p','通过 API 接入天工工作台的 Agent 能力，将智能创作流程集成到你的产品与业务中。','hint'));
+    titleWrap.append(node('h1','vsc-engine'),node('p','vsc-engine 是 VSC 创作工作台（vsc-workflow）的项目开放接口，用于查询生成任务、查看原生用量，以及预览或执行已确认的制作运行方案。','hint'));
     const actions=node('div',null,'service-operations-actions');
     let keysDrawer=null;
     actions.append(
@@ -323,7 +323,9 @@ export function createServiceOperations(root,ctx){
         const target=root.querySelector('.so-engine-keys input');
         target?.focus?.();
       },false,'so-btn-primary'),
-      button('API 文档',()=>openModal('天工引擎开放接口文档',(body)=>{
+      button('API 文档',()=>openModal('vsc-engine 开放接口文档',(body)=>{
+        body.append(node('p','VSC 创作工作台（vsc-workflow）专用接口。使用本工作台签发的项目级 Bearer 凭据；API Key 仅授予登记的项目和能力，不用于站内登录。'));
+        body.append(node('p',data.api_catalog?.execution_contract||'制作执行复用原队列、原报价和项目预算；查询接口不会启动生成。'));
         const examples=node('pre');
         setText(examples,msg("ui.get_api_v1_service_api_projects_value0_jobs_get",{value0:s.project,value1:s.project,value2:s.project,value3:s.project}));
         body.append(examples,button(msg("ui.copy_api_example"),()=>clipWrite(examples.textContent)));
@@ -332,10 +334,10 @@ export function createServiceOperations(root,ctx){
         }
         if(data.configuration?.document?.api_documentation)body.append(node('p',data.configuration.document.api_documentation));
       })),
-      button('设置',()=>openModal('API 账户安全与低余额预警',(body,dlg)=>{
-        field(body,'低余额预警阈值（商业信用）','engine-low-balance','number','500');
-        field(body,'默认允许 IP / CIDR 网段备注','engine-ip-note','textarea','');
-        body.append(button('保存本地预警偏好',()=>{ctx.notice('已更新本地低余额预警与安全备注');dlg.close();},false,'so-btn-primary'));
+      button('显示偏好',()=>openModal('本页显示偏好',(body,dlg)=>{
+        field(body,'低余额提示参考值（商业信用）','engine-low-balance','number','500');
+        field(body,'IP 限制备忘（不改变凭据授权）','engine-ip-note','textarea','');
+        body.append(button('保留本页偏好',()=>{ctx.notice('偏好已保留在当前页面；凭据的 IP 与速率限制请在凭据管理中设置。');dlg.close();},false,'so-btn-primary'));
       })),
       renderQuickSwitch(s)
     );
@@ -346,14 +348,14 @@ export function createServiceOperations(root,ctx){
     const acctHead=node('div',null,'so-hero-bar');
     const acctRight=node('div',null,'service-operations-actions');
     acctRight.append(
-      node('span','金额单位：CNY','hint'),
+      node('span','额度单位：商业信用','hint'),
       button('充值',()=>ctx.navigate?.('commerce','wallet',s.project),false,'so-btn-primary')
     );
-    acctHead.append(node('h2','账户概览'),acctRight);
-    acctCard.append(acctHead);
+    acctHead.append(node('h2','当前项目额度与调用'),acctRight);
+    acctCard.append(acctHead,node('p','商业信用来自当前项目账本，不等同于人民币或供应商实际账单；实际充值金额以订单为准。','hint'));
     summaryGrid(acctCard,[
-      ['账户余额',`${(Number(overview.credit_balance||0)/100).toFixed(2)} CNY`,`当前可用额度 · ${overview.credit_balance} 信用 · 已激活凭据 ${data.api_keys.filter(k=>!k.revoked).length} 枚`],
-      ['累计消耗',`${(Number(overview.total_consumed_credits||0)/100).toFixed(2)} CNY`,`账户累计实际费用 · ${overview.total_consumed_credits} 信用 · 接口调用 ${data.api_calls.length} 次`]
+      ['可用商业信用',`${overview.credit_balance||0} 信用`,`当前项目可用额度 · 已激活凭据 ${data.api_keys.filter(k=>!k.revoked).length} 枚`],
+      ['近期预留与结算',`${overview.total_consumed_credits||0} 信用`,`近期任务额度汇总，含在途预留 · 已记录接口调用 ${data.api_calls.length} 次`]
     ]);
     root.append(acctCard);
 
@@ -444,10 +446,10 @@ export function createServiceOperations(root,ctx){
     );
     const bannerInfo=node('div',null,'so-engine-banner-title');
     const bannerKicker=node('div',null,'so-engine-banner-kicker');
-    bannerKicker.append(node('span','API 账户','so-api-pill'),node('span',' · ','so-sr-sep'),node('strong','天工引擎'));
+    bannerKicker.append(node('span','API 账户','so-api-pill'),node('span',' · ','so-sr-sep'),node('strong','vsc-engine'));
     bannerInfo.append(
       bannerKicker,
-      node('span',`查看额度、消费与充值记录，管理 API Key · 当前可用额度：${overview.credit_balance} 信用 · 累计结算消耗：${overview.total_consumed_credits} 信用`)
+      node('span',`查看额度、消费与充值记录，管理 API Key · 当前可用额度：${overview.credit_balance} 信用 · 近期预留与结算：${overview.total_consumed_credits} 信用`)
     );
     banner.append(bannerInfo,bannerActions);
     root.append(banner);
@@ -516,8 +518,8 @@ export function createServiceOperations(root,ctx){
     const topBar=node('header',null,'so-hero-bar so-standalone-head');
     const brandBar=node('div',null,'service-operations-actions');
     brandBar.append(
-      button('← 天工工作台',()=>ctx.navigate?.('home'),'','so-cobrand-pill'),
-      node('span','天工工作台 × 火山引擎','so-cobrand-pill')
+      button('← VSC 创作工作台',()=>ctx.navigate?.('home'),'','so-cobrand-pill'),
+      node('span','VSC 创作工作台 · 项目任务回执核对','so-cobrand-pill')
     );
     topBar.append(brandBar,renderQuickSwitch(s));
     root.append(topBar);
@@ -545,7 +547,7 @@ export function createServiceOperations(root,ctx){
       if(!check.valid)throw new Error(check.message);
       if(!s.project||!session().actor){
         const tos=tosInput.value.trim()?parseTosSignedUrl(tosInput.value.trim()):null;
-        seedanceResult={verified:false,task_id:check.normalized,is_seedance_hex16:check.isHex16,credits_consumed:0,co_brand:'天工工作台 × 火山引擎',job:null,tos_signature:tos,message:'任务编号格式校验通过；当前为未登录浏览态，登录并关联项目后可查询原始生成回执（零积分消耗）。'};
+        seedanceResult={verified:false,task_id:check.normalized,is_seedance_hex16:check.isHex16,credits_consumed:0,co_brand:'VSC 创作工作台 · 项目任务回执核对',job:null,tos_signature:tos,message:'任务编号格式校验通过；当前为未登录浏览态，登录并关联项目后可查询原始生成回执（零积分消耗）。'};
         render();
         return;
       }
@@ -590,7 +592,7 @@ export function createServiceOperations(root,ctx){
         node('p',seedanceResult.message)
       );
       summaryGrid(resBox,[
-        ['核验品牌',seedanceResult.co_brand||'天工工作台 × 火山引擎','官方溯源通道'],
+        ['核验来源',seedanceResult.co_brand||'VSC 创作工作台 · 项目任务回执核对','当前项目原始回执'],
         ['查询任务号',seedanceResult.task_id,seedanceResult.is_seedance_hex16?'标准 16 位十六进制':'本地任务 UUID'],
         ['本次消耗积分',String(seedanceResult.credits_consumed??0),'只读查询零扣费'],
         ['实际调用模型 / 本地状态',seedanceResult.job?`${seedanceResult.job.model_version||'seedance'} · ${seedanceResult.job.status}`:'未命中本地记录','未触发任何远端生成']
@@ -1139,7 +1141,7 @@ export function createServiceOperations(root,ctx){
       if(subview==='account-close'){renderAccountClose(s);return;}
       if(subview==='activity'){
         const head=node('header',null,'so-hero-bar so-standalone-head');
-        head.append(node('h1','天工工作台 · 运营专题活动'),renderQuickSwitch(s));
+        head.append(node('h1','VSC 创作工作台 · 运营专题活动'),renderQuickSwitch(s));
         root.append(head);
         summaryGrid(root,[
           ['充值解锁 DramaWave 承制权益','单部短剧保底出海分发','前往会员与钱包解锁承制合作名额'],
@@ -1169,9 +1171,9 @@ export function createServiceOperations(root,ctx){
         const head=node('header',null,'so-hero-bar so-standalone-head');
         head.append(node('h1','建议使用桌面端浏览器访问'),renderQuickSwitch(s));
         root.append(head);
-        const card=box('天工工作台核心画布与剪辑器面向桌面端大屏设计');
+        const card=box('VSC 创作工作台核心画布与剪辑器面向桌面端大屏设计');
         card.append(node('p','无限画布多节点编排、多分镜轨道审片及批量字幕质检需要桌面端键鼠交互。请复制当前工作台地址并在电脑端 Chrome / Edge 打开。','hint'));
-        const currentHref=globalThis.location?.href||'https://www.skyproduction.cn/';
+        const currentHref=globalThis.location?.href||'/';
         const actions=node('div',null,'service-operations-actions');
         actions.append(
           button('复制当前链接',async()=>{await clipWrite(currentHref);ctx.notice('已复制工作台链接，请在桌面浏览器粘贴打开');},false,'so-btn-primary'),
@@ -1182,12 +1184,12 @@ export function createServiceOperations(root,ctx){
       }
       if(subview==='icon'){
         const head=node('header',null,'so-hero-bar so-standalone-head');
-        head.append(node('h1','天工工作台 · 图标资产预览表'),renderQuickSwitch(s));
+        head.append(node('h1','VSC 创作工作台 · 图标资产预览表'),renderQuickSwitch(s));
         root.append(head);
         const iconCatalog=[
           ['canvas-infinite','◈','无限画布与节点编排'],['script-studio','▤','剧本工作室与多语精校'],
           ['marketing-agent','✧','营销工作室与爆款创意'],['asset-library','❖','角色/场景/道具资产中心'],
-          ['seedance-shield','🛡','Seedance 官方任务验真'],['tiangong-engine','⚡','天工引擎开放 API'],
+          ['seedance-shield','🛡','Seedance 官方任务验真'],['vsc-engine','⚡','vsc-engine 开放 API'],
           ['wallet-credits','✦','商业积分与电子发票'],['network-probe','✓','10 项全链路网络诊断']
         ];
         const card=box('内置语义图标检索（点击复制图标标识）');
@@ -1222,7 +1224,7 @@ export function createServiceOperations(root,ctx){
           card.append(node('p','未找到所请求的工作台路径，请核对链接地址或返回首页重新进入对应模块。','hint'));
         }else{
           const linkUrl=subview==='terms'?cfg.terms_url:cfg.privacy_url;
-          card.append(node('p',cfg.support_text||'天工工作台遵循严格的数据隔离、审计追溯与生成合成内容标识规范。'));
+          card.append(node('p',cfg.support_text||'VSC 创作工作台（vsc-workflow）的服务与隐私说明由当前部署管理员配置，请以已发布的条款和隐私政策为准。'));
           if(linkUrl){const a=node('a',linkUrl);a.href=linkUrl;a.target='_blank';a.rel='noopener noreferrer';card.append(a);}
         }
         card.append(button('返回工作台首页',()=>ctx.navigate?.('home'),false,'so-btn-primary'));
@@ -1239,7 +1241,7 @@ export function createServiceOperations(root,ctx){
       bindAttribute(nav,'aria-label','平台服务与运营导航');
       for(const [id,label]of [
         ['overview','综合服务总览'],
-        ['engine','天工引擎 API'],
+        ['engine','vsc-engine API'],
         ['data-records','数据与消耗记录'],
         ['seedance-verify','Seedance 视频验真'],
         ['feedback-records','我的意见反馈'],

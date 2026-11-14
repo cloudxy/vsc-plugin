@@ -133,7 +133,7 @@ class ServiceOperationsService:
             'is_seedance_hex16':is_hex16,
             'read_only':True,
             'credits_consumed':0,
-            'co_brand':'天工工作台 × 火山引擎',
+            'co_brand':'VSC 创作工作台 · 项目任务回执核对',
             'verified':bool(matched),
             'job':matched,
             'tos_signature':tos_info,
