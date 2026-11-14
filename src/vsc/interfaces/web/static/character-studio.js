@@ -294,7 +294,7 @@ export function createCharacterStudio(root,ctx){
  }
 
  function resultSection(){
-  const s=state(),sec=section('生成结果',{actions:action(`AI角色合成库 (${s.history.length})`,()=>ctx.navigate?.('asset-center',{tab:'official',kind:'composite'}),'cs-ghost')});
+  const s=state(),sec=section('本次生成结果',{actions:action(`AI角色合成库 (${s.history.length})`,()=>ctx.navigate?.('asset-center',{tab:'official',kind:'composite'}),'cs-ghost')});
   progressNode=el('div','cs-progress');updateProgress();
   sec.body.append(progressNode);
   errorNode=el('pre','cs-error-box');errorNode.hidden=!s.generationError;errorNode.textContent=s.generationError||'';sec.body.append(errorNode);
@@ -304,7 +304,7 @@ export function createCharacterStudio(root,ctx){
    const img=el('img');img.src=s.previewUrl;img.alt='生成结果';btn.append(img);btn.onclick=()=>zoom(s.previewUrl,'生成结果');
    stage.append(btn);
    const acts=el('div','cs-row-actions');acts.append(action('下载 PNG',()=>download(s.previewUrl,`character-${Date.now()}.png`)));stage.append(acts);
-  }else stage.append(el('p','cs-empty','选好参考图后点击「生成角色图」，结果会显示在这里。'));
+  }else stage.append(el('p','cs-empty','生成后在此查看本次结果；历史图片请到「AI角色合成库」。'));
   sec.body.append(stage);
   return sec.node;
  }

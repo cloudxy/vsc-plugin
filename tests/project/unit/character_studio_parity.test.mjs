@@ -247,12 +247,23 @@ async function isolatedStore(db){
  s.configureStudio({notice:m=>notes.push(m)});await flush();return {s,notes};
 }
 const image='data:image/png;base64,AA==';
+test('reloading starts with an empty result while keeping native and legacy history available',async()=>{
+ const key='pose_atlas_history_v3',entry={id:'retained-history',createdAt:1,imageUrl:image,prompt:'Retained prompt'};
+ const db=database();db.values.set(key,[entry]);
+ const native=await isolatedStore(db);assert.equal(native.s.getState().previewUrl,'');assert.deepEqual(native.s.getState().history,[entry]);
+ const previous=local.get(key);local.set(key,JSON.stringify([entry]));
+ try{
+  const legacy=await isolatedStore(database());assert.equal(legacy.s.getState().previewUrl,'');assert.deepEqual(legacy.s.getState().history,[entry]);
+  legacy.s.setPreviewUrl(image);await flush();assert.equal(legacy.s.getState().previewUrl,image);
+  assert.deepEqual(legacy.s.getState().history,[entry]);
+ }finally{if(previous===undefined)local.delete(key);else local.set(key,previous);}
+});
 test('history commits before success, restores on reload, and keeps old history on failed save/delete/clear',async()=>{
  const db=database(),{s,notes}=await isolatedStore(db);let requests=0;
  s.setSlot('portrait',{...portrait,source:'upload',原图:image,缩略图:image});await flush();
  globalThis.fetch=async()=>{requests++;return {ok:true,json:async()=>({image_url:image,model:'synthetic'})};};
  await s.startGeneration();assert.equal(requests,1);assert.equal(db.values.get('pose_atlas_history_v3').length,1);assert.equal(notes.at(-1),'角色图已完成并保存');
- assert.equal((await isolatedStore(db)).s.getState().history.length,1);
+ const reloaded=await isolatedStore(db);assert.equal(reloaded.s.getState().history.length,1);assert.equal(reloaded.s.getState().previewUrl,'');
  db.control.failWrite=true;await s.startGeneration();
  assert.equal(s.getState().history.length,1);assert.equal(db.values.get('pose_atlas_history_v3').length,1);
  assert.equal(s.getState().previewUrl,image);assert.match(notes.at(-1),/生成记录保存失败/);assert.equal(requests,2);
