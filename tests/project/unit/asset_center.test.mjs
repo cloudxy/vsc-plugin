@@ -243,7 +243,7 @@ test('official and shared tabs query their own sources and restore from the URL'
   assert.equal(filterChildren[1],filterRow);
   assert.ok(filterRow.querySelector('.center-count'));
   assert.ok(filterRow.walk().some(n=>n.tagName==='INPUT'));
-  assert.equal(filterRow.walk().filter(n=>n.tagName==='SELECT').length,3);
+  assert.deepEqual(filterRow.walk().filter(n=>n.tagName==='SELECT').map(n=>n.getAttribute('aria-label')),['角色级别','性别','年龄段','角色标签']);
   const rowDirect=filterRow.children.filter(n=>n.tagName!=='#TEXT');
   assert.equal(rowDirect.at(-1),filterRow.querySelector('.center-count'));
   await button(root,'场景').onclick();
@@ -251,7 +251,7 @@ test('official and shared tabs query their own sources and restore from the URL'
   assert.ok(calls.some(url=>url.includes('source=official')&&url.includes('asset_kind=location')));
   await button(root,'全部').onclick();
   assert.match(root.querySelector('.center-official-tags').textContent,/主角青年女/);
-  assert.ok(root.querySelector('.center-card').querySelector('.center-card-tools'));
+  assert.equal(root.querySelector('.official-list-media').querySelector('.center-card-tools'),root.querySelector('.center-card-tools'));
   assert.ok(button(root,'引用生成'));
   assert.ok(root.querySelector('.center-card-menu'));
   assert.ok(calls[0].includes('source=official')&&calls[0].includes('media_only=true')&&!calls[0].includes('asset_kind='));

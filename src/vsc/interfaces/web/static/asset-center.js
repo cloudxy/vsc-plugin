@@ -1323,14 +1323,17 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   let roleTagSelect=null;
   if(!currentKind||currentKind==='character'){
    selectFilter('role_level','角色级别',[['lead','主角'],['supporting','配角'],['extra','群演']]);
-   const bands=[['child|male','幼年男'],['child|female','幼年女'],['teen|male','少年男'],['teen|female','少年女'],['young_adult|male','青年男'],['young_adult|female','青年女'],['middle_aged|male','中年男'],['middle_aged|female','中年女'],['senior|male','老年男'],['senior|female','老年女']];
-   const band=field(filterHost,'人物档','select');band.append(localizedOption('','人物档'));
-   for(const [value,title]of bands)band.append(localizedOption(value,title));
-   const currentBand=filters.age_band&&filters.gender?filters.age_band+'|'+filters.gender:'';
-   band.value=bands.some(([value])=>value===currentBand)?currentBand:'';
-   band.onchange=()=>{const [age,gender]=(band.value||'|').split('|');if(age)filters.age_band=age;else delete filters.age_band;if(gender)filters.gender=gender;else delete filters.gender;delete filters.role_tag;offset=0;return load();};
+   const genderSelect=field(filterHost,'性别','select');
+   genderSelect.append(localizedOption('','性别'),localizedOption('male','男'),localizedOption('female','女'));
+   genderSelect.value=filters.gender||'';
+   const ageSelect=field(filterHost,'年龄段','select');ageSelect.append(localizedOption('','年龄段'));
+   for(const [value,title]of [['child','幼年'],['teen','少年'],['young_adult','青年'],['middle_aged','中年'],['senior','老年']])ageSelect.append(localizedOption(value,title));
+   ageSelect.value=filters.age_band||'';
+   const applyPerson=()=>{delete filters.role_tag;offset=0;return load();};
+   genderSelect.onchange=()=>{if(genderSelect.value)filters.gender=genderSelect.value;else delete filters.gender;return applyPerson();};
+   ageSelect.onchange=()=>{if(ageSelect.value)filters.age_band=ageSelect.value;else delete filters.age_band;return applyPerson();};
    const cachedTags=facetCache.get(currentKind||'all')||[];
-   if(cachedTags.length||workbench)roleTagSelect=selectFilter('role_tag','风格/角色标签',cachedTags.map(t=>[t,t]));
+   if(cachedTags.length||workbench)roleTagSelect=selectFilter('role_tag','角色标签',cachedTags.map(t=>[t,t]));
   }
   const search=field(filterHost,msg('gallery.search'),'input',filters.query||'');search.type='search';bindAttribute(search,'placeholder','搜索名称或标签');
   search.oninput=()=>{filters.query=search.value;officialSearchFocus=true;officialSearchCaret=search.selectionStart;clearTimeout(searchTimer);searchTimer=setTimeout(()=>{offset=0;load();},300);};
@@ -1377,7 +1380,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    if(member){
     const actions=el('div','','center-actions');
     const refLabel=onReference?msg('ui.send_to_canvas'):msg('gallery.create_reference'),ref=button(refLabel,()=>members.length===1&&(onReference||member.modality==='image')?reference(row,member):detail(row,g)),add=button(msg('gallery.add_project'),()=>members.length===1?addToProjects(row,member):detail(row,g));
-    if(workbench&&!canvas){setText(ref,'引用生成');bindAttribute(ref,'aria-label','引用生成');actions.className='center-actions center-card-tools official-list-actions';actions.append(ref,cardMenu(row.title,[['查看详情',()=>detail(row,g)],[msg('gallery.add_project'),()=>members.length===1?addToProjects(row,member):detail(row,g)]]));card.append(actions);}
+    if(workbench&&!canvas){setText(ref,'引用生成');bindAttribute(ref,'aria-label','引用生成');actions.className='center-actions center-card-tools official-list-actions';actions.append(ref,cardMenu(row.title,[['查看详情',()=>detail(row,g)],[msg('gallery.add_project'),()=>members.length===1?addToProjects(row,member):detail(row,g)]]));cover.append(actions);}
     else{actions.append(ref,add);card.append(actions);}
    }
    return card;
