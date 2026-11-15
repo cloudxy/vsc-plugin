@@ -2592,6 +2592,7 @@
   ],
   "non_test_inputs": [
     "docs/**",
+    "catalog/official-assets/**",
     "README.md",
     "GLOSSARY.md",
     "AGENTS.md",

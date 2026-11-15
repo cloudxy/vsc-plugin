@@ -2,7 +2,7 @@
 #character-studio-view{min-height:100%;box-sizing:border-box}
 /* The page host receives restored focus after its controls are re-rendered. */
 #character-studio-view:focus-visible{outline:none}
-.character-studio{color:var(--text-1,#fdfbfc);padding:20px 28px 96px;box-sizing:border-box}
+.character-studio{color:var(--text-1,#fdfbfc);padding:28px 38px 96px;box-sizing:border-box}
 .character-studio *{box-sizing:border-box}
 .character-studio button,.character-studio input,.character-studio select,.character-studio textarea{font:inherit}
 .character-studio button{height:34px;min-height:34px;padding:0 12px;border-radius:8px;border:1px solid #343435;background:#1d1d1d;color:#fdfbfc;cursor:pointer;white-space:nowrap}
@@ -16,9 +16,9 @@
 .character-studio .cs-ghost{background:transparent}
 .character-studio .cs-danger{border-color:#7f3a3a;color:#ffb4b4}
 .cs-page{max-width:1480px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-.cs-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.cs-title h1{margin:0 0 6px;font-size:22px;font-weight:600}
-.cs-title p{margin:0;color:var(--text-3,#a1a0a3);font-size:13px}
+.cs-page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;padding-bottom:20px;border-bottom:1px solid #343435}
+.cs-title h1{margin:0 0 8px;font-size:28px;font-weight:600;line-height:1.3;text-wrap:balance}
+.cs-title p{margin:4px 0 0;color:var(--text-3,#a1a0a3);font-size:14px;line-height:1.6}
 .cs-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .cs-end{justify-content:flex-end}
 .cs-columns{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:16px;align-items:start}
@@ -100,7 +100,7 @@
 .cs-error{color:#ff9a9a;font-size:12px;overflow-wrap:anywhere}
 .cs-warn{margin:0;color:#f2c97a;font-size:12px}
 .cs-error-box{margin:0;padding:10px 12px;border-radius:10px;background:#2a1617;border:1px solid #6a2f33;color:#ffc2c2;font:12px/1.6 inherit;white-space:pre-wrap;overflow-wrap:anywhere}
-.cs-prompt{min-height:180px;font-size:13px}
+.character-studio .cs-prompt{min-height:360px;font-size:13px;line-height:1.6}
 .character-studio .cs-generate{height:44px;min-height:44px;font-size:15px}
 .cs-progress{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#c9c8cb}
 .cs-progress small{color:#8e8d91}
@@ -143,7 +143,11 @@ dialog.cs-dialog.cs-publication{width:min(520px,94vw)}
 .cs-history-count,.cs-history-note{color:var(--text-3,#a1a0a3);font-size:12px;line-height:1.5}
 .cs-history-count{white-space:nowrap}
 .cs-history-toolbar-actions{margin-left:auto;flex-wrap:nowrap}
-.cs-history-library .cs-history{grid-template-columns:repeat(auto-fill,minmax(min(168px,100%),1fr));gap:16px;align-items:start}
+.cs-history-library .cs-history{grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;align-items:start}
+.cs-history-pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:16px 0 0}
+.cs-history-pager[hidden]{display:none}
+.cs-history-pager button{height:36px;min-height:36px;margin:0;padding:0 14px;border-radius:999px}
+.cs-history-pager span{color:var(--text-3,#a1a0a3);font-size:13px}
 .asset-center .cs-history-library .cs-history-item{display:flex;flex-direction:column;padding:8px;margin:0;border:0;border-radius:20px;background:#1c1c20;min-width:0;overflow:hidden}
 .asset-center .cs-history-library button{margin:0}
 .asset-center .cs-history-library .cs-history-img{display:block;width:100%;height:100%;min-height:0;padding:0;margin:0;border:0;aspect-ratio:2/3;border-radius:16px;overflow:hidden;background:#111114}
@@ -179,6 +183,7 @@ dialog.cs-dialog.cs-publication{width:min(520px,94vw)}
 .cs-history-detail-section p,.cs-history-detail-section pre{font:inherit;font-size:13px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-wrap}
 .cs-history-detail-section pre{padding:12px;max-height:36vh;overflow:auto;border-radius:8px;background:var(--surface-1,#0b080b)}
 .cs-history-detail button{min-height:44px}
+@media(max-width:1100px){.cs-history-library .cs-history{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.cs-history-toolbar{flex-wrap:wrap;gap:12px}.character-studio.cs-history-library .cs-history-toolbar input{max-width:none;flex-basis:100%;width:100%}.cs-history-library .cs-history{grid-template-columns:minmax(0,1fr)}.cs-history-note{margin-top:24px}}
 
 .cs-modality-tabs{display:inline-grid;grid-template-columns:repeat(2,minmax(220px,280px));gap:6px;padding:5px;border-radius:14px;background:#111113;border:1px solid #2a2a2e;width:fit-content;max-width:100%}
@@ -254,6 +259,6 @@ dialog.cs-age-gate{width:min(560px,92vw);border:1px solid #6b3a3a;border-radius:
 .cs-recipe-dock button{height:34px;min-height:34px;padding:0 12px;border-radius:9px;border:1px solid #35353e;background:#232329;color:#fdfbfc;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
 .cs-recipe-dock button:hover:not(:disabled){background:#2e2e35}
 .cs-recipe-dock .cs-dock-clear{width:34px;padding:0}
-@media(max-width:1100px){.cs-columns{grid-template-columns:minmax(0,1fr)}.cs-slots{grid-template-columns:minmax(0,1fr)}.cs-provider-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:700px){.character-studio{padding:14px 12px 96px}.cs-modality-tabs{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.cs-modality-badge{display:none}.cs-grid2,.cs-mode-switch{grid-template-columns:minmax(0,1fr)}.cs-recipe-dock{max-width:calc(100vw - 24px);bottom:12px}.cs-compare-stage[data-mode=side]{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr))}.cs-compare-stage[data-single=true]{grid-template-rows:minmax(0,1fr)}}
+@media(max-width:1100px){.cs-columns{grid-template-columns:minmax(0,1fr)}.cs-slots{grid-template-columns:minmax(0,1fr)}.cs-provider-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.cs-page-head{align-items:flex-start}}
+@media(max-width:700px){.character-studio{padding:18px 14px 96px}.cs-page-head{display:block;padding-bottom:16px}.cs-title h1{font-size:24px}.cs-page-head>.cs-row-actions{margin-top:12px}.cs-modality-tabs{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.cs-modality-badge{display:none}.cs-grid2,.cs-mode-switch{grid-template-columns:minmax(0,1fr)}.cs-recipe-dock{max-width:calc(100vw - 24px);bottom:12px}.cs-compare-stage[data-mode=side]{grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr))}.cs-compare-stage[data-single=true]{grid-template-rows:minmax(0,1fr)}}
 @media(prefers-reduced-motion:reduce){.cs-bar.is-indeterminate span{animation:none}}

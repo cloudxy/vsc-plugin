@@ -979,8 +979,8 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    if(kind==='costume'){
     renderTypes(summary);
     pickSelect(typeRow,'source','全部来源',(summary?.sources||[]).map(s=>[s.id,`${s.label} ${s.count}`]),()=>{st.category='';st.tag='';});
-    typeRow.append(safeButton(),button('来源说明',()=>costumeNote('来源与使用说明',(refSummary.costume?.sources||[]).map(s=>`${s.label}：${s.notice}（${s.url}）`).join('\n\n')||'加载中，请稍后再试。'),'center-clear-filters'));
     form.append(typeRow);
+    headActions.append(safeButton(),button('来源说明',()=>costumeNote('来源与使用说明',(refSummary.costume?.sources||[]).map(s=>`${s.label}：${s.notice}（${s.url}）`).join('\n\n')||'加载中，请稍后再试。'),'center-clear-filters ref-note'));
     pickSelect(panel,'tag','全部单品与颜色标签',(summary?.tags||[]).map(t=>[t.name,`${t.name} ${t.count}`]));
     input=search();
    }else if(kind==='pose'){
@@ -1081,7 +1081,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     if(kind==='pose')return entry.group?[entry.group.system,entry.group.category,`${entry.group.items.length} 个角度`].filter(Boolean).join(' · '):[item.体系,item.分类,item.角度].filter(Boolean).join(' · ');
     return [item.分区,item.发长].filter(Boolean).join(' · ');
    };
-   const updatePick=(btn,entry)=>{const on=picked(entry);setText(btn,on?'✓ 已选':'加入配方');btn.setAttribute('aria-pressed',String(on));};
+   const updatePick=(btn,entry)=>{const on=picked(entry);setText(btn,on?'✓ 已选':'+ 加入配方');btn.setAttribute('aria-pressed',String(on));};
    const togglePick=entry=>{
     const item=pickItem(entry);
     if(kind==='pose'&&entry.group&&picked(entry)&&studio.getState().recipe.pose?.id!==item.id){studio.setSlot('pose',{...item,useDepth:studio.getState().poseDepthMode});ctx.notice?.(`已选姿势：${item.姿势名称}（${item.角度}）`);return;}
@@ -1096,11 +1096,12 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     if(kind==='pose')depthPickers.push(()=>{img.src=thumbOf(entry);});
     open.append(img);shot.append(open);
     const item=pickItem(entry);
-    if(item.id)shot.append(el('span',String(item.id),'ref-badge ref-id'));
-    const categoryLabel=kind==='costume'?item.分类:kind==='pose'?(entry.group?.category||item.分类):(item.分区||item.发长);
+    const badgeId=kind==='pose'?(entry.group?.number||item.姿势编号||item.id):kind==='portrait'?(item.分区||''):item.id;
+    if(badgeId)shot.append(el('span',String(badgeId),'ref-badge ref-id'));
+    const categoryLabel=kind==='costume'?item.分类:kind==='pose'?(item.角度||''):(item.发长||'');
     if(categoryLabel)shot.append(el('span',categoryLabel,'ref-badge ref-badge-right'));
     if(kind==='costume'&&item.敏感)shot.append(el('span','18+','ref-badge ref-badge-warn'));
-    if(kind==='portrait'&&item.热门)shot.append(el('span','热门','ref-badge'));
+    if(kind==='portrait'&&item.热门)shot.append(el('span','Top10','ref-badge ref-badge-hot'));
     if(kind==='costume'&&item.views?.length)shot.append(el('span',`${item.views.length} 视角`,'ref-badge ref-views'));
     const pick=button(picked(entry)?'已选':'加入配方',()=>togglePick(entry),'ref-pick');updatePick(pick,entry);pickers.push(()=>updatePick(pick,entry));
     shot.append(pick);
@@ -1965,10 +1966,10 @@ function createGlobalAssetLibrary(root,ctx){
   }
   toolbar.append(categories);
   const tools=element('div',null,'global-asset-tools'),count=element('span','资产数待读取','global-asset-count');count.setAttribute('role','status');tools.append(count);
+  const status=element('p','','global-asset-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.setAttribute('aria-atomic','true');
   const search=element('input');search.type='search';search.value=query;search.placeholder='搜索资产…';search.setAttribute('aria-label','搜索资产');
   search.onkeydown=e=>{if(e.key==='Enter'){query=search.value;load();}};search.onsearch=()=>{query=search.value;load();};
-  const batch=element('div',null,'global-asset-batch');tools.append(search,batch);btn(batch,'批量操作',()=>pickProject(null));btn(batch,'批量导入',()=>pickProject('import'));toolbar.append(tools);root.append(toolbar);
-  const status=element('p','','global-asset-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.setAttribute('aria-atomic','true');root.append(status);
+  const batch=element('div',null,'global-asset-batch');tools.append(status,search,batch);btn(batch,'批量操作',()=>pickProject(null));btn(batch,'批量导入',()=>pickProject('import'));toolbar.append(tools);root.append(toolbar);
   const grid=element('div',null,'global-asset-grid');root.append(grid);
   const create=btn(grid,'',()=>pickProject('create'));create.className='global-asset-create';create.append(element('span','＋'),element('strong','新建资产'),element('small','选择类型'));
   const controls=element('div',null,'global-asset-progress'),failureBox=element('div',null,'global-asset-failures');failureBox.setAttribute('role','alert');root.append(controls,failureBox);

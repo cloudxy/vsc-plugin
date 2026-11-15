@@ -85,7 +85,7 @@
       "prompt": "A 16:9 photoreal film asset sheet of one invented young East Asian man in his twenties, short black hair, lean build, dark plain jacket and trousers. Gray studio, even soft light. Full body front, side, and back standing in a relaxed A-pose on the same ground line, plus a large face close-up showing eyes, nose, jaw, and hairline. Head and shoes fully visible.",
       "sheet": "15.1 人物设定板：正脸、侧脸、全身正、全身侧、全身背、脸部重点。浅灰棚，A字站姿，同一地平线，16:9。",
       "public_pick": true,
-      "image": "人物/ren-qingnan.png",
+      "image": "人物/青年男/ren-qingnan.png",
       "status": "ready"
     },
     {
@@ -183,7 +183,7 @@
       "prompt": "A 16:9 photoreal film asset sheet of a horse. Front, side, back, and a head close-up.",
       "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
       "public_pick": true,
-      "image": "生物/sheng-ma.png",
+      "image": "生物/马/sheng-ma.png",
       "status": "ready"
     },
     {
@@ -193,12 +193,12 @@
         "生物",
         "虎"
       ],
-      "summary": "虎的全身正侧背与头部重点。",
-      "prompt": "A 16:9 photoreal film asset sheet of a tiger on a gray studio background. Front, side, and back full views on one ground line, plus a close-up of the head. No scenery.",
+      "summary": "虎的正面、侧面、背面和头部特写。",
+      "prompt": "A 16:9 photoreal film asset sheet of a tiger.",
       "sheet": "15.4 生物设定板：全身正、侧、背，加头或爪的重点。浅灰棚，无场景。",
       "public_pick": true,
-      "image": null,
-      "status": "pending"
+      "image": "生物/虎/sheng-hu.png",
+      "status": "ready"
     },
     {
       "id": "sheng-ying",
@@ -323,7 +323,7 @@
       "prompt": "A 16:9 photoreal film asset sheet of a pine tree, the whole tree, bark and needles, and a human-height scale.",
       "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
       "public_pick": true,
-      "image": "植物/zhi-松.png",
+      "image": "植物/松/zhi-松.png",
       "status": "ready"
     },
     {
@@ -337,7 +337,7 @@
       "prompt": "A 16:9 photoreal film asset sheet of a bamboo clump with a human-height scale.",
       "sheet": "15.4 植物设定板：全株、干或叶的重点，旁有与人等高的参照。",
       "public_pick": true,
-      "image": "植物/zhi-竹.png",
+      "image": "植物/竹/zhi-竹.png",
       "status": "ready"
     },
     {
@@ -463,7 +463,7 @@
       "prompt": "A 16:9 photoreal empty-set asset sheet of a Chinese courtyard hall. Wide front, reverse, entrance, and a carved column.",
       "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
       "public_pick": true,
-      "image": "地点/di-zhai.png",
+      "image": "地点/宅院厅堂/di-zhai.png",
       "status": "ready"
     },
     {
@@ -487,12 +487,12 @@
         "地点",
         "街巷"
       ],
-      "summary": "街巷的多角度空镜与平面关系。",
-      "prompt": "A 16:9 photoreal empty-set asset sheet of a narrow brick alley, high walls, one end open. Same place, daylight, no people. Wide front view, reverse angle, entrance, and a close-up of the key fixed feature. Consistent furniture positions.",
+      "summary": "砖巷空镜：纵深、回头、入口和砖墙近景。",
+      "prompt": "A 16:9 photoreal empty-set asset sheet of a narrow brick alley.",
       "sheet": "15.5 地点设定板：空镜，正面、反打、入口、俯视感与一件固定构件的近景。同一时段，无人。",
       "public_pick": true,
-      "image": null,
-      "status": "pending"
+      "image": "地点/街巷/di-xiang.png",
+      "status": "ready"
     },
     {
       "id": "di-ban",
@@ -743,7 +743,7 @@
       "prompt": "A 16:9 photoreal costume asset sheet of a silk qipao. Flat front, flat back, worn full length, and a close-up of the knot buttons.",
       "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
       "public_pick": true,
-      "image": "服装/fu-qipao.png",
+      "image": "服装/旗袍/fu-qipao.png",
       "status": "ready"
     },
     {
@@ -753,12 +753,12 @@
         "服装",
         "中山装"
       ],
-      "summary": "中山装的正背平铺、上身效果与重点。",
-      "prompt": "A 16:9 photoreal costume asset sheet of a Zhongshan suit with a closed collar and four pockets on a gray studio background. Flat front, flat back, and the garment worn full length from the front by an adult stand-in whose face is not the subject. A close-up of the key construction detail. No story scene.",
+      "summary": "中山装的正、侧、背和领与口袋特写。",
+      "prompt": "A 16:9 photoreal costume asset sheet of a Zhongshan suit.",
       "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
       "public_pick": true,
-      "image": null,
-      "status": "pending"
+      "image": "服装/中山装/fu-zhongshan.png",
+      "status": "ready"
     },
     {
       "id": "fu-xizhuang",
@@ -771,7 +771,7 @@
       "prompt": "A 16:9 photoreal costume asset sheet of a single-breasted dark suit.",
       "sheet": "15.2 服装设定板：平铺正、平铺背、穿上全身正、重点特写。浅灰棚。",
       "public_pick": true,
-      "image": "服装/fu-xizhuang.png",
+      "image": "服装/西装/fu-xizhuang.png",
       "status": "ready"
     },
     {
@@ -883,7 +883,7 @@
       "prompt": "A 16:9 photoreal prop asset sheet of a short willow-leaf saber on a light gray background. Front, side, and a close-up of the grip and blade edge.",
       "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
       "public_pick": true,
-      "image": "道具/dao-liuye.png",
+      "image": "道具/柳叶刀/dao-liuye.png",
       "status": "ready"
     },
     {
@@ -897,7 +897,7 @@
       "prompt": "A 16:9 photoreal prop asset sheet of a long spear with a red tassel.",
       "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
       "public_pick": true,
-      "image": "道具/qiang-chang.png",
+      "image": "道具/长枪/qiang-chang.png",
       "status": "ready"
     },
     {
@@ -907,12 +907,12 @@
         "道具",
         "长剑"
       ],
-      "summary": "长剑的正侧与重点结构。",
-      "prompt": "A 16:9 photoreal prop asset sheet of a straight longsword on a light gray background. Front, side, and a close-up of the grip or interface. Full length visible. No hands, no scenery.",
+      "summary": "长剑的正面、侧面和剑柄剑身特写。",
+      "prompt": "A 16:9 photoreal prop asset sheet of a straight longsword.",
       "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
       "public_pick": true,
-      "image": null,
-      "status": "pending"
+      "image": "道具/长剑/jian-chang.png",
+      "status": "ready"
     },
     {
       "id": "fu-kaishan",
@@ -939,7 +939,7 @@
       "prompt": "A 16:9 photoreal prop asset sheet of a modern pistol.",
       "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
       "public_pick": true,
-      "image": "道具/qiangxie-shouqiang.png",
+      "image": "道具/手枪/qiangxie-shouqiang.png",
       "status": "ready"
     },
     {
@@ -1009,7 +1009,7 @@
       "prompt": "A 16:9 photoreal prop asset sheet of a blocky spacecraft with windows and landing gear. Front, side, and a close-up of a hatch.",
       "sheet": "15.3 兵器与载具设定板：正、侧、握持端或接口、重点。浅底，无手，无场景。",
       "public_pick": true,
-      "image": "道具/feichuan-fangcang.png",
+      "image": "道具/飞船/feichuan-fangcang.png",
       "status": "ready"
     },
     {
@@ -1023,7 +1023,7 @@
       "prompt": "A 16:9 photoreal action sheet of one bow stance in three phases: start, settled stance, and recovery.",
       "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
       "public_pick": true,
-      "image": "动作/dong-gong.png",
+      "image": "动作/弓步/dong-gong.png",
       "status": "ready"
     },
     {
@@ -1037,7 +1037,7 @@
       "prompt": "A 16:9 photoreal action sheet of one straight punch in three phases.",
       "sheet": "15.6 动作设定板：只一式，起势、接触、收势，同一机位，承重脚可见。",
       "public_pick": true,
-      "image": "动作/dong-quan.png",
+      "image": "动作/冲拳/dong-quan.png",
       "status": "ready"
     },
     {
@@ -1177,7 +1177,7 @@
       "prompt": "A 16:9 photoreal asset sheet of heavy rain.",
       "sheet": "15.4 自然显现：开始、持续、结束，加一格近景。无人。",
       "public_pick": true,
-      "image": "自然显现/ziran-baoyu.png",
+      "image": "自然显现/暴雨/ziran-baoyu.png",
       "status": "ready"
     },
     {

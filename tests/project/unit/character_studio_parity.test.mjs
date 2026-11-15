@@ -72,7 +72,7 @@ test('Depth preview, download, angle, copied ID and recipe stay aligned without 
  assert.match(root.querySelector('.costume-open').querySelector('img').src,/thumbs\/depth\//);
  await click(original,'侧面');await click(original,'复制姿势 ID');assert.equal(copied.at(-1),'p-侧面');
  assert.match(download().href,/p-侧面.webp$/);
- await click(original,'加入配方');assert.equal(store.getState().recipe.pose.id,'p-侧面');assert.equal(store.getState().recipe.pose.useDepth,true);
+ await click(original,'+ 加入配方');assert.equal(store.getState().recipe.pose.id,'p-侧面');assert.equal(store.getState().recipe.pose.useDepth,true);
  await click(original,'白模');assert.equal(download().href,original.querySelector('img').src);assert.match(download().href,/img\/p-侧面.png$/);
  assert.equal(download().getAttribute('download'),'p-侧面.png');
  assert.ok(original.textContent.includes('900 × 1200 PNG'));

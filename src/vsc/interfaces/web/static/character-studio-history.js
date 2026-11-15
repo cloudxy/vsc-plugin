@@ -12,7 +12,8 @@ function select(options,value,onChange,{label=''}={}){
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
 
 export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,headingParent}={}){
- let disposed=false,unsub=null,grid=null,count=null,clear=null,search=null,note=null,query='',lastHistory=null,lastHydrated=null,lastError=null,lastPublicationTask=null;
+ let disposed=false,unsub=null,grid=null,pager=null,count=null,clear=null,search=null,note=null,query='',pageIndex=0,lastQuery='',lastHistory=null,lastHydrated=null,lastError=null,lastPublicationTask=null;
+ const PAGE_SIZE=20;
  const notice=message=>ctx.notice?.(message),dialogs=new Set();
  let viewEpoch=0;
  const recordTitle=h=>{
@@ -99,7 +100,11 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
   const focused=root.contains?.(document.activeElement)?document.activeElement:null;
   const restoreFocus=()=>{if(focused&&!focused.isConnected)search.focus?.({preventScroll:true});};
   const key=query.trim().toLocaleLowerCase();
+  if(key!==lastQuery){pageIndex=0;lastQuery=key;}
   const items=[...s.history].sort((a,b)=>b.createdAt-a.createdAt).filter(h=>!key||[h.recipeSummary,h.prompt,h.model,engine(h),h.provider].some(v=>String(v||'').toLocaleLowerCase().includes(key)));
+  const pageCount=Math.max(1,Math.ceil(items.length/PAGE_SIZE));
+  if(pageIndex>pageCount-1)pageIndex=pageCount-1;
+  const visible=items.slice(pageIndex*PAGE_SIZE,pageIndex*PAGE_SIZE+PAGE_SIZE);
   count.textContent=!s.hydrated?'正在读取…':key?`${items.length} / ${s.history.length} 条记录`:`${s.history.length} 条记录`;
   clear.disabled=!s.history.length||!s.hydrated||Boolean(s.publicationTask);grid.setAttribute('aria-busy',String(!s.hydrated&&!s.generationError));grid.replaceChildren();updateNote();
   if(!s.hydrated){
@@ -112,7 +117,7 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
    else status('还没有合成记录','生成完成后，图片和本次参考快照会保存在这里。');
    restoreFocus();return;
   }
-  for(const h of items){
+  for(const h of visible){
    const title=recordTitle(h),card=el('article','cs-history-item official-list-card'),preview=action('',()=>onZoom?.(h.imageUrl,h.recipeSummary||title),'cs-history-img official-list-media');
    card.dataset.resultId=h.id;
    preview.setAttribute('aria-label',`查看生成记录：${h.recipeSummary||title}`);
@@ -130,6 +135,15 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
    ]);
    if(s.publicationTask)for(const b of more.buttons)if(['删除记录','放入官方资产库','继续入库'].includes(b.textContent))b.disabled=true;
    tools.append(action('复用提示词',()=>reuse(h)),more.node);card.append(preview,meta,tools);grid.append(card);
+  }
+  if(pager){
+   pager.replaceChildren();
+   if(items.length>PAGE_SIZE){
+    pager.hidden=false;
+    const prev=action('上一页',()=>{pageIndex-=1;render(true);}),next=action('下一页',()=>{pageIndex+=1;render(true);});
+    prev.disabled=pageIndex<=0;next.disabled=pageIndex>=pageCount-1;
+    pager.append(prev,el('span','',`第 ${pageIndex+1} / ${pageCount} 页`),next);
+   }else pager.hidden=true;
   }
   restoreFocus();
  }
@@ -246,8 +260,8 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
     ['清空全部记录',()=>{if(confirm('确定清空当前浏览器中的全部合成记录及参考快照？此操作无法撤销。'))return store.clearHistory();},'cs-history-delete'],
    ]);clear=more.buttons[0];
    actions.append(action('生成角色图',()=>onCompose?.(),'cs-primary'),more.node);toolbar.append(search,count,actions);
-   grid=el('div','cs-history official-list-grid');note=el('p','cs-history-note');
-   (toolbarParent||root).append(toolbar);root.append(grid,note);
+   grid=el('div','cs-history official-list-grid');pager=el('nav','cs-history-pager');pager.setAttribute('aria-label','合成记录分页');pager.hidden=true;note=el('p','cs-history-note');
+   (toolbarParent||root).append(toolbar);root.append(grid,pager,note);
    window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);menuListeners(true);unsub=store.subscribe(()=>render());render(true);
   },
   suspend(){viewEpoch++;disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},

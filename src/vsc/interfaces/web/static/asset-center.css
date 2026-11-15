@@ -343,6 +343,49 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 .asset-center.center-workbench-official:not(.center-canvas) .official-list-actions summary{box-sizing:border-box;display:grid;place-items:center;width:44px;height:44px;min-height:44px;padding:0;margin:0;border:1px solid var(--line-1,#343435);border-radius:8px;background:transparent}
 .asset-center.center-workbench-official:not(.center-canvas) .official-list-actions>button:hover,.asset-center.center-workbench-official:not(.center-canvas) .official-list-actions summary:hover{background:var(--fill-1,#1d1d1d)}
 .asset-center.center-workbench-official:not(.center-canvas) .official-list-actions>.ref-pick[aria-pressed=true]{background:var(--fill-1,#1d1d1d);border-color:var(--brand-6,#74ff53);color:var(--brand-6,#74ff53)}
+
+/* 服装穿搭库 / 动作姿势库 / 人像颜值库 match the light gallery pages. */
+.workspace:has(#asset-center-view .ref-library){background:#f6f6f7}
+.asset-center.ref-library{--ref-ink:#18181b;--ref-muted:#71717a;--ref-line:#e4e4e7;--ref-card:#f4f4f5;--ref-paper:#fff;background:#f6f6f7;color:var(--ref-ink);padding:8px 8px 152px}
+.asset-center.ref-library .ref-page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 16px}
+.asset-center.ref-library .ref-page-title{margin:0;color:var(--ref-ink);font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.02em}
+.asset-center.ref-library .ref-page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.asset-center.ref-library .ref-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--ref-line);border-radius:10px;background:#ececef}
+.asset-center.ref-library .ref-seg button{height:28px;min-height:28px;margin:0;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--ref-muted);font-size:12px;font-weight:600}
+.asset-center.ref-library .ref-seg button[aria-pressed=true]{background:#fff;color:var(--ref-ink);box-shadow:0 1px 2px #00000014}
+.asset-center.ref-library .ref-pills{display:flex;flex-wrap:wrap;gap:8px;overflow:visible;min-height:0;margin:0 0 14px;padding:0}
+.asset-center.ref-library .ref-pills button,.asset-center.ref-library .ref-type{height:32px;min-height:32px;margin:0;padding:0 14px;border:0;border-radius:999px;background:#ececef;color:#52525b;font-size:13px;font-weight:600}
+.asset-center.ref-library .ref-pills button[aria-pressed=true],.asset-center.ref-library .ref-type[aria-pressed=true]{background:#18181b;color:#fff}
+.asset-center.ref-library .ref-type-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+.asset-center.ref-library .ref-type-pills{display:flex;gap:8px;flex-wrap:wrap}
+.asset-center.ref-library .ref-search-panel{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 18px;padding:16px;border-radius:22px;background:#efeff1}
+.asset-center.ref-library .ref-search-panel label{display:block;flex:1 1 180px;min-width:140px;margin:0;font-size:0}
+.asset-center.ref-library .ref-search-panel input,.asset-center.ref-library .ref-search-panel select,.asset-center.ref-library .ref-type-row select{box-sizing:border-box;width:100%;height:40px;min-height:40px;margin:0;padding:0 12px;border:1px solid #e4e4e7;border-radius:12px;background:#fff;color:var(--ref-ink);font-size:14px}
+.asset-center.ref-library .ref-search-panel label:has(input[type=search]){flex:1 1 320px}
+.asset-center.ref-library .ref-reset,.asset-center.ref-library .ref-safe,.asset-center.ref-library .ref-hot{height:36px;min-height:36px;margin:0;padding:0 12px;border:0;border-radius:999px;background:#fff;color:var(--ref-ink);font-size:13px;font-weight:600}
+.asset-center.ref-library .ref-safe[aria-pressed=true]{background:#fff1f2;color:#e11d48}
+.asset-center.ref-library .center-count{flex:none;color:var(--ref-muted);font-size:12px}
+.asset-center.ref-library .ref-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;margin:0}
+.asset-center.ref-library .ref-card{display:flex;flex-direction:column;min-width:0;margin:0;padding:8px;border:0;border-radius:20px;background:var(--ref-card);overflow:hidden}
+.asset-center.ref-library .costume-shot,.asset-center.ref-library.ref-portrait .costume-shot{position:relative;aspect-ratio:3/4;border-radius:16px;overflow:hidden;background:#fff}
+.asset-center.ref-library .costume-open{position:absolute;inset:0;display:block;width:100%;height:100%;margin:0;padding:0;border:0;border-radius:0;background:transparent}
+.asset-center.ref-library .costume-open img{display:block;width:100%;height:100%;max-height:none;object-fit:cover;background:#fff}
+.asset-center.ref-library .ref-badge{position:absolute;z-index:2;left:8px;top:8px;padding:2px 6px;border-radius:6px;background:rgba(0,0,0,.72);color:#fff;font-size:10px;font-weight:700;line-height:16px}
+.asset-center.ref-library .ref-badge-right{left:auto;right:8px;background:rgba(255,255,255,.92);color:#18181b}
+.asset-center.ref-library .ref-badge-hot{top:auto;right:8px;bottom:40px;left:auto;background:#f97316;color:#fff}
+.asset-center.ref-library .ref-pick{position:absolute;left:8px;bottom:8px;z-index:2;width:auto;height:28px;min-height:28px;margin:0;padding:0 10px;border:0;border-radius:8px;background:rgba(0,0,0,.78);color:#fff;font-size:11px;font-weight:600}
+.asset-center.ref-library .ref-pick[aria-pressed=true]{background:#059669;color:#fff}
+.asset-center.ref-library .ref-card-copy{padding:10px 6px 2px}
+.asset-center.ref-library .ref-card h3{margin:0;color:var(--ref-ink);font-size:12px;line-height:1.35;font-weight:600;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.asset-center.ref-library .costume-keys,.asset-center.ref-library .ref-keywords{margin:4px 0 0;color:var(--ref-muted);font-size:11px;line-height:1.4}
+.asset-center.ref-library .ref-tags span{padding:0;border-radius:0;background:transparent;color:#a1a1aa;font-size:11px}
+.asset-center.ref-library .ref-angle-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;margin:6px 0 0;overflow:visible}
+.asset-center.ref-library .ref-angle-strip button{flex:none;width:auto;min-height:0;height:auto;margin:0;padding:2px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ref-muted);font-size:10px}
+.asset-center.ref-library .ref-angle-strip button img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border-radius:6px;background:#fff}
+.asset-center.ref-library .ref-angle-strip button[aria-pressed=true]{border-color:#18181b;background:#fff;color:var(--ref-ink)}
+.asset-center.ref-library .costume-more,.asset-center.ref-library .ref-load-complete{color:var(--ref-muted);background:#fff;border-color:var(--ref-line)}
+@media(max-width:1100px){.asset-center.ref-library .ref-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.asset-center.ref-library .ref-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.asset-center.ref-library .ref-page-title{font-size:24px}.asset-center.ref-library .ref-pills button,.asset-center.ref-library .ref-type{height:32px;min-height:32px}}
 .asset-center.center-workbench-official:not(.center-canvas) .official-list-actions :focus-visible{outline:2px solid var(--brand,#b2ff68);outline-offset:3px}
 .asset-center.center-workbench-official:not(.center-canvas) .ref-angle-strip{flex:none;min-width:0;max-width:100%;margin-top:8px}
 .asset-center.center-workbench-official:not(.center-canvas) .ref-angle-strip button{min-width:44px;min-height:44px}
@@ -428,3 +471,72 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 .asset-center.ref-library.ref-portrait.center-workbench-official:not(.center-canvas){--official-cover-ratio:4/5}
 .asset-center.ref-library.ref-portrait .costume-shot,
 .asset-center.ref-library.ref-portrait.center-workbench-official:not(.center-canvas) .costume-shot.official-list-media{aspect-ratio:4/5}
+
+/* Dark page treatment, same family as AI 角色合成台. */
+.workspace:has(#asset-center-view .ref-library){background:#0b080b}
+.asset-center.ref-library,.asset-center.ref-library.center-workbench-official{background:#0b080b;color:#fdfbfc}
+.asset-center.ref-library .ref-page-title,.ref-page-head .cs-history-heading{color:#fdfbfc;font-size:30px;font-weight:700}
+.asset-center.ref-library .ref-pills button{background:#2a2a30;color:#c8c8ce;border:0;border-radius:999px}
+.asset-center.ref-library .ref-pills button[aria-pressed=true]{background:#f4f4f2;color:#141416}
+.asset-center.ref-library .ref-type,.asset-center.ref-library .ref-seg button,.asset-center.ref-library .ref-page-actions>.ref-hot{border:0;border-radius:999px;background:#2a2a30;color:#c8c8ce}
+.asset-center.ref-library .ref-type[aria-pressed=true],.asset-center.ref-library .ref-seg button[aria-pressed=true],.asset-center.ref-library .ref-page-actions>.ref-hot[aria-pressed=true]{background:#f4f4f2;color:#141416;border-color:#f4f4f2}
+.asset-center.ref-library .ref-seg{background:#141416;border:1px solid #34343a;border-radius:10px}
+.asset-center.ref-library .ref-seg button[aria-pressed=true]{background:#2c2c2e;color:#fdfbfc;border-radius:8px}
+.asset-center.ref-library .ref-search-panel{background:#1a1a1f;border-radius:22px}
+.asset-center.ref-library .ref-search-panel input,.asset-center.ref-library .ref-search-panel select,.asset-center.ref-library .ref-type-row select{background:#141416;color:#fdfbfc;border:1px solid #34343a;border-radius:12px}
+.asset-center.ref-library .ref-reset,.asset-center.ref-library .ref-safe,.asset-center.ref-library .ref-hot,.asset-center.ref-library .costume-more{background:#292929;color:#fdfbfc;border:1px solid #343435;border-radius:999px}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .ref-card.official-list-card,.asset-center.ref-library .ref-card{background:#1c1c20;color:#fdfbfc}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .costume-shot.official-list-media,.asset-center.ref-library .costume-shot{background:#111114}
+.asset-center.ref-library .costume-open img,.asset-center.ref-library.center-workbench-official:not(.center-canvas) .official-list-media img{object-fit:contain;background:#111114}
+.asset-center.ref-library.ref-pose .costume-open img,.asset-center.ref-library.ref-portrait .costume-open img,.asset-center.ref-library.ref-pose.center-workbench-official:not(.center-canvas) .official-list-media img,.asset-center.ref-library.ref-portrait.center-workbench-official:not(.center-canvas) .official-list-media img{object-fit:cover}
+.asset-center.ref-library .ref-card h3{color:#fdfbfc}
+.asset-center.ref-library .costume-keys,.asset-center.ref-library .ref-keywords,.asset-center.ref-library .center-count,.asset-center.ref-library .ref-load-complete{color:#a1a0a3}
+.asset-center.ref-library .ref-angle-strip button[aria-pressed=true]{border-color:#f4f4f2;background:#2c2c2e;color:#fdfbfc}
+.asset-center.ref-library .ref-angle-strip button img{background:#111114}
+.asset-center.costume-library .costume-open,.asset-center.costume-library .costume-open:hover,.asset-center.costume-library .costume-open:focus,.asset-center.ref-library .costume-shot>.costume-open,.asset-center.ref-library .costume-shot>.costume-open:hover{background:transparent;padding:0;border:0;border-radius:0}
+.asset-center.costume-library .costume-open img,.asset-center.ref-library.ref-costume .costume-open img,.asset-center.ref-library.ref-costume.center-workbench-official:not(.center-canvas) .official-list-media>.costume-open img{background:transparent;object-fit:cover;object-position:center}
+/* .ref-badge later sets left/top, which with .ref-views right/bottom stretches a 72% black chip over the photo. */
+.asset-center.ref-library.ref-costume .costume-shot>.ref-views{top:auto;right:8px;bottom:40px;left:auto;width:max-content;height:auto;max-width:calc(100% - 16px)}
+.asset-center.ref-library .ref-page-actions .ref-safe,.asset-center.ref-library .ref-page-actions .ref-note{box-sizing:border-box;height:36px;min-height:36px;margin:0;padding:0 14px;border-radius:999px;white-space:nowrap}
+.asset-center.ref-composite.center-workbench-official:not(.center-canvas) .cs-history.official-list-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:1100px){.asset-center.ref-composite.center-workbench-official:not(.center-canvas) .cs-history.official-list-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.asset-center.ref-composite.center-workbench-official:not(.center-canvas) .cs-history.official-list-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.asset-center.ref-library.center-workbench-official:not(.center-canvas) .ref-grid.official-list-grid,.asset-center.ref-library .ref-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:1100px){.asset-center.ref-library.center-workbench-official:not(.center-canvas) .ref-grid.official-list-grid,.asset-center.ref-library .ref-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.asset-center.ref-library.center-workbench-official:not(.center-canvas) .ref-grid.official-list-grid,.asset-center.ref-library .ref-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.asset-center.ref-library .ref-pill-row,.global-asset-library.ref-standalone .asset-center.ref-library .ref-pill-row{display:flex;align-items:center;gap:12px;min-width:0;margin:0 0 14px}
+.asset-center.ref-library .ref-pill-row .ref-pills,.global-asset-library.ref-standalone .asset-center.ref-library .ref-pill-row .ref-pills{flex:1 1 auto;min-width:0;height:auto;max-height:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;margin:0}
+.asset-center.ref-library .ref-pill-actions{display:flex;flex:none;align-items:center;gap:8px}
+.asset-center.ref-library .ref-pill-actions .ref-safe,.asset-center.ref-library .ref-pill-actions .ref-note{height:32px;min-height:32px;margin:0;padding:0 14px;border-radius:999px;white-space:nowrap}
+/* The generate control is mounted in the search panel, outside .character-studio.
+   A width:100% search field shrinks it until “生成角色图” wraps inside the 34px button. */
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar{flex-wrap:nowrap;align-items:center;gap:12px;min-width:0}
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar>input{flex:1 1 180px;width:auto;max-width:none;min-width:140px}
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar .cs-history-count{flex:none}
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar .cs-history-toolbar-actions{flex:none;margin-left:auto}
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar .cs-history-toolbar-actions>button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;width:auto;height:40px;min-height:40px;margin:0;padding:0 16px;white-space:nowrap;letter-spacing:normal;font-size:14px;line-height:20px}
+@media(max-width:700px){
+ .asset-center.ref-library .ref-search-panel>.cs-history-toolbar{flex-wrap:wrap}
+ .asset-center.ref-library .ref-search-panel>.cs-history-toolbar>input{flex-basis:100%;min-width:0}
+}
+/* AI角色合成库：深色页面，生成按钮保持浅底深字，避免和搜索条融在一起。 */
+.workspace:has(#asset-center-view .ref-composite){background:#0b080b}
+.asset-center.ref-library.ref-composite,
+.asset-center.ref-library.ref-composite.center-workbench-official{background:#0b080b;color:#fdfbfc}
+.asset-center.ref-composite .ref-page-head .cs-history-heading{color:#fdfbfc}
+.asset-center.ref-composite .ref-search-panel{background:#1a1a1f}
+.asset-center.ref-composite .ref-search-panel input,
+.asset-center.ref-composite .ref-search-panel select{background:#141414;color:#fdfbfc;border-color:#343435}
+.asset-center.ref-composite .ref-search-panel input::placeholder{color:#6f6e72}
+.asset-center.ref-composite .cs-history-count,
+.asset-center.ref-composite .cs-history-note{color:#a1a0a3}
+.asset-center.ref-composite .cs-history-state{border-color:#343435;color:#fdfbfc}
+.asset-center.ref-composite .cs-history-state h3{color:#fdfbfc}
+.asset-center.ref-composite .cs-history-state p{color:#a1a0a3}
+.asset-center.ref-composite .cs-history-item{background:#1c1c20;color:#fdfbfc}
+.asset-center.ref-composite .cs-history-meta h3,
+.asset-center.ref-composite .cs-history-meta strong{color:#fdfbfc}
+.asset-center.ref-composite .cs-history-library .cs-history-img{background:#111114}
+.asset-center.ref-composite .ref-search-panel>.cs-history-toolbar .cs-history-menu>summary{color:#fdfbfc}
+.asset-center.ref-composite .ref-search-panel>.cs-history-toolbar .cs-history-toolbar-actions>button{background:#f4f4f2;color:#141416;border-color:#f4f4f2}
+.asset-center.ref-composite .ref-search-panel>.cs-history-toolbar .cs-history-toolbar-actions>button:hover{background:#e7e7e7;color:#141416;border-color:#e7e7e7}
