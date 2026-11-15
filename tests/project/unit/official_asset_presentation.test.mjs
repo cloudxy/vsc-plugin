@@ -48,14 +48,15 @@ test('official scrolling serializes requests, preserves cards on failure and exp
  });
  const observer=observers.at(-1),cards=()=>view.root.querySelectorAll('.center-card');
  const listQuery=url=>new URL(url,'http://fixture').searchParams;
+ const characterPages=()=>view.requests.filter(url=>listQuery(url).get('asset_kind')==='character');
  assert.equal(cards().length,20);assert.equal(listQuery(view.requests[0]).get('limit'),'20');
  assert.equal(button(view.root,'下一页'),undefined);
- observer.fire();observer.fire();await settle();assert.equal(view.requests.length,2);
- assert.equal(listQuery(view.requests.at(-1)).get('limit'),'20');
+ observer.fire();observer.fire();await settle();assert.equal(characterPages().length,2);
+ assert.equal(listQuery(characterPages().at(-1)).get('limit'),'20');
  assert.equal(view.root.querySelector('.center-load-more').hidden,true);
  release();await settle();assert.equal(cards().length,20);
  assert.match(view.root.querySelector('.center-load-status').textContent,/加载失败/);
- observer.fire();await settle();assert.equal(view.requests.length,2,'intersection cannot retry an error loop');
+ observer.fire();await settle();assert.equal(characterPages().length,2,'intersection cannot retry an error loop');
  const retry=button(view.root,'重试加载');assert.equal(retry.hidden,false);
  const retrying=retry.onclick();await settle();release();await retrying;
  assert.equal(cards().length,40);assert.equal(listQuery(view.requests.at(-1)).get('offset'),'20');
@@ -98,7 +99,7 @@ test('a failed linked detail keeps the asset list and retries only that detail',
  assert.equal(view.root.querySelectorAll('.center-card').length,1);
  assert.match(view.root.querySelector('.center-entry-error').textContent,/temporary detail outage/);
  await button(view.root,'重试查看资产').onclick();
- assert.equal(details,2);assert.equal(view.requests.filter(url=>!url.includes('/entries/')).length,1);
+ assert.equal(details,2);assert.equal(view.requests.filter(url=>!url.includes('/entries/')&&new URL(url,'http://fixture').searchParams.get('asset_kind')==='character').length,1);
  assert.equal(view.root.querySelector('.center-entry-error'),null);
  assert.equal(view.root.querySelector('.official-drawer-head').querySelector('h3').textContent,row.title);
  view.cleanup();
@@ -171,6 +172,36 @@ test('costume and portrait remaining counts use their own units and stop at comp
   assert.equal(view.root.querySelectorAll('.ref-card').length,61);
   assert.equal(view.root.querySelector('.ref-load-complete').textContent,`已显示全部 61 ${unit}`);view.cleanup();
  }
+});
+
+test('switching official kinds keeps the prepared count and does not flash an empty catalog',async()=>{
+ globalThis.location={search:'?kind=character'};
+ const root=doc.createElement('main');doc.body.append(root);const requests=[];
+ let releaseCharacter,holdLocation,locationCalls=0;
+ const locationPage={items:[{...official('scene'),official:{asset_kind:'location'}}],total:1257,next_offset:20,facets:{scene_type:['住宅'],space:['室内']}};
+ const center=createAssetCenter(root,{session:()=>({actor:'presentation',csrf:'csrf'}),projects:()=>[],notice(){},api:async url=>{
+  requests.push(url);const q=new URL(url,'http://fixture').searchParams;
+  if(q.get('asset_kind')==='character'&&q.get('offset')==='0')return new Promise(resolve=>{releaseCharacter=()=>resolve({items:[official('ready')],total:1449,next_offset:20,facets:{role_tag:['安保']}});});
+  if(q.get('asset_kind')==='location'){locationCalls+=1;if(locationCalls>1)return new Promise(resolve=>{holdLocation=()=>resolve(locationPage);});return locationPage;}
+  return {items:[],total:0,next_offset:null,facets:{}};
+ }},{source:'official',workbench:true});
+ const loading=center.load();await settle();
+ assert.equal(root.textContent.includes('暂无资产'),false);
+ assert.ok(root.querySelector('.official-list-pending'));
+ assert.equal(root.querySelector('.center-count').textContent,'加载中…');
+ releaseCharacter();await loading;await settle();
+ assert.equal(root.querySelector('.center-count').textContent,'1449 个资产');
+ assert.equal(root.querySelector('.official-list-pending'),null);
+ assert.ok(requests.some(url=>new URL(url,'http://fixture').searchParams.get('asset_kind')==='location'));
+ const switching=button(root,'场景').onclick();await settle();
+ assert.equal(root.textContent.includes('暂无资产'),false);
+ assert.equal(root.querySelector('.center-count').textContent,'1257 个资产');
+ const prepared=[...root.querySelectorAll('.center-card')].filter(node=>!String(node.className).includes('official-list-pending'));
+ assert.equal(prepared.length,1);
+ assert.match(prepared[0].textContent,/官方资产scene/);
+ holdLocation();await switching;await settle();
+ assert.equal(root.querySelector('.center-count').textContent,'1257 个资产');
+ center.suspend();root.remove();
 });
 
 test('initial failure leaves a visible retry state instead of a permanent loading label',async()=>{

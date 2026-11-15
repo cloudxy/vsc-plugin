@@ -1,7 +1,7 @@
 """Shared catalog annotations; reuse stays an original target-project command."""
 import uuid
 from collections import defaultdict
-from sqlalchemy import select, insert, update, func, and_, or_, exists
+from sqlalchemy import select, insert, update, func, and_, or_, exists, union, table, column
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from vsc.assets.resource_service import ResourceError, Conflict, NotFound
 from . import schema as S
@@ -39,6 +39,47 @@ def load_official_classes(conn, publication_ids):
     ):
         props[row.publication_id] = row.prop_type
     return roles, locations, props
+
+
+def _official_visible_entry_ids():
+    """Entries that still have one available image, video, or audio member."""
+    from .library_media import available_member
+
+    def ready(media):
+        return and_(
+            media.c.modality.in_(("image", "video", "audio")),
+            available_member(media.c.library_version_id, media.c.member_key),
+        )
+
+    media = S.library_version_media
+    versions = S.library_entry_versions
+    owned = select(versions.c.entry_id.label("entry_id")).select_from(
+        media.join(versions, versions.c.id == media.c.library_version_id)
+    ).where(ready(media))
+    linked_media = media.alias("official_backup_media")
+    backups = S.official_asset_backups
+    linked = select(backups.c.entry_id.label("entry_id")).select_from(
+        backups.join(linked_media, and_(
+            linked_media.c.library_version_id == backups.c.library_version_id,
+            linked_media.c.member_key == backups.c.member_key,
+        ))
+    ).where(ready(linked_media))
+    return union(owned, linked).subquery("official_visible_entries")
+
+
+def _official_browse_table():
+    publication = S.official_asset_publications
+    return table("official_browse_base", *[column(item.name, item.type) for item in publication.columns])
+
+
+def _stage_official_browse(conn, selectable):
+    """One visibility pass. Count, facets, and the page then read this snapshot."""
+    compiled = selectable.compile(dialect=conn.dialect, compile_kwargs={"render_postcompile": True})
+    conn.exec_driver_sql("DROP TABLE IF EXISTS official_browse_base")
+    conn.exec_driver_sql(
+        "CREATE TEMP TABLE official_browse_base ON COMMIT DROP AS " + compiled.string,
+        compiled.params,
+    )
 
 
 def apply_official_classes(official, roles, locations, props):
@@ -265,7 +306,6 @@ class AssetCenterRepository:
             return clean(dict(conn.execute(select(o).where(o.c.id == row["id"])).mappings().one()))
 
     def _search_official(self, filters):
-        from .library_media import available_member
         o, v, e = S.official_asset_publications, S.library_entry_versions, S.library_entries
         query = select(o).join(v, and_(v.c.id == o.c.library_version_id, v.c.entry_id == o.c.entry_id)).join(e, e.c.id == o.c.entry_id)
         query = query.where(
@@ -274,25 +314,17 @@ class AssetCenterRepository:
             e.c.visibility == "workspace",
             or_(v.c.expires_at.is_(None), v.c.expires_at > func.now()),
         )
-        newer = o.alias('newer_official_publication')
-        query = query.where(~exists(select(1).where(newer.c.entry_id == o.c.entry_id,
-            or_(newer.c.created_at > o.c.created_at, and_(newer.c.created_at == o.c.created_at, newer.c.id > o.c.id)))))
+        latest = (
+            select(o.c.id)
+            .distinct(o.c.entry_id)
+            .order_by(o.c.entry_id, o.c.created_at.desc(), o.c.id.desc())
+        )
+        query = query.where(o.c.id.in_(latest))
         if filters.get("asset_kind"):
             query = query.where(o.c.asset_kind == filters["asset_kind"])
         if filters.get("media_only"):
-            media, versions = S.library_version_media, S.library_entry_versions.alias('official_media_version')
-            backups = S.official_asset_backups
-            query = query.where(
-                exists(
-                    select(1).select_from(media.join(versions, versions.c.id == media.c.library_version_id)).where(
-                        or_(versions.c.entry_id == o.c.entry_id, exists(select(1).where(
-                            backups.c.entry_id == o.c.entry_id, backups.c.library_version_id == media.c.library_version_id,
-                            backups.c.member_key == media.c.member_key)).correlate(o, media)),
-                        media.c.modality.in_(["image", "video", "audio"]),
-                        available_member(media.c.library_version_id, media.c.member_key),
-                    )
-                )
-            )
+            visible = _official_visible_entry_ids()
+            query = query.where(o.c.entry_id.in_(select(visible.c.entry_id)))
         if filters.get("query"):
             pattern = "%" + filters["query"].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             query = query.where(
@@ -305,55 +337,21 @@ class AssetCenterRepository:
         # Dimension chips stay selectable, so gender and role stay off this snapshot.
         # Search text and media availability do scope it; otherwise another test's
         # publication leaks into this result's facet set.
-        facet_base = query.subquery()
-        for key in ("role_level", "gender", "age_band"):
-            if filters.get(key):
-                query = query.where(o.c[key] == filters[key])
-        if filters.get("role_tag"):
-            query = query.where(exists(select(1).where(
-                S.official_asset_role_tags.c.publication_id == o.c.id,
-                S.official_asset_role_tags.c.value == filters["role_tag"],
-            )))
-        if filters.get("scene_type"):
-            query = query.where(exists(select(1).where(
-                S.official_location_classes.c.publication_id == o.c.id,
-                S.official_location_classes.c.scene_type == filters["scene_type"],
-            )))
-        if filters.get("space"):
-            query = query.where(exists(select(1).where(
-                S.official_location_classes.c.publication_id == o.c.id,
-                S.official_location_classes.c.space == filters["space"],
-            )))
-        if filters.get("prop_type"):
-            query = query.where(exists(select(1).where(
-                S.official_prop_classes.c.publication_id == o.c.id,
-                S.official_prop_classes.c.prop_type == filters["prop_type"],
-            )))
-        order_by = filters.get("order_by", "")
-        if order_by == "title":
-            ordering = (v.c.title, o.c.library_version_id)
-        elif order_by == "heat":
-            heat_sub = (
-                select(func.count())
-                .where(S.library_download_requests.c.library_version_id == o.c.library_version_id)
-                .correlate(o)
-                .scalar_subquery()
-            )
-            ordering = (heat_sub.desc(), o.c.created_at.desc(), v.c.title, o.c.library_version_id)
-        else:
-            ordering = (o.c.created_at.desc(), v.c.created_at.desc(), v.c.title, o.c.library_version_id)
-        with self.store.engine.connect() as conn:
+        with self.store.engine.begin() as conn:
+            _stage_official_browse(conn, query)
+            base = _official_browse_table()
             facets = {}
             facets_truncated = False
             for key in ("role_level", "gender", "age_band"):
-                values = list(conn.execute(select(facet_base.c[key]).distinct().order_by(facet_base.c[key]).limit(101)).scalars())
+                values = list(conn.execute(select(base.c[key]).distinct().order_by(base.c[key]).limit(101)).scalars())
                 facets[key] = values[:100]
                 facets_truncated = facets_truncated or len(values) > 100
             kind = filters.get("asset_kind") or ""
             if kind == "character":
                 segments = list(conn.execute(
                     select(S.official_asset_role_tags.c.value)
-                    .join(facet_base, facet_base.c.id == S.official_asset_role_tags.c.publication_id)
+                    .select_from(S.official_asset_role_tags.join(
+                        base, base.c.id == S.official_asset_role_tags.c.publication_id))
                     .distinct().order_by(S.official_asset_role_tags.c.value)
                     .limit(_CHARACTER_FACET_LIMIT + 1)
                 ).scalars())
@@ -361,32 +359,78 @@ class AssetCenterRepository:
                 facets_truncated = facets_truncated or len(segments) > _CHARACTER_FACET_LIMIT
             else:
                 raw_tags = list(conn.execute(
-                    select(facet_base.c.role_tag).distinct().order_by(facet_base.c.role_tag).limit(_RAW_TAG_LIMIT)
+                    select(base.c.role_tag).distinct().order_by(base.c.role_tag).limit(_RAW_TAG_LIMIT)
                 ).scalars())
                 facets["role_tag"] = raw_tags[:100]
                 facets_truncated = facets_truncated or len(raw_tags) > 100
                 if kind == "location":
                     facets["scene_type"] = list(conn.execute(
                         select(S.official_location_classes.c.scene_type)
-                        .join(facet_base, facet_base.c.id == S.official_location_classes.c.publication_id)
+                        .select_from(S.official_location_classes.join(
+                            base, base.c.id == S.official_location_classes.c.publication_id))
                         .distinct().order_by(S.official_location_classes.c.scene_type)
                     ).scalars())
                     facets["space"] = list(conn.execute(
                         select(S.official_location_classes.c.space)
-                        .join(facet_base, facet_base.c.id == S.official_location_classes.c.publication_id)
+                        .select_from(S.official_location_classes.join(
+                            base, base.c.id == S.official_location_classes.c.publication_id))
                         .distinct().order_by(S.official_location_classes.c.space)
                     ).scalars())
                 elif kind == "prop":
                     facets["prop_type"] = list(conn.execute(
                         select(S.official_prop_classes.c.prop_type)
-                        .join(facet_base, facet_base.c.id == S.official_prop_classes.c.publication_id)
+                        .select_from(S.official_prop_classes.join(
+                            base, base.c.id == S.official_prop_classes.c.publication_id))
                         .distinct().order_by(S.official_prop_classes.c.prop_type)
                     ).scalars())
-            total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
-            publications = [
-                dict(row)
-                for row in conn.execute(query.order_by(*ordering).offset(filters["offset"]).limit(filters["limit"])).mappings()
-            ]
+            criteria = []
+            for key in ("role_level", "gender", "age_band"):
+                if filters.get(key):
+                    criteria.append(base.c[key] == filters[key])
+            if filters.get("role_tag"):
+                criteria.append(exists(select(1).where(
+                    S.official_asset_role_tags.c.publication_id == base.c.id,
+                    S.official_asset_role_tags.c.value == filters["role_tag"],
+                )))
+            if filters.get("scene_type"):
+                criteria.append(exists(select(1).where(
+                    S.official_location_classes.c.publication_id == base.c.id,
+                    S.official_location_classes.c.scene_type == filters["scene_type"],
+                )))
+            if filters.get("space"):
+                criteria.append(exists(select(1).where(
+                    S.official_location_classes.c.publication_id == base.c.id,
+                    S.official_location_classes.c.space == filters["space"],
+                )))
+            if filters.get("prop_type"):
+                criteria.append(exists(select(1).where(
+                    S.official_prop_classes.c.publication_id == base.c.id,
+                    S.official_prop_classes.c.prop_type == filters["prop_type"],
+                )))
+            order_by = filters.get("order_by", "")
+            if order_by == "title":
+                ordering = (v.c.title, base.c.library_version_id)
+            elif order_by == "heat":
+                heat_sub = (
+                    select(func.count())
+                    .where(S.library_download_requests.c.library_version_id == base.c.library_version_id)
+                    .correlate(base)
+                    .scalar_subquery()
+                )
+                ordering = (heat_sub.desc(), base.c.created_at.desc(), v.c.title, base.c.library_version_id)
+            else:
+                ordering = (base.c.created_at.desc(), v.c.created_at.desc(), v.c.title, base.c.library_version_id)
+            total = conn.execute(select(func.count()).select_from(base).where(*criteria)).scalar_one()
+            page = (
+                select(base)
+                .select_from(base.join(v, and_(
+                    v.c.id == base.c.library_version_id, v.c.entry_id == base.c.entry_id)))
+                .where(*criteria)
+                .order_by(*ordering)
+                .offset(filters["offset"])
+                .limit(filters["limit"])
+            )
+            publications = [dict(row) for row in conn.execute(page).mappings()]
             details = self.library._details(conn, [row["library_version_id"] for row in publications])
             by_version = {row["library_version_id"]: row for row in publications}
             roles, locations, props = load_official_classes(conn, [row["id"] for row in publications])

@@ -363,7 +363,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  if(source==='global')return createGlobalAssetLibrary(root,ctx);
  const official=source==='official';
  const browseKinds=officialWorkbenchKinds;
- const facetCache=new Map(),officialPageCache=new Map(),costumePageCache=new Map();
+ const facetCache=new Map(),officialPageCache=new Map(),officialPrepareInflight=new Set(),costumePageCache=new Map();
  const REF_KINDS=new Set(['costume','pose','portrait']);
  const refState={costume:{top:'',source:'',category:'',tag:'',q:''},pose:{view:'group',system:'',category:'',angle:'',q:''},portrait:{section:'',hair:'',style:'',hot:false,q:''}};
  const refSummary={},refPageCache=new Map(),refInitialBatch={costume:60,pose:60,portrait:60};
@@ -1376,6 +1376,19 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
 
   const officialListLimit=20;
   const reqFilters={...filters,order_by:filters.order_by||'latest',source:'official',media_only:'true',offset,limit:officialListLimit};
+  const prepareOfficialSiblings=()=>{
+   if(!workbench||canvas||offset!==0)return;
+   if(['query','role_level','age_band','gender','role_tag','scene_type','space','prop_type'].some(key=>filters[key]))return;
+   for(const [kind] of officialWorkbenchKinds){
+    if(kind===(filters.asset_kind||''))continue;
+    const key=String(new URLSearchParams({asset_kind:kind,order_by:'latest',source:'official',media_only:'true',offset:0,limit:officialListLimit}));
+    if(officialPageCache.has(key)||officialPrepareInflight.has(key))continue;
+    officialPrepareInflight.add(key);
+    get('/api/v1/asset-center?'+key).then(data=>{
+     if(data&&Array.isArray(data.items)&&Number.isInteger(Number(data.total)))officialPageCache.set(key,data);
+    }).catch(()=>{}).finally(()=>officialPrepareInflight.delete(key));
+   }
+  };
   for(const k of Object.keys(reqFilters))if(reqFilters[k]===''||reqFilters[k]==null)delete reqFilters[k];
   const queryStr=String(new URLSearchParams(reqFilters));
   const officialSig=list=>(list||[]).map(r=>`${r.id}:${r.version_id}:${r.title}:${r.download_count||0}`).join('|');
@@ -1418,6 +1431,12 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
     setText(count,cached.total+' 个资产');
     for(const [idx,row]of (cached.items||[]).entries())grid.append(renderOfficialCard(row,idx));
     if(!(cached.items||[]).length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
+   }else{
+    for(let index=0;index<8;index++){
+     const card=el('article','','center-card official-list-card official-list-pending');
+     card.append(el('div','','official-list-media'),el('h2','','official-list-title'),el('div','','official-list-meta'));
+     grid.append(card);
+    }
    }
    root.append(grid);
    grid.setAttribute('aria-busy','true');
@@ -1425,7 +1444,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   const data=await get('/api/v1/asset-center?'+queryStr);
   if(!active(g))return;
   grid.setAttribute('aria-busy','false');
-  if(workbench)officialPageCache.set(queryStr,data);
+  if(workbench){officialPageCache.set(queryStr,data);prepareOfficialSiblings();}
   if(data.facets){
    facetCache.set(currentKind,{...(facetCache.get(currentKind)||{}),...data.facets});
    fillFacet(roleTagSelect,data.facets.role_tag,'role_tag');
