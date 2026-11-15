@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {test} from 'node:test';
 import {createRequire} from 'node:module';
 import {webcrypto} from 'node:crypto';
@@ -31,6 +33,19 @@ function setup({api,refresh,navigate,storage=new Map()}={}){
 const load=h=>h.platform.load({page:'project',project:'project-1'});
 function fill(d,{title='修改后',count=3,position='2'}={}){const inputs=d.querySelectorAll('input');inputs[0].value=title;inputs[1].value=String(count);inputs[2].value=position;}
 const tool=(h,index=0)=>h.root.querySelectorAll('.episode-tool')[index];
+
+test('episode toolbar keeps shell button colors and dark glyphs on the primary action',()=>{
+  const css=fs.readFileSync(path.resolve(import.meta.dirname,'../../../src/vsc/interfaces/web/static/workbench-shell.css'),'utf8');
+  const general=css.match(/\.episode-toolbar>button\{[^}]*\}/);
+  assert.ok(general);
+  assert.equal(general[0].includes('linear-gradient'),false);
+  assert.equal(general[0].includes('color:'),false);
+  const primary=css.match(/\.episode-toolbar>button\.primary\{[^}]*\}/);
+  assert.ok(primary);
+  assert.match(primary[0],/background:var\(--brand-6\)/);
+  assert.match(primary[0],/color:#0b080b/);
+  assert.match(css,/\.project-cover-mark\{[^}]*color:var\(--text-3,#a1a0a3\)/);
+});
 
 test('episode card has four guarded buttons and retains the original specialist and batch entries',async()=>{
   const h=setup();await load(h);assert.equal(h.root.querySelectorAll('.episode-tool').length,4);
