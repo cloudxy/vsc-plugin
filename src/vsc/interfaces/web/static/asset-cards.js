@@ -23,6 +23,7 @@ const kinds={
  vehicle:msg('ui.vehicle'),
  plant:msg('ui.plant'),
 };
+const projectAssetKinds=new Set([...Object.keys(kinds),'blocking']);
 
 const TYPE_NUM_TO_KIND={1:'character',2:'location',3:'prop',4:'blocking',5:'voice'};
 const KIND_TO_TYPE_NUM={character:1,location:2,prop:3,object:3,blocking:4,voice:5};
@@ -1100,6 +1101,7 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
  const actor=ctx.session().actor,uploads=new Set();
  const initParams=typeof location!=='undefined'?new URLSearchParams(location.search):new URLSearchParams();
  let active=true,serial=0,offset=0,options=null,episode=null,revision=ctx.session().revision,query='',kind=initParams.get('kind')||'',folderId='',orderBy='',favorite=false,mode='project',tab=initParams.get('tab')==='official'?'official':'project',batchMode=false,visibleCards=[],folders=[],currentFolder=null,officialCenter=null,editorHandle=null,searchDebounce=null;
+ if(!projectAssetKinds.has(kind))kind='';
  function syncCardsUrl(extra=null){
   if(typeof window==='undefined'||!window.history?.replaceState||!window.location)return;
   const q=new URLSearchParams(window.location.search);

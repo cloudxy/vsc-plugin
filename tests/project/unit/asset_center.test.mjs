@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 
 // This deliberately small DOM tests the component and request boundaries, not
@@ -100,6 +101,65 @@ test('project batch operations never treat a blocking projection as an asset ide
 
 // All-projects mode issues a single cross-project query (/api/v1/account/project-asset-cards)
 // instead of per-project N+1 fanout, while explicit single-project selection keeps /projects/{id}/asset-cards.
+test('the embedded official toolbar is one row on the project assets page',()=>{
+  const css=readFileSync(new URL('../../../src/vsc/interfaces/web/static/asset-center.css',import.meta.url),'utf8');
+  const row=css.split('}').find(block=>block.includes('flex-direction:row')&&block.includes('.center-official-filters{'));
+  assert.match(row,/\.global-asset-library \.asset-center\.center-workbench-official:not\(\.ref-library\) \.center-official-filters/);
+  assert.match(row,/\.asset-center\.center-workbench-official:not\(\.ref-library\):not\(\.center-canvas\) \.center-official-filters/);
+  const labels=css.split('}').find(block=>block.includes('flex:0 0 auto')&&block.includes('.center-official-filter-row>label:has(input[type=search])'));
+  assert.match(labels,/\.asset-center\.center-workbench-official:not\(\.ref-library\):not\(\.center-canvas\) \.center-official-filter-row>label:has\(input\[type=search\]\)/);
+});
+
+test('a production modality on the official assets page is not an asset-card filter',async()=>{
+  const previousWindow=globalThis.window;
+  location.search='?page=assets&project=p1&episode=e1&kind=video&tab=official';
+  globalThis.window={location,history};
+  try{
+   const calls=[],notices=[];
+   const api=async url=>{
+    calls.push(url);
+    if(url.endsWith('/asset-card-options'))return {nodes:[],media:[],folders:[],revision:1};
+    if(url.includes('/auth/status'))return {};
+    if(url.includes('/asset-center?'))return {items:[],total:1450,facets:{},next_offset:null};
+    throw new Error('资产筛选或分页无效');
+   };
+   const ctx={...context([{id:'p1',name:'项目'}],api),notice:message=>notices.push(message),setRevision(){},session:()=>({actor:'tester',csrf:'token',revision:1})};
+   const root=new Element('main',document),panel=await mountAssetCards(root,ctx,{projectId:'p1'});
+   assert.equal(calls.some(url=>url.includes('/asset-cards?')),false);
+   assert.equal(notices.includes('资产筛选或分页无效'),false);
+   const officialCalls=calls.filter(url=>url.includes('/asset-center?'));
+   assert.equal(officialCalls.length>0,true);
+   assert.equal(new URL(officialCalls[0],'http://test').searchParams.get('asset_kind'),'character');
+   assert.equal(new URL(location.search,'http://test').searchParams.get('kind'),null);
+   assert.equal(new URL(location.search,'http://test').searchParams.get('tab'),'official');
+   const filters=root.querySelector('.center-official-filters');
+   const parts=filters.children.filter(node=>node.tagName!=='#TEXT');
+   assert.equal(parts[0],root.querySelector('.center-official-kinds'));
+   assert.equal(parts[1],root.querySelector('.center-official-filter-row'));
+   assert.equal(parts[2].tagName,'BUTTON');
+   panel.suspend();
+  }finally{
+   if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+  }
+});
+
+test('project assets ignore a carried video kind instead of rejecting the page',async()=>{
+  location.search='?page=assets&project=p1&kind=video';
+  const calls=[],notices=[];
+  const api=async url=>{
+    calls.push(url);
+    if(url.endsWith('/asset-card-options'))return {nodes:[],media:[],folders:[],revision:1};
+    if(url.includes('/asset-cards?'))return {items:[],folders:[],total:0,next_offset:null,revision:1};
+    throw new Error('unexpected '+url);
+  };
+  const ctx={...context([{id:'p1',name:'项目'}],api),notice:message=>notices.push(message),setRevision(){},session:()=>({actor:'tester',csrf:'token',revision:1})};
+  const root=new Element('main',document),panel=await mountAssetCards(root,ctx,{projectId:'p1'});
+  const list=calls.find(url=>url.includes('/asset-cards?'));
+  assert.equal(new URL(list,'http://test').searchParams.get('asset_kind'),'');
+  assert.equal(notices.includes('资产筛选或分页无效'),false);
+  panel.suspend();
+});
+
 test('all-projects mode loads 30 authorized projects in a single request with cursor pagination and retry',async()=>{
   location.search='?page=asset-center&owner_kind=workspace&workspace_id=ws-1&favorites=true';
   const thirtyProjects=Array.from({length:30},(_,i)=>({id:`proj-${i}`,name:`短剧项目${i}`}));
