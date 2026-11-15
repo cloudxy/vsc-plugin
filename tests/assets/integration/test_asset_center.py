@@ -434,7 +434,9 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
         self.assertEqual(people["total"],1)
         self.assertEqual(people["items"][0]["official"]["role_tag"],"安保 / 护卫")
         self.assertEqual(people["items"][0]["official"]["role_tags"],["安保","护卫"])
-        self.assertEqual(self.service.search_asset_center({"source":"official","asset_kind":"character","query":token,"role_tag":"青年女"})["total"],1)
+        self.assertEqual(self.service.search_asset_center({"source":"official","asset_kind":"character","query":token,"role_tag":"青年女"})["total"],0)
+        aged_rows=self.service.search_asset_center({"source":"official","asset_kind":"character","query":token,"gender":"female","age_band":"young_adult"})
+        self.assertIn("青年女",[row["official"]["role_tag"] for row in aged_rows["items"]])
         facets=self.service.search_asset_center({"source":"official","asset_kind":"character","query":token})["facets"]["role_tag"]
         self.assertIn("安保",facets)
         self.assertIn("护卫",facets)
@@ -461,6 +463,73 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             self.service.search_asset_center({"source":"shared","scene_type":"住宅"})
         with self.assertRaises(ResourceError):
             self.service.search_asset_center({"source":"official","prop_type":"飞船"})
+        from sqlalchemy import select, text
+        from sqlalchemy.exc import IntegrityError
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.official_taxonomy import LOCATION_ALIASES, PROP_ALIASES, PROP_TYPES, SCENE_TYPES, SPACES, classify_location, classify_prop
+        with self.engine.connect() as conn:
+            terms={(row.dimension, row.value) for row in conn.execute(select(S.official_class_terms.c.dimension, S.official_class_terms.c.value))}
+            self.assertEqual(terms, {("scene_type", value) for value in SCENE_TYPES} | {("space", value) for value in SPACES} | {("prop_type", value) for value in PROP_TYPES})
+            aliases={(row.source_label, row.scene_type, row.space) for row in conn.execute(select(S.official_location_aliases.c.source_label, S.official_location_aliases.c.scene_type, S.official_location_aliases.c.space))}
+            self.assertEqual(aliases, {(label, scene, space) for label, (scene, space) in LOCATION_ALIASES.items()})
+            prop_aliases={(row.source_label, row.prop_type) for row in conn.execute(select(S.official_prop_aliases.c.source_label, S.official_prop_aliases.c.prop_type))}
+            self.assertEqual(prop_aliases, set(PROP_ALIASES.items()))
+            street_id=street_page["items"][0]["official"]["id"]
+            stored=conn.execute(select(S.official_location_classes.c.scene_type, S.official_location_classes.c.space, S.official_asset_publications.c.role_tag).join(S.official_asset_publications, S.official_asset_publications.c.id==S.official_location_classes.c.publication_id).where(S.official_location_classes.c.publication_id==street_id)).one()
+            self.assertEqual(tuple(stored), ("其他", "室外", "街巷"))
+            for label, expected in {**{label: pair for label, pair in LOCATION_ALIASES.items()}, "住宅 / 室内": ("住宅", "室内"), "没有这个场景": ("未识别", "未识别")}.items():
+                self.assertEqual(tuple(conn.execute(text("SELECT scene_type, space FROM vsc_official_location_class(:tag)"), {"tag": label}).one()), tuple(expected), label)
+                self.assertEqual(classify_location(label), expected)
+            for label, expected in {**PROP_ALIASES, "茶具": "其他", "长枪 / 礼仪": "武器", "飞船": "其他"}.items():
+                self.assertEqual(conn.execute(text("SELECT vsc_official_prop_class(:tag)"), {"tag": label}).scalar_one(), expected, label)
+                self.assertEqual(classify_prop(label), expected)
+        with self.assertRaises(IntegrityError) as rejected:
+            with self.engine.begin() as conn:
+                conn.execute(text("INSERT INTO official_class_terms (dimension, value) VALUES ('scene_type', '新增')"))
+        self.assertEqual(rejected.exception.orig.sqlstate, "23514")
+        with self.assertRaises(IntegrityError) as rejected:
+            with self.engine.begin() as conn:
+                conn.execute(text("INSERT INTO official_asset_role_tags (publication_id, ordinal, value) VALUES (:id, 3, '额外')"), {"id": people["items"][0]["official"]["id"]})
+        self.assertEqual(rejected.exception.orig.sqlstate, "23514")
+
+    def test_official_class_backfill_keeps_role_tag_and_seals_membership(self):
+        from alembic import command
+        from alembic.config import Config
+        from alembic.autogenerate import compare_metadata
+        from alembic.migration import MigrationContext
+        from sqlalchemy import select, text
+        from sqlalchemy.exc import IntegrityError
+        from support.paths import ROOT
+        from support.fixtures.postgres import isolated_postgres
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.adapters.persistence.postgres.resource_store import PostgresResourceStore
+        from vsc.assets.resource_service import ResourceService
+        def migrate(connection, target, action):
+            config = Config(str(ROOT / "migrations/postgres/alembic.ini"))
+            config.attributes["connection"] = connection
+            getattr(command, action)(config, target)
+        with isolated_postgres(TEST_URL) as engine:
+            service = ResourceService(PostgresResourceStore(engine=engine), storage=self.service.storage)
+            with engine.begin() as conn:
+                migrate(conn, "0059_platform_scope_decoupling", "downgrade")
+            staged = service.storage.stage_upload(io.BytesIO(png_bytes()), "reference.png")
+            fixed = service.import_library({"library_key": uuid.uuid4().hex, "title": "回填街巷", "category": "image", "description": "Synthetic owned reference",
+                "specification": {}, "allowed_purposes": ["identity_face"], "license": {"outcome": "owned", "allow_workspace_reuse": True, "evidence": "owned synthetic bytes"},
+                "import_key": uuid.uuid4().hex, "members": [{"member_key": "front", "staged_upload": staged["staged_upload"]}]}, actor="test-human")
+            payload = self.official_payload(fixed, asset_kind="location", role_tag="街巷", role_level="unspecified", gender="unspecified", age_band="unspecified")
+            with patch("vsc.configuration.get_config", return_value=["test-human"]):
+                service.publish_official_asset(payload, "test-human")
+            with engine.connect() as conn:
+                self.assertIsNone(conn.execute(text("SELECT to_regclass('official_location_classes')")).scalar_one())
+            with engine.begin() as conn:
+                migrate(conn, "head", "upgrade")
+                self.assertEqual(compare_metadata(MigrationContext.configure(conn), S.metadata), [])
+                self.assertEqual(conn.execute(select(S.official_asset_publications.c.role_tag)).scalar_one(), "街巷")
+                self.assertEqual(tuple(conn.execute(select(S.official_location_classes.c.scene_type, S.official_location_classes.c.space)).one()), ("其他", "室外"))
+            with self.assertRaises(IntegrityError) as rejected:
+                with engine.begin() as conn:
+                    conn.execute(text("UPDATE official_location_classes SET space = '室内'"))
+            self.assertEqual(rejected.exception.orig.sqlstate, "23514")
 
     def test_official_migration_preserves_legacy_and_refuses_lost_publications(self):
         from alembic import command

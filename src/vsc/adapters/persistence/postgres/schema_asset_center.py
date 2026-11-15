@@ -1,7 +1,7 @@
 """Catalog annotations and personal selection lists over fixed shared-library versions."""
 from sqlalchemy import Table, Column, Text, Integer, Boolean, DateTime, func, ForeignKeyConstraint, UniqueConstraint, PrimaryKeyConstraint, CheckConstraint, Index
 
-CENTER_IMMUTABLE = ("library_catalog_edits", "library_catalog_tags", "library_cart_imports", "library_download_requests", "official_asset_publications", "official_asset_backups", "library_media_actions")
+CENTER_IMMUTABLE = ("library_catalog_edits", "library_catalog_tags", "library_cart_imports", "library_download_requests", "official_asset_publications", "official_class_terms", "official_location_aliases", "official_prop_aliases", "official_class_seals", "official_location_classes", "official_prop_classes", "official_asset_role_tags", "official_asset_backups", "library_media_actions")
 
 
 def declare_asset_center(metadata, project_table, ref, uid, stamp):
@@ -46,6 +46,60 @@ def declare_asset_center(metadata, project_table, ref, uid, stamp):
         CheckConstraint("asset_kind='character' OR (role_level='unspecified' AND gender='unspecified' AND age_band='unspecified')", name="character_dimensions"),
         CheckConstraint("length(btrim(role_tag)) BETWEEN 1 AND 80 AND length(btrim(notes)) BETWEEN 1 AND 4000 AND length(btrim(publisher)) BETWEEN 1 AND 200 AND length(btrim(command_key)) BETWEEN 1 AND 200", name="text_fields"))
     Index("ix_official_asset_publications_browse", official.c.asset_kind,official.c.role_level,official.c.gender,official.c.age_band)
+    # Closed Sky dimensions. role_tag stays an open label on the publication,
+    # so it is not a row in this vocabulary.
+    terms = Table("official_class_terms", metadata,
+        Column("dimension", Text, nullable=False), Column("value", Text, nullable=False),
+        PrimaryKeyConstraint("dimension", "value"),
+        CheckConstraint("dimension IN ('scene_type','space','prop_type')", name="dimension"),
+        CheckConstraint("length(btrim(value)) BETWEEN 1 AND 80", name="value"))
+    location_aliases = Table("official_location_aliases", metadata,
+        Column("source_label", Text, nullable=False),
+        Column("scene_dimension", Text, nullable=False), Column("scene_type", Text, nullable=False),
+        Column("space_dimension", Text, nullable=False), Column("space", Text, nullable=False),
+        PrimaryKeyConstraint("source_label"),
+        CheckConstraint("scene_dimension = 'scene_type'", name="scene_dimension"),
+        CheckConstraint("space_dimension = 'space'", name="space_dimension"),
+        CheckConstraint("length(btrim(source_label)) BETWEEN 1 AND 80", name="source_label"),
+        ForeignKeyConstraint(["scene_dimension", "scene_type"], ["official_class_terms.dimension", "official_class_terms.value"], ondelete="RESTRICT", name="fk_official_location_aliases_scene"),
+        ForeignKeyConstraint(["space_dimension", "space"], ["official_class_terms.dimension", "official_class_terms.value"], ondelete="RESTRICT", name="fk_official_location_aliases_space"))
+    prop_aliases = Table("official_prop_aliases", metadata,
+        Column("source_label", Text, nullable=False),
+        Column("prop_dimension", Text, nullable=False), Column("prop_type", Text, nullable=False),
+        PrimaryKeyConstraint("source_label"),
+        CheckConstraint("prop_dimension = 'prop_type'", name="prop_dimension"),
+        CheckConstraint("length(btrim(source_label)) BETWEEN 1 AND 80", name="source_label"),
+        ForeignKeyConstraint(["prop_dimension", "prop_type"], ["official_class_terms.dimension", "official_class_terms.value"], ondelete="RESTRICT", name="fk_official_prop_aliases_type"))
+    # One row closes the vocabulary member set. Later inserts are rejected.
+    seals = Table("official_class_seals", metadata,
+        Column("name", Text, nullable=False), stamp(),
+        PrimaryKeyConstraint("name"),
+        CheckConstraint("name = 'classification'", name="name"))
+    # One publication's sealed scene type and space. The publication role_tag is the evidence.
+    location_classes = Table("official_location_classes", metadata,
+        uid("publication_id", nullable=False),
+        Column("scene_dimension", Text, nullable=False), Column("scene_type", Text, nullable=False),
+        Column("space_dimension", Text, nullable=False), Column("space", Text, nullable=False),
+        PrimaryKeyConstraint("publication_id"),
+        CheckConstraint("scene_dimension = 'scene_type'", name="scene_dimension"),
+        CheckConstraint("space_dimension = 'space'", name="space_dimension"),
+        ForeignKeyConstraint(["publication_id"], ["official_asset_publications.id"], ondelete="RESTRICT", name="fk_official_location_classes_publication"),
+        ForeignKeyConstraint(["scene_dimension", "scene_type"], ["official_class_terms.dimension", "official_class_terms.value"], ondelete="RESTRICT", name="fk_official_location_classes_scene"),
+        ForeignKeyConstraint(["space_dimension", "space"], ["official_class_terms.dimension", "official_class_terms.value"], ondelete="RESTRICT", name="fk_official_location_classes_space"))
+    prop_classes = Table("official_prop_classes", metadata,
+        uid("publication_id", nullable=False),
+        Column("prop_dimension", Text, nullable=False), Column("prop_type", Text, nullable=False),
+        PrimaryKeyConstraint("publication_id"),
+        CheckConstraint("prop_dimension = 'prop_type'", name="prop_dimension"),
+        ForeignKeyConstraint(["publication_id"], ["official_asset_publications.id"], ondelete="RESTRICT", name="fk_official_prop_classes_publication"),
+        ForeignKeyConstraint(["prop_dimension", "prop_type"], ["official_class_terms.dimension", "official_class_terms.value"], ondelete="RESTRICT", name="fk_official_prop_classes_type"))
+    role_tags = Table("official_asset_role_tags", metadata,
+        uid("publication_id", nullable=False), Column("ordinal", Integer, nullable=False), Column("value", Text, nullable=False),
+        PrimaryKeyConstraint("publication_id", "value"),
+        UniqueConstraint("publication_id", "ordinal"),
+        CheckConstraint("ordinal BETWEEN 0 AND 40", name="ordinal"),
+        CheckConstraint("length(btrim(value)) BETWEEN 1 AND 80 AND value !~ '^(幼年|少年|青年|中年|老年|壮年)(男|女)$'", name="value"),
+        ForeignKeyConstraint(["publication_id"], ["official_asset_publications.id"], ondelete="RESTRICT", name="fk_official_role_tags_publication"))
     edits = Table("library_catalog_edits", metadata, uid(primary_key=True), uid("entry_id", nullable=False),
         uid("library_version_id", nullable=False), Column("revision", Integer, nullable=False),
         Column("asset_kind", Text, nullable=False), Column("form_name", Text, nullable=False),
@@ -79,4 +133,4 @@ def declare_asset_center(metadata, project_table, ref, uid, stamp):
         ForeignKeyConstraint(["library_version_id", "member_key"], ["library_version_media.library_version_id", "library_version_media.member_key"]))
     for table, columns in ((edits,("entry_id","revision")), (cart,("actor","active")), (downloads,("actor","created_at")), (imported,("project_id","cart_id"))):
         Index("ix_"+table.name+"_browse", *(table.c[name] for name in columns))
-    return {table.name:table for table in (edits,tags,cart,imported,downloads,official,backups,states,actions)}
+    return {table.name:table for table in (edits,tags,cart,imported,downloads,official,terms,location_aliases,prop_aliases,seals,location_classes,prop_classes,role_tags,backups,states,actions)}

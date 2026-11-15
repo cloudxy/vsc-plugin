@@ -1,8 +1,8 @@
-"""Read-path labels for the official catalog.
+"""Closed official dimensions and the alias map mirrored by migration 0060.
 
-Publications stay immutable. These helpers only interpret the stored
-``role_tag`` so the official page can filter and display the same
-character, location and prop dimensions as the reference library.
+Stored classification lives in the class tables. These constants are the
+request allow-list and the vocabulary the migration seeds. ``role_tag`` on
+a publication remains the original label.
 """
 import re
 

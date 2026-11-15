@@ -77,7 +77,10 @@ class LibraryMediaRepository:
                 if error.code != 'official_publisher_required':
                     raise
                 can_manage = False
-            return dict(row, source='official', official=clean(dict(publications[0])), gallery=gallery, can_manage_media=can_manage)
+            from .asset_center import apply_official_classes, load_official_classes
+            official = dict(publications[0])
+            roles, locations, props = load_official_classes(conn, [official['id']])
+            return dict(row, source='official', official=clean(apply_official_classes(official, roles, locations, props)), gallery=gallery, can_manage_media=can_manage)
 
     def attach_backup(self, payload, actor):
         self.publisher(actor)
