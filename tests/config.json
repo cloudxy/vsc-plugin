@@ -1012,6 +1012,13 @@
         "migrations/postgres/**"
       ]
     },
+    "assets.unit.test_official_taxonomy": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/official_taxonomy.py"
+      ]
+    },
     "project.unit.test_source_resource_frontend": {
       "owner": "project",
       "layer": "unit",
@@ -1444,6 +1451,7 @@
       "layer": "integration",
       "sources": [
         "src/vsc/assets/asset_center.py",
+        "src/vsc/assets/official_taxonomy.py",
         "src/vsc/adapters/persistence/postgres/asset_center.py",
         "src/vsc/adapters/persistence/postgres/schema_asset_center.py",
         "migrations/postgres/versions/0048_official_asset_catalog.py",

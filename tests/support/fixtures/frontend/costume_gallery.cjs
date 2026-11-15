@@ -86,7 +86,7 @@ const ctx = {
   const officialCenter = createAssetCenter(root, ctx, {source: 'official', embedded: true, workbench: true});
   await officialCenter.load();
   const tabs = [...root.querySelector('.center-official-kinds').querySelectorAll('button')].map(n => n.textContent);
-  assert.deepEqual(tabs, ['全部', '人设', '场景', '道具', '音频']);
+  assert.deepEqual(tabs, ['人设', '场景', '道具', '音频']);
   for (const label of ['服装穿搭库', '动作姿势库', '人像颜值库', '站位', '服饰']) {
     assert.equal(tabs.includes(label), false);
   }

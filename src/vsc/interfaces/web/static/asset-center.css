@@ -557,11 +557,17 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="角色标签"]){order:3}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="性别"]){order:4}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="年龄段"]){order:5}
+.asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="场景类型"]){order:2}
+.asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="空间属性"]){order:3}
+.asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="道具类型"]){order:2}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has(input[type=search]){order:6}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>.center-clear-filters{order:7;height:36px;min-height:36px;padding:0 12px}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row select,
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row input[type=search]{height:36px;min-height:36px;border:1px solid #343438;border-radius:8px;background-color:#1c1c20;color:#fdfbfc;font-size:13px}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row select{width:118px;padding:0 28px 0 12px;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23a1a0a3' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 4.5 6 8.5 10 4.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;background-size:12px}
+.asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="场景类型"]) select,
+.asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="空间属性"]) select,
+.asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row>label:has([aria-label="道具类型"]) select{width:148px}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-official-filter-row input[type=search]{width:200px;padding:0 12px 0 32px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%239b9ba1' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='6' cy='6' r='4'/%3E%3Cpath d='M9.2 9.2 12 12'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:10px center;background-size:14px}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .center-grid.official-list-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:22px 14px}
 .asset-center.center-workbench-official:not(.ref-library):not(.center-canvas) .official-list-media{overflow:visible;aspect-ratio:auto;background:transparent}

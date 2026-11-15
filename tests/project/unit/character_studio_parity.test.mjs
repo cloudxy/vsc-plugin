@@ -182,7 +182,7 @@ test('browser-only composite records are not offered as server catalog assets in
  try{
   await center.load();await flush();
   for(const label of ['服装穿搭库','动作姿势库','人像颜值库','AI角色合成库'])assert.equal(button(root,label),undefined);
-  assert.deepEqual(root.querySelector('.center-official-kinds').querySelectorAll('button').map(b=>b.textContent),['全部','人设','场景','道具','音频']);
+  assert.deepEqual(root.querySelector('.center-official-kinds').querySelectorAll('button').map(b=>b.textContent),['人设','场景','道具','音频']);
  }finally{center.suspend();root.remove();}
 });
 

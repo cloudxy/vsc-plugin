@@ -1,4 +1,5 @@
 """Catalog discovery and explicit multi-project use of original shared media."""
+from vsc.assets.official_taxonomy import PROP_TYPES, SCENE_TYPES, SPACES
 from vsc.assets.resource_service import ResourceError
 
 
@@ -10,6 +11,11 @@ OFFICIAL_DIMENSIONS = {
     "role_level": {"lead", "supporting", "extra", "unspecified"},
     "gender": {"female", "male", "other", "unspecified"},
     "age_band": {"child", "teen", "young_adult", "middle_aged", "senior", "unspecified"},
+}
+OFFICIAL_BROWSE = {
+    "scene_type": set(SCENE_TYPES),
+    "space": set(SPACES),
+    "prop_type": set(PROP_TYPES),
 }
 
 
@@ -88,6 +94,9 @@ class AssetCenterService:
             "role_tag",
             "gender",
             "age_band",
+            "scene_type",
+            "space",
+            "prop_type",
             "order_by",
         }
         if not isinstance(filters, dict) or set(filters) - allowed:
@@ -106,14 +115,14 @@ class AssetCenterService:
             raise ResourceError("资产类型筛选无效")
         if filters.get("order_by", "") not in CENTER_ORDERS:
             raise ResourceError("素材排序方式无效")
-        for key, values in OFFICIAL_DIMENSIONS.items():
+        for key, values in (*OFFICIAL_DIMENSIONS.items(), *OFFICIAL_BROWSE.items()):
             if filters.get(key) and filters[key] not in values:
-                raise ResourceError("人物筛选值无效")
+                raise ResourceError("官方分类筛选值无效")
         if len(filters.get("role_tag") or "") > 80:
             raise ResourceError("人物角色标签过长")
         if source == "official" and any(filters.get(k) for k in ("tag", "form_name", "workspace_id", "review_status")):
             raise ResourceError("官方目录请使用官方人物分类筛选")
-        if source == "shared" and any(filters.get(k) for k in (*OFFICIAL_DIMENSIONS, "role_tag")):
+        if source == "shared" and any(filters.get(k) for k in (*OFFICIAL_DIMENSIONS, *OFFICIAL_BROWSE, "role_tag")):
             raise ResourceError("人物分类筛选需要选择官方来源")
         return self._center().search(dict(filters, offset=filters.get("offset", 0), limit=filters.get("limit", 24)), actor)
 

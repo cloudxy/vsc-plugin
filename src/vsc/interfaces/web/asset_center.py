@@ -64,6 +64,9 @@ def install_asset_center_routes(app, router, catalog, etag, actor, read_actor):
         role_tag: str = "",
         gender: str = "",
         age_band: str = "",
+        scene_type: str = "",
+        space: str = "",
+        prop_type: str = "",
         order_by: str = "",
     ):
         identity = read_actor(request)
@@ -82,6 +85,9 @@ def install_asset_center_routes(app, router, catalog, etag, actor, read_actor):
             role_tag=role_tag,
             gender=gender,
             age_band=age_band,
+            scene_type=scene_type,
+            space=space,
+            prop_type=prop_type,
         )
         if order_by:
             params["order_by"] = order_by

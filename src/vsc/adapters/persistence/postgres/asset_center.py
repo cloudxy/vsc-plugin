@@ -1,6 +1,10 @@
 """Shared catalog annotations; reuse stays an original target-project command."""
 import uuid
-from sqlalchemy import select, insert, update, func, and_, or_, exists
+from sqlalchemy import case, select, insert, update, func, and_, or_, exists
+from vsc.assets.official_taxonomy import (
+    LOCATION_ALIASES, PROP_ALIASES, PROP_TYPES, SCENE_TYPES, SPACES,
+    character_role_facets, location_facets, presentation, prop_facets,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from vsc.assets.resource_service import ResourceError, Conflict, NotFound
 from . import schema as S
@@ -8,6 +12,52 @@ from .shared_library import SharedLibraryRepository, _version_gaps
 from .values import checked_id, clean, digest, new_id, CURRENT_REVISION
 
 CREATURE_TAG = "生物/异兽"
+_RAW_TAG_LIMIT = 2001
+_CHARACTER_FACET_LIMIT = 400
+
+
+def _role_tag_match(column, value):
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return or_(
+        column == value,
+        column.like(escaped + " / %", escape="\\"),
+        column.like("% / " + escaped, escape="\\"),
+        column.like("% / " + escaped + " / %", escape="\\"),
+    )
+
+
+def _paired_location(column):
+    return and_(
+        func.split_part(column, " / ", 1).in_(tuple(SCENE_TYPES)),
+        func.split_part(column, " / ", 2).in_(tuple(SPACES)),
+    )
+
+
+def _scene_type_sql(column):
+    grouped = {}
+    for name, (scene, _space) in LOCATION_ALIASES.items():
+        grouped.setdefault(scene, []).append(name)
+    whens = [(_paired_location(column), func.split_part(column, " / ", 1))]
+    whens.extend((column.in_(tuple(names)), scene) for scene, names in grouped.items())
+    return case(*whens, else_="未识别")
+
+
+def _space_sql(column):
+    grouped = {}
+    for name, (_scene, space) in LOCATION_ALIASES.items():
+        grouped.setdefault(space, []).append(name)
+    whens = [(_paired_location(column), func.split_part(column, " / ", 2))]
+    whens.extend((column.in_(tuple(names)), space) for space, names in grouped.items())
+    return case(*whens, else_="未识别")
+
+
+def _prop_type_sql(column):
+    mapping = {name: name for name in PROP_TYPES}
+    mapping.update(PROP_ALIASES)
+    first = func.split_part(column, " / ", 1)
+    whens = [(column == name, value) for name, value in mapping.items()]
+    whens.extend((first == name, value) for name, value in mapping.items())
+    return case(*whens, else_="其他")
 
 
 class AssetCenterRepository:
@@ -266,9 +316,17 @@ class AssetCenterRepository:
         # Search text and media availability do scope it; otherwise another test's
         # publication leaks into this result's facet set.
         facet_base = query.subquery()
-        for key in ("role_level", "role_tag", "gender", "age_band"):
+        for key in ("role_level", "gender", "age_band"):
             if filters.get(key):
                 query = query.where(o.c[key] == filters[key])
+        if filters.get("role_tag"):
+            query = query.where(_role_tag_match(o.c.role_tag, filters["role_tag"]))
+        if filters.get("scene_type"):
+            query = query.where(and_(o.c.asset_kind == "location", _scene_type_sql(o.c.role_tag) == filters["scene_type"]))
+        if filters.get("space"):
+            query = query.where(and_(o.c.asset_kind == "location", _space_sql(o.c.role_tag) == filters["space"]))
+        if filters.get("prop_type"):
+            query = query.where(and_(o.c.asset_kind == "prop", _prop_type_sql(o.c.role_tag) == filters["prop_type"]))
         order_by = filters.get("order_by", "")
         if order_by == "title":
             ordering = (v.c.title, o.c.library_version_id)
@@ -285,10 +343,25 @@ class AssetCenterRepository:
         with self.store.engine.connect() as conn:
             facets = {}
             facets_truncated = False
-            for key in ("role_tag", "role_level", "gender", "age_band"):
+            for key in ("role_level", "gender", "age_band"):
                 values = list(conn.execute(select(facet_base.c[key]).distinct().order_by(facet_base.c[key]).limit(101)).scalars())
                 facets[key] = values[:100]
                 facets_truncated = facets_truncated or len(values) > 100
+            raw_tags = list(conn.execute(
+                select(facet_base.c.role_tag).distinct().order_by(facet_base.c.role_tag).limit(_RAW_TAG_LIMIT)
+            ).scalars())
+            kind = filters.get("asset_kind") or ""
+            if kind == "character":
+                segments = character_role_facets(raw_tags)
+                facets["role_tag"] = segments[:_CHARACTER_FACET_LIMIT]
+                facets_truncated = facets_truncated or len(raw_tags) >= _RAW_TAG_LIMIT or len(segments) > _CHARACTER_FACET_LIMIT
+            else:
+                facets["role_tag"] = raw_tags[:100]
+                facets_truncated = facets_truncated or len(raw_tags) > 100
+                if kind == "location":
+                    facets["scene_type"], facets["space"] = location_facets(raw_tags)
+                elif kind == "prop":
+                    facets["prop_type"] = prop_facets(raw_tags)
             total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
             publications = [
                 dict(row)
@@ -297,7 +370,9 @@ class AssetCenterRepository:
             details = self.library._details(conn, [row["library_version_id"] for row in publications])
             by_version = {row["library_version_id"]: row for row in publications}
             for row in details:
-                row.update(source="official", official=by_version[row["version_id"]], can_edit_catalog=False)
+                official = dict(by_version[row["version_id"]])
+                official.update(presentation(official.get("asset_kind"), official.get("role_tag") or ""))
+                row.update(source="official", official=official, can_edit_catalog=False)
                 if not row['members']:
                     from .library_media import LibraryMediaRepository
                     gallery = LibraryMediaRepository(self.store, self.storage).detail(row['id'], None)['gallery']

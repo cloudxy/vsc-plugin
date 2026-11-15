@@ -18,10 +18,10 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.service.storage=LocalStorage(self.tmp.name)
 
-    def shared(self,key=None,content=None):
+    def shared(self,key=None,content=None,title=None):
         key=key or "center-"+uuid.uuid4().hex
         staged=self.service.storage.stage_upload(io.BytesIO(png_bytes() if content is None else content),"reference.png")
-        return self.service.import_library({"library_key":key,"title":"合成共享人物","category":"image","description":"Synthetic owned reference",
+        return self.service.import_library({"library_key":key,"title":title or "合成共享人物","category":"image","description":"Synthetic owned reference",
             "specification":{},"allowed_purposes":["identity_face"],"license":{"outcome":"owned","allow_workspace_reuse":True,"evidence":"owned synthetic bytes"},
             "import_key":uuid.uuid4().hex,"members":[{"member_key":"front","staged_upload":staged["staged_upload"]}]},actor="test-human")
 
@@ -410,6 +410,57 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             media=client.get('/api/v1/library/versions/'+fixed.json()["version_id"]+'/members/front/content',headers=headers)
             self.assertEqual(media.status_code,200,media.text)
             self.assertEqual(media.content,content)
+
+    def test_official_read_path_classifies_sky_dimensions_without_rewriting_publications(self):
+        token="sky-class-"+uuid.uuid4().hex
+        unspecified=dict(role_level="unspecified",gender="unspecified",age_band="unspecified")
+        character=self.shared(title=token+" 人物")
+        aged=self.shared(title=token+" 年龄")
+        home=self.shared(title=token+" 住宅")
+        street=self.shared(title=token+" 街巷")
+        unknown=self.shared(title=token+" 未识别")
+        weapon=self.shared(title=token+" 长枪")
+        named=self.shared(title=token+" 武器")
+        other_prop=self.shared(title=token+" 虎")
+        self.publish(self.official_payload(character,role_tag="安保 / 护卫"))
+        self.publish(self.official_payload(aged,role_tag="青年女"))
+        self.publish(self.official_payload(home,asset_kind="location",role_tag="住宅 / 室内",**unspecified))
+        self.publish(self.official_payload(street,asset_kind="location",role_tag="街巷",**unspecified))
+        self.publish(self.official_payload(unknown,asset_kind="location",role_tag="未标注",**unspecified))
+        self.publish(self.official_payload(weapon,asset_kind="prop",role_tag="长枪",**unspecified))
+        self.publish(self.official_payload(named,asset_kind="prop",role_tag="武器",**unspecified))
+        self.publish(self.official_payload(other_prop,asset_kind="prop",role_tag="虎",**unspecified))
+        people=self.service.search_asset_center({"source":"official","asset_kind":"character","query":token,"role_tag":"安保"})
+        self.assertEqual(people["total"],1)
+        self.assertEqual(people["items"][0]["official"]["role_tag"],"安保 / 护卫")
+        self.assertEqual(people["items"][0]["official"]["role_tags"],["安保","护卫"])
+        self.assertEqual(self.service.search_asset_center({"source":"official","asset_kind":"character","query":token,"role_tag":"青年女"})["total"],1)
+        facets=self.service.search_asset_center({"source":"official","asset_kind":"character","query":token})["facets"]["role_tag"]
+        self.assertIn("安保",facets)
+        self.assertIn("护卫",facets)
+        self.assertNotIn("青年女",facets)
+        home_page=self.service.search_asset_center({"source":"official","asset_kind":"location","query":token,"scene_type":"住宅","space":"室内"})
+        self.assertEqual(home_page["total"],1)
+        self.assertEqual(home_page["items"][0]["official"]["role_tag"],"住宅 / 室内")
+        self.assertEqual(home_page["items"][0]["official"]["scene_type"],"住宅")
+        self.assertEqual(home_page["items"][0]["official"]["space"],"室内")
+        street_page=self.service.search_asset_center({"source":"official","asset_kind":"location","query":token,"scene_type":"其他","space":"室外"})
+        self.assertEqual([row["official"]["role_tag"] for row in street_page["items"]],["街巷"])
+        unknown_page=self.service.search_asset_center({"source":"official","asset_kind":"location","query":token,"scene_type":"未识别"})
+        self.assertEqual([row["official"]["role_tag"] for row in unknown_page["items"]],["未标注"])
+        place_facets=self.service.search_asset_center({"source":"official","asset_kind":"location","query":token,"scene_type":"住宅"})["facets"]
+        self.assertTrue({"住宅","其他","未识别"}<=set(place_facets["scene_type"]))
+        self.assertTrue({"室内","室外","未识别"}<=set(place_facets["space"]))
+        weapons=self.service.search_asset_center({"source":"official","asset_kind":"prop","query":token,"prop_type":"武器"})
+        self.assertEqual(sorted(row["official"]["role_tag"] for row in weapons["items"]),["武器","长枪"])
+        self.assertTrue(all(row["official"]["prop_type"]=="武器" for row in weapons["items"]))
+        others=self.service.search_asset_center({"source":"official","asset_kind":"prop","query":token,"prop_type":"其他"})
+        self.assertEqual([row["official"]["role_tag"] for row in others["items"]],["虎"])
+        self.assertEqual(others["items"][0]["official"]["prop_type"],"其他")
+        with self.assertRaises(ResourceError):
+            self.service.search_asset_center({"source":"shared","scene_type":"住宅"})
+        with self.assertRaises(ResourceError):
+            self.service.search_asset_center({"source":"official","prop_type":"飞船"})
 
     def test_official_migration_preserves_legacy_and_refuses_lost_publications(self):
         from alembic import command

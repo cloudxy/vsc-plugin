@@ -188,11 +188,11 @@ test('official and source-specific category strips retain their position across 
   return {items:[official('one')],total:1,next_offset:null};
  });
  const tabs=view.root.querySelector('.center-official-kinds');
- assert.deepEqual([...tabs.children].filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['全部','人设','场景','道具','音频']);
+ assert.deepEqual([...tabs.children].filter(n=>n.tagName==='BUTTON').map(n=>n.textContent),['人设','场景','道具','音频']);
  tabs.scrollLeft=320;
  await button(view.root,'场景').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,320);
  await button(view.root,'音频').onclick();assert.equal(tabs.scrollLeft,320);
- await button(view.root,'全部').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,320);
+ await button(view.root,'人设').onclick();assert.equal(view.root.querySelector('.center-official-kinds'),tabs);assert.equal(tabs.scrollLeft,320);
  assert.equal(button(view.root,'服装穿搭库'),undefined);view.cleanup();
  const costume=await mount('costume',async()=>({items:[],total:0,next_offset:null,categories:categoryNames.map(name=>({name,count:1})),tops:[],sources:[],tags:[],sections:[],hair_lengths:[],hair_styles:[]}));
  assert.equal(costume.root.querySelector('.center-official-kinds'),null);
@@ -213,7 +213,7 @@ test('initial deep links reveal only the horizontal strip and later clicks keep 
  try{
   view=await mount('voice',async()=>({items:[],total:0,next_offset:null}));
   const tabs=view.root.querySelector('.center-official-kinds');assert.equal(tabs.scrollLeft,500);assert.equal(outerScrollCalls,0);
-  tabs.scrollLeft=360;const all=button(view.root,'全部');all.focus();await all.onclick();assert.equal(tabs.scrollLeft,360);assert.equal(doc.activeElement,all);assert.equal(outerScrollCalls,0);
+  tabs.scrollLeft=360;const character=button(view.root,'人设');character.focus();await character.onclick();assert.equal(tabs.scrollLeft,360);assert.equal(doc.activeElement,character);assert.equal(outerScrollCalls,0);
  }finally{
   view?.cleanup();if(width)Object.defineProperty(Element.prototype,'clientWidth',width);else delete Element.prototype.clientWidth;
   if(rect)Element.prototype.getBoundingClientRect=rect;else delete Element.prototype.getBoundingClientRect;

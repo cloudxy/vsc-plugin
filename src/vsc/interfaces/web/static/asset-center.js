@@ -14,7 +14,6 @@ const kinds=[
  ['other',msg('gallery.other')],
 ];
 const officialWorkbenchKinds=[
- ['','全部'],
  ['character','人设'],
  ['location','场景'],
  ['prop','道具'],
@@ -375,6 +374,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  let officialKindTabs=null,officialKindScroll=0,officialKindFocus=null,officialKindRevealed=false,officialKindActor=null;
  let initialOfficialEntry=official&&!canvas&&typeof location!=='undefined'?new URLSearchParams(location.search||'').get('entry'):null;
  if(official&&!canvas&&typeof location!=='undefined'){const k=new URLSearchParams(location.search||'').get('kind');if(k&&(officialWorkbenchKinds.some(([v])=>v&&v===k)||referencePageKinds.includes(k)))filters.asset_kind=k;}
+ if(official&&workbench&&!canvas&&!filters.asset_kind){filters.asset_kind='character';syncKindRoute();}
  if(official){
   studio.configureStudio({notice:m=>ctx.notice?.(m),api:ctx.api,session:ctx.session,csrf:()=>ctx.session?.()?.csrf||''});
   studio.subscribe(s=>{
@@ -446,6 +446,18 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
  const keepKey=(key,value)=>{try{value?sessionStorage.setItem(key,JSON.stringify(value)):sessionStorage.removeItem(key);}catch{}};
  const singleKey=()=>`vsc-center-single:${session().actor}`;
  const assetKind=row=>row.official?.asset_kind||row.catalog?.display_kind||row.catalog?.asset_kind||'other';
+ const officialLevelLabels={lead:'主角',supporting:'配角',extra:'群演'};
+ const officialGenderLabels={female:'女',male:'男',other:'其他'};
+ const officialAgeLabels={child:'幼年',teen:'少年',young_adult:'青年',middle_aged:'中年',senior:'老年'};
+ function officialChips(official){
+  if(!official)return [];
+  const kind=official.asset_kind||'';
+  if(kind==='location')return [official.scene_type,official.space].filter(Boolean);
+  if(kind==='prop')return [official.prop_type].filter(Boolean);
+  if(kind&&kind!=='character')return [];
+  const tags=Array.isArray(official.role_tags)?official.role_tags:String(official.role_tag||'').split(' / ').map(part=>part.trim()).filter(part=>part&&!/^(幼年|少年|青年|中年|老年|壮年)(男|女)$/.test(part));
+  return [officialLevelLabels[official.role_level],...tags,officialGenderLabels[official.gender],officialAgeLabels[official.age_band]].filter(Boolean);
+ }
  const visibleMembers=row=>(row.members||[]).filter(m=>['image','video','audio'].includes(m.modality));
  function picture(member){
   const n=el(member.modality==='image'?'img':member.modality==='audio'?'audio':'video');
@@ -647,12 +659,7 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   if(members.length>1)drawer.append(thumbs);
   drawer.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();close.onclick();}};
   const meta=el('div','','official-drawer-meta');
-  const labels={lead:'主角',supporting:'配角',extra:'群演'},bands={'child|male':'幼年男','child|female':'幼年女','teen|male':'少年男','teen|female':'少年女','young_adult|male':'青年男','young_adult|female':'青年女','middle_aged|male':'中年男','middle_aged|female':'中年女','senior|male':'老年男','senior|female':'老年女'};
-  if(row.official){
-   for(const tag of [labels[row.official.role_level],bands[row.official.age_band+'|'+row.official.gender],row.official.role_tag].filter(Boolean)){
-    meta.append(el('span',tag,'official-drawer-tag'));
-   }
-  }
+  for(const tag of officialChips(row.official))meta.append(el('span',tag,'official-drawer-tag'));
   for(const tag of row.catalog?.tags||[])meta.append(el('span',tag,'official-drawer-tag'));
   meta.append(el('span','🔥 '+String(row.download_count||0),'official-drawer-heat'));
   drawer.append(meta);
@@ -1267,7 +1274,9 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    clearTimeout(costumeTimer);stopCostumeObserver();closeCostumeDialogs();
    initialOfficialEntry=null;
    if(value)filters.asset_kind=value;else delete filters.asset_kind;
-   if(value&&value!=='character'){delete filters.role_level;delete filters.age_band;delete filters.gender;delete filters.role_tag;}
+   if(value!=='character'){delete filters.role_level;delete filters.age_band;delete filters.gender;delete filters.role_tag;}
+   if(value!=='location'){delete filters.scene_type;delete filters.space;}
+   if(value!=='prop')delete filters.prop_type;
    refFocus='';offset=0;syncKindRoute();
    return load();
   }
@@ -1320,11 +1329,17 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    selectFilter('asset_kind',msg('asset.asset_type'),officialSelectKinds);
   }
   const currentKind=filters.asset_kind||'';
-  let roleTagSelect=null;
-  if(!currentKind||currentKind==='character'){
+  const remembered=facetCache.get(currentKind)||{};
+  let roleTagSelect=null,sceneTypeSelect=null,spaceSelect=null,propTypeSelect=null;
+  const fillFacet=(select,values,key)=>{
+   if(!select||!values?.length||select.options.length>1)return;
+   for(const value of values)select.append(localizedOption(value,value));
+   select.value=filters[key]||'';
+  };
+  if(currentKind==='character'){
    selectFilter('role_level','角色级别',[['lead','主角'],['supporting','配角'],['extra','群演']]);
    const genderSelect=field(filterHost,'性别','select');
-   genderSelect.append(localizedOption('','性别'),localizedOption('male','男'),localizedOption('female','女'));
+   genderSelect.append(localizedOption('','性别'),localizedOption('male','男'),localizedOption('female','女'),localizedOption('other','其他'));
    genderSelect.value=filters.gender||'';
    const ageSelect=field(filterHost,'年龄段','select');ageSelect.append(localizedOption('','年龄段'));
    for(const [value,title]of [['child','幼年'],['teen','少年'],['young_adult','青年'],['middle_aged','中年'],['senior','老年']])ageSelect.append(localizedOption(value,title));
@@ -1332,15 +1347,22 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    const applyPerson=()=>{delete filters.role_tag;offset=0;return load();};
    genderSelect.onchange=()=>{if(genderSelect.value)filters.gender=genderSelect.value;else delete filters.gender;return applyPerson();};
    ageSelect.onchange=()=>{if(ageSelect.value)filters.age_band=ageSelect.value;else delete filters.age_band;return applyPerson();};
-   const cachedTags=facetCache.get(currentKind||'all')||[];
+   const cachedTags=Array.isArray(remembered.role_tag)?remembered.role_tag:(Array.isArray(remembered)?remembered:[]);
    if(cachedTags.length||workbench)roleTagSelect=selectFilter('role_tag','角色标签',cachedTags.map(t=>[t,t]));
+  }else if(currentKind==='location'){
+   const scenes=remembered.scene_type||[],spaces=remembered.space||[];
+   if(scenes.length||workbench)sceneTypeSelect=selectFilter('scene_type','场景类型',scenes.map(t=>[t,t]));
+   if(spaces.length||workbench)spaceSelect=selectFilter('space','空间属性',spaces.map(t=>[t,t]));
+  }else if(currentKind==='prop'){
+   const types=remembered.prop_type||[];
+   if(types.length||workbench)propTypeSelect=selectFilter('prop_type','道具类型',types.map(t=>[t,t]));
   }
   const search=field(filterHost,msg('gallery.search'),'input',filters.query||'');search.type='search';bindAttribute(search,'placeholder','搜索名称或标签');
   search.oninput=()=>{filters.query=search.value;officialSearchFocus=true;officialSearchCaret=search.selectionStart;clearTimeout(searchTimer);searchTimer=setTimeout(()=>{offset=0;load();},300);};
   if(workbench){filterHost.prepend(search.parentElement);filterHost.append(count);}
   const submit=el('button',msg('ui.search'));submit.type='submit';form.append(submit);
   const hasClearable=workbench
-   ?['query','role_level','age_band','gender','role_tag','tag','form_name'].some(k=>filters[k])
+   ?['query','role_level','age_band','gender','role_tag','scene_type','space','prop_type','tag','form_name'].some(k=>filters[k])
    :Object.keys(filters).some(k=>filters[k]);
   if(hasClearable){
    filterHost.append(button('清空筛选',()=>{
@@ -1372,9 +1394,9 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
    card.append(cover);
    const heading=el('h2','','official-list-title'),open=button(row.title,()=>detail(row,g));bindAttribute(open,'title',row.title);heading.append(open);card.append(heading);
    if(workbench){
-    const labels={lead:'主角',supporting:'配角',extra:'群演'},bands={'child|male':'幼年男','child|female':'幼年女','teen|male':'少年男','teen|female':'少年女','young_adult|male':'青年男','young_adult|female':'青年女','middle_aged|male':'中年男','middle_aged|female':'中年女','senior|male':'老年男','senior|female':'老年女'},tags=el('div','','center-official-tags');
-    tags.className+=' official-list-meta';const band=bands[row.official?.age_band+'|'+row.official?.gender];
-    for(const value of [labels[row.official?.role_level],band])if(value)tags.append(el('span',value));
+    const tags=el('div','','center-official-tags');
+    tags.className+=' official-list-meta';
+    for(const value of officialChips(row.official))tags.append(el('span',value));
     card.append(tags);
    }
    if(member){
@@ -1389,10 +1411,10 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   const cached=workbench?officialPageCache.get(queryStr):null;
   if(workbench){
    if(cached){
-    if(cached.facets?.role_tag?.length&&roleTagSelect&&roleTagSelect.options.length<=1){
-     for(const t of cached.facets.role_tag)roleTagSelect.append(localizedOption(t,t));
-     roleTagSelect.value=filters.role_tag||'';
-    }
+    fillFacet(roleTagSelect,cached.facets?.role_tag,'role_tag');
+    fillFacet(sceneTypeSelect,cached.facets?.scene_type,'scene_type');
+    fillFacet(spaceSelect,cached.facets?.space,'space');
+    fillFacet(propTypeSelect,cached.facets?.prop_type,'prop_type');
     setText(count,cached.total+' 个资产');
     for(const [idx,row]of (cached.items||[]).entries())grid.append(renderOfficialCard(row,idx));
     if(!(cached.items||[]).length){const empty=el('section','','center-empty');empty.append(el('p','暂无资产'));grid.append(empty);}
@@ -1404,12 +1426,12 @@ export function createAssetCenter(root,ctx,{source='global',embedded=false,canva
   if(!active(g))return;
   grid.setAttribute('aria-busy','false');
   if(workbench)officialPageCache.set(queryStr,data);
-  if(data.facets?.role_tag?.length){
-   facetCache.set(currentKind||'all',data.facets.role_tag);
-   if(roleTagSelect&&roleTagSelect.options.length<=1){
-    for(const t of data.facets.role_tag)roleTagSelect.append(localizedOption(t,t));
-    roleTagSelect.value=filters.role_tag||'';
-   }
+  if(data.facets){
+   facetCache.set(currentKind,{...(facetCache.get(currentKind)||{}),...data.facets});
+   fillFacet(roleTagSelect,data.facets.role_tag,'role_tag');
+   fillFacet(sceneTypeSelect,data.facets.scene_type,'scene_type');
+   fillFacet(spaceSelect,data.facets.space,'space');
+   fillFacet(propTypeSelect,data.facets.prop_type,'prop_type');
   }
   if(workbench){
    setText(count,data.total+' 个资产');
