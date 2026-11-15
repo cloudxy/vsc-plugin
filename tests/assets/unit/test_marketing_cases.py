@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from vsc.assets import marketing_cases as C
-from vsc.assets.marketing_studio import _request
+from vsc.assets.marketing_studio import _request, marketing_model_connection
 from vsc.assets.resource_service import ResourceError, ResourceService
 
 
@@ -22,6 +22,26 @@ LEGACY_RESPONSE_JSON = '{"agent_handoff":{"message":"  旧版原始需求🛍\\n
 
 
 class MarketingCaseTests(unittest.TestCase):
+    def test_model_connection_uses_preferred_video_then_image_routes(self):
+        models = [
+            {"id": "image-a", "enabled": True, "modality": "image"},
+            {"id": "image-b", "enabled": True, "modality": "image"},
+            {"id": "video-a", "enabled": False, "modality": "video"},
+            {"id": "video-b", "enabled": True, "modality": "video"},
+            {"id": "audio-a", "enabled": True, "modality": "audio"},
+        ]
+        routes = [
+            {"id": "late-video", "enabled": True, "modality": "video", "purpose": "video_clip", "priority": 2, "preferred_model_id": "video-b"},
+            {"id": "disabled-model", "enabled": True, "modality": "video", "purpose": "text_to_video", "priority": 0, "preferred_model_id": "video-a"},
+            {"id": "image", "enabled": True, "modality": "image", "purpose": "first_frame", "priority": 1, "preferred_model_id": "image-b"},
+            {"id": "wrong-modality", "enabled": True, "modality": "image", "purpose": "identity_ref", "priority": 0, "preferred_model_id": "video-b"},
+            {"id": "off", "enabled": False, "modality": "image", "purpose": "image", "priority": 0, "preferred_model_id": "image-a"},
+        ]
+        connection = marketing_model_connection(models, routes)
+        self.assertEqual(connection["mode"], "agent_decide")
+        self.assertEqual(connection["source"], "provider_routes")
+        self.assertEqual(connection["default_model_ids"], ["video-b", "image-b"])
+        self.assertEqual(marketing_model_connection([], []), {"mode": "agent_decide", "max_models": 8, "source": "provider_routes", "default_model_ids": []})
     def first(self):
         return C.list_cases()["items"][0]["examples"][0]
 

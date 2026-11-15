@@ -117,6 +117,35 @@ test('method is optional and model preferences are fixed in the original start r
   assert.deepEqual(JSON.parse(starts(e)[0].init.body).payload.model_ids,[]);await control(e.root,'选择模型').onclick();assert.equal(cls(e.root,'marketing-execution-panel').hidden,false);e.panel.suspend();
 });
 
+test('preferred local routes preselect video then image and a removal stays custom',async()=>{
+  storage.clear();
+  const connected={...options(),model_connection:{mode:'agent_decide',max_models:8,source:'provider_routes',default_model_ids:['video-model','image-model','missing']}};
+  const e=environment(url=>url.endsWith('marketing-options')?connected:undefined);
+  await e.panel.load({project:'p'});
+  assert.equal(e.root.querySelectorAll('.marketing-model-chip').length,2);
+  assert.equal(control(e.root,'优先模型 视频模型').checked,true);
+  prompt(e.root,'接通本机模型');await send(e.root);
+  assert.deepEqual(JSON.parse(starts(e)[0].init.body).payload.model_ids,['video-model','image-model']);
+  e.panel.suspend();storage.clear();
+  const again=environment(url=>url.endsWith('marketing-options')?connected:undefined);
+  await again.panel.load({project:'p'});
+  await control(again.root,'移除模型 图片模型').onclick();
+  assert.equal(control(again.root,'优先模型 图片模型').checked,false);
+  again.panel.suspend();
+  const kept=environment(url=>url.endsWith('marketing-options')?connected:undefined);
+  await kept.panel.load({project:'p'});
+  assert.deepEqual([...kept.root.querySelectorAll('.marketing-model-chip')].map(n=>n.textContent),['视频 · 视频模型×']);
+  prompt(kept.root,'只留视频模型');await send(kept.root);
+  assert.deepEqual(JSON.parse(starts(kept)[0].init.body).payload.model_ids,['video-model']);
+  kept.panel.suspend();
+});
+
+test('an empty model registry points at local resource settings',async()=>{
+  storage.clear();const e=environment(url=>url.endsWith('marketing-options')?{...options(),models:[],model_connection:{mode:'agent_decide',max_models:8,source:'provider_routes',default_model_ids:[]}}:undefined);
+  await e.panel.load({project:'p'});await control(e.root,'选择模型').onclick();
+  assert.match(e.root.textContent,/资源设置/);assert.equal(btn(e.root,'打开资源设置').disabled,false);e.panel.suspend();
+});
+
 test('prompt validation counts Unicode characters and keeps unmodified input',async()=>{
   storage.clear();const e=environment();await e.panel.load({project:'p'});
   prompt(e.root,'😀'.repeat(2000));assert.equal(cls(e.root,'marketing-submit').disabled,false);

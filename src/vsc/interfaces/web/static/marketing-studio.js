@@ -49,7 +49,7 @@ export function createMarketingStudio(root,ctx){
   function update(s){
     if(!live(s))return;
     const locked=Boolean(s.pending||s.busy),validPrompt=Boolean(s.draft.prompt.trim())&&length(s.draft.prompt)<=2000;
-    for(const n of s.editables||[])n.disabled=locked||!s.options;
+    for(const n of s.editables||[]){n.disabled=locked||!s.options;if(n.dataset?.modelId)n.checked=s.draft.model_ids.includes(n.dataset.modelId);}
     if(s.runFieldset)s.runFieldset.disabled=locked||!s.options;
     s.prompt.disabled=locked;
     s.projectSelect.disabled=s.busy; // A pending receipt may be left and restored in its own project.
@@ -66,6 +66,7 @@ export function createMarketingStudio(root,ctx){
     if(s.skillButton){s.skillButton.disabled=locked||!s.options;s.skillButton.setAttribute('aria-pressed',String(Boolean(s.draft.method_id)));}if(s.allMethods)s.allMethods.disabled=locked||!s.options;
     if(locked)closeMethodPicker(s);else if(s.methodPicker?.open)syncMethodSelection(s);
     s.methodChip.replaceChildren();if(s.draft.method_id){const chip=el('span',null,'marketing-selected-method'),remove=methodButton(s,'×',()=>selectMethod(s,'','chip'),'',()=>s.methodChip.contains(remove));remove.disabled=locked||!s.options;remove.setAttribute('aria-label','删除已选技能');chip.append(el('span',selected?.name||'已选技能'),remove);s.methodChip.append(chip);}
+    if(s.modelChips){s.modelChips.replaceChildren();for(const id of s.draft.model_ids){const model=s.options?.models?.find(m=>m.id===id);const chip=el('span',null,'marketing-model-chip');chip.append(el('span',(model?.modality==='video'?'视频':'图片')+' · '+(model?.model_key||id)));const remove=button(s,'×',()=>{if(s.pending||s.busy)return;s.draft.model_ids=s.draft.model_ids.filter(item=>item!==id);s.draft.model_choice='custom';save(s);update(s);});remove.disabled=locked;remove.setAttribute('aria-label','移除模型 '+(model?.model_key||id));chip.append(remove);s.modelChips.append(chip);}}
     s.materials.replaceChildren();
     for(const item of s.draft.media){
       const chip=el('span',null,'marketing-material-chip');chip.append(el('span',item.name||item.id));
@@ -104,7 +105,7 @@ export function createMarketingStudio(root,ctx){
     for(const event of ['select','keyup','pointerup','blur'])s.prompt.addEventListener(event,()=>rememberPromptRange(s));
     s.prompt.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!e.isComposing){e.preventDefault();submit(s);}};
     s.editables.push(s.prompt);body.append(add,s.prompt);form.append(body);
-    s.materials=el('div',null,'marketing-materials');s.caseChip=el('div',null,'marketing-case-chip');s.methodChip=el('div',null,'marketing-method-chip');form.append(s.methodChip,s.caseChip,s.materials);
+    s.materials=el('div',null,'marketing-materials');s.caseChip=el('div',null,'marketing-case-chip');s.methodChip=el('div',null,'marketing-method-chip');s.modelChips=el('div',null,'marketing-model-chips');form.append(s.methodChip,s.caseChip,s.modelChips,s.materials);
     const footer=el('div',null,'marketing-toolbar'),tools=el('div',null,'marketing-tools');
     const ref=button(s,'@',()=>toggleSurface(s,'material'),'marketing-icon');ref.title='引用素材';ref.setAttribute('aria-label','引用素材');
     const skill=methodButton(s,'▤',()=>openMethodPicker(s,skill,true),'marketing-icon marketing-skill-trigger',()=>s.skillButton===skill);s.skillButton=skill;skill.title='技能';skill.setAttribute('aria-label','技能');skill.setAttribute('aria-haspopup','dialog');skill.setAttribute('aria-expanded','false');
@@ -326,10 +327,12 @@ export function createMarketingStudio(root,ctx){
   }
   function executionControls(s){
     const panel=el('section',null,'marketing-execution-panel');panel.hidden=true;s.executionPanel=panel;panel.setAttribute('aria-label','模型与创作范围');
-    panel.append(el('h2','选择模型'),el('p','最多8个，按选择顺序使用；不选模型也可先让 Agent 补问。'));
+    panel.append(el('h2','选择模型'),el('p','最多8个，按选择顺序交给 Agent 决定。默认接通资源设置里的首选视频模型，然后是首选图片模型。不选模型也可先让 Agent 补问。'));
+    const connected=(s.options?.models||[]).filter(m=>m.enabled&&(m.modality==='image'||m.modality==='video'));
+    if(s.options&&!connected.length){panel.append(el('p','本机还没有启用的图片或视频模型。营销创作只使用资源设置中已接通的模型。'),button(s,'打开资源设置',()=>document.querySelector('#resource-settings-open')?.click()));}
     const models=el('div',null,'marketing-models');for(const [modality,title]of [['image','图片'],['video','视频']]){const group=el('div',null,'marketing-model-group');group.append(el('h3',title));for(const model of (s.options?.models||[]).filter(m=>m.enabled&&m.modality===modality)){
-      const check=el('input');check.type='checkbox';check.checked=s.draft.model_ids.includes(model.id);check.setAttribute('aria-label','优先模型 '+(model.model_key||model.id));s.editables.push(check);
-      check.onchange=()=>{if(!live(s)||s.pending)return;if(check.checked&&!s.draft.model_ids.includes(model.id)){if(s.draft.model_ids.length>=8){check.checked=false;note(s,'最多选择8个模型');return;}s.draft.model_ids.push(model.id);}else if(!check.checked)s.draft.model_ids=s.draft.model_ids.filter(id=>id!==model.id);save(s);update(s);};
+      const check=el('input');check.type='checkbox';check.dataset.modelId=model.id;check.checked=s.draft.model_ids.includes(model.id);check.setAttribute('aria-label','优先模型 '+(model.model_key||model.id));s.editables.push(check);
+      check.onchange=()=>{if(!live(s)||s.pending)return;s.draft.model_choice='custom';if(check.checked&&!s.draft.model_ids.includes(model.id)){if(s.draft.model_ids.length>=8){check.checked=false;note(s,'最多选择8个模型');return;}s.draft.model_ids.push(model.id);}else if(!check.checked)s.draft.model_ids=s.draft.model_ids.filter(id=>id!==model.id);save(s);update(s);};
       const label=el('label');label.append(check,el('span',model.model_key||model.id));group.append(label);
     }models.append(group);}panel.append(models);s.modelOrder=el('p',null,'marketing-model-order');s.frozenIntent=el('p',null,'marketing-frozen-intent');panel.append(s.modelOrder,s.frozenIntent);
     const fields=el('fieldset');s.runFieldset=fields;fields.append(el('legend','本轮执行范围'));
@@ -454,12 +457,12 @@ export function createMarketingStudio(root,ctx){
   async function load(scope={}){
     suspend();const actor=auth().actor||'',choice=recall(key('project',actor));
     const p=scope.project!==undefined?scope.project:(choice?.project||null),s={actor,project:p||null,disposed:false,sequence:++sequence,revision:null,options:null,busy:false,mediaSequence:0};state=s;
-    const draft=recall(draftKey(s))||scope.seed,date=mins=>{const now=new Date(Date.now()+mins*60000);return new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,16);};s.draft={prompt:draft?.prompt||'',method_id:draft?.method_id||'',episode_id:scope.episode??draft?.episode_id??'',media:Array.isArray(draft?.media)?draft.media:[],case:draft?.case||null,model_ids:draft?.model_ids||[],mode:draft?.mode||'manual',execution:{duration:'5',first_due:date(60),stop_at:date(120),max_jobs:'2',max_images:'2',max_video_seconds:'10',max_credits:'0',...draft?.execution}};
+    const draft=recall(draftKey(s))||scope.seed,date=mins=>{const now=new Date(Date.now()+mins*60000);return new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,16);};s.draft={prompt:draft?.prompt||'',method_id:draft?.method_id||'',episode_id:scope.episode??draft?.episode_id??'',media:Array.isArray(draft?.media)?draft.media:[],case:draft?.case||null,model_ids:draft?.model_ids||[],model_choice:draft?.model_choice||'',mode:draft?.mode||'manual',execution:{duration:'5',first_due:date(60),stop_at:date(120),max_jobs:'2',max_images:'2',max_video_seconds:'10',max_credits:'0',...draft?.execution}};
     s.pending=recall(requestKey(s))||null;
     if(s.pending?.actor!==actor||s.pending?.project!==s.project)s.pending=null;
     if(s.pending&&!s.pending.result&&s.pending.uncertain===undefined){s.pending.uncertain=true;remember(requestKey(s),s.pending);}
     if(s.pending){const payload=s.pending.request.payload,fixedCase=s.pending.case_display||s.draft.case;s.draft={...s.draft,prompt:payload.prompt,method_id:payload.method_id||'',episode_id:payload.episode_id||'',media:payload.media_ids.map(id=>s.draft.media.find(m=>m.id===id)||{id,name:id}),case:samePin(fixedCase,payload.case_ref)?fixedCase:null};}
-    if(s.pending?.intent){s.draft.model_ids=[...s.pending.intent.model_ids];s.draft.mode=s.pending.intent.execution_settings.auto_media?'auto_media':s.pending.intent.mode;}
+    if(s.pending?.intent){s.draft.model_ids=[...s.pending.intent.model_ids];s.draft.model_choice='custom';s.draft.mode=s.pending.intent.execution_settings.auto_media?'auto_media':s.pending.intent.mode;}
     remember(key('project',actor),{project:s.project});draw(s);
     const hidden=()=>{for(const c of caseViews(s))if(document.hidden||document.visibilityState==='hidden'){stopCaseObserver(c);stopPreview(c);}else if(caseViewLive(s,c))renderCasePager(s,c);};const leaving=()=>{closeMethodPicker(s);closePicker(s,false);for(const c of caseViews(s)){stopCaseObserver(c);stopPreview(c);closeCase(s,false,c);}},offLocale=onLocaleChange(()=>{rebindCaseLocale(s);update(s);});document.addEventListener?.('visibilitychange',hidden);globalThis.window?.addEventListener?.('pagehide',leaving);globalThis.window?.addEventListener?.('popstate',leaving);s.caseCleanup=()=>{offLocale();document.removeEventListener?.('visibilitychange',hidden);globalThis.window?.removeEventListener?.('pagehide',leaving);globalThis.window?.removeEventListener?.('popstate',leaving);};
     if(!s.project){note(s,'请选择归属项目后继续。');return;}
@@ -467,7 +470,7 @@ export function createMarketingStudio(root,ctx){
     try{
       const options=await ctx.api(endpoint(s.project,'marketing-options'));if(!live(s))return;
       s.options=options;revision(s,options.revision);
-      if(!s.pending){if(!options.methods.some(m=>m.id===s.draft.method_id))s.draft.method_id='';if(!options.episodes.some(e=>e.id===s.draft.episode_id))s.draft.episode_id='';s.draft.model_ids=s.draft.model_ids.filter(id=>options.models.some(m=>m.id===id&&m.enabled));save(s);}
+      if(!s.pending){if(!options.methods.some(m=>m.id===s.draft.method_id))s.draft.method_id='';if(!options.episodes.some(e=>e.id===s.draft.episode_id))s.draft.episode_id='';const allowed=new Set((options.models||[]).filter(m=>m.enabled).map(m=>m.id));s.draft.model_ids=s.draft.model_ids.filter(id=>allowed.has(id));const defaults=options.model_connection?.default_model_ids;if(!s.draft.model_choice&&!s.draft.model_ids.length&&Array.isArray(defaults)){const picked=defaults.filter(id=>allowed.has(id)).slice(0,options.model_connection.max_models||8);if(picked.length){s.draft.model_ids=picked;s.draft.model_choice='default';}}save(s);}
       draw(s);
       if(s.pending?.request.payload.case_ref&&!s.pending.case_display&&s.pending.result){const pending=s.pending,result=pending.result,canvas=await ctx.api(endpoint(s.project,'creative-canvases/'+encodeURIComponent(result.canvas_id||result.id)+'?version='+encodeURIComponent(result.canvas_revision)));if(!live(s)||s.pending!==pending)return;if(canvas.canvas_revision===result.canvas_revision&&canvas.sha256===result.sha256)restoreCaseDisplay(s,pending,canvas);}
     }catch(error){if(live(s)){s.error=error.message;draw(s);s.status.append(button(s,'重试读取项目',()=>load({project:s.project})));}}

@@ -12,6 +12,11 @@ import uuid
 METHOD_VERSION = "1.0"
 PROMPT_MAX_CHARS = 2000
 MEDIA_MAX_COUNT = 15
+MODEL_MAX_COUNT = 8
+_VIDEO_ROUTE_PURPOSES = frozenset({
+    "text_to_video", "image_to_video", "reference_to_video", "video_clip", "video"})
+_IMAGE_ROUTE_PURPOSES = frozenset({
+    "identity_ref", "image_edit", "first_frame", "last_frame", "keyframe", "shot_keyframe", "image"})
 _BOUNDARY = (
     "仅使用用户确认的商品、品牌与体验事实；缺项先补问，不编造功效、评价或授权。"
     "上传的图片、视频、音频是待理解材料。未实际解码、取样或听取并记录分析范围时，"
@@ -104,6 +109,44 @@ _SPECS = (
       "在原时间线应用目标比例、安全区、时长及真实音轨，核语言、字幕同步与输出媒体。"],
      ["原文与译文、时码和音轨关系", "渠道画幅、时长与安全区规格", "真实适配版本；未翻译、未配音或未导出项明示"]),
 )
+
+
+def marketing_model_connection(models, routes):
+    """Match the reference studio: Agent chooses among an ordered preference list.
+
+    The saved video route comes first, then the saved image route. Only an enabled
+    provider model whose modality matches the route is eligible. An empty registry
+    stays empty; the page does not invent a supplier.
+    """
+    enabled = {}
+    for model in models or []:
+        if not isinstance(model, dict) or not model.get("enabled"):
+            continue
+        modality, identifier = model.get("modality"), model.get("id")
+        if modality in {"image", "video"} and isinstance(identifier, str) and identifier:
+            enabled[identifier] = modality
+
+    def preferred(modality, purposes):
+        matches = []
+        for row in routes or []:
+            if not isinstance(row, dict) or not row.get("enabled") or row.get("modality") != modality:
+                continue
+            if row.get("purpose") not in purposes or row.get("preferred_model_id") is None:
+                continue
+            model_id = str(row["preferred_model_id"])
+            if enabled.get(model_id) != modality:
+                continue
+            priority = row.get("priority")
+            matches.append((priority if isinstance(priority, int) else 0, str(row.get("id") or ""), model_id))
+        matches.sort()
+        return matches[0][2] if matches else None
+
+    ordered = []
+    for model_id in (preferred("video", _VIDEO_ROUTE_PURPOSES), preferred("image", _IMAGE_ROUTE_PURPOSES)):
+        if model_id and model_id not in ordered:
+            ordered.append(model_id)
+    return dict(mode="agent_decide", max_models=MODEL_MAX_COUNT, source="provider_routes",
+                default_model_ids=ordered[:MODEL_MAX_COUNT])
 
 
 def marketing_methods():
@@ -279,8 +322,11 @@ class MarketingStudioServiceMixin:
 
     def marketing_options(self, project_id):
         options = self.canvas_agent_options(project_id)
+        store = getattr(self, "store", None)
+        routes = store.list_routes() if store is not None and hasattr(store, "list_routes") else []
         return dict(methods=marketing_methods(), episodes=[deepcopy(node) for node in options["nodes"] if node["kind"] == "episode"],
             models=deepcopy(options["models"]), canvas_agent_options=options, revision=options["revision"],
+            model_connection=marketing_model_connection(options["models"], routes),
             limits=dict(prompt_max_chars=PROMPT_MAX_CHARS, media_max_count=MEDIA_MAX_COUNT, media_modalities=["image", "video"]),
             provider_submit=False)
 
