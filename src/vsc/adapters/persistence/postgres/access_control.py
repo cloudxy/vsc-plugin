@@ -17,7 +17,7 @@ def authority_lock(conn,exclusive=False):
 
 class AccessControlRepository:
     def _access_project_query(self, conn, capability='read'):
-        if capability not in {'read', 'edit', 'manage'}:
+        if capability not in {'read', 'edit', 'execute', 'manage'}:
             raise ResourceError('项目目录能力无效', 'invalid_access_input')
         principal, person, share = self._access_principal(conn)
         projects, bindings = S.projects, S.access_projects

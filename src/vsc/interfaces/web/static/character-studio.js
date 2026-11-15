@@ -5,6 +5,7 @@ import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,SETTINGS_MODALITIES,VIDEO_P
  referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
 import {imageExtension,officialResultRoute,openCharacterPublication} from './character-studio-publication.js';
+import {createSettingsCrossNav} from './governance-header.js';
 
 const SLOT_LABEL={portrait:'人像',costume:'服装',pose:'姿势'};
 const SLOT_GALLERY={portrait:'portrait',costume:'costume',pose:'pose'};
@@ -612,7 +613,7 @@ export function createCharacterStudio(root,ctx){
   const title=el('div','cs-title');
   title.append(el('h1','','API 接口配置'),el('p','','按「图」与「视频」分栏管理授权登录及云端 API Key 接口配置。API Key 仅保存在当前浏览器。'));
   head.append(title,action('返回 AI 角色合成台',()=>ctx.navigate?.('character-studio'),'cs-primary'));
-  page.append(head);
+  page.append(head,createSettingsCrossNav({active:'api-settings',onNavigate:id=>ctx.onSettingsNavigate?ctx.onSettingsNavigate(id):(id==='engine'?ctx.navigate?.('service-operations',{subview:'engine'}):ctx.navigate?.(id))}));
 
   const modalityBar=el('div','cs-modality-tabs');
   modalityBar.setAttribute('role','tablist');

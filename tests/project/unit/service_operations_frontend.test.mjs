@@ -56,14 +56,15 @@ const document={
   createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;}
 };
 
-async function opsFixture({records=[],manage=true,apiHook}={}){
-  const view=document.createElement('main'),requests=[],notices=[],navigations=[];
-  let revision=4,clipboardText='';
+async function opsFixture({records=[],manage=true,apiHook,actor='studio-lead',closePreview=null,fetchMock=null,returnContext=null}={}){
+  const view=document.createElement('main'),requests=[],notices=[],navigations=[],govSwitches=[],settingsSwitches=[];
+  let revision=4,clipboardText='',currentActor=actor,returnCalls=0;
   const state={
     project_id:'proj-ops',
     revision,
+    platform_revision:6,
     identity_id:'id-1',
-    actor:'studio-lead',
+    actor:currentActor,
     manage,
     capabilities:manage?['read','execute','manage']:['read'],
     configuration:{id:'cfg-1',version:1,document:{support_text:'技术支持 7×12',terms_url:'https://example.com/terms',privacy_url:'https://example.com/privacy',api_documentation:'Bearer 鉴权文档'}},
@@ -97,7 +98,7 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
       if(filters.get('category'))items=items.filter(r=>filters.get('category')==='uncategorized'?!r.feedback_category:r.feedback_category===filters.get('category'));
       const query=filters.get('query')||'';if(query)items=items.filter(r=>(r.title+' '+r.body).includes(query));
       const offset=Number(filters.get('offset')),limit=Number(filters.get('limit')),total=items.length;items=items.slice(offset,offset+limit);
-      return structuredClone({project_id:state.project_id,revision:state.revision,actor:state.actor,identity_id:state.identity_id,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
+      return structuredClone({project_id:path.startsWith('/api/v1/projects/')?state.project_id:null,revision:state.revision,actor:currentActor,identity_id:state.identity_id,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
     }
     if(path.includes('/drama-requests?')){
       const filters=new URL(path,'http://fixture').searchParams;
@@ -106,16 +107,17 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
       if(buckets[filters.get('status')])items=items.filter(r=>buckets[filters.get('status')].includes(r.status));
       const query=filters.get('query')||'';items=items.filter(r=>(r.title+' '+r.body+' '+r.id).includes(query));
       const offset=Number(filters.get('offset')),limit=Number(filters.get('limit')),total=items.length;items=items.slice(offset,offset+limit);
-      return structuredClone({project_id:state.project_id,project_name:'测试短剧项目',revision:state.revision,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
+      return structuredClone({project_id:path.startsWith('/api/v1/projects/')?state.project_id:null,project_name:'测试短剧项目',workspace_name:'星辰承制工作室',revision:state.revision,manage:state.manage,capabilities:state.capabilities,items,total,offset,limit,next_offset:offset+items.length<total?offset+items.length:null});
     }
     if(path.includes('/network-diagnostic/ping')){
       const probe=new URL(path,'http://fixture').searchParams.get('probe');
-      return {ok:true,probe_key:probe,project_id:'proj-ops',revision,database:'connected',storage:'configured'};
+      return {ok:true,probe_key:probe,project_id:path.startsWith('/api/v1/projects/')?'proj-ops':null,revision,database:'connected',storage:'configured',secret_debug:'never-leak'};
     }
     if(path.endsWith('/seedance-verify')){
       const payload=JSON.parse(init.body).payload;
       return {
         project_id:'proj-ops',
+        project_name:'测试短剧项目',
         task_id:payload.task_id,
         is_seedance_hex16:/^[0-9a-f]{16}$/.test(payload.task_id),
         read_only:true,
@@ -128,7 +130,7 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
       };
     }
     if(path.endsWith('/account-close/preview')){
-      return {ready:true,sha256:'preview-sha',plan:{effect:'停用本地登录与 API 凭据，保留历史审计记录',blockers:[]}};
+      return closePreview||({ready:true,preview_sha256:'preview-sha-64hex',sha256:'preview-sha-64hex',plan:{effect:'停用本地登录与 API 凭据，保留历史审计记录',blockers:[]}});
     }
     if(init.method==='POST'){
       const body=JSON.parse(init.body);
@@ -158,24 +160,31 @@ async function opsFixture({records=[],manage=true,apiHook}={}){
       }
       return {ok:true,revision};
     }
-    if(path.includes('/media?'))return {items:[]};
-    if(path.endsWith('/artifacts'))return {items:[]};
+    if(path.includes('/media?'))return {items:[{id:'med-1',name:'镜头素材A'}]};
+    if(path.endsWith('/artifacts'))return {items:[{id:'art-1',artifact_key:'script',version:2}]};
     if(path.endsWith('/service-operations'))return structuredClone(state);
     throw new Error('Unexpected path '+path);
   };
 
   const navigator={clipboard:{writeText:async t=>{clipboardText=t;}}};
-  const module=await loadModule('service-operations.js',{document,crypto,console,setTimeout,clearTimeout,URL,URLSearchParams,navigator,btoa});
+  const module=await loadModule('service-operations.js',{document,crypto,console,setTimeout,clearTimeout,URL,URLSearchParams,navigator,btoa,...(fetchMock?{fetch:fetchMock}:{})});
   const instance=module.createServiceOperations(view,{
-    session:()=>({actor:'studio-lead',writable:true,csrf:'csrf-ops',revision}),
-    setRevision:r=>{revision=r;},
+    session:()=>({actor:currentActor,writable:Boolean(currentActor),csrf:'csrf-ops',revision}),
+    setRevision:r=>{if(r!=null)revision=r;},
     notice:m=>notices.push(String(m)),
     navigate:(...args)=>navigations.push(args),
+    workspaces:()=>[{id:'ws-1',name:'星辰承制工作室'}],
+    projects:()=>[{id:'proj-ops',name:'测试短剧项目',storage_policy:'postgres-series-v1'}],
+    returnContext:()=>returnContext,
+    onGovernanceNavigate:t=>govSwitches.push(t),
+    onSettingsNavigate:t=>settingsSwitches.push(t),
+    onReturnContext:()=>{returnCalls++;},
+    ...(fetchMock?{fetch:fetchMock}:{}),
     api
   });
   const button=text=>view.querySelectorAll('button').find(n=>n.textContent===text);
   const input=label=>view.querySelectorAll('input,textarea,select').find(n=>n.getAttribute('aria-label')===label);
-  return {view,instance,module,requests,notices,navigations,button,input,state,getClipboard:()=>clipboardText};
+  return {view,instance,module,requests,notices,navigations,govSwitches,settingsSwitches,getReturnCalls:()=>returnCalls,setActor:a=>{currentActor=a;},button,input,state,getClipboard:()=>clipboardText};
 }
 
 test('pure validators verify 16-hex Seedance task IDs, TOS signed URLs, and 5-tab feedback buckets',async()=>{
@@ -276,9 +285,26 @@ test('light network diagnostics, personal export, and account close execute clea
   await f.button('账户注销').fire('click');
   await f.button('1. 提交注销核验申请').fire('click');
   await f.button('预览本人账户停用影响').fire('click');
+  const closeDialog=f.view.querySelector('[data-component="account-close-preview-dialog"]');
+  assert.ok(closeDialog);
+  assert.ok(closeDialog.textContent.includes('preview-sha-64hex'));
   f.input('输入当前操作身份确认').value='studio-lead';
   await f.input('输入当前操作身份确认').fire('input');
+  // Without checking confirmed checkbox, execution is rejected
   await f.button('停用本人本地账户').fire('click');
+  assert.equal(f.requests.some(r=>r.path.endsWith('/account-close/execute')),false);
+  const closeConfirmCheck=f.input('确认已知晓账户停用不可逆影响');
+  closeConfirmCheck.checked=true;
+  await closeConfirmCheck.fire('change');
+  await f.button('停用本人本地账户').fire('click');
+  const execCall=f.requests.find(r=>r.path.endsWith('/account-close/execute'));
+  assert.ok(execCall);
+  assert.deepEqual(JSON.parse(execCall.init.body).payload,{
+    request_id:JSON.parse(execCall.init.body).payload.request_id,
+    preview_sha256:'preview-sha-64hex',
+    confirm_actor:'studio-lead',
+    confirmed:true
+  });
   assert.ok(f.view.textContent.includes('本地账户已停用'));
   f.instance.suspend();
 });
@@ -463,14 +489,22 @@ test('drama applications preserve per-kind drafts, validate, submit both kinds a
   assert.equal(JSON.parse(f.requests.filter(r=>r.path.endsWith('/requests')&&r.init.method==='POST').at(-1).init.body).payload.kind,'studio');
 });
 
-test('drama submit conflicts retain inputs and missing projects show a disabled entry',async()=>{
+test('drama submit conflicts retain inputs, 0-project authenticated loads directly, and unauthenticated shows disabled entry',async()=>{
   let fail=true;
   const f=await opsFixture({apiHook:async(path,init)=>{if(path.endsWith('/requests')&&fail){const e=new Error('revision');e.status=409;throw e;}}});
   await f.instance.load({project:'proj-ops',subview:'ai-drama-base'});await f.button('新建申请').fire('click');
   f.input('需求名称').value='保留的需求';await f.input('需求名称').fire('input');f.input('制作目标与交付要求').value='正文';await f.input('制作目标与交付要求').fire('input');
   await f.button('提交申请').fire('click');assert.ok(f.view.textContent.includes('输入已保留'));assert.equal(f.input('需求名称').value,'保留的需求');assert.equal(f.button('提交申请').disabled,false);
   fail=false;await f.button('提交申请').fire('click');assert.ok(!f.view.querySelector('dialog'));
-  await f.instance.load({project:null,subview:'ai-drama-base'});assert.ok(f.view.textContent.includes('请先选择项目'));assert.equal(f.button('新建申请').disabled,true);
+  // 0-project authenticated user loads account drama-requests directly without '请先选择项目' blocker
+  await f.instance.load({project:null,subview:'ai-drama-base'});
+  assert.ok(f.requests.at(-1).path.startsWith('/api/v1/account/service-operations/drama-requests'));
+  assert.equal(f.button('新建申请').disabled,false);
+  // Unauthenticated visitor sees disabled entry
+  f.setActor('');
+  await f.instance.load({project:null,subview:'ai-drama-base'});
+  assert.ok(f.view.textContent.includes('登录后提交申请'));
+  assert.equal(f.button('新建申请').disabled,true);
 });
 
 test('new drama application returns from a later management page to its own first page',async()=>{
@@ -492,4 +526,120 @@ test('late drama management reads cannot replace mine and denied management offe
   const denied=await opsFixture({apiHook:async(path)=>{if(path.includes('/drama-requests?scope=manage'))throw new Error('权限已失效');}});
   await denied.instance.load({project:'proj-ops',subview:'ai-drama-base'});await denied.button('项目申请管理').fire('click');
   await denied.button('查看我的申请').fire('click');assert.ok(denied.view.textContent.includes('还没有申请'));
+});
+
+test('0-project personal export handles 410 export_expired recovery, account-close preview blocks on blockers, and platform config routes to /api/v1/platform/*',async()=>{
+  const f=await opsFixture({
+    returnContext:{projectId:'proj-ops',projectTitle:'测试短剧项目',search:'?project=proj-ops&page=workbench'},
+    fetchMock:async()=>({ok:false,status:410}),
+    closePreview:{
+      ready:false,
+      preview_sha256:'sha-blocked-999',
+      plan:{
+        effect:'停用本地身份并撤销登录与 API 凭据',
+        blockers:[{code:'credit_balance_remaining',title:'个人钱包',count:200,target_section:'commerce',message:'仍有未处理可用积分，停用不会抹除余额'}]
+      }
+    }
+  });
+  await f.instance.load({});
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/account/service-operations'));
+  assert.ok(f.view.querySelector('.gov-module-tabs'));
+  assert.ok(f.view.querySelector('.gov-return-pill'));
+  await f.view.querySelector('.gov-return-pill').fire('click');
+  assert.equal(f.getReturnCalls(),1);
+
+  // Platform configuration & announcements in 0-project mode route to /api/v1/platform/service-operations/*
+  await f.button('保存运营配置版本').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/platform/service-operations/configuration'&&r.init.method==='POST'));
+  f.input('公告编号').value='ann-2026';await f.input('公告编号').fire('input');
+  f.input('公告标题').value='全站维护公告';await f.input('公告标题').fire('input');
+  f.input('公告正文').value='零停机滚动升级';await f.input('公告正文').fire('input');
+  await f.button('发布本项目公告').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/platform/service-operations/announcements'&&r.init.method==='POST'));
+
+  // 0-project personal export + 410 export_expired recovery
+  await f.instance.load({subview:'personal-info-export'});
+  await f.button('提交个人信息导出申请').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/account/service-operations/requests'&&JSON.parse(r.init.body).payload.kind==='personal_export'));
+  await f.button('生成本地个人资料文件').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/account/service-operations/exports/build'));
+  await f.button('下载本人个人资料 ZIP').fire('click');
+  assert.ok(f.notices.some(n=>n.includes('410 export_expired')));
+  assert.ok(f.view.textContent.includes('export_expired'));
+  await f.button('重新申请导出').fire('click');
+  assert.equal(f.requests.filter(r=>r.path==='/api/v1/account/service-operations/requests'&&JSON.parse(r.init.body).payload.kind==='personal_export').length,2);
+
+  // 0-project account-close preview with blockers disables execute button & links to target_section
+  await f.instance.load({subview:'account-close'});
+  await f.button('1. 提交注销核验申请').fire('click');
+  await f.button('预览本人账户停用影响').fire('click');
+  const dialog=f.view.querySelector('[data-component="account-close-preview-dialog"]');
+  assert.ok(dialog);
+  assert.ok(dialog.textContent.includes('sha-blocked-999'));
+  assert.ok(dialog.textContent.includes('credit_balance_remaining'));
+  assert.equal(f.button('停用本人本地账户').disabled,true);
+  await f.button('前往处理 →').fire('click');
+  assert.deepEqual(f.navigations.at(-1),['commerce',null,null]);
+  f.instance.suspend();
+});
+
+test('0-project Seedance verify, dark network diagnostic, project-linked feedback routing, workspace drama requests, and vsc-engine settings triage work end-to-end',async()=>{
+  const staticDir=path.resolve(import.meta.dirname,'../../../src/vsc/interfaces/web/static');
+  const opsCss=fs.readFileSync(path.join(staticDir,'service-operations.css'),'utf8');
+  const networkBlock=opsCss.slice(opsCss.indexOf('.so-network-light'),opsCss.indexOf('.so-checkbox-line'));
+  assert.equal(/#f6f8fb|#ffffff|#f1f5f9/i.test(networkBlock),false,'network diagnostic card must use dark #14161b tokens with zero white background');
+
+  const f=await opsFixture();
+  // 0-project Seedance verify hits /api/v1/account/service-operations/seedance-verify
+  await f.instance.load({subview:'seedance-verify'});
+  f.input('Seedance 任务编号').value='8f3a19c04b2e7d11';
+  await f.input('Seedance 任务编号').fire('input');
+  await f.button('立即核验任务回执').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/account/service-operations/seedance-verify'&&r.init.method==='POST'));
+  assert.ok(f.view.textContent.includes('核验通过：已匹配原始生成任务回执'));
+
+  // 0-project network diagnostic hits /api/v1/account/service-operations/network-diagnostic/ping & sanitizes report
+  await f.instance.load({subview:'network-diagnostic'});
+  await f.button('开始 10 项全链路诊断').fire('click');
+  assert.ok(f.requests.some(r=>r.path.startsWith('/api/v1/account/service-operations/network-diagnostic/ping?probe=')));
+  await f.button('复制诊断报告 (JSON)').fire('click');
+  const report=JSON.parse(f.getClipboard());
+  assert.equal(report.scope_kind,'identity');
+  assert.equal(report.succeeded,10);
+  assert.equal(f.getClipboard().includes('csrf'),false);
+
+  // 0-project feedback vs explicit project-linked feedback
+  await f.instance.load({subview:'feedback-records'});
+  assert.ok(f.requests.some(r=>r.path.startsWith('/api/v1/account/service-operations/feedback?')));
+  await f.button('⊕ 提交新反馈').fire('click');
+  f.input('反馈标题').value='无项目个人反馈';await f.input('反馈标题').fire('input');
+  f.input('问题与建议详情').value='0项目直通提交';await f.input('问题与建议详情').fire('input');
+  await f.button('提交反馈记录').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/account/service-operations/requests'&&r.init.method==='POST'));
+
+  await f.button('⊕ 提交新反馈').fire('click');
+  f.input('关联项目（选填）').value='proj-ops';
+  await f.input('关联项目（选填）').fire('change');
+  f.input('反馈标题').value='关联项目反馈';await f.input('反馈标题').fire('input');
+  f.input('问题与建议详情').value='附带项目上下文';await f.input('问题与建议详情').fire('input');
+  await f.button('提交反馈记录').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/projects/proj-ops/service-operations/requests'&&r.init.method==='POST'));
+
+  // Workspace drama cooperation routes to /api/v1/workspaces/ws-1/service-operations/*
+  await f.instance.load({subview:'ai-drama-base'});
+  const scopeSel=f.input('承制与合作归属范围');
+  scopeSel.value='workspace:ws-1';
+  await scopeSel.fire('change');
+  assert.ok(f.requests.some(r=>r.path.startsWith('/api/v1/workspaces/ws-1/service-operations/drama-requests')));
+  await f.button('新建申请').fire('click');
+  f.input('需求名称').value='团队短剧联合承制';await f.input('需求名称').fire('input');
+  f.input('制作目标与交付要求').value='24集精品微短剧';await f.input('制作目标与交付要求').fire('input');
+  await f.button('提交申请').fire('click');
+  assert.ok(f.requests.some(r=>r.path==='/api/v1/workspaces/ws-1/service-operations/requests'&&r.init.method==='POST'));
+
+  // vsc-engine in 0-project mode mounts settings triage banner & offers project selector for Bearer API key
+  await f.instance.load({subview:'engine'});
+  assert.ok(f.view.querySelector('.gov-settings-guide'));
+  assert.ok(f.input('选择签发 API Key 的目标项目'));
+  f.instance.suspend();
 });

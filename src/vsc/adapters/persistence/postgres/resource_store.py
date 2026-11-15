@@ -228,6 +228,122 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             raise ResourceError("字段类型、时间或数值格式不正确", "invalid_payload") from exc
 
     @staticmethod
+    def _is_platform_admin(person, principal=None):
+        if principal is None:
+            return True
+        if principal.api_key_id or not person:
+            return False
+        if principal.local and str(person.get("subject_key", "")).startswith("local:"):
+            return True
+        return bool((person.get("preferences") or {}).get("platform_admin") is True)
+
+    @staticmethod
+    def _normalize_scope_target(scope_kind, scope_id=None):
+        if scope_kind == "platform":
+            return "platform", None, None
+        if scope_kind == "identity":
+            key = checked_id(scope_id)
+            return key, key, None
+        if scope_kind == "workspace":
+            key = checked_id(scope_id)
+            return key, None, key
+        raise ResourceError("不支持的作用域类型", "invalid_scope")
+
+    def _scoped_revision(self, conn, domain, scope_kind, scope_id=None):
+        scope_key, _, _ = self._normalize_scope_target(scope_kind, scope_id)
+        rev = conn.execute(select(S.scoped_domain_states.c.revision).where(
+            S.scoped_domain_states.c.domain == domain,
+            S.scoped_domain_states.c.scope_kind == scope_kind,
+            S.scoped_domain_states.c.scope_key == scope_key,
+        )).scalar_one_or_none()
+        return int(rev or 0)
+
+    def _lock_scoped_domain(self, conn, domain, scope_kind, scope_id=None):
+        scope_key, owner_identity_id, workspace_id = self._normalize_scope_target(scope_kind, scope_id)
+        conn.execute(pg_insert(S.scoped_domain_states).values(
+            domain=domain,
+            scope_kind=scope_kind,
+            scope_key=scope_key,
+            owner_identity_id=owner_identity_id,
+            workspace_id=workspace_id,
+            revision=0,
+        ).on_conflict_do_nothing())
+        row = conn.execute(select(S.scoped_domain_states).where(
+            S.scoped_domain_states.c.domain == domain,
+            S.scoped_domain_states.c.scope_kind == scope_kind,
+            S.scoped_domain_states.c.scope_key == scope_key,
+        ).with_for_update()).mappings().one()
+        return dict(row)
+
+    def _mutate_scoped(self, domain, scope_kind, scope_id, action, payload, expected_revision,
+                       idempotency_key, actor, callback, capability="manage"):
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key.strip()) <= 200:
+            raise ResourceError("操作标识不合法", "invalid_idempotency_key")
+        if expected_revision is not CURRENT_REVISION and (type(expected_revision) is not int or expected_revision < 0):
+            raise ResourceError("状态版本必须是非负整数", "invalid_revision")
+        scope_key, owner_identity_id, workspace_id = self._normalize_scope_target(scope_kind, scope_id)
+        request_sha = digest({"domain": domain, "scope_kind": scope_kind, "scope_key": scope_key,
+                              "action": action, "payload": payload, "actor": actor})
+        from .access_control import authority_lock
+        from vsc.assets.access_control import current_principal, denied
+        try:
+            with self.engine.begin() as conn:
+                authority_lock(conn)
+                principal = current_principal()
+                person = None
+                if principal is not None:
+                    _, person, _ = self._access_principal(conn, principal)
+                    if principal.api_key_id or not person:
+                        denied("此操作需要有效成员身份")
+                    if principal.actor != actor:
+                        denied("操作身份必须来自当前会话")
+                    if scope_kind == "identity" and person["id"] != owner_identity_id:
+                        denied("只能修改本人账户作用域")
+                    elif scope_kind == "workspace":
+                        self._workspace_require(conn, workspace_id, capability, person["id"])
+                    elif scope_kind == "platform" and not self._is_platform_admin(person, principal):
+                        denied("平台级配置仅限平台管理员操作")
+                state = self._lock_scoped_domain(conn, domain, scope_kind, scope_id)
+                receipt = conn.execute(select(S.scoped_command_receipts).where(
+                    S.scoped_command_receipts.c.domain == domain,
+                    S.scoped_command_receipts.c.scope_kind == scope_kind,
+                    S.scoped_command_receipts.c.scope_key == scope_key,
+                    S.scoped_command_receipts.c.idempotency_key == idempotency_key,
+                )).mappings().first()
+                if receipt:
+                    if receipt["request_sha256"] != request_sha:
+                        raise Conflict("同一幂等键已用于不同请求参数", "idempotency_payload_mismatch")
+                    return receipt["response"]
+                if expected_revision is not CURRENT_REVISION and state["revision"] != expected_revision:
+                    raise Conflict("当前状态版本已更新，请刷新后重试", "revision_conflict",
+                                   details={"current_revision": int(state["revision"])})
+                response = callback(conn, state, person)
+                revision = int(state["revision"]) + 1
+                now = datetime.now(timezone.utc)
+                conn.execute(update(S.scoped_domain_states).where(
+                    S.scoped_domain_states.c.domain == domain,
+                    S.scoped_domain_states.c.scope_kind == scope_kind,
+                    S.scoped_domain_states.c.scope_key == scope_key,
+                ).values(revision=revision, updated_at=now))
+                response = clean(dict(response, scope_kind=scope_kind, scope_id=scope_key, revision=revision))
+                conn.execute(insert(S.scoped_command_receipts).values(
+                    domain=domain,
+                    scope_kind=scope_kind,
+                    scope_key=scope_key,
+                    idempotency_key=idempotency_key,
+                    actor=actor,
+                    action=action,
+                    request_sha256=request_sha,
+                    revision=revision,
+                    response=response,
+                ))
+                return response
+        except (IntegrityError, DataError) as exc:
+            raise ResourceError("关系约束校验失败，检查类型、范围、重复键与固定版本", "constraint_violation") from exc
+        except (ValueError, TypeError) as exc:
+            raise ResourceError("字段类型、时间或数值格式不正确", "invalid_payload") from exc
+
+    @staticmethod
     def _decision(conn, project, actor, reason):
         if not isinstance(reason, str) or not reason.strip():
             raise ResourceError("人工决定需要说明原因", "reason_required")

@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0058_project_creator"
+SCHEMA_REVISION = "0059_platform_scope_decoupling"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -94,10 +94,17 @@ shots = subtype("shots", "shot", "sequences", Column("duration_ms", Integer),
 asset_identities = project_table("asset_identities",
     Column("object_kind", Text, nullable=False, server_default="asset"),
     Column("asset_kind", Text, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
     CheckConstraint("object_kind = 'asset'", name="typed_object"),
     CheckConstraint("asset_kind IN ('character','location','prop','voice','style','costume','object','creature','vehicle','plant')", name="asset_kind"),
     ForeignKeyConstraint(["project_id", "id", "object_kind"],
                          ["creative_objects.project_id", "creative_objects.id", "creative_objects.kind"]))
+Index("ix_creative_objects_asset_project_created", creative_objects.c.project_id, creative_objects.c.created_at.desc(),
+      creative_objects.c.id, postgresql_where=text("kind = 'asset'"))
+Index("ix_asset_identities_project_updated", asset_identities.c.project_id, asset_identities.c.updated_at.desc(),
+      asset_identities.c.id)
+Index("ix_asset_identities_project_kind", asset_identities.c.project_id, asset_identities.c.asset_kind,
+      asset_identities.c.id)
 
 artifact_versions = project_table("artifact_versions",
     Column("artifact_key", Text, nullable=False), Column("version", Integer, nullable=False),
@@ -452,6 +459,10 @@ Index("uq_generation_jobs_target_candidate", generation_jobs.c.project_id, gener
       generation_jobs.c.candidate_no, unique=True)
 Index("ix_generation_jobs_provider_lease", generation_jobs.c.provider_id, generation_jobs.c.claim_until)
 Index("ix_generation_jobs_due", generation_jobs.c.status, generation_jobs.c.next_attempt_at, generation_jobs.c.claim_until)
+Index("ix_generation_jobs_project_created", generation_jobs.c.project_id, generation_jobs.c.created_at.desc(),
+      generation_jobs.c.id.desc())
+Index("ix_generation_jobs_project_ext_task_lower", generation_jobs.c.project_id,
+      func.lower(generation_jobs.c.external_task_id), postgresql_where=text("external_task_id IS NOT NULL"))
 job_events = project_table("job_events", *ref("generation_jobs", "job_id"),
     Column("event_type", Text, nullable=False), Column("evidence", JSONB, nullable=False), stamp())
 job_input_media = project_table("job_input_media", *ref("generation_jobs", "job_id"),
@@ -1122,9 +1133,9 @@ globals().update(declare_text_tools(project_table, ref, uid, stamp))
 globals().update(declare_access(metadata))
 globals().update(declare_authentication(metadata))
 globals().update(install_canvas_agent_schema(metadata))
-globals().update(declare_commerce(project_table, ref, uid, stamp))
+globals().update(declare_commerce(metadata, project_table, ref, uid, stamp))
 globals().update(declare_asset_center(metadata, project_table, ref, uid, stamp))
-globals().update(declare_service_operations(project_table, ref, uid, stamp))
+globals().update(declare_service_operations(metadata, project_table, ref, uid, stamp))
 globals().update(install_intelligent_schema(metadata))
 globals().update(declare_editor_handoff(project_table,ref,stamp))
 globals().update(declare_management(project_table,ref,uid,stamp))

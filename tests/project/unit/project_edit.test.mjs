@@ -33,7 +33,13 @@ function fill(dialog,{name='编辑后的项目',count=3,style='3d'}={}){
 
 test('card pencil opens the complete original form and saves existing project plus refreshed card',async()=>{
   const h=setup();await h.platform.load({page:'projects'});const d=await h.open(),inputs=d.querySelectorAll('input');
-  assert.equal(inputs[0].value,'原项目');assert.equal(inputs[0].maxLength,50);assert.equal(inputs[1].value,'2');assert.equal(inputs[1].max,'500');
+  assert.equal(d.querySelectorAll('select').length,0);
+  assert.equal(d.querySelector('.project-meta-grid').classList.contains('is-editing'),true);
+  assert.equal(d.querySelector('.episode-edit-hint'),null);
+  assert.equal(inputs.length,6);assert.equal(inputs[0].value,'原项目');assert.equal(inputs[0].maxLength,50);
+  assert.equal(inputs[1].value,'2');assert.equal(inputs[1].min,'2');assert.equal(inputs[1].max,'500');
+  const dec=d.querySelectorAll('button').find(n=>n.getAttribute('aria-label')==='减少集数');
+  assert.equal(dec.disabled,false);await dec.click();assert.equal(inputs[1].value,'2');
   assert.equal(inputs.find(n=>n.type==='radio'&&n.checked).value,'2d');assert.ok(d.querySelector('.project-cover-field'));
   fill(d);await submit(d);assert.equal(h.posts().length,1);assert.deepEqual(h.posts()[0].body.payload,{operation:'edit',title:'编辑后的项目',episode_count:3,character_style:'3d'});
   assert.equal(h.posts()[0].body.expected_revision,8);assert.equal(h.refreshes,1);assert.ok(h.root.textContent.includes('编辑后的项目'));assert.equal(h.root.querySelector('dialog'),null);

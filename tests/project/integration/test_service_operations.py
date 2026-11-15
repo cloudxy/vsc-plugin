@@ -235,8 +235,15 @@ class ServiceOperationsTests(ResourceStoreFixture,unittest.TestCase):
                     cfg.attributes['connection']=conn;command.downgrade(cfg,'0056_library_media_lifecycle')
                     before=conn.execute(text('SELECT to_jsonb(r) FROM service_requests r')).scalar_one()
                     command.upgrade(cfg,'head')
-                    after=conn.execute(text("SELECT to_jsonb(r)-'feedback_category' FROM service_requests r")).scalar_one()
+                    after=conn.execute(text(
+                        "SELECT to_jsonb(r)-'feedback_category'-'scope_kind'-'owner_identity_id'-'workspace_id' "
+                        "FROM service_requests r"
+                    )).scalar_one()
                     self.assertEqual(before,after)
+                    scope=conn.execute(text(
+                        "SELECT scope_kind, owner_identity_id::text, workspace_id::text FROM service_requests"
+                    )).one()
+                    self.assertEqual(tuple(scope), ('project', None, None))
                     self.assertEqual(compare_metadata(MigrationContext.configure(conn),S.metadata),[])
                 self.assertEqual(service.create_service_request(p,payload,**args),legacy)
                 self.assertIsNone(service.service_feedback(p)['items'][0]['feedback_category'])

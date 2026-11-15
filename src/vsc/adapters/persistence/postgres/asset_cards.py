@@ -800,6 +800,286 @@ class AssetCardsRepository:
                 )
             )
 
+    def asset_card_options_db(self, p):
+        with self.engine.connect() as conn:
+            voices = [
+                dict(r)
+                for r in conn.execute(
+                    select(
+                        S.voice_spec_versions.c.id,
+                        S.creative_objects.c.title,
+                        S.voice_spec_versions.c.reference_media_id,
+                        S.voice_spec_versions.c.diction,
+                    )
+                    .join(
+                        S.creative_objects,
+                        and_(
+                            S.creative_objects.c.project_id == p,
+                            S.creative_objects.c.id == S.voice_spec_versions.c.voice_id,
+                        ),
+                    )
+                    .where(S.voice_spec_versions.c.project_id == p)
+                ).mappings()
+            ]
+            folders = [
+                dict(r)
+                for r in conn.execute(
+                    select(S.management_folders.c.id, S.management_folders.c.title, S.management_folders.c.ordinal)
+                    .where(S.management_folders.c.project_id == p, S.management_folders.c.parent_id.is_(None))
+                    .order_by(S.management_folders.c.ordinal, S.management_folders.c.id)
+                ).mappings()
+            ]
+        return voices, folders
+
+    def list_authorized_project_asset_cards(
+        self,
+        *,
+        query='',
+        asset_kind='',
+        owner_kind='',
+        workspace_id='',
+        favorites=False,
+        include_object=False,
+        include_blocking=False,
+        cursor='',
+        offset=0,
+        limit=24,
+        actor=None,
+    ):
+        import base64
+        from vsc.assets.commerce import instant
+        from vsc.assets.access_control import denied
+        from .project_management import inactive_project_ids
+        from .values import digest
+
+        cur_ts, cur_pid, cur_aid = None, None, None
+        if cursor:
+            try:
+                padded = cursor + '=' * (-len(cursor) % 4)
+                decoded = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+                cur_ts = instant(decoded.get('u') or decoded['t'])
+                cur_pid = checked_id(decoded['p'])
+                cur_aid = checked_id(decoded['i'])
+            except Exception as exc:
+                raise ResourceError('跨项目资产分页游标无效', 'invalid_input', 422, details={'field': 'cursor'}) from exc
+
+        checked_ws = checked_id(workspace_id) if workspace_id else None
+
+        with self.engine.connect().execution_options(vsc_readonly_preview=True) as conn:
+            principal, person, _ = self._access_principal(conn)
+            if principal is not None and (principal.api_key_id or not person):
+                denied('跨项目资产汇总需要登录成员身份')
+            effective_actor = actor or (person['actor'] if person else None)
+            ident_key = person['id'] if person else 'internal'
+
+            readable_ids = self._access_project_query(conn, 'read').where(~S.projects.c.id.in_(inactive_project_ids()))
+            ap, aw, pr = S.access_projects, S.access_workspaces, S.projects
+            auth_proj_rows = [
+                dict(r)
+                for r in conn.execute(
+                    select(
+                        pr.c.id,
+                        pr.c.name,
+                        pr.c.revision,
+                        ap.c.workspace_id,
+                        aw.c.name.label('workspace_name'),
+                        aw.c.kind.label('workspace_kind'),
+                        aw.c.created_by.label('workspace_created_by'),
+                    )
+                    .select_from(
+                        pr.outerjoin(ap, ap.c.project_id == pr.c.id)
+                        .outerjoin(aw, aw.c.id == ap.c.workspace_id)
+                    )
+                    .where(pr.c.id.in_(readable_ids))
+                    .order_by(pr.c.id.asc())
+                ).mappings()
+            ]
+            access_rev = int(conn.execute(select(func.coalesce(func.max(S.access_state.c.revision), 0))).scalar_one() or 0)
+            proj_sig = digest([{'p': r['id'], 'r': int(r['revision'])} for r in auth_proj_rows])
+            etag_seed = f'acct-assets:{ident_key}:{access_rev}:{proj_sig}'
+
+            def _row_owner_kind(r):
+                if not r.get('workspace_id'):
+                    return 'personal'
+                if r.get('workspace_kind') == 'personal':
+                    if person and r.get('workspace_created_by') and r['workspace_created_by'] != person['id']:
+                        return 'invited_personal'
+                    return 'personal'
+                return 'workspace'
+
+            projects_summary = [
+                {
+                    'id': r['id'],
+                    'name': r['name'],
+                    'revision': int(r['revision']),
+                    'workspace_id': r['workspace_id'],
+                    'workspace_name': r['workspace_name'],
+                    'owner_kind': _row_owner_kind(r),
+                }
+                for r in auth_proj_rows
+            ]
+
+            if not auth_proj_rows or asset_kind == 'blocking':
+                return clean({
+                    '_etag_seed': etag_seed,
+                    'items': [],
+                    'projects': projects_summary,
+                    'folders': [],
+                    'current_folder': None,
+                    'total': 0,
+                    'offset': offset,
+                    'limit': limit,
+                    'next_offset': None,
+                    'next_cursor': None,
+                    'authorized_project_count': len(auth_proj_rows),
+                })
+
+            ai, co, mos = S.asset_identities, S.creative_objects, S.management_object_states
+            base_from = (
+                ai.join(pr, pr.c.id == ai.c.project_id)
+                .join(co, and_(co.c.project_id == ai.c.project_id, co.c.id == ai.c.id))
+                .outerjoin(ap, ap.c.project_id == ai.c.project_id)
+                .outerjoin(aw, aw.c.id == ap.c.workspace_id)
+            )
+            conds = [
+                ai.c.project_id.in_(readable_ids),
+                ~exists(
+                    select(1).where(
+                        mos.c.project_id == ai.c.project_id,
+                        mos.c.object_id == ai.c.id,
+                        mos.c.state != 'active',
+                    )
+                ),
+            ]
+            if owner_kind == 'personal':
+                if person:
+                    conds.append(or_(ap.c.workspace_id.is_(None), and_(aw.c.kind == 'personal', aw.c.created_by == person['id'])))
+                else:
+                    conds.append(or_(aw.c.kind == 'personal', ap.c.workspace_id.is_(None)))
+            elif owner_kind == 'invited_personal':
+                if person:
+                    conds.append(and_(aw.c.kind == 'personal', aw.c.created_by != person['id']))
+                else:
+                    conds.append(literal(False))
+            elif owner_kind == 'workspace':
+                conds.append(and_(ap.c.workspace_id.is_not(None), aw.c.kind != 'personal'))
+            if checked_ws:
+                conds.append(ap.c.workspace_id == checked_ws)
+            if asset_kind:
+                conds.append(
+                    ai.c.asset_kind.in_(['prop', 'object'])
+                    if (include_object and asset_kind == 'prop')
+                    else ai.c.asset_kind == asset_kind
+                )
+            if favorites:
+                fav = S.asset_card_favorites
+                conds.append(
+                    exists(
+                        select(1).where(
+                            fav.c.project_id == ai.c.project_id,
+                            fav.c.asset_id == ai.c.id,
+                            fav.c.actor == effective_actor,
+                            fav.c.active.is_(True),
+                        )
+                    )
+                )
+            if query:
+                conds.append(co.c.title.icontains(query, autoescape=True))
+
+            total = int(
+                conn.execute(select(func.count()).select_from(base_from).where(*conds)).scalar_one() or 0
+            )
+
+            page_conds = list(conds)
+            if cur_ts is not None:
+                page_conds.append(
+                    or_(
+                        ai.c.updated_at < cur_ts,
+                        and_(
+                            ai.c.updated_at == cur_ts,
+                            or_(
+                                ai.c.project_id > cur_pid,
+                                and_(ai.c.project_id == cur_pid, ai.c.id > cur_aid),
+                            ),
+                        ),
+                    )
+                )
+
+            page_stmt = (
+                select(
+                    ai.c.project_id,
+                    ai.c.id,
+                    ai.c.updated_at,
+                    pr.c.name.label('project_name'),
+                    pr.c.revision.label('project_revision'),
+                    ap.c.workspace_id,
+                    aw.c.name.label('workspace_name'),
+                    aw.c.kind.label('workspace_kind'),
+                    aw.c.created_by.label('workspace_created_by'),
+                )
+                .select_from(base_from)
+                .where(*page_conds)
+                .order_by(ai.c.updated_at.desc(), ai.c.project_id.asc(), ai.c.id.asc())
+            )
+            if cur_ts is None and offset > 0:
+                page_stmt = page_stmt.offset(offset)
+            fetched = [dict(r) for r in conn.execute(page_stmt.limit(limit + 1)).mappings()]
+            has_more = len(fetched) > limit
+            rows = fetched[:limit]
+
+            usability_by_proj = {}
+            items = []
+            for row in rows:
+                pid = row['project_id']
+                card = self._asset_card(
+                    conn,
+                    pid,
+                    row['id'],
+                    effective_actor,
+                    include_preview=True,
+                    usability_cache=usability_by_proj.setdefault(pid, {}),
+                )
+                preview = card.get('preview')
+                cover_media_id = (preview or {}).get('media_id') if isinstance(preview, dict) else None
+                if not cover_media_id:
+                    for form in card.get('forms') or []:
+                        if form.get('media_id'):
+                            cover_media_id = form['media_id']
+                            break
+                card.update({
+                    'project_id': pid,
+                    'project_name': row['project_name'],
+                    'project_revision': int(row['project_revision']),
+                    'workspace_id': row['workspace_id'],
+                    'workspace_name': row['workspace_name'],
+                    'owner_kind': _row_owner_kind(row),
+                    'cover_url': f'/api/v1/projects/{pid}/media/{cover_media_id}/preview?purpose=card' if cover_media_id else None,
+                    'updated_at': row['updated_at'],
+                })
+                items.append(card)
+
+            next_cursor = None
+            if has_more and rows:
+                last = rows[-1]
+                ts_iso = last['updated_at'].isoformat() if hasattr(last['updated_at'], 'isoformat') else str(last['updated_at'])
+                raw_cur = json.dumps({'u': ts_iso, 't': ts_iso, 'p': last['project_id'], 'i': last['id']}, separators=(',', ':')).encode()
+                next_cursor = base64.urlsafe_b64encode(raw_cur).decode().rstrip('=')
+
+            next_offset = (offset + len(rows)) if (cur_ts is None and has_more) else None
+            return clean({
+                '_etag_seed': etag_seed,
+                'items': items,
+                'projects': projects_summary,
+                'folders': [],
+                'current_folder': None,
+                'total': total,
+                'offset': offset,
+                'limit': limit,
+                'next_offset': next_offset,
+                'next_cursor': next_cursor,
+                'authorized_project_count': len(auth_proj_rows),
+            })
+
     def _save_asset_card(self, conn, project, payload, actor):
         p = project['id']
         identifier = payload.get('asset_id')
@@ -943,6 +1223,11 @@ class AssetCardsRepository:
                     media_id=row['media_id'],
                 )
             )
+        conn.execute(
+            update(S.asset_identities)
+            .where(S.asset_identities.c.project_id == p, S.asset_identities.c.id == identifier)
+            .values(updated_at=datetime.now(timezone.utc))
+        )
         return dict(id=identifier, asset_revision=payload['base_revision'] + 1, forms=result)
 
     def save_asset_card(self, p, payload, actor, **kw):
@@ -964,6 +1249,11 @@ class AssetCardsRepository:
                 .on_conflict_do_update(
                     index_elements=['project_id', 'asset_id', 'actor'], set_={'active': payload['active']}
                 )
+            )
+            conn.execute(
+                update(S.asset_identities)
+                .where(S.asset_identities.c.project_id == p, S.asset_identities.c.id == payload['asset_id'])
+                .values(updated_at=datetime.now(timezone.utc))
             )
             return dict(asset_id=payload['asset_id'], active=payload['active'])
 

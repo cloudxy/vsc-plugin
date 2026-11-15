@@ -1,4 +1,5 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption} from './i18n.js';
+import {createSettingsCrossNav} from './governance-header.js';
 // Resource configuration uses the existing local human session; secrets never enter this form.
 const labels = {identity_ref:msg("ui.identity_reference"),image_edit:msg("ui.image_editing_maps_57"),first_frame:msg("ui.shot_first_frame"),last_frame:msg("ui.shot_last_frame"),image_to_video:msg("ui.image_to_video"),dialogue_dry:msg("ui.voiceover"),sfx:msg("agent.overseas_remake_dialogue_type_sound_effect"),bgm:msg("ui.music_scoring")};
 const connectionLabels = {not_configured:msg("ui.not_configured"),not_loaded:msg("ui.not_loaded_in_this_process"),loaded:msg("ui.loaded_not_verified_online"),loaded_unverified:msg("ui.loaded_not_verified_online"),not_connected:msg("ui.not_connected"),runtime_unavailable:msg("ui.official_sdk_missing_or_incompatible"),invalid_configuration:msg("ui.configuration_needs_correction"),unverified:msg("ui.not_verified_online"),host_managed:msg("ui.managed_by_host"),unsupported:msg("ui.not_connected"),ready:msg("ui.configuration_available_generation_quality_requires_testing")};
@@ -7,13 +8,14 @@ function option(value,label){const n=el('option','',label);n.value=value;return 
 export function compatibleConfigurations(rows,purpose) {
   return rows.filter(row=>row.enabled && row.adapter_available !== false && (row.capabilities?.purposes || []).includes(purpose));
 }
-export function createResourceSettings(dialog,{api,session,onNotice}) {
+export function createResourceSettings(dialog,{api,session,onNotice,onSettingsNavigate}) {
   let data={configurations:[],defaults:{},presets:[],tools:[]},selected=null,view='models',loading=0,busy=false;
   const title=el('div','dialog-header');title.append(el('h2','',msg("ui.resource_configuration")));
   const close=el('button','',msg("common.close"));close.type='button';close.addEventListener('click',()=>dialog.close());title.append(close);
+  const crossNav=createSettingsCrossNav({active:'settings',onNavigate:id=>{dialog.close?.();return onSettingsNavigate?.(id);}});
   const tabs=el('div','settings-tabs');const content=el('div','settings-content');const result=el('p','settings-result');result.setAttribute('role','status');
   const tabButtons=new Map();for(const [id,label] of [['models',msg("ui.models_and_connections")],['defaults',msg("ui.default_purposes")],['updates',msg("ui.official_updates")]]){const b=el('button','',label);b.type='button';b.addEventListener('click',()=>{view=id;render()});tabs.append(b);tabButtons.set(id,b)}
-  dialog.replaceChildren(title,el('p','hint',msg("ui.configurations_apply_to_new_tasks_fixed_tasks_retain_their")),tabs,content,result);
+  dialog.replaceChildren(title,crossNav,el('p','hint',msg("ui.configurations_apply_to_new_tasks_fixed_tasks_retain_their")),tabs,content,result);
   function report(message){setText(result,message);}
   function canWrite(){return Boolean(session().actor && session().csrf);}
   async function write(path,body={}){if(!canWrite())throw new Error('请先建立本机人工操作会话');return api('/api/v1/resource-settings'+path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify(body)});}

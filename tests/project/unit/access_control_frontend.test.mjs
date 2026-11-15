@@ -189,3 +189,52 @@ test('failed invitation list refresh keeps its successful link and recovery does
 test('legacy personal membership remains reachable from its explained project context',async()=>{
  const h=setup();h.data.members=[{workspace_id:'personal',identity_id:'legacy',display_name:'保留历史成员',scope_name:'个人归属',role:'viewer',active:true}];await h.panel.load({area:'projects'});await click(h,'管理个人归属的历史成员');assert.match(h.root.textContent,/保留历史成员/);assert.equal(button(h,'创建一次邀请'),undefined);assert.equal(h.posts().length,0);h.panel.suspend();
 });
+
+test('access header mounts governance nav with return capsule and module switch without extra sidebar',async()=>{
+ const h=setup(),switched=[],returned=[];
+ h.ctx.returnContext=()=>({projectId:'p-a',projectTitle:'甲项目',episodeId:'2',episodeLabel:'第2集',search:'?page=creative-canvas&project=p-a&episode=2'});
+ h.ctx.onGovernanceNavigate=id=>switched.push(id);
+ h.ctx.onReturnContext=rc=>returned.push(rc);
+ await h.panel.load({area:'account'});
+ const head=h.root.querySelector('.access-page-head'),gov=head.querySelector('.gov-header-tools');
+ assert.ok(gov);
+ const activeTab=gov.querySelectorAll('a').find(a=>a.dataset.govTarget==='access');
+ assert.equal(activeTab.getAttribute('aria-current'),'page');
+ const commerceTab=gov.querySelectorAll('a').find(a=>a.dataset.govTarget==='commerce');
+ await commerceTab.click();assert.deepEqual(switched,['commerce']);
+ const pill=gov.querySelector('.gov-return-pill');
+ assert.equal(pill.textContent,'← 返回《甲项目》· 第2集');
+ await pill.click();assert.equal(returned.length,1);assert.equal(returned[0].projectId,'p-a');
+ h.panel.suspend();
+});
+
+test('canvas share loads 50 canvases in a single request without N+1 and disables empty unsaved canvases',async()=>{
+ const items=Array.from({length:50},(_,i)=>i<2
+  ?{id:`empty-${i}`,title:`空画布${i}`,current_version_title:`空画布${i}`,current_version_id:null,current_version_number:null,has_saved_version:false}
+  :{id:`saved-${i}`,title:`分镜画布${i}`,current_version_title:`分镜画布${i}`,current_version_id:`ver-${i}`,current_version_number:i,has_saved_version:true});
+ const h=setup({hook:async c=>{
+  if(c.url==='/api/v1/projects/p-a/creative-canvases')return {items};
+  if(c.url.startsWith('/api/v1/projects/p-a/creative-canvases/'))throw new Error('unexpected per-canvas N+1 '+c.url);
+ }});
+ await h.panel.load({area:'share',project:'p-a'});await settle();
+ assert.equal(h.calls.filter(c=>c.url==='/api/v1/projects/p-a/creative-canvases').length,1);
+ assert.equal(h.calls.filter(c=>c.url.startsWith('/api/v1/projects/p-a/creative-canvases/')).length,0);
+ const canvasSelect=select(h,'要分享的画布');
+ assert.equal(canvasSelect.options.length,50);
+ assert.equal(canvasSelect.options[0].disabled,true);
+ assert.equal(canvasSelect.options[1].disabled,true);
+ assert.match(canvasSelect.options[0].textContent,/暂无已保存版本/);
+ assert.equal(Boolean(canvasSelect.options[2].disabled),false);
+ assert.equal(canvasSelect.value,'ver-2');
+ // Forcing a disabled empty canvas value blocks share submission completely
+ canvasSelect.value=canvasSelect.options[0].value;
+ await click(h,'创建分享链接');
+ assert.equal(h.posts().some(c=>c.url.endsWith('/commands/share')),false);
+ assert.ok(h.notices.some(m=>m.includes('已保存的画布')));
+ // Selecting a valid saved canvas submits normally
+ canvasSelect.value='ver-3';
+ await click(h,'创建分享链接');
+ const sharePost=h.posts().find(c=>c.url.endsWith('/commands/share'));
+ assert.equal(sharePost.body.payload.canvas_version_id,'ver-3');
+ h.panel.suspend();
+});

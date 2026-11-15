@@ -1,5 +1,5 @@
 """Project asset working cards pin original identity, specification and media facts."""
-from sqlalchemy import Column,Text,Integer,String,Boolean,ForeignKeyConstraint,UniqueConstraint,CheckConstraint,Index
+from sqlalchemy import Column,Text,Integer,String,Boolean,ForeignKeyConstraint,UniqueConstraint,CheckConstraint,Index,text
 
 ASSET_CARD_TABLES=('asset_card_states','asset_card_forms','asset_card_form_versions','asset_card_copy_sources','asset_card_favorites')
 ASSET_CARD_IMMUTABLE=('asset_card_form_versions','asset_card_copy_sources')
@@ -15,4 +15,6 @@ def declare_asset_cards(project_table,ref,uid,stamp):
     for table in tables.values():
         for column in table.c:
             if column.name.endswith('_id') and column.name not in ('project_id','id'):Index('ix_'+table.name+'_'+column.name,table.c.project_id,column)
+    Index('ix_asset_card_form_versions_project_created',versions.c.project_id,versions.c.created_at.desc(),versions.c.form_id)
+    Index('ix_asset_card_favorites_actor_active_project',favorites.c.actor,favorites.c.project_id,favorites.c.asset_id,postgresql_where=text('active = true'))
     return tables

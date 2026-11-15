@@ -105,6 +105,8 @@ def install_canvas_schema(metadata):
         for column in relation.c:
             if column.name.endswith("_id") and column.name != "project_id":
                 Index("ix_%s_%s" % (relation.name, column.name), relation.c.project_id, column)
+    Index("ix_creative_canvases_project_episode_created", canvases.c.project_id, canvases.c.episode_id,
+          canvases.c.created_at.desc(), canvases.c.id)
     return {relation.name: relation for relation in (canvases, versions, nodes, edges, preparations, runs, generation_inputs)}
 
 

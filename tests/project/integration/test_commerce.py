@@ -12,9 +12,10 @@ from vsc.adapters.providers.commerce import Checkout, PaymentEvent, InvoiceResul
 
 
 class OfflinePayment:
-    id = "isolated-test-payment"
-
     def __init__(self):
+        # Gateway event ids are unique per gateway. Each test instance needs its own
+        # gateway id so reused fixture event ids do not collide across cases.
+        self.id = "isolated-test-payment-" + uuid.uuid4().hex
         self.created = self.refunds = self.queries = 0
         self.lose_checkout = self.lose_refund = False
         self.query_status = "paid"
@@ -45,9 +46,9 @@ class OfflinePayment:
 
 
 class OfflineIssuer:
-    id = "isolated-test-issuer"
-
-    def __init__(self): self.issued = self.queried = 0
+    def __init__(self):
+        self.id = "isolated-test-issuer-" + uuid.uuid4().hex
+        self.issued = self.queried = 0
 
     def issue(self, invoice, order):
         self.issued += 1
@@ -359,7 +360,9 @@ class CommerceTests(ResourceStoreFixture, unittest.TestCase):
                 return client.post(route,content=raw,headers={'x-isolated-signature':hmac.new(self.gateway.secret,raw,hashlib.sha256).hexdigest()})
             response=notify(event);self.assertEqual(response.status_code,200,response.text)
             self.assertEqual(notify(event).json(),response.json());self.assertEqual(self.summary()['credit_balance'],100)
-            self.assertEqual(notify(replace(event,event_id='late-expired',status='expired')).json()['status'],'paid')
+            expired=notify(replace(event,event_id='late-expired',status='expired'))
+            self.assertEqual(expired.status_code,200,expired.text)
+            self.assertEqual(expired.json()['status'],'paid')
             self.assertEqual(notify(replace(event,event_id='wrong-amount',amount_minor=101)).status_code,422)
             self.assertEqual(notify(replace(event,event_id='unknown-order',order_id=str(uuid.uuid4()))).status_code,404)
             direct_blocked()

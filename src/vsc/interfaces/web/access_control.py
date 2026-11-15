@@ -15,7 +15,8 @@ EXECUTE_PATHS={'register-asset','execute','run','generate','local-production-enq
 def request_principal(request,sessions,local_read=False):
     session=sessions.get(request.cookies.get('vsc_session',''))
     if not session:return Principal(local_read=local_read)
-    return Principal(**{k:session[k] for k in Principal.__dataclass_fields__ if k in session})
+    # D-NO-CURRENT-SPACE: never propagate session['workspace_id'] into request authority.
+    return Principal(**{k:session[k] for k in Principal.__dataclass_fields__ if k in session and k!='workspace_id'})
 
 
 def authorize_http(service,request):
@@ -34,6 +35,26 @@ def authorize_http(service,request):
         if not principal or not principal.identity_id:denied('偏好设置需要成员身份')
         with service.store.engine.connect() as conn:service.store._access_principal(conn)
         return
+    if path.startswith('/api/v1/account/') or path=='/api/v1/account':
+        if not principal or not principal.identity_id:denied('个人账户与跨项目汇总需要登录成员身份')
+        with service.store.engine.connect() as conn:service.store._access_principal(conn)
+        return
+    if path.startswith('/api/v1/workspaces/'):
+        if not principal or not principal.identity_id:denied('团队资金池与治理需要登录成员身份')
+        bits=path.strip('/').split('/')
+        workspace_id=bits[3] if len(bits)>=4 else ''
+        if not re.fullmatch(r'[0-9a-fA-F-]{36}',workspace_id):
+            raise ResourceError('工作室标识格式不合法','invalid_input',422)
+        capability='read' if method in {'GET','HEAD','OPTIONS'} else 'manage'
+        service.authorize_workspace(workspace_id,capability)
+        return
+    if path.startswith('/api/v1/platform/'):
+        if not principal or not principal.identity_id:denied('平台治理与套餐需要登录成员身份')
+        with service.store.engine.connect() as conn:
+            _,person,_=service.store._access_principal(conn,principal)
+            if method not in {'GET','HEAD','OPTIONS'} and not service.store._is_platform_admin(person,principal):
+                denied('平台级配置与审核仅限平台管理员操作')
+        return
     if path.startswith('/api/v1/access'):
         if not principal or not principal.identity_id:denied('账户与团队管理需要成员身份')
         with service.store.engine.connect() as conn:service.store._access_principal(conn)
@@ -50,6 +71,10 @@ def authorize_http(service,request):
         if method not in {'GET','HEAD','OPTIONS'}:
             end=rest[-1] if rest else ''
             capability='read' if end in READ_POSTS or end.endswith('-preview') else 'review' if end in REVIEW_PATHS else 'approve' if end in APPROVE_PATHS else 'execute' if end in EXECUTE_PATHS else 'edit'
+        if method not in {'GET','HEAD','OPTIONS'} and rest and rest[0]=='commerce':
+            action='/'.join(rest[1:])
+            if action in {'orders/refresh','invoices/refresh','quote'}:capability='read'
+            elif action in {'plans','plans/preview-diff','campaigns','campaigns/preview-diff','allocations','workspace-transfers'}:capability='manage'
         if method not in {'GET','HEAD','OPTIONS'} and rest and rest[0]=='service-operations':
             action='/'.join(rest[1:])
             if action in {'requests','requests/withdraw','exports/build','api-keys','api-keys/revoke','account-close/preview','account-close/execute'}:capability='read'
@@ -136,7 +161,7 @@ def install_access_routes(app,router,catalog,etag,actor,origin,new_session,sessi
         actor(request)
         if set(body)!={'workspace_id'}:raise HTTPException(422,'选择一个工作室')
         service().authorize_workspace(body['workspace_id'],'read')
-        session=sessions[request.cookies['vsc_session']];session['workspace_id']=body['workspace_id']
+        # D-NO-CURRENT-SPACE: validate read access only; never persist implicit default workspace in session.
         return {'workspace_id':body['workspace_id']}
 
     @router.get('/{project_id}/access')

@@ -30,8 +30,9 @@ def declare_task_notifications(project_table,ref,uid,stamp):
     reads=project_table('task_notification_reads',Column('identity_id',UUID(as_uuid=False),ForeignKey('access_identities.id'),nullable=False),
         *ref('task_notification_events','event_id'),stamp(),UniqueConstraint('project_id','identity_id','event_id'))
     for field,_ in ORIGINS.values():Index('ix_task_notification_events_'+field,events.c.project_id,events.c[field])
+    Index('ix_task_notification_events_project_created_seq',events.c.project_id,events.c.created_at.desc(),events.c.sequence.desc())
     Index('ix_task_notification_reads_event',reads.c.project_id,reads.c.event_id)
-    Index('ix_task_notification_reads_identity',reads.c.identity_id)
+    Index('ix_task_notification_reads_identity_project_event',reads.c.identity_id,reads.c.project_id,reads.c.event_id)
     return {table.name:table for table in (events,reads)}
 
 TASK_NOTIFICATION_GUARD="""

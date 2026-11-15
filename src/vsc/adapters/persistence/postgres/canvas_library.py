@@ -26,11 +26,14 @@ class CanvasLibrary:
             S.episodes, S.creative_objects, S.management_object_states)
         person, ap, aw = S.access_identities, S.access_projects, S.access_workspaces
         return select(c.c.id, c.c.project_id, p.c.name.label('project_name'), c.c.episode_id,
-            obj.c.title.label('episode_name'), *workspace_columns(), v.c.title, v.c.version.label('canvas_revision'),
-            v.c.id.label('version_id'), v.c.created_at.label('updated_at'),
+            obj.c.title.label('episode_name'), *workspace_columns(),
+            func.coalesce(v.c.title, literal('未命名画布')).label('title'),
+            func.coalesce(v.c.version, literal(0)).label('canvas_revision'),
+            v.c.id.label('version_id'),
+            func.coalesce(v.c.created_at, c.c.created_at).label('updated_at'),
             c.c.collaboration_enabled, c.c.collab_seq.label('canvas_seq'),
             c.c.created_by.label('creator_id'), func.coalesce(person.c.display_name, c.c.created_by).label('creator_name'))\
-            .select_from(c.join(v, and_(v.c.project_id == c.c.project_id, v.c.id == c.c.current_version_id))
+            .select_from(c.outerjoin(v, and_(v.c.project_id == c.c.project_id, v.c.id == c.c.current_version_id))
                 .join(p, p.c.id == c.c.project_id)
                 .outerjoin(ap, ap.c.project_id == c.c.project_id)
                 .outerjoin(aw, aw.c.id == ap.c.workspace_id)
@@ -47,12 +50,13 @@ class CanvasLibrary:
     @staticmethod
     def _covers(conn, rows):
         """One batch, bounded by the current page's fixed versions and node limits."""
-        if not rows:
+        valid_pairs = [(r['project_id'], r['version_id']) for r in (rows or ()) if r.get('version_id') is not None]
+        if not valid_pairs:
             return {}
         n, m, life, actions = S.creative_canvas_nodes, S.media_items, S.media_lifecycle_decisions, S.media_recycle_actions
         candidates = select(n.c.project_id, n.c.version_id, n.c.ordinal, m.c.id.label('media_id')).join(m,
             and_(m.c.project_id == n.c.project_id, m.c.id == n.c.media_id)).where(
-                tuple_(n.c.project_id, n.c.version_id).in_([(r['project_id'], r['version_id']) for r in rows]),
+                tuple_(n.c.project_id, n.c.version_id).in_(valid_pairs),
                 m.c.modality == 'image').cte('canvas_cover_candidates')
         latest = select(life.c.project_id, life.c.media_id, life.c.id, life.c.outcome,
             func.row_number().over(partition_by=(life.c.project_id, life.c.media_id),

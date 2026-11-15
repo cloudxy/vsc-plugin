@@ -183,3 +183,17 @@ dialog{background:#1d1d1d;color:var(--text-1);border-color:#434343;box-shadow:0 
 .service-operations .so-drama-eyebrow{display:inline;margin-right:.45rem;font-size:.75rem;vertical-align:.08em}
 .service-operations[data-subview="ai-drama-base"]{padding-top:1.25rem}
 #access-control-view{padding-top:1.25rem}
+.legacy-project-context{display:none}
+.gov-header-tools{display:inline-flex;align-items:center;gap:.55rem;flex-wrap:nowrap;flex:none;max-width:100%}
+.gov-return-pill{display:inline-flex;align-items:center;height:34px;min-height:34px;max-width:260px;padding:0 .75rem;border-radius:999px;border:1px solid rgba(116,255,83,.38);background:#1b2419;color:#d9ffe0;font-size:.78rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.gov-return-pill:hover{background:#233121;border-color:#74ff53;color:#fff}
+.gov-module-tabs{display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:#0f1115}
+.gov-module-tab{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 .68rem;border-radius:7px;color:#a5acb8;font-size:.78rem;font-weight:500;text-decoration:none;white-space:nowrap}
+.gov-module-tab:hover{color:#f3f5f8;background:rgba(255,255,255,.06)}
+.gov-module-tab.active,.gov-module-tab[aria-current="page"]{background:#232733;color:#fdfbfc;font-weight:600}
+.gov-return-pill:focus-visible,.gov-module-tab:focus-visible,.gov-settings-chip:focus-visible{outline:2px solid var(--brand-6,#74ff53);outline-offset:2px}
+.gov-settings-guide{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem .6rem;margin:0 0 .9rem;padding:.55rem .8rem;border-radius:10px;border:1px solid rgba(255,255,255,.09);background:#14161b;color:#b8c0cc;font-size:.78rem;line-height:1.4}
+.gov-settings-guide-label{font-weight:600;color:#e5e9f0;white-space:nowrap}
+.gov-settings-chip{display:inline-flex;align-items:center;padding:.2rem .58rem;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:#1b1f27;color:#cfd6e2;text-decoration:none;font-size:.76rem;white-space:nowrap}
+a.gov-settings-chip:hover{border-color:rgba(116,255,83,.45);color:#fff;background:#232936}
+.gov-settings-chip.active{border-color:rgba(116,255,83,.45);background:#1c281b;color:#d6ffd0;font-weight:600}

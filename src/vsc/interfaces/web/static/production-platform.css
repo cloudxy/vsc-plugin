@@ -18,43 +18,256 @@
 @media(max-width:760px){#production-platform.platform-projects .project-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#production-platform .canvas-catalog-filters{flex-wrap:wrap}#production-platform .canvas-catalog-filters select{min-width:130px}}
 @media(max-width:540px){#production-platform.platform-projects .project-grid{grid-template-columns:1fr}}
 .platform-create button.danger{background:var(--danger,#ad3d2b);border-color:transparent;color:#fff}
-/* The project dialog is scoped so episode, rename and recovery dialogs keep their layout. */
-dialog.project-create-dialog{box-sizing:border-box;width:560px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 112px);position:fixed;inset:80px auto auto 50%;transform:translateX(-50%);margin:0;padding:24px 24px 20px;border:1px solid #494949;border-radius:8px;background:#131313;box-shadow:none}
-.project-create-dialog form{display:flex;flex-direction:column;gap:0;min-width:0}
-.project-create-dialog .project-create-heading{display:flex;align-items:center;justify-content:space-between;min-height:24px;margin:0 0 24px}
-.project-create-dialog .project-create-heading h2{font-size:18px;line-height:24px;font-weight:600;margin:0}
-.project-create-dialog .project-create-close{width:24px;min-height:24px;padding:0;font-size:27px;font-weight:300;line-height:20px;color:#aaa;background:none;border:0;border-radius:4px}
-.project-create-dialog .project-create-body{max-height:460px;overflow:auto;scrollbar-width:thin;scrollbar-color:#444 transparent;min-height:0}
-.project-create-dialog .project-create-field{display:block;margin:0 0 32px;padding:0;border:0;min-width:0;font-size:16px;line-height:20px;font-weight:400}
-.project-create-dialog .project-create-field>span,.project-create-dialog legend{display:block;margin:0 0 12px;padding:0;font-size:16px;line-height:20px;color:#ededed}
-.project-create-dialog .project-create-required{color:#ff4d4f;margin-left:2px}
-.project-create-dialog .project-name-input,.project-create-dialog .project-count-input{position:relative;display:flex;height:40px;border:1px solid #444;border-radius:8px;background:#2a2a2a;box-sizing:border-box}
-.project-create-dialog .project-name-input:focus-within,.project-create-dialog .project-count-input:focus-within{border-color:#888}
-.project-create-dialog .project-name-input input,.project-create-dialog .project-count-input input{width:100%;min-width:0;height:38px;box-sizing:border-box;padding:0 12px;border:0;border-radius:8px;background:transparent;outline:none;box-shadow:none;font-size:14px;color:#eee}
-.project-create-dialog .project-name-input input{padding-right:72px}
-.project-create-dialog .project-name-count{position:absolute;right:12px;top:0;line-height:38px;font-size:12px;color:#999;pointer-events:none}
-.project-create-dialog .project-count-input input{padding-right:28px;appearance:textfield}
-.project-create-dialog .project-count-input input::-webkit-inner-spin-button{appearance:none;margin:0}
-.project-create-dialog .project-count-steps{position:absolute;right:8px;top:0;display:flex;flex-direction:column;height:38px;width:20px}
-.project-create-dialog .project-count-steps button{min-height:0;height:19px;line-height:16px;padding:0;border:0;background:none;color:#aaa;font-size:15px}
-.project-create-dialog .project-type-options>div{display:flex;gap:18px;align-items:center;min-height:24px}
-.project-create-dialog .project-type-options label{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:400;cursor:pointer}
-.project-create-dialog .project-type-options input{appearance:none;box-sizing:border-box;flex:none;width:16px;height:16px;min-width:16px;min-height:16px;max-height:16px;padding:0;margin:0;border:1px solid #999;border-radius:50%;background:none}
-.project-create-dialog .project-type-options input:checked{background:#80ff48;border-color:#80ff48}
-.project-create-dialog .project-type-options input:checked:after{content:'✓';display:block;text-align:center;font-size:12px;line-height:14px;color:#142000}
-.project-create-dialog .project-cover-field>p{margin:0;font-size:16px;line-height:20px}
-.project-create-dialog .project-cover-field .project-cover-hint{margin-top:4px;color:#999;font-size:14px;line-height:20px}
-.project-create-dialog .project-cover-upload{position:relative;display:block;box-sizing:border-box;width:160px;height:160px;margin-top:12px;background:#292929;border:1px dashed #555;border-radius:8px;overflow:hidden;cursor:pointer}
-.project-create-dialog .project-cover-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0}
-.project-create-dialog .project-cover-preview{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:14px;color:#eee}
-.project-create-dialog .project-cover-plus{font-size:28px;font-weight:300;line-height:28px}
-.project-create-dialog .project-cover-preview img{width:100%;height:100%;object-fit:cover}
-.project-create-dialog .project-cover-remove{margin-top:8px;font-size:12px}
-.project-create-dialog .project-cover-field .project-cover-feedback{font-size:13px;color:#edbd70;margin-top:8px;overflow-wrap:anywhere}
-.project-create-dialog .project-cover-feedback:empty,.project-create-dialog .project-create-status:empty{display:none}
-.project-create-dialog .project-create-status{font-size:13px;line-height:20px;white-space:pre-wrap;color:#edbd70;margin:12px 0 0}
-.project-create-dialog .project-create-footer{display:flex;justify-content:flex-end;gap:16px;margin-top:20px}
-.project-create-dialog .project-create-footer button{width:120px;height:44px;padding:0 16px;font-size:16px;border:0;border-radius:8px;background:#292929;color:#eee}
-.project-create-dialog .project-create-footer .project-create-confirm{background:linear-gradient(100deg,#e3ff72,#7eff43);color:#111}
-@media(max-height:700px){dialog.project-create-dialog{inset-block-start:24px;max-height:calc(100dvh - 48px)}.project-create-dialog .project-create-body{max-height:calc(100dvh - 208px)}}
-@media(max-width:600px){dialog.project-create-dialog{inset-block-start:24px;padding:20px}.project-create-dialog .project-type-options>div{gap:14px}.project-create-dialog .project-create-footer button{width:112px}}
+/* Episode editor keeps the legacy baseline; project create/edit uses the D1 Studio Sheet scope below. */
+dialog.episode-edit-dialog{box-sizing:border-box;width:560px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 112px);position:fixed;inset:80px auto auto 50%;transform:translateX(-50%);margin:0;padding:24px 24px 20px;border:1px solid #494949;border-radius:8px;background:#131313;box-shadow:none}
+.episode-edit-dialog form{display:flex;flex-direction:column;gap:0;min-width:0}
+.episode-edit-dialog .project-create-heading{display:flex;align-items:center;justify-content:space-between;min-height:24px;margin:0 0 24px}
+.episode-edit-dialog .project-create-heading h2{font-size:18px;line-height:24px;font-weight:600;margin:0}
+.episode-edit-dialog .project-create-close{width:24px;min-height:24px;padding:0;font-size:27px;font-weight:300;line-height:20px;color:#aaa;background:none;border:0;border-radius:4px}
+.episode-edit-dialog .project-create-body{max-height:460px;overflow:auto;scrollbar-width:thin;scrollbar-color:#444 transparent;min-height:0}
+.episode-edit-dialog .project-create-field{display:block;margin:0 0 32px;padding:0;border:0;min-width:0;font-size:16px;line-height:20px;font-weight:400}
+.episode-edit-dialog .project-create-field>span,.episode-edit-dialog legend{display:block;margin:0 0 12px;padding:0;font-size:16px;line-height:20px;color:#ededed}
+.episode-edit-dialog .project-create-required{color:#ff4d4f;margin-left:2px}
+.episode-edit-dialog .project-name-input,.episode-edit-dialog .project-count-input{position:relative;display:flex;height:40px;border:1px solid #444;border-radius:8px;background:#2a2a2a;box-sizing:border-box}
+.episode-edit-dialog .project-name-input:focus-within,.episode-edit-dialog .project-count-input:focus-within{border-color:#888}
+.episode-edit-dialog .project-name-input input,.episode-edit-dialog .project-count-input input{width:100%;min-width:0;height:38px;box-sizing:border-box;padding:0 12px;border:0;border-radius:8px;background:transparent;outline:none;box-shadow:none;font-size:14px;color:#eee}
+.episode-edit-dialog .project-name-input input{padding-right:72px}
+.episode-edit-dialog .project-name-count{position:absolute;right:12px;top:0;line-height:38px;font-size:12px;color:#999;pointer-events:none}
+.episode-edit-dialog .project-count-input input{padding-right:28px;appearance:textfield}
+.episode-edit-dialog .project-count-input input::-webkit-inner-spin-button{appearance:none;margin:0}
+.episode-edit-dialog .project-count-steps{position:absolute;right:8px;top:0;display:flex;flex-direction:column;height:38px;width:20px}
+.episode-edit-dialog .project-count-steps button{min-height:0;height:19px;line-height:16px;padding:0;border:0;background:none;color:#aaa;font-size:15px}
+.episode-edit-dialog .project-type-options>div{display:flex;gap:18px;align-items:center;min-height:24px}
+.episode-edit-dialog .project-type-options label{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:400;cursor:pointer}
+.episode-edit-dialog .project-type-options input{appearance:none;box-sizing:border-box;flex:none;width:16px;height:16px;min-width:16px;min-height:16px;max-height:16px;padding:0;margin:0;border:1px solid #999;border-radius:50%;background:none}
+.episode-edit-dialog .project-type-options input:checked{background:#80ff48;border-color:#80ff48}
+.episode-edit-dialog .project-type-options input:checked:after{content:'✓';display:block;text-align:center;font-size:12px;line-height:14px;color:#142000}
+.episode-edit-dialog .project-cover-field>p{margin:0;font-size:16px;line-height:20px}
+.episode-edit-dialog .project-cover-field .project-cover-hint{margin-top:4px;color:#999;font-size:14px;line-height:20px}
+.episode-edit-dialog .project-cover-upload{position:relative;display:block;box-sizing:border-box;width:160px;height:160px;margin-top:12px;background:#292929;border:1px dashed #555;border-radius:8px;overflow:hidden;cursor:pointer}
+.episode-edit-dialog .project-cover-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0}
+.episode-edit-dialog .project-cover-preview{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-size:14px;color:#eee}
+.episode-edit-dialog .project-cover-plus{font-size:28px;font-weight:300;line-height:28px}
+.episode-edit-dialog .project-cover-preview img{width:100%;height:100%;object-fit:cover}
+.episode-edit-dialog .project-cover-remove{margin-top:8px;font-size:12px}
+.episode-edit-dialog .project-cover-field .project-cover-feedback{font-size:13px;color:#edbd70;margin-top:8px;overflow-wrap:anywhere}
+.episode-edit-dialog .project-cover-feedback:empty,.episode-edit-dialog .project-create-status:empty{display:none}
+.episode-edit-dialog .project-create-status{font-size:13px;line-height:20px;white-space:pre-wrap;color:#edbd70;margin:12px 0 0}
+.episode-edit-dialog .project-create-footer{display:flex;justify-content:flex-end;gap:16px;margin-top:20px}
+.episode-edit-dialog .project-create-footer button{width:120px;height:44px;padding:0 16px;font-size:16px;border:0;border-radius:8px;background:#292929;color:#eee}
+.episode-edit-dialog .project-create-footer .project-create-confirm{background:linear-gradient(100deg,#e3ff72,#7eff43);color:#111}
+@media(max-height:700px){dialog.episode-edit-dialog{inset-block-start:24px;max-height:calc(100dvh - 48px)}.episode-edit-dialog .project-create-body{max-height:calc(100dvh - 208px)}}
+@media(max-width:600px){dialog.episode-edit-dialog{inset-block-start:24px;padding:20px}.episode-edit-dialog .project-type-options>div{gap:14px}.episode-edit-dialog .project-create-footer button{width:112px}}
+
+/* Direction D1 Compact Studio Sheet — strictly scoped to project create/edit modal. */
+dialog.project-create-dialog:not(.episode-edit-dialog){
+  --surface-2:#131313;
+  --surface-3:#18181a;
+  --surface-footer:#161618;
+  --fill-1:#1d1d1d;
+  --fill-2:#262627;
+  --fill-3:#303032;
+  --fill-disabled:#171719;
+  --line-1:#343435;
+  --line-2:#3f3f42;
+  --border-disabled:#45454a;
+  --border-control:#6e6e73;
+  --border-control-hover:#8e8e95;
+  --text-1:#fdfbfc;
+  --text-2:#dad8da;
+  --text-3:#a1a0a3;
+  --text-placeholder:#8e8d92;
+  --text-disabled:#96959b;
+  --brand-6:#74ff53;
+  --brand-hover:#8aff6e;
+  --brand-active:#5ee63e;
+  --brand-ink:#0b0f0a;
+  --brand-tint:rgba(116,255,83,0.10);
+  --focus-ring:rgba(116,255,83,0.18);
+  --danger:#ff6b6b;
+  --danger-text:#ff8585;
+  --danger-bg:#2b1518;
+  --danger-border:#c45454;
+  --warning-bg:#2b2214;
+  --warning-border:#8a6528;
+  --warning-text:#f5ca7b;
+  --radius-sm:8px;
+  --radius-md:10px;
+  --radius-lg:14px;
+  --control-height:46px;
+  --touch-target:44px;
+  --shadow-modal:0 24px 64px rgba(0,0,0,0.78),0 0 0 1px rgba(255,255,255,0.04);
+  --ease-out:cubic-bezier(0.16,1,0.3,1);
+  --dur-fast:150ms;
+  position:fixed;
+  inset:0;
+  margin:auto;
+  transform:none;
+  box-sizing:border-box;
+  width:600px;
+  max-width:calc(100vw - 24px);
+  max-height:calc(100dvh - 32px);
+  padding:0;
+  border:1px solid var(--line-2);
+  border-radius:var(--radius-lg);
+  background:var(--surface-2);
+  color:var(--text-1);
+  box-shadow:var(--shadow-modal);
+  overflow:hidden;
+  font-size:14px;
+}
+dialog.project-create-dialog:not(.episode-edit-dialog) *,
+dialog.project-create-dialog:not(.episode-edit-dialog) *::before,
+dialog.project-create-dialog:not(.episode-edit-dialog) *::after{box-sizing:border-box}
+dialog.project-create-dialog:not(.episode-edit-dialog)[open]{display:flex;flex-direction:column}
+dialog.project-create-dialog:not(.episode-edit-dialog)::backdrop{background:rgba(6,6,8,0.74);backdrop-filter:blur(3px)}
+dialog.project-create-dialog:not(.episode-edit-dialog) form{display:flex;flex-direction:column;gap:0;min-width:0;min-height:0;max-height:calc(100dvh - 32px);margin:0}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px;border-bottom:1px solid var(--line-1);flex:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-heading h2{margin:0;font-size:18px;line-height:24px;font-weight:600;color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-close{width:var(--touch-target);height:var(--touch-target);min-width:var(--touch-target);min-height:var(--touch-target);margin:-8px -10px -8px 0;padding:0;display:inline-grid;place-items:center;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;color:var(--text-2);font-size:22px;line-height:1;cursor:pointer;transition:background-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-close:hover{background:var(--fill-2);border-color:transparent;color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-close:active{background:var(--fill-3);border-color:transparent}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 24px;display:flex;flex-direction:column;gap:18px;scrollbar-width:thin;scrollbar-color:#4a4a4e transparent}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-field{display:flex;flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:8px;margin:0;padding:0;border:0;min-width:0}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-field>span,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-field>legend,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-field>.project-cover-label{display:inline-flex;align-items:center;gap:3px;margin:0;padding:0;font-size:13px;line-height:18px;font-weight:500;color:var(--text-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-field>legend{margin-bottom:8px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-required{color:var(--danger);font-weight:600}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input{position:relative;display:flex;align-items:center;height:var(--control-height);border:1px solid var(--border-control);border-radius:var(--radius-sm);background:var(--fill-1);transition:border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input:hover:not(:has(input:disabled)){border-color:var(--border-control-hover)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input:focus-within{border-color:var(--brand-6);box-shadow:0 0 0 3px var(--focus-ring)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input:has(input:disabled){background:var(--fill-disabled);border-color:var(--border-disabled);border-style:dashed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input input{width:100%;min-width:0;height:100%;padding:0 68px 0 12px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-1);font:inherit;font-size:14px;outline:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input input:disabled{color:var(--text-disabled);cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input input::placeholder{color:var(--text-placeholder)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-count{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12px;line-height:1;color:var(--text-3);font-variant-numeric:tabular-nums;pointer-events:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-meta-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;align-items:start}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-meta-grid.is-editing{grid-template-columns:minmax(0,240px)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace{display:flex;flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:8px;padding:0;color:var(--text-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-select-wrap{position:relative;display:flex;align-items:center;width:100%;height:var(--control-height)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace select{appearance:none;width:100%;height:var(--control-height);padding:0 36px 0 12px;border:1px solid var(--border-control);border-radius:var(--radius-sm);background:var(--fill-1);color:var(--text-1);font:inherit;font-size:14px;cursor:pointer;outline:none;transition:border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace select:hover:not(:disabled){border-color:var(--border-control-hover)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace select:focus-visible{border-color:var(--brand-6);box-shadow:0 0 0 3px var(--focus-ring)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace select:disabled{background:var(--fill-disabled);border-color:var(--border-disabled);border-style:dashed;color:var(--text-disabled);cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-select-chevron{position:absolute;right:12px;width:16px;height:16px;color:var(--text-2);pointer-events:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input{display:grid;grid-template-columns:var(--touch-target) minmax(0,1fr) var(--touch-target);align-items:center;height:var(--control-height);border:1px solid var(--border-control);border-radius:var(--radius-sm);background:var(--fill-1);overflow:hidden;transition:border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input:hover:not(:has(input:disabled)){border-color:var(--border-control-hover)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input:focus-within{border-color:var(--brand-6);box-shadow:0 0 0 3px var(--focus-ring)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input:has(input:disabled){background:var(--fill-disabled);border-color:var(--border-disabled);border-style:dashed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step{width:var(--touch-target);height:var(--touch-target);min-width:var(--touch-target);min-height:var(--touch-target);padding:0;border:0;border-radius:0;background:transparent;color:var(--text-1);font-size:18px;font-weight:500;line-height:1;display:inline-grid;place-items:center;cursor:pointer;transition:background-color var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step.step-dec{border-right:1px solid var(--line-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step.step-inc{border-left:1px solid var(--line-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step:hover:not(:disabled){background:var(--fill-2);border-color:var(--line-2);color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step:active:not(:disabled){background:var(--fill-3);border-color:var(--line-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step.is-at-bound:not(:disabled){color:var(--text-3)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step:disabled,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step:disabled:hover{background:transparent;border-color:var(--line-2);color:var(--text-disabled);opacity:0.5;cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input input{width:100%;min-width:0;height:100%;border:0;border-radius:0;background:transparent;color:var(--text-1);text-align:center;font:inherit;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;appearance:textfield;outline:none;padding:0 6px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input input:disabled{color:var(--text-disabled);cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input input::-webkit-inner-spin-button,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input input::-webkit-outer-spin-button{appearance:none;margin:0}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card{position:relative;display:flex;align-items:center;gap:10px;min-height:54px;padding:10px 12px;border:1px solid var(--border-control);border-radius:var(--radius-md);background:var(--fill-1);color:var(--text-1);cursor:pointer;user-select:none;transition:border-color var(--dur-fast) var(--ease-out),background-color var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:hover:not(:has(input:disabled)):not(:has(input:checked)){border-color:var(--border-control-hover);background:var(--fill-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:active:not(:has(input:disabled)):not(:has(input:checked)){background:var(--fill-3)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card input[type="radio"]{position:absolute;opacity:0;width:1px;height:1px;padding:0;border:0;margin:0;pointer-events:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:checked){border-color:var(--brand-6);background:var(--brand-tint);box-shadow:inset 0 0 0 1px rgba(116,255,83,0.35)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:disabled){background:var(--fill-disabled);border-color:var(--border-disabled);border-style:dashed;cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:checked:disabled){border-color:rgba(116,255,83,0.45);border-style:dashed;background:rgba(116,255,83,0.06);box-shadow:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:focus-visible){outline:2px solid var(--brand-6);outline-offset:2px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .style-motif{width:28px;height:28px;border-radius:7px;background:var(--fill-2);border:1px solid var(--line-2);display:grid;place-items:center;color:var(--text-2);flex:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:checked) .style-motif{background:rgba(116,255,83,0.16);border-color:rgba(116,255,83,0.45);color:var(--brand-6)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .style-motif svg{width:16px;height:16px;display:block}
+dialog.project-create-dialog:not(.episode-edit-dialog) .style-title{font-size:14px;font-weight:500;line-height:1.25;color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:disabled) .style-title{color:var(--text-disabled)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .style-check{margin-left:auto;width:18px;height:18px;border-radius:50%;border:1px solid var(--border-control);display:grid;place-items:center;font-size:11px;font-weight:700;color:transparent;flex:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .style-check::before{content:"✓"}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:checked) .style-check{background:var(--brand-6);border-color:var(--brand-6);color:var(--brand-ink)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card:has(input:checked:disabled) .style-check{opacity:0.72}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-field{display:flex;flex-direction:column;gap:8px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-row{display:flex;align-items:center;gap:16px;padding:12px;border-radius:var(--radius-md);background:var(--surface-3);border:1px solid var(--line-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-row.has-error{border-color:var(--danger-border);background:rgba(43,21,24,0.35)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload{position:relative;display:block;width:176px;aspect-ratio:16 / 9;flex:none;border:1px dashed var(--border-control);border-radius:var(--radius-sm);background:var(--fill-1);overflow:hidden;cursor:pointer;transition:border-color var(--dur-fast) var(--ease-out),background-color var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload.has-image{border-style:solid;border-color:var(--line-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload.needs-reselect{border-color:var(--warning-text);background:rgba(43,34,20,0.55)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload:hover:not(:has(input:disabled)){border-color:var(--brand-6);background:var(--fill-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload:has(input:disabled){cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload:focus-within{outline:2px solid var(--brand-6);outline-offset:2px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload input[type="file"]{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;opacity:0;cursor:pointer;margin:0}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload input[type="file"]:disabled{cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-preview{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--text-2);font-size:12px;text-align:center;padding:6px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload.needs-reselect .project-cover-preview{color:var(--warning-text);font-weight:500}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-plus{font-size:20px;line-height:1;color:var(--brand-6);font-weight:500}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload.needs-reselect .project-cover-plus{color:var(--warning-text)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-preview img{width:100%;height:100%;object-fit:cover;display:block}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-meta{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-hint{margin:0;font-size:13px;line-height:1.45;color:var(--text-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-subhint{margin:0;font-size:12px;line-height:1.4;color:var(--text-3)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-remove{height:var(--touch-target);min-height:var(--touch-target);padding:0 14px;border:1px solid var(--border-control);border-radius:var(--radius-sm);background:var(--fill-2);color:var(--text-1);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-remove:hover:not(:disabled){border-color:var(--border-control-hover);background:var(--fill-3);color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-remove:disabled,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-remove:disabled:hover{background:var(--fill-disabled);border-color:var(--border-disabled);color:var(--text-disabled);opacity:0.55;cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-feedback{margin:2px 0 0;padding:4px 8px;border-radius:6px;background:var(--danger-bg);border:1px solid var(--danger-border);font-size:12px;line-height:1.45;color:var(--danger-text);font-weight:500;overflow-wrap:anywhere}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-feedback::before{content:"⚠ ";font-weight:700}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-feedback[data-tone="info"]{background:var(--fill-2);border-color:var(--border-control);color:var(--text-2)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-feedback[data-tone="info"]::before{content:"⏳ "}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-feedback:empty,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-status:empty{display:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-status{margin:0 24px 12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--warning-border);background:var(--warning-bg);color:var(--warning-text);font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;flex:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-status::before{content:"↻ ";font-weight:700}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-status[data-tone="error"]{border-color:var(--danger-border);background:var(--danger-bg);color:var(--danger-text)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-status[data-tone="error"]::before{content:"⚠ "}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-footer{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:14px 24px 18px;border-top:1px solid var(--line-1);background:var(--surface-footer);flex:none}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-footer button{min-width:96px;height:var(--touch-target);min-height:var(--touch-target);padding:0 18px;border-radius:var(--radius-sm);font:inherit;font-size:14px;font-weight:500;cursor:pointer;transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .btn-cancel{border:1px solid var(--border-control);background:var(--fill-2);color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .btn-cancel:hover:not(:disabled){border-color:var(--border-control-hover);background:var(--fill-3);color:var(--text-1)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .btn-cancel:disabled,
+dialog.project-create-dialog:not(.episode-edit-dialog) .btn-cancel:disabled:hover{border-color:var(--border-disabled);background:var(--fill-disabled);color:var(--text-disabled);opacity:0.55;cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-confirm{border:1px solid transparent;background:var(--brand-6);color:var(--brand-ink);font-weight:600}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-confirm:hover:not(:disabled){background:var(--brand-hover);border-color:transparent;color:var(--brand-ink)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-confirm:active:not(:disabled){background:var(--brand-active);border-color:transparent;color:var(--brand-ink)}
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-confirm:disabled,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-confirm:disabled:hover{background:var(--brand-6);border-color:transparent;color:var(--brand-ink);opacity:0.55;cursor:not-allowed}
+dialog.project-create-dialog:not(.episode-edit-dialog) :focus-visible,
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) button:focus-visible{outline:2px solid var(--brand-6);outline-offset:2px}
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step:focus-visible,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-step:focus-visible{outline:2px solid var(--brand-6);outline-offset:-2px}
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input input:focus-visible,
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input input:focus-visible,
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace select:focus-visible,
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card input[type="radio"]:focus-visible,
+#production-platform dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload input[type="file"]:focus-visible,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-name-input input:focus-visible,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-count-input input:focus-visible,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-workspace select:focus-visible,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card input[type="radio"]:focus-visible,
+dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload input[type="file"]:focus-visible{outline:none}
+@media(max-height:700px){
+  dialog.project-create-dialog:not(.episode-edit-dialog){max-height:calc(100dvh - 32px)}
+  dialog.project-create-dialog:not(.episode-edit-dialog) form{max-height:calc(100dvh - 32px)}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-heading{padding-block:12px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-body{padding-block:14px;gap:14px;overflow-y:auto}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-footer{padding-block:12px 14px}
+}
+@media(max-width:560px){
+  dialog.project-create-dialog:not(.episode-edit-dialog){width:calc(100vw - 24px);max-height:calc(100dvh - 32px)}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-heading{padding:12px 16px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-body{padding:14px 16px;gap:12px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-meta-grid,
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-meta-grid.is-editing{grid-template-columns:1fr;gap:12px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-type-card{flex-direction:column;align-items:flex-start;justify-content:space-between;min-height:66px;padding:9px 10px;gap:6px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .style-check{position:absolute;top:8px;right:8px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-row{flex-direction:row;align-items:center;padding:10px;gap:12px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-upload{width:124px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-cover-subhint{display:none}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-status{margin:0 16px 10px;padding:8px 10px;font-size:12px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-footer{padding:12px 16px 14px}
+  dialog.project-create-dialog:not(.episode-edit-dialog) .project-create-footer button{flex:1 1 0;min-width:0}
+}
+@media(prefers-reduced-motion:reduce){
+  dialog.project-create-dialog:not(.episode-edit-dialog) *,
+  dialog.project-create-dialog:not(.episode-edit-dialog) *::before,
+  dialog.project-create-dialog:not(.episode-edit-dialog) *::after{transition:none!important;animation:none!important}
+}

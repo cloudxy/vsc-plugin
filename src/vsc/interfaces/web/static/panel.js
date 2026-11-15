@@ -120,13 +120,77 @@ const names = {work: '部', episode: '集', scene: '场', sequence: '镜组', sh
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) setText(node,text); return node; }
 let applicationNotice=null;
 function notice(message,options) { applicationNotice??=createNotice($('notice'));applicationNotice.show(message,options); }
+const ADMIN_RETURN_KEY_PREFIX='vsc.admin.returnContext.';
+function isSafeAdminReturnSearch(search){
+  if(typeof search!=='string'||!search.startsWith('?')||search.length>2048)return false;
+  if(/[\u0000-\u001f\u007f\\]/.test(search)||search.includes('//'))return false;
+  if(/^\?\s*[a-z][a-z0-9+.-]*:/i.test(search))return false;
+  if(/(?:[?&][^=]*=)\s*(?:javascript|data|vbscript|file|https?|ftp):/i.test(search))return false;
+  return true;
+}
+function clearAdminReturnContext(actor=state.actor){
+  if(!actor)return;
+  try{sessionStorage.removeItem(ADMIN_RETURN_KEY_PREFIX+actor);}catch{}
+}
+function readAdminReturnContext(){
+  if(!state.actor)return null;
+  try{
+    const raw=sessionStorage.getItem(ADMIN_RETURN_KEY_PREFIX+state.actor);
+    if(!raw)return null;
+    const parsed=JSON.parse(raw);
+    if(!parsed||typeof parsed!=='object'||!parsed.projectId||!isSafeAdminReturnSearch(parsed.search))return null;
+    return parsed;
+  }catch{return null;}
+}
+async function captureAdminReturnContext(){
+  if(!await beforeContextSwitch())return false;
+  if(state.actor&&state.project&&!['access','access-share','commerce','service-operations','api-settings'].includes(state.view)){
+    const epId=episodeScope||null;
+    const epRow=epId?((episodePage?.project===state.project&&(episodePage?.items||[]).find(r=>r.id===epId))||(state.treeNodes||[]).find(r=>r.id===epId)||null):null;
+    const rawSearch=typeof window!=='undefined'&&window.location?.search&&isSafeAdminReturnSearch(window.location.search)&&new URLSearchParams(window.location.search).get('project')===state.project
+      ?window.location.search
+      :'?'+new URLSearchParams({page:state.view,project:state.project,...(state.object?{scope:state.object}:{}),...(epId?{episode:epId}:{}),...(currentEntry().get('kind')?{kind:currentEntry().get('kind')}:{})});
+    const record={
+      projectId:state.project,
+      projectTitle:state.projectRows.get(state.project)?.name||state.project,
+      episodeId:epId,
+      episodeLabel:epRow?.title||epRow?.display_code||null,
+      page:state.view,
+      module:currentEntry().get('kind')?`${state.view}:${currentEntry().get('kind')}`:state.view,
+      search:rawSearch,
+      capturedAt:new Date().toISOString(),
+    };
+    try{sessionStorage.setItem(ADMIN_RETURN_KEY_PREFIX+state.actor,JSON.stringify(record));}catch{}
+  }
+  return true;
+}
+async function restoreAdminReturnContext(){
+  const record=readAdminReturnContext();
+  clearAdminReturnContext(state.actor);
+  const projRow=record?.projectId?state.projectRows.get(record.projectId):null;
+  if(!record||!isSafeAdminReturnSearch(record.search)||!projRow||projRow.unavailable){
+    state.project=null;state.object=null;episodeScope=null;
+    setEntryOptions('home',null,null);
+    await switchView('home');
+    return;
+  }
+  const route=new URLSearchParams(record.search.slice(1));
+  const targetPage=[...mainViews,...platformViews,...customViews,...specialistViews].includes(route.get('page'))?route.get('page'):(record.page||'project');
+  episodeScope=route.get('episode')||record.episodeId||null;
+  if(typeof window!=='undefined')window.history.pushState(null,'',record.search);
+  state.view=targetPage;
+  await selectProject(record.projectId,{scope:route.get('scope')||null});
+}
 function applySession(session) {
+  const previousActor=state.actor;
   const previousIdentity=state.identityId||state.actor;
+  if(previousActor&&previousActor!==session.actor)clearAdminReturnContext(previousActor);
+  if(!session.actor&&previousActor)clearAdminReturnContext(previousActor);
   if(previousIdentity!==(session.identity_id||session.actor)||state.shareId!==session.share_id){taskNotifications?.suspend();taskNotificationKey=null;$('task-notifications').hidden=true;}
-  if(previousIdentity!==(session.identity_id||session.actor)||state.workspaceId!==session.workspace_id){closeCanvasManagement();suspendCapabilityCenter();}
+  if(previousIdentity!==(session.identity_id||session.actor)){closeCanvasManagement();suspendCapabilityCenter();}
   if((state.identityId||state.actor)!==(session.identity_id||session.actor))editWorkspace?.suspend?.();
-  if(previousIdentity&&previousIdentity!==(session.identity_id||session.actor)||state.workspaceId&&state.workspaceId!==session.workspace_id){state.project=null;state.object=null;episodeScope=null;state.treeNodes=[];state.revision=0;}
-  state.actor=session.actor;state.csrf=session.csrf_token;state.writeAvailable=session.write_available===true;state.identityId=session.identity_id;state.shareId=session.share_id;state.workspaceId=session.workspace_id;
+  if(previousIdentity&&previousIdentity!==(session.identity_id||session.actor)){state.project=null;state.object=null;episodeScope=null;state.treeNodes=[];state.revision=0;}
+  state.actor=session.actor;state.csrf=session.csrf_token;state.writeAvailable=session.write_available===true;state.identityId=session.identity_id;state.shareId=session.share_id;
   if(previousIdentity!==(state.identityId||state.actor))readAccountLocale();
   const project=state.projectRows.get(state.project);
   state.writable=state.writeAvailable && project?.storage_policy==='postgres-series-v1' && !project.read_only;
@@ -188,15 +252,27 @@ async function refreshOwnerships(){
   if(!identity){state.workspaces=[];return;}
   const snapshot=await api('/api/v1/access');if(n!==state.workspaceRequest||identity!==state.identityId)return;state.workspaces=snapshot.workspaces;
 }
-async function openAccess({area='workspace',project=null,canvas=null,team=null}={}){setEntryOptions('access',project,null,{area,...(canvas?{canvas}:{}),...(team?{team}:{})});state.project=project;state.object=null;episodeScope=null;await switchView('access');}
-async function ensureAccessControl(){if(accessControl)return accessControl;if(!accessControlLoading)accessControlLoading=(async()=>{const {createAccessControl}=await import('./access-control.js');accessControl=createAccessControl($('access-control-view'),{api,notice,navigateAccess:openAccess,session:()=>({actor:state.actor,csrf:state.csrf,workspaceId:state.workspaceId}),onSession:async value=>{applySession(value);if(value.share_id&&!value.identity_id){state.view='access-share';await switchView('access-share');}else await loadProjects();},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}}); return accessControl;})();try{return await accessControlLoading;}finally{accessControlLoading=null;}}
+async function openAccess({area='workspace',project=null,canvas=null,team=null}={}){if(!await captureAdminReturnContext())return;setEntryOptions('access',project,null,{area,...(canvas?{canvas}:{}),...(team?{team}:{})});state.project=project;state.object=null;episodeScope=null;await switchView('access');}
+async function navigateGovernanceModule(targetPage){
+  if(targetPage==='access')return openAccess({area:'workspace',project:null});
+  if(targetPage==='commerce')return navigateModule('commerce','wallet',state.project);
+  if(targetPage==='service-operations')return navigateModule('service-operations','overview',state.project);
+}
+async function navigateSettingsSurface(surfaceId){
+  $('resource-settings-dialog')?.close?.();
+  if(surfaceId==='api-settings')return navigateStandalone('api-settings');
+  if(surfaceId==='settings'){setEntryOptions('settings',state.project,null);state.view='settings';return switchView('settings');}
+  if(surfaceId==='engine')return navigateModule('service-operations','engine',state.project);
+}
+async function ensureAccessControl(){if(accessControl)return accessControl;if(!accessControlLoading)accessControlLoading=(async()=>{const {createAccessControl}=await import('./access-control.js');accessControl=createAccessControl($('access-control-view'),{api,notice,navigateAccess:openAccess,returnContext:readAdminReturnContext,onReturnContext:restoreAdminReturnContext,onGovernanceNavigate:navigateGovernanceModule,session:()=>({actor:state.actor,csrf:state.csrf}),onSession:async value=>{applySession(value);if(value.share_id&&!value.identity_id){state.view='access-share';await switchView('access-share');}else await loadProjects();},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}}); return accessControl;})();try{return await accessControlLoading;}finally{accessControlLoading=null;}}
 async function readAccountLocale(){const actor=state.actor,languageRevision=getLocaleRevision();if(!actor)return;try{const value=await api('/api/v1/access');if(state.actor===actor&&getLocaleRevision()===languageRevision&&value.identity?.preferences?.language)setLocale(value.identity.preferences.language);}catch{/* A read-only or shared session keeps its local interface preference. */}}
 let taskNotifications=null,taskNotificationKey=null;
 async function loadTaskNotifications(){
-  const project=state.projectRows.get(state.project)?.storage_policy==='postgres-series-v1'&&state.identityId&&state.view!=='access-share'?state.project:null;
-  const key=state.identityId&&state.view!=='access-share'?state.identityId+':'+(project||''):null;
+  const loggedIn=Boolean((state.identityId||state.actor)&&state.view!=='access-share');
+  const project=loggedIn&&state.project&&state.projectRows.get(state.project)?.storage_policy==='postgres-series-v1'?state.project:null;
+  const key=loggedIn?(state.identityId||state.actor)+':'+(project||''):null;
   $('task-notifications').hidden=!key;if(key===taskNotificationKey)return;taskNotificationKey=key;
-  if(!taskNotifications&&key)taskNotifications=createTaskNotifications($('task-notifications'),{api,notice,projects:()=>[...state.projectRows.values()].filter(row=>row.storage_policy==='postgres-series-v1'&&!row.unavailable),projectName:id=>state.projectRows.get(id)?.name,session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf})});
+  if(!taskNotifications&&key)taskNotifications=createTaskNotifications($('task-notifications'),{api,notice,projects:()=>[...state.projectRows.values()].filter(row=>row.storage_policy==='postgres-series-v1'&&!row.unavailable),projectName:id=>state.projectRows.get(id)?.name,session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf}),navigate:async href=>{if(!href||href==='#')return;const q=new URLSearchParams(href.includes('?')?href.slice(href.indexOf('?')+1):'');const targetPage=q.get('page')||'tasks',targetProject=q.get('project')||null,extra=Object.fromEntries([...q.entries()].filter(([k])=>!['page','project','scope'].includes(k)));if(targetProject&&targetProject!=='__all__'&&state.projectRows.has(targetProject)){setEntryOptions(targetPage,targetProject,q.get('scope')||null,extra);state.view=targetPage;await selectProject(targetProject,{scope:q.get('scope')||null});}else{setEntryOptions(targetPage,targetProject,null,extra);state.project=targetProject;state.object=null;state.view=targetPage;await switchView(targetPage);}}});
   if(key)await taskNotifications.load({project});else taskNotifications?.suspend();
 }
 let pendingInvite=null;
@@ -209,6 +285,7 @@ function setEntryOptions(page,project,scope,options={}){
 }
 // Standalone modules (asset center, character studio, API settings) never carry a film project.
 async function navigateStandalone(page,options={}){
+  if(page==='api-settings'){if(!await captureAdminReturnContext())return;}
   const query=new URLSearchParams({page,...Object.fromEntries(Object.entries(options||{}).filter(([,v])=>v!=null&&v!==''))});
   if(typeof window!=='undefined'){const link='?'+query;if(window.location.search!==link)window.history.pushState(null,'',link);}
   state.project=null;state.object=null;episodeScope=null;
@@ -216,7 +293,9 @@ async function navigateStandalone(page,options={}){
   await switchView(page);
 }
 async function navigateModule(page,id=null,p=state.project){
-  const resolvedProject=page==='home'?null:(p||[...state.projectRows.keys()][0]||null);
+  if(['access','commerce','service-operations'].includes(page)){if(!await captureAdminReturnContext())return;}
+  const noProjectHijack=['home','access','commerce','service-operations'].includes(page);
+  const resolvedProject=page==='home'?null:noProjectHijack?(p||null):(p||[...state.projectRows.keys()][0]||null);
   const subview=['commerce','service-operations'].includes(page)&&id?id:null;
   const scope=subview?null:id;
   setEntryOptions(page,resolvedProject,scope,subview?{subview}:{});
@@ -351,19 +430,19 @@ async function loadCustomView(view){
     if(!teamReview){const {createTeamReview}=await import('./team-review.js');teamReview=createTeamReview($('team-review-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},media:openMedia,navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}});}
     if(ticket===customViewRequest&&view===state.view)await teamReview.load({project,object});
   }else if(view==='commerce'){
-    if(!commerce){const {createCommerce}=await import('./commerce.js');commerce=createCommerce($('commerce-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:(sub,targetId=null)=>{if(typeof window==='undefined'||state.view!=='commerce')return;const route=currentEntry();route.set('page','commerce');if(state.project)route.set('project',state.project);if(sub)route.set('subview',sub);else route.delete('subview');if(targetId)route.set('task_target',targetId);else route.delete('task_target');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
-    if(ticket===customViewRequest&&view===state.view)await commerce.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target')});
+    if(!commerce){const {createCommerce}=await import('./commerce.js');commerce=createCommerce($('commerce-view'),{api,notice,returnContext:readAdminReturnContext,onReturnContext:restoreAdminReturnContext,onGovernanceNavigate:navigateGovernanceModule,workspaces:()=>state.workspaces,projects:()=>[...state.projectRows.values()],session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.project?state.writable:state.writeAvailable,writeAvailable:state.writeAvailable}),setRevision:(value,p)=>{if(p&&p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:(sub,targetId=null)=>{if(typeof window==='undefined'||state.view!=='commerce')return;const route=currentEntry();route.set('page','commerce');if(state.project)route.set('project',state.project);else route.delete('project');if(sub)route.set('subview',sub);else route.delete('subview');if(targetId)route.set('task_target',targetId);else route.delete('task_target');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
+    if(ticket===customViewRequest&&view===state.view)await commerce.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target'),scopeKind:currentEntry().get('scope_kind'),workspaceId:currentEntry().get('workspace_id')});
   }else if(view==='community'){
     if(!community){const {createCommunity}=await import('./community.js');community=createCommunity($('community-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,projectId:state.project,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project&&value!=null)state.revision=value;}});}
     if(ticket===customViewRequest&&view===state.view)await community.load({projectId:project});
   }else if(view==='service-operations'){
-    if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:sub=>{if(typeof window==='undefined'||state.view!=='service-operations')return;const route=currentEntry();route.set('page','service-operations');if(state.project)route.set('project',state.project);if(sub)route.set('subview',sub);else route.delete('subview');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
-    if(ticket===customViewRequest&&view===state.view)await serviceOperations.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target')});
+    if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,returnContext:readAdminReturnContext,onReturnContext:restoreAdminReturnContext,onGovernanceNavigate:navigateGovernanceModule,onSettingsNavigate:navigateSettingsSurface,workspaces:()=>state.workspaces,projects:()=>[...state.projectRows.values()],session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.project?state.writable:state.writeAvailable,writeAvailable:state.writeAvailable}),setRevision:(value,p)=>{if(p&&p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:sub=>{if(typeof window==='undefined'||state.view!=='service-operations')return;const route=currentEntry();route.set('page','service-operations');if(state.project)route.set('project',state.project);else route.delete('project');if(sub)route.set('subview',sub);else route.delete('subview');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
+    if(ticket===customViewRequest&&view===state.view)await serviceOperations.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target'),scopeKind:currentEntry().get('scope_kind'),workspaceId:currentEntry().get('workspace_id')});
   }else if(view==='asset-center'){
     if(!assetCenter){const {createAssetCenter}=await import('./asset-center.js');assetCenter=createAssetCenter($('asset-center-view'),{api,notice,navigate:(page,options)=>navigateStandalone(page,options),session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),projects:()=>[...state.projectRows.values()],projectId:()=>state.project,setRevision:(value,p)=>{if(!p||p===state.project)state.revision=value;},workspaces:async()=>(await api('/api/v1/access')).workspaces});}
     if(ticket===customViewRequest&&view===state.view)await assetCenter.load();
   }else if(view==='character-studio'||view==='api-settings'){
-    if(!characterStudio){const {createCharacterStudio}=await import('./character-studio.js');characterStudio=createCharacterStudio($('character-studio-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),navigate:(page,options)=>navigateStandalone(page,options)});}
+    if(!characterStudio){const {createCharacterStudio}=await import('./character-studio.js');characterStudio=createCharacterStudio($('character-studio-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),onSettingsNavigate:navigateSettingsSurface,navigate:(page,options)=>navigateStandalone(page,options)});}
     if(ticket===customViewRequest&&view===state.view)await characterStudio.load({mode:view==='api-settings'?'settings':'studio',tab:currentEntry().get('tab')});
   }else if(['intelligent-creation','intelligent-storyboard'].includes(view)){
     if(!intelligentProduction){const {createIntelligentProductionPanel}=await import('./intelligent-production.js');intelligentProduction=createIntelligentProductionPanel({opened:openedCreativeTarget,api,notice,projects:()=>[...state.projectRows.values()],navigate:async(page,scope=state.object,p=state.project,options={})=>{setEntryOptions(page,p,scope,options);if(options.episode)episodeScope=options.episode;state.view=page;await selectProject(p,{scope});},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
@@ -628,13 +707,13 @@ function syncRoute(){
   if(window.location.pathname==='/404'&&state.view==='service-operations'&&currentEntry().get('subview')==='not-found'){deskRouteReady=true;return;}
   if(window.location.pathname?.startsWith('/fcp/')&&state.view==='fcp-portal'){deskRouteReady=true;return;}
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','entry','create','tab','mode','canvas_origin','task_id','task_kind','task_status','task_group','task_view','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key','asset_type','asset_id','shot_id','media_id','locale','area','canvas','team','project_scope'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','entry','create','tab','mode','canvas_origin','task_id','task_kind','task_status','task_group','task_view','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key','asset_type','asset_id','shot_id','media_id','locale','area','canvas','team','project_scope','scope_kind','workspace_id'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
   if (!resourceSettings) {
     const {createResourceSettings} = await import('./resource-settings.js');
-    resourceSettings = createResourceSettings($('resource-settings-dialog'), {api, session:()=>({actor:state.actor,csrf:state.csrf}), onNotice:notice});
+    resourceSettings = createResourceSettings($('resource-settings-dialog'), {api, session:()=>({actor:state.actor,csrf:state.csrf}), onNotice:notice, onSettingsNavigate:navigateSettingsSurface});
   }
   await resourceSettings.open();
 }
@@ -651,9 +730,9 @@ async function loadScope() {
 }
 
 async function loadProjects() {
-  const request=++state.projectsRequest,identity=state.identityId,workspace=state.workspaceId;
-  await refreshOwnerships();if(request!==state.projectsRequest||identity!==state.identityId||workspace!==state.workspaceId)return;
-  const data = await api('/api/v1/projects');if(request!==state.projectsRequest||identity!==state.identityId||workspace!==state.workspaceId)return;
+  const request=++state.projectsRequest,identity=state.identityId;
+  await refreshOwnerships();if(request!==state.projectsRequest||identity!==state.identityId)return;
+  const data = await api('/api/v1/projects');if(request!==state.projectsRequest||identity!==state.identityId)return;
   state.projectRows=new Map(data.items.map(row=>[row.id,row]));
   renderRecentProjects(data.items);
   $('projects').replaceChildren();
@@ -665,7 +744,7 @@ async function loadProjects() {
   if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','character-studio','api-settings','project-management','text-tools','creative-tools','marketing-studio','capability-center','commerce','service-operations','fcp-portal','storyboard-repaint'].includes(state.view)?state.view:'projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
   if(['text-tools','creative-tools'].includes(state.view)&&!state.project){$('projects').prepend(localizedOption('',msg("ui.standalone_tools_no_film_project_selected")));$('projects').value='';await switchView(state.view);syncRoute();return;}
-  if((['access','access-share'].includes(state.view)&&!state.project)||['home','projects','collection','project-management','asset-center','character-studio','api-settings','marketing-studio','capability-center','fcp-portal'].includes(state.view)||(state.view==='storyboard-repaint'&&!state.project)){await switchView(state.view);syncRoute();return;}
+  if((['access','access-share','commerce','service-operations'].includes(state.view)&&!state.project)||['home','projects','collection','project-management','asset-center','character-studio','api-settings','marketing-studio','capability-center','fcp-portal'].includes(state.view)||(state.view==='storyboard-repaint'&&!state.project)){await switchView(state.view);syncRoute();return;}
   await selectProject($('projects').value);
 }
 async function selectProject(id,{scope}={}) {
@@ -1047,24 +1126,24 @@ $('api-settings-open')?.addEventListener('click',guard(async()=>{closeHelp();awa
 $('back-to-desk').addEventListener('click',guard(()=>switchView(episodeScope?'production':state.primary)));
 if($('specialist-tools'))$('specialist-tools').addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();$('specialist-tools').open=false;$('specialist-tools').querySelector('summary').focus();}});
 for(const tab of ['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'])$(`tab-${tab}`).addEventListener('click',guard(()=>switchView(tab)));
-$('resource-settings-open').addEventListener('click',guard(openResourceSettings));
+$('resource-settings-open')?.addEventListener('click',guard(openResourceSettings));
 document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
-$('role-memory-open').addEventListener('click',guard(openRoleMemory));
-$('session-open').addEventListener('click',()=>switchView('access'));
+$('role-memory-open')?.addEventListener('click',guard(openRoleMemory));
+$('session-open').addEventListener('click',guard(()=>openAccess({area:'account'})));
 $('help-open')?.addEventListener('click',guard(async()=>{const data=await api('/api/v1/discovery',{headers:{'X-CSRF-Token':state.csrf}}),dialog=el('dialog','workbench-help');const close=el('button','',msg('common.close'));close.addEventListener('click',()=>dialog.close());dialog.append(el('h2','',msg('ui.tutorials')),close);for(const row of data.tutorials){const read=el('button','',row.title);read.addEventListener('click',guard(async()=>{const value=await api('/api/v1/discovery/tutorials/'+encodeURIComponent(row.id),{headers:{'X-CSRF-Token':state.csrf}});if(dialog.open){const body=dialog.querySelector('pre')||el('pre');setText(body,value.content);dialog.append(body);}}));dialog.append(read);}document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}));
 for(const item of document.querySelectorAll('#account-menu button,#account-menu a'))item.addEventListener('click',()=>{$('account-menu').open=false;});
-$('access-open').addEventListener('click',guard(()=>openAccess({area:'account'})));
+$('access-open')?.addEventListener('click',guard(()=>openAccess({area:'account'})));
 $('team-settings-open')?.addEventListener('click',guard(()=>openAccess({area:'workspace'})));
-$('asset-center-open').addEventListener('click',guard(()=>switchView('asset-center')));
-$('commerce-open').addEventListener('click',guard(()=>navigateModule('commerce','wallet')));
+$('asset-center-open')?.addEventListener('click',guard(()=>switchView('asset-center')));
+$('commerce-open')?.addEventListener('click',guard(()=>navigateModule('commerce','wallet',null)));
 $('drama-base-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','ai-drama-base')));
-$('engine-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','engine')));
-$('data-records-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','data-records')));
-$('invoice-open')?.addEventListener('click',guard(()=>navigateModule('commerce','invoice-overview')));
-$('studio-quota-open')?.addEventListener('click',guard(()=>navigateModule('commerce','studio-quota')));
-$('project-management-open').addEventListener('click',guard(()=>switchView('project-management')));
-$('service-operations-open').addEventListener('click',guard(()=>navigateModule('service-operations','overview')));
+$('engine-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','engine',null)));
+$('data-records-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','data-records',null)));
+$('invoice-open')?.addEventListener('click',guard(()=>navigateModule('commerce','invoice-overview',null)));
+$('studio-quota-open')?.addEventListener('click',guard(()=>navigateModule('commerce','studio-quota',null)));
+$('project-management-open')?.addEventListener('click',guard(()=>switchView('project-management')));
+$('service-operations-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','overview',null)));
 $('creation-record')?.addEventListener('click',guard(()=>switchView('tasks')));
 // Sidebar disclosures only affect visibility; recent data keeps its original owner.
 const recentProjectsToggle=$('recent-projects-toggle');
@@ -1108,7 +1187,7 @@ $('upload-open').addEventListener('click',()=>$('upload-dialog').showModal());
 $('upload-form').addEventListener('submit',guard(async event=>{event.preventDefault();const file=$('upload-file').files[0];if(!file)throw new Error('请选择文件');const rights=$('upload-rights').value;const scope=$('upload-scope').value.split(',').map(value=>value.trim()).filter(Boolean);if(rights!=='unknown' && !scope.length)throw new Error('请明确填写权利适用的用途');const button=event.target.querySelector('button[type=submit]');button.disabled=true;try{const receipt=await api(`${base()}/uploads`,{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':encodeURIComponent(file.name),'X-CSRF-Token':state.csrf},body:file});const result=await api(`${base()}/media`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{staged_upload:receipt.staged_upload,name:file.name,rights,rights_scope:{purposes:scope},source:{kind:'user_upload',content:$('upload-source').value}},expected_revision:state.revision,idempotency_key:crypto.randomUUID()})});state.revision=result.revision ?? state.revision;$('upload-dialog').close();event.target.reset();await loadResources();notice(msg("ui.media_copied_and_registered_no_role_is_bound_or"));}finally{button.disabled=false;}}));
 if(typeof window!=='undefined'){
   window.addEventListener('beforeunload',event=>{if(assistedDesk?.hasDrafts()){event.preventDefault();event.returnValue='';}});
-  window.addEventListener('popstate',guard(async()=>{const route=currentEntry();state.view=[...mainViews,...platformViews,...customViews,...specialistViews].includes(route.get('page'))?route.get('page'):'home';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');episodeScope=route.get('episode');restoringDeskRoute=true;try{await selectProject(route.get('project')||(['access','capability-center'].includes(state.view)?null:state.project),{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
+  window.addEventListener('popstate',guard(async()=>{const route=currentEntry();state.view=[...mainViews,...platformViews,...customViews,...specialistViews].includes(route.get('page'))?route.get('page'):'home';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');episodeScope=route.get('episode');restoringDeskRoute=true;try{await selectProject(route.get('project')||(['access','commerce','service-operations','capability-center','api-settings','character-studio','asset-center','home','projects'].includes(state.view)?null:state.project),{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
 }
 // Explicit shell labels only. Icons, controls and user text are never traversed for translation.
 for(const [selector,key] of [['.brand > span:last-child','shell.workbench'],['#nav-home > span','common.route_home'],['#nav-projects > span','nav.my_projects'],['#nav-asset-center > span','nav.asset_library'],['#nav-character-studio > span','nav.character_studio'],['#nav-capability-center > span','nav.capability_center'],['#api-settings-open > span','shell.api_settings'],['#nav-community > span','shell.community'],['#nav-project-management > span','nav.recycle_bin'],['#recent-projects-toggle > span','home.recent_creations'],['.project-context > summary','shell.project_context'],['#nav-intelligent-creation','nav.agent_workflow'],['#nav-intelligent-storyboard','shell.intelligent_storyboard'],['#nav-tasks','shell.tasks'],['#nav-assets','shell.project_assets'],['#nav-settings','shell.settings'],['#nav-desk','shell.review_queue'],['#nav-collection','shell.shared_library'],['#nav-trash','shell.media_recycle'],['.topbar-projects','nav.my_projects'],['#team-settings-open','workspace.settings'],['#access-open','workspace.account'],['#team-review-open','shell.project_review'],['#commerce-open','shell.billing'],['#project-management-open','shell.project_directory'],['#service-operations-open','shell.services'],['#asset-center-open','nav.asset_center'],['#role-memory-open','ui.role_memory'],['#resource-settings-open','ui.resource_configuration'],['#session-open','shell.account']]){const label=document.querySelector(selector);if(label)setText(label,msg(key));}

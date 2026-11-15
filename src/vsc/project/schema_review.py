@@ -33,6 +33,30 @@ CROSS_PROJECT_REFERENCES = {
     ("text_tool_copies", ("source_project_id", "source_version_id"), "artifact_versions", ("project_id", "id")),
 }
 
+SCOPED_DOMAIN_REFERENCES = {
+    ('commerce_plan_versions', ('base_version_id',), 'commerce_plan_versions', ('id',)),
+    ('commerce_rates', ('plan_id',), 'commerce_plan_versions', ('id',)),
+    ('commerce_settings', ('price_version_id',), 'commerce_plan_versions', ('id',)),
+    ('commerce_orders', ('plan_id',), 'commerce_plan_versions', ('id',)),
+    ('commerce_orders', ('renewal_of_order_id',), 'commerce_orders', ('id',)),
+    ('commerce_payment_events', ('order_id',), 'commerce_orders', ('id',)),
+    ('commerce_buckets', ('order_id',), 'commerce_orders', ('id',)),
+    ('commerce_buckets', ('parent_bucket_id',), 'commerce_buckets', ('id',)),
+    ('commerce_reservations', ('attribution_project_id', 'job_id'), 'generation_jobs', ('project_id', 'id')),
+    ('commerce_reservations', ('price_version_id',), 'commerce_plan_versions', ('id',)),
+    ('commerce_ledger', ('bucket_id',), 'commerce_buckets', ('id',)),
+    ('commerce_ledger', ('reservation_id',), 'commerce_reservations', ('id',)),
+    ('commerce_ledger', ('attribution_project_id', 'job_id'), 'generation_jobs', ('project_id', 'id')),
+    ('commerce_ledger', ('attribution_project_id', 'job_id', 'reservation_id'), 'commerce_reservations', ('attribution_project_id', 'job_id', 'id')),
+    ('commerce_redemptions', ('campaign_id',), 'commerce_campaigns', ('id',)),
+    ('commerce_redemptions', ('bucket_id',), 'commerce_buckets', ('id',)),
+    ('commerce_invoices', ('order_id',), 'commerce_orders', ('id',)),
+    ('service_request_events', ('request_id',), 'service_requests', ('id',)),
+    ('service_export_files', ('request_id',), 'service_requests', ('id',)),
+    ('service_export_files', ('request_id', 'requester_id'), 'service_requests', ('id', 'requester_id')),
+    ('service_api_calls', ('api_key_id',), 'service_api_keys', ('id',)),
+}
+
 
 def check(metadata):
     errors, names = [], set()
@@ -51,7 +75,8 @@ def check(metadata):
             target_table = targets[0].table
             if "project_id" in table.c and "project_id" in target_table.c:
                 cross_key = (table.name, tuple(fk.column_keys), target_table.name, tuple(c.name for c in targets))
-                if cross_key not in CROSS_PROJECT_REFERENCES and ("project_id" not in fk.column_keys or "project_id" not in [c.name for c in targets]):
+                scoped_allowed = "scope_kind" in table.c and cross_key in SCOPED_DOMAIN_REFERENCES
+                if cross_key not in CROSS_PROJECT_REFERENCES and not scoped_allowed and ("project_id" not in fk.column_keys or "project_id" not in [c.name for c in targets]):
                     errors.append(table.name + ": foreign key omits project isolation: " + str(fk.name))
         if table.name == "binding_slots" and table.c.slot_key.nullable:
             errors.append("binding_slots.slot_key must be non-null")

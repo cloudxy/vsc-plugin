@@ -110,26 +110,55 @@ function coverBackend({lose=null,pause=null}={}){
 }
 
 test('the project dialog exposes the 50-character counter, bounded stepper, default live-action radios and optional cover',async()=>{
-  const h=setup();await h.platform.load({page:'projects'});const dialog=await h.open();
+  const h=setup();h.session.ownerships=[{id:'team-edit',name:'制片组',kind:'studio',roles:['editor']},{id:'team-view',name:'只读组',kind:'studio',roles:['viewer']}];
+  await h.platform.load({page:'projects'});const dialog=await h.open();
+  const form=dialog.querySelector('form'),heading=dialog.querySelector('.project-create-heading'),body=dialog.querySelector('.project-create-body'),metaGrid=body.querySelector('.project-meta-grid');
+  assert.equal(form.children[0],heading);assert.equal(form.children[1],body);assert.equal(metaGrid.classList.contains('is-editing'),false);
   const inputs=dialog.querySelectorAll('input'),name=inputs[0],count=inputs[1],radios=inputs.filter(input=>input.type==='radio');
+  assert.equal(inputs.length,6);assert.equal(name.placeholder,'请输入项目名称（如：赛博长安）');
   assert.equal(name.maxLength,50);name.value='新作品';await name.dispatch('input');assert.equal(dialog.querySelector('.project-name-count').textContent,'3 / 50');
-  assert.equal(count.min,'1');assert.equal(count.max,'500');assert.equal(count.step,'1');
+  assert.ok(dialog.querySelector('.project-count-input'));assert.equal(count.min,'1');assert.equal(count.max,'500');assert.equal(count.step,'1');
   const step=label=>dialog.querySelectorAll('button').find(button=>button.getAttribute('aria-label')===label);
-  await step('减少集数').click();assert.equal(count.value,'1');await step('增加集数').click();assert.equal(count.value,'2');count.value='500';await step('增加集数').click();assert.equal(count.value,'500');
+  assert.equal(step('减少集数').disabled,false);await step('减少集数').click();assert.equal(count.value,'1');
+  await step('增加集数').click();assert.equal(count.value,'2');count.value='500';assert.equal(step('增加集数').disabled,false);await step('增加集数').click();assert.equal(count.value,'500');
   assert.deepEqual(radios.map(radio=>[radio.value,radio.checked]),[['2d',false],['3d',false],['live',true]]);
-  assert.equal(dialog.querySelector('select').getAttribute('aria-label'),'项目归属');assert.ok(dialog.textContent.includes('大小不超过5MB'));assert.ok(dialog.querySelectorAll('button').some(button=>button.textContent==='确定'));
+  const styleCards=dialog.querySelectorAll('.project-type-card');
+  assert.deepEqual(styleCards.map(card=>card.textContent.trim()),['2D动漫','3D动漫','真人']);
+  assert.ok(styleCards.every(card=>card.querySelector('.style-check').textContent===''));
+  const owner=metaGrid.querySelector('select');assert.ok(owner);assert.equal(owner.getAttribute('aria-label'),'项目归属');
+  assert.deepEqual(owner.options.map(opt=>opt.value),['','team-edit']);
+  const hint=dialog.querySelector('.project-cover-hint');assert.ok(hint.textContent.includes('16:9'));assert.ok(hint.textContent.includes('大小不超过5MB'));
+  assert.ok(dialog.querySelectorAll('button').some(button=>button.textContent==='确定'));
   await dialog.querySelector('.project-create-close').click();assert.equal(h.root.querySelector('dialog'),null);assert.equal(h.posts().length,0);
+});
+
+test('blank or overlong names and invalid episode counts fail before storing a creation receipt or posting',async()=>{
+  const h=setup();await h.platform.load({page:'projects'});const dialog=await h.open();
+  const status=dialog.querySelector('.project-create-status'),inputs=dialog.querySelectorAll('input');
+  for(const badName of ['','   ','x'.repeat(51)]){
+    fill(dialog,{name:badName,count:2,style:'live'});await submit(dialog);
+    assert.equal(status.textContent,'项目名称需为1至50字');assert.equal(status.getAttribute('data-tone'),'error');
+    assert.equal(h.storage.size,0);assert.equal(h.posts().length,0);assert.equal(inputs[0].disabled,false);
+  }
+  for(const badCount of ['0','501','1.2']){
+    fill(dialog,{name:'合规片名',count:badCount,style:'live'});await submit(dialog);
+    assert.equal(status.textContent,'项目集数需为1至500的整数');assert.equal(status.getAttribute('data-tone'),'error');
+    assert.equal(h.storage.size,0);assert.equal(h.posts().length,0);assert.equal(inputs[1].disabled,false);
+  }
+  inputs[1].value='12';await inputs[1].dispatch('input');
+  assert.equal(status.textContent,'');assert.equal(status.getAttribute('data-tone'),null);
 });
 
 test('bad images and files above 5MiB are rejected before project creation',async()=>{
   const h=setup();await h.platform.load({page:'projects'});const dialog=await h.open();fill(dialog);
-  await chooseCover(dialog,new File([new Uint8Array(5*1024*1024+1)],'large.png'));assert.ok(dialog.textContent.includes('封面大小不能超过5MB'));assert.equal(dialog.querySelector('.project-cover-preview').querySelector('img'),null);
+  await chooseCover(dialog,new File([new Uint8Array(5*1024*1024+1)],'large.png'));assert.ok(dialog.textContent.includes('封面大小不能超过5MB'));assert.equal(dialog.querySelector('.project-cover-preview').querySelector('img'),null);assert.equal(dialog.querySelector('.project-cover-row').classList.contains('has-error'),true);
   await chooseCover(dialog,new File(['broken'],'bad.png'));assert.ok(dialog.textContent.includes('请选择可读取的图像文件'));assert.equal(h.posts().length,0);
 });
 
 test('the legacy new-canvas form keeps its original fields and does not inherit the project-cover UI',async()=>{
   const h=setup();await h.platform.load({page:'projects',create:'canvas'});const dialog=h.root.querySelector('dialog');
   assert.equal(dialog.classList.contains('project-create-dialog'),false);assert.equal(dialog.querySelectorAll('input').length,1);assert.equal(dialog.querySelector('.project-cover-field'),null);assert.equal(dialog.querySelector('.project-name-count'),null);
+  const owner=dialog.querySelectorAll('select').find(node=>node.getAttribute('aria-label')==='项目归属');assert.ok(owner);
   dialog.querySelector('input').value='画布项目';await submit(dialog);assert.equal(h.posts().length,1);assert.equal(h.routes[0][0],'creative-canvas');
 });
 

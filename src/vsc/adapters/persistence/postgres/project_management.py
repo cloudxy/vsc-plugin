@@ -58,6 +58,21 @@ def management_canvas_guard(conn,p,identifier):
         raise ResourceError('画布或其父级已回收，请先恢复原关系','object_recycled',409)
 
 
+def management_route_targets(conn, p, route_segment, entity_id):
+    typed = {
+        'creative-canvases': 'creative_canvases',
+        'spatial-scenes': 'spatial_scenes',
+        'intelligent-workflows': 'intelligent_workflows',
+        'intelligent-tasks': 'intelligent_tasks',
+        'creative-canvas-agent-turns': 'canvas_agent_turns',
+    }
+    if route_segment not in typed:
+        return set()
+    table = S.metadata.tables[typed[route_segment]]
+    row = conn.execute(select(table).where(table.c.project_id == p, table.c.id == entity_id)).mappings().first()
+    return ProjectManagementRepository()._management_targets(conn, p, table, dict(row)) if row else set()
+
+
 def management_transaction_guard(conn,p,action,payload):
     if action in MANAGEMENT_ACTIONS:return
     # Verified settlement of an existing order must survive project recycling.

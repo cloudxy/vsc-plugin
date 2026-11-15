@@ -32,9 +32,11 @@ def install_project_management_routes(app,router,catalog,etag,actor,read_actor):
 def management_http_guard(service,request):
     """Working views are closed after recycle; fixed read evidence is preserved."""
     import re
-    from sqlalchemy import select
-    from vsc.adapters.persistence.postgres import schema as S
-    from vsc.adapters.persistence.postgres.project_management import management_project_guard,hidden_object_ids,ProjectManagementRepository
+    from vsc.adapters.persistence.postgres.project_management import (
+        hidden_object_ids,
+        management_project_guard,
+        management_route_targets,
+    )
     from vsc.assets.resource_service import ResourceError
     if service is None:return
     match=re.match(r'^/api/v1/projects/([0-9a-fA-F-]{36})/(.+)$',request.url.path)
@@ -51,8 +53,6 @@ def management_http_guard(service,request):
             if request.query_params.get(key) in hidden:raise ResourceError('此工作范围已回收，请先恢复原关系','object_recycled',409)
         targets=set()
         if bits[0]=='shots' and len(bits)>1:targets.add(bits[1])
-        typed={'creative-canvases':'creative_canvases','spatial-scenes':'spatial_scenes','intelligent-workflows':'intelligent_workflows','intelligent-tasks':'intelligent_tasks','creative-canvas-agent-turns':'canvas_agent_turns'}
-        if bits[0] in typed and len(bits)>1 and re.fullmatch(r'[0-9a-fA-F-]{36}',bits[1]):
-            table=S.metadata.tables[typed[bits[0]]];row=conn.execute(select(table).where(table.c.project_id==p,table.c.id==bits[1])).mappings().first()
-            if row:targets=ProjectManagementRepository()._management_targets(conn,p,table,dict(row))
+        if len(bits)>1 and re.fullmatch(r'[0-9a-fA-F-]{36}',bits[1]):
+            targets=targets|management_route_targets(conn,p,bits[0],bits[1])
         if targets & hidden:raise ResourceError('此工作稿所属对象已回收；固定审计仍可回看','object_recycled',409)

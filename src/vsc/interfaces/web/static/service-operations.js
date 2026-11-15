@@ -1,11 +1,13 @@
 import {msg,joinMessages,setText,bindAttribute,option as localizedOption} from './i18n.js';
+import {createGovernanceNav,createSettingsTriageBanner} from './governance-header.js';
 // Local requests and scoped API consumers use the original operation session.
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)setText(n,text);if(cls)n.className=cls;return n;};
+const setComp=(el,name)=>{el.dataset.component=name;el.setAttribute('data-component',name);return el;};
 const isDomNode=v=>Boolean(v&&typeof v==='object'&&typeof v.tagName==='string');
 const clipWrite=async text=>{const nav=typeof navigator!=='undefined'?navigator:globalThis.navigator;await nav?.clipboard?.writeText?.(text);};
 const perfNow=()=>typeof performance!=='undefined'&&performance?.now?performance.now():Date.now();
 const names={feedback:'意见反馈',support:'支持申请',fcp:'FCP合作申请',studio:'团队合作申请',production_service:'承制需求',distribution:'站外分发申请',account_close:'账户注销申请',personal_export:'个人信息导出'};
-const statuses={received:'已收到本地申请',under_review:'本地处理中',awaiting_configuration:'外部服务待配置',local_approved:'本地审核通过，外部操作尚未完成',rejected:'已退回',withdrawn:'已撤回',export_ready:'本地导出文件已生成',error:'处理失败，申请保留',account_closed:'本地账户已停用，原审计记录保留'};
+const statuses={received:'已收到本地申请',under_review:'本地处理中',awaiting_configuration:'外部服务待配置',local_approved:'本地审核通过，外部操作尚未完成',rejected:'已退回',withdrawn:'已撤回',export_ready:'本地导出文件已生成',export_expired:'导出文件已过期（需重新申请）',error:'处理失败，申请保留',account_closed:'本地账户已停用，原审计记录保留'};
 
 const NETWORK_PROBES=[
   ['session_gateway','1. 可信会话与网关鉴权'],
@@ -89,19 +91,134 @@ export function feedbackDisplayStatus(status){
   return {bucket:'processing',label:statuses[status]||status};
 }
 
+function sanitizeDiagnosticObject(value){
+  if(Array.isArray(value))return value.map(sanitizeDiagnosticObject);
+  if(value&&typeof value==='object'){
+    const out={};
+    for(const [k,v]of Object.entries(value)){
+      if(/csrf|cookie|secret|token|password|authorization/i.test(k))continue;
+      out[k]=sanitizeDiagnosticObject(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 export function createServiceOperations(root,ctx){
   let scope=null,ticket=0,data=null,busy=false,subview='overview';
   let engineTab='consumption',recordsMode='personal',recordsTab='jobs',feedbackDrawerOpen=false;
   let seedanceResult=null,diagnosticState={running:false,completed:0,items:[],lastReport:null};
-  const drafts=new Map(),pending=new Map(),keyAttempts=new Map(),secrets=new Map();
+  const drafts=new Map(),pending=new Map(),keyAttempts=new Map(),secrets=new Map(),scopeRevisions=new Map(),expiredExports=new Set();
 
-  const url=(p,path='')=>`/api/v1/projects/${encodeURIComponent(p)}/service-operations${path}`;
   const session=()=>ctx.session();
   const same=(t,s)=>t===ticket&&s===scope&&session().actor===s.actor;
-  const writable=()=>!!session().actor&&session().actor===scope?.actor&&scope?.project&&data?.capabilities?.includes('read');
-  const identity=s=>s.actor+':'+s.project;
+
+  function normalizeScope(raw={}){
+    const actor=session().actor||'';
+    const scopeKind=raw?.scopeKind||'';
+    const workspaceId=raw?.workspaceId||'';
+    const project=raw?.project||'';
+    if(scopeKind==='workspace'&&workspaceId){
+      return {...raw,scopeKind:'workspace',workspaceId,project:'',actor};
+    }
+    if(scopeKind==='identity'){
+      return {...raw,scopeKind:'identity',workspaceId:'',project:'',actor};
+    }
+    if(project){
+      return {...raw,scopeKind:'project',workspaceId:'',project,actor};
+    }
+    return {...raw,scopeKind:'identity',workspaceId:'',project:'',actor};
+  }
+
+  function scopeToken(s=scope){
+    if(!s)return 'identity:self';
+    if(s.scopeKind==='workspace'&&s.workspaceId)return `workspace:${s.workspaceId}`;
+    if(s.scopeKind==='project'&&s.project)return `project:${s.project}`;
+    return 'identity:self';
+  }
+
+  function opsUrl(s=scope,path=''){
+    if(s?.scopeKind==='workspace'&&s.workspaceId)return `/api/v1/workspaces/${encodeURIComponent(s.workspaceId)}/service-operations${path}`;
+    if(s?.scopeKind==='project'&&s.project)return `/api/v1/projects/${encodeURIComponent(s.project)}/service-operations${path}`;
+    return `/api/v1/account/service-operations${path}`;
+  }
+
+  function platformOpsUrl(s=scope,path=''){
+    if(s?.scopeKind==='project'&&s.project)return `/api/v1/projects/${encodeURIComponent(s.project)}/service-operations${path}`;
+    return `/api/v1/platform/service-operations${path}`;
+  }
+
+  function currentRevision(s=scope){
+    const tok=scopeToken(s);
+    if(scopeRevisions.has(tok))return scopeRevisions.get(tok);
+    if(data?.revision!=null)return data.revision;
+    return session().revision??0;
+  }
+
+  function recordRevision(rev,s=scope){
+    if(rev==null)return;
+    scopeRevisions.set(scopeToken(s),rev);
+    if(s?.scopeKind==='project'&&s.project)ctx.setRevision?.(rev,s.project);
+    else ctx.setRevision?.(rev,null);
+  }
+
+  const writable=()=>{
+    const sess=session();
+    if(!sess.actor||sess.actor!==scope?.actor)return false;
+    if(scope?.scopeKind==='project'&&scope.project){
+      return Boolean(sess.writable!==false)&&Boolean(!Array.isArray(data?.capabilities)||data.capabilities.includes('read'));
+    }
+    return Boolean(sess.writable??sess.writeAvailable??true);
+  };
+  const identity=s=>`${s?.actor||''}:${scopeToken(s)}`;
   const getDraft=(key,fallback='')=>{const k=identity(scope)+':'+key;return drafts.has(k)?drafts.get(k):fallback;};
   const setDraft=(key,val)=>{drafts.set(identity(scope)+':'+key,val);return val;};
+
+  function availableWorkspaces(){
+    const list=[],seen=new Set();
+    for(const w of ctx.workspaces?.()||[]){
+      const id=w.id||w.workspace_id;
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      list.push({id,name:w.name||w.workspace_name||id});
+    }
+    return list;
+  }
+
+  function availableProjects(){
+    const list=[],seen=new Set();
+    for(const p of ctx.projects?.()||[]){
+      if(!p?.id||p.unavailable||p.recycled_at||(p.storage_policy&&p.storage_policy!=='postgres-series-v1'))continue;
+      seen.add(p.id);
+      list.push({id:p.id,name:p.name||p.title||p.id});
+    }
+    if(scope?.project&&!seen.has(scope.project)){
+      list.push({id:scope.project,name:data?.project_name||scope.project});
+    }
+    return list;
+  }
+
+  function attachGovNav(headerEl){
+    headerEl.append(createGovernanceNav({
+      active:'service-operations',
+      returnContext:ctx.returnContext||null,
+      onSwitch:target=>ctx.onGovernanceNavigate?ctx.onGovernanceNavigate(target):ctx.navigate?.(target,null,scope?.project||null),
+      onReturn:ctx.onReturnContext||null,
+      doc:document
+    }));
+  }
+
+  function attachSettingsTriage(){
+    root.append(createSettingsTriageBanner({
+      active:'engine',
+      onNavigate:target=>{
+        if(ctx.onSettingsNavigate)return ctx.onSettingsNavigate(target);
+        if(target==='api-settings')return ctx.navigate?.('api-settings',null,scope?.project||null);
+        if(target==='settings')return ctx.navigate?.('settings',null,scope?.project||null);
+      },
+      doc:document
+    }));
+  }
 
   function button(label,fn,disabled=false,cls=''){
     const b=node('button',label,cls);b.type='button';b.disabled=disabled;
@@ -111,7 +228,13 @@ export function createServiceOperations(root,ctx){
     });
     return b;
   }
-  function box(title,parent=root,cls='service-operations-card'){const s=node('section',null,cls);s.append(node('h2',title));parent.append(s);return s;}
+  function box(title,parent=root,cls='service-operations-card',comp=null){
+    const s=node('section',null,cls);
+    if(comp)setComp(s,comp);
+    s.append(node('h2',title));
+    parent.append(s);
+    return s;
+  }
   function field(parent,title,key,type='text',fallback=''){
     const input=node(type==='textarea'?'textarea':'input');
     if(type!=='textarea')input.type=type;else input.rows=4;
@@ -195,19 +318,28 @@ export function createServiceOperations(root,ctx){
     resetScroll(true);
   }
 
-  async function write(path,payload,onSuccess){
+  async function write(path,payload,onSuccess,{targetUrl=null,expectedRev=null}={}){
     if(!writable())throw new Error('当前会话没有写入权限');
     if(busy)throw new Error('上一操作仍在处理中');
     busy=true;
-    const s=scope,t=ticket,key=identity(s)+path+JSON.stringify(payload);
-    const attempt=pending.get(key)||{key:crypto.randomUUID(),revision:session().revision};
+    const s=scope,t=ticket;
+    const resolvedUrl=targetUrl||opsUrl(s,path);
+    const key=identity(s)+resolvedUrl+JSON.stringify(payload);
+    const attempt=pending.get(key)||{key:crypto.randomUUID(),revision:expectedRev!=null?expectedRev:currentRevision(s)};
     pending.set(key,attempt);
     try{
-      const result=await ctx.api(url(s.project,path),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({payload,expected_revision:attempt.revision,idempotency_key:attempt.key})});
+      const result=await ctx.api(resolvedUrl,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},
+        body:JSON.stringify({payload,expected_revision:attempt.revision,idempotency_key:attempt.key})
+      });
       pending.delete(key);
       if(same(t,s)){
         const reload=onSuccess?await onSuccess(result):true;
-        ctx.setRevision(result.revision,s.project);
+        if(result?.revision!=null){
+          if(resolvedUrl.startsWith('/api/v1/platform/'))scopeRevisions.set('platform:ops',result.revision);
+          else recordRevision(result.revision,s);
+        }
         if(reload!==false)await load({...s,subview});
       }
       return result;
@@ -219,31 +351,142 @@ export function createServiceOperations(root,ctx){
     }
   }
 
-  async function closeAccount(row){
-    const s=scope,t=ticket,result=await ctx.api(url(s.project,'/account-close/preview'),{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},body:JSON.stringify({request_id:row.id})});
+  async function downloadPersonalExportZip(row,t,s){
+    const doFetch=ctx.fetch||(typeof fetch!=='undefined'?fetch:globalThis.fetch);
+    const exportId=row.export?.id;
+    if(!exportId||!doFetch)throw new Error('当前环境不支持导出文件下载');
+    const response=await doFetch(opsUrl(s,`/exports/${encodeURIComponent(exportId)}/content`),{
+      credentials:'same-origin',
+      headers:{'X-CSRF-Token':session().csrf}
+    });
+    if(response.status===410){
+      expiredExports.add(exportId);
+      if(same(t,s)){
+        ctx.notice('个人数据导出包已超过 24 小时有效期（410 export_expired），请点击“重新申请导出”生成最新快照。');
+        render();
+      }
+      return;
+    }
+    if(!response.ok)throw new Error('文件不可下载，请核对有效期与当前权限');
+    const blob=await response.blob();
     if(!same(t,s))return;
+    const href=URL.createObjectURL(blob),a=node('a');
+    a.href=href;a.download='personal-data.zip';a.click();
+    const timer=setTimeout(()=>URL.revokeObjectURL(href),1000);
+    timer?.unref?.();
+  }
+
+  async function closeAccount(row){
+    const s=scope,t=ticket;
+    const result=await ctx.api(opsUrl(s,'/account-close/preview'),{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},
+      body:JSON.stringify({request_id:row.id})
+    });
+    if(!same(t,s))return;
+    const previewSha=result.preview_sha256||result.sha256||'';
+    const blockers=Array.isArray(result.plan?.blockers)?result.plan.blockers:[];
     const dialog=node('dialog',null,'so-dialog');
+    setComp(dialog,'account-close-preview-dialog');
     bindAttribute(dialog,'aria-label',msg("ui.account_deactivation_impact"));
-    dialog.append(node('h2',msg("ui.account_deactivation_impact")),node('p',result.plan.effect));
-    for(const item of result.plan.blockers)dialog.append(node('p',(item.title?item.title+'：':'')+item.message));
+    dialog.append(
+      node('h2',msg("ui.account_deactivation_impact")),
+      node('p',result.plan?.effect||msg("ui.deactivating_your_local_account_revokes_login_and_access_credentials")),
+      node('p',`预览一致性摘要 (preview_sha256)：${previewSha||'—'}`,'so-close-sha')
+    );
+
+    const blockerBox=node('div',null,'so-close-blockers');
+    const renderBlockers=items=>{
+      blockerBox.replaceChildren();
+      blockerBox.hidden=!items.length;
+      if(!items.length)return;
+      blockerBox.append(node('strong',`检测到 ${items.length} 项停用前置阻断（须清零后方可执行本地停用）：`));
+      for(const item of items){
+        const rowEl=node('div',null,'so-close-blocker-item');
+        const prefix=[item.title,item.code,item.count!=null?`数量 ${item.count}`:''].filter(Boolean).join(' · ');
+        rowEl.append(node('span',(prefix?prefix+'：':'')+item.message));
+        if(item.target_section){
+          const targetPage=item.target_section==='teams'?'access':item.target_section==='usage'?'tasks':'commerce';
+          rowEl.append(button('前往处理 →',()=>{dialog.close();return ctx.navigate?.(targetPage,null,s.project||null);}));
+        }
+        blockerBox.append(rowEl);
+      }
+    };
+    renderBlockers(blockers);
+    dialog.append(blockerBox);
+
     const confirm=field(dialog,msg("ui.enter_the_current_operation_identity_to_confirm"),'close-confirm','text','');
     dialog.append(node('p',msg("ui.current_identity_value0",{value0:s.actor})));
-    dialog.append(button(msg("ui.deactivate_my_local_account"),async()=>{
+
+    const confirmCheck=node('input');confirmCheck.type='checkbox';
+    confirmCheck.checked=Boolean(getDraft('close-confirmed-flag',false));
+    confirmCheck.addEventListener('change',()=>setDraft('close-confirmed-flag',confirmCheck.checked));
+    bindAttribute(confirmCheck,'aria-label','确认已知晓账户停用不可逆影响');
+    const checkLine=node('label','我已逐项核对上述停用影响，确认吊销本地登录与 API 凭据（作品与商业账单审计历史保留）','so-checkbox-line');
+    checkLine.prepend(confirmCheck);
+    dialog.append(checkLine);
+
+    const errorLine=node('p',null,'so-drama-error');
+    dialog.append(errorLine);
+
+    const execBtn=button(msg("ui.deactivate_my_local_account"),async()=>{
       if(confirm.value!==s.actor)throw new Error('请准确输入当前操作身份');
-      await write('/account-close/execute',{request_id:row.id,preview_sha256:result.sha256,confirm_actor:confirm.value},async()=>{
-        dialog.close();secrets.delete(identity(s));keyAttempts.delete(identity(s));
-        root.replaceChildren(node('h1',msg("ui.local_account_deactivated")),node('p',msg("ui.login_and_api_credentials_have_been_revoked_works_billing")));
-        return false;
-      });
-    },!result.ready),button(msg("common.close"),()=>dialog.close()));
+      if(!confirmCheck.checked)throw new Error('请勾选确认已知晓账户停用不可逆影响');
+      try{
+        await write('/account-close/execute',{
+          request_id:row.id,
+          preview_sha256:previewSha,
+          confirm_actor:confirm.value,
+          confirmed:true
+        },async()=>{
+          dialog.close();secrets.delete(identity(s));keyAttempts.delete(identity(s));
+          root.replaceChildren(node('h1',msg("ui.local_account_deactivated")),node('p',msg("ui.login_and_api_credentials_have_been_revoked_works_billing")));
+          return false;
+        });
+      }catch(err){
+        if(err.status===409||err.code==='account_close_changed'||err.code==='account_close_blocked'){
+          const nextBlockers=err.details?.blockers||err.blockers||[];
+          if(nextBlockers.length){
+            renderBlockers(nextBlockers);
+            execBtn.disabled=true;
+          }
+          setText(errorLine,err.message||'停用核验快照已变化或存在未结清阻断项，请重新预览确认。');
+          return;
+        }
+        throw err;
+      }
+    },!result.ready||blockers.length>0,'so-btn-primary');
+
+    dialog.append(execBtn,button(msg("common.close"),()=>dialog.close()));
     dialog.addEventListener('close',()=>dialog.remove(),{once:true});
     root.append(dialog);dialog.showModal();
   }
 
   function renderApiKeyBlock(parent,s,{requireCompliance=false}={}){
+    if(!s.project){
+      parent.append(node('p','vsc-engine OpenAPI Key 为严格受限的单项目 Bearer 凭据（拒绝跨项目或后台管理权限）。请选择目标项目以签发或吊销其专属 API Key：','hint'));
+      const projs=availableProjects();
+      if(projs.length){
+        const pickBar=node('div',null,'service-operations-actions');
+        const projSel=node('select');
+        bindAttribute(projSel,'aria-label','选择签发 API Key 的目标项目');
+        projSel.append(localizedOption('','请选择可读项目…'));
+        for(const p of projs)projSel.append(localizedOption(p.id,p.name));
+        projSel.addEventListener('change',()=>{if(projSel.value)return load({project:projSel.value,subview});});
+        pickBar.append(projSel);
+        parent.append(pickBar);
+      }else{
+        parent.append(
+          node('p','当前账号下尚无项目；个人额度与账单可正常查看，创建首个短剧项目后即可在此签发项目级 OpenAPI 凭据。','hint'),
+          button('前往工作台创建项目 →',()=>ctx.navigate?.('home',null,null))
+        );
+      }
+      return;
+    }
     parent.append(node('p',msg("ui.for_the_dedicated_api_below_only_cannot_sign_in"),'hint'));
     const keyName=field(parent,msg("ui.api_credential_name"),'key-name');
-    const cap=select(parent,'API 能力',[['read','只读任务与用量'],...(data.capabilities.includes('execute')?[['execute','读取及执行已批准运行']]:[])],'key-cap');
+    const caps=Array.isArray(data.capabilities)?data.capabilities:['read'];
+    const cap=select(parent,'API 能力',[['read','只读任务与用量'],...(caps.includes('execute')?[['execute','读取及执行已批准运行']]:[])],'key-cap');
     const expiry=field(parent,msg("ui.api_expiry_time_with_timezone"),'key-expiry','text',new Date(Date.now()+30*86400000).toISOString());
     const networks=field(parent,msg("ui.allowed_ips_or_cidrs_one_per_line_empty_means"),'key-networks','textarea');
     const rate=field(parent,msg("ui.requests_per_minute_0_means_unrestricted"),'key-rate','number','60');
@@ -258,6 +501,7 @@ export function createServiceOperations(root,ctx){
       line.prepend(usageCheck);
       parent.append(line);
     }
+    const targetApiUrl=`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/api-keys`;
     parent.append(button(msg("ui.create_and_register_api_credential"),async()=>{
       if(requireCompliance&&!usageCheck?.checked)throw new Error('请先确认 vsc-engine API 凭据使用说明');
       const selected={name:keyName.value,capabilities:cap.value==='execute'?['read','execute']:['read'],expires_at:expiry.value,ip_allowlist:networks.value.split(/[\n,]/).map(v=>v.trim()).filter(Boolean),requests_per_minute:Number(rate.value)};
@@ -269,17 +513,17 @@ export function createServiceOperations(root,ctx){
         attempt={signature,payload:{...selected,secret}};
         keyAttempts.set(identity(s),attempt);
       }
-      await write('/api-keys',attempt.payload,()=>{secrets.set(identity(s),attempt.payload.secret);keyAttempts.delete(identity(s));});
+      await write('/api-keys',attempt.payload,()=>{secrets.set(identity(s),attempt.payload.secret);keyAttempts.delete(identity(s));},{targetUrl:targetApiUrl});
     },!writable()));
     if(secrets.has(identity(s))){
       const secret=node('input');secret.readOnly=true;secret.value=secrets.get(identity(s));
       bindAttribute(secret,'aria-label',msg("ui.new_api_credential_visible_on_this_page_only"));
       parent.append(node('p',msg("ui.save_this_credential_yourself_the_server_stores_only_its")),secret,button('复制新凭据',async()=>{await clipWrite(secret.value);ctx.notice('已复制新生成的 API 凭据');}),button(msg("ui.hide_this_credential"),()=>{secrets.delete(identity(s));render();}));
     }
-    for(const key of data.api_keys){
+    for(const key of data.api_keys||[]){
       const row=node('div',null,'service-operations-actions');
       row.append(node('span',msg("ui.value0_value1_value2_value3_ip_value4_value5_requests_minute",{value0:key.name,value1:key.prefix,value2:key.capabilities.join('/'),value3:key.revoked?msg("ui.revoked"):new Date(key.expires_at).toLocaleString(),value4:key.ip_allowlist?.join(', ')||msg("ui.unlimited"),value5:key.requests_per_minute||msg("ui.unlimited")})));
-      if(!key.revoked)row.append(button(msg("ui.revoke_api_credential_value0",{value0:key.name}),()=>write('/api-keys/revoke',{key_id:key.id}),!writable()));
+      if(!key.revoked)row.append(button(msg("ui.revoke_api_credential_value0",{value0:key.name}),()=>write('/api-keys/revoke',{key_id:key.id},null,{targetUrl:`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/api-keys/revoke`}),!writable()));
       parent.append(row);
     }
   }
@@ -311,7 +555,10 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderEngine(s){
+    setComp(root,'section-open-api');
     const overview=data.engine_overview||{credit_balance:0,total_consumed_credits:0,ledger_records:[],recharge_orders:[],reservations:[],recent_jobs:[],member_usage:[]};
+    const apiKeys=data.api_keys||[];
+    const apiCalls=data.api_calls||[];
     const head=node('header',null,'so-hero-bar so-standalone-head');
     const titleWrap=node('div');
     titleWrap.append(node('h1','vsc-engine'),node('p','vsc-engine 是 VSC 创作工作台（vsc-workflow）的项目开放接口，用于查询生成任务、查看原生用量，以及预览或执行已确认的制作运行方案。','hint'));
@@ -320,14 +567,15 @@ export function createServiceOperations(root,ctx){
     actions.append(
       button('管理 API Key',()=>{
         if(keysDrawer)keysDrawer.open=true;
-        const target=root.querySelector('.so-engine-keys input');
+        const target=keysDrawer?.querySelector('input');
         target?.focus?.();
       },false,'so-btn-primary'),
       button('API 文档',()=>openModal('vsc-engine 开放接口文档',(body)=>{
         body.append(node('p','VSC 创作工作台（vsc-workflow）专用接口。使用本工作台签发的项目级 Bearer 凭据；API Key 仅授予登记的项目和能力，不用于站内登录。'));
         body.append(node('p',data.api_catalog?.execution_contract||'制作执行复用原队列、原报价和项目预算；查询接口不会启动生成。'));
+        const projPlaceholder=s.project||'<project_id>';
         const examples=node('pre');
-        setText(examples,msg("ui.get_api_v1_service_api_projects_value0_jobs_get",{value0:s.project,value1:s.project,value2:s.project,value3:s.project}));
+        setText(examples,msg("ui.get_api_v1_service_api_projects_value0_jobs_get",{value0:projPlaceholder,value1:projPlaceholder,value2:projPlaceholder,value3:projPlaceholder}));
         body.append(examples,button(msg("ui.copy_api_example"),()=>clipWrite(examples.textContent)));
         for(const op of data.api_catalog?.operations||[]){
           body.append(node('p',`${op.method} ${op.path} · 权限：${op.capability}${op.constraint?' · '+op.constraint:''}`));
@@ -342,26 +590,29 @@ export function createServiceOperations(root,ctx){
       renderQuickSwitch(s)
     );
     head.append(titleWrap,actions);
+    attachGovNav(head);
     root.append(head);
+    attachSettingsTriage();
 
     const acctCard=node('section',null,'service-operations-card so-engine-overview-card');
+    setComp(acctCard,'engine-unified-credit-card');
     const acctHead=node('div',null,'so-hero-bar');
     const acctRight=node('div',null,'service-operations-actions');
     acctRight.append(
       node('span','额度单位：商业信用','hint'),
-      button('充值',()=>ctx.navigate?.('commerce','wallet',s.project),false,'so-btn-primary')
+      button('充值',()=>ctx.navigate?.('commerce','wallet',s.project||null),false,'so-btn-primary')
     );
-    acctHead.append(node('h2','当前项目额度与调用'),acctRight);
-    acctCard.append(acctHead,node('p','商业信用来自当前项目账本，不等同于人民币或供应商实际账单；实际充值金额以订单为准。','hint'));
+    acctHead.append(node('h2',s.project?'当前项目额度与调用':'当前个人钱包额度与调用'),acctRight);
+    acctCard.append(acctHead,node('p','商业信用来自对应显式资金池账本，不等同于人民币或供应商实际账单；实际充值金额以订单为准。','hint'));
     summaryGrid(acctCard,[
-      ['可用商业信用',`${overview.credit_balance||0} 信用`,`当前项目可用额度 · 已激活凭据 ${data.api_keys.filter(k=>!k.revoked).length} 枚`],
-      ['近期预留与结算',`${overview.total_consumed_credits||0} 信用`,`近期任务额度汇总，含在途预留 · 已记录接口调用 ${data.api_calls.length} 次`]
+      ['可用商业信用',`${overview.credit_balance||0} 信用`,`${s.project?'当前项目可用额度':'个人钱包可用额度'} · 已激活凭据 ${apiKeys.filter(k=>!k.revoked).length} 枚`],
+      ['近期预留与结算',`${overview.total_consumed_credits||0} 信用`,`近期任务额度汇总，含在途预留 · 已记录接口调用 ${apiCalls.length} 次`]
     ]);
     root.append(acctCard);
 
     keysDrawer=node('details',null,'service-operations-card so-engine-keys');
-    if(secrets.has(identity(s))||keyAttempts.has(identity(s)))keysDrawer.open=true;
-    keysDrawer.append(node('summary',`API Key 凭据签发与吊销（有效凭据 ${data.api_keys.filter(k=>!k.revoked).length} 枚 · 点击展开管理）`));
+    if(!s.project||secrets.has(identity(s))||keyAttempts.has(identity(s)))keysDrawer.open=true;
+    keysDrawer.append(node('summary',`API Key 凭据签发与吊销（有效凭据 ${apiKeys.filter(k=>!k.revoked).length} 枚 · 点击展开管理）`));
     renderApiKeyBlock(keysDrawer,s,{requireCompliance:true});
     root.append(keysDrawer);
 
@@ -377,7 +628,7 @@ export function createServiceOperations(root,ctx){
     const filterRow=node('div',null,'so-filter-bar');
     const startInput=field(filterRow,'开始日期','engine-date-start','date','');
     const endInput=field(filterRow,'结束日期','engine-date-end','date','');
-    const keyFilter=select(filterRow,'API Key 筛选',[['','全部 API Key'],...data.api_keys.map(k=>[k.id,`${k.name} (${k.prefix})`])],'engine-filter-key','');
+    const keyFilter=select(filterRow,'API Key 筛选',[['','全部 API Key'],...apiKeys.map(k=>[k.id,`${k.name} (${k.prefix})`])],'engine-filter-key','');
     const statusFilter=select(filterRow,'状态筛选',engineTab==='consumption'
       ?[['','全部状态'],['reserve','预留 (reserve)'],['settle','结算 (settle)'],['grant','发放 (grant)'],['200','HTTP 200']]
       :[['','全部状态'],['paid','已支付 (paid)'],['pending','待处理 (pending)'],['refunded','已退款 (refunded)']],'engine-filter-status','');
@@ -398,9 +649,14 @@ export function createServiceOperations(root,ctx){
     const exportCsvBtn=button('导出全部 (CSV)',()=>{
       const q=qInput.value.trim().toLowerCase(),st=statusFilter.value;
       const lines=engineTab==='consumption'
-        ?[['时间','类型','额度变动','关联预留/调用'],...overview.ledger_records.filter(r=>inDateRange(r.created_at)&&(!st||r.kind===st)&&(!q||`${r.kind} ${r.reservation_id||''}`.toLowerCase().includes(q))).map(r=>[r.created_at,r.kind,r.delta,r.reservation_id||''])]
-        :[['创建时间','订单编号','状态','金额(分)','币种','信用额度'],...overview.recharge_orders.filter(r=>inDateRange(r.created_at)&&(!st||r.status===st)&&(!q||`${r.id} ${r.status}`.toLowerCase().includes(q))).map(r=>[r.created_at,r.id,r.status,r.amount_minor,r.currency,r.credits])];
-      const csv=lines.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n');
+        ?[['时间','类型','额度变动','关联预留/调用'],...(overview.ledger_records||[]).filter(r=>inDateRange(r.created_at)&&(!st||r.kind===st)&&(!q||`${r.kind} ${r.reservation_id||''}`.toLowerCase().includes(q))).map(r=>[r.created_at,r.kind,r.delta,r.reservation_id||''])]
+        :[['创建时间','订单编号','状态','金额(分)','币种','信用额度'],...(overview.recharge_orders||[]).filter(r=>inDateRange(r.created_at)&&(!st||r.status===st)&&(!q||`${r.id} ${r.status}`.toLowerCase().includes(q))).map(r=>[r.created_at,r.id,r.status,r.amount_minor,r.currency,r.credits])];
+      const safeCell=v=>{
+        const str=String(v??'');
+        const prefixed=/^[=+\-@\t\r]/.test(str.trimStart())?`'${str}`:str;
+        return `"${prefixed.replaceAll('"','""')}"`;
+      };
+      const csv=lines.map(r=>r.map(safeCell).join(',')).join('\n');
       setDraft('last-exported-csv',csv);
       ctx.notice(`已生成 ${lines.length-1} 条 ${engineTab==='consumption'?'消费明细':'充值记录'} CSV 导出内容`);
     });
@@ -410,7 +666,7 @@ export function createServiceOperations(root,ctx){
 
     const q=qInput.value.trim().toLowerCase(),st=statusFilter.value,kf=keyFilter.value;
     if(engineTab==='consumption'){
-      const ledgerRows=overview.ledger_records.filter(r=>inDateRange(r.created_at)&&(!st||st==='200'||r.kind===st)&&(!q||`${r.kind} ${r.reservation_id||''} ${r.actor||''}`.toLowerCase().includes(q)));
+      const ledgerRows=(overview.ledger_records||[]).filter(r=>inDateRange(r.created_at)&&(!st||st==='200'||r.kind===st)&&(!q||`${r.kind} ${r.reservation_id||''} ${r.actor||''}`.toLowerCase().includes(q)));
       table(billBox,['记录时间','账本动作','额度变动','操作身份','关联任务预留'],ledgerRows.map(r=>[
         r.created_at?new Date(r.created_at).toLocaleString():'—',
         r.kind,
@@ -418,18 +674,18 @@ export function createServiceOperations(root,ctx){
         r.actor||'—',
         r.reservation_id||'—'
       ]));
-      table(billBox,['API 调用编号','开放操作','阶段','HTTP 状态码','记录时间'],data.api_calls.filter(c=>inDateRange(c.created_at)&&(!kf||c.key_id===kf)&&(!st||String(c.status_code)===st||!['200'].includes(st))&&(!q||`${c.call_id} ${c.operation} ${c.status_code}`.toLowerCase().includes(q))).map(c=>[
+      table(billBox,['API 调用编号','开放操作','阶段','HTTP 状态码','记录时间'],apiCalls.filter(c=>inDateRange(c.created_at)&&(!kf||c.key_id===kf)&&(!st||String(c.status_code)===st||!['200'].includes(st))&&(!q||`${c.call_id} ${c.operation} ${c.status_code}`.toLowerCase().includes(q))).map(c=>[
         c.call_id,c.operation,c.phase,String(c.status_code),new Date(c.created_at).toLocaleString()
       ]));
     }else{
-      const orders=overview.recharge_orders.filter(r=>inDateRange(r.created_at)&&(!st||r.status===st)&&(!q||`${r.id} ${r.status} ${r.currency}`.toLowerCase().includes(q)));
+      const orders=(overview.recharge_orders||[]).filter(r=>inDateRange(r.created_at)&&(!st||r.status===st)&&(!q||`${r.id} ${r.status} ${r.currency}`.toLowerCase().includes(q)));
       table(billBox,['订单编号','状态','金额','购买信用额度','支付时间','操作'],orders.map(o=>[
         o.id,
         o.status,
         `${o.amount_minor} ${o.currency}`,
         String(o.credits),
         o.paid_at?new Date(o.paid_at).toLocaleString():'未支付',
-        button('前往钱包/开票',()=>ctx.navigate?.('commerce','invoice-orders',s.project))
+        button('前往钱包/开票',()=>ctx.navigate?.('commerce','invoice-orders',s.project||null))
       ]));
     }
   }
@@ -441,7 +697,7 @@ export function createServiceOperations(root,ctx){
       button('账户余额',()=>switchSubview('engine')),
       button('账单明细 →',()=>{engineTab='consumption';switchSubview('engine');}),
       button('密钥管理 →',()=>switchSubview('engine')),
-      button('电子发票 →',()=>ctx.navigate?.('commerce','invoice-overview',s.project)),
+      button('电子发票 →',()=>ctx.navigate?.('commerce','invoice-overview',s.project||null)),
       renderQuickSwitch(s)
     );
     const bannerInfo=node('div',null,'so-engine-banner-title');
@@ -452,6 +708,7 @@ export function createServiceOperations(root,ctx){
       node('span',`查看额度、消费与充值记录，管理 API Key · 当前可用额度：${overview.credit_balance} 信用 · 近期预留与结算：${overview.total_consumed_credits} 信用`)
     );
     banner.append(bannerInfo,bannerActions);
+    attachGovNav(banner);
     root.append(banner);
 
     const modeBar=node('div',null,'so-segmented');
@@ -466,17 +723,17 @@ export function createServiceOperations(root,ctx){
     if(recordsMode==='studio'&&data.manage){
       const studioBox=box('团队成员消耗与项目单集成本核算表');
       summaryGrid(studioBox,[
-        ['活跃消耗成员数',`${overview.member_usage.length} 人`,'按真实预留/结算账户汇总'],
+        ['活跃消耗成员数',`${(overview.member_usage||[]).length} 人`,'按真实预留/结算账户汇总'],
         ['项目累计消耗',`${overview.total_consumed_credits} 信用`,'含已结算与在途预留额度'],
-        ['生成任务总数',`${overview.recent_jobs.length} 项`,'覆盖图像 / 视频 / 音频候选'],
+        ['生成任务总数',`${(overview.recent_jobs||[]).length} 项`,'覆盖图像 / 视频 / 音频候选'],
         ['预算透支保护','数据库强约束','禁止负余额与超上限扣减']
       ]);
-      table(studioBox,['成员身份 / 账户池','预留任务笔数','累计消耗信用','操作'],overview.member_usage.map(m=>[
+      table(studioBox,['成员身份 / 账户池','预留任务笔数','累计消耗信用','操作'],(overview.member_usage||[]).map(m=>[
         m.actor,
         String(m.reservation_count),
         String(m.credits_used),
         button('查看任务明细',()=>openModal(`${m.actor} · 消耗明细`,(body)=>{
-          const mine=overview.reservations.filter(r=>(r.account_actor||'项目公共池')===m.actor);
+          const mine=(overview.reservations||[]).filter(r=>(r.account_actor||'项目公共池')===m.actor);
           table(body,['任务编号','预留信用','实际结算','状态','时间'],mine.map(r=>[
             r.job_id,String(r.bound),String(r.actual??'待结算'),r.status,r.created_at?new Date(r.created_at).toLocaleString():'—'
           ]));
@@ -498,15 +755,15 @@ export function createServiceOperations(root,ctx){
     const tabTitle={jobs:'最近创作',requests:'我的收藏与服务记录',ledger:'账户流水'}[recordsTab]||'个人数据记录';
     contentBox.append(node('h2',tabTitle));
     if(recordsTab==='jobs'){
-      table(contentBox,['任务编号','模态','用途','模型版本','状态','更新时间'],overview.recent_jobs.map(j=>[
+      table(contentBox,['任务编号','模态','用途','模型版本','状态','更新时间'],(overview.recent_jobs||[]).map(j=>[
         j.id,j.modality,j.purpose,j.model_version,j.status,j.updated_at?new Date(j.updated_at).toLocaleString():'—'
       ]));
     }else if(recordsTab==='requests'){
-      table(contentBox,['记录编号','类型','标题','当前状态','提交时间'],data.requests.map(r=>[
+      table(contentBox,['记录编号','类型','标题','当前状态','提交时间'],(data.requests||[]).map(r=>[
         r.id,names[r.kind]||r.kind,r.title,statuses[r.status]||r.status,r.events?.[0]?.created_at?new Date(r.events[0].created_at).toLocaleString():'—'
       ]));
     }else{
-      table(contentBox,['记录时间','动作类型','额度变动','关联任务预留'],overview.ledger_records.map(r=>[
+      table(contentBox,['记录时间','动作类型','额度变动','关联任务预留'],(overview.ledger_records||[]).map(r=>[
         r.created_at?new Date(r.created_at).toLocaleString():'—',r.kind,String(r.delta),r.reservation_id||'—'
       ]));
     }
@@ -519,9 +776,10 @@ export function createServiceOperations(root,ctx){
     const brandBar=node('div',null,'service-operations-actions');
     brandBar.append(
       button('← VSC 创作工作台',()=>ctx.navigate?.('home'),'','so-cobrand-pill'),
-      node('span','VSC 创作工作台 · 项目任务回执核对','so-cobrand-pill')
+      node('span',s.project?'VSC 创作工作台 · 项目任务回执核对':'VSC 创作工作台 · 跨可读项目任务回执核对','so-cobrand-pill')
     );
     topBar.append(brandBar,renderQuickSwitch(s));
+    attachGovNav(topBar);
     root.append(topBar);
 
     const sourceBanner=node('section',null,'service-operations-card so-verify-source');
@@ -536,6 +794,7 @@ export function createServiceOperations(root,ctx){
     shell.append(node('h1','Seedance 任务核验','so-verify-heading'));
 
     const card=node('section',null,'service-operations-card so-verify-shell');
+    setComp(card,'operations-seedance-verify-card');
     card.append(node('p','输入任务 ID，查看这次生成实际调用的是哪个模型','so-verify-subtitle'));
 
     const queryTaskId=typeof location!=='undefined'&&location?.search?new URLSearchParams(location.search).get('task_id')||'':'';
@@ -545,13 +804,16 @@ export function createServiceOperations(root,ctx){
     inputRow.append(button('立即核验任务回执',async()=>{
       const check=validateSeedanceTaskId(taskInput.value);
       if(!check.valid)throw new Error(check.message);
-      if(!s.project||!session().actor){
+      if(!session().actor){
         const tos=tosInput.value.trim()?parseTosSignedUrl(tosInput.value.trim()):null;
-        seedanceResult={verified:false,task_id:check.normalized,is_seedance_hex16:check.isHex16,credits_consumed:0,co_brand:'VSC 创作工作台 · 项目任务回执核对',job:null,tos_signature:tos,message:'任务编号格式校验通过；当前为未登录浏览态，登录并关联项目后可查询原始生成回执（零积分消耗）。'};
+        seedanceResult={verified:false,task_id:check.normalized,is_seedance_hex16:check.isHex16,credits_consumed:0,co_brand:'VSC 创作工作台 · 任务回执核对',job:null,tos_signature:tos,message:'任务编号格式校验通过；当前为未登录浏览态，登录后可跨可读项目查询原始生成回执（零积分消耗）。'};
         render();
         return;
       }
-      const res=await ctx.api(url(s.project,'/seedance-verify'),{
+      const verifyUrl=s.project
+        ?`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/seedance-verify`
+        :'/api/v1/account/service-operations/seedance-verify';
+      const res=await ctx.api(verifyUrl,{
         method:'POST',
         headers:{'Content-Type':'application/json','X-CSRF-Token':session().csrf},
         body:JSON.stringify({payload:{task_id:check.normalized,...(tosInput.value.trim()?{tos_url:tosInput.value.trim()}:{})}})
@@ -592,7 +854,7 @@ export function createServiceOperations(root,ctx){
         node('p',seedanceResult.message)
       );
       summaryGrid(resBox,[
-        ['核验来源',seedanceResult.co_brand||'VSC 创作工作台 · 项目任务回执核对','当前项目原始回执'],
+        ['核验来源',seedanceResult.co_brand||'VSC 创作工作台 · 任务回执核对',seedanceResult.project_name||seedanceResult.project_id||'跨可读项目只读匹配'],
         ['查询任务号',seedanceResult.task_id,seedanceResult.is_seedance_hex16?'标准 16 位十六进制':'本地任务 UUID'],
         ['本次消耗积分',String(seedanceResult.credits_consumed??0),'只读查询零扣费'],
         ['实际调用模型 / 本地状态',seedanceResult.job?`${seedanceResult.job.model_version||'seedance'} · ${seedanceResult.job.status}`:'未命中本地记录','未触发任何远端生成']
@@ -616,19 +878,25 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderFeedbackRecords(t,s){
-    const filters=s.feedback,managing=filters.scope==='manage';
+    const filters=s.feedback||{scope:'mine',status:'all',query:'',category:'',offset:0,limit:24};
+    const managing=filters.scope==='manage';
     root.dataset.feedbackScope=filters.scope;
     const categories={feature:'功能建议',quality:'生成效果与模型',billing:'账单与电子发票',ux:'界面与操作体验',bug:'异常报错'};
     const reload=changes=>load({...s,subview:'feedback-records',feedback:{...filters,...changes}});
     const head=node('header',null,'so-hero-bar so-standalone-head');
     const titleWrap=node('div');
-    titleWrap.append(node('h1',managing?'反馈管理':'我的意见反馈'),node('p',managing?'查看并处理当前项目成员提交的反馈。':'查看本人在当前项目的反馈进度，或提交新的问题和建议。','hint'));
+    titleWrap.append(
+      node('h1',managing?'反馈管理':'我的意见反馈'),
+      node('p',managing?(s.project?'查看并处理当前项目成员提交的反馈。':'查看并处理平台范围内提交的意见反馈。'):(s.project?'查看本人在当前项目的反馈进度，或提交新的问题和建议。':'零项目直通：查看本人提交的全部反馈进度，或直接提交无项目/关联项目意见反馈。'),'hint')
+    );
     const headActions=node('div',null,'service-operations-actions');
     headActions.append(
       button(feedbackDrawerOpen?'收起反馈表单':'⊕ 提交新反馈',()=>{feedbackDrawerOpen=!feedbackDrawerOpen;render();},!writable(),'so-btn-primary'),
       renderQuickSwitch(s)
     );
-    head.append(titleWrap,headActions);root.append(head);
+    head.append(titleWrap,headActions);
+    attachGovNav(head);
+    root.append(head);
     if(data.manage){
       const modes=node('nav',null,'service-operations-actions');
       bindAttribute(modes,'aria-label','反馈查看范围');
@@ -641,6 +909,28 @@ export function createServiceOperations(root,ctx){
     if(feedbackDrawerOpen){
       const drawer=box('提交新意见反馈',root,'service-operations-card so-feedback-drawer');
       const defaultPage=typeof location!=='undefined'&&location?.pathname?location.pathname+location.search:'/feedback/records';
+      const projs=availableProjects();
+      const targetProjSelect=select(drawer,'关联项目（选填）',[['','不关联具体项目（个人零项目反馈）'],...projs.map(p=>[p.id,p.name])],'fb-target-project',s.project||'');
+      const artifactSelect=select(drawer,'关联内容版本（选填）',[['','不关联内容版本']],'fb-artifact','');
+      const mediaSelect=select(drawer,'关联素材（选填）',[['','不关联素材']],'fb-media','');
+      const syncLinkedRefs=pid=>{
+        artifactSelect.parentElement.hidden=!pid;
+        mediaSelect.parentElement.hidden=!pid;
+        if(!pid){artifactSelect.value='';mediaSelect.value='';return;}
+        ctx.api(`/api/v1/projects/${encodeURIComponent(pid)}/artifacts`).then(res=>{
+          if(!same(t,s)||targetProjSelect.value!==pid)return;
+          artifactSelect.replaceChildren(localizedOption('','不关联内容版本'));
+          for(const row of res.items||[])artifactSelect.append(localizedOption(row.id,joinMessages([row.artifact_key||row.artifact_type,' · v',row.version])));
+        }).catch(()=>{});
+        ctx.api(`/api/v1/projects/${encodeURIComponent(pid)}/media?limit=50`).then(res=>{
+          if(!same(t,s)||targetProjSelect.value!==pid)return;
+          mediaSelect.replaceChildren(localizedOption('','不关联素材'));
+          for(const row of res.items||[])mediaSelect.append(localizedOption(row.id,row.name));
+        }).catch(()=>{});
+      };
+      targetProjSelect.addEventListener('change',()=>syncLinkedRefs(targetProjSelect.value));
+      syncLinkedRefs(targetProjSelect.value);
+
       const pageChannel=field(drawer,'提交页面 / 功能模块','fb-channel','text',getDraft('fb-channel',defaultPage));
       const category=select(drawer,'反馈分类',Object.entries(categories),'fb-category','feature');
       const fbTitle=field(drawer,'反馈标题','fb-title','text','');
@@ -648,19 +938,32 @@ export function createServiceOperations(root,ctx){
       const fbContact=field(drawer,'联系邮箱或飞书/手机号（选填）','fb-contact','text','');
       const drawerActions=node('div',null,'service-operations-actions');
       drawerActions.append(
-        button('提交反馈记录',()=>write('/requests',{
-          kind:'feedback',feedback_category:category.value,title:fbTitle.value,body:fbBody.value,
-          contact:fbContact.value,channel:pageChannel.value||'/feedback/records',artifact_id:null,media_id:null,requested_fields:[]
-        },()=>{
-          feedbackDrawerOpen=false;setDraft('fb-title','');setDraft('fb-body','');
-          s.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24};
-          ctx.notice('反馈已提交');
-        }),!writable(),'so-btn-primary'),
+        button('提交反馈记录',()=>{
+          const chosenPid=targetProjSelect.value||'';
+          const postUrl=chosenPid
+            ?`/api/v1/projects/${encodeURIComponent(chosenPid)}/service-operations/requests`
+            :'/api/v1/account/service-operations/requests';
+          return write('/requests',{
+            kind:'feedback',
+            feedback_category:category.value,
+            title:fbTitle.value,
+            body:fbBody.value,
+            contact:fbContact.value,
+            channel:pageChannel.value||'/feedback/records',
+            artifact_id:chosenPid?(artifactSelect.value||null):null,
+            media_id:chosenPid?(mediaSelect.value||null):null,
+            requested_fields:[]
+          },()=>{
+            feedbackDrawerOpen=false;setDraft('fb-title','');setDraft('fb-body','');
+            s.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24};
+            ctx.notice('反馈已提交');
+          },{targetUrl:postUrl});
+        },!writable(),'so-btn-primary'),
         button('取消',()=>{feedbackDrawerOpen=false;render();})
       );
       drawer.append(drawerActions);
     }
-    const listBox=box('反馈记录',root,'service-operations-card so-feedback-list');
+    const listBox=box('反馈记录',root,'service-operations-card so-feedback-list','operations-feedback-card');
     const toolbarRow=node('div',null,'so-filter-bar');
     const searchInput=field(toolbarRow,'搜索反馈编号或内容','fb-search','search',filters.query);
     searchInput.value=filters.query;
@@ -676,9 +979,10 @@ export function createServiceOperations(root,ctx){
       const b=button(label,()=>reload({status:code,offset:0}));
       b.setAttribute('aria-pressed',String(filters.status===code));tabBar.append(b);
     }
-    listBox.append(tabBar,node('p',`共 ${data.total} 条反馈`,'hint'));
+    const totalCount=data.total??(data.items||[]).length;
+    listBox.append(tabBar,node('p',`共 ${totalCount} 条反馈`,'hint'));
     const headers=['反馈编号','反馈内容','分类',...(managing?['提交人']:[]),'状态','提交时间','提交页面','操作'];
-    const feedbackFrame=table(listBox,headers,data.items.map(row=>{
+    const feedbackFrame=table(listBox,headers,(data.items||[]).map(row=>{
       const actions=node('div',null,'service-operations-actions');
       actions.append(button('查看详情',()=>openModal(`反馈详情 · ${row.title}`,(body)=>{
         body.append(node('p',`编号：${row.id}`),node('p',`分类：${categories[row.feedback_category]||'未分类'}`),
@@ -687,11 +991,15 @@ export function createServiceOperations(root,ctx){
         for(const ev of row.events||[])body.append(node('p',`${new Date(ev.created_at).toLocaleString()} · ${statuses[ev.status]||ev.status} · ${ev.reason}`));
       })));
       const last=row.events?.at(-1),terminal=['withdrawn','rejected','export_ready','account_closed'].includes(row.status);
-      if(row.mine&&!terminal&&last)actions.append(button('撤回',()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'用户主动撤回反馈'}),!writable()));
+      if(row.mine&&!terminal&&last){
+        const withdrawUrl=row.project_id&&!s.project?`/api/v1/projects/${encodeURIComponent(row.project_id)}/service-operations/requests/withdraw`:null;
+        actions.append(button('撤回',()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'用户主动撤回反馈'},null,{targetUrl:withdrawUrl}),!writable()));
+      }
       if(managing&&data.manage&&!terminal&&last)actions.append(button('处理反馈',()=>openModal('处理反馈 · '+row.title,(body,dialog)=>{
         const status=select(body,'处理状态',[['under_review','处理中'],['local_approved','已审核'],['rejected','退回并关闭']],'fb-status:'+row.id,'under_review');
         const reason=field(body,'处理说明','fb-reason:'+row.id,'textarea','');
-        body.append(button('保存处理记录',()=>write('/requests/process',{request_id:row.id,base_event_id:last.id,status:status.value,reason:reason.value},()=>dialog.close()),!writable()));
+        const processUrl=s.project?opsUrl(s,'/requests/process'):platformOpsUrl(s,'/requests/process');
+        body.append(button('保存处理记录',()=>write('/requests/process',{request_id:row.id,base_event_id:last.id,status:status.value,reason:reason.value},()=>dialog.close(),{targetUrl:processUrl}),!writable()));
       })));
       const identifier=node('code',row.id.slice(0,8),'so-feedback-id');identifier.title=row.id;
       const summary=node('div',null,'so-feedback-summary');summary.append(node('strong',row.title),node('p',row.body.slice(0,120)));
@@ -705,7 +1013,7 @@ export function createServiceOperations(root,ctx){
     const widths=node('colgroup');
     for(const key of ['id','summary','category',...(managing?['requester']:[]),'status','time','page','actions'])widths.append(node('col',null,'so-feedback-col-'+key));
     feedbackTable.prepend(widths);
-    if(!data.items.length)listBox.append(node('p',data.total?'这一页暂无记录，请返回上一页。':'暂无符合条件的反馈记录。','so-empty-state'));
+    if(!(data.items||[]).length)listBox.append(node('p',totalCount?'这一页暂无记录，请返回上一页。':'暂无符合条件的反馈记录。','so-empty-state'));
     const pages=node('nav',null,'service-operations-actions');bindAttribute(pages,'aria-label','反馈分页');
     pages.append(button('上一页',()=>reload({offset:Math.max(0,filters.offset-filters.limit)}),filters.offset===0),
       node('span',`第 ${Math.floor(filters.offset/filters.limit)+1} 页`),
@@ -774,9 +1082,10 @@ export function createServiceOperations(root,ctx){
         const status=select(management,'处理状态',[['under_review','内部处理中'],['awaiting_configuration','待对接'],['local_approved','内部审核通过'],['rejected','已退回']],'drama-status-'+row.id,'under_review');
         const reason=field(management,'处理说明','drama-reason-'+row.id,'textarea');reason.maxLength=3000;
         const error=node('p',null,'so-drama-error');error.setAttribute('role','alert');
+        const processUrl=s.scopeKind==='identity'?platformOpsUrl(s,'/requests/process'):opsUrl(s,'/requests/process');
         management.append(error,button('保存处理记录',async()=>{
           if(!reason.value.trim()){setText(error,'请填写处理说明。');reason.focus();return;}
-          try{await write('/requests/process',{request_id:row.id,base_event_id:last.id,status:status.value,reason:reason.value.trim()},()=>dlg.close());}
+          try{await write('/requests/process',{request_id:row.id,base_event_id:last.id,status:status.value,reason:reason.value.trim()},()=>dlg.close(),{targetUrl:processUrl});}
           catch(e){setText(error,errorText(e));}
         },!writable(),'so-btn-primary'));body.append(management);
       }
@@ -786,15 +1095,44 @@ export function createServiceOperations(root,ctx){
     const heading=node('header',null,'so-drama-heading');
     const title=node('div'),headingTitle=node('h1','VSC短剧工作台');headingTitle.prepend(node('span','短剧承制','so-drama-eyebrow'));title.append(headingTitle,node('p','提交承制需求或团队合作申请，随时查看处理进度。','hint'));
     const actions=node('div',null,'service-operations-actions');actions.append(button('刷新',()=>reload({})),renderQuickSwitch(s),button('新建申请',openApplication,!writable(),'so-btn-primary'));
-    heading.append(title,actions);root.append(heading);
+    heading.append(title,actions);
+    attachGovNav(heading);
+    root.append(heading);
     const notice=node('aside',null,'so-drama-notice');notice.append(node('strong','提交需求 → 内部处理 → 查看进展'),node('p','当前用于登记和内部处理申请，尚未接入外部承制或发行服务。内部审核通过后，仍需另行对接。'));root.append(notice);
-    if(!s.project||!session().actor){
-      const empty=node('section',null,'so-empty-state');empty.append(node('h2',session().actor?'请先选择项目':'登录后提交申请'),node('p',session().actor?'在页面顶部选择项目后，即可提交和查看本人的申请。':'登录并选择项目后，即可提交和查看本人的申请。'));root.append(empty);return;
+    if(!session().actor){
+      const empty=node('section',null,'so-empty-state');empty.append(node('h2','登录后提交申请'),node('p','登录后即可在零项目、团队或项目维度提交和查看本人的承制与合作申请。'));root.append(empty);return;
     }
+
+    const wsList=availableWorkspaces(),projList=availableProjects();
+    if(wsList.length||projList.length||!s.project){
+      const scopeBar=node('div',null,'so-scope-bar');
+      const scopeSelect=node('select');
+      bindAttribute(scopeSelect,'aria-label','承制与合作归属范围');
+      scopeSelect.append(localizedOption('identity:','个人承制与合作申请（无项目直通）'));
+      for(const ws of wsList)scopeSelect.append(localizedOption(`workspace:${ws.id}`,`团队合作空间 · ${ws.name}`));
+      for(const pr of projList)scopeSelect.append(localizedOption(`project:${pr.id}`,`项目专属申请 · ${pr.name}`));
+      scopeSelect.value=s.scopeKind==='workspace'&&s.workspaceId?`workspace:${s.workspaceId}`:s.scopeKind==='project'&&s.project?`project:${s.project}`:'identity:';
+      scopeSelect.addEventListener('change',()=>{
+        const [kind,id]=scopeSelect.value.split(':');
+        if(kind==='workspace'&&id)return load({subview:'ai-drama-base',scopeKind:'workspace',workspaceId:id,project:''});
+        if(kind==='project'&&id)return load({subview:'ai-drama-base',scopeKind:'project',workspaceId:'',project:id});
+        return load({subview:'ai-drama-base',scopeKind:'identity',workspaceId:'',project:''});
+      });
+      scopeBar.append(node('span','显式申请归属范围（D-NO-CURRENT-SPACE）：','hint'),scopeSelect);
+      root.append(scopeBar);
+    }
+
     const section=node('section',null,'so-drama-records');
+    setComp(section,'operations-drama-cooperation-card');
     const tabs=node('nav',null,'so-underline-tabs');tabs.setAttribute('aria-label','申请范围');
-    for(const [value,label]of [['mine','我的申请'],...(data.manage?[['manage','项目申请管理']]:[])]){const tab=button(label,()=>reload({scope:value,offset:0}));tab.setAttribute('aria-pressed',String(filters.scope===value));tabs.append(tab);}
-    section.append(tabs,node('p',`当前项目：${data.project_name||'已选项目'} · ${managing?'包含本项目成员的申请，可记录处理进展。':'仅显示本人在本项目提交的申请。'}`,'so-drama-scope'));
+    const manageTabLabel=s.scopeKind==='workspace'?'团队申请管理':s.scopeKind==='project'?'项目申请管理':'平台申请管理';
+    for(const [value,label]of [['mine','我的申请'],...(data.manage?[['manage',manageTabLabel]]:[])]){const tab=button(label,()=>reload({scope:value,offset:0}));tab.setAttribute('aria-pressed',String(filters.scope===value));tabs.append(tab);}
+    const scopeSummaryText=s.scopeKind==='workspace'
+      ?`当前团队：${data.workspace_name||s.workspaceId} · ${managing?'包含本团队成员的申请，可记录处理进展。':'仅显示本人在本团队提交的申请。'}`
+      :s.scopeKind==='project'
+        ?`当前项目：${data.project_name||'已选项目'} · ${managing?'包含本项目成员的申请，可记录处理进展。':'仅显示本人在本项目提交的申请。'}`
+        :`当前范围：个人零项目直通 · ${managing?'包含平台范围内提交的申请，可记录处理进展。':'仅显示本人提交的承制与团队合作申请。'}`;
+    section.append(tabs,node('p',scopeSummaryText,'so-drama-scope'));
     const toolbar=node('form',null,'so-drama-filters');
     const query=field(toolbar,'搜索申请','drama-search','search',filters.query);query.value=filters.query;query.maxLength=200;query.placeholder='名称、内容或申请编号';
     const status=select(toolbar,'申请状态',[['all','全部状态'],['pending','待对接'],['processing','内部处理中'],['reviewed','内部审核通过'],['closed','已退回或撤回']],'drama-filter-status',filters.status);status.value=filters.status;
@@ -808,7 +1146,7 @@ export function createServiceOperations(root,ctx){
       const end=node('div',null,'so-drama-row-actions');end.append(node('span',statusLabel(row.status),'so-drama-status'),button('查看详情',()=>openDetail(row)));
       item.append(copy,end);list.append(item);
     }
-    if(!items.length){const empty=node('div',null,'so-empty-state');empty.append(node('h3',data.total?'这一页暂无申请':filters.query||filters.status!=='all'?'暂无匹配的申请':managing?'本项目暂无申请':'还没有申请'),node('p',filters.query||filters.status!=='all'?'调整搜索内容或状态后再试。':'点击“新建申请”，填写需求即可开始。'));list.append(empty);}
+    if(!items.length){const empty=node('div',null,'so-empty-state');empty.append(node('h3',data.total?'这一页暂无申请':filters.query||filters.status!=='all'?'暂无匹配的申请':managing?'当前范围暂无申请':'还没有申请'),node('p',filters.query||filters.status!=='all'?'调整搜索内容或状态后再试。':'点击“新建申请”，填写需求即可开始。'));list.append(empty);}
     section.append(list);
     const pages=node('nav',null,'so-drama-pagination');pages.setAttribute('aria-label','申请分页');
     pages.append(node('span',`共 ${data.total||0} 条 · 第 ${Math.floor(filters.offset/filters.limit)+1} / ${Math.max(1,Math.ceil((data.total||0)/filters.limit))} 页`),button('上一页',()=>reload({offset:Math.max(0,filters.offset-filters.limit)}),filters.offset===0),button('下一页',()=>reload({offset:data.next_offset}),data.next_offset==null));section.append(pages);root.append(section);
@@ -822,7 +1160,11 @@ export function createServiceOperations(root,ctx){
     for(const [key,title]of NETWORK_PROBES){
       const started=perfNow();
       try{
-        const endpoint=s.project&&session().actor?url(s.project,`/network-diagnostic/ping?probe=${encodeURIComponent(key)}`):`/api/v1/session?probe=${encodeURIComponent(key)}`;
+        const endpoint=session().actor
+          ?(s.project
+            ?`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/network-diagnostic/ping?probe=${encodeURIComponent(key)}`
+            :`/api/v1/account/service-operations/network-diagnostic/ping?probe=${encodeURIComponent(key)}`)
+          :`/api/v1/session?probe=${encodeURIComponent(key)}`;
         const res=await ctx.api(endpoint,session().csrf?{headers:{'X-CSRF-Token':session().csrf}}:{});
         const latencyMs=Math.max(1,Math.round(perfNow()-started));
         let timingDetail='HTTP 200 · same-origin fetch';
@@ -848,30 +1190,32 @@ export function createServiceOperations(root,ctx){
     const okCount=results.filter(r=>r.ok).length;
     const avgMs=results.length?Math.round(results.reduce((a,b)=>a+b.latencyMs,0)/results.length):0;
     diagnosticState.running=false;
-    diagnosticState.lastReport={
+    diagnosticState.lastReport=sanitizeDiagnosticObject({
       generated_at:new Date().toISOString(),
-      project_id:s.project,
-      actor:s.actor,
+      scope_kind:s.scopeKind||'identity',
+      project_id:s.project||null,
+      actor:s.actor||null,
       total:results.length,
       succeeded:okCount,
       failed:results.length-okCount,
       average_ms:avgMs,
       quality:okCount===results.length?(avgMs<120?'优秀':'良好'):(okCount>=7?'波动':'异常'),
       probes:results
-    };
+    });
     render();
   }
 
   function renderNetworkDiagnostic(t,s){
     const wrap=node('section',null,'so-network-light');
-    const head=node('header',null,'so-hero-bar'),headActions=node('div',null,'service-operations-actions');
+    setComp(wrap,'operations-network-diagnostic-card');
+    const head=node('header',null,'so-hero-bar so-standalone-head'),headActions=node('div',null,'service-operations-actions');
     const nav=typeof navigator!=='undefined'?navigator:globalThis.navigator;
     const connType=nav?.connection?.effectiveType||'4g';
     headActions.append(
       button('复制诊断报告 (JSON)',async()=>{
-        const payload=JSON.stringify(diagnosticState.lastReport||{probes:diagnosticState.items},null,2);
+        const payload=JSON.stringify(sanitizeDiagnosticObject(diagnosticState.lastReport||{probes:diagnosticState.items}),null,2);
         await clipWrite(payload);
-        ctx.notice('已复制 JSON 网络诊断报告');
+        ctx.notice('已复制脱敏 JSON 网络诊断报告');
       },!diagnosticState.items.length,'so-diag-copy'),
       button(diagnosticState.items.length?'重新诊断':'开始 10 项全链路诊断',()=>runNetworkDiagnostics(t,s),diagnosticState.running,'so-diag-primary'),
       renderQuickSwitch(s)
@@ -882,6 +1226,7 @@ export function createServiceOperations(root,ctx){
       node('p',`接口、图片、视频、上传 · ${diagnosticState.running?'诊断中':diagnosticState.items.length?'诊断完成':'待诊断'}`,'hint')
     );
     head.append(titleWrap,headActions);
+    attachGovNav(head);
     wrap.append(head);
 
     const items=diagnosticState.items;
@@ -905,12 +1250,13 @@ export function createServiceOperations(root,ctx){
     progressRow.append(barWrap,progress);
     wrap.append(progressRow);
 
+    const probePrefix=s.project?`/api/v1/projects/${s.project}/service-operations`:'/api/v1/account/service-operations';
     const rows=NETWORK_PROBES.map(([key,title],idx)=>{
       const found=items[idx]||null;
       const runningNow=diagnosticState.running&&idx===items.length;
       const targetCell=node('div',null,'so-diag-target');
       const targetCopy=node('div',null,'so-diag-target-copy');
-      targetCopy.append(node('strong',title),node('small',`GET /network-diagnostic/ping?probe=${key}`));
+      targetCopy.append(node('strong',title),node('small',`GET ${probePrefix}/network-diagnostic/ping?probe=${key}`));
       targetCell.append(node('span','∿','so-diag-icon'),targetCopy);
       const pill=node('span',found?(found.ok?'✓ 正常':'✕ 异常'):runningNow?'↻ 检测中':'○ 等待',`so-diag-pill ${found?(found.ok?'ok':'err'):runningNow?'run':'wait'}`);
       return [
@@ -926,12 +1272,18 @@ export function createServiceOperations(root,ctx){
 
   function renderPersonalExport(t,s){
     const head=node('header',null,'so-hero-bar so-standalone-head');
-    head.append(node('h1','个人信息查询与本地打包导出'),renderQuickSwitch(s));
+    const titleWrap=node('div');
+    titleWrap.append(
+      node('h1','个人信息查询与本地打包导出'),
+      node('p',s.project?'导出本人在当前项目范围内的个人资料与记录快照（24 小时有效）。':'零项目直通：导出本人全站身份资料、团队/项目成员关系、服务记录与订单元数据快照（ZIP 压缩包，24 小时有效）。','hint')
+    );
+    head.append(titleWrap,renderQuickSwitch(s));
+    attachGovNav(head);
     root.append(head);
 
-    const exportBox=box('申请导出当前项目个人信息快照');
-    exportBox.append(node('p','仅导出本人在当前项目范围内的固定身份资料、权限、申请记录与订单元数据快照（ZIP 压缩包，24 小时内有效）。','hint'));
-    const exportTitle=field(exportBox,'导出申请说明','pe-title','text','本人申请导出当前项目个人信息快照');
+    const exportBox=box('申请导出个人信息快照',root,'service-operations-card','account-export-card');
+    exportBox.append(node('p','仅导出本人身份资料、权限关系、服务申请记录与订单元数据快照（ZIP 压缩包，生成后 24 小时内有效）。','hint'));
+    const exportTitle=field(exportBox,'导出申请说明','pe-title','text','本人申请导出个人信息快照');
     const exportBody=field(exportBox,'用途备注','pe-body','textarea','合规存档与个人记录核对');
     const fieldsSet=node('fieldset');
     fieldsSet.append(node('legend',msg("ui.personal_export_scope_only_your_information_in_this_project")));
@@ -943,7 +1295,7 @@ export function createServiceOperations(root,ctx){
       input.value=key;
       const line=node('label',label);line.prepend(input);fieldsSet.append(line);checks.push(input);
     }
-    exportBox.append(fieldsSet,button('提交个人信息导出申请',()=>write('/requests',{
+    const submitNewExport=()=>write('/requests',{
       kind:'personal_export',
       title:exportTitle.value,
       body:exportBody.value,
@@ -952,34 +1304,49 @@ export function createServiceOperations(root,ctx){
       artifact_id:null,
       media_id:null,
       requested_fields:checks.filter(c=>c.checked).map(c=>c.value)
-    }),!writable(),'so-btn-primary'));
+    });
+    exportBox.append(fieldsSet,button('提交个人信息导出申请',submitNewExport,!writable(),'so-btn-primary'));
 
     const historyBox=box('我的个人数据导出记录');
-    const rows=data.requests.filter(r=>r.kind==='personal_export');
+    const rows=(data.requests||[]).filter(r=>r.kind==='personal_export');
     table(historyBox,['申请编号','导出字段范围','当前状态','操作'],rows.map(row=>{
       const actions=node('div',null,'service-operations-actions');
+      const isExpired=(row.export?.id&&expiredExports.has(row.export.id))||row.export?.expired===true||row.status==='export_expired';
       if(row.mine&&!['withdrawn','rejected'].includes(row.status)){
         actions.append(button(msg("ui.create_local_personal_data_file"),()=>write('/exports/build',{request_id:row.id}),!writable()));
       }
-      if(row.export){
-        actions.append(button(msg("ui.download_my_personal_data_zip"),async()=>{
-          const response=await fetch(url(s.project,`/exports/${encodeURIComponent(row.export.id)}/content`),{credentials:'same-origin',headers:{'X-CSRF-Token':session().csrf}});
-          if(!response.ok)throw new Error('文件不可下载，请核对有效期与当前权限');
-          const blob=await response.blob();
-          if(!same(t,s))return;
-          const href=URL.createObjectURL(blob),a=node('a');a.href=href;a.download='personal-data.zip';a.click();setTimeout(()=>URL.revokeObjectURL(href),1000);
-        }));
+      if(row.export&&!isExpired){
+        actions.append(button(msg("ui.download_my_personal_data_zip"),()=>downloadPersonalExportZip(row,t,s)));
       }
-      return [row.id,(row.requested_fields||[]).join(', '),statuses[row.status]||row.status,actions];
+      if(isExpired){
+        actions.append(
+          node('span','导出已超过 24h 有效期 (export_expired)','so-export-expired-note'),
+          button('重新申请导出',()=>write('/requests',{
+            kind:'personal_export',
+            title:exportTitle.value||'重新申请导出个人信息快照',
+            body:exportBody.value||'原导出文件已过期，重新申请打包',
+            contact:'',
+            channel:'/personal-info-export',
+            artifact_id:null,
+            media_id:null,
+            requested_fields:(row.requested_fields?.length?row.requested_fields:checks.filter(c=>c.checked).map(c=>c.value))
+          }),!writable(),'so-btn-primary')
+        );
+      }
+      const statusText=isExpired?statuses.export_expired:(statuses[row.status]||row.status);
+      return [row.id,(row.requested_fields||[]).join(', '),statusText,actions];
     }));
   }
 
   function renderAccountClose(s){
     const head=node('header',null,'so-hero-bar so-standalone-head');
-    head.append(node('h1','账户停用与注销核验'),renderQuickSwitch(s));
+    const titleWrap=node('div');
+    titleWrap.append(node('h1','账户停用与注销核验'),node('p','全站核验唯一所有者团队/项目、未结清订单与商业信用余额；阻断清零并二次确认后停用本地账户。','hint'));
+    head.append(titleWrap,renderQuickSwitch(s));
+    attachGovNav(head);
     root.append(head);
 
-    const closeBox=box('申请核验账户停用条件');
+    const closeBox=box('申请核验账户停用条件',root,'service-operations-card','account-close-card');
     closeBox.append(node('p',msg("ui.deactivating_your_local_account_revokes_login_and_access_credentials"),'hint'));
     const closeTitle=field(closeBox,'注销申请标题','ac-title','text','申请停用本人本地操作账户');
     const closeBody=field(closeBox,'注销原因说明','ac-body','textarea','已完成当前工作区交接，申请核验停用条件');
@@ -995,7 +1362,7 @@ export function createServiceOperations(root,ctx){
     }),!writable(),'so-btn-primary'));
 
     const listBox=box('注销核验与正式执行');
-    const rows=data.requests.filter(r=>r.kind==='account_close');
+    const rows=(data.requests||[]).filter(r=>r.kind==='account_close');
     table(listBox,['申请编号','标题','当前状态','下一步操作'],rows.map(row=>{
       const actions=node('div',null,'service-operations-actions');
       const terminal=['withdrawn','rejected','account_closed'].includes(row.status);
@@ -1013,10 +1380,10 @@ export function createServiceOperations(root,ctx){
     const diagnosis=node('p',null,'hint');
     support.append(button(msg("ui.check_local_connection"),async()=>{
       const started=perfNow();
-      await ctx.api(url(s.project),{headers:{'X-CSRF-Token':session().csrf}});
+      await ctx.api(opsUrl(s),{headers:{'X-CSRF-Token':session().csrf}});
       if(same(t,s))setText(diagnosis,msg("ui.local_request_succeeded_in_value0_ms_this_does_not",{value0:Math.round(perfNow()-started)}));
     }),button('打开 10 项网络诊断 →',()=>switchSubview('network-diagnostic')),diagnosis);
-    for(const row of data.announcements.filter(a=>a.status==='published')){
+    for(const row of (data.announcements||[]).filter(a=>a.status==='published')){
       const article=node('article');article.append(node('h3',row.title),node('p',row.body));support.append(article);
     }
     const config=data.configuration?.document;
@@ -1028,6 +1395,11 @@ export function createServiceOperations(root,ctx){
     }else support.append(node('p',msg("ui.service_descriptions_and_terms_links_are_not_configured"),'hint'));
 
     const form=box('提交申请');
+    const projs=availableProjects();
+    let targetProjSelect=null;
+    if(!s.project&&projs.length){
+      targetProjSelect=select(form,'关联项目（关联产物/素材或站外分发时必选，选填）',[['','不关联具体项目（个人零项目提交）'],...projs.map(p=>[p.id,p.name])],'overview-target-project','');
+    }
     const kind=select(form,'申请类型',Object.entries(names),'kind');
     const title=field(form,msg("ui.request_title"),'title');
     const body=field(form,msg("ui.request_description_error_taskid"),'body','textarea');
@@ -1036,18 +1408,34 @@ export function createServiceOperations(root,ctx){
     const artifact=select(form,'固定内容版本（分发必选）',[['','不关联内容版本']],'artifact');
     const media=select(form,'关联素材',[['','不关联素材']],'media');
     const mediaSearch=field(form,msg("ui.search_media_by_name"),'media-search');
+    const activeTargetPid=()=>s.project||targetProjSelect?.value||'';
     const loadMedia=async()=>{
-      const result=await ctx.api('/api/v1/projects/'+s.project+'/media?'+new URLSearchParams({limit:'100',query:mediaSearch.value}));
+      const pid=activeTargetPid();
+      if(!pid){
+        media.replaceChildren(localizedOption('',msg("ui.no_linked_media")));
+        return;
+      }
+      const result=await ctx.api('/api/v1/projects/'+encodeURIComponent(pid)+'/media?'+new URLSearchParams({limit:'100',query:mediaSearch.value}));
       if(!same(t,s))return;
       media.replaceChildren(localizedOption('',msg("ui.no_linked_media")));
       for(const row of result.items||[])media.append(localizedOption(row.id,row.name));
     };
+    const loadArtifacts=()=>{
+      const pid=activeTargetPid();
+      artifact.replaceChildren(localizedOption('','不关联内容版本'));
+      if(!pid)return;
+      ctx.api('/api/v1/projects/'+encodeURIComponent(pid)+'/artifacts').then(result=>{
+        if(!same(t,s))return;
+        for(const row of result.items||[])artifact.append(localizedOption(row.id,joinMessages([row.artifact_key||row.artifact_type," · v",row.version])));
+      }).catch(()=>{});
+    };
     form.append(button(msg("ui.search_media"),loadMedia));
-    loadMedia().catch(()=>{});
-    ctx.api('/api/v1/projects/'+s.project+'/artifacts').then(result=>{
-      if(!same(t,s))return;
-      for(const row of result.items||[])artifact.append(localizedOption(row.id,joinMessages([row.artifact_key||row.artifact_type," · v",row.version])));
-    }).catch(()=>{});
+    if(activeTargetPid()){
+      loadMedia().catch(()=>{});
+      loadArtifacts();
+    }
+    targetProjSelect?.addEventListener('change',()=>{loadMedia().catch(()=>{});loadArtifacts();});
+
     const fieldsSet=node('fieldset');
     fieldsSet.append(node('legend',msg("ui.personal_export_scope_only_your_information_in_this_project")));
     const checks=[];
@@ -1060,40 +1448,61 @@ export function createServiceOperations(root,ctx){
     }
     fieldsSet.hidden=kind.value!=='personal_export';
     kind.addEventListener('change',()=>{fieldsSet.hidden=kind.value!=='personal_export';});
-    form.append(fieldsSet,button(msg("ui.save_local_request"),()=>write('/requests',{kind:kind.value,title:title.value,body:body.value,contact:contact.value,channel:channel.value,artifact_id:artifact.value||null,media_id:media.value||null,requested_fields:kind.value==='personal_export'?checks.filter(c=>c.checked).map(c=>c.value):[]}),!writable()));
+    form.append(fieldsSet,button(msg("ui.save_local_request"),()=>{
+      const pid=activeTargetPid();
+      const needsProject=Boolean(artifact.value||media.value||kind.value==='distribution');
+      if(needsProject&&!pid)throw new Error('关联内容版本、素材或提交分发申请时，请先选择目标项目');
+      const postUrl=(pid&&!['personal_export','account_close'].includes(kind.value))
+        ?`/api/v1/projects/${encodeURIComponent(pid)}/service-operations/requests`
+        :opsUrl(s,'/requests');
+      return write('/requests',{
+        kind:kind.value,
+        title:title.value,
+        body:body.value,
+        contact:contact.value,
+        channel:channel.value,
+        artifact_id:pid?(artifact.value||null):null,
+        media_id:pid?(media.value||null):null,
+        requested_fields:kind.value==='personal_export'?checks.filter(c=>c.checked).map(c=>c.value):[]
+      },null,{targetUrl:postUrl});
+    },!writable()));
 
     const requests=box('申请与处理记录');
-    for(const row of data.requests){
+    for(const row of data.requests||[]){
       const card=node('article',null,'service-operations-request');
       card.append(node('h3',joinMessages(["",names[row.kind]," · ",row.title,""])),node('p',statuses[row.status]||row.status),node('p',row.body),node('small',row.id));
       if(row.kind==='account_close')card.append(node('p',msg("ui.deactivating_your_local_account_revokes_login_and_access_credentials"),'hint'));
       if(['distribution','fcp','studio','production_service'].includes(row.kind))card.append(node('p',msg("ui.no_external_service_is_configured_local_review_does_not"),'hint'));
-      const actions=node('div',null,'service-operations-actions'),last=row.events.at(-1),terminal=['withdrawn','rejected','export_ready','account_closed'].includes(row.status);
-      if(row.mine&&!terminal)actions.append(button(msg("ui.withdraw_this_request"),()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'本人从原申请撤回'}),!writable()));
+      const actions=node('div',null,'service-operations-actions'),last=row.events?.at(-1),terminal=['withdrawn','rejected','export_ready','account_closed'].includes(row.status);
+      if(row.mine&&!terminal&&last)actions.append(button(msg("ui.withdraw_this_request"),()=>write('/requests/withdraw',{request_id:row.id,base_event_id:last.id,reason:'本人从原申请撤回'}),!writable()));
       if(row.mine&&row.kind==='account_close'&&!terminal)actions.append(button(msg("ui.preview_account_deactivation_impact"),()=>closeAccount(row),!writable()));
       if(row.mine&&row.kind==='personal_export'&&!['withdrawn','rejected'].includes(row.status))actions.append(button(msg("ui.create_local_personal_data_file"),()=>write('/exports/build',{request_id:row.id}),!writable()));
-      if(row.export)actions.append(button(msg("ui.download_my_personal_data_zip"),async()=>{
-        const response=await fetch(url(s.project,`/exports/${encodeURIComponent(row.export.id)}/content`),{credentials:'same-origin',headers:{'X-CSRF-Token':session().csrf}});
-        if(!response.ok)throw new Error('文件不可下载，请核对有效期与当前权限');
-        const blob=await response.blob();if(!same(t,s))return;
-        const href=URL.createObjectURL(blob),a=node('a');a.href=href;a.download='personal-data.zip';a.click();setTimeout(()=>URL.revokeObjectURL(href),1000);
-      }));
-      if(data.manage&&!terminal&&row.kind!=='personal_export'){
+      if(row.export){
+        const isExpired=(row.export.id&&expiredExports.has(row.export.id))||row.export.expired===true||row.status==='export_expired';
+        if(!isExpired){
+          actions.append(button(msg("ui.download_my_personal_data_zip"),()=>downloadPersonalExportZip(row,t,s)));
+        }else{
+          actions.append(node('span','导出已过期 (export_expired)','so-export-expired-note'));
+        }
+      }
+      if(data.manage&&!terminal&&row.kind!=='personal_export'&&last){
         const processing=select(card,'本地处理状态 '+row.id,[['under_review','本地处理中'],['awaiting_configuration','外部服务待配置'],['local_approved','本地审核通过（未执行外部操作）'],['rejected','退回']],'status:'+row.id);
         const reason=field(card,msg("ui.handling_notes_value0",{value0:row.id}),'reason:'+row.id);
-        actions.append(button(msg("ui.record_handling_of_this_request"),()=>write('/requests/process',{request_id:row.id,base_event_id:last.id,status:processing.value,reason:reason.value}),!writable()));
+        const processUrl=s.project?opsUrl(s,'/requests/process'):platformOpsUrl(s,'/requests/process');
+        actions.append(button(msg("ui.record_handling_of_this_request"),()=>write('/requests/process',{request_id:row.id,base_event_id:last.id,status:processing.value,reason:reason.value},null,{targetUrl:processUrl}),!writable()));
       }
       card.append(actions);
       const history=node('details');history.append(node('summary',msg("ui.view_processing_history")));
-      for(const event of row.events)history.append(node('p',joinMessages(["",new Date(event.created_at).toLocaleString()," · ",statuses[event.status]||event.status," · ",event.reason,""])));
+      for(const event of row.events||[])history.append(node('p',joinMessages(["",new Date(event.created_at).toLocaleString()," · ",statuses[event.status]||event.status," · ",event.reason,""])));
       card.append(history);requests.append(card);
     }
-    if(!data.requests.length)requests.append(node('p',msg("ui.no_requests_visible_to_you"),'hint'));
+    if(!(data.requests||[]).length)requests.append(node('p',msg("ui.no_requests_visible_to_you"),'hint'));
 
     const api=box('固定项目 API 凭据');
     renderApiKeyBlock(api,s,{requireCompliance:false});
+    const projPlaceholder=s.project||'<project_id>';
     const examples=node('pre');
-    setText(examples,msg("ui.get_api_v1_service_api_projects_value0_jobs_get",{value0:s.project,value1:s.project,value2:s.project,value3:s.project}));
+    setText(examples,msg("ui.get_api_v1_service_api_projects_value0_jobs_get",{value0:projPlaceholder,value1:projPlaceholder,value2:projPlaceholder,value3:projPlaceholder}));
     api.append(examples,button(msg("ui.copy_api_example"),()=>clipWrite(examples.textContent)));
     if(data.api_catalog){
       const catalog=node('details');catalog.append(node('summary',msg("ui.view_available_api_capabilities")));
@@ -1101,22 +1510,25 @@ export function createServiceOperations(root,ctx){
       api.append(catalog);
     }
     if(config?.api_documentation)api.append(node('p',config.api_documentation));
-    table(api,['调用编号','操作','阶段','状态码','记录时间'],data.api_calls.map(c=>[c.call_id,c.operation,c.phase,c.status_code,new Date(c.created_at).toLocaleString()]));
+    table(api,['调用编号','操作','阶段','状态码','记录时间'],(data.api_calls||[]).map(c=>[c.call_id,c.operation,c.phase,c.status_code,new Date(c.created_at).toLocaleString()]));
 
     if(data.manage){
-      const admin=box('管理员运营配置'),details=node('details');
+      const admin=box('管理员运营配置',root,'service-operations-card','operations-announcements-config-card'),details=node('details');
       details.append(node('summary',msg("ui.edit_descriptions_terms_and_announcements")));
       const supportText=field(details,msg("ui.support_information"),'support','textarea',config?.support_text||'');
       const terms=field(details,msg("ui.terms_of_service_https_url"),'terms','text',config?.terms_url||'');
       const privacy=field(details,msg("ui.privacy_information_https_url"),'privacy','text',config?.privacy_url||'');
       const docs=field(details,msg("ui.api_documentation_notes"),'docs','textarea',config?.api_documentation||'');
-      details.append(button(msg("ui.save_service_configuration_version"),()=>write('/configuration',{base_version_id:data.configuration?.id||null,document:{support_text:supportText.value,terms_url:terms.value,privacy_url:privacy.value,api_documentation:docs.value}}),!writable()));
+      const cfgTargetUrl=platformOpsUrl(s,'/configuration');
+      const annTargetUrl=platformOpsUrl(s,'/announcements');
+      const platformRev=s.project?null:(scopeRevisions.get('platform:ops')??data.platform_revision??currentRevision(s));
+      details.append(button(msg("ui.save_service_configuration_version"),()=>write('/configuration',{base_version_id:data.configuration?.id||null,document:{support_text:supportText.value,terms_url:terms.value,privacy_url:privacy.value,api_documentation:docs.value}},null,{targetUrl:cfgTargetUrl,expectedRev:platformRev}),!writable()));
       const announcementKey=field(details,msg("ui.announcement_code"),'announcement-key');
       const announcementTitle=field(details,msg("ui.announcement_title"),'announcement-title');
       const announcementBody=field(details,msg("ui.announcement_body"),'announcement-body','textarea');
-      details.append(button(msg("ui.publish_project_announcement"),()=>write('/announcements',{announcement_key:announcementKey.value,base_version_id:data.announcements.find(a=>a.announcement_key===announcementKey.value)?.id||null,title:announcementTitle.value,body:announcementBody.value,status:'published'}),!writable()));
-      for(const row of data.announcements.filter(a=>a.status==='published')){
-        details.append(button(msg("ui.withdraw_announcement_value0",{value0:row.title}),()=>write('/announcements',{announcement_key:row.announcement_key,base_version_id:row.id,title:row.title,body:row.body,status:'withdrawn'}),!writable()));
+      details.append(button(msg("ui.publish_project_announcement"),()=>write('/announcements',{announcement_key:announcementKey.value,base_version_id:(data.announcements||[]).find(a=>a.announcement_key===announcementKey.value)?.id||null,title:announcementTitle.value,body:announcementBody.value,status:'published'},null,{targetUrl:annTargetUrl,expectedRev:platformRev}),!writable()));
+      for(const row of (data.announcements||[]).filter(a=>a.status==='published')){
+        details.append(button(msg("ui.withdraw_announcement_value0",{value0:row.title}),()=>write('/announcements',{announcement_key:row.announcement_key,base_version_id:row.id,title:row.title,body:row.body,status:'withdrawn'},null,{targetUrl:annTargetUrl,expectedRev:platformRev}),!writable()));
       }
       admin.append(details);
     }
@@ -1129,6 +1541,7 @@ export function createServiceOperations(root,ctx){
     root.replaceChildren();
     root.classList.add('service-operations');
     root.dataset.subview=subview;
+    setComp(root,'section-service-operations');
     const s=scope,t=ticket;
     try{
       if(subview==='engine'){renderEngine(s);return;}
@@ -1142,6 +1555,7 @@ export function createServiceOperations(root,ctx){
       if(subview==='activity'){
         const head=node('header',null,'so-hero-bar so-standalone-head');
         head.append(node('h1','VSC 创作工作台 · 运营专题活动'),renderQuickSwitch(s));
+        attachGovNav(head);
         root.append(head);
         summaryGrid(root,[
           ['充值解锁 DramaWave 承制权益','单部短剧保底出海分发','前往会员与钱包解锁承制合作名额'],
@@ -1161,7 +1575,7 @@ export function createServiceOperations(root,ctx){
         }
         const actions=node('div',null,'service-operations-actions');
         actions.append(
-          button('前往会员与钱包 →',()=>ctx.navigate?.('commerce','wallet',s.project),false,'so-btn-primary'),
+          button('前往会员与钱包 →',()=>ctx.navigate?.('commerce','wallet',s.project||null),false,'so-btn-primary'),
           button('打开 VSC短剧工作台 →',()=>switchSubview('ai-drama-base'),false,'so-btn-ghost')
         );
         actCard.append(actions);
@@ -1170,6 +1584,7 @@ export function createServiceOperations(root,ctx){
       if(subview==='pc-only-notice'){
         const head=node('header',null,'so-hero-bar so-standalone-head');
         head.append(node('h1','建议使用桌面端浏览器访问'),renderQuickSwitch(s));
+        attachGovNav(head);
         root.append(head);
         const card=box('VSC 创作工作台核心画布与剪辑器面向桌面端大屏设计');
         card.append(node('p','无限画布多节点编排、多分镜轨道审片及批量字幕质检需要桌面端键鼠交互。请复制当前工作台地址并在电脑端 Chrome / Edge 打开。','hint'));
@@ -1185,6 +1600,7 @@ export function createServiceOperations(root,ctx){
       if(subview==='icon'){
         const head=node('header',null,'so-hero-bar so-standalone-head');
         head.append(node('h1','VSC 创作工作台 · 图标资产预览表'),renderQuickSwitch(s));
+        attachGovNav(head);
         root.append(head);
         const iconCatalog=[
           ['canvas-infinite','◈','无限画布与节点编排'],['script-studio','▤','剧本工作室与多语精校'],
@@ -1215,6 +1631,7 @@ export function createServiceOperations(root,ctx){
         const head=node('header',null,'so-hero-bar so-standalone-head');
         const title=subview==='terms'?'用户服务协议':subview==='privacy'?'隐私保护政策':subview==='not-found'?'404 · 页面不存在或已移动':'403 · 当前账号无访问权限';
         head.append(node('h1',title),renderQuickSwitch(s));
+        attachGovNav(head);
         root.append(head);
         const card=box(title);
         const cfg=data.configuration?.document||{};
@@ -1235,6 +1652,7 @@ export function createServiceOperations(root,ctx){
       const titleWrap=node('div');
       titleWrap.append(node('h1',msg("ui.services_public_api_and_personal_information")),node('p',msg("ui.local_requests_retain_processing_records_partnerships_sms_and_distribution"),'hint'));
       top.append(titleWrap,button(msg("ui.reload_service_records"),()=>load({...scope,subview})));
+      attachGovNav(top);
       root.append(top);
 
       const nav=node('nav',null,'so-subnav');
@@ -1262,40 +1680,41 @@ export function createServiceOperations(root,ctx){
     }
   }
 
-  async function load(value){
-    if(scope&&(scope.project!==value.project||scope.actor!==session().actor)){
+  async function load(value={}){
+    const nextScope=normalizeScope(value||{});
+    if(scope&&(scopeToken(scope)!==scopeToken(nextScope)||scope.actor!==nextScope.actor)){
       secrets.delete(identity(scope));
-      if(scope.actor!==session().actor)keyAttempts.clear();
+      if(scope.actor!==nextScope.actor)keyAttempts.clear();
     }
-    const changed=!scope||scope.project!==value.project||scope.actor!==session().actor;
-    scope={...value,actor:session().actor};
+    const changed=!scope||scopeToken(scope)!==scopeToken(nextScope)||scope.actor!==nextScope.actor;
+    scope=nextScope;
     subview=normalizeOperationsSubview(value?.subview);
-    if(subview==='ai-drama-base')scope.drama={scope:'mine',status:'all',query:'',offset:0,limit:12,...(!changed?value.drama:{})};
-    if(subview==='feedback-records')scope.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24,...(!changed?value.feedback:{})};
+    if(subview==='ai-drama-base')scope.drama={scope:'mine',status:'all',query:'',offset:0,limit:12,...(!changed?value?.drama:{})};
+    if(subview==='feedback-records')scope.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24,...(!changed?value?.feedback:{})};
     const s=scope,t=++ticket;busy=false;
     resetScroll();
     root.replaceChildren(node('p',msg("ui.loading_service_records")));
-    if((!s.project||!session().actor)&&['terms','privacy','pc-only-notice','icon','forbidden','not-found','activity','network-diagnostic','ai-drama-base','seedance-verify','engine'].includes(subview)){
+    if(!session().actor&&['terms','privacy','pc-only-notice','icon','forbidden','not-found','activity','network-diagnostic','ai-drama-base','seedance-verify'].includes(subview)){
       data={configuration:{document:{}},announcements:[],requests:[],api_keys:[],api_calls:[],api_catalog:null,engine_overview:{credit_balance:0,total_consumed_credits:0,ledger_records:[],recharge_orders:[],reservations:[],recent_jobs:[],member_usage:[]}};
       render();
       resetScroll(true);
       return;
     }
-    if(!s.project){root.replaceChildren(node('p',msg("ui.select_a_project_first")));return;}
     if(!session().actor){root.replaceChildren(node('p',msg("ui.sign_in_to_perform_this_action")));return;}
     try{
       const path=subview==='feedback-records'?'/feedback?'+new URLSearchParams(s.feedback):subview==='ai-drama-base'?'/drama-requests?'+new URLSearchParams(s.drama):'';
-      const result=await ctx.api(url(s.project,path),{headers:{'X-CSRF-Token':session().csrf}});
+      const result=await ctx.api(opsUrl(s,path),{headers:{'X-CSRF-Token':session().csrf}});
       if(!same(t,s))return;
       data=result;
-      ctx.setRevision(result.revision,s.project);
+      if(result?.revision!=null)recordRevision(result.revision,s);
+      if(result?.platform_revision!=null)scopeRevisions.set('platform:ops',result.platform_revision);
       render();
       resetScroll(true);
     }catch(e){
       if(same(t,s)){
         root.replaceChildren(node('p',e.message),button(msg("ui.retry_loading"),()=>load(s)));
-        if(subview==='ai-drama-base'&&s.drama.scope==='manage')root.append(button('查看我的申请',()=>load({...s,drama:{...s.drama,scope:'mine',offset:0}})));
-        if(subview==='feedback-records'&&s.feedback.scope==='manage')root.append(button('查看我的反馈',()=>load({...s,feedback:{...s.feedback,scope:'mine',offset:0}})));
+        if(subview==='ai-drama-base'&&s.drama?.scope==='manage')root.append(button('查看我的申请',()=>load({...s,drama:{...s.drama,scope:'mine',offset:0}})));
+        if(subview==='feedback-records'&&s.feedback?.scope==='manage')root.append(button('查看我的反馈',()=>load({...s,feedback:{...s.feedback,scope:'mine',offset:0}})));
       }
     }
   }

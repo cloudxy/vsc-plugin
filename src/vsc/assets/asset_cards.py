@@ -60,38 +60,65 @@ class AssetCardsServiceMixin:
     def get_asset_card(self, p, asset_id, actor=None):
         return self._asset_cards().get_asset_card(p, asset_id, actor)
 
+    def list_authorized_project_asset_cards(
+        self,
+        *,
+        query='',
+        asset_kind='',
+        owner_kind='',
+        workspace_id='',
+        favorites=False,
+        include_object=False,
+        include_blocking=False,
+        folder_id='',
+        cursor='',
+        offset=0,
+        limit=24,
+        actor=None,
+    ):
+        if folder_id:
+            raise ResourceError(
+                '跨项目视图不支持按单项目文件夹筛选，请先选择具体项目',
+                'cross_project_folder_unsupported',
+                422,
+                details={'field': 'folder_id'},
+            )
+        if (
+            not isinstance(query, str)
+            or len(query) > 200
+            or (asset_kind and asset_kind not in KINDS and not (include_blocking and asset_kind == 'blocking'))
+            or owner_kind not in {'', 'all', 'personal', 'invited_personal', 'workspace'}
+            or not isinstance(workspace_id, str)
+            or len(workspace_id) > 64
+            or type(favorites) is not bool
+            or type(include_object) is not bool
+            or type(include_blocking) is not bool
+            or (include_object and asset_kind != 'prop')
+            or not isinstance(cursor, str)
+            or len(cursor) > 512
+            or type(offset) is not int
+            or offset < 0
+            or type(limit) is not int
+            or not 1 <= limit <= 100
+        ):
+            raise ResourceError('跨项目资产筛选或分页无效', 'invalid_input', 422)
+        return self._asset_cards().list_authorized_project_asset_cards(
+            query=query.strip(),
+            asset_kind=asset_kind,
+            owner_kind='' if owner_kind == 'all' else owner_kind,
+            workspace_id=workspace_id.strip(),
+            favorites=favorites,
+            include_object=include_object,
+            include_blocking=include_blocking,
+            cursor=cursor.strip(),
+            offset=offset,
+            limit=limit,
+            actor=actor,
+        )
+
     def asset_card_options(self, p):
-        from sqlalchemy import select, and_
-        from vsc.adapters.persistence.postgres import schema as S
         from vsc.adapters.persistence.postgres.values import clean
-        with self.store.engine.connect() as conn:
-            voices = [
-                dict(r)
-                for r in conn.execute(
-                    select(
-                        S.voice_spec_versions.c.id,
-                        S.creative_objects.c.title,
-                        S.voice_spec_versions.c.reference_media_id,
-                        S.voice_spec_versions.c.diction,
-                    )
-                    .join(
-                        S.creative_objects,
-                        and_(
-                            S.creative_objects.c.project_id == p,
-                            S.creative_objects.c.id == S.voice_spec_versions.c.voice_id,
-                        ),
-                    )
-                    .where(S.voice_spec_versions.c.project_id == p)
-                ).mappings()
-            ]
-            folders = [
-                dict(r)
-                for r in conn.execute(
-                    select(S.management_folders.c.id, S.management_folders.c.title, S.management_folders.c.ordinal)
-                    .where(S.management_folders.c.project_id == p, S.management_folders.c.parent_id.is_(None))
-                    .order_by(S.management_folders.c.ordinal, S.management_folders.c.id)
-                ).mappings()
-            ]
+        voices, folders = self._asset_cards().asset_card_options_db(p)
         return clean(
             dict(
                 voices=voices,

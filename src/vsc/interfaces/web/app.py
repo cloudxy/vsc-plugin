@@ -119,7 +119,7 @@ def create_app(config=None, catalog=None, service=None):
             await run_in_threadpool(management_http_guard,catalog.service,request)
             response = await call_next(request)
         except ResourceError as error:
-            response=JSONResponse({**(getattr(error,"details",None) or {}),"error":error.code,"message":str(error)},status_code=error.status_code)
+            response=JSONResponse(_error_payload(error),status_code=error.status_code)
         finally:
             if token is not None:reset_principal(token)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -129,25 +129,38 @@ def create_app(config=None, catalog=None, service=None):
         response.headers.setdefault("Cache-Control", "no-store")
         return response
 
+    def _error_payload(error):
+        details = getattr(error, "details", None)
+        base = dict(details) if isinstance(details, dict) else {}
+        if isinstance(details, dict) and details and "details" not in base:
+            base["details"] = dict(details)
+        base["error"] = error.code
+        base["message"] = getattr(error, "message", None) or str(error)
+        return base
+
     @app.exception_handler(CatalogError)
     async def catalog_error(request, error):
         return JSONResponse({"error": error.code, "message": error.message}, status_code=error.status_code)
 
     @app.exception_handler(ResourceError)
     async def resource_error(request, error):
-        return JSONResponse({**(getattr(error, "details", None) or {}), "error": error.code, "message": error.message}, status_code=error.status_code)
+        return JSONResponse(_error_payload(error), status_code=error.status_code)
 
     # Keep the core service optional; errors follow its common protocol.
     @app.exception_handler(Exception)
     async def service_error(request, error):
         if hasattr(error, "status_code") and hasattr(error, "code"):
-            return JSONResponse({**(getattr(error, "details", None) or {}), "error": error.code, "message": str(error)}, status_code=error.status_code)
+            return JSONResponse(_error_payload(error), status_code=error.status_code)
         return JSONResponse({"error": "internal_error", "message": "读取失败，请检查本机服务日志和权威配置"}, status_code=500)
 
-    def etag(request, value):
+    def etag(request, value, seed=None):
+        if isinstance(value, dict) and "_etag_seed" in value:
+            value = dict(value)
+            seed = value.pop("_etag_seed")
         value = jsonable_encoder(value)
         encoded = json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
-        key = '"' + hashlib.sha256(encoded).hexdigest() + '"'
+        raw = (str(seed) + ":").encode() + encoded if seed is not None else encoded
+        key = '"' + hashlib.sha256(raw).hexdigest() + '"'
         if request.headers.get("if-none-match") == key:
             return Response(status_code=304, headers={"ETag": key})
         return JSONResponse(value, headers={"ETag": key})
@@ -536,7 +549,7 @@ def create_app(config=None, catalog=None, service=None):
     install_assisted_desk_routes(router, catalog, etag)
     install_edit_preview_routes(router, catalog, etag, actor)
     install_editor_workspace_routes(router, catalog, etag, actor)
-    install_production_platform_routes(router, catalog, etag)
+    install_production_platform_routes(app, router, catalog, etag, actor, read_actor)
     install_creative_canvas_routes(router, catalog, etag, actor, hub=collab_hub)
     install_canvas_library_routes(app, catalog, etag)
     install_canvas_collab_ws(app, catalog, allowed_hosts=allowed_hosts, origins=origins, hub=collab_hub)
@@ -556,13 +569,13 @@ def create_app(config=None, catalog=None, service=None):
     install_access_routes(app, router, catalog, etag, actor, origin, new_session, sessions)
     install_authentication_routes(app,catalog,origin,actor,new_session,sessions)
     install_team_review_routes(router,catalog,etag,actor)
-    install_commerce_routes(router,catalog,etag,actor,read_actor)
+    install_commerce_routes(app,router,catalog,etag,actor,read_actor)
     install_commerce_notification_routes(app,catalog)
     install_service_operations_routes(app,router,catalog,etag,actor,read_actor)
     install_asset_center_routes(app,router,catalog,etag,actor,read_actor)
     install_character_studio_routes(app,etag,read_actor,origin)
-    install_asset_card_routes(router,catalog,etag,actor)
-    install_task_notification_routes(router,catalog,etag,read_actor)
+    install_asset_card_routes(app,router,catalog,etag,actor,read_actor)
+    install_task_notification_routes(app,router,catalog,etag,read_actor)
     install_community_routes(app,router,catalog,etag,actor,read_actor)
 
     @router.post("/{project_id}/generation-recoveries")

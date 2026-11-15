@@ -3,14 +3,68 @@ from fastapi import HTTPException, Request
 from vsc.assets.production_platform import ProductionPlatform
 
 
-def install_production_platform_routes(router, catalog, etag):
+def install_production_platform_routes(app_or_router, router_or_catalog=None, catalog_or_etag=None, etag=None, actor=None, read_actor=None):
+    if etag is None:
+        app = None
+        router = app_or_router
+        catalog = router_or_catalog
+        etag = catalog_or_etag
+    else:
+        app = app_or_router
+        router = router_or_catalog
+        catalog = catalog_or_etag
+
     platform = ProductionPlatform(catalog)
+
+    def pg_service():
+        if catalog.service is None:
+            raise HTTPException(409, "本次服务没有配置项目数据库")
+        return catalog.service
 
     def service(project_id):
         if catalog._reader(project_id) is not None or catalog.service is None:
             raise HTTPException(409, "旧项目保持只读；任务与用量需要原 PostgreSQL 权威")
         catalog.service.get_project(project_id)
         return catalog.service
+
+    if app is not None:
+        @app.get("/api/v1/account/tasks")
+        @app.get("/api/v1/account/task-center")
+        def account_tasks(
+            request: Request,
+            offset: int = 0,
+            limit: int = 24,
+            kind: str = None,
+            status: str = None,
+            group: str = None,
+            project_id: str = None,
+        ):
+            if read_actor is not None:
+                read_actor(request)
+            return etag(
+                request,
+                pg_service().get_account_tasks(
+                    offset=offset,
+                    limit=limit,
+                    kind=kind,
+                    status=status,
+                    group=group,
+                    project_id=project_id,
+                ),
+            )
+
+        @app.post("/api/v1/account/tasks/batch-cancel")
+        def batch_cancel_tasks(request: Request, body: dict):
+            identity = actor(request) if actor is not None else (read_actor(request) if read_actor is not None else None)
+            if not isinstance(body, dict):
+                raise HTTPException(422, "批量取消请求格式无效")
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else dict(body)
+            if "confirmed" in body and "confirmed" not in payload:
+                payload = dict(payload, confirmed=body.get("confirmed"))
+            idem_key = body.get("idempotency_key") or payload.get("idempotency_key")
+            return pg_service().batch_cancel_account_tasks(
+                payload, actor=identity, idempotency_key=idem_key
+            )
 
     @router.get("/{project_id}/production-platform")
     def query(project_id: str, request: Request, episode_id: str = None, offset: int = 0, limit: int = 24):

@@ -98,44 +98,77 @@ test('project batch operations never treat a blocking projection as an asset ide
   assert.equal(new URL(calls.at(-1),'http://test').searchParams.get('include_blocking'),'true');panel.suspend();
 });
 
-// A slow project never blocks the first page of a fast project.  Scrolling
-// through bounded views must still expose every page and preserve failures.
-test('progressively loads all pages with bounded concurrency and retry',async()=>{
-  location.search='?page=asset-center';
-  let releaseSlow,active=0,maxActive=0,failed=true; const requests=[];
-  const slow=new Promise(resolve=>{releaseSlow=resolve;});
+// All-projects mode issues a single cross-project query (/api/v1/account/project-asset-cards)
+// instead of per-project N+1 fanout, while explicit single-project selection keeps /projects/{id}/asset-cards.
+test('all-projects mode loads 30 authorized projects in a single request with cursor pagination and retry',async()=>{
+  location.search='?page=asset-center&owner_kind=workspace&workspace_id=ws-1&favorites=true';
+  const thirtyProjects=Array.from({length:30},(_,i)=>({id:`proj-${i}`,name:`短剧项目${i}`}));
+  let failNext=false;const requests=[];
   const api=async url=>{
-    active++; maxActive=Math.max(maxActive,active); requests.push(url);
-    try {
-      await tick();
-      if(url.includes('/slow/')) {await slow;return {items:[asset(101)],next_offset:null,revision:2};}
-      if(url.includes('/bad/')) {if(failed)throw Error('读取失败');return {items:[],next_offset:null,revision:3};}
-      const offset=Number(new URL(url,'http://test').searchParams.get('offset'));
-      return {items:Array.from({length:Math.min(24,101-offset)},(_,i)=>asset(offset+i)),
-        next_offset:offset+24<101?offset+24:null,revision:1};
-    } finally {active--;}
+    requests.push(url);
+    await tick();
+    if(url.includes('/projects/'))throw new Error('unexpected per-project fanout '+url);
+    if(failNext)throw new Error('网络抖动读取失败');
+    const u=new URL(url,'http://test'),q=u.searchParams;
+    assert.equal(u.pathname,'/api/v1/account/project-asset-cards');
+    assert.equal(q.get('owner_kind'),'workspace');
+    assert.equal(q.get('workspace_id'),'ws-1');
+    assert.equal(q.get('favorites'),'true');
+    assert.equal(q.get('limit'),'24');
+    const cursor=q.get('cursor');
+    if(!cursor){
+      return {items:Array.from({length:24},(_,i)=>({...asset(i),project_id:`proj-${i}`,project_name:`短剧项目${i}`,project_revision:1})),
+        total:30,next_offset:24,next_cursor:'cursor-page-2',authorized_project_count:30};
+    }
+    assert.equal(cursor,'cursor-page-2');
+    return {items:Array.from({length:6},(_,i)=>({...asset(24+i),project_id:`proj-${24+i}`,project_name:`短剧项目${24+i}`,project_revision:1})),
+      total:30,next_offset:null,next_cursor:null,authorized_project_count:30};
+  };
+  const root=new Element('main',document),panel=createAssetCenter(root,context(thirtyProjects,api));
+  await panel.load(); await settle();
+  assert.equal(requests.length,1);
+  assert.equal(cards(root).length,24);
+  assert.equal(root.querySelector('.global-asset-count').textContent,'已加载24个资产');
+  assert.equal(root.querySelector('.global-asset-grid').getAttribute('aria-busy'),'false');
+  assert.ok(button(root,'继续浏览'));
+  failNext=true;
+  await button(root,'继续浏览').onclick(); await settle();
+  assert.match(root.querySelector('.global-asset-failures').textContent,/网络抖动读取失败/);
+  failNext=false;
+  await button(root,'重试失败项目').onclick(); await settle();
+  assert.equal(cards(root).length,30);
+  assert.equal(root.querySelector('.global-asset-count').textContent,'共30个资产');
+  assert.equal(requests.some(u=>u.includes('/projects/')),false);
+  panel.suspend();
+});
+
+test('single-project selection keeps /api/v1/projects/{id}/asset-cards pagination and retry',async()=>{
+  location.search='?page=asset-center';
+  const requests=[];let failProject=false;
+  const api=async url=>{
+    requests.push(url);
+    await tick();
+    if(url.startsWith('/api/v1/account/project-asset-cards?')){
+      return {items:[{...asset(1),project_id:'fast',project_name:'快项目'}],total:1,next_offset:null,next_cursor:null,authorized_project_count:2};
+    }
+    if(failProject)throw new Error('单项目读取失败');
+    const offset=Number(new URL(url,'http://test').searchParams.get('offset'));
+    return {items:Array.from({length:Math.min(24,30-offset)},(_,i)=>asset(offset+i)),
+      next_offset:offset+24<30?offset+24:null,revision:1};
   };
   const root=new Element('main',document),panel=createAssetCenter(root,context([
-    {id:'fast',name:'快项目'},{id:'slow',name:'慢项目'},{id:'bad',name:'失败项目'}],api));
+    {id:'fast',name:'快项目'},{id:'other',name:'另一项目'}],api));
   await panel.load(); await settle();
-  assert.equal(cards(root).length,48);
-  assert.equal(root.querySelector('.global-asset-count').textContent,'已加载48个资产');
-  assert.equal(root.querySelector('.global-asset-grid').getAttribute('aria-busy'),'true');
-  assert.ok(requests.some(url=>url.includes('offset=24')));
-  assert.match(root.querySelector('.global-asset-failures').textContent,/失败项目/);
-  assert.equal(maxActive,3);
-  const seen=new Set(),collect=()=>{
-    assert.ok(cards(root).length<=72);
-    for(const card of cards(root)) seen.add(card.walk().find(n=>n.tagName==='H3').textContent);
-  };
-  collect(); assert.ok(button(root,'继续浏览')); await button(root,'继续浏览').onclick();
-  releaseSlow(); await settle(); collect();
-  while(button(root,'继续浏览')) {await button(root,'继续浏览').onclick();await settle();collect();}
-  failed=false; assert.ok(button(root,'重试失败项目')); await button(root,'重试失败项目').onclick(); await settle();
-  while(button(root,'继续浏览')) {collect();await button(root,'继续浏览').onclick();await settle();collect();}
-  assert.equal(seen.size,102);
-  assert.match(root.querySelector('.global-asset-count').textContent,/共102个资产/);
-  assert.ok(maxActive<=3); panel.suspend();
+  const select=root.querySelector('.global-asset-toolbar').walk().find(n=>n.tagName==='SELECT');
+  failProject=true;
+  select.value='fast'; await select.onchange(); await settle();
+  assert.ok(requests.at(-1).startsWith('/api/v1/projects/fast/asset-cards?'));
+  assert.match(root.querySelector('.global-asset-failures').textContent,/单项目读取失败/);
+  failProject=false;
+  await button(root,'重试失败项目').onclick(); await settle();
+  assert.equal(cards(root).length,30);
+  assert.equal(root.querySelector('.global-asset-count').textContent,'共30个资产');
+  panel.suspend();
 });
 
 test('suspending aborts reads and ignores a late response even if abort is ignored',async()=>{
@@ -195,6 +228,7 @@ test('official and shared tabs query their own sources and restore from the URL'
     calls.push(url);
     if(url.startsWith('/api/v1/asset-center?'))return url.includes('source=official') ?
       {items:[row],total:1,facets:{role_tag:['医生']},next_offset:null} : {items:[],total:0,next_offset:null};
+    if(url.startsWith('/api/v1/account/project-asset-cards?'))return {items:[],total:0,next_offset:null,next_cursor:null,authorized_project_count:0};
     throw Error('unexpected '+url);
   };
   location.search='?page=asset-center&tab=official';

@@ -140,6 +140,7 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
     if (url === '/api/v1/projects') value = {items: [...projects.values()].map(data => data.project)};
     else if(url === '/api/v1/access')value={identity:{id:'fixture-owner',actor:'fixture-owner',display_name:'Fixture owner',preferences:{}},workspaces:[]};
     else if (url === '/api/v1/preview-capabilities') value = {};
+    else if (url.startsWith('/api/v1/account/task-notifications')) value = {items: [], unread_count: 0, next_cursor: null};
     else {
       const match = url.match(/^\/api\/v1\/projects\/([^/]+)\/(tree|media|artifacts|workbench)(?:\/([^/?]+))?(?:\?|$)/);
       if (!match) throw new Error('Unexpected fixture request: ' + url);

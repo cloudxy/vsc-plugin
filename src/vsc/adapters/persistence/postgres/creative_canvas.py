@@ -438,22 +438,35 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
             project = self._project(conn, project_id)
             p = project["id"]
             person = S.access_identities
-            query = select(S.creative_canvases, S.creative_canvas_versions.c.title,
-                S.creative_canvas_versions.c.version, S.creative_canvas_versions.c.id.label("version_id"),
+            updated_col = func.coalesce(S.creative_canvas_versions.c.created_at, S.creative_canvases.c.created_at)
+            query = select(
+                S.creative_canvases,
+                S.creative_canvas_versions.c.title,
+                S.creative_canvas_versions.c.version,
+                S.creative_canvas_versions.c.id.label("version_id"),
                 S.creative_canvas_versions.c.node_count,
-                S.creative_canvas_versions.c.created_at.label("updated_at"),
-                func.coalesce(person.c.display_name, S.creative_canvases.c.created_by).label("creator_name")).join(
-                S.creative_canvas_versions, (S.creative_canvases.c.project_id == S.creative_canvas_versions.c.project_id) &
-                (S.creative_canvases.c.current_version_id == S.creative_canvas_versions.c.id)).outerjoin(
-                person, person.c.actor == S.creative_canvases.c.created_by).where(
-                S.creative_canvases.c.project_id == p)
+                updated_col.label("updated_at"),
+                func.coalesce(person.c.display_name, S.creative_canvases.c.created_by).label("creator_name"),
+            ).outerjoin(
+                S.creative_canvas_versions,
+                (S.creative_canvases.c.project_id == S.creative_canvas_versions.c.project_id)
+                & (S.creative_canvases.c.current_version_id == S.creative_canvas_versions.c.id),
+            ).outerjoin(
+                person, person.c.actor == S.creative_canvases.c.created_by,
+            ).where(
+                S.creative_canvases.c.project_id == p,
+            )
             if episode_id:
                 self._one(conn, S.episodes, p, episode_id)
                 query = query.where(S.creative_canvases.c.episode_id == checked_id(episode_id))
             if collaboration_only:
                 query = query.where(S.creative_canvases.c.collaboration_enabled.is_(True))
-            items = filter_management_rows(conn, p, S.creative_canvases, [dict(row) for row in conn.execute(query.order_by(
-                S.creative_canvas_versions.c.created_at.desc(), S.creative_canvases.c.created_at.desc(), S.creative_canvases.c.id)).mappings()])
+            items = filter_management_rows(
+                conn, p, S.creative_canvases,
+                [dict(row) for row in conn.execute(query.order_by(
+                    updated_col.desc(), S.creative_canvases.c.created_at.desc(), S.creative_canvases.c.id.asc()
+                )).mappings()],
+            )
             covers = CanvasLibrary._covers(conn, items)
             principal, current_person, _ = self._access_principal(conn)
             is_personal = self._workspace_is_personal(conn, p, principal)
@@ -468,9 +481,18 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
                     caps = set()
             for row in items:
                 collab_flag = bool(row.get("collaboration_enabled", False))
+                has_saved = row.get("version_id") is not None
                 row["collaboration_enabled"] = collab_flag
                 row["canvas_seq"] = int(row.get("collab_seq", 1))
-                row["cover_url"] = covers.get((p, row["version_id"]))
+                row["has_saved_version"] = has_saved
+                row["current_version_id"] = row["version_id"]
+                row["current_version_number"] = int(row["version"]) if has_saved and row.get("version") is not None else 0
+                row["current_version_title"] = row["title"] if has_saved and row.get("title") else "未命名画布"
+                if not has_saved:
+                    row["title"] = row.get("title") or "未命名画布"
+                    row["version"] = 0
+                    row["node_count"] = 0
+                row["cover_url"] = covers.get((p, row["version_id"])) if has_saved else None
                 if principal is None:
                     row["permission"] = {
                         "mode": "manage",

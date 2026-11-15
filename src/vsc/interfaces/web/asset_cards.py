@@ -3,11 +3,52 @@ from fastapi import Request, HTTPException
 from starlette.concurrency import run_in_threadpool
 
 
-def install_asset_card_routes(router, catalog, etag, actor):
+def install_asset_card_routes(app, router, catalog, etag, actor, read_actor):
     def service(p):
         if catalog._reader(p) is not None or catalog.service is None:
             raise HTTPException(409, '项目资产卡需要PostgreSQL权威')
         return catalog.service
+
+    def pg_service():
+        if catalog.service is None:
+            raise HTTPException(409, '跨项目资产汇总需要PostgreSQL权威')
+        return catalog.service
+
+    @app.get('/api/v1/account/project-asset-cards')
+    def account_listing(
+        request: Request,
+        q: str = '',
+        query: str = '',
+        asset_kind: str = '',
+        owner_kind: str = '',
+        workspace_id: str = '',
+        favorites: bool = False,
+        include_object: bool = False,
+        include_blocking: bool = False,
+        folder_id: str = '',
+        cursor: str = '',
+        offset: int = 0,
+        limit: int = 24,
+    ):
+        caller = read_actor(request)
+        effective_query = query if query else q
+        return etag(
+            request,
+            pg_service().list_authorized_project_asset_cards(
+                query=effective_query,
+                asset_kind=asset_kind,
+                owner_kind=owner_kind,
+                workspace_id=workspace_id,
+                favorites=favorites,
+                include_object=include_object,
+                include_blocking=include_blocking,
+                folder_id=folder_id,
+                cursor=cursor,
+                offset=offset,
+                limit=limit,
+                actor=caller,
+            ),
+        )
 
     @router.get('/{project_id}/asset-cards')
     def listing(

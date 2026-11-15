@@ -1,10 +1,13 @@
 """Read-only aggregation; each original domain continues to own recovery."""
-from sqlalchemy import select,func,literal,case,cast,Text,text,or_,false
-from sqlalchemy.dialects.postgresql import JSONB,aggregate_order_by
+from datetime import datetime, timezone
+import hashlib
+from sqlalchemy import and_, case, cast, false, func, insert, literal, or_, select, text, tuple_, update, Text
+from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 from urllib.parse import urlencode
-from . import schema as S
-from .values import clean,checked_id
+from vsc.assets.access_control import denied
 from vsc.assets.resource_service import ResourceError
+from . import schema as S
+from .values import clean, checked_id, new_id
 
 GROUPS = ('attention', 'running', 'result', 'ended', 'unknown')
 ORIGIN_LABELS = {'generation':'媒体生成', 'editing':'首版合成', 'spatial':'空间预演导出',
@@ -152,6 +155,191 @@ def task_sources(project_id,episode_id=None):
     return sources
 
 
+def task_sources_multi(project_ids):
+    """Set-based multi-project task source queries with strict project_id correlation."""
+    pids = tuple(sorted(set(project_ids)))
+    sources = []
+    scenes = S.scenes
+
+    def object_name(table, identifier, fallback):
+        obj = S.creative_objects
+        name = select(func.coalesce(func.nullif(obj.c.title, ''), obj.c.display_code)).where(
+            obj.c.project_id == table.c.project_id, obj.c.id == identifier
+        ).correlate(table).scalar_subquery()
+        return func.coalesce(name, literal(fallback))
+
+    def source(code, table, title, page, target=None, error=None, joins=(), scope=None, tool=None, token_parts=(), outer_joins=(), node=None):
+        problem_count = literal(0)
+        if code == 'generation':
+            result_count = select(func.count()).where(
+                S.job_outputs.c.project_id == table.c.project_id,
+                S.job_outputs.c.job_id == table.c.id,
+            ).correlate(table).scalar_subquery()
+        elif code == 'spatial':
+            result_count = select(func.count()).where(
+                S.spatial_export_outputs.c.project_id == table.c.project_id,
+                S.spatial_export_outputs.c.export_id == table.c.id,
+            ).correlate(table).scalar_subquery()
+        elif code == 'text_batch':
+            result_count = select(func.count()).select_from(
+                S.text_tool_batch_items.outerjoin(
+                    S.text_tool_attempts,
+                    (S.text_tool_attempts.c.project_id == S.text_tool_batch_items.c.project_id)
+                    & (S.text_tool_attempts.c.id == S.text_tool_batch_items.c.attempt_id),
+                )
+            ).where(
+                S.text_tool_batch_items.c.project_id == table.c.project_id,
+                S.text_tool_batch_items.c.batch_id == table.c.id,
+                or_(
+                    S.text_tool_batch_items.c.output_version_id.is_not(None),
+                    S.text_tool_attempts.c.result_version_id.is_not(None),
+                ),
+            ).correlate(table).scalar_subquery()
+            problem_count = select(func.count()).where(
+                S.text_tool_batch_items.c.project_id == table.c.project_id,
+                S.text_tool_batch_items.c.batch_id == table.c.id,
+                S.text_tool_batch_items.c.status.in_(('failed', 'blocked')),
+            ).correlate(table).scalar_subquery()
+        else:
+            result_field = {
+                'editing': 'output_blob_id', 'import': 'media_id', 'text': 'result_version_id',
+                'spatial_plan': 'plan_artifact_id', 'canvas': 'plan_artifact_id', 'intelligent': 'plan_artifact_id',
+            }[code]
+            result_count = case((table.c[result_field].is_not(None), 1), else_=0)
+        parts = [table.c.status] + [
+            table.c[name]
+            for name in ('attempt', 'result_version_id', 'output_version_id', 'plan_artifact_id', 'output_sha256', 'media_id', 'error', 'error_code')
+            if name in table.c
+        ] + list(token_parts)
+        token = func.encode(func.sha256(func.convert_to(func.concat_ws('|', *[func.coalesce(cast(value, Text), '') for value in parts]), 'UTF8')), 'hex')
+        query = select(
+            table.c.project_id.label('project_id'),
+            table.c.id,
+            table.c.status,
+            table.c.created_at,
+            title.label('title'),
+            literal(code).label('kind'),
+            (literal(page) if isinstance(page, str) else page).label('page'),
+            (target if target is not None else table.c.id).label('target_id'),
+            (error if error is not None else literal(None)).label('error'),
+            (scope if scope is not None else literal(None)).label('scope_id'),
+            (tool if tool is not None else literal(None)).label('tool_id'),
+            (node if node is not None else literal(None)).label('focus_node_key'),
+            token.label('source_token'),
+            result_count.label('result_count'),
+            problem_count.label('problem_count'),
+        ).select_from(table)
+        for joined, on in joins:
+            query = query.join(joined, on)
+        for joined, on in outer_joins:
+            query = query.outerjoin(joined, on)
+        query = query.where(table.c.project_id.in_(pids) if pids else false())
+        sources.append((code, query))
+
+    j = S.generation_jobs
+    from .media_catalog import ProjectMediaCatalog
+    canvas_job = ProjectMediaCatalog._canvas_jobs(pids)
+    canvas_version, canvas = S.creative_canvas_versions, S.creative_canvases
+    source(
+        'generation', j, object_name(j, func.coalesce(j.c.shot_id, j.c.asset_id), '媒体生成'),
+        case((canvas.c.id.is_not(None), 'creative-canvas'), else_='candidates'),
+        func.coalesce(canvas.c.id, j.c.shot_id, j.c.asset_id),
+        scope=canvas.c.episode_id, node=canvas_job.c.node_key,
+        outer_joins=(
+            (canvas_job, (canvas_job.c.project_id == j.c.project_id) & (canvas_job.c.job_id == j.c.id)),
+            (canvas_version, (canvas_version.c.project_id == canvas_job.c.project_id) & (canvas_version.c.id == canvas_job.c.version_id)),
+            (canvas, (canvas.c.project_id == canvas_version.c.project_id) & (canvas.c.id == canvas_version.c.canvas_id)),
+        ),
+    )
+    r, v, w = S.edit_render_jobs, S.edit_revisions, S.edit_workspaces
+    source(
+        'editing', r, object_name(w, w.c.episode_id, '首版合成'), 'editing', w.c.episode_id, r.c.error,
+        ((v, (v.c.project_id == r.c.project_id) & (v.c.id == r.c.edit_version_id)), (w, (w.c.project_id == v.c.project_id) & (w.c.id == v.c.workspace_id))),
+        scope=w.c.episode_id,
+    )
+    r, v, w = S.spatial_exports, S.spatial_scene_versions, S.spatial_scenes
+    spatial_scope = func.coalesce(
+        w.c.episode_id,
+        select(scenes.c.parent_id).where(scenes.c.project_id == w.c.project_id, scenes.c.id == w.c.scene_id).correlate(w).scalar_subquery(),
+    )
+    source(
+        'spatial', r, v.c.title, w.c.mode, w.c.id, r.c.error,
+        ((v, (v.c.project_id == r.c.project_id) & (v.c.id == r.c.version_id)), (w, (w.c.project_id == v.c.project_id) & (w.c.id == v.c.spatial_scene_id))),
+        scope=spatial_scope,
+    )
+    r = S.spatial_plan_tasks
+    source(
+        'spatial_plan', r, v.c.title, w.c.mode, w.c.id, r.c.error,
+        ((v, (v.c.project_id == r.c.project_id) & (v.c.id == r.c.version_id)), (w, (w.c.project_id == v.c.project_id) & (w.c.id == v.c.spatial_scene_id))),
+        scope=spatial_scope,
+    )
+    request = S.artifact_versions.alias('lyrics_request')
+    result = S.artifact_versions.alias('lyrics_result')
+    fixed = cast(func.convert_from(request.c.document, 'UTF8'), JSONB)
+    response = cast(func.convert_from(result.c.document, 'UTF8'), JSONB)
+    lyrics_query = (
+        select(
+            request.c.project_id.label('project_id'),
+            request.c.id,
+            func.coalesce(
+                response['status'].astext,
+                case((request.c.created_at + text("interval '180 seconds'") < func.now(), 'submission_unknown'), else_='running'),
+            ).label('status'),
+            request.c.created_at,
+            literal('歌词创作').label('title'),
+            literal('lyrics').label('kind'),
+            literal('creative-tools').label('page'),
+            request.c.id.label('target_id'),
+            response['error'].astext.label('error'),
+            fixed['episode_id'].astext.label('scope_id'),
+            literal('lyrics').label('tool_id'),
+            literal(None).label('focus_node_key'),
+            func.encode(
+                func.sha256(func.convert_to(func.concat_ws('|', cast(result.c.id, Text), func.coalesce(response['status'].astext, 'submission_unknown')), 'UTF8')),
+                'hex',
+            ).label('source_token'),
+            case((response['status'].astext == 'completed', 1), else_=0).label('result_count'),
+            literal(0).label('problem_count'),
+        )
+        .select_from(
+            request.outerjoin(
+                result,
+                (result.c.project_id == request.c.project_id)
+                & (result.c.artifact_key == literal('lyrics-result:') + cast(request.c.id, Text)),
+            )
+        )
+        .where(request.c.project_id.in_(pids) if pids else false(), request.c.artifact_type == 'lyrics-request')
+    )
+    sources.append(('lyrics', lyrics_query))
+    i, b = S.media_import_items, S.media_import_batches
+    source('import', i, i.c.filename, 'media-imports', b.c.id, i.c.error, ((b, (b.c.project_id == i.c.project_id) & (b.c.id == i.c.batch_id)),), scope=b.c.episode_id)
+    a, u = S.text_tool_attempts, S.text_tool_units
+    source('text', a, u.c.title, 'text-tools', u.c.id, a.c.error_code, ((u, (u.c.project_id == a.c.project_id) & (u.c.id == a.c.unit_id)),), scope=u.c.episode_id, tool=u.c.tool)
+    batch, member = S.text_tool_batches, S.text_tool_batch_items
+    first_unit = select(member.c.unit_id).where(member.c.project_id == batch.c.project_id, member.c.batch_id == batch.c.id).correlate(batch).order_by(member.c.ordinal).limit(1).scalar_subquery()
+    member_facts = select(
+        func.string_agg(
+            func.concat_ws(':', cast(member.c.id, Text), member.c.status, cast(member.c.attempt_id, Text), member.c.error_code),
+            aggregate_order_by(literal('|'), member.c.ordinal),
+        )
+    ).where(member.c.project_id == batch.c.project_id, member.c.batch_id == batch.c.id).correlate(batch).scalar_subquery()
+    source('text_batch', batch, literal('批量 ') + batch.c.action, 'text-tools', first_unit, tool=batch.c.tool, token_parts=(member_facts,))
+    t, s = S.canvas_agent_turns, S.canvas_agent_sessions
+    canvas_subject = select(canvas_version.c.title).where(canvas_version.c.project_id == t.c.project_id, canvas_version.c.id == t.c.version_id).correlate(t).scalar_subquery()
+    source(
+        'canvas', t, canvas_subject, 'creative-canvas', s.c.canvas_id, t.c.error,
+        ((s, (s.c.project_id == t.c.project_id) & (s.c.id == t.c.session_id)), (canvas, (canvas.c.project_id == s.c.project_id) & (canvas.c.id == s.c.canvas_id))),
+        scope=canvas.c.episode_id, node=t.c.target_node_key,
+    )
+    t, v, w = S.intelligent_tasks, S.intelligent_versions, S.intelligent_workflows
+    source(
+        'intelligent', t, w.c.title, case((v.c.route == 'storyboard', 'intelligent-storyboard'), else_='intelligent-creation'), w.c.id, t.c.error,
+        ((v, (v.c.project_id == t.c.project_id) & (v.c.id == t.c.version_id)), (w, (w.c.project_id == v.c.project_id) & (w.c.id == v.c.workflow_id))),
+        scope=w.c.episode_id,
+    )
+    return sources
+
+
 def task_origin_href(project_id,row,episode_id=None):
     key='episode' if row['kind']=='editing' else 'scope' if row['kind']=='generation' and row['page']=='candidates' else 'task_target'
     params={'page':row['page'],'project':project_id,key:row['target_id'],'task_id':row['id']}
@@ -205,7 +393,7 @@ def _decorate_results(conn,project_id,rows,members):
         if ids:
             fields=[table.c.id]+[table.c[name] for name in ('shot_id','asset_id','result_version_id',
                 'output_blob_id','media_id','plan_artifact_id','output_version_id','run_artifact_id',
-                'progress_frames','total_frames') if name in table.c]
+                'progress_frames','total_frames','claim_owner') if name in table.c]
             facts[kind]={r['id']:dict(r) for r in conn.execute(select(*fields).where(
                 table.c.project_id==project_id,table.c.id.in_(ids))).mappings()}
     outputs={}
@@ -283,6 +471,8 @@ def _decorate_results(conn,project_id,rows,members):
             'label':str(len(refs))+' 个已登记结果' if refs else '尚无已登记结果',
             'detail':'结果登记与原对象的当前工作选材、正式绑定分别记录；未覆盖的采用关系请到原任务核对'}
         row['result']=result
+        if row.pop('_want_claim_owner', False):
+            row['_claim_owner']=fact.get('claim_owner')
         if 'progress_frames' in fact:row['progress']={'completed':fact['progress_frames'],'total':fact['total_frames']}
         group=row.pop('_group',None)
         if group is None:
@@ -359,3 +549,430 @@ class TaskCenterRepository:
             return clean({"project_id":project["id"],"episode_id":episode_id,"revision":project["revision"],"items":rows[offset:offset+limit],"total":total,
                 'groups':groups,
                 "next_offset":offset+limit if offset+limit<total else None})
+
+    def query_authorized(self, *, offset=0, limit=24, kind=None, status=None, group=None, project_id=None):
+        from .project_management import inactive_project_ids
+        with self.store.engine.connect() as conn:
+            principal, person, share = self.store._access_principal(conn)
+            if not principal or not person or share or principal.api_key_id:
+                denied('跨项目任务中心仅限正式成员会话访问')
+            access_rev = int(conn.execute(select(S.access_state.c.revision).where(S.access_state.c.id == 1)).scalar_one_or_none() or 0)
+            readable_q = self.store._access_project_query(conn, 'read').where(~S.projects.c.id.in_(inactive_project_ids()))
+            editable_pids = set(
+                str(pid)
+                for pid in conn.execute(
+                    self.store._access_project_query(conn, 'edit').where(~S.projects.c.id.in_(inactive_project_ids()))
+                ).scalars()
+            )
+            proj_rows = [
+                dict(r)
+                for r in conn.execute(
+                    select(S.projects.c.id, S.projects.c.name, S.projects.c.revision)
+                    .where(S.projects.c.id.in_(readable_q))
+                    .order_by(S.projects.c.id.asc())
+                ).mappings()
+            ]
+            proj_map = {str(r['id']): r for r in proj_rows}
+            authorized_projects = [
+                {
+                    'id': str(r['id']),
+                    'name': r['name'],
+                    'revision': int(r['revision']),
+                    'editable': str(r['id']) in editable_pids,
+                }
+                for r in proj_rows
+            ]
+            if project_id:
+                target_pid = checked_id(project_id)
+                if target_pid not in proj_map:
+                    denied('当前身份无权读取该项目任务')
+                active_pids = [target_pid]
+            else:
+                active_pids = [str(r['id']) for r in proj_rows]
+            rev_digest = hashlib.sha256(
+                ','.join(f"{r['id']}:{r['revision']}:{int(str(r['id']) in editable_pids)}" for r in proj_rows).encode()
+            ).hexdigest()
+            etag_seed = f"{person['id']}:{access_rev}:{rev_digest}"
+            groups = {key: 0 for key in GROUPS}
+            if not active_pids:
+                groups['all'] = 0
+                return clean({
+                    '_etag_seed': etag_seed,
+                    'items': [],
+                    'total': 0,
+                    'offset': offset,
+                    'limit': limit,
+                    'next_offset': None,
+                    'groups': groups,
+                    'authorized_projects': authorized_projects,
+                    'projects': authorized_projects,
+                })
+            sources = task_sources_multi(active_pids)
+            rows = []
+            for code, query in sources:
+                if kind and code != kind:
+                    continue
+                table = query.subquery()
+                selected = select(table)
+                if status:
+                    selected = selected.where(table.c.status == status)
+                filtered = selected.subquery()
+                classified = select(filtered, task_group(filtered).label('_group')).subquery()
+                for count in conn.execute(
+                    select(classified.c._group, func.count().label('count')).group_by(classified.c._group)
+                ).mappings():
+                    groups[count['_group']] += count['count']
+                selected = select(classified)
+                if group:
+                    selected = selected.where(classified.c._group == group)
+                rows.extend(
+                    dict(row)
+                    for row in conn.execute(
+                        selected.order_by(
+                            classified.c.created_at.desc(),
+                            classified.c.project_id.asc(),
+                            classified.c.id.desc(),
+                        ).limit(offset + limit)
+                    ).mappings()
+                )
+            groups['all'] = sum(groups.values())
+            total = groups[group] if group else groups['all']
+            rows.sort(
+                key=lambda row: (
+                    row['created_at'],
+                    row['kind'],
+                    str(row['id']),
+                ),
+                reverse=True,
+            )
+            page_rows = rows[offset : offset + limit]
+            by_pid = {}
+            for row in page_rows:
+                row['_want_claim_owner'] = True
+                by_pid.setdefault(str(row['project_id']), []).append(row)
+            for pid in sorted(by_pid):
+                decorate_tasks(conn, pid, by_pid[pid], None)
+            for row in page_rows:
+                pid = str(row['project_id'])
+                pinfo = proj_map[pid]
+                claim_owner = row.pop('_claim_owner', None)
+                editable = pid in editable_pids
+                row['project_id'] = pid
+                row['project_name'] = pinfo['name']
+                row['project_revision'] = int(pinfo['revision'])
+                row['project_editable'] = editable
+                row['cancellable_local'] = bool(
+                    row['kind'] == 'generation'
+                    and row['status'] == 'created'
+                    and claim_owner is None
+                    and editable
+                )
+            return clean({
+                '_etag_seed': etag_seed,
+                'items': page_rows,
+                'total': total,
+                'offset': offset,
+                'limit': limit,
+                'next_offset': offset + limit if offset + limit < total else None,
+                'groups': groups,
+                'authorized_projects': authorized_projects,
+                'projects': authorized_projects,
+            })
+
+    def batch_cancel(self, payload, *, actor, idempotency_key):
+        from .access_control import authority_lock
+        from .commerce import CommerceRepository
+        from .project_management import inactive_project_ids
+        if not isinstance(payload, dict):
+            raise ResourceError('批量取消请求格式无效', 'invalid_input')
+        if payload.get('confirmed') is not True:
+            raise ResourceError('批量取消需要显式人工确认', 'commerce_confirmation_required')
+        raw_items = payload.get('items')
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ResourceError('请至少选择一条待取消任务', 'invalid_input')
+        seen = set()
+        unique_items = []
+        for entry in raw_items:
+            if not isinstance(entry, dict):
+                raise ResourceError('任务项格式无效', 'invalid_input')
+            pid = checked_id(entry.get('project_id'))
+            kind = entry.get('kind') or 'generation'
+            if not isinstance(kind, str) or kind not in ORIGIN_LABELS:
+                raise ResourceError('未知任务类型', 'invalid_input')
+            raw_jid = entry.get('job_id') or entry.get('task_id') or entry.get('id')
+            jid = checked_id(raw_jid)
+            dedup_key = (pid, kind, jid)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            unique_items.append({'project_id': pid, 'kind': kind, 'job_id': jid})
+        if len(unique_items) > 50:
+            raise ResourceError(
+                '单次最多批量取消 50 条任务',
+                'batch_limit_exceeded',
+                422,
+                details={'limit': 50, 'actual': len(unique_items)},
+            )
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key.strip()) <= 200:
+            raise ResourceError('需要有效的操作幂等键', 'invalid_input')
+        idem_key = idempotency_key.strip()
+
+        with self.store.engine.begin() as conn:
+            authority_lock(conn)
+            principal, person, share = self.store._access_principal(conn)
+            if not principal or not person or share or principal.api_key_id:
+                denied('批量取消仅限正式成员会话操作')
+            inactive_q = inactive_project_ids()
+            editable_pids = set(
+                str(pid)
+                for pid in conn.execute(
+                    self.store._access_project_query(conn, 'edit').where(~S.projects.c.id.in_(inactive_q))
+                ).scalars()
+            )
+            readable_names = {
+                str(r['id']): r['name']
+                for r in conn.execute(
+                    select(S.projects.c.id, S.projects.c.name).where(
+                        S.projects.c.id.in_(self.store._access_project_query(conn, 'read'))
+                    )
+                ).mappings()
+            }
+            cand_pairs = [
+                (it['project_id'], it['job_id'])
+                for it in unique_items
+                if it['kind'] == 'generation' and it['project_id'] in editable_pids
+            ]
+            # L3: Lock any non-project commercial funding scopes in deterministic ascending order BEFORE L4 projects.
+            if cand_pairs:
+                res_scopes = conn.execute(
+                    select(
+                        S.commerce_reservations.c.scope_kind,
+                        S.commerce_reservations.c.owner_identity_id,
+                        S.commerce_reservations.c.workspace_id,
+                    ).where(
+                        tuple_(
+                            S.commerce_reservations.c.attribution_project_id,
+                            S.commerce_reservations.c.job_id,
+                        ).in_(cand_pairs),
+                        S.commerce_reservations.c.scope_kind.in_(('identity', 'workspace')),
+                        S.commerce_reservations.c.status == 'reserved',
+                    )
+                ).mappings().all()
+                l3_targets = sorted({
+                    (r['scope_kind'], str(r['owner_identity_id'] or r['workspace_id']))
+                    for r in res_scopes
+                    if (r['owner_identity_id'] or r['workspace_id']) is not None
+                })
+                for scope_kind, scope_key in l3_targets:
+                    self.store._lock_scoped_domain(conn, 'commerce', scope_kind, scope_key)
+
+            by_pid = {}
+            for it in unique_items:
+                by_pid.setdefault(it['project_id'], []).append(it)
+
+            results_by_key = {}
+            now = datetime.now(timezone.utc)
+            commerce_repo = CommerceRepository(self.store)
+
+            # L4 -> L5 -> L6 in strictly ascending (project_id ASC, job_id ASC) order with per-project SAVEPOINT.
+            for pid in sorted(by_pid):
+                proj_items = sorted(by_pid[pid], key=lambda x: (x['job_id'], x['kind']))
+                if pid not in editable_pids:
+                    for it in proj_items:
+                        results_by_key[(pid, it['kind'], it['job_id'])] = {
+                            'project_id': pid,
+                            'project_name': readable_names.get(pid),
+                            'job_id': it['job_id'],
+                            'kind': it['kind'],
+                            'outcome': 'forbidden',
+                            'current_status': None,
+                            'project_revision': None,
+                            'released_credits': 0,
+                            'detail': '无该项目编辑或取消权限',
+                        }
+                    continue
+                with conn.begin_nested():
+                    proj_row = conn.execute(
+                        select(S.projects).where(S.projects.c.id == pid).with_for_update()
+                    ).mappings().first()
+                    if not proj_row:
+                        for it in proj_items:
+                            results_by_key[(pid, it['kind'], it['job_id'])] = {
+                                'project_id': pid,
+                                'project_name': None,
+                                'job_id': it['job_id'],
+                                'kind': it['kind'],
+                                'outcome': 'forbidden',
+                                'current_status': None,
+                                'project_revision': None,
+                                'released_credits': 0,
+                                'detail': '项目不存在或不可访问',
+                            }
+                        continue
+                    pname = proj_row['name']
+                    proj_rev = int(proj_row['revision'])
+                    gen_ids = sorted({it['job_id'] for it in proj_items if it['kind'] == 'generation'})
+                    locked_jobs = {}
+                    if gen_ids:
+                        locked_jobs = {
+                            str(r['id']): dict(r)
+                            for r in conn.execute(
+                                select(S.generation_jobs)
+                                .where(
+                                    S.generation_jobs.c.project_id == pid,
+                                    S.generation_jobs.c.id.in_(gen_ids),
+                                )
+                                .order_by(S.generation_jobs.c.id.asc())
+                                .with_for_update()
+                            ).mappings()
+                        }
+                    cancelled_in_proj = 0
+                    proj_temp_results = []
+                    for it in proj_items:
+                        jid = it['job_id']
+                        kind = it['kind']
+                        if kind != 'generation':
+                            proj_temp_results.append((
+                                (pid, kind, jid),
+                                {
+                                    'project_id': pid,
+                                    'project_name': pname,
+                                    'job_id': jid,
+                                    'kind': kind,
+                                    'outcome': 'skipped_in_flight',
+                                    'current_status': None,
+                                    'released_credits': 0,
+                                    'detail': '仅未领取的本地媒体生成任务支持批量取消',
+                                },
+                            ))
+                            continue
+                        job = locked_jobs.get(jid)
+                        if not job:
+                            proj_temp_results.append((
+                                (pid, kind, jid),
+                                {
+                                    'project_id': pid,
+                                    'project_name': pname,
+                                    'job_id': jid,
+                                    'kind': kind,
+                                    'outcome': 'already_terminal',
+                                    'current_status': 'missing',
+                                    'released_credits': 0,
+                                    'detail': '任务不存在于当前项目',
+                                },
+                            ))
+                            continue
+                        st = job['status']
+                        if st == 'created' and job.get('claim_owner') is None:
+                            conn.execute(
+                                update(S.generation_jobs)
+                                .where(S.generation_jobs.c.project_id == pid, S.generation_jobs.c.id == jid)
+                                .values(
+                                    status='cancelled',
+                                    claim_owner=None,
+                                    claim_until=None,
+                                    next_attempt_at=None,
+                                    updated_at=now,
+                                )
+                            )
+                            budget_units = [
+                                r['unit']
+                                for r in conn.execute(
+                                    select(S.job_budget_reservations.c.unit).where(
+                                        S.job_budget_reservations.c.project_id == pid,
+                                        S.job_budget_reservations.c.job_id == jid,
+                                    )
+                                ).mappings()
+                            ]
+                            cancelled_job = dict(job, status='cancelled')
+                            self.store._settle_budget(
+                                conn,
+                                pid,
+                                cancelled_job,
+                                {u: 0 for u in budget_units} if budget_units else None,
+                            )
+                            released_amt = int(commerce_repo.settle_for_job(conn, pid, cancelled_job) or 0)
+                            conn.execute(
+                                insert(S.job_events).values(
+                                    project_id=pid,
+                                    id=new_id(),
+                                    job_id=jid,
+                                    event_type='cancelled',
+                                    evidence={'actor': actor, 'batch_cancel': True, 'idempotency_key': idem_key},
+                                )
+                            )
+                            cancelled_in_proj += 1
+                            proj_temp_results.append((
+                                (pid, kind, jid),
+                                {
+                                    'project_id': pid,
+                                    'project_name': pname,
+                                    'job_id': jid,
+                                    'kind': kind,
+                                    'outcome': 'cancelled',
+                                    'current_status': 'cancelled',
+                                    'released_credits': released_amt,
+                                    'detail': '已取消本地待领取任务并释放预留额度',
+                                },
+                            ))
+                        elif st in {'submitted', 'running', 'submission_unknown'} or job.get('claim_owner') is not None:
+                            proj_temp_results.append((
+                                (pid, kind, jid),
+                                {
+                                    'project_id': pid,
+                                    'project_name': pname,
+                                    'job_id': jid,
+                                    'kind': kind,
+                                    'outcome': 'skipped_in_flight',
+                                    'current_status': st,
+                                    'released_credits': 0,
+                                    'detail': '执行器或远端处理中，未取消；保留原查询回执与预留记录',
+                                },
+                            ))
+                        else:
+                            proj_temp_results.append((
+                                (pid, kind, jid),
+                                {
+                                    'project_id': pid,
+                                    'project_name': pname,
+                                    'job_id': jid,
+                                    'kind': kind,
+                                    'outcome': 'already_terminal',
+                                    'current_status': st,
+                                    'released_credits': 0,
+                                    'detail': '任务已处于终态，无需重复取消',
+                                },
+                            ))
+                    if cancelled_in_proj > 0:
+                        proj_rev += 1
+                        conn.execute(
+                            update(S.projects).where(S.projects.c.id == pid).values(revision=proj_rev, updated_at=now)
+                        )
+                        conn.execute(
+                            insert(S.project_revisions).values(
+                                project_id=pid,
+                                revision=proj_rev,
+                                actor=actor,
+                                action='batch_cancel_generation_jobs',
+                                command_key=f'batch-cancel:{idem_key}:{pid}'[:200],
+                            )
+                        )
+                    for key_tuple, res_dict in proj_temp_results:
+                        res_dict['project_revision'] = proj_rev
+                        results_by_key[key_tuple] = res_dict
+
+            ordered_results = [
+                results_by_key[(it['project_id'], it['kind'], it['job_id'])]
+                for it in unique_items
+            ]
+            total_released = sum(int(r['released_credits']) for r in ordered_results)
+            summary = {
+                'requested': len(unique_items),
+                'cancelled': sum(1 for r in ordered_results if r['outcome'] == 'cancelled'),
+                'skipped_in_flight': sum(1 for r in ordered_results if r['outcome'] == 'skipped_in_flight'),
+                'already_terminal': sum(1 for r in ordered_results if r['outcome'] == 'already_terminal'),
+                'forbidden': sum(1 for r in ordered_results if r['outcome'] == 'forbidden'),
+                'released_commercial_credits': total_released,
+                'released_credits': total_released,
+            }
+            return clean({'summary': summary, 'results': ordered_results})

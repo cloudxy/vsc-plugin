@@ -14,20 +14,30 @@ function setup(t,{api,projects=[{id:'p',name:'测试项目'},{id:'other',name:'�
  const timers=new Map();let timerId=0;const originalSet=nativeSetTimeout,originalClear=nativeClearTimeout;
  globalThis.setTimeout=fn=>{timers.set(++timerId,fn);return timerId;};globalThis.clearTimeout=id=>timers.delete(id);
  t.after(()=>{globalThis.setTimeout=originalSet;globalThis.clearTimeout=originalClear;});
- const session={actor:'human',identityId:'identity',csrf:'csrf'},calls=[];
- const notifications=createTaskNotifications(root,{session:()=>session,projects:()=>projects,projectName:id=>projects.find(p=>p.id===id)?.name,
+ const session={actor:'human',identityId:'identity',csrf:'csrf'},calls=[],navigated=[];
+ const notifications=createTaskNotifications(root,{session:()=>session,projects:()=>projects,projectName:id=>projects.find(p=>p.id===id)?.name,navigate:async(href,meta)=>navigated.push({href,meta}),
   api:async(url,options={})=>{const call={url,options,body:options.body?JSON.parse(options.body):null};calls.push(call);return api?api(call):feed();}});
  const dialog=()=>document.body.querySelector('dialog');
  const button=text=>dialog()?.querySelectorAll('button').find(n=>n.textContent===text||n.textContent.includes(text));
  const projectSelect=()=>dialog().querySelectorAll('select').find(n=>n.getAttribute('aria-label')==='通知项目');
  const rows=()=>dialog()?.querySelectorAll('article')||[];
  const timer=async()=>{assert.equal(timers.size,1);const [id,fn]=[...timers][0];timers.delete(id);await fn();};
- return {notifications,root,document,session,calls,timers,timer,dialog,button,projectSelect,rows};
+ return {notifications,root,document,session,calls,navigated,timers,timer,dialog,button,projectSelect,rows};
 }
 
-test('home exposes explicit project selection, task meaning, and the original task links',async t=>{
- const h=setup(t);await h.notifications.load({project:null});assert.equal(h.calls.length,0);assert.equal(h.root.querySelector('button').disabled,false);
- await h.notifications.open();assert.ok(h.dialog().textContent.includes('已读仅表示看过'));assert.ok(h.dialog().textContent.includes('进行中的任务'));
+test('home polls cross-project account notifications by default and switches cleanly to single-project scope',async t=>{
+ const h=setup(t,{api:call=>{
+  if(call.url.startsWith('/api/v1/account/task-notifications'))return feed([item('cross-one',{project_id:'p',project_name:'测试项目'})]);
+  return feed([item()]);
+ }});
+ await h.notifications.load({project:null});
+ assert.equal(h.calls.length,1);
+ assert.ok(h.calls[0].url.startsWith('/api/v1/account/task-notifications?limit=20&unread_only=false'));
+ assert.equal(h.root.querySelector('button').disabled,false);
+ await h.notifications.open();
+ assert.ok(h.dialog().textContent.includes('已读仅表示看过'));
+ assert.equal(h.dialog().querySelectorAll('a').find(a=>a.textContent==='查看全部任务').href,'/?page=tasks&project=__all__');
+ assert.equal(h.rows()[0].querySelector('.tn-project-name').textContent,'测试项目');
  h.projectSelect().value='p';await h.projectSelect().dispatch('change');
  assert.equal(h.rows().length,1);assert.ok(h.calls.at(-1).url.startsWith('/api/v1/projects/p/task-notifications?'));
  assert.equal(h.dialog().querySelectorAll('a').find(a=>a.textContent==='查看全部任务').href,'/?page=tasks&project=p');
@@ -140,4 +150,40 @@ test('the actual panel invalidates notification identity synchronously and chang
  await trigger.click();const notificationDialog=h.document.body.querySelector('.task-notification-dialog');assert.equal(notificationDialog.querySelector('article').dataset.notificationId,'other-notice');
  h.panel.applySession({actor:'other-human',identity_id:'other-identity',workspace_id:'workspace',share_id:null,write_available:true});
  assert.equal(h.document.body.querySelector('.task-notification-dialog'),null);assert.equal(h.document.getElementById('task-notifications').hidden,true);assert.equal(trigger.disabled,true);
+});
+
+test('0-project cross-project notifications pause when document is hidden, mark read by {project_id, event_id}, paginate by cursor and navigate to target task',async t=>{
+ let readDone=false;
+ const h=setup(t,{projects:[],api:call=>{
+  if(call.options.method==='POST'){readDone=true;return {marked_count:1};}
+  if(call.url.includes('cursor=cur-2'))return feed([item('ev-2',{project_id:'other',project_name:'另一项目',unread:false})],{unread_count:readDone?0:1,next_cursor:null});
+  return feed([item('ev-1',{project_id:'p',project_name:'测试项目',unread:!readDone,task_href:'/?page=tasks&project=p&task_id=job-9'})],{unread_count:readDone?0:1,next_cursor:'cur-2'});
+ }});
+ await h.notifications.load({project:''});
+ assert.equal(h.calls.length,1);
+ assert.equal(h.calls[0].url,'/api/v1/account/task-notifications?limit=20&unread_only=false');
+ assert.ok(h.root.textContent.includes('1'));
+
+ h.document.hidden=true;
+ const callsBeforeHiddenPoll=h.calls.length;
+ await h.timer();
+ assert.equal(h.calls.length,callsBeforeHiddenPoll);
+ h.document.hidden=false;
+
+ await h.notifications.open();
+ await h.button('读取更早通知').click();
+ assert.equal(h.rows().length,2);
+ assert.ok(h.calls.some(c=>c.url.includes('/api/v1/account/task-notifications?limit=20&unread_only=false&cursor=cur-2')));
+
+ await h.button('标为已读').click();
+ const readCall=h.calls.find(c=>c.options.method==='POST');
+ assert.equal(readCall.url,'/api/v1/account/task-notifications/read');
+ assert.deepEqual(readCall.body,{payload:{items:[{project_id:'p',event_id:'ev-1'}]}});
+
+ const taskLink=h.rows()[0].querySelectorAll('a')[0];
+ await taskLink.click();
+ assert.equal(h.navigated.length,1);
+ assert.equal(h.navigated[0].href,'/?page=tasks&project=p&task_id=job-9');
+ assert.equal(h.dialog(),null);
+ h.notifications.suspend();
 });

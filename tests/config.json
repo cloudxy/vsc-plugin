@@ -1656,6 +1656,7 @@
       "sources": [
         "src/vsc/interfaces/web/static/commerce.js",
         "src/vsc/interfaces/web/static/commerce.css",
+        "src/vsc/interfaces/web/static/governance-header.js",
         "tests/project/unit/commerce_frontend.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs"
       ]
@@ -1666,6 +1667,7 @@
       "sources": [
         "src/vsc/interfaces/web/static/service-operations.js",
         "src/vsc/interfaces/web/static/service-operations.css",
+        "src/vsc/interfaces/web/static/governance-header.js",
         "tests/project/unit/service_operations_frontend.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs"
       ]
@@ -2420,6 +2422,7 @@
         "src/vsc/interfaces/web/static/asset-center.js",
         "src/vsc/interfaces/web/static/asset-center.css",
         "src/vsc/interfaces/web/static/character-studio.js",
+        "src/vsc/interfaces/web/static/governance-header.js",
         "src/vsc/interfaces/web/static/character-studio-history.js",
         "src/vsc/interfaces/web/static/character-studio-publication.js",
         "src/vsc/interfaces/web/static/character-studio.css",
@@ -2456,11 +2459,22 @@
       "sources": [
         "src/vsc/interfaces/web/static/access-control.js",
         "src/vsc/interfaces/web/static/access-control.css",
+        "src/vsc/interfaces/web/static/governance-header.js",
         "src/vsc/interfaces/web/static/creative-canvas.js",
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/access_control_frontend.test.mjs",
         "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
+    },
+    "project.unit.test_governance_header": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/governance-header.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/governance_header.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs"
       ]
     },
     "assets.integration.test_marketing_media": {

@@ -113,3 +113,104 @@ test('unknown cost and unreported actual are never formatted as zero; empty stat
 test('generation fixed records retain attempts, elapsed time, quote comparison, events and media viewing',async t=>{
  const h=setup(t,{api:call=>call.url.includes('/production-platform/jobs/')?{candidate_no:2,attempt:3,elapsed_ms:1200,usage:{quote:{native_units:{video_seconds:5}},reconciliation:{actual_units:{video_seconds:2},native_delta:{video_seconds:-3}}},outputs:[{media_id:'fixed-media'}],events:[{created_at:'10:00',event_type:'bill_recorded'}]}:undefined});await h.center.load({project:'p',taskKind:'generation',taskId:'one'});await h.button('读取固定记录与输出',h.dialog()).click();assert.ok(h.dialog().textContent.includes('候选编号 2'));assert.ok(h.dialog().textContent.includes('1.2 秒'));assert.ok(h.dialog().textContent.includes('bill_recorded'));assert.equal(h.dialog().querySelector('table').querySelectorAll('tr').length,2);const mediaButton=h.dialog().querySelector('.tc-fixed-records').querySelectorAll('button').at(-1);await mediaButton.click();assert.deepEqual(h.media,['fixed-media']);
 });
+
+test('default unselected state preserves unselected note while offering explicit __all__ cross-project option',async t=>{
+ const h=setup(t);
+ await h.center.load({project:'',page:'tasks'});
+ assert.equal(h.root.querySelector('h1').textContent,'制作任务');
+ const note=h.root.querySelector('.tc-unselected-note');
+ assert.equal(note.hidden,false);
+ assert.ok(note.textContent.includes('未选项目，任务记录和用量还不能看。'));
+ const select=h.root.querySelector('.tc-project-context').querySelector('select');
+ assert.equal(select.value,'');
+ assert.equal(select.options[1].value,'__all__');
+ assert.equal(select.options[1].textContent,'全部可读项目');
+ assert.equal(h.calls.some(c=>c.url.includes('/account/tasks')||c.url.includes('/task-center?')),false);
+});
+
+test('__all__ cross-project mode preserves selection, focus and scroll across 15s polling, enforces confirmed batch cancel and 50-item cap, and isolates native usage quotas',async t=>{
+ let pollTick=0;
+ const crossItems=()=>[
+  task('job-created-a',{project_id:'p',project_name:'雨夜来信',project_revision:4+pollTick,status:'created',cancellable_local:true,title:'待领取生成 A'}),
+  task('job-running-b',{project_id:'other',project_name:'另一个项目',project_revision:9,status:'running',cancellable_local:true,title:'远端在途 B'}),
+  task('job-done-c',{project_id:'other',project_name:'另一个项目',project_revision:9,status:'succeeded',cancellable_local:false,title:'已完成 C'}),
+ ];
+ const h=setup(t,{api:call=>{
+  if(call.url.startsWith('/api/v1/account/tasks?')){
+   return {items:crossItems(),total:3,next_offset:null,groups:{all:3,attention:0,running:2,result:1,ended:0,unknown:0}};
+  }
+  if(call.url==='/api/v1/account/tasks/batch-cancel'){
+   return {
+    summary:{requested:2,cancelled:1,skipped_in_flight:1,already_terminal:0,forbidden:0,released_commercial_credits:75},
+    results:[
+     {project_id:'p',project_name:'雨夜来信',job_id:'job-created-a',outcome:'cancelled',current_status:'cancelled',project_revision:6,released_credits:75,detail:'已取消本地待领取任务并释放预留额度'},
+     {project_id:'other',project_name:'另一个项目',job_id:'job-running-b',outcome:'skipped_in_flight',current_status:'running',project_revision:9,released_credits:0,detail:'远端处理中，未取消'},
+    ],
+   };
+  }
+ }});
+ await h.center.load({project:'__all__',page:'tasks'});
+ assert.equal(h.root.querySelector('.tc-unselected-note').hidden,true);
+ assert.equal(h.calls.filter(c=>c.url.startsWith('/api/v1/account/tasks?')).length,1);
+ assert.equal(h.calls.some(c=>c.url.includes('/projects/__all__/')),false);
+ const rows=h.rows();
+ assert.equal(rows.length,3);
+ assert.equal(rows[0].querySelector('.tc-project-badge').textContent,'雨夜来信');
+ assert.equal(rows[1].querySelector('.tc-project-badge').textContent,'另一个项目');
+ assert.equal(rows[0].querySelector('.tc-batch-select').hidden,false);
+ assert.equal(rows[1].querySelector('.tc-batch-select').hidden,false);
+ assert.equal(rows[2].querySelector('.tc-batch-select').hidden,true);
+
+ const checkA=rows[0].querySelector('.tc-batch-check');
+ const checkB=rows[1].querySelector('.tc-batch-check');
+ checkA.checked=true;await checkA.dispatch('change');
+ checkB.checked=true;await checkB.dispatch('change');
+ h.root.scrollTop=180;
+ checkB.focus();
+ pollTick=1;
+ await h.timer();
+ assert.equal(h.rows()[0].querySelector('.tc-batch-check').checked,true);
+ assert.equal(h.rows()[1].querySelector('.tc-batch-check').checked,true);
+ assert.equal(h.document.activeElement,checkB);
+ assert.equal(h.root.scrollTop,180);
+
+ await h.button('批量取消所选任务').click();
+ const batchDlg=h.root.querySelector('.tc-batch-dialog');
+ assert.equal(batchDlg.dataset.component,'usage-batch-cancel-dialog');
+ await h.button('确认执行批量取消',batchDlg).click();
+ assert.equal(h.calls.some(c=>c.url==='/api/v1/account/tasks/batch-cancel'),false);
+ assert.ok(batchDlg.textContent.includes('请先勾选确认框'));
+
+ const confirmCheck=batchDlg.querySelector('.tc-batch-confirm-check');
+ confirmCheck.checked=true;
+ await h.button('确认执行批量取消',batchDlg).click();
+ const cancelCall=h.calls.find(c=>c.url==='/api/v1/account/tasks/batch-cancel');
+ assert.ok(cancelCall);
+ assert.equal(cancelCall.body.payload.confirmed,true);
+ assert.deepEqual(cancelCall.body.payload.items,[
+  {project_id:'p',job_id:'job-created-a',expected_revision:5},
+  {project_id:'other',job_id:'job-running-b',expected_revision:9},
+ ]);
+ assert.ok(cancelCall.body.idempotency_key);
+ assert.ok(h.root.querySelector('.tc-batch-receipt').textContent.includes('cancelled'));
+ assert.ok(h.root.querySelector('.tc-batch-receipt').textContent.includes('skipped_in_flight'));
+ assert.ok(h.revisions.some(([rev,pid])=>rev===6&&pid==='p'));
+ await h.button('关闭',batchDlg).click();
+
+ await h.button('查看进展与详情',h.rows()[0]).click();
+ assert.ok(h.calls.some(c=>c.url==='/api/v1/projects/p/task-center/generation/job-created-a'));
+ await h.button('关闭',h.dialog()).click();
+
+ await h.button('项目用量').click();
+ assert.equal(h.root.querySelector('.tc-all-usage-note').hidden,false);
+ assert.ok(h.root.querySelector('.tc-all-usage-note').textContent.includes('按单项目独立核算'));
+ assert.equal(h.calls.some(c=>c.url.includes('/task-usage')),false);
+
+ h.center.suspend();
+ const manyItems=Array.from({length:55},(_,i)=>task('job-'+i,{project_id:'p',project_name:'雨夜来信',project_revision:1,status:'created',cancellable_local:true}));
+ const hCap=setup(t,{api:call=>call.url.startsWith('/api/v1/account/tasks?')?{items:manyItems,total:55,next_offset:null,groups:{all:55}}:undefined});
+ await hCap.center.load({project:'__all__',page:'tasks'});
+ await hCap.button('全选本页可取消').click();
+ assert.ok(hCap.root.querySelector('.tc-batch-count').textContent.includes('已选 50 / 50'));
+ assert.ok(hCap.notices.some(n=>n.includes('50')));
+});
