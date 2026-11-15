@@ -1,0 +1,241 @@
+"""Local snapshot of the LibTV 创作精选 catalog and each canvas process.
+
+The panel reads files captured into the workspace. It does not call LibTV.
+"""
+import gzip
+import json
+import os
+import re
+from pathlib import Path
+
+SCHEMA = "vsc.featured-showcase/v1"
+UUID = re.compile(r"^[0-9a-fA-F]{16,64}$")
+PAGE_LIMIT = 20
+
+
+def showcase_root(override=None):
+    if override:
+        return Path(override)
+    env = os.environ.get("VSC_FEATURED_SHOWCASE_ROOT")
+    if env:
+        return Path(env)
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file() and (parent / "src" / "vsc").is_dir():
+            return parent / ".vsc-local" / "featured-showcase"
+    return Path.cwd() / ".vsc-local" / "featured-showcase"
+
+
+def _empty():
+    return {"schema": SCHEMA, "tags": [], "feeds": {}, "cards": {}}
+
+
+def load_catalog(root):
+    path = Path(root) / "catalog.json"
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("schema") != SCHEMA:
+        return None
+    if not isinstance(data.get("cards"), dict) or not isinstance(data.get("feeds"), dict):
+        return None
+    return data
+
+
+def _card(catalog, identity, root):
+    raw = catalog["cards"].get(identity)
+    if not isinstance(raw, dict):
+        return None
+    card = dict(raw)
+    card["processReady"] = bool(card.get("snapshotId")) and (Path(root) / "processes" / f"{identity}.json.gz").is_file()
+    card["processAvailable"] = bool(card.get("snapshotId"))
+    return card
+
+
+def list_works(root, tag_id="0", query="", offset=0, limit=PAGE_LIMIT):
+    root = Path(root)
+    catalog = load_catalog(root)
+    if catalog is None:
+        return {"ready": False, "tags": [], "items": [], "total": 0, "offset": 0, "limit": PAGE_LIMIT, "hasMore": False}
+    try:
+        offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = min(60, max(1, int(limit)))
+    except (TypeError, ValueError):
+        limit = PAGE_LIMIT
+    tag_key = str(tag_id or "0")
+    if tag_key not in catalog["feeds"] and tag_key != "0":
+        tag_key = "0"
+    identities = [item for item in catalog["feeds"].get(tag_key, []) if item in catalog["cards"]]
+    needle = str(query or "").strip().casefold()
+    if needle:
+        matched = []
+        for identity in identities:
+            card = catalog["cards"][identity]
+            haystack = " ".join(str(card.get(key) or "") for key in ("name", "description", "nickname")).casefold()
+            if needle in haystack:
+                matched.append(identity)
+        identities = matched
+    page = identities[offset:offset + limit]
+    items = [card for card in (_card(catalog, identity, root) for identity in page) if card]
+    tags = []
+    for tag in catalog.get("tags") or []:
+        if not isinstance(tag, dict):
+            continue
+        key = str(tag.get("id"))
+        tags.append({
+            "id": tag.get("id"),
+            "code": tag.get("code") or "",
+            "label": tag.get("label") or "",
+            "count": len(catalog["feeds"].get(key, [])),
+        })
+    return {
+        "ready": True,
+        "tags": tags,
+        "items": items,
+        "total": len(identities),
+        "offset": offset,
+        "limit": limit,
+        "hasMore": offset + limit < len(identities),
+    }
+
+
+def _number(value, default=0):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    return float(value)
+
+
+def _media_url(value):
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str) and item:
+                return item
+    return ""
+
+
+def _references(params):
+    mixed = params.get("mixedList")
+    groups = [("mixed", mixed)] if isinstance(mixed, list) and mixed else [
+        ("image", params.get("imageList")),
+        ("video", params.get("videoList")),
+        ("audio", params.get("audioList")),
+    ]
+    seen = set()
+    refs = []
+    for kind, items in groups:
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            node_id = item.get("nodeId")
+            if not isinstance(node_id, str) or not node_id or node_id in seen:
+                continue
+            seen.add(node_id)
+            refs.append({"nodeId": node_id, "label": item.get("label") or "", "kind": kind})
+    return refs
+
+
+def _settings(params):
+    raw = params.get("settings")
+    if not isinstance(raw, dict):
+        return {}
+    kept = {}
+    for key in ("ratio", "resolution", "duration", "enableSound"):
+        value = raw.get(key)
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            kept[key] = value
+    return kept
+
+
+def project_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    raw_nodes = [node for node in snapshot.get("nodes") or [] if isinstance(node, dict) and isinstance(node.get("id"), str)]
+    drafted = []
+    for node in raw_nodes:
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        params = data.get("params") if isinstance(data.get("params"), dict) else {}
+        position = node.get("position") if isinstance(node.get("position"), dict) else {}
+        measured = node.get("measured") if isinstance(node.get("measured"), dict) else {}
+        task = data.get("taskInfo") if isinstance(data.get("taskInfo"), dict) else {}
+        width = node.get("width") if isinstance(node.get("width"), (int, float)) else measured.get("width")
+        height = node.get("height") if isinstance(node.get("height"), (int, float)) else measured.get("height")
+        children = data.get("childNodeIds") if node.get("type") == "group" and isinstance(data.get("childNodeIds"), list) else []
+        drafted.append({
+            "id": node["id"],
+            "type": node.get("type") or data.get("type") or "",
+            "name": data.get("name") or "",
+            "action": data.get("action") or "",
+            "parentId": node.get("parentId") if isinstance(node.get("parentId"), str) else "",
+            "x": _number(position.get("x")),
+            "y": _number(position.get("y")),
+            "width": _number(width, 280 if node.get("type") != "group" else 640),
+            "height": _number(height, 160 if node.get("type") != "group" else 420),
+            "url": _media_url(data.get("url")),
+            "poster": data.get("poster") if isinstance(data.get("poster"), str) else "",
+            "prompt": params.get("prompt") if isinstance(params.get("prompt"), str) else "",
+            "model": params.get("model") if isinstance(params.get("model"), str) else "",
+            "modeType": params.get("modeType") if isinstance(params.get("modeType"), str) else "",
+            "settings": _settings(params),
+            "taskStatus": task.get("status") if isinstance(task.get("status"), int) else None,
+            "groupColor": data.get("groupColor") if isinstance(data.get("groupColor"), str) else "",
+            "childIds": [item for item in children if isinstance(item, str)],
+            "refs": _references(params),
+        })
+    by_id = {node["id"]: node for node in drafted}
+    cache = {}
+
+    def absolute(node, stack):
+        if node["id"] in cache:
+            return cache[node["id"]]
+        parent = by_id.get(node["parentId"])
+        if parent is None or node["id"] in stack:
+            point = (node["x"], node["y"])
+        else:
+            px, py = absolute(parent, stack | {node["id"]})
+            point = (px + node["x"], py + node["y"])
+        cache[node["id"]] = point
+        return point
+
+    for node in drafted:
+        node["x"], node["y"] = absolute(node, frozenset())
+    edges = []
+    for edge in snapshot.get("edges") or []:
+        if not isinstance(edge, dict):
+            continue
+        source, target = edge.get("source"), edge.get("target")
+        if source in by_id and target in by_id:
+            edges.append({"id": edge.get("id") or f"{source}-{target}", "source": source, "target": target})
+    return {"nodes": drafted, "edges": edges, "savedAt": snapshot.get("savedAt")}
+
+
+def read_process(root, template_uuid):
+    if not isinstance(template_uuid, str) or UUID.fullmatch(template_uuid) is None:
+        raise FileNotFoundError(template_uuid)
+    root = Path(root)
+    path = root / "processes" / f"{template_uuid}.json.gz"
+    if not path.is_file():
+        raise FileNotFoundError(template_uuid)
+    record = json.loads(gzip.decompress(path.read_bytes()))
+    if not isinstance(record, dict):
+        raise FileNotFoundError(template_uuid)
+    catalog = load_catalog(root)
+    card = _card(catalog, template_uuid, root) if catalog else None
+    return {
+        "card": card or {"templateUuid": template_uuid, "name": record.get("name") or "", "snapshotId": record.get("snapshotId")},
+        "name": record.get("name") or (card or {}).get("name") or "",
+        "description": record.get("description") or "",
+        "finalOutput": record.get("finalOutput") or (card or {}).get("finalOutput") or "",
+        "coverUrl": record.get("coverUrl") or "",
+        "nickname": record.get("nickname") or "",
+        "playCount": record.get("playCount"),
+        "viewCreationProcessCount": record.get("viewCreationProcessCount"),
+        "copyCanvasCount": record.get("copyCanvasCount"),
+        "process": project_snapshot(record.get("snapshot")),
+    }

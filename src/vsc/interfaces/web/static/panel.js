@@ -79,6 +79,7 @@ function resolvePathnameEntry(pathname='/',search=''){
   if(p==='/recycle-bin')return apply({page:'project-management',tab:'recycle'});
   if(p==='/marketing-studio'||p==='/marketing')return apply({page:'marketing-studio',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('episode_id')?{episode:params.get('episode_id')}:{})});
   if(p==='/capability-center'||p==='/capabilities')return apply({page:'capability-center'});
+  if(p==='/show')return apply({page:'featured-showcase'});
   if(p==='/members')return apply({page:'access'});
   if(p==='/sub-studios')return apply({page:'commerce',subview:'studio-quota'});
   if(p==='/subscription')return apply({page:'commerce',subview:'subscription'});
@@ -109,8 +110,8 @@ const entry = typeof window === 'undefined' ? new URLSearchParams('') : resolveP
 const currentEntry=()=>typeof window==='undefined'?new URLSearchParams(''):resolvePathnameEntry(window.location.pathname,window.location.search);
 const platformViews=['home','projects','project','production','tasks','assets','settings','maintenance'];
 const mainViews = ['desk','collection','trash'];
-const customViews=['project-management','marketing-studio','capability-center','creative-canvas','editing','classic-production','storyboard-repaint','video-review','fcp-portal','blocking','previs','creative-tools','text-tools','media-imports','access','access-share','team-review','commerce','asset-center','character-studio','api-settings','service-operations','community','intelligent-creation','intelligent-storyboard'];
-const navViews = ['marketing-studio','capability-center','home','community','asset-center','character-studio','project-management','intelligent-creation','intelligent-storyboard','projects','tasks','assets','settings','desk','collection','trash'];
+const customViews=['project-management','marketing-studio','capability-center','creative-canvas','editing','classic-production','storyboard-repaint','video-review','fcp-portal','blocking','previs','creative-tools','text-tools','media-imports','access','access-share','team-review','commerce','asset-center','character-studio','api-settings','service-operations','community','featured-showcase','intelligent-creation','intelligent-storyboard'];
+const navViews = ['marketing-studio','capability-center','home','community','featured-showcase','asset-center','character-studio','project-management','intelligent-creation','intelligent-storyboard','projects','tasks','assets','settings','desk','collection','trash'];
 const specialistViews=['source','script','designs','library','candidates','delivery','workbench','media','artifacts','canvas'];
 const initialView = [...mainViews,...platformViews,...customViews,...specialistViews].includes(entry.get('page')) ? entry.get('page') : 'home';
 const state = {project: entry.get('project'), object: entry.get('scope'), offset: 0, limit: 36, total: 0, revision: 0, csrf: null, actor: null, writeAvailable: false, writable: false, comparisons: new Map(),projectRows:new Map(),workspaces:[],workspaceRequest:0,projectsRequest:0, previewCapabilities: {}, expandedNodes: new Set(), treeNodes: [],treeMode:'legacy', treeRequest: 0, resourceRequest: 0, artifactRequest: 0, mediaRequest: 0, documentRequest: 0, selectedArtifact:null,compareRequest:0, primary:mainViews.includes(initialView)?initialView:'project', view: typeof window === 'undefined' ? 'workbench' : initialView};
@@ -245,7 +246,7 @@ let resourceCanvas = null, resourceSettings = null, creativeWorkbench = null, sc
 let sourceIntake = null, designWorkspace = null, resourceLibrary = null;
 let localProduction = null;
 let assistedDesk = null;
-let productionPlatform=null,characterStudio=null,marketingStudio=null,capabilityCenter=null,creativeCanvasPanel=null,editWorkspace=null,classicProduction=null,storyboardRepaint=null,videoReview=null,fcpPortal=null,spatialScenePanel=null,creativeTools=null,textTools=null,mediaImports=null,accessControl=null,teamReview=null,commerce=null,assetCenter=null,serviceOperations=null,intelligentProduction=null,projectManagement=null,community=null;
+let productionPlatform=null,characterStudio=null,marketingStudio=null,capabilityCenter=null,creativeCanvasPanel=null,editWorkspace=null,classicProduction=null,storyboardRepaint=null,videoReview=null,fcpPortal=null,spatialScenePanel=null,creativeTools=null,textTools=null,mediaImports=null,accessControl=null,teamReview=null,commerce=null,assetCenter=null,serviceOperations=null,intelligentProduction=null,projectManagement=null,community=null,featuredShowcase=null;
 function suspendCapabilityCenter(){capabilityCenter?.dispose();capabilityCenter=null;$('capability-center-view')?.replaceChildren();}
 let accessControlLoading=null;
 function ownershipSession(){return {actor:state.actor,identityId:state.identityId,ownerships:state.workspaces};}
@@ -437,6 +438,9 @@ async function loadCustomView(view){
   }else if(view==='community'){
     if(!community){const {createCommunity}=await import('./community.js');community=createCommunity($('community-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,projectId:state.project,revision:state.revision,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project&&value!=null)state.revision=value;}});}
     if(ticket===customViewRequest&&view===state.view)await community.load({projectId:project});
+  }else if(view==='featured-showcase'){
+    if(!featuredShowcase){const {createFeaturedShowcase}=await import('./featured-showcase.js');featuredShowcase=createFeaturedShowcase($('featured-showcase-view'),{api,notice});}
+    if(ticket===customViewRequest&&view===state.view)await featuredShowcase.load();
   }else if(view==='service-operations'){
     if(!serviceOperations){const {createServiceOperations}=await import('./service-operations.js');serviceOperations=createServiceOperations($('service-operations-view'),{api,notice,returnContext:readAdminReturnContext,onReturnContext:restoreAdminReturnContext,onGovernanceNavigate:navigateGovernanceModule,onSettingsNavigate:navigateSettingsSurface,workspaces:()=>state.workspaces,projects:()=>[...state.projectRows.values()],session:()=>({actor:state.actor,identityId:state.identityId,csrf:state.csrf,revision:state.revision,writable:state.project?state.writable:state.writeAvailable,writeAvailable:state.writeAvailable}),setRevision:(value,p)=>{if(p&&p===state.project)state.revision=value;},navigate:navigateModule,onSubviewChange:sub=>{if(typeof window==='undefined'||state.view!=='service-operations')return;const route=currentEntry();route.set('page','service-operations');if(state.project)route.set('project',state.project);else route.delete('project');if(sub)route.set('subview',sub);else route.delete('subview');const next='?'+route;if(window.location.search!==next)window.history.replaceState(null,'',next);}});}
     if(ticket===customViewRequest&&view===state.view)await serviceOperations.load({project,object,subview:currentEntry().get('subview'),targetId:currentEntry().get('task_target'),scopeKind:currentEntry().get('scope_kind'),workspaceId:currentEntry().get('workspace_id')});
@@ -657,6 +661,7 @@ async function switchView(view, focus = null) {
   if(view!=='commerce')commerce?.suspend();
   if(view!=='service-operations')serviceOperations?.suspend();
   if(view!=='community')community?.suspend();
+  if(view!=='featured-showcase')featuredShowcase?.suspend();
   if(view!=='project-management')projectManagement?.suspend();
   if(view!=='asset-center')assetCenter?.suspend();
   if(!['character-studio','api-settings'].includes(view))characterStudio?.suspend();
@@ -664,7 +669,7 @@ async function switchView(view, focus = null) {
   if(view!=='capability-center')suspendCapabilityCenter();
   const platform=platformViews.includes(view),custom=customViews.includes(view);
   const skip=document.querySelectorAll('.skip-link')[0];if(skip)skip.href=platform?'#production-platform':view==='marketing-studio'?'#marketing-studio-view':view==='capability-center'?'#capability-center-view':'#assisted-desk';
-  $('project-management-view').hidden=view!=='project-management';$('community-view').hidden=view!=='community';
+  $('project-management-view').hidden=view!=='project-management';$('community-view').hidden=view!=='community';$('featured-showcase-view').hidden=view!=='featured-showcase';
   $('marketing-studio-view').hidden=view!=='marketing-studio';
   if($('capability-center-view'))$('capability-center-view').hidden=view!=='capability-center';
   $('production-platform').hidden=!platform;$('creative-canvas-view').hidden=view!=='creative-canvas';$('edit-workspace-view').hidden=view!=='editing';$('classic-production-view').hidden=view!=='classic-production';if($('classic-subpage-view'))$('classic-subpage-view').hidden=!['storyboard-repaint','video-review','fcp-portal'].includes(view);$('intelligent-production-view').hidden=!['intelligent-creation','intelligent-storyboard'].includes(view);
@@ -676,13 +681,13 @@ async function switchView(view, focus = null) {
   loadTaskNotifications().catch(error=>notice(error.message));
   if(view!=='collection')sharedLibrary?.suspend();
   const assisted=mainViews.includes(view);
-  if(assisted||platform||['marketing-studio','capability-center','intelligent-creation','intelligent-storyboard','asset-center','character-studio','project-management','community'].includes(view))state.primary=view;else if(view==='api-settings')state.primary='api-settings';else assistedDesk?.suspend();
+  if(assisted||platform||['marketing-studio','capability-center','intelligent-creation','intelligent-storyboard','asset-center','character-studio','project-management','community','featured-showcase'].includes(view))state.primary=view;else if(view==='api-settings')state.primary='api-settings';else assistedDesk?.suspend();
   $('assisted-desk').hidden=!assisted;
   $('specialist-tabs').hidden=assisted||platform||custom;$('specialist-heading').hidden=assisted||platform||custom;
   document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('assisted-mode',assisted||platform||custom));
   document.querySelectorAll('.workspace').forEach(node=>node.classList.toggle('object-production',['workbench','candidates','delivery','designs','library'].includes(view)));
   if($('specialist-tools'))$('specialist-tools').open=false;
-  for(const key of navViews){const link=$(`nav-${key}`);if(!link)continue;link.href='?'+new URLSearchParams({page:key,...(!['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)&&state.project?{project:state.project}:{}),...(!['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)&&state.object?{scope:state.object}:{})});if(key===state.primary || key==='projects'&&['project','production'].includes(state.primary))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
+  for(const key of navViews){const link=$(`nav-${key}`);if(!link)continue;link.href='?'+new URLSearchParams({page:key,...(!['home','projects','asset-center','character-studio','project-management','capability-center','featured-showcase'].includes(key)&&state.project?{project:state.project}:{}),...(!['home','projects','asset-center','character-studio','project-management','capability-center','featured-showcase'].includes(key)&&state.object?{scope:state.object}:{})});if(key===state.primary || key==='projects'&&['project','production'].includes(state.primary))link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
   const referenceKind=state.view==='asset-center'?currentEntry().get('kind')||'':'';
   for(const [kind,id] of [['costume','nav-ref-costume'],['pose','nav-ref-pose'],['portrait','nav-ref-portrait'],['composite','nav-ref-composite']]){const link=$(id);if(!link)continue;if(referenceKind===kind)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');}
   if(['costume','pose','portrait','composite'].includes(referenceKind))$('nav-asset-center')?.removeAttribute('aria-current');
@@ -743,17 +748,17 @@ async function loadProjects() {
     const option = el('option', '', project.name + (project.owner_name?' · '+project.owner_name:'') + (project.unavailable ? ' · 权威不可用' : ''));
     option.value = project.id; $('projects').append(option);
   }
-  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','character-studio','api-settings','project-management','text-tools','creative-tools','marketing-studio','capability-center','commerce','service-operations','fcp-portal','storyboard-repaint'].includes(state.view)?state.view:'projects');return; }
+  if (!data.items.length) { state.project=null;state.writable=false;$('projects').append(el('option', '', msg("ui.no_registered_projects"))); await switchView(['home','projects','collection','access','access-share','asset-center','character-studio','api-settings','project-management','text-tools','creative-tools','marketing-studio','capability-center','commerce','service-operations','fcp-portal','storyboard-repaint','featured-showcase'].includes(state.view)?state.view:'projects');return; }
   if (state.project && data.items.some(row => row.id === state.project)) $('projects').value = state.project;
   if(['text-tools','creative-tools'].includes(state.view)&&!state.project){$('projects').prepend(localizedOption('',msg("ui.standalone_tools_no_film_project_selected")));$('projects').value='';await switchView(state.view);syncRoute();return;}
-  if((['access','access-share','commerce','service-operations'].includes(state.view)&&!state.project)||['home','projects','collection','project-management','asset-center','character-studio','api-settings','marketing-studio','capability-center','fcp-portal'].includes(state.view)||(state.view==='storyboard-repaint'&&!state.project)){await switchView(state.view);syncRoute();return;}
+  if((['access','access-share','commerce','service-operations'].includes(state.view)&&!state.project)||['home','projects','collection','project-management','asset-center','character-studio','api-settings','marketing-studio','capability-center','fcp-portal','featured-showcase'].includes(state.view)||(state.view==='storyboard-repaint'&&!state.project)){await switchView(state.view);syncRoute();return;}
   await selectProject($('projects').value);
 }
 async function selectProject(id,{scope}={}) {
   editWorkspace?.suspend?.();
   if(!id){state.project=null;state.object=null;await switchView(state.view);return;}
   if (state.project !== id) {
-    productionPlatform?.suspend();marketingStudio?.suspend();suspendCapabilityCenter();creativeCanvasPanel?.suspend();classicProduction?.suspend();storyboardRepaint?.suspend();videoReview?.suspend();fcpPortal?.suspend();spatialScenePanel?.suspend();creativeTools?.suspend();textTools?.suspend();mediaImports?.suspend();accessControl?.suspend();teamReview?.suspend();commerce?.suspend();assetCenter?.suspend();characterStudio?.suspend();serviceOperations?.suspend();community?.suspend();intelligentProduction?.suspend();projectManagement?.suspend();episodeScope=currentEntry().get('project')===id?currentEntry().get('episode'):null;
+    productionPlatform?.suspend();marketingStudio?.suspend();suspendCapabilityCenter();creativeCanvasPanel?.suspend();classicProduction?.suspend();storyboardRepaint?.suspend();videoReview?.suspend();fcpPortal?.suspend();spatialScenePanel?.suspend();creativeTools?.suspend();textTools?.suspend();mediaImports?.suspend();accessControl?.suspend();teamReview?.suspend();commerce?.suspend();assetCenter?.suspend();characterStudio?.suspend();serviceOperations?.suspend();community?.suspend();featuredShowcase?.suspend();intelligentProduction?.suspend();projectManagement?.suspend();episodeScope=currentEntry().get('project')===id?currentEntry().get('episode'):null;
     assistedDesk?.suspend();
     sourceIntake?.suspend();designWorkspace?.suspend();resourceLibrary?.suspend();
     state.expandedNodes.clear(); state.object = null; resourceCanvas?.load({projectId:null,userId:state.actor || 'reader'}); creativeWorkbench?.load({projectId:null,userId:state.actor || 'reader'});

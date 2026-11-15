@@ -2214,6 +2214,19 @@
         "src/vsc/assets/marketing_cases.py"
       ]
     },
+    "assets.unit.test_featured_showcase": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/featured_showcase.py",
+        "src/vsc/interfaces/web/featured_showcase.py",
+        "src/vsc/interfaces/web/static/featured-showcase.js",
+        "src/vsc/interfaces/web/static/featured-showcase.css",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "src/vsc/interfaces/web/app.py"
+      ]
+    },
     "assets.unit.test_marketing_cases": {
       "owner": "assets",
       "layer": "unit",

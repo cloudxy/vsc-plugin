@@ -55,6 +55,7 @@ from vsc.interfaces.web.character_studio import install_character_studio_routes
 from vsc.interfaces.web.asset_cards import install_asset_card_routes
 from vsc.interfaces.web.task_notifications import install_task_notification_routes
 from vsc.interfaces.web.community import install_community_routes
+from vsc.interfaces.web.featured_showcase import install_featured_showcase_routes
 from vsc.interfaces.web.project_cover import install_project_cover_routes
 from vsc.assets.access_control import set_principal,reset_principal,Principal
 
@@ -125,7 +126,7 @@ def create_app(config=None, catalog=None, service=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         frame_ancestors = "'self'" if request.url.path.startswith("/api/v1/fcp-embed/") else "'none'"
-        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss: https:; img-src 'self' data: blob: https:; media-src 'self' blob: https://static.skyproduction.cn; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
+        response.headers["Content-Security-Policy"] = f"default-src 'self'; connect-src 'self' ws: wss: https:; img-src 'self' data: blob: https:; media-src 'self' blob: https://static.skyproduction.cn https://libtv-res.liblib.art; frame-src 'self' https://static.skyproduction.cn; style-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors {frame_ancestors}; base-uri 'none'; form-action 'self'"
         response.headers.setdefault("Cache-Control", "no-store")
         return response
 
@@ -577,6 +578,7 @@ def create_app(config=None, catalog=None, service=None):
     install_asset_card_routes(app,router,catalog,etag,actor,read_actor)
     install_task_notification_routes(app,router,catalog,etag,read_actor)
     install_community_routes(app,router,catalog,etag,actor,read_actor)
+    install_featured_showcase_routes(app, etag, read_actor)
 
     @router.post("/{project_id}/generation-recoveries")
     def recover_generation(project_id: str, request: Request, body: dict):
