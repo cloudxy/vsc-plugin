@@ -199,7 +199,9 @@ function applySession(session) {
   $('upload-open').disabled=!(state.writable && state.actor);
 }
 async function api(path, options = {}) {
-  const response = await fetch(path, {credentials: 'same-origin', ...options});
+  const headers = new Headers(options.headers || {});
+  if (state.csrf && !headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', state.csrf);
+  const response = await fetch(path, {credentials: 'same-origin', ...options, headers});
   const value = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(value.message || value.detail || `请求失败 (${response.status})`);
