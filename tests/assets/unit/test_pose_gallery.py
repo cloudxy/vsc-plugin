@@ -158,6 +158,10 @@ class PoseGalleryTests(unittest.TestCase):
         self.assertTrue(g.media_file(self.repo, "thumbs/portrait/p0.webp").is_file())
         for bad in ("thumbs/../secret.json", "data/pose-zh.json", "thumbs/.hidden.webp", "/etc/passwd", "img/portrait/missing.webp", "thumbs//p0.webp"):
             self.assertIsNone(g.media_file(self.repo, bad), bad)
+        write(self.repo / "assets" / "pose-gallery" / "img" / "costume" / "SUM-0125.webp", b"RIFF0000WEBPVP8 ")
+        moved = g.media_file(self.repo, "img/costume/SUM-0125.png")
+        self.assertEqual(moved.name, "SUM-0125.webp")
+        self.assertIsNone(g.media_file(self.repo, "img/costume/NO-SUCH.png"))
 
     def test_legacy_costume_fallback_without_dataset(self):
         (self.repo / "assets" / "pose-gallery" / "data" / "costume-zh.json").unlink()

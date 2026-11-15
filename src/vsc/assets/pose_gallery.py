@@ -440,18 +440,7 @@ def random_recipe(repository, *, safe=True, rng=random):
 
 # --------------------------------------------------------------------------- media
 
-def media_file(repository, subpath: str):
-    """Resolve a relative ``thumbs/`` or ``img/`` path strictly inside the gallery."""
-    clean = str(subpath or "").replace("\\", "/")
-    if not clean.startswith(MEDIA_PREFIXES) or not clean.isprintable():
-        return None
-    parts = clean.split("/")
-    if any(not part or part.startswith(".") for part in parts):
-        return None
-    root = gallery_root(repository).resolve()
-    path = (root / clean)
-    if path.suffix.lower() not in MEDIA_SUFFIXES:
-        return None
+def _inside_gallery(root: Path, path: Path):
     try:
         resolved = path.resolve(strict=True)
     except OSError:
@@ -459,6 +448,36 @@ def media_file(repository, subpath: str):
     if not resolved.is_relative_to(root) or not resolved.is_file():
         return None
     return resolved
+
+
+def media_file(repository, subpath: str):
+    """Resolve a relative ``thumbs/`` or ``img/`` path strictly inside the gallery.
+
+    A saved recipe may still name the previous PNG or JPEG after that file was
+    replaced by the same stem in the studio gallery. The exact path wins; otherwise
+    the same stem with another gallery image suffix is used.
+    """
+    clean = str(subpath or "").replace("\\", "/")
+    if not clean.startswith(MEDIA_PREFIXES) or not clean.isprintable():
+        return None
+    parts = clean.split("/")
+    if any(not part or part.startswith(".") for part in parts):
+        return None
+    root = gallery_root(repository).resolve()
+    path = root / clean
+    if path.suffix.lower() not in MEDIA_SUFFIXES:
+        return None
+    found = _inside_gallery(root, path)
+    if found is not None:
+        return found
+    stem = path.with_suffix("")
+    for suffix in MEDIA_SUFFIXES:
+        if suffix == path.suffix.lower():
+            continue
+        found = _inside_gallery(root, stem.with_suffix(suffix))
+        if found is not None:
+            return found
+    return None
 
 
 def media_type(path: Path) -> str:
