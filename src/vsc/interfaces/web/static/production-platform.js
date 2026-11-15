@@ -176,7 +176,7 @@ export function createProductionPlatform(root,ctx){
     navigation.append(projectCategoryTabs(),libraries);root.append(navigation);
     const region=el('section',null,'project-category-results');region.id='project-category-results';region.setAttribute('role','tabpanel');region.setAttribute('aria-labelledby','project-category-'+(catalogView?scope.tab:category));
     if(catalogView){root.append(region);await showDiscovery(region,t,scope.tab);return;}
-    if(canvases||media){root.append(region);if(canvases)await canvasCatalog(t);else{const slot=el('div',null,'project-toolbar');region.append(slot);await mediaCatalog(t,slot);}return;}
+    if(canvases||media){root.append(region);region.append(el('p',msg(canvases?'canvas.library.description':'media.library.description'),'hint'));if(canvases)await canvasCatalog(t);else{const slot=el('div',null,'project-toolbar');region.append(slot);await mediaCatalog(t,slot);}return;}
     const toolbar=el('div',null,'project-directory-toolbar'),query=el('input'),total=el('span',null,'project-total');query.type='search';bindAttribute(query,'placeholder',msg('replica.search_projects'));bindAttribute(query,'aria-label',msg('ui.search_projects'));total.setAttribute('role','status');toolbar.append(query,total);root.append(toolbar,region);
     const rows=currentProjects().filter(row=>!['vsc.text-tools','vsc.creative-tools'].includes(row.profile)&&!['vsc.text-tools','vsc.creative-tools'].includes(row.profile_id)&&!['text-tools','creative-tools'].includes(row.profile_snapshot?.workspace_kind)),grid=el('div',null,'project-grid');region.append(grid);
     const draw=()=>{

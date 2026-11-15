@@ -491,13 +491,13 @@ test('production-platform projects view accepts tab=canvas alias alongside tab=c
     notice:()=>{},
     navigate:async()=>{},
     api:async url=>{
-      if(url==='/api/v1/canvas-library/options')return {projects:[],creators:[]};
+      if(String(url).startsWith('/api/v1/canvas-library/options'))return {projects:[],creators:[]};
       if(url.startsWith('/api/v1/canvas-library?'))return {items:[],total:0,offset:0,limit:20,next_offset:null};
       throw new Error('unexpected '+url);
     },
   });
   await platform.load({page:'projects',tab:'canvas'});
-  const activeTab=host.querySelector('.project-tabs').querySelectorAll('a').find(a=>a.getAttribute('aria-current')==='page');
+  const activeTab=host.querySelector('.project-library-links').querySelectorAll('a').find(a=>a.getAttribute('aria-current')==='page');
   assert.ok(activeTab);
   assert.ok(String(activeTab.href||activeTab.getAttribute('href')||'').includes('tab=canvases'));
   platform.suspend();

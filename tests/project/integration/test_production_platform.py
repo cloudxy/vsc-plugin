@@ -443,7 +443,7 @@ const ctx={session:()=>({actor:'human',csrf:'csrf',revision:4,writable:true}),se
 const platform=module.createProductionPlatform(root,ctx);
 await platform.load({page:'projects'});
 const cardButton=label=>[...root.querySelectorAll('button')].find(node=>node.getAttribute('aria-label')===label);
-const remove=cardButton('删除');
+const remove=cardButton('删除《示例项目》');
 assert.ok(remove);
 await remove.click();
 let dialog=root.querySelector('dialog');
@@ -453,7 +453,7 @@ assert.equal(dialog.querySelector('input'),null);
 await [...dialog.querySelectorAll('button')].find(node=>node.textContent==='取消').click();
 assert.equal(calls.filter(call=>call.opts?.method==='POST').length,0);
 assert.equal(root.querySelector('dialog'),null);
-await cardButton('删除').click();
+await cardButton('删除《示例项目》').click();
 dialog=root.querySelector('dialog');
 await dialog.querySelector('form').dispatch('submit');
 const posts=calls.filter(call=>call.opts?.method==='POST');

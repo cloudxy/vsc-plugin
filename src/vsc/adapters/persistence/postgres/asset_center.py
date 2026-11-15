@@ -239,10 +239,6 @@ class AssetCenterRepository:
             or_(newer.c.created_at > o.c.created_at, and_(newer.c.created_at == o.c.created_at, newer.c.id > o.c.id)))))
         if filters.get("asset_kind"):
             query = query.where(o.c.asset_kind == filters["asset_kind"])
-        facet_base = query.subquery()
-        for key in ("role_level", "role_tag", "gender", "age_band"):
-            if filters.get(key):
-                query = query.where(o.c[key] == filters[key])
         if filters.get("media_only"):
             media, versions = S.library_version_media, S.library_entry_versions.alias('official_media_version')
             backups = S.official_asset_backups
@@ -266,6 +262,13 @@ class AssetCenterRepository:
                     o.c.role_tag.ilike(pattern, escape="\\"),
                 )
             )
+        # Dimension chips stay selectable, so gender and role stay off this snapshot.
+        # Search text and media availability do scope it; otherwise another test's
+        # publication leaks into this result's facet set.
+        facet_base = query.subquery()
+        for key in ("role_level", "role_tag", "gender", "age_band"):
+            if filters.get(key):
+                query = query.where(o.c[key] == filters[key])
         order_by = filters.get("order_by", "")
         if order_by == "title":
             ordering = (v.c.title, o.c.library_version_id)
