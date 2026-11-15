@@ -41,21 +41,25 @@ async function mount(kind,handler){
 test('official scrolling serializes requests, preserves cards on failure and explicitly retries the same cursor',async()=>{
  let fail=true,release;
  const view=await mount('',async(_url,q)=>{
-  const offset=Number(q.get('offset')||0);
-  if(offset===24){await new Promise(resolve=>{release=resolve;});if(fail){fail=false;throw Error('offline');}}
-  const end=Math.min(offset+24,50);
+  const offset=Number(q.get('offset')||0),limit=Number(q.get('limit'));
+  if(offset===20){await new Promise(resolve=>{release=resolve;});if(fail){fail=false;throw Error('offline');}}
+  const end=Math.min(offset+limit,50);
   return {items:Array.from({length:end-offset},(_,i)=>official(offset+i)),total:50,next_offset:end<50?end:null};
  });
  const observer=observers.at(-1),cards=()=>view.root.querySelectorAll('.center-card');
- assert.equal(cards().length,24);assert.equal(button(view.root,'下一页'),undefined);
+ const listQuery=url=>new URL(url,'http://fixture').searchParams;
+ assert.equal(cards().length,20);assert.equal(listQuery(view.requests[0]).get('limit'),'20');
+ assert.equal(button(view.root,'下一页'),undefined);
  observer.fire();observer.fire();await settle();assert.equal(view.requests.length,2);
+ assert.equal(listQuery(view.requests.at(-1)).get('limit'),'20');
  assert.equal(view.root.querySelector('.center-load-more').hidden,true);
- release();await settle();assert.equal(cards().length,24);
+ release();await settle();assert.equal(cards().length,20);
  assert.match(view.root.querySelector('.center-load-status').textContent,/加载失败/);
  observer.fire();await settle();assert.equal(view.requests.length,2,'intersection cannot retry an error loop');
  const retry=button(view.root,'重试加载');assert.equal(retry.hidden,false);
  const retrying=retry.onclick();await settle();release();await retrying;
- assert.equal(cards().length,48);assert.equal(new URL(view.requests.at(-1),'http://fixture').searchParams.get('offset'),'24');
+ assert.equal(cards().length,40);assert.equal(listQuery(view.requests.at(-1)).get('offset'),'20');
+ assert.equal(listQuery(view.requests.at(-1)).get('limit'),'20');
  observer.fire();await settle();assert.equal(cards().length,50);
  assert.match(view.root.querySelector('.center-load-status').textContent,/已显示全部 50/);
  assert.equal(observer.disconnected,true);view.cleanup();
@@ -104,10 +108,12 @@ test('an old append response cannot enter the newly selected official category',
  let finish;
  const view=await mount('',async(_url,q)=>{
   if(q.get('asset_kind')==='location')return {items:[{...official('scene'),official:{asset_kind:'location'}}],total:1,next_offset:null};
-  if(q.get('offset')==='24')return new Promise(resolve=>{finish=()=>resolve({items:[official('late')],total:25,next_offset:null});});
-  return {items:[official('initial')],total:25,next_offset:24};
+  if(q.get('offset')==='20')return new Promise(resolve=>{finish=()=>resolve({items:[official('late')],total:25,next_offset:null});});
+  return {items:[official('initial')],total:25,next_offset:20};
  });
  const oldObserver=observers.at(-1);oldObserver.fire();await settle();
+ assert.equal(new URL(view.requests.at(-1),'http://fixture').searchParams.get('limit'),'20');
+ assert.equal(new URL(view.requests.at(-1),'http://fixture').searchParams.get('offset'),'20');
  await button(view.root,'场景').onclick();assert.equal(oldObserver.disconnected,true);
  finish();await settle();
  assert.equal(view.root.querySelectorAll('.center-card').length,1);
