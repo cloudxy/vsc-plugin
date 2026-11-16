@@ -1,5 +1,5 @@
 # Shared application defaults. Local connections belong in config/.env.
-MEDIA_ROOT = ".vsc-resource-media"
+MEDIA_ROOT = "assets/resource-media"
 PANEL_WRITABLE = false
 PANEL_HUMAN_IDENTITY = ""
 PANEL_REQUIRE_LOGIN = true

@@ -50,14 +50,14 @@ class WorkspaceConfigurationTests(unittest.TestCase):
             result = self.run_settings(directory, 'VSC_DATABASE_URL=file-app\nVSC_TEST_DATABASE_URL=file-test\n',
                 {'VSC_DATABASE_URL': 'old-app', 'VSC_TEST_DATABASE_URL': 'old-test'})
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), ['file-app', 'file-test', '.vsc-resource-media'])
+            self.assertEqual(json.loads(result.stdout), ['file-app', 'file-test', 'assets/resource-media'])
 
     def test_missing_file_uses_defaults_and_process_config(self):
         with tempfile.TemporaryDirectory() as directory:
             result = self.run_settings(directory, environment={
                 'VSC_DATABASE_URL': 'process-app', 'VSC_TEST_DATABASE_URL': 'process-test'})
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), ['process-app', 'process-test', '.vsc-resource-media'])
+            self.assertEqual(json.loads(result.stdout), ['process-app', 'process-test', 'assets/resource-media'])
 
     def test_panel_local_login_setting_reaches_startup_without_printing_a_credential(self):
         with tempfile.TemporaryDirectory() as directory:
