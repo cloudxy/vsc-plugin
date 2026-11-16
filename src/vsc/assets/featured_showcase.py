@@ -7,10 +7,13 @@ import hashlib
 import json
 import os
 import re
+import zlib
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
 SCHEMA = "vsc.featured-showcase/v1"
+PROJECTION_SCHEMA = "vsc.featured-showcase-projection/v2"
 UUID = re.compile(r"^[0-9a-fA-F]{16,64}$")
 PAGE_LIMIT = 20
 LOCAL_MEDIA = "/featured-showcase-media/"
@@ -42,7 +45,10 @@ def load_catalog(root):
     path = Path(root) / "catalog.json"
     if not path.is_file():
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         return None
     if not isinstance(data.get("cards"), dict) or not isinstance(data.get("feeds"), dict):
@@ -50,13 +56,32 @@ def load_catalog(root):
     return data
 
 
-def _card(catalog, identity, root):
+class ProcessSnapshotError(ValueError):
+    """A present local snapshot is unreadable or structurally invalid."""
+
+    def __init__(self, code, message, status_code=422, issues=None):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.issues = issues or []
+
+
+def _card(catalog, identity, root, structure_status=None):
     raw = catalog["cards"].get(identity)
     if not isinstance(raw, dict):
         return None
     card = dict(raw)
-    card["processReady"] = bool(card.get("snapshotId")) and (Path(root) / "processes" / f"{identity}.json.gz").is_file()
     card["processAvailable"] = bool(card.get("snapshotId"))
+    if not card["processAvailable"]:
+        status = "unpublished"
+    elif structure_status:
+        status = structure_status
+    elif not isinstance(identity, str) or UUID.fullmatch(identity) is None:
+        status = "invalid"
+    else:
+        status = _cached_structure_status(*_structure_arguments(root, identity, card.get("snapshotId")))
+    card["structureStatus"] = status
+    card["processReady"] = status == "ready"
     return localize_value(root, card)
 
 
@@ -242,124 +267,356 @@ def localize_value(root, value, drop_missing=True):
 
 
 def _references(params):
+    # mixedList is the combined input list, so its typed copies are not extra facts.
     mixed = params.get("mixedList")
-    groups = [("mixed", mixed)] if isinstance(mixed, list) and mixed else [
-        ("image", params.get("imageList")),
-        ("video", params.get("videoList")),
-        ("audio", params.get("audioList")),
+    groups = [("mixed", "mixedList", mixed)] if isinstance(mixed, list) and mixed else [
+        ("image", "imageList", params.get("imageList")),
+        ("video", "videoList", params.get("videoList")),
+        ("video", "videoListV2", params.get("videoListV2")),
+        ("audio", "audioList", params.get("audioList")),
+        ("text", "textList", params.get("textList")),
     ]
-    seen = set()
     refs = []
-    for kind, items in groups:
+    for kind, field, items in groups:
         if not isinstance(items, list):
             continue
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            node_id = item.get("nodeId")
-            if not isinstance(node_id, str) or not node_id or node_id in seen:
-                continue
-            seen.add(node_id)
-            refs.append({"nodeId": node_id, "label": item.get("label") or "", "kind": kind})
+        candidates = [(index, item) for index, item in enumerate(items)
+                      if isinstance(item, dict) and isinstance(item.get("nodeId"), str) and item["nodeId"]]
+        order = params.get(field + "Order")
+        ordered = []
+        remaining = list(candidates)
+        if isinstance(order, list):
+            for token in order:
+                for offset, (index, item) in enumerate(remaining):
+                    if isinstance(token, dict):
+                        match = token.get("nodeId") == item["nodeId"] and all(
+                            token.get(key) == item.get(key, index if key == "index" else None)
+                            for key in ("index", "slot") if key in token)
+                    elif isinstance(token, int) and not isinstance(token, bool):
+                        match = index == token
+                    else:
+                        match = token == item["nodeId"]
+                    if match:
+                        ordered.append(remaining.pop(offset))
+                        break
+        ordered.extend(remaining)
+        for order_index, (index, item) in enumerate(ordered):
+            ref = dict(item)
+            ref.update({"nodeId": item["nodeId"], "label": item.get("label") or "", "kind": kind,
+                        "list": field, "listIndex": index, "order": order_index})
+            refs.append(ref)
     return refs
 
 
-def _settings(params):
-    raw = params.get("settings")
-    if not isinstance(raw, dict):
+def _issue(code, **fields):
+    return {"code": code, **fields}
+
+
+def _validate_snapshot(snapshot):
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("nodes"), list) or not isinstance(snapshot.get("edges"), list):
+        raise ProcessSnapshotError("invalid_snapshot", "创作过程结构无效：需要 nodes 和 edges 列表")
+    nodes = snapshot["nodes"]
+    by_id = {}
+    issues = []
+    invalid = []
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict) or not isinstance(node.get("id"), str) or not node["id"]:
+            invalid.append(_issue("invalid_node", nodeIndex=index))
+            continue
+        if node["id"] in by_id:
+            invalid.append(_issue("duplicate_node_id", nodeId=node["id"]))
+        by_id[node["id"]] = node
+    finished = set()
+    for node_id, node in by_id.items():
+        parent_id = node.get("parentId")
+        if parent_id is not None and not isinstance(parent_id, str):
+            invalid.append(_issue("invalid_parent", nodeId=node_id))
+        elif parent_id and parent_id not in by_id:
+            issues.append(_issue("missing_parent", nodeId=node_id, parentId=parent_id))
+        trail = []
+        visiting = set()
+        current = node_id
+        while current in by_id and current not in finished:
+            if current in visiting:
+                invalid.append(_issue("parent_cycle", nodeIds=trail[trail.index(current):]))
+                break
+            visiting.add(current)
+            trail.append(current)
+            parent = by_id[current].get("parentId")
+            current = parent if isinstance(parent, str) else ""
+        finished.update(trail)
+    seen_edges = set()
+    for index, edge in enumerate(snapshot["edges"]):
+        if not isinstance(edge, dict) or not isinstance(edge.get("source"), str) or not isinstance(edge.get("target"), str):
+            invalid.append(_issue("invalid_edge", edgeIndex=index))
+            continue
+        edge_id = edge.get("id")
+        if edge_id is not None and not isinstance(edge_id, str):
+            invalid.append(_issue("invalid_edge_id", edgeIndex=index))
+            continue
+        if edge_id and edge_id in seen_edges:
+            issues.append(_issue("duplicate_edge_id", edgeId=edge_id))
+        if edge_id:
+            seen_edges.add(edge_id)
+        missing = [key for key in ("source", "target") if edge[key] not in by_id]
+        if missing:
+            issues.append(_issue("dangling_edge", edgeId=edge_id, missing=missing,
+                                 source=edge["source"], target=edge["target"]))
+    if invalid:
+        raise ProcessSnapshotError("invalid_snapshot", "创作过程包含无效节点、重复 ID 或父级循环", issues=invalid + issues)
+    return issues
+
+
+def _signature(path):
+    try:
+        stat = path.stat()
+        return (stat.st_mtime_ns, stat.st_size) if path.is_file() else None
+    except OSError:
+        return None
+
+
+def _archive_path(root, identity, snapshot_id):
+    version = str(snapshot_id or "")
+    if re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", version) is None:
+        return None
+    return Path(root) / "sources" / "process-detail" / f"{identity}-{version}.json"
+
+
+def _structure_arguments(root, identity, snapshot_id=None):
+    if not isinstance(identity, str) or UUID.fullmatch(identity) is None:
+        raise FileNotFoundError(identity)
+    path = Path(root) / "processes" / f"{identity}.json.gz"
+    signature = _signature(path)
+    if not snapshot_id and signature is not None:
+        try:
+            snapshot_id = _gzip_record(str(path), signature).get("snapshotId")
+        except ProcessSnapshotError:
+            pass
+    archive = _archive_path(root, identity, snapshot_id)
+    return (str(Path(root)), identity, str(snapshot_id or ""), signature,
+            str(archive) if archive else "", _signature(archive) if archive else None)
+
+
+def _load_structure(root, identity, snapshot_id=None):
+    return _cached_structure(*_structure_arguments(root, identity, snapshot_id))
+
+
+@lru_cache(maxsize=512)
+def _cached_structure_status(*arguments):
+    # Cards cache only a small validation result, not every complete canvas graph.
+    try:
+        _cached_structure(*arguments)
+        return "ready"
+    except FileNotFoundError:
+        return "missing"
+    except ProcessSnapshotError:
+        return "invalid"
+
+
+@lru_cache(maxsize=8)
+def _gzip_record(path, signature):
+    try:
+        record = json.loads(gzip.decompress(Path(path).read_bytes()))
+        if not isinstance(record, dict):
+            raise ValueError("record must be an object")
+        return record
+    except (OSError, EOFError, ValueError, UnicodeError, zlib.error):
+        raise ProcessSnapshotError("corrupt_snapshot", "本机创作过程归档损坏，请重新采集", 409) from None
+
+
+@lru_cache(maxsize=8)
+def _cached_structure(root, identity, expected_version, process_signature, archive_name, archive_signature):
+    path = Path(root) / "processes" / f"{identity}.json.gz"
+    record = None
+    archive_error = None
+    issues = []
+    if process_signature is not None:
+        try:
+            record = _gzip_record(str(path), process_signature)
+        except ProcessSnapshotError as error:
+            archive_error = error
+    if record and expected_version and str(record.get("snapshotId") or "") != expected_version:
+        issues.append(_issue("source_version_mismatch", source="gzip", expectedSnapshotId=expected_version,
+                             actualSnapshotId=record.get("snapshotId")))
+    if archive_signature is not None:
+        try:
+            response = json.loads(Path(archive_name).read_text(encoding="utf-8"))
+            detail = response.get("data", {}).get("detail") if isinstance(response, dict) else None
+            if not isinstance(detail, dict):
+                raise ValueError("missing detail")
+            actual_version = str(detail.get("snapshotId") or "")
+            actual_id = detail.get("templateUuid")
+            if actual_version != expected_version or (actual_id and actual_id != identity):
+                issues.append(_issue("source_version_mismatch", source="rawArchive", expectedSnapshotId=expected_version,
+                                     actualSnapshotId=detail.get("snapshotId")))
+            else:
+                snapshot = detail.get("snapshotData")
+                snapshot = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+                validation_issues = _validate_snapshot(snapshot)
+                if archive_error:
+                    issues.append(_issue("corrupt_fallback_archive", source="gzip"))
+                merged = dict(record or {})
+                merged.update({key: value for key, value in detail.items() if key != "snapshotData"})
+                return merged, snapshot, issues + validation_issues, "rawArchive"
+        except (OSError, ValueError, UnicodeError, AttributeError, ProcessSnapshotError) as error:
+            issues.append(_issue("invalid_source_archive", source="rawArchive"))
+            if isinstance(error, ProcessSnapshotError):
+                issues.extend({**item, "source": "rawArchive"} for item in error.issues)
+            if record is None and archive_error is None:
+                if isinstance(error, ProcessSnapshotError):
+                    raise error
+                raise ProcessSnapshotError("corrupt_snapshot", "本机创作过程来源归档损坏，请重新采集", 409) from None
+    if archive_error:
+        raise archive_error
+    if record is None:
+        if archive_signature is not None:
+            raise ProcessSnapshotError("source_version_mismatch", "本机创作过程来源版本不匹配", 409, issues)
+        raise FileNotFoundError(identity)
+    snapshot = record.get("snapshot")
+    return record, snapshot, issues + _validate_snapshot(snapshot), "gzip"
+
+
+def _output_items(data):
+    if isinstance(data.get("outputs"), list) and data["outputs"]:
+        return data["outputs"]
+    raw = data.get("url")
+    urls = raw if isinstance(raw, list) else [raw] if raw is not None else []
+    # Keep empty positions as well: reference indices and a selected output refer to slots.
+    return urls
+
+
+def _thumbnail(root, media_id, thumbnails):
+    value = thumbnails.get(media_id) if media_id else None
+    if isinstance(value, dict):
+        value = value.get("url") or value.get("filename")
+    if not isinstance(value, str):
+        return ""
+    name = value[len(LOCAL_MEDIA):].split("?", 1)[0] if value.startswith(LOCAL_MEDIA) else value
+    return f"{LOCAL_MEDIA}{name}" if resolve_media_name(root, name) else ""
+
+
+def _thumbnails(root):
+    try:
+        data = json.loads((Path(root) / "thumbnails.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, UnicodeError):
         return {}
-    kept = {}
-    for key in ("ratio", "resolution", "duration", "enableSound"):
-        value = raw.get(key)
-        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-            kept[key] = value
-    return kept
 
 
-def project_snapshot(snapshot):
-    if not isinstance(snapshot, dict):
-        snapshot = {}
-    raw_nodes = [node for node in snapshot.get("nodes") or [] if isinstance(node, dict) and isinstance(node.get("id"), str)]
+def project_snapshot(snapshot, root=None, issues=None, thumbnails=None):
+    issues = list(_validate_snapshot(snapshot) if issues is None else issues)
+    thumbnails = thumbnails or {}
     drafted = []
-    for node in raw_nodes:
-        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+    for raw in snapshot["nodes"]:
+        node = dict(raw)
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
         params = data.get("params") if isinstance(data.get("params"), dict) else {}
-        position = node.get("position") if isinstance(node.get("position"), dict) else {}
-        measured = node.get("measured") if isinstance(node.get("measured"), dict) else {}
+        position = raw.get("position") if isinstance(raw.get("position"), dict) else {}
+        measured = raw.get("measured") if isinstance(raw.get("measured"), dict) else {}
         task = data.get("taskInfo") if isinstance(data.get("taskInfo"), dict) else {}
-        width = node.get("width") if isinstance(node.get("width"), (int, float)) else measured.get("width")
-        height = node.get("height") if isinstance(node.get("height"), (int, float)) else measured.get("height")
-        children = data.get("childNodeIds") if node.get("type") == "group" and isinstance(data.get("childNodeIds"), list) else []
-        drafted.append({
-            "id": node["id"],
-            "type": node.get("type") or data.get("type") or "",
-            "name": data.get("name") or "",
-            "action": data.get("action") or "",
-            "parentId": node.get("parentId") if isinstance(node.get("parentId"), str) else "",
-            "x": _number(position.get("x")),
-            "y": _number(position.get("y")),
-            "width": _number(width, 280 if node.get("type") != "group" else 640),
-            "height": _number(height, 160 if node.get("type") != "group" else 420),
-            "url": _media_url(data.get("url")),
-            "poster": data.get("poster") if isinstance(data.get("poster"), str) else "",
+        resource_meta = data.get("resourceMeta", raw.get("resourceMeta", {}))
+        width = raw.get("width") if isinstance(raw.get("width"), (int, float)) else measured.get("width")
+        height = raw.get("height") if isinstance(raw.get("height"), (int, float)) else measured.get("height")
+        outputs = []
+        meta_items = resource_meta.get("items") if isinstance(resource_meta, dict) else []
+        for index, value in enumerate(_output_items(data)):
+            metadata = dict(value) if isinstance(value, dict) else {}
+            url = value if isinstance(value, str) else metadata.get("url", "")
+            url = url if isinstance(url, str) else ""
+            if isinstance(meta_items, list) and index < len(meta_items) and isinstance(meta_items[index], dict):
+                metadata = {**meta_items[index], **metadata}
+            local = localize_url(root, url) if root is not None and url else ""
+            local = local if local.startswith(LOCAL_MEDIA) else ""
+            if url.startswith(LOCAL_MEDIA):
+                name = url[len(LOCAL_MEDIA):].split("?", 1)[0]
+                digest = name.split(".", 1)[0] if MEDIA_NAME.fullmatch(name) else ""
+            else:
+                digest = media_digest(url) if url.startswith(("http://", "https://")) else ""
+            outputs.append({"index": index, "url": local, "status": "local" if local else "missing" if url else "empty",
+                            "mediaId": digest, "metadata": metadata})
+        selected = next((data[key] for key in ("selectedOutputIndex", "selectedIndex", "activeOutputIndex", "activeIndex", "currentIndex")
+                         if isinstance(data.get(key), int) and not isinstance(data.get(key), bool)), 0)
+        if outputs and (selected < 0 or selected >= len(outputs)):
+            issues.append(_issue("invalid_selected_output", nodeId=raw["id"], index=selected))
+            selected = 0
+        primary = outputs[selected] if outputs else {}
+        poster = localize_url(root, data.get("poster")) if root is not None and isinstance(data.get("poster"), str) else ""
+        poster = poster if poster.startswith(LOCAL_MEDIA) else ""
+        if not poster and root is not None:
+            poster = _thumbnail(root, primary.get("mediaId"), thumbnails)
+        children = data.get("childNodeIds") if isinstance(data.get("childNodeIds"), list) else []
+        node.update({
+            "id": raw["id"], "type": raw.get("type") or data.get("type") or "",
+            "name": data.get("name") or "", "action": data.get("action") or "",
+            "parentId": raw.get("parentId") if isinstance(raw.get("parentId"), str) else "",
+            "relativePosition": {"x": _number(position.get("x")), "y": _number(position.get("y"))},
+            "width": _number(width, 640 if raw.get("type") == "group" else 280),
+            "height": _number(height, 420 if raw.get("type") == "group" else 160),
+            "url": primary.get("url", ""), "poster": poster, "outputs": outputs, "selectedOutputIndex": selected,
+            "mediaStatus": "local" if any(item["status"] == "local" for item in outputs) else "missing" if any(item["status"] == "missing" for item in outputs) else "empty",
+            "params": params, "resourceMeta": resource_meta,
             "prompt": params.get("prompt") if isinstance(params.get("prompt"), str) else "",
             "model": params.get("model") if isinstance(params.get("model"), str) else "",
             "modeType": params.get("modeType") if isinstance(params.get("modeType"), str) else "",
-            "settings": _settings(params),
+            "settings": params.get("settings") if isinstance(params.get("settings"), dict) else {},
             "taskStatus": task.get("status") if isinstance(task.get("status"), int) else None,
             "groupColor": data.get("groupColor") if isinstance(data.get("groupColor"), str) else "",
-            "childIds": [item for item in children if isinstance(item, str)],
-            "refs": _references(params),
+            "childIds": [item for item in children if isinstance(item, str)], "refs": _references(params),
+            "nodeHistory": data.get("nodeHistory"),
+            "metadata": {key: value for key, value in data.items() if key not in ("url", "params", "resourceMeta")},
         })
+        if "resourceMeta" in raw and "resourceMeta" in data:
+            node["metadata"]["sourceResourceMeta"] = raw["resourceMeta"]
+        if "metadata" in raw:
+            node["metadata"]["sourceNodeMetadata"] = raw["metadata"]
+        drafted.append(node)
     by_id = {node["id"]: node for node in drafted}
-    cache = {}
-
-    def absolute(node, stack):
-        if node["id"] in cache:
-            return cache[node["id"]]
-        parent = by_id.get(node["parentId"])
-        if parent is None or node["id"] in stack:
-            point = (node["x"], node["y"])
-        else:
-            px, py = absolute(parent, stack | {node["id"]})
-            point = (px + node["x"], py + node["y"])
-        cache[node["id"]] = point
-        return point
-
+    absolute = {}
     for node in drafted:
-        node["x"], node["y"] = absolute(node, frozenset())
-    edges = []
-    for edge in snapshot.get("edges") or []:
-        if not isinstance(edge, dict):
-            continue
-        source, target = edge.get("source"), edge.get("target")
-        if source in by_id and target in by_id:
-            edges.append({"id": edge.get("id") or f"{source}-{target}", "source": source, "target": target})
-    return {"nodes": drafted, "edges": edges, "savedAt": snapshot.get("savedAt")}
+        trail = []
+        current = node
+        while current and current["id"] not in absolute:
+            trail.append(current)
+            current = by_id.get(current["parentId"])
+        x, y = absolute[current["id"]] if current else (0, 0)
+        for member in reversed(trail):
+            x += member["relativePosition"]["x"]
+            y += member["relativePosition"]["y"]
+            absolute[member["id"]] = (x, y)
+    for node in drafted:
+        node["x"], node["y"] = absolute[node["id"]]
+        node["absolutePosition"] = {"x": node["x"], "y": node["y"]}
+    media_nodes = [node for node in drafted if node["type"] in ("image", "video", "audio") or node["outputs"]]
+    outputs = [item for node in media_nodes for item in node["outputs"]]
+    local_outputs = sum(item["status"] == "local" for item in outputs)
+    local_nodes = sum(node["mediaStatus"] == "local" for node in media_nodes)
+    missing_nodes = sum(node["mediaStatus"] == "missing" for node in media_nodes)
+    coverage = {"scope": "currentOutputs", "mediaNodes": len(media_nodes), "localMediaNodes": local_nodes,
+                "missingMediaNodes": missing_nodes, "outputCount": len(outputs), "localOutputs": local_outputs,
+                "status": "empty" if not any(item["status"] != "empty" for item in outputs) else "complete" if local_outputs == len(outputs) else "partial" if local_outputs else "missing"}
+    projected = {**snapshot, "schema": PROJECTION_SCHEMA, "projectionVersion": 2,
+                 "nodes": drafted, "edges": [dict(edge) for edge in snapshot["edges"]], "coverage": coverage, "issues": issues}
+    return projected
 
 
 def read_process(root, template_uuid):
-    if not isinstance(template_uuid, str) or UUID.fullmatch(template_uuid) is None:
-        raise FileNotFoundError(template_uuid)
     root = Path(root)
-    path = root / "processes" / f"{template_uuid}.json.gz"
-    if not path.is_file():
-        raise FileNotFoundError(template_uuid)
-    record = json.loads(gzip.decompress(path.read_bytes()))
-    if not isinstance(record, dict):
-        raise FileNotFoundError(template_uuid)
     catalog = load_catalog(root)
-    card = _card(catalog, template_uuid, root) if catalog else None
+    raw_card = catalog["cards"].get(template_uuid) if catalog else None
+    raw_card = raw_card if isinstance(raw_card, dict) else None
+    if raw_card is not None and not raw_card.get("snapshotId"):
+        raise ProcessSnapshotError("unpublished", "该创作过程尚未公开", 409)
+    record, snapshot, issues, source = _load_structure(root, template_uuid, (raw_card or {}).get("snapshotId"))
+    card = _card(catalog, template_uuid, root, "ready") if catalog else None
     payload = {
-        "card": card or {"templateUuid": template_uuid, "name": record.get("name") or "", "snapshotId": record.get("snapshotId")},
+        "card": card or {"templateUuid": template_uuid, "name": record.get("name") or "", "snapshotId": record.get("snapshotId"),
+                         "structureStatus": "ready", "processReady": True, "processAvailable": bool(record.get("snapshotId"))},
         "name": record.get("name") or (card or {}).get("name") or "",
-        "description": record.get("description") or "",
-        "finalOutput": record.get("finalOutput") or (card or {}).get("finalOutput") or "",
-        "coverUrl": record.get("coverUrl") or "",
-        "nickname": record.get("nickname") or "",
-        "playCount": record.get("playCount"),
-        "viewCreationProcessCount": record.get("viewCreationProcessCount"),
+        "description": record.get("description") or "", "finalOutput": record.get("finalOutput") or (card or {}).get("finalOutput") or "",
+        "coverUrl": record.get("coverUrl") or "", "nickname": record.get("nickname") or "",
+        "playCount": record.get("playCount"), "viewCreationProcessCount": record.get("viewCreationProcessCount"),
         "copyCanvasCount": record.get("copyCanvasCount"),
-        "process": project_snapshot(record.get("snapshot")),
+        "process": project_snapshot(snapshot, root, issues, _thumbnails(root)),
     }
+    payload["process"]["source"] = {"kind": source, "snapshotId": record.get("snapshotId")}
     return localize_value(root, payload)

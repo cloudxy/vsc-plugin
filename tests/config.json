@@ -2228,6 +2228,13 @@
         "src/vsc/interfaces/web/app.py"
       ]
     },
+    "assets.unit.test_featured_showcase_cache": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "tools/maintenance/featured_showcase.py"
+      ]
+    },
     "assets.unit.test_marketing_cases": {
       "owner": "assets",
       "layer": "unit",

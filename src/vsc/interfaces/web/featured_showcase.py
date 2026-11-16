@@ -2,7 +2,7 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
-from vsc.assets.featured_showcase import list_works, read_process, resolve_media_name, showcase_root
+from vsc.assets.featured_showcase import ProcessSnapshotError, list_works, localize_value, read_process, resolve_media_name, showcase_root
 
 MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
@@ -35,4 +35,7 @@ def install_featured_showcase_routes(app, etag, read_actor, root=None):
             payload = read_process(directory(), template_uuid)
         except FileNotFoundError:
             raise HTTPException(404, "创作过程尚未保存到本机") from None
+        except ProcessSnapshotError as error:
+            detail = {"code": error.code, "message": str(error), "issues": error.issues}
+            raise HTTPException(error.status_code, localize_value(directory(), detail)) from None
         return etag(request, payload)

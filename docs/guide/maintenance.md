@@ -54,3 +54,16 @@ python3 -B scripts/maintenance/marketing_media.py --sync  # 显式联网恢复�
 目录、画布快照与媒体统一保存在工作区 `assets/featured-showcase/`，分别为 `catalog.json`、`processes/` 与 `media/`。这些本机数据受 Git 忽略，不进入源码提交或安装包。迁移时移动整个目录，校验文件数量、字节数和摘要，再启动面板；应用不从旧位置隐式回退。已有显式 `VSC_FEATURED_SHOWCASE_ROOT` 覆盖仍然有效。
 
 面板只返回已存在的 `/featured-showcase-media/` 本地资源；未下载或已丢失的媒体留空，不向来源站点请求。来源地址可保留在采集记录中用于追溯和显式恢复，不作为页面播放地址。
+
+成片和卡片均可打开“查看制作过程”。画布、故事板与项目素材保留未缓存节点，并分别说明结构与媒体状态；“快照已保存”不代表节点媒体完整。完整参数、多输出及引用顺序随固定快照查看，复制提示词不会创建项目。
+
+```bash
+# 建立固定作品的媒体依赖清单；默认仅读取本地快照，不联网
+python -m tools.maintenance.featured_showcase --work <作品ID> --budget-gib 30
+# 显式联网恢复；完整文件和校验过的分块会复用，含临时文件的总量受上限约束
+python -m tools.maintenance.featured_showcase --work <作品ID> --budget-gib 30 --sync
+# 从已缓存的视频生成本地缩略图；不会联网或重新下载视频
+python -m tools.maintenance.featured_showcase --work <作品ID> --budget-gib 30 --thumbnails
+```
+
+清单、进度和分块台账保存在同一个资产根目录。重复指定作品可恢复原任务；来源变更、缺失、失败及预算跳过单独报告，不删除已有资源腾空间。需要原站完整响应时，按固定版本归档到 `sources/process-detail/<作品ID>-<snapshotId>.json`，保留原始地址，网页仍只使用本地媒体。

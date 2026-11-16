@@ -37,15 +37,17 @@ export function createFeaturedShowcase(root, {api, notice}) {
   let searchTimer = 0;
   let observer = null;
   let layer = null;
+  let layerVersion = 0;
+  let layerContext = null;
 
-  function suspend() {
+  function suspend(preserveRoute = false) {
     version++;
     loading = false;
     clearTimeout(searchTimer);
     observer?.disconnect();
     observer = null;
-    layer?.remove();
-    layer = null;
+    closeLayer(false, !preserveRoute);
+    if (!preserveRoute) updateWorkRoute("");
   }
 
   function params() {
@@ -55,10 +57,16 @@ export function createFeaturedShowcase(root, {api, notice}) {
   }
 
   async function load() {
-    suspend();
+    const workId = requestedWork();
+    suspend(true);
+    const current = version;
     offset = 0;
     items = [];
     await fetchPage(true);
+    if (current !== version || !workId || requestedWork() !== workId || layerContext) return;
+    const card = items.find(item => item.templateUuid === workId) || {templateUuid: workId, name: "制作过程", structureStatus: "ready"};
+    const opener = [...root.querySelectorAll(".fs-process")].find(control => control.dataset.workId === workId);
+    openProcess(card, opener);
   }
 
   async function fetchPage(reset) {
@@ -145,6 +153,12 @@ export function createFeaturedShowcase(root, {api, notice}) {
   function cardView(card) {
     const article = el("article", "fs-card");
     const cover = el("div", "fs-cover");
+    const play = button("", event => {
+      event.stopPropagation();
+      openPlayback(card, play);
+    }, "fs-play-cover");
+    play.dataset.workId = card.templateUuid || "";
+    play.setAttribute("aria-label", "播放 " + (card.name || "成片"));
     const image = el("img", "fs-still");
     image.alt = card.name || "作品封面";
     image.src = card.coverUrl || "";
@@ -152,25 +166,20 @@ export function createFeaturedShowcase(root, {api, notice}) {
       cover.addEventListener("pointerenter", () => { image.src = card.hoverCoverUrl; });
       cover.addEventListener("pointerleave", () => { image.src = card.coverUrl || ""; });
     }
-    cover.append(image);
+    play.append(image);
     const viral = viralLabel(card);
-    if (viral) cover.append(el("span", "fs-viral", viral));
-    const process = el("button", "fs-process", "✦");
+    if (viral) play.append(el("span", "fs-viral", viral));
+    cover.append(play);
+    const process = el("button", "fs-process", "查看制作过程");
     process.type = "button";
-    process.setAttribute("aria-label", "查看创作过程");
-    const disabled = !card.processAvailable;
-    if (disabled || !card.processReady) {
-      process.setAttribute("aria-disabled", "true");
-      process.title = disabled ? "画布未公开" : "创作过程尚未保存到本机";
-    } else {
-      process.title = "查看创作过程";
-      process.addEventListener("click", event => {
-        event.stopPropagation();
-        openProcess(card).catch(error => notice(error.message));
-      });
-    }
+    process.dataset.workId = card.templateUuid || "";
+    process.setAttribute("aria-label", "查看制作过程");
+    process.title = structureMessage(card) || "查看制作过程";
+    process.addEventListener("click", event => {
+      event.stopPropagation();
+      openProcess(card, process);
+    });
     cover.append(process);
-    cover.addEventListener("click", () => openPlayback(card));
     article.append(cover);
     const body = el("div", "fs-body");
     body.append(el("h2", "", card.name || "无标题"));
@@ -195,121 +204,342 @@ export function createFeaturedShowcase(root, {api, notice}) {
     return article;
   }
 
-  function openPlayback(card) {
-    if (!card.finalOutput) return;
-    closeLayer();
-    layer = el("div", "fs-process-layer");
-    const bar = el("div", "fs-process-bar");
-    bar.append(el("strong", "", card.name || "成片"));
-    const close = el("button", "fs-close", "关闭");
-    close.type = "button";
-    close.addEventListener("click", closeLayer);
-    bar.append(close);
-    layer.append(bar);
-    const video = el("video");
-    video.controls = true;
-    video.autoplay = true;
-    video.src = card.finalOutput;
-    video.style.cssText = "flex:1;width:100%;background:#000;max-height:calc(100% - 52px)";
-    layer.append(video);
-    document.body.append(layer);
+  function localURL(value) {
+    return typeof value === "string" && /^\/(?!\/)/.test(value) ? value : "";
   }
 
-  async function openProcess(card) {
-    const current = version;
-    let data;
-    try {
-      data = await api("/api/v1/featured-showcase/" + encodeURIComponent(card.templateUuid));
-    } catch (error) {
-      if (current !== version) return;
-      throw error;
+  function requestedWork() {
+    if (typeof window === "undefined" || !window.location) return "";
+    const route = new URLSearchParams(window.location.search || "");
+    if (route.get("page") !== "featured-showcase" && !(window.location.pathname === "/show" && !route.has("page"))) return "";
+    return route.get("showcase_work") || "";
+  }
+
+  function updateWorkRoute(workId, expected) {
+    if (typeof window === "undefined" || !window.location || !window.history?.replaceState) return;
+    const route = new URLSearchParams(window.location.search || "");
+    if (route.get("page") !== "featured-showcase" && !(window.location.pathname === "/show" && !route.has("page"))) return;
+    if (expected && route.get("showcase_work") !== expected) return;
+    if (workId) route.set("showcase_work", workId);
+    else route.delete("showcase_work");
+    const search = route.toString();
+    if (search === (window.location.search || "").replace(/^\?/, "")) return;
+    window.history.replaceState(window.history.state ?? null, "", (window.location.pathname || "/") + (search ? "?" + search : "") + (window.location.hash || ""));
+  }
+
+  function structureMessage(card) {
+    const status = card.structureStatus || (card.processReady ? "ready" : card.processAvailable === false ? "unpublished" : "missing");
+    return ({unpublished: "这个作品的制作过程未公开。", missing: "制作过程尚未保存到本机。", invalid: "本机制作过程快照损坏，暂时无法查看。"})[status] || "";
+  }
+
+  function pauseMedia(container, release = false) {
+    if (!container) return;
+    for (const tag of ["video", "audio"]) for (const media of container.querySelectorAll(tag)) {
+      media.pause?.();
+      if (release) { media.removeAttribute("src"); media.load?.(); }
     }
-    if (current !== version) return;
-    closeLayer();
-    const process = data.process || {nodes: [], edges: []};
-    const nodes = process.nodes || [];
-    const byId = Object.fromEntries(nodes.map(node => [node.id, node]));
-    let mode = "workflow";
-    let selected = "";
-    let showEdges = true;
-    let scale = 0.1;
-    let originX = 40;
-    let originY = 40;
+  }
+
+  function closeLayer(restoreFocus = true, clearRoute = true) {
+    layerVersion++;
+    const context = layerContext;
+    if (context) {
+      if (clearRoute) updateWorkRoute("", context.card.templateUuid);
+      document.removeEventListener("keydown", context.onKey);
+      pauseMedia(context.playback, true);
+      pauseMedia(context.processView, true);
+      pauseMedia(layer, true);
+    }
+    layer?.remove();
+    layer = null;
+    layerContext = null;
+    if (restoreFocus && context) {
+      let target = context.opener;
+      if (!target || !document.body.contains(target)) {
+        const selector = context.opener?.classList.contains("fs-play-cover") ? ".fs-play-cover" : ".fs-process";
+        target = [...root.querySelectorAll(selector)].find(control => control.dataset.workId === context.card.templateUuid) || root;
+      }
+      target.focus?.({preventScroll: true});
+    }
+  }
+
+  function createLayer(card, opener) {
+    closeLayer(false);
     layer = el("div", "fs-process-layer");
+    layer.setAttribute("role", "dialog");
+    layer.setAttribute("aria-modal", "true");
+    layer.setAttribute("aria-label", card.name || "制作过程");
+    root.tabIndex = -1;
+    const returnFocus = opener || (root.contains(document.activeElement) ? document.activeElement : root);
+    const context = {card, opener: returnFocus, layer, serial: layerVersion, request: 0, playback: null, onEscape: null};
+    context.onKey = event => {
+      if (layerContext !== context) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (context.onEscape) context.onEscape();
+        else closeLayer();
+      } else if (event.key === "Tab") {
+        const controls = [];
+        function collect(parent) {
+          for (const node of parent.children) {
+            if (node.hidden) continue;
+            if (["BUTTON", "INPUT", "SELECT", "VIDEO", "AUDIO", "SUMMARY"].includes(node.tagName) && !node.disabled) controls.push(node);
+            collect(node);
+          }
+        }
+        collect(layer);
+        const first = controls[0], last = controls.at(-1);
+        if (first && (!layer.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last) || (event.shiftKey && document.activeElement === first))) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }
+    };
+    layerContext = context;
+    document.addEventListener("keydown", context.onKey);
+    document.body.append(layer);
+    return context;
+  }
+
+  function button(label, onClick, className = "") {
+    const control = el("button", className, label);
+    control.type = "button";
+    control.addEventListener("click", onClick);
+    return control;
+  }
+
+  function navigation(context, bar) {
+    if (context.playback) bar.append(button("返回成片", () => showPlayback(context), "fs-back"));
+    bar.append(button("关闭", () => closeLayer(), "fs-close"));
+  }
+
+  function openPlayback(card, opener) {
+    if (!localURL(card.finalOutput)) { notice("成片尚未缓存到本机。"); return; }
+    const context = createLayer(card, opener);
+    const view = el("div", "fs-playback");
+    const bar = el("div", "fs-process-bar");
+    bar.append(el("strong", "fs-title", card.name || "成片"));
+    const process = button("查看制作过程", () => openProcess(card, process, context), "fs-open-process");
+    process.title = structureMessage(card) || "查看制作过程";
+    bar.append(process);
+    navigation(context, bar);
+    const video = el("video", "fs-final-video");
+    video.controls = true;
+    video.autoplay = true;
+    video.preload = "metadata";
+    video.src = localURL(card.finalOutput);
+    view.append(bar, video);
+    context.playback = view;
+    context.playbackButton = process;
+    showPlayback(context);
+  }
+
+  function showPlayback(context) {
+    if (layerContext !== context || !context.playback) return;
+    context.request++;
+    updateWorkRoute("", context.card.templateUuid);
+    pauseMedia(layer);
+    context.onEscape = null;
+    layer.dataset.view = "playback";
+    layer.replaceChildren(context.playback);
+    context.playbackButton.focus?.({preventScroll: true});
+  }
+
+  async function openProcess(card, opener, existing) {
+    const context = existing && layerContext === existing ? existing : createLayer(card, opener);
+    updateWorkRoute(card.templateUuid || "");
+    pauseMedia(context.playback);
+    const current = version;
+    const request = ++context.request;
+    const active = () => current === version && layerContext === context && context.serial === layerVersion && request === context.request;
+    if (context.processView) {
+      layer.dataset.view = "process";
+      layer.replaceChildren(context.processView);
+      context.onEscape = context.processEscape;
+      context.resumeProcess();
+      return;
+    }
+    const shell = el("div", "fs-process-status");
+    const bar = el("div", "fs-process-bar");
+    bar.append(el("strong", "fs-title", card.name || "制作过程"));
+    navigation(context, bar);
+    const message = el("div", "fs-status-message");
+    message.setAttribute("role", "status");
+    shell.append(bar, message);
+    layer.replaceChildren(shell);
+    layer.dataset.view = "process-loading";
+    context.onEscape = () => context.playback ? showPlayback(context) : closeLayer();
+    bar.querySelector("button")?.focus?.();
+    const unavailable = structureMessage(card);
+    if (unavailable) {
+      message.append(el("p", "", unavailable));
+      layer.dataset.view = "process-unavailable";
+      return;
+    }
+    message.append(el("p", "", "正在加载制作过程…"));
+    try {
+      const data = await api("/api/v1/featured-showcase/" + encodeURIComponent(card.templateUuid));
+      if (!active()) return;
+      if (!data.process) throw new Error("制作过程没有可读取的画布结构。");
+      if (data.card) {
+        context.card = {...card, ...data.card};
+        layer.setAttribute("aria-label", context.card.name || "制作过程");
+      }
+      renderProcess(context, data);
+    } catch (error) {
+      if (!active()) return;
+      layer.dataset.view = "process-error";
+      message.replaceChildren(el("p", "", error.message || "制作过程读取失败。"), button("重试", () => openProcess(card, opener, context), "fs-retry"));
+    }
+  }
+
+  function outputsFor(node) {
+    if (Array.isArray(node.outputs)) return node.outputs;
+    return node.url ? [{index: 0, url: node.url, status: node.mediaStatus || "local", metadata: node.resourceMeta || {}}] : [];
+  }
+
+  function mediaLabel(node) {
+    if (!["audio", "image", "video"].includes(node.type)) return node.type === "group" ? "分组" : "只读内容";
+    const outputs = outputsFor(node);
+    const local = outputs.filter(output => localURL(output.url)).length;
+    if (local) return local === outputs.length ? "已缓存" : `已缓存 ${local}/${outputs.length} 个输出`;
+    if (node.mediaStatus === "empty" || outputs.some(output => output.status === "empty")) return "没有输出";
+    if (outputs.some(output => ["failed", "error"].includes(output.status))) return "缓存失败";
+    return "待缓存";
+  }
+
+  function preview(node) {
+    const area = el("div", "fs-media-preview");
+    const imageURL = localURL(node.type === "image" ? (localURL(node.url) || outputsFor(node).find(output => localURL(output.url))?.url) : node.poster);
+    if (imageURL) {
+      const image = el("img");
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.src = imageURL;
+      area.append(image);
+    } else {
+      const glyph = node.type === "video" ? "▶" : node.type === "audio" ? "♫" : node.type === "image" ? "▧" : "T";
+      area.append(el("span", "fs-media-glyph", glyph));
+    }
+    area.append(el("span", "fs-media-status", mediaLabel(node)));
+    return area;
+  }
+
+  function renderProcess(context, data) {
+    const card = context.card;
+    const process = data.process;
+    const nodes = Array.isArray(process.nodes) ? process.nodes : [];
+    const byId = new Map(nodes.map(node => [node.id, node]));
+    const counts = Object.fromEntries(["audio", "image", "video"].map(kind => [kind, nodes.filter(node => node.type === kind).length]));
+    let mode = "workflow", selected = "", inspectorOpen = false, directoryOpen = false, assetKind = "video";
+    let showEdges = true, scale = 0.1, originX = 40, originY = 40, fitPending = true;
+    const view = el("div", "fs-process-view");
     const bar = el("div", "fs-process-bar");
     const modes = el("div", "fs-modes");
-    const workflow = el("button", "", "工作流");
-    const board = el("button", "", "故事板");
-    workflow.type = "button";
-    board.type = "button";
-    modes.append(workflow, board);
-    bar.append(modes);
-    bar.append(el("span", "fs-readonly", "只读模式，如需创建请点击"));
-    const copy = el("button", "fs-copy", "复制项目");
-    copy.type = "button";
-    copy.addEventListener("click", async () => {
-      const lines = nodes.filter(node => node.prompt).slice(0, 40).map(node => `${node.name || node.id}\n${node.prompt}`);
-      const text = [`${data.name || card.name}`, ...lines].join("\n\n");
-      try { await navigator.clipboard.writeText(text); } catch { /* 页面没有剪贴板权限时仍给出说明 */ }
-      notice("当前是只读创作过程，已保留在本机，不会提交到生成服务。");
-    });
-    const close = el("button", "fs-close", "关闭");
-    close.type = "button";
-    close.addEventListener("click", closeLayer);
-    bar.append(copy, close);
-    layer.append(bar);
+    const modeButtons = new Map();
+    for (const [value, label] of [["workflow", "工作流"], ["board", "故事板"], ["assets", "项目素材"]]) {
+      const control = button(label, () => { mode = value; paint(); });
+      modeButtons.set(value, control);
+      modes.append(control);
+    }
+    const directory = button("目录", () => { directoryOpen = !directoryOpen; paint(); }, "fs-directory-toggle");
+    bar.append(directory, modes, el("span", "fs-readonly", "只读制作过程"));
+    const copy = button("复制提示词", async () => {
+      const prompts = nodes.filter(node => typeof node.prompt === "string" && node.prompt.trim());
+      if (!prompts.length) { notice("这个作品没有可复制的提示词。"); return; }
+      const text = [data.name || card.name || "制作过程", ...prompts.map(node => `${node.name || node.id}\n${node.prompt}`)].join("\n\n");
+      copy.disabled = true;
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("剪贴板不可用");
+        await navigator.clipboard.writeText(text);
+        if (layerContext === context) notice(`已复制 ${prompts.length} 条提示词。`);
+      } catch {
+        if (layerContext === context) notice("复制失败，请检查浏览器剪贴板权限后重试。");
+      } finally { copy.disabled = false; }
+    }, "fs-copy");
+    bar.append(copy);
+    navigation(context, bar);
+    const coverage = el("div", "fs-coverage");
+    const local = process.coverage?.localMediaNodes ?? nodes.filter(node => ["audio", "image", "video"].includes(node.type) && outputsFor(node).some(output => localURL(output.url))).length;
+    const mediaCount = counts.audio + counts.image + counts.video;
+    coverage.append(el("strong", "fs-process-name", data.name || card.name || "制作过程"));
+    coverage.append(el("span", "", `${nodes.length} 个节点 · 音频 ${counts.audio} · 图片 ${counts.image} · 视频 ${counts.video} · 已缓存 ${local}/${mediaCount} 个媒体节点`));
+    if (process.coverage?.missingMediaNodes || local < mediaCount) coverage.append(el("span", "fs-coverage-warning", "部分媒体待缓存，结构仍可查看。"));
+    if (process.issues?.length) {
+      const issues = el("details", "fs-issues");
+      issues.append(el("summary", "", `${process.issues.length} 项结构提示`), el("pre", "", JSON.stringify(process.issues, null, 2)));
+      coverage.append(issues);
+    }
     const body = el("div", "fs-process-body");
-    layer.append(body);
-    document.body.append(layer);
-    document.addEventListener("keydown", onKey);
+    view.append(bar, coverage, body);
+    layer.dataset.view = "process";
+    layer.replaceChildren(view);
+    context.onEscape = () => {
+      if (inspectorOpen) closeInspector();
+      else if (directoryOpen) { directoryOpen = false; paint(); directory.focus(); }
+      else if (context.playback) showPlayback(context);
+      else closeLayer();
+    };
+    context.processView = view;
+    context.processEscape = context.onEscape;
+    context.resumeProcess = () => (inspectorOpen ? body.querySelector(".fs-detail-close") : modeButtons.get(mode))?.focus?.({preventScroll: true});
 
-    function onKey(event) {
-      if (event.key === "Escape") closeLayer();
+    function closeInspector() {
+      inspectorOpen = false;
+      paint();
+      const target = [...body.querySelectorAll("button")].find(control => control.dataset.nodeId === String(selected));
+      (target || modeButtons.get(mode)).focus?.({preventScroll: true});
     }
 
-    function closeLayer() {
-      document.removeEventListener("keydown", onKey);
-      layer?.remove();
-      layer = null;
+    function selectNode(id, focus = true) {
+      if (!byId.has(id)) return;
+      selected = id;
+      inspectorOpen = true;
+      paint();
+      if (focus) body.querySelector(".fs-detail-close")?.focus?.({preventScroll: true});
+    }
+
+    function geometry(node) {
+      return {x: Number(node.x) || 0, y: Number(node.y) || 0, width: Math.max(1, Number(node.width) || 240), height: Math.max(1, Number(node.height) || 160)};
     }
 
     function focusNode(id) {
-      selected = id;
-      const node = byId[id];
+      const node = byId.get(id);
       if (!node) return;
-      if (!stage()) paint();
-      const rect = stage()?.getBoundingClientRect();
+      mode = "workflow";
+      const rect = body.querySelector(".fs-stage")?.getBoundingClientRect();
+      const box = geometry(node);
       if (rect?.width) {
-        originX = rect.width / 2 - (node.x + node.width / 2) * scale;
-        originY = rect.height / 2 - (node.y + node.height / 2) * scale;
+        originX = rect.width / 2 - (box.x + box.width / 2) * scale;
+        originY = rect.height / 2 - (box.y + box.height / 2) * scale;
       }
-      paint();
-    }
-
-    function stage() {
-      return layer?.querySelector(".fs-stage");
+      fitPending = false;
+      selectNode(id);
     }
 
     function paint() {
-      workflow.setAttribute("aria-pressed", String(mode === "workflow"));
-      board.setAttribute("aria-pressed", String(mode === "board"));
+      if (layerContext !== context || layer?.dataset.view !== "process") return;
+      pauseMedia(body, true);
+      for (const [value, control] of modeButtons) control.setAttribute("aria-pressed", String(mode === value));
+      directory.setAttribute("aria-expanded", String(directoryOpen));
       body.replaceChildren();
-      body.append(outline());
-      if (mode === "board") body.append(storyboard());
-      else body.append(canvas());
-      if (selected && byId[selected]) body.append(inspector(byId[selected]));
+      if (directoryOpen) body.append(outline());
+      body.append(mode === "board" ? storyboard() : mode === "assets" ? assets() : canvas());
+      if (inspectorOpen && byId.has(selected)) body.append(inspector(byId.get(selected)));
     }
 
     function outline() {
       const aside = el("aside", "fs-outline");
+      aside.setAttribute("aria-label", "节点目录");
       const header = el("header");
-      header.append(el("strong", "", data.name || card.name || "创作过程"));
+      header.append(el("strong", "", data.name || card.name || "制作过程"), button("关闭目录", () => { directoryOpen = false; paint(); directory.focus(); }, "fs-directory-close"));
       const search = el("input");
       search.placeholder = "搜索节点";
       search.setAttribute("aria-label", "搜索节点");
       const filter = el("select");
-      filter.setAttribute("aria-label", "筛选");
-      for (const [value, label] of [["", "筛选：全部"], ["image", "图片"], ["video", "视频"], ["audio", "音频"], ["group", "分组"]]) {
+      filter.setAttribute("aria-label", "筛选节点类型");
+      for (const [value, label] of [["", "全部类型"], ["image", "图片"], ["video", "视频"], ["audio", "音频"], ["group", "分组"]]) {
         const option = el("option", "", label);
         option.value = value;
         filter.append(option);
@@ -319,42 +549,29 @@ export function createFeaturedShowcase(root, {api, notice}) {
       const tree = el("div", "fs-tree");
       aside.append(tree);
       function refill() {
-        const needle = search.value.trim().toLowerCase();
-        const kind = filter.value;
+        const needle = search.value.trim().toLowerCase(), kind = filter.value;
+        const matches = node => (!kind || node.type === kind) && (!needle || String(node.name || node.id).toLowerCase().includes(needle));
+        const used = new Set();
         tree.replaceChildren();
-        const groups = nodes.filter(node => node.type === "group");
-        const loose = nodes.filter(node => node.type !== "group" && !node.parentId);
-        for (const group of groups) {
-          const children = (group.childIds || []).map(id => byId[id]).filter(Boolean);
-          const visible = [group, ...children].filter(node => (!kind || node.type === kind) && (!needle || String(node.name || "").toLowerCase().includes(needle)));
-          if (!visible.length) continue;
+        function jump(node) {
+          const control = button(node.name || node.id, () => { directoryOpen = false; focusNode(node.id); }, "fs-jump");
+          control.dataset.nodeId = String(node.id);
+          control.setAttribute("aria-current", String(selected === node.id));
+          return control;
+        }
+        for (const group of nodes.filter(node => node.type === "group")) {
+          const children = (group.childIds || []).map(id => byId.get(id)).filter(Boolean);
+          if (![group, ...children].some(matches)) continue;
           const details = el("details");
           details.open = true;
-          const summary = el("summary", "", group.name || "分组");
-          details.append(summary);
-          const jump = el("button", "fs-jump", "定位到分组 " + (group.name || ""));
-          jump.type = "button";
-          jump.addEventListener("click", () => { mode = "workflow"; focusNode(group.id); });
-          details.append(jump);
-          for (const child of children) {
-            if (kind && child.type !== kind) continue;
-            if (needle && !String(child.name || "").toLowerCase().includes(needle)) continue;
-            const button = el("button", "fs-jump", "定位到节点 " + (child.name || child.id));
-            button.type = "button";
-            button.setAttribute("aria-current", String(selected === child.id));
-            button.addEventListener("click", () => { mode = "workflow"; focusNode(child.id); });
-            details.append(button);
-          }
+          details.append(el("summary", "", group.name || "分组"));
+          if (matches(group)) details.append(jump(group));
+          for (const child of children) if (child.type !== "group" && matches(child)) { details.append(jump(child)); used.add(child.id); }
           tree.append(details);
+          used.add(group.id);
         }
-        for (const node of loose) {
-          if (kind && node.type !== kind) continue;
-          if (needle && !String(node.name || "").toLowerCase().includes(needle)) continue;
-          const button = el("button", "fs-jump", node.name || node.id);
-          button.type = "button";
-          button.addEventListener("click", () => { mode = "workflow"; focusNode(node.id); });
-          tree.append(button);
-        }
+        for (const node of nodes) if (!used.has(node.id) && matches(node)) tree.append(jump(node));
+        if (!tree.childElementCount) tree.append(el("p", "", "没有匹配的节点。"));
       }
       search.addEventListener("input", refill);
       filter.addEventListener("change", refill);
@@ -363,204 +580,228 @@ export function createFeaturedShowcase(root, {api, notice}) {
     }
 
     function canvas() {
-      const stageNode = el("div", "fs-stage");
+      const stage = el("div", "fs-stage");
+      stage.setAttribute("aria-label", "只读工作流画布");
       const world = el("div", "fs-world");
-      const edges = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      edges.setAttribute("class", "fs-edges");
-      world.append(edges);
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
       const ordered = [...nodes.filter(node => node.type === "group"), ...nodes.filter(node => node.type !== "group")];
-      for (const node of ordered) {
-        minX = Math.min(minX, node.x);
-        minY = Math.min(minY, node.y);
-        maxX = Math.max(maxX, node.x + node.width);
-        maxY = Math.max(maxY, node.y + node.height);
-        const block = el("button", "fs-node" + (node.type === "group" ? " group" : ""));
-        block.type = "button";
-        block.style.left = node.x + "px";
-        block.style.top = node.y + "px";
-        block.style.width = node.width + "px";
-        block.style.height = node.height + "px";
-        if (node.groupColor) block.style.borderColor = node.groupColor;
-        block.setAttribute("aria-current", String(selected === node.id));
-        block.setAttribute("aria-label", node.name || node.type);
-        block.append(el("div", "fs-node-name", node.name || ACTION[node.action] || node.type));
-        if (node.type === "image" && node.url) {
-          const picture = el("img");
-          picture.alt = "";
-          picture.src = node.url;
-          block.append(picture);
-        }
-        block.addEventListener("click", event => {
-          event.stopPropagation();
-          selected = node.id;
-          paint();
-        });
-        world.append(block);
-      }
-      if (showEdges) {
-        const width = Math.max(1, maxX - minX);
-        const height = Math.max(1, maxY - minY);
-        edges.setAttribute("viewBox", `${minX} ${minY} ${width} ${height}`);
-        edges.style.left = minX + "px";
-        edges.style.top = minY + "px";
-        edges.style.width = width + "px";
-        edges.style.height = height + "px";
+      if (showEdges && nodes.length) {
+        const edges = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        edges.setAttribute("class", "fs-edges");
         for (const edge of process.edges || []) {
-          const source = byId[edge.source];
-          const target = byId[edge.target];
+          const source = byId.get(edge.source), target = byId.get(edge.target);
           if (!source || !target) continue;
+          const a = geometry(source), b = geometry(target);
           const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-          line.setAttribute("x1", source.x + source.width);
-          line.setAttribute("y1", source.y + source.height / 2);
-          line.setAttribute("x2", target.x);
-          line.setAttribute("y2", target.y + target.height / 2);
-          line.setAttribute("stroke", "rgba(180,180,190,.45)");
-          line.setAttribute("stroke-width", "2");
+          line.setAttribute("x1", a.x + a.width);
+          line.setAttribute("y1", a.y + a.height / 2);
+          line.setAttribute("x2", b.x);
+          line.setAttribute("y2", b.y + b.height / 2);
           edges.append(line);
         }
+        world.append(edges);
+      }
+      for (const node of ordered) {
+        const box = geometry(node);
+        const block = button("", event => { event.stopPropagation(); selectNode(node.id); }, "fs-node" + (node.type === "group" ? " group" : ""));
+        block.style.left = box.x + "px";
+        block.style.top = box.y + "px";
+        block.style.width = box.width + "px";
+        block.style.height = box.height + "px";
+        if (node.groupColor) block.style.borderColor = node.groupColor;
+        block.dataset.nodeId = String(node.id);
+        block.setAttribute("aria-current", String(selected === node.id));
+        block.setAttribute("aria-label", node.name || node.type || "节点");
+        block.append(el("div", "fs-node-name", node.name || ACTION[node.action] || node.type));
+        if (node.type !== "group") block.append(preview(node));
+        world.append(block);
       }
       world.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
-      stageNode.append(world);
+      stage.append(world);
+      if (!nodes.length) stage.append(el("p", "fs-canvas-empty", "这个作品的画布没有节点。"));
       const controls = el("div", "fs-controls");
-      const minimap = el("button", "", "切换小地图");
-      minimap.type = "button";
-      minimap.addEventListener("click", () => fit(stageNode));
-      const wires = el("button", "", showEdges ? "隐藏节点连线" : "显示节点连线");
-      wires.type = "button";
-      wires.addEventListener("click", () => { showEdges = !showEdges; paint(); });
-      const zoom = el("button", "", `缩放选项 ${Math.round(scale * 100)}%`);
-      zoom.type = "button";
-      zoom.addEventListener("click", () => { scale = Math.min(1.6, scale * 1.25); paint(); });
-      controls.append(minimap, wires, zoom);
-      stageNode.append(controls);
-      stageNode.addEventListener("pointerdown", event => {
-        if (event.target !== stageNode && event.target !== world) return;
-        const startX = event.clientX;
-        const startY = event.clientY;
-        const ox = originX;
-        const oy = originY;
+      const zoomLabel = el("span", "fs-zoom", `${Math.round(scale * 100)}%`);
+      function applyScale(next) {
+        const rect = stage.getBoundingClientRect();
+        const previous = scale;
+        scale = Math.min(1.6, Math.max(0.02, next));
+        originX = rect.width / 2 - (rect.width / 2 - originX) * scale / previous;
+        originY = rect.height / 2 - (rect.height / 2 - originY) * scale / previous;
+        fitPending = false;
+        world.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+        zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+      }
+      controls.append(button("适应画布", () => { fit(stage); zoomLabel.textContent = `${Math.round(scale * 100)}%`; }), button(showEdges ? "隐藏节点连线" : "显示节点连线", () => { showEdges = !showEdges; paint(); }), button("−", () => applyScale(scale / 1.25)), zoomLabel, button("+", () => applyScale(scale * 1.25)));
+      controls.querySelectorAll("button")[2].setAttribute("aria-label", "缩小画布");
+      controls.querySelectorAll("button")[3].setAttribute("aria-label", "放大画布");
+      stage.append(controls);
+      stage.addEventListener("pointerdown", event => {
+        if (event.target !== stage && event.target !== world) return;
+        const startX = event.clientX, startY = event.clientY, ox = originX, oy = originY;
+        stage.setPointerCapture?.(event.pointerId);
         function move(next) {
           originX = ox + next.clientX - startX;
           originY = oy + next.clientY - startY;
+          fitPending = false;
           world.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
         }
         function up() {
-          stageNode.removeEventListener("pointermove", move);
-          stageNode.removeEventListener("pointerup", up);
+          stage.removeEventListener("pointermove", move);
+          stage.removeEventListener("pointerup", up);
+          stage.removeEventListener("pointercancel", up);
         }
-        stageNode.addEventListener("pointermove", move);
-        stageNode.addEventListener("pointerup", up);
+        stage.addEventListener("pointermove", move);
+        stage.addEventListener("pointerup", up);
+        stage.addEventListener("pointercancel", up);
       });
-      stageNode.addEventListener("wheel", event => {
-        event.preventDefault();
-        const next = event.deltaY > 0 ? scale * 0.9 : scale * 1.1;
-        scale = Math.min(1.6, Math.max(0.02, next));
-        world.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
-        zoom.textContent = `缩放选项 ${Math.round(scale * 100)}%`;
-      }, {passive: false});
-      if (!selected) requestAnimationFrame(() => fit(stageNode));
-      return stageNode;
+      stage.addEventListener("wheel", event => { event.preventDefault(); applyScale(scale * (event.deltaY > 0 ? 0.9 : 1.1)); }, {passive: false});
+      if (fitPending) requestAnimationFrame(() => {
+        if (layerContext === context && layer?.contains(stage) && layer.dataset.view === "process" && body.querySelector(".fs-stage") === stage && fitPending) {
+          fit(stage);
+          zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+        }
+      });
+      return stage;
     }
 
-    function fit(stageNode) {
+    function fit(stage) {
       if (!nodes.length) return;
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const node of nodes) {
-        minX = Math.min(minX, node.x);
-        minY = Math.min(minY, node.y);
-        maxX = Math.max(maxX, node.x + node.width);
-        maxY = Math.max(maxY, node.y + node.height);
-      }
-      const rect = stageNode.getBoundingClientRect();
-      const spanX = Math.max(1, maxX - minX);
-      const spanY = Math.max(1, maxY - minY);
-      scale = Math.min(1, (rect.width - 48) / spanX, (rect.height - 48) / spanY);
-      originX = 24 - minX * scale;
-      originY = 24 - minY * scale;
-      const world = stageNode.querySelector(".fs-world");
+      const boxes = nodes.map(geometry);
+      const minX = Math.min(...boxes.map(box => box.x)), minY = Math.min(...boxes.map(box => box.y));
+      const maxX = Math.max(...boxes.map(box => box.x + box.width)), maxY = Math.max(...boxes.map(box => box.y + box.height));
+      const rect = stage.getBoundingClientRect();
+      scale = Math.min(1, Math.max(0.02, Math.min(Math.max(1, rect.width - 48) / Math.max(1, maxX - minX), Math.max(1, rect.height - 48) / Math.max(1, maxY - minY))));
+      originX = (rect.width - (maxX - minX) * scale) / 2 - minX * scale;
+      originY = (rect.height - (maxY - minY) * scale) / 2 - minY * scale;
+      fitPending = false;
+      const world = stage.querySelector(".fs-world");
       if (world) world.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
     }
 
+    function tile(node) {
+      const control = button("", () => selectNode(node.id), "fs-media-tile");
+      control.dataset.nodeId = String(node.id);
+      control.setAttribute("aria-label", "查看节点 " + (node.name || node.id));
+      control.setAttribute("aria-current", String(selected === node.id));
+      control.append(preview(node), el("span", "fs-tile-name", node.name || node.id));
+      return control;
+    }
+
     function storyboard() {
-      const boardNode = el("div", "fs-board");
-      const groups = nodes.filter(node => node.type === "group").sort((a, b) => a.y - b.y || a.x - b.x);
+      const board = el("div", "fs-board");
       const used = new Set();
-      function shots(list) {
-        return list.filter(node => node.type === "video" && node.url).sort((a, b) => a.x - b.x);
-      }
       function section(title, list) {
-        const videos = shots(list);
+        const videos = list.filter(node => node.type === "video" && !used.has(node.id));
         if (!videos.length) return;
         const block = el("section");
-        block.append(el("h3", "", title));
+        block.append(el("h3", "", `${title} · ${videos.length}`));
         const grid = el("div", "fs-shots");
-        for (const node of videos) {
-          used.add(node.id);
-          const article = el("article");
-          const video = el("video");
-          video.controls = true;
-          video.preload = "none";
-          video.src = node.url;
-          if (node.poster) video.poster = node.poster;
-          article.append(video, el("p", "", node.name || "视频"));
-          article.addEventListener("click", () => { selected = node.id; paint(); });
-          grid.append(article);
-        }
+        for (const node of videos) { used.add(node.id); grid.append(tile(node)); }
         block.append(grid);
-        boardNode.append(block);
+        board.append(block);
       }
-      for (const group of groups) section(group.name || "分组", (group.childIds || []).map(id => byId[id]).filter(Boolean));
-      section("未分组", nodes.filter(node => !used.has(node.id)));
-      if (!boardNode.childElementCount) boardNode.append(el("p", "", "这个作品没有可播放的视频节点。"));
-      return boardNode;
+      for (const group of nodes.filter(node => node.type === "group")) section(group.name || "分组", (group.childIds || []).map(id => byId.get(id)).filter(Boolean));
+      section("未分组", nodes);
+      if (!counts.video) board.append(el("p", "", "这个作品没有视频节点。"));
+      return board;
+    }
+
+    function assets() {
+      const panel = el("div", "fs-assets");
+      const tabs = el("div", "fs-asset-tabs");
+      for (const [kind, label] of [["audio", "音频"], ["image", "图片"], ["video", "视频"]]) {
+        const control = button(`${label}（${counts[kind]}）`, () => { assetKind = kind; paint(); });
+        control.setAttribute("aria-pressed", String(assetKind === kind));
+        tabs.append(control);
+      }
+      const grid = el("div", "fs-shots");
+      for (const node of nodes.filter(node => node.type === assetKind)) grid.append(tile(node));
+      if (!counts[assetKind]) grid.append(el("p", "", "这个作品没有这类素材节点。"));
+      panel.append(tabs, grid);
+      return panel;
+    }
+
+    function metadata(title, value, open = false) {
+      const details = el("details", "fs-metadata");
+      details.open = open;
+      details.append(el("summary", "", title), el("pre", "", JSON.stringify(value, null, 2)));
+      return details;
     }
 
     function inspector(node) {
       const aside = el("aside", "fs-inspector");
-      aside.append(el("h3", "", node.name || "节点"));
-      aside.append(el("p", "", ACTION[node.action] || node.type || ""));
+      aside.setAttribute("aria-label", "节点详情");
+      const header = el("header", "fs-inspector-head");
+      header.append(el("h3", "", node.name || "节点"), button("关闭详情", closeInspector, "fs-detail-close"));
+      aside.append(header, el("p", "", (ACTION[node.action] || node.type || "节点") + " · " + mediaLabel(node)));
+      aside.append(button("定位到画布", () => focusNode(node.id), "fs-locate"));
       if (node.model) aside.append(el("p", "", "模型 " + node.model + (node.modeType ? " · " + node.modeType : "")));
-      const setting = Object.entries(node.settings || {}).map(([key, value]) => `${key} ${value}`).join(" · ");
-      if (setting) aside.append(el("p", "", setting));
       if (node.taskStatus != null) aside.append(el("p", "", node.taskStatus === 2 ? "生成状态 已完成" : "生成状态 " + node.taskStatus));
       if (node.prompt) aside.append(el("p", "fs-prompt", node.prompt));
+      aside.append(metadata("完整生成参数", node.params ?? node.settings ?? {}, true));
       if (node.refs?.length) {
-        const list = el("ul");
-        for (const ref of node.refs) {
+        aside.append(el("h4", "", "引用顺序"));
+        const list = el("ol", "fs-refs");
+        const refs = node.refs.map((ref, index) => ({ref, index})).sort((a, b) => (Number.isFinite(a.ref.order) ? a.ref.order : a.index) - (Number.isFinite(b.ref.order) ? b.ref.order : b.index));
+        for (const {ref} of refs) {
           const item = el("li");
-          const button = el("button", "", (ref.label || ref.nodeId) + " · " + ref.kind);
-          button.type = "button";
-          button.addEventListener("click", () => focusNode(ref.nodeId));
-          item.append(button);
+          const label = `${ref.label || ref.nodeId || "引用"} · ${ref.kind || "引用"}${ref.index != null ? ` · 位置 ${ref.index}` : ""}`;
+          const jump = button(label, () => focusNode(ref.nodeId));
+          jump.disabled = !byId.has(ref.nodeId);
+          item.append(jump);
+          if (jump.disabled) item.append(el("span", "", "引用节点不在当前快照中"));
           list.append(item);
         }
         aside.append(list);
       }
-      if (node.url && node.type !== "group") {
-        const media = node.type === "audio" ? el("audio") : node.type === "image" ? el("img") : el("video");
-        if (media.tagName !== "IMG") { media.controls = true; media.src = node.url; }
-        else { media.src = node.url; media.alt = node.name || ""; }
-        media.style.width = "100%";
-        aside.append(media);
+      const outputs = outputsFor(node);
+      if (["audio", "image", "video"].includes(node.type)) {
+        aside.append(el("h4", "", `输出（${outputs.length}）`));
+        if (!outputs.length) aside.append(el("p", "", node.mediaStatus === "empty" ? "这个节点没有输出。" : "尚无本地输出，等待缓存。"));
       }
+      for (const [position, output] of outputs.entries()) {
+        const block = el("section", "fs-output");
+        const url = localURL(output.url);
+        block.append(el("h4", "", `输出 ${output.index ?? position}${url ? " · 已缓存" : output.status === "empty" ? " · 没有输出" : ["failed", "error"].includes(output.status) ? " · 缓存失败" : " · 待缓存"}`));
+        const meta = {...(node.resourceMeta || {}), ...(output.metadata || {})};
+        const dimensions = meta.width && meta.height ? `${meta.width} × ${meta.height}` : "";
+        const duration = meta.duration != null ? `时长 ${meta.duration}` : meta.durationMs != null ? `时长 ${meta.durationMs} ms` : "";
+        if (dimensions || duration) block.append(el("p", "", [dimensions, duration].filter(Boolean).join(" · ")));
+        if (url && node.type === "image") {
+          const image = el("img", "fs-output-image");
+          image.src = url;
+          image.alt = node.name || "图片输出";
+          image.loading = "lazy";
+          block.append(image);
+        } else if (url && ["audio", "video"].includes(node.type)) {
+          const slot = el("div", "fs-player-slot");
+          const play = button(node.type === "audio" ? "播放音频" : "播放视频", () => {
+            pauseMedia(aside);
+            const media = el(node.type, "fs-output-player");
+            media.controls = true;
+            media.preload = "none";
+            media.src = url;
+            if (node.type === "video" && localURL(node.poster)) media.poster = localURL(node.poster);
+            media.addEventListener("error", () => { notice("这个本地媒体无法播放，请检查缓存文件。"); });
+            // The player is created only after this user action. Its native controls own later clicks.
+            slot.replaceChildren(media);
+            media.play?.()?.catch?.(() => {});
+          }, "fs-play-output");
+          play.setAttribute("aria-label", node.type === "audio" ? "播放音频" : "播放视频");
+          if (node.type === "video" && localURL(node.poster)) play.prepend(preview(node));
+          slot.append(play);
+          block.append(slot);
+        } else if (!url) block.append(el("p", "", output.status === "empty" ? "没有媒体输出。" : "本机尚未缓存这个输出。"));
+        block.append(metadata("输出元数据", {mediaId: output.mediaId, ...meta}));
+        aside.append(block);
+      }
+      const supported = ["group", "audio", "image", "video"].includes(node.type);
+      if (!supported) aside.append(el("p", "fs-unsupported", "此节点类型暂不支持专用预览，可查看以下只读元数据。"));
+      aside.append(metadata(supported ? "完整节点元数据" : "节点元数据", node, !supported));
       return aside;
     }
 
-    workflow.addEventListener("click", () => { mode = "workflow"; paint(); });
-    board.addEventListener("click", () => { mode = "board"; paint(); });
     paint();
-  }
-
-  function closeLayer() {
-    layer?.remove();
-    layer = null;
+    modeButtons.get(mode).focus?.({preventScroll: true});
   }
 
   return {load, suspend};
