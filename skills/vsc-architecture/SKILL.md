@@ -5,7 +5,7 @@ description: "Audit, plan or implement VSC workflow/software improvements, or co
 
 # VSC 架构维护
 
-这是 VSC 的维护入口，不是短剧创作阶段。**每次进入本技能，先读正文和[执行检查](references/execution-checks.md)，据当前请求与会话已确认范围选择模式，再操作。** 不依赖上一轮聊天记忆恢复规则；参考文件打不开时明确报告，不能声称已完成该检查。
+这是 VSC 的维护入口，不是短剧创作阶段。**每次进入本技能，先读正文和[执行检查](references/execution-checks.md)，据当前请求与会话已确认范围选择模式，再操作；媒体下载、存储迁移与清理类实施另读[维护执行模式](references/maintenance-patterns.md)。** 不依赖上一轮聊天记忆恢复规则；参考文件打不开时明确报告，不能声称已完成该检查。
 
 ## 任务模式与范围
 
