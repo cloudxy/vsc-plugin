@@ -33,11 +33,15 @@ export function createFeaturedShowcase(root, {api, notice}) {
   let hasMore = false;
   let ready = true;
   let loading = false;
+  let version = 0;
   let searchTimer = 0;
   let observer = null;
   let layer = null;
 
   function suspend() {
+    version++;
+    loading = false;
+    clearTimeout(searchTimer);
     observer?.disconnect();
     observer = null;
     layer?.remove();
@@ -59,9 +63,11 @@ export function createFeaturedShowcase(root, {api, notice}) {
 
   async function fetchPage(reset) {
     if (loading) return;
+    const current = version;
     loading = true;
     try {
       const data = await api(params());
+      if (current !== version) return;
       ready = data.ready !== false;
       tags = data.tags || tags;
       total = data.total || 0;
@@ -70,14 +76,17 @@ export function createFeaturedShowcase(root, {api, notice}) {
       offset = items.length;
       render();
     } catch (error) {
+      if (current !== version) return;
       notice(error.message || "创作精选读取失败");
       if (!items.length) render();
     } finally {
-      loading = false;
+      if (current === version) loading = false;
     }
   }
 
   function render() {
+    observer?.disconnect();
+    observer = null;
     root.replaceChildren();
     root.classList.add("featured-showcase");
     const head = el("div", "fs-head");
@@ -90,7 +99,7 @@ export function createFeaturedShowcase(root, {api, notice}) {
     input.setAttribute("aria-label", "请输入搜索内容");
     input.addEventListener("input", () => {
       query = input.value;
-      clearTimeout(searchTimer);
+      suspend();
       searchTimer = setTimeout(() => load().catch(error => notice(error.message)), 280);
     });
     search.append(input);
@@ -125,8 +134,9 @@ export function createFeaturedShowcase(root, {api, notice}) {
     const more = el("div", "fs-more", hasMore ? "继续加载" : `共 ${total} 个作品`);
     root.append(more);
     if (hasMore && typeof IntersectionObserver === "function") {
+      const current = version;
       observer = new IntersectionObserver(entries => {
-        if (entries.some(entry => entry.isIntersecting)) fetchPage(false);
+        if (current === version && entries.some(entry => entry.isIntersecting)) fetchPage(false);
       }, {rootMargin: "400px"});
       observer.observe(more);
     }
@@ -206,7 +216,15 @@ export function createFeaturedShowcase(root, {api, notice}) {
   }
 
   async function openProcess(card) {
-    const data = await api("/api/v1/featured-showcase/" + encodeURIComponent(card.templateUuid));
+    const current = version;
+    let data;
+    try {
+      data = await api("/api/v1/featured-showcase/" + encodeURIComponent(card.templateUuid));
+    } catch (error) {
+      if (current !== version) return;
+      throw error;
+    }
+    if (current !== version) return;
     closeLayer();
     const process = data.process || {nodes: [], edges: []};
     const nodes = process.nodes || [];

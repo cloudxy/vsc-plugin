@@ -2,6 +2,8 @@
 import gzip
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -23,6 +25,12 @@ def write_snapshot(root, identity, snapshot, snapshot_id=7):
 
 
 class FeaturedShowcaseTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "requires Node.js")
+    def test_frontend_latest_intent_and_late_responses(self):
+        result = subprocess.run(["node", "--test", str(Path(__file__).with_name("featured_showcase.test.mjs"))],
+                                cwd=ROOT, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_workspace_assets_default_and_explicit_override(self):
         with patch.dict("os.environ", {}, clear=True):
             self.assertEqual(showcase_root(), ROOT / "assets" / "featured-showcase")

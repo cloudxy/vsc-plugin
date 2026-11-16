@@ -2221,6 +2221,7 @@
         "src/vsc/assets/featured_showcase.py",
         "src/vsc/interfaces/web/featured_showcase.py",
         "src/vsc/interfaces/web/static/featured-showcase.js",
+        "tests/assets/unit/featured_showcase.test.mjs",
         "src/vsc/interfaces/web/static/featured-showcase.css",
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/templates/index.html",
