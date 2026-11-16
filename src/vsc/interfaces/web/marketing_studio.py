@@ -6,10 +6,7 @@ from starlette.concurrency import run_in_threadpool
 def install_marketing_case_routes(app, etag, *, media_root=None):
     from vsc.assets.marketing_cases import list_cases, get_case
     from vsc.assets.marketing_media import local_asset
-    from vsc.configuration import get_config
     from fastapi.responses import FileResponse, Response
-
-    media_root = media_root or get_config('VSC_MEDIA_ROOT')
 
     @app.api_route('/api/v1/marketing-assets/{asset_id:path}', methods=['GET', 'HEAD'])
     def media(asset_id: str, request: Request):

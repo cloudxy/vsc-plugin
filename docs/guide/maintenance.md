@@ -40,14 +40,14 @@ VSC_CI_SCOPE=targeted VSC_CI_TESTS="maintenance.integration.test_vsc_local_ci" g
 
 ## 营销工作室的本地展示资源
 
-案例视频、案例封面与技能封面保存于已配置的 `VSC_MEDIA_ROOT/marketing-studio/`，原始字节不进入源码仓库。复制或备份本机媒体目录时保留此子目录；来源、大小、类型及固定 SHA-256 在包内 `marketing-assets.json` 中追溯。网页只读取已校验的本地文件。
+案例视频、案例封面与技能封面统一保存于工作区 `assets/marketing-studio/`，原始字节不进入源码仓库。复制或备份本机资产时保留此子目录；来源、大小、类型及固定 SHA-256 在包内 `marketing-assets.json` 中追溯。网页只读取已校验的本地文件。
 
 ```bash
 python3 -B scripts/maintenance/marketing_media.py         # 仅读取并校验本地完整性
 python3 -B scripts/maintenance/marketing_media.py --sync  # 显式联网恢复缺失或损坏的原文件
 ```
 
-恢复只接受目录中的固定摘要，来源内容变化会报错并保留现有文件。配置继续沿用 `config/.env`；`--media-root` 可指定待校验或恢复的媒体目录。
+恢复只接受目录中的固定摘要，来源内容变化会报错并保留现有文件。`--media-root` 可显式指定资产父目录，命令在其 `marketing-studio/` 子目录中校验或恢复。项目媒体继续沿原 `VSC_MEDIA_ROOT` 配置；营销展示资源使用统一资产目录，不从原位置隐式回退。迁移时移动整个子目录，核对文件数量、字节数及摘要后重启面板。
 
 ## 创作精选的本地展示资源
 

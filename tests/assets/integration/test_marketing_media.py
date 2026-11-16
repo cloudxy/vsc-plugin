@@ -14,6 +14,28 @@ from vsc.assets.resource_service import ResourceError
 
 
 class MarketingMediaTests(unittest.TestCase):
+    def test_panel_and_cli_use_workspace_assets_independently_of_project_media(self):
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web.app import create_app
+        from tools.maintenance.marketing_media import main
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            content, item, path = self.fixture(workspace / 'assets')
+            manifest = {'assets': {item['id']: item}}
+            project_media = workspace / 'project-media'
+            with patch.object(M, 'repository_root', return_value=workspace), \
+                    patch.object(M, 'load_manifest', return_value=manifest), \
+                    patch('tools.maintenance.marketing_media.load_manifest', return_value=manifest):
+                self.assertEqual(M.assets_root(), workspace / 'assets' / 'marketing-studio')
+                app = create_app({'projects_root': workspace / 'projects', 'media_root': project_media})
+                with TestClient(app, base_url='http://127.0.0.1') as client:
+                    response = client.get('/api/v1/marketing-assets/' + item['id'])
+                    self.assertEqual((response.status_code, response.content), (200, content))
+                with patch('builtins.print'):
+                    self.assertEqual(main([]), 0)
+                self.assertEqual(path.read_bytes(), content)
+                self.assertFalse((project_media / 'marketing-studio').exists())
+
     def test_every_case_source_and_all_eight_methods_have_fixed_local_bytes(self):
         catalog, manifest = load_catalog(), M.load_manifest()
         self.assertEqual(manifest['catalog_sha256'], catalog['catalog_sha256'])

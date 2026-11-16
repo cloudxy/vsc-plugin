@@ -12,7 +12,6 @@ import tempfile
 
 from vsc.assets.marketing_media import assets_root, file_sha256, load_manifest, local_asset
 from vsc.assets.resource_service import ResourceError
-from vsc.configuration import get_config
 
 
 def restore(media_root, item):
@@ -43,11 +42,11 @@ def restore(media_root, item):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='营销工作室资源本地校验；仅 --sync 显式联网恢复')
-    parser.add_argument('--media-root', default=None, help='默认沿用 config/.env 中的 VSC_MEDIA_ROOT')
+    parser.add_argument('--media-root', default=None, help='资产父目录，默认工作区 assets；其下读取 marketing-studio')
     parser.add_argument('--sync', action='store_true', help='下载缺失或损坏的固定原文件，不更新来源版本')
     parser.add_argument('--workers', type=int, default=4, choices=range(1, 9))
     args = parser.parse_args(argv)
-    media_root = args.media_root or get_config('VSC_MEDIA_ROOT')
+    media_root = args.media_root
     items = load_manifest()['assets']
 
     def check(pair):

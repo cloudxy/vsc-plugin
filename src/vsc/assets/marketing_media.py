@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 from vsc.assets.resource_service import ResourceError
+from vsc.bootstrap import repository_root
 
 
 def file_sha256(path):
@@ -38,8 +39,9 @@ def load_manifest():
     return manifest
 
 
-def assets_root(media_root):
-    return Path(media_root).expanduser().resolve() / 'marketing-studio'
+def assets_root(media_root=None):
+    parent = Path(media_root).expanduser().resolve() if media_root is not None else repository_root() / 'assets'
+    return parent / 'marketing-studio'
 
 
 @lru_cache(maxsize=512)
