@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from support.paths import ROOT
-from vsc.assets.featured_showcase import list_works, project_snapshot, read_process, store_media
+from vsc.assets.featured_showcase import list_works, localize_value, project_snapshot, read_process, showcase_root, store_media
 from vsc.interfaces.web.featured_showcase import install_featured_showcase_routes
 
 
@@ -22,6 +23,25 @@ def write_snapshot(root, identity, snapshot, snapshot_id=7):
 
 
 class FeaturedShowcaseTests(unittest.TestCase):
+    def test_workspace_assets_default_and_explicit_override(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(showcase_root(), ROOT / "assets" / "featured-showcase")
+            with patch.dict("os.environ", {"VSC_FEATURED_SHOWCASE_ROOT": "/explicit/showcase"}):
+                self.assertEqual(showcase_root(), Path("/explicit/showcase"))
+                self.assertEqual(showcase_root("/override/showcase"), Path("/override/showcase"))
+
+    def test_localized_links_are_rechecked_after_media_loss(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            url = "https://example.test/cover.png"
+            stored = store_media(root, url, b"\x89PNG\r\n\x1a\ncover")
+            local = "/featured-showcase-media/" + stored.name
+            payload = {"coverUrl": local, "prompt": "参考 " + local}
+            self.assertEqual(localize_value(root, payload), payload)
+            stored.unlink()
+            self.assertEqual(localize_value(root, payload), {"coverUrl": "", "prompt": "参考 "})
+            self.assertEqual(localize_value(root, payload, drop_missing=False), payload)
+
     def catalog(self, root):
         cards = {
             "a" * 32: {"templateUuid": "a" * 32, "name": "旧日将尽", "description": "末世", "nickname": "熵变",

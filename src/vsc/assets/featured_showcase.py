@@ -16,6 +16,7 @@ PAGE_LIMIT = 20
 LOCAL_MEDIA = "/featured-showcase-media/"
 MEDIA_NAME = re.compile(r"^[0-9a-f]{64}(?:\.[a-z0-9]{1,8})?$")
 URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>]+")
+LOCAL_MEDIA_IN_TEXT = re.compile(r"/featured-showcase-media/[^\s\"'<>]+")
 MEDIA_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".ogg")
 _media_hits = {}
 
@@ -29,8 +30,8 @@ def showcase_root(override=None):
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / "pyproject.toml").is_file() and (parent / "src" / "vsc").is_dir():
-            return parent / ".vsc-local" / "featured-showcase"
-    return Path.cwd() / ".vsc-local" / "featured-showcase"
+            return parent / "assets" / "featured-showcase"
+    return Path.cwd() / "assets" / "featured-showcase"
 
 
 def _empty():
@@ -224,9 +225,10 @@ def localize_url(root, url, drop_missing=True):
 def localize_string(root, value, drop_missing=True):
     if "http://" not in value and "https://" not in value and LOCAL_MEDIA not in value:
         return value
-    if URL_IN_TEXT.fullmatch(value):
+    if URL_IN_TEXT.fullmatch(value) or LOCAL_MEDIA_IN_TEXT.fullmatch(value):
         return localize_url(root, value, drop_missing)
-    return URL_IN_TEXT.sub(lambda match: localize_url(root, match.group(0), drop_missing), value)
+    localized = URL_IN_TEXT.sub(lambda match: localize_url(root, match.group(0), drop_missing), value)
+    return LOCAL_MEDIA_IN_TEXT.sub(lambda match: localize_url(root, match.group(0), drop_missing), localized)
 
 
 def localize_value(root, value, drop_missing=True):

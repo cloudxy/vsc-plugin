@@ -48,3 +48,9 @@ python3 -B scripts/maintenance/marketing_media.py --sync  # 显式联网恢复�
 ```
 
 恢复只接受目录中的固定摘要，来源内容变化会报错并保留现有文件。配置继续沿用 `config/.env`；`--media-root` 可指定待校验或恢复的媒体目录。
+
+## 创作精选的本地展示资源
+
+目录、画布快照与媒体统一保存在工作区 `assets/featured-showcase/`，分别为 `catalog.json`、`processes/` 与 `media/`。这些本机数据受 Git 忽略，不进入源码提交或安装包。迁移时移动整个目录，校验文件数量、字节数和摘要，再启动面板；应用不从旧位置隐式回退。已有显式 `VSC_FEATURED_SHOWCASE_ROOT` 覆盖仍然有效。
+
+面板只返回已存在的 `/featured-showcase-media/` 本地资源；未下载或已丢失的媒体留空，不向来源站点请求。来源地址可保留在采集记录中用于追溯和显式恢复，不作为页面播放地址。
