@@ -3,14 +3,21 @@
 The panel reads files captured into the workspace. It does not call LibTV.
 """
 import gzip
+import hashlib
 import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SCHEMA = "vsc.featured-showcase/v1"
 UUID = re.compile(r"^[0-9a-fA-F]{16,64}$")
 PAGE_LIMIT = 20
+LOCAL_MEDIA = "/featured-showcase-media/"
+MEDIA_NAME = re.compile(r"^[0-9a-f]{64}(?:\.[a-z0-9]{1,8})?$")
+URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>]+")
+MEDIA_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".ogg")
+_media_hits = {}
 
 
 def showcase_root(override=None):
@@ -49,7 +56,7 @@ def _card(catalog, identity, root):
     card = dict(raw)
     card["processReady"] = bool(card.get("snapshotId")) and (Path(root) / "processes" / f"{identity}.json.gz").is_file()
     card["processAvailable"] = bool(card.get("snapshotId"))
-    return card
+    return localize_value(root, card)
 
 
 def list_works(root, tag_id="0", query="", offset=0, limit=PAGE_LIMIT):
@@ -116,6 +123,120 @@ def _media_url(value):
             if isinstance(item, str) and item:
                 return item
     return ""
+
+
+def media_digest(url):
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+def media_suffix(url):
+    path = urlsplit(url).path.lower()
+    for ext in MEDIA_SUFFIXES:
+        if path.endswith(ext):
+            return ".jpg" if ext == ".jpeg" else ext
+    return ""
+
+
+def sniff_suffix(header):
+    sample = bytes(header[:16])
+    if sample.startswith(b"\x89PNG"):
+        return ".png"
+    if sample.startswith(b"\xff\xd8"):
+        return ".jpg"
+    if sample.startswith(b"GIF8"):
+        return ".gif"
+    if sample.startswith(b"RIFF") and sample[8:12] == b"WEBP":
+        return ".webp"
+    if len(sample) >= 8 and sample[4:8] == b"ftyp":
+        return ".mp4"
+    if sample.startswith(b"ID3") or sample[:2] == b"\xff\xfb":
+        return ".mp3"
+    if sample.startswith(b"OggS"):
+        return ".ogg"
+    if sample.startswith(b"RIFF") and sample[8:12] == b"WAVE":
+        return ".wav"
+    return ".bin"
+
+
+def resolve_media_name(root, name):
+    if not isinstance(name, str) or MEDIA_NAME.fullmatch(name) is None:
+        return None
+    digest = name.split(".", 1)[0]
+    path = Path(root) / "media" / digest[:2] / name
+    if path.is_file() and path.stat().st_size > 0:
+        return path
+    return None
+
+
+def find_media(root, url):
+    key = (str(Path(root)), url)
+    cached = _media_hits.get(key)
+    if cached is not None and cached.is_file() and cached.stat().st_size > 0:
+        return cached
+    digest = media_digest(url)
+    folder = Path(root) / "media" / digest[:2]
+    if not folder.is_dir():
+        return None
+    for child in folder.iterdir():
+        if child.is_file() and child.name.startswith(digest) and MEDIA_NAME.fullmatch(child.name) and child.stat().st_size > 0:
+            _media_hits[key] = child
+            return child
+    return None
+
+
+def media_paths(root, url, suffix=None):
+    chosen = suffix or media_suffix(url) or ".bin"
+    if chosen == ".jpeg":
+        chosen = ".jpg"
+    if not re.fullmatch(r"\.[a-z0-9]{1,8}", chosen or ""):
+        chosen = ".bin"
+    digest = media_digest(url)
+    folder = Path(root) / "media" / digest[:2]
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{digest}{chosen}", folder / f".{digest}.part"
+
+
+def store_media(root, url, payload, suffix=None):
+    body = bytes(payload)
+    if not body:
+        raise ValueError("empty media")
+    chosen = suffix or media_suffix(url) or sniff_suffix(body)
+    target, temporary = media_paths(root, url, chosen)
+    temporary.write_bytes(body)
+    temporary.replace(target)
+    _media_hits[(str(Path(root)), url)] = target
+    return target
+
+
+def localize_url(root, url, drop_missing=True):
+    text = url.strip()
+    if text.startswith(LOCAL_MEDIA):
+        ready = resolve_media_name(root, text[len(LOCAL_MEDIA):].split("?", 1)[0]) is not None
+        return text if ready or not drop_missing else ""
+    if text.startswith(("http://", "https://")):
+        found = find_media(root, text)
+        if found is not None:
+            return f"{LOCAL_MEDIA}{found.name}"
+        return "" if drop_missing else text
+    return url
+
+
+def localize_string(root, value, drop_missing=True):
+    if "http://" not in value and "https://" not in value and LOCAL_MEDIA not in value:
+        return value
+    if URL_IN_TEXT.fullmatch(value):
+        return localize_url(root, value, drop_missing)
+    return URL_IN_TEXT.sub(lambda match: localize_url(root, match.group(0), drop_missing), value)
+
+
+def localize_value(root, value, drop_missing=True):
+    if isinstance(value, str):
+        return localize_string(root, value, drop_missing)
+    if isinstance(value, list):
+        return [localize_value(root, item, drop_missing) for item in value]
+    if isinstance(value, dict):
+        return {key: localize_value(root, item, drop_missing) for key, item in value.items()}
+    return value
 
 
 def _references(params):
@@ -227,7 +348,7 @@ def read_process(root, template_uuid):
         raise FileNotFoundError(template_uuid)
     catalog = load_catalog(root)
     card = _card(catalog, template_uuid, root) if catalog else None
-    return {
+    payload = {
         "card": card or {"templateUuid": template_uuid, "name": record.get("name") or "", "snapshotId": record.get("snapshotId")},
         "name": record.get("name") or (card or {}).get("name") or "",
         "description": record.get("description") or "",
@@ -239,3 +360,4 @@ def read_process(root, template_uuid):
         "copyCanvasCount": record.get("copyCanvasCount"),
         "process": project_snapshot(record.get("snapshot")),
     }
+    return localize_value(root, payload)

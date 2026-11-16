@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from support.paths import ROOT
-from vsc.assets.featured_showcase import list_works, project_snapshot, read_process
+from vsc.assets.featured_showcase import list_works, project_snapshot, read_process, store_media
 from vsc.interfaces.web.featured_showcase import install_featured_showcase_routes
 
 
@@ -25,7 +25,8 @@ class FeaturedShowcaseTests(unittest.TestCase):
     def catalog(self, root):
         cards = {
             "a" * 32: {"templateUuid": "a" * 32, "name": "旧日将尽", "description": "末世", "nickname": "熵变",
-                       "snapshotId": 7, "tags": [{"code": "viral_likes_30", "label": "全网点赞30万+"}], "userTags": [{"name": "先锋"}]},
+                       "snapshotId": 7, "coverUrl": "https://example.test/cover.png",
+                       "tags": [{"code": "viral_likes_30", "label": "全网点赞30万+"}], "userTags": [{"name": "先锋"}]},
             "b" * 32: {"templateUuid": "b" * 32, "name": "绵羊奶粉", "description": "", "nickname": "阿松", "snapshotId": None},
         }
         payload = {"schema": "vsc.featured-showcase/v1", "tags": [{"id": 0, "code": "all", "label": "全部"},
@@ -77,7 +78,13 @@ class FeaturedShowcaseTests(unittest.TestCase):
             write_snapshot(root, "a" * 32, snapshot)
             loaded = read_process(root, "a" * 32)
             self.assertEqual(loaded["process"]["nodes"][1]["prompt"], "林芸调动无人机")
+            self.assertEqual(loaded["process"]["nodes"][1]["url"], "")
+            self.assertEqual(loaded["finalOutput"], "")
+            self.assertNotIn("https://", json.dumps(loaded))
             self.assertTrue(list_works(root)["items"][0]["processReady"])
+            self.assertEqual(list_works(root)["items"][0]["coverUrl"], "")
+            store_media(root, "https://example.test/cover.png", b"\x89PNG\r\n\x1a\ncover")
+            self.assertTrue(list_works(root)["items"][0]["coverUrl"].startswith("/featured-showcase-media/"))
             with self.assertRaises(FileNotFoundError):
                 read_process(root, "../secret")
 
@@ -91,8 +98,17 @@ class FeaturedShowcaseTests(unittest.TestCase):
                 listed = client.get("/api/v1/featured-showcase", params={"q": "旧日"})
                 self.assertEqual(listed.status_code, 200)
                 self.assertEqual(listed.json()["items"][0]["name"], "旧日将尽")
+                self.assertEqual(listed.json()["items"][0]["coverUrl"], "")
+                self.assertNotIn("https://", listed.text)
                 missing = client.get("/api/v1/featured-showcase/" + "a" * 32)
                 self.assertEqual(missing.status_code, 404)
+                stored = store_media(root, "https://example.test/cover.png", b"\x89PNG\r\n\x1a\ncover")
+                media = client.get("/featured-showcase-media/" + stored.name)
+                self.assertEqual(media.status_code, 200)
+                self.assertEqual(media.content, b"\x89PNG\r\n\x1a\ncover")
+                again = client.get("/api/v1/featured-showcase", params={"q": "旧日"})
+                self.assertEqual(again.json()["items"][0]["coverUrl"], "/featured-showcase-media/" + stored.name)
+                self.assertNotIn("https://", again.text)
 
     def test_shell_keeps_community_and_adds_showcase(self):
         html = (ROOT / "src/vsc/interfaces/web/templates/index.html").read_text(encoding="utf-8")
