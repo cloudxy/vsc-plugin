@@ -32,7 +32,7 @@ PURPOSES = [
     {"id": "song", "label": "歌词演唱歌曲", "modality": "audio"},
     {"id": "ambience", "label": "环境声", "modality": "audio"},
 ]
-SUPPLIERS = {"volcengine", "alibaba", "xai", "openai", "mureka", "fal"}
+SUPPLIERS = {"volcengine", "alibaba", "xai", "openai", "mureka", "fal", "google"}
 EXECUTIONS = {"api", "official_sdk", "official_cli", "official_skill", "host_tool"}
 SOURCES = {
     "volcengine": "https://docs.volcengine.com/docs/ark/agent-plan-personal-visual-models?lang=en",
@@ -128,6 +128,8 @@ def safe_parameters(value):
 
 
 def adapter_available(row):
+    from vsc.production.studio_models import is_studio_auth_configuration
+    if is_studio_auth_configuration(row):return True
     if row.get('supplier') == 'fal':
         from vsc.adapters.providers.fal_media import BASE, KEY_ENV as FAL_KEY
         from vsc.production.digital_human import DETECTION_MODEL, AVATAR_MODEL
@@ -226,7 +228,9 @@ def validate_configuration(payload):
     if value['supplier']=='fal':
         if not adapter_available(value):raise ResourceError('FAL模型必须精确声明对应原生操作、官方队列和独立FAL_KEY','invalid_provider_config')
         if value['default_params']:raise ResourceError('原生媒体参数须由固定任务明确保存，不接受额外默认参数','invalid_model_defaults')
-    if value['supplier']=='openai':
+    from vsc.production.studio_models import is_studio_auth_configuration
+    studio_auth=is_studio_auth_configuration(value)
+    if value['supplier']=='openai' and not studio_auth:
         if not adapter_available(value):
             raise ResourceError('OpenAI局部重绘须用官方端点、独立OPENAI_API_KEY和独立遮罩能力','invalid_provider_config')
         if value['default_params']:
@@ -249,7 +253,7 @@ def validate_configuration(payload):
         family = {"image": "doubao-seedream-", "video": "doubao-seedance-", "audio": "seed-tts-"}[value["modality"]]
         if not value["model_key"].startswith(family):
             raise ResourceError("模型与多模态用途不匹配；不能用套餐凭证测试文本或向量模型", "invalid_model_family")
-    if value["supplier"] == "xai":
+    if value["supplier"] == "xai" and not studio_auth:
         family = {"image": "grok-imagine-image-", "video": "grok-imagine-video-"}.get(value["modality"])
         if (value["product"] != "grok-imagine" or value["plan"] != "subscription" or value["execution"] != "api"
                 or value["base_url"] != grok_credentials.API_BASE or value.get("auth_ref")):
@@ -287,7 +291,7 @@ def validate_configuration(payload):
             raise ResourceError("官方 SDK 视频需要 resolution、ratio 与布尔 generate_audio 映射", "invalid_model_defaults")
         from vsc.adapters.providers.volc_ark.official_sdk import verify_runtime
         verify_runtime(value["default_params"].get("sdk_runtime"))
-    if value["enabled"] and value["supplier"] == "xai":
+    if value["enabled"] and value["supplier"] == "xai" and not studio_auth:
         from vsc.adapters.providers.xai_grok import spec as grok_spec
         defaults = value["default_params"]
         if value["modality"] == "image":

@@ -2380,7 +2380,8 @@
         "src/vsc/interfaces/web/static/panel.js",
         "tests/project/unit/canvas_core_replica.test.mjs",
         "src/vsc/interfaces/web/static/canvas-operation-controls.js",
-        "tests/support/fixtures/frontend/canvas_capabilities.cjs"
+        "tests/support/fixtures/frontend/canvas_capabilities.cjs",
+        "src/vsc/interfaces/web/static/canvas-settings.js"
       ]
     },
     "assets.unit.test_costume_gallery": {
@@ -2445,7 +2446,8 @@
         "src/vsc/assets/pose_gallery.py",
         "src/vsc/interfaces/web/character_studio.py",
         "src/vsc/interfaces/web/app.py",
-        "src/vsc/interfaces/web/templates/index.html"
+        "src/vsc/interfaces/web/templates/index.html",
+        "src/vsc/production/provider_errors.py"
       ]
     },
     "project.unit.test_character_studio_frontend": {
@@ -2584,6 +2586,15 @@
       "layer": "unit",
       "sources": [
         "src/vsc/production/canvas_capabilities.py"
+      ]
+    },
+    "production.unit.test_studio_models": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/studio_models.py",
+        "src/vsc/adapters/providers/studio_auth.py",
+        "src/vsc/production/provider_errors.py"
       ]
     }
   },

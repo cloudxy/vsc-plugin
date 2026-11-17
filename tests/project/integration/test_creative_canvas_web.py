@@ -67,6 +67,98 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(denied.json()['error'],'canvas_operation_port')
         self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
 
+    def test_api_settings_subscription_models_are_reused_by_canvas_without_duplicate_registration(self):
+        self._settings_models_canvas_round_trip()
+
+    def test_settings_canvas_generation_in_script_profile_uses_fixed_working_input(self):
+        from sqlalchemy import update
+        from vsc.adapters.persistence.postgres import schema as S
+        profile=dict(profile_id='vsc.synthetic-script',version='1',contract_policy='production-v2',stages=[
+            dict(id='script',required=['screenplay']),dict(id='direct',required=['shot-plan'])])
+        with self.engine.begin() as conn:
+            conn.execute(update(S.projects).where(S.projects.c.id==self.p).values(profile_snapshot=profile))
+        self._settings_models_canvas_round_trip()
+
+    def test_subscription_rejection_is_visible_and_never_submitted_again(self):
+        self._settings_models_canvas_round_trip(failure='Location not supported; Bearer private-token-value')
+
+    def test_working_canvas_generation_respects_existing_project_budget(self):
+        from sqlalchemy import update
+        from vsc.adapters.persistence.postgres import schema as S
+        with self.engine.begin() as conn:
+            conn.execute(update(S.projects).where(S.projects.c.id==self.p).values(profile_snapshot={
+                'profile_id':'vsc.synthetic','version':'1','contract_policy':'production-v2','stages':[]}))
+        self.write('configure_budget',dict(limits={'remote_jobs':0,'images':0},reason='Synthetic exhausted budget'))
+        self._settings_models_canvas_round_trip(budget_exhausted=True)
+
+    def _settings_models_canvas_round_trip(self,failure=None,budget_exhausted=False):
+        self.service.studio_auth_status=lambda:{key:{'ready':True} for key in ('agy','grok','codex')}
+        providers=[dict(provider='agy_auth',model='image-generator'),dict(provider='codex_auth',model='image-generation'),
+                   dict(provider='grok_auth',model='image_edit'),dict(provider='grok_video_auth',model='grok-imagine-video')]
+        path=self.base+'/creative-canvas-settings-models'
+        imported=self.client.post(path,headers=self.headers,json={'providers':providers})
+        self.assertEqual(imported.status_code,200,imported.text)
+        repeated=self.client.post(path,headers=self.headers,json={'providers':providers})
+        self.assertEqual(repeated.status_code,200,repeated.text)
+        self.assertEqual([m['id'] for m in imported.json()['models']],[m['id'] for m in repeated.json()['models']])
+        options=self.client.get(self.base+'/creative-canvas-run-options').json()
+        imported_ids={m['id'] for m in imported.json()['models']}
+        self.assertEqual(len(imported_ids),4)
+        self.assertTrue(imported_ids <= {m['id'] for m in options['models']})
+        self.assertEqual(len(set(next(op for op in options['operations'] if op['op_type']=='image_generate')['supported_models']) & imported_ids),3)
+        self.assertEqual(len(set(next(op for op in options['operations'] if op['op_type']=='single_image_video')['supported_models']) & imported_ids),1)
+        self.assertTrue(all(not m['auth_ref'] for m in options['models'] if m['id'] in imported_ids))
+        model=next(m for m in options['models'] if m['model_key']=='image-generator')
+        created=self.command('/creative-canvases',dict(document=dict(nodes=[dict(id='image',type='image',text='A synthetic blue square')],edges=[]))).json()
+        canvas_path='/creative-canvases/'+created['id']
+        fixed=self.command(canvas_path+'/work-input',dict(canvas_revision=1,node_id='image',model_id=model['id']))
+        self.assertEqual(fixed.status_code,200,fixed.text)
+        request=dict(draft_version_id=fixed.json()['draft_version_id'],execution_policy=dict(version='bounded-v1',
+            first_draft_due_at='2099-01-01T00:00:00Z',stop_submitting_at='2099-01-01T01:00:00Z',max_attempts_per_purpose=1,max_repair_rounds=0))
+        quoted=self.client.post(self.base+canvas_path+'/work-quote',headers=self.headers,json={'payload':request})
+        self.assertEqual(quoted.status_code,200,quoted.text)
+        self.assertTrue(quoted.json()['ready'],quoted.text)
+        self.rev=quoted.json()['revision']
+        generated=self.command(canvas_path+'/generate',dict(canvas_revision=1,node_id='image',request=request,preview_sha256=quoted.json()['preview_sha256']))
+        self.assertEqual(generated.status_code,200,generated.text)
+        from vsc.production.resource_worker import ResourceWorker
+        from vsc.adapters.providers.worker_factory import worker_adapter_factory
+        from support.fixtures.media import production_media
+        import base64
+        calls=[]
+        def executor(provider,body):
+            calls.append((provider,body))
+            if failure:return dict(error=failure,http_status=403)
+            return dict(image_url='data:image/png;base64,'+base64.b64encode(production_media()['png']).decode())
+        worker=ResourceWorker(self.service,lambda job,storage:worker_adapter_factory(job,storage,studio_auth_generate=executor),managed_only=True)
+        if budget_exhausted:
+            from vsc.assets.resource_service import ResourceError
+            with self.assertRaises(ResourceError) as caught:worker.run_once(self.p)
+            self.assertEqual(caught.exception.code,'budget_exceeded')
+            self.assertEqual(calls,[])
+            self.assertEqual(self.service.get_generation_job(self.p,generated.json()['jobs'][0]['id'])['status'],'created')
+            return
+        completed=worker.run_once(self.p)
+        self.assertEqual(calls[0][0],'agy_auth')
+        self.assertEqual(calls[0][1]['references'],[])
+        self.assertEqual(len(calls),1)
+        if failure:
+            self.assertEqual(completed['status'],'failed')
+            visible=self.client.get(self.base+canvas_path).json()['execution_steps'][0]['jobs'][0]
+            self.assertIn('Location not supported',visible['error_message'])
+            self.assertNotIn('private-token-value',visible['error_message'])
+            self.assertEqual(worker.run_once(self.p),None)
+            self.assertEqual(len(calls),1)
+            return
+        self.assertEqual(completed['status'],'succeeded')
+        self.rev=self.service.get_project(self.p)['revision']
+        adopted=self.command(canvas_path+'/generation-outputs',dict(canvas_revision=1,run_version_id=generated.json()['run_version_id']))
+        self.assertEqual(adopted.status_code,200,adopted.text)
+        node=self.client.get(self.base+canvas_path).json()['document']['nodes'][0]
+        self.assertEqual(node['job_id'],completed['id'])
+        self.assertTrue(node['media_id'])
+        self.assertEqual(worker.run_once(self.p),None)
+
     def test_canvas_edit_transfers_real_segments_to_original_editor_without_fake_output(self):
         from support.fixtures.media import production_media
         objects=self.hierarchy()

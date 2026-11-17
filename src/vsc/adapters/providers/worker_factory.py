@@ -6,9 +6,12 @@ account invariants and transport choices stay local to the provider package.
 from vsc.assets.resource_service import ResourceError
 
 
-def worker_adapter_factory(job, storage):
+def worker_adapter_factory(job, storage, *, studio_auth_generate=None):
     provider = job.get("provider") or {}
     identity = provider.get("configuration", {}) if isinstance(provider, dict) else {}
+    if identity.get('product')=='studio-auth':
+        from vsc.adapters.providers.studio_auth import studio_auth_factory
+        return studio_auth_factory(job,storage,studio_auth_generate)
     if identity.get('supplier') == 'fal':
         from vsc.production.digital_human import DETECTION_MODEL, AVATAR_MODEL
         if job['model']['model_key'] in {DETECTION_MODEL, AVATAR_MODEL}:

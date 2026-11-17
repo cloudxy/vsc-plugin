@@ -204,6 +204,17 @@ class ProductionRepository:
         else:
             eligible = and_(eligible, or_(S.generation_jobs.c.next_attempt_at.is_(None),
                                          S.generation_jobs.c.next_attempt_at <= now))
+        if managed_only:
+            managed_profile = select(S.projects.c.id).where(
+                S.projects.c.id == S.generation_jobs.c.project_id,
+                S.projects.c.profile_snapshot['contract_policy'].astext == 'production-v2').correlate(S.generation_jobs).exists()
+            working_input = select(S.workbench_run_inputs.c.run_version_id).where(
+                S.workbench_run_inputs.c.project_id == S.generation_jobs.c.project_id,
+                S.workbench_run_inputs.c.run_version_id == S.generation_jobs.c.run_version_id).correlate(S.generation_jobs).exists()
+            # Working-generation runs are explicitly confirmed through their
+            # original input relation, including existing canvas projects. This
+            # admits only those jobs, never other legacy jobs in the project.
+            eligible = and_(eligible, or_(managed_profile, working_input))
         with self.engine.begin() as conn:
             # Lock order is always project then job, matching manual mutations.
             projects = select(S.projects).where(S.projects.c.id.in_(select(S.generation_jobs.c.project_id).where(eligible)))
@@ -211,8 +222,6 @@ class ProductionRepository:
                 S.project_revisions.c.action == "migration_import", ~S.project_revisions.c.project_id.in_(
                     select(S.project_revisions.c.project_id).where(S.project_revisions.c.action == "migration_activate")))
             projects = projects.where(~S.projects.c.id.in_(pending_imports))
-            if managed_only:
-                projects = projects.where(S.projects.c.profile_snapshot["contract_policy"].astext == "production-v2")
             if project_id:
                 projects = projects.where(S.projects.c.id == checked_id(project_id))
             # Read the candidate identities without locking every project at

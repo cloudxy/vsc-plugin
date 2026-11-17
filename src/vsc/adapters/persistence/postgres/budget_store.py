@@ -240,7 +240,11 @@ class BudgetRepository:
             return
         limits = self._limits(conn, project["id"])
         requested = native_units(job["request_payload"])
-        if not set(requested) <= set(limits):
+        from .workbench_generation import RUN_TYPE
+        working = run['artifact_type'] == RUN_TYPE and conn.execute(select(S.workbench_run_inputs.c.run_version_id).where(
+            S.workbench_run_inputs.c.project_id == project['id'], S.workbench_run_inputs.c.run_version_id == run['id'],
+            S.workbench_run_inputs.c.shot_id == job['shot_id'])).first() is not None
+        if not set(requested) <= set(limits) and not (working and not limits):
             raise ResourceError("正式项目须先配置全部所需原生单位预算", "budget_not_configured")
         operation = operation_key(job["request_payload"], job["candidate_no"])
         bound = document.get("operations", {}).get(operation)
@@ -248,6 +252,11 @@ class BudgetRepository:
             raise ResourceError("run.operations没有授权本任务原生单位", "run_budget_unauthorized")
         if set(bound) - UNITS:
             raise ResourceError("run.operations含未知原生单位", "invalid_native_units")
+        # A confirmed working action has its own bounded run. Formal project
+        # budgets remain mandatory for formal production; any configured
+        # project budget also remains binding for working actions.
+        if working and not limits:
+            return
         used = self._used(conn, project["id"])
         for unit, amount in requested.items():
             if used.get(unit, 0) + amount > limits[unit]["amount"]:

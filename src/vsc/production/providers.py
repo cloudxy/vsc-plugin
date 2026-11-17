@@ -73,7 +73,7 @@ class JobHandle:
 
 @dataclass(frozen=True)
 class JobStatus:
-    status: Literal["submitted", "running", "succeeded", "failed"]
+    status: Literal["submitted", "running", "succeeded", "failed", "submission_unknown"]
     retryable: bool = False
     error_code: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)

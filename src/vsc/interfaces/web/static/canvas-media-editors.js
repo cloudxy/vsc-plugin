@@ -345,7 +345,7 @@ export function openPortraitTexturePopover(host, initialSettings = {}, { onApply
   closeBtn.onclick = () => { panel.remove(); onClose?.(); };
   const applyBtn = makeEl('button', '应用参数', 'cc-primary-btn');
   applyBtn.type = 'button';
-  applyBtn.onclick = () => { onApply?.({ ...state }); panel.remove(); };
+  applyBtn.onclick = async () => { applyBtn.disabled=true;try{await onApply?.({ ...state });panel.remove();}finally{applyBtn.disabled=false;} };
   foot.append(resetBtn, closeBtn, applyBtn);
   panel.append(foot);
   host.append(panel);
@@ -439,7 +439,7 @@ export function openPortraitEmotionPanel(host, initialSettings = {}, { onCreateN
   closeBtn.onclick = () => { panel.remove(); onClose?.(); };
   const applyBtn = makeEl('button', '创建情绪调节节点', 'cc-primary-btn');
   applyBtn.type = 'button';
-  applyBtn.onclick = () => { onCreateNode?.({ ...state }); panel.remove(); };
+  applyBtn.onclick = async () => { applyBtn.disabled=true;try{await onCreateNode?.({ ...state });panel.remove();}finally{applyBtn.disabled=false;} };
   foot.append(resetBtn, closeBtn, applyBtn);
   panel.append(foot);
   host.append(panel);

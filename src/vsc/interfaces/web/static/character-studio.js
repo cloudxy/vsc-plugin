@@ -611,7 +611,7 @@ export function createCharacterStudio(root,ctx){
   const page=el('div','cs-page cs-settings');
   const head=el('header','cs-page-head');
   const title=el('div','cs-title');
-  title.append(el('h1','','API 接口配置'),el('p','','按「图」与「视频」分栏管理授权登录及云端 API Key 接口配置。API Key 仅保存在当前浏览器。'));
+  title.append(el('h1','','API 接口配置'),el('p','','按「图」与「视频」管理接口配置。画布与角色合成台复用已有 AGY、Grok、Codex 订阅登录，无需重复配置；API Key 仅保存在当前浏览器。'));
   head.append(title,action('返回 AI 角色合成台',()=>ctx.navigate?.('character-studio'),'cs-primary'));
   page.append(head,createSettingsCrossNav({active:'api-settings',onNavigate:id=>ctx.onSettingsNavigate?ctx.onSettingsNavigate(id):(id==='engine'?ctx.navigate?.('service-operations',{subview:'engine'}):ctx.navigate?.(id))}));
 

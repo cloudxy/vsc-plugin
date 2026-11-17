@@ -1,6 +1,6 @@
 """Transactional settings over the authoritative provider/model/route tables."""
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from sqlalchemy import insert, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -57,14 +57,14 @@ class ResourceSettingsRepository:
             rows = [self._row(conn, str(model)) for model in models]
             return rows, self._defaults(conn)
 
-    def save(self, payload, actor):
+    def save(self, payload, actor, *, _connection=None):
         if not actor:
             raise ResourceError("配置写入需要真实操作人", "actor_required")
         provider_id, model_id = "config-" + uuid.uuid4().hex, str(uuid.uuid4())
         previous = payload.get("id")
         reuse = payload.get("reuse_model_id")
         try:
-            with self.engine.begin() as conn:
+            with (nullcontext(_connection) if _connection is not None else self.engine.begin()) as conn:
                 if reuse:
                     if previous:
                         raise ResourceError("同账户新增模型不能同时替换旧配置", "invalid_provider_config")
@@ -103,6 +103,21 @@ class ResourceSettingsRepository:
                 return self._row(conn, model_id)
         except IntegrityError as exc:
             raise Conflict("配置版本已改变或关联无效，请刷新后重试", "configuration_version_conflict") from exc
+
+    def ensure_settings_model(self,payload,actor):
+        """Repeated canvas/settings visits reuse one frozen model configuration."""
+        import hashlib,json
+        identity={key:value for key,value in payload.items() if key not in {'id','name','enabled'}}
+        digest=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+        with self.engine.begin() as conn:
+            conn.execute(text('SELECT pg_advisory_xact_lock(:key)'),{'key':int(digest[:15],16)})
+            candidates=conn.execute(select(S.provider_models.c.id).join(S.provider_configurations,
+                S.provider_configurations.c.provider_id==S.provider_models.c.provider_id).where(
+                S.provider_configurations.c.tool_id==payload['tool_id'],S.provider_models.c.model_key==payload['model_key'])).scalars().all()
+            for model_id in candidates:
+                row=self._row(conn,str(model_id))
+                if all(row.get(key)==value for key,value in identity.items()):return row
+            return self.save(payload,actor,_connection=conn)
 
     def enabled(self, model_id, enabled):
         with self.engine.begin() as conn:

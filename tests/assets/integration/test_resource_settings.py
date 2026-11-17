@@ -67,6 +67,22 @@ class ResourceSettingsPostgresTest(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             self.assertCountEqual(["saved", "conflict"], list(pool.map(save, [1, 2])))
 
+    def test_concurrent_settings_sync_reuses_one_model_and_respects_disable(self):
+        from vsc.production.studio_models import auth_configuration
+        from vsc.production.resource_settings import validate_configuration
+        payload=validate_configuration(auth_configuration('agy_auth','concurrent-synthetic'))
+        barrier=Barrier(2)
+        def sync(_):
+            barrier.wait()
+            return self.settings.repository.ensure_settings_model(payload,'human')
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(sync,range(2)))
+        self.assertEqual(results[0]['id'],results[1]['id'])
+        self.settings.enabled(results[0]['id'],False,'human')
+        repeated=self.settings.repository.ensure_settings_model(payload,'human')
+        self.assertEqual(repeated['id'],results[0]['id'])
+        self.assertFalse(repeated['enabled'])
+
     def test_existing_registry_visible_and_check_has_no_network(self):
         from unittest.mock import Mock
         self.store.register_provider({"id": "volc_ark", "base_url": configuration()["base_url"], "auth_ref": "ARK_AGENT_PLAN_API_KEY"}, "human")

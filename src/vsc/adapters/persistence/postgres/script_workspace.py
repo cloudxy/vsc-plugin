@@ -270,6 +270,16 @@ class ScriptWorkspaceRepository:
             run = self._one(conn, S.artifact_versions, project["id"], run_version_id)
             if run_phase(run) == "trial":
                 return
+            from .workbench_generation import RUN_TYPE
+            if run['artifact_type'] == RUN_TYPE and not asset_id and conn.execute(
+                    select(S.workbench_run_inputs.c.run_version_id).where(
+                        S.workbench_run_inputs.c.project_id == project['id'],
+                        S.workbench_run_inputs.c.run_version_id == run['id'],
+                        S.workbench_run_inputs.c.shot_id == shot_id)).first():
+                # Working generation is authorized against its fixed draft,
+                # not formal script approval. Submission still validates the
+                # original typed input relation, bytes and run approval.
+                return
         stages = project["profile_snapshot"].get("stages", [])
         index, script_types = self._script_types(stages)
         if index is None:

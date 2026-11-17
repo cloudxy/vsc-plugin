@@ -644,3 +644,10 @@ test('node result paging preserves its original job and does not create another 
  const selected=latestDraftDoc(f.store).nodes[0];assert.equal(selected.media_id,'m2');assert.equal(selected.job_id,'j1');assert.equal(f.canvasCalls.some(c=>c.path.endsWith('/generate')),false);
  await f.root.querySelectorAll('button').find(b=>b.textContent==='上一结果').fire('click');assert.equal(latestDraftDoc(f.store).nodes[0].media_id,'m1');f.panel.suspend();
 });
+
+test('canvas reuses API-settings preferences without copying a browser key',async()=>{
+ const stored={activeProvider:'grok_auth',providers:{grok_auth:{model:'grok-imagine-image-2.0',apiKey:'private-browser-key'},agy_auth:{model:'image-generator'},codex_auth:{model:'image-generation'}},activeVideoProvider:'grok_video_auth',videoProviders:{grok_video_auth:{model:'grok-imagine-video-1.5'}}};
+ const bridge=await loadModule('canvas-settings.js',{window:{localStorage:{getItem:key=>key==='pose_atlas_api_config_v3'?JSON.stringify(stored):null}}});
+ const metadata=bridge.canvasSettingsModels();assert.equal(metadata[0].provider,'grok_auth');assert.equal(metadata[0].model,'grok-imagine-image-2.0');assert.equal(metadata.at(-1).model,'grok-imagine-video-1.5');
+ assert.equal(JSON.stringify(metadata).includes('private-browser-key'),false);assert.ok(metadata.every(m=>Object.keys(m).sort().join(',')==='model,provider'));
+});

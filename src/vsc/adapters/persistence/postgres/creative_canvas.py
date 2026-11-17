@@ -840,9 +840,13 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
 
     @staticmethod
     def _canvas_job(conn, p, job):
+        from vsc.production.provider_errors import safe_generation_detail
+        raw = job.get('raw_response') or {}
+        error = raw.get('error') if isinstance(raw,dict) else None
         outputs = [dict(row) for row in conn.execute(select(S.job_outputs.c.media_id).where(
             S.job_outputs.c.project_id == p, S.job_outputs.c.job_id == job["id"])).mappings()]
         return {"id": job["id"], "status": job["status"], "modality": job["modality"], "outputs": outputs,
+            "error_message": safe_generation_detail(error) if isinstance(error,str) and job['status'] in {'failed','submission_unknown'} else None,
             "recovery_required": job["status"] == "submission_unknown", "request_sha256": job["request_sha256"]}
 
     def prepare_creative_canvas(self, project_id, payload, actor, **kw):

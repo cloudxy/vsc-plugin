@@ -19,7 +19,10 @@ class ExecutionRuntime:
         from vsc.post.edit_preview import EditPreviewWorker
         from vsc.post.first_cut_worker import FirstCutWorker
         from vsc.configuration import get_config
+        from vsc.adapters.providers.worker_factory import worker_adapter_factory
         self.generation = self.generation or GenerationRuntime(self.service,
+            adapter_factory=lambda job,storage:worker_adapter_factory(job,storage,
+                studio_auth_generate=getattr(self.service,'studio_auth_generate',None)),
             workers=int(get_config("VSC_GENERATION_WORKERS", 4)),
             project_concurrency=int(get_config("VSC_GENERATION_PROJECT_CONCURRENCY", 4)),
             provider_concurrency=int(get_config("VSC_GENERATION_PROVIDER_CONCURRENCY", 4)))

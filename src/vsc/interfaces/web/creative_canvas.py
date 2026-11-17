@@ -262,6 +262,15 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         return etag(request, {**canvas_capabilities(models), "nodes": tree["nodes"], "models": models, "revision": tree["revision"],
                               "image_tools": canvas_image_tool_options()})
 
+    @router.post('/{project_id}/creative-canvas-settings-models')
+    def settings_models(project_id:str,request:Request,body:dict):
+        identity=actor(request)
+        use=service(project_id)
+        use.authorize_access(project_id,'execute')
+        if set(body)!={'providers'}:raise ResourceError('仅同步设置中的公开模型选择','invalid_studio_model')
+        from vsc.production.studio_models import sync_settings_models
+        return sync_settings_models(use,body['providers'],identity)
+
     @router.get("/{project_id}/creative-canvas-versions/{version_id}")
     def fixed_version(project_id:str,version_id:str,request:Request):
         return etag(request,service(project_id).get_creative_canvas_version(project_id,version_id))

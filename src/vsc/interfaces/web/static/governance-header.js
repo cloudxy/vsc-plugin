@@ -9,8 +9,8 @@ export const SETTINGS_SURFACES = Object.freeze([
   Object.freeze({
     id: 'api-settings',
     badge: '①',
-    label: '角色合成台浏览器/CLI 订阅凭据',
-    hint: 'localStorage Key 与 AGY / Grok / Codex 本机登录',
+    label: '图像／视频 API 与订阅登录',
+    hint: '角色合成台与画布共用已有 AGY / Grok / Codex 登录；API Key 留在当前浏览器',
     href: '?page=api-settings',
   }),
   Object.freeze({

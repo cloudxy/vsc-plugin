@@ -32,6 +32,7 @@ from vsc.assets import pose_gallery
 from vsc.assets.script_ai import host_environment, _run_bounded
 from vsc.assets.resource_service import ResourceError
 from vsc.bootstrap import repository_root
+from vsc.production.provider_errors import safe_generation_detail as _safe_generation_detail
 
 DEFAULT_ALLOWED_ORIGINS = (
     "https://dashscope.aliyuncs.com",
@@ -664,22 +665,6 @@ def _unwrap_grok_error_detail(detail: str, redact_secret: str = "") -> tuple[str
     return re.sub(r"\s+", " ", text).strip(), inferred_status
 
 
-def _safe_generation_detail(detail: str, redact_secret: str = "") -> str:
-    """Expose failure facts, never credentials, image bytes or local file paths."""
-    text = _ANSI_RE.sub("", str(detail or ""))
-    secrets = [redact_secret, *(value for name, value in os.environ.items()
-        if re.search(r"(?:TOKEN|SECRET|API_KEY|ACCESS_KEY)", name, re.I) and len(value) >= 8)]
-    for secret in sorted(filter(None, secrets), key=len, reverse=True):
-        text = text.replace(secret, "[REDACTED]")
-    text = re.sub(r"(?i)\bBearer\s+[^\s\"',;]+", "Bearer [REDACTED]", text)
-    text = re.sub(r"(?i)\b(?:sk-|xai-|AIza)[a-z0-9_-]+", "[REDACTED]", text)
-    text = re.sub(r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password)[\"']?\s*[:=]\s*[\"']?)[^\s\"',;}]+", r"\1[REDACTED]", text)
-    text = re.sub(r"\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+", "[REDACTED]", text)
-    text = re.sub(r"data:image/[^\s\"']+", "[图片数据]", text)
-    text = re.sub(r"(?<![a-zA-Z0-9:/])/(?:Users|home|private|tmp|var)/[^\s\"'<>]+", "[本机路径]", text)
-    return re.sub(r"\s+", " ", text).strip()[:2400]
-
-
 def _raise_studio_generation_error(
     provider: str, detail: str, *, returncode: int | None = None,
     http_status: int | None = None, redact_secret: str = "",
@@ -1108,7 +1093,7 @@ def _generate_with_grok_imagine_api(
     _raise_studio_generation_error("Grok 授权", "平台已响应，但响应中没有图片或具体失败原因。", http_status=upstream.status_code)
 
 
-def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
+def _generate_with_grok_auth(repo_root: Path, body: dict, *, allow_empty_references=False) -> dict:
     prompt = str(body.get("prompt") or "").strip()
     if not prompt:
         raise HTTPException(422, "提示词不能为空")
@@ -1116,7 +1101,7 @@ def _generate_with_grok_auth(repo_root: Path, body: dict) -> dict:
     aspect_ratio = str(body.get("aspect_ratio") or "3:4").strip()
     resolution = str(body.get("resolution") or "2k").strip().lower()
     raw_refs = body.get("references") or []
-    if not isinstance(raw_refs, list) or not raw_refs:
+    if not isinstance(raw_refs, list) or not raw_refs and not allow_empty_references:
         raise HTTPException(422, "请先选择或上传至少 1 张参考图")
     if len(raw_refs) > grok_spec.EDIT_SOURCE_LIMIT:
         raise HTTPException(
@@ -1261,7 +1246,7 @@ def _raise_agy_generation_error(returncode: int, detail: str) -> None:
     _raise_studio_generation_error("AGY 授权", compact, returncode=returncode, http_status=http_status)
 
 
-def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
+def _generate_with_agy_auth(repo_root: Path, body: dict, *, allow_empty_references=False) -> dict:
     agy_bin = _resolve_cli_bin("agy")
     if not agy_bin:
         raise HTTPException(422, "未检测到本机 agy CLI，请先安装 Antigravity CLI")
@@ -1273,7 +1258,7 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
     model = str(body.get("model") or "image-generator").strip() or "image-generator"
     aspect_ratio = str(body.get("aspect_ratio") or "3:4").strip()
     raw_refs = body.get("references") or []
-    if not isinstance(raw_refs, list) or not raw_refs:
+    if not isinstance(raw_refs, list) or not raw_refs and not allow_empty_references:
         raise HTTPException(422, "请先选择或上传至少 1 张参考图")
     if len(raw_refs) > 8:
         raise HTTPException(422, "[AGY 授权] 单次最多支持 8 张参考图")
@@ -1347,7 +1332,7 @@ def _generate_with_agy_auth(repo_root: Path, body: dict) -> dict:
         _raise_agy_generation_error(proc.returncode, error_detail)
 
 
-def _generate_with_codex_auth(repo_root: Path, body: dict) -> dict:
+def _generate_with_codex_auth(repo_root: Path, body: dict, *, allow_empty_references=False) -> dict:
     """Use the installed Codex image tool with ChatGPT login, never an API key."""
     info = _codex_auth_status()
     if not info["ready"]:
@@ -1360,7 +1345,7 @@ def _generate_with_codex_auth(repo_root: Path, body: dict) -> dict:
     refs = body.get("references") or []
     if not prompt or len(prompt) > 16000:
         raise HTTPException(422, "[Codex 授权] 请填写不超过 16000 字符的提示词")
-    if not isinstance(refs, list) or not 1 <= len(refs) <= 8:
+    if not isinstance(refs, list) or not (0 if allow_empty_references else 1) <= len(refs) <= 8:
         raise HTTPException(422, "[Codex 授权] 请提供 1 至 8 张参考图")
     if body.get("model") not in (None, "", "image-generation"):
         raise HTTPException(422, "[Codex 授权] 请使用 Codex 内置生图模型")
@@ -1467,6 +1452,18 @@ def _generate_with_codex_auth(repo_root: Path, body: dict) -> dict:
 def install_character_studio_routes(app, etag, read_actor, origin):
     def repo():
         return repository_root()
+
+    # Compose the existing login executors into the original durable worker.
+    service=getattr(getattr(app.state,'catalog',None),'service',None)
+    if service is not None:
+        service.studio_auth_status=lambda:{'grok':_grok_auth_status(allow_refresh=False),'agy':_agy_auth_status(),'codex':_codex_auth_status()}
+        def execute_subscription(provider,body):
+            generator={'agy_auth':_generate_with_agy_auth,'grok_auth':_generate_with_grok_auth,'codex_auth':_generate_with_codex_auth}.get(provider)
+            if generator is None:raise ResourceError('未知本机订阅通道','invalid_studio_model')
+            try:return generator(repo(),body,allow_empty_references=True)
+            except HTTPException as exc:
+                return {'error':_safe_generation_detail(str(exc.detail)),'http_status':exc.status_code}
+        service.studio_auth_generate=execute_subscription
 
     def page(request, build):
         read_actor(request)

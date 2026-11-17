@@ -31,6 +31,21 @@ export function createCreativeCanvasPanel(ctx){
   const base=s=>`/api/v1/projects/${encodeURIComponent(s.project)}`;
   const url=s=>`${base(s)}/creative-canvases${s.id?'/'+encodeURIComponent(s.id):''}`;
   const headers=()=>({'Content-Type':'application/json','X-CSRF-Token':ctx.session().csrf});
+  async function loadRunOptions(s){
+    if(!s.readOnly&&!s.shared&&ctx.session().actor){
+      const {canvasSettingsModels}=await import('./canvas-settings.js');
+      const providers=canvasSettingsModels(),key=JSON.stringify(providers);
+      if(s.settingsModelsKey!==key){
+        if(s.settingsModelsPending?.key!==key)s.settingsModelsPending={key,promise:ctx.api(`${base(s)}/creative-canvas-settings-models`,{method:'POST',headers:headers(),body:JSON.stringify({providers})})};
+        const pending=s.settingsModelsPending;
+        try{const result=await pending.promise;if(live(s)&&s.settingsModelsPending===pending){s.settingsModelsKey=key;s.settingsModelOrder=(result.models||[]).map(m=>m.id);}}finally{if(s.settingsModelsPending===pending)s.settingsModelsPending=null;}
+      }
+    }
+    const options=await ctx.api(`${base(s)}/creative-canvas-run-options`),order=s.settingsModelOrder||[];
+    const rank=id=>{const index=order.indexOf(id);return index<0?order.length:index;};
+    if(options.models)options.models.sort((a,b)=>rank(a.id)-rank(b.id));
+    return options;
+  }
   // A versioned tuple keeps actor, project, canvas and shared/private views
   // distinct. Old keys have no reliable actor provenance: retain them without
   // reading or migrating them into the current identity's draft or request.
@@ -182,7 +197,7 @@ export function createCreativeCanvasPanel(ctx){
     if(offset>0)panel.append(button(s,'上一页',()=>generationHistory(s,Math.max(0,offset-24))));if(offset+24<data.total)panel.append(button(s,'下一页',()=>generationHistory(s,offset+24)));
   }
   async function referencePanel(s,node){
-    const panel=sidePanel(s,'cc-elements','为 '+node.title+' 添加参考'),options=await ctx.api(`${base(s)}/creative-canvas-run-options`);
+    const panel=sidePanel(s,'cc-elements','为 '+node.title+' 添加参考'),options=await loadRunOptions(s);
     if(!live(s)||!panel.isConnected||!s.document.nodes.includes(node))return;
     const op=options.operations?.find(o=>o.op_type===node.params.vsc_operation),slots=op?.input_ports||Object.entries(TYPES[node.type].ports).map(([handle,type])=>({handle,label:PORTS[handle],accept:Array.isArray(type)?type:[type]}));
     let count=0;for(const slot of slots)for(const source of s.document.nodes.filter(n=>n.id!==node.id&&slot.accept.includes(n.type))){const incoming=s.document.edges.filter(e=>e.target===node.id&&e.port===slot.handle),existing=incoming.some(e=>e.source===source.id),maximum=slot.max_count??(['first_frame','last_frame'].includes(slot.handle)?1:800);const b=button(s,slot.label+' · '+source.title,()=>{change(s,()=>s.document.edges.push({id:crypto.randomUUID(),source:source.id,target:node.id,port:slot.handle}));panel.remove();});b.disabled=existing||incoming.length>=maximum||Boolean(s.readOnly);panel.append(b);count++;}if(!count)panel.append(el('p','暂无兼容节点，请先添加文本或媒体素材。'));
@@ -199,7 +214,7 @@ export function createCreativeCanvasPanel(ctx){
   async function operationPanel(s,node){
     s.selected=new Set([node.id]);draw(s);
     const token=Symbol();s.operationPanelRequest=token;
-    const data=await ctx.api(`${base(s)}/creative-canvas-run-options`);
+    const data=await loadRunOptions(s);
     if(!live(s)||s.operationPanelRequest!==token||!s.document.nodes.includes(node)||!s.selected.has(node.id))return;
     const panel=sidePanel(s,'cc-elements',node.title+' · 操作'),search=input('搜索操作');panel.append(search);const list=el('div');panel.append(list);
     const paint=()=>{list.replaceChildren();for(const op of (data.operations||[]).filter(op=>(op.node_type===node.type||op.input_ports.some(p=>p.accept.includes(node.type)))&&op.consumer!=='source'&&op.name.includes(search.value))){
@@ -742,7 +757,7 @@ export function createCreativeCanvasPanel(ctx){
   }
   async function ensureRunImageTools(s){
     if(s.availableImageTools)return s.availableImageTools;
-    const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);
+    const options=await loadRunOptions(s);
     if(live(s)){s.availableImageTools=options.image_tools||{};revision(s,Math.max(s.revision,options.revision||0));}
     return s.availableImageTools||{};
   }
@@ -918,14 +933,14 @@ export function createCreativeCanvasPanel(ctx){
   }
   async function openImageTool(s,node,tool){
     const mediaId=node.media_id,request=Symbol();s.imageToolRequest=request;
-    const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);
+    const options=await loadRunOptions(s);
     if(!live(s)||s.imageToolRequest!==request||s.selected.size!==1||!s.selected.has(node.id)||!s.document.nodes.some(n=>n.id===node.id&&n.media_id===mediaId))return;
     s.availableImageTools=options.image_tools||{};
     const defaults=options.image_tools?.[tool];if(!defaults)throw new Error('该图片工具尚未接入当前画布服务');revision(s,Math.max(s.revision,options.revision||0));
     s.imageTool={sourceId:node.id,sourceMediaId:mediaId,tool,defaults:copy(defaults),settings:copy(defaults),promptEnabled:false,prompt:''};draw(s);
   }
   async function startImagePreset(s,node,tool){
-    const mediaId=node.media_id,request=Symbol();s.imageToolRequest=request;const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);
+    const mediaId=node.media_id,request=Symbol();s.imageToolRequest=request;const options=await loadRunOptions(s);
     if(!live(s)||s.imageToolRequest!==request||s.selected.size!==1||!s.selected.has(node.id)||!s.document.nodes.some(n=>n.id===node.id&&n.media_id===mediaId))return;
     s.availableImageTools=options.image_tools||{};
     const defaults=options.image_tools?.[tool];if(!defaults)throw new Error('该图片生成工具尚未接入当前画布服务');revision(s,Math.max(s.revision,options.revision||0));
@@ -962,7 +977,7 @@ export function createCreativeCanvasPanel(ctx){
   }
   async function runForm(s,node,defaults={}){
     const current=()=>live(s)&&s.document.nodes.includes(node)&&s.selected.has(node.id);
-    const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);if(!current())return;s.availableImageTools=options.image_tools||{};revision(s,options.revision);
+    const options=await loadRunOptions(s);if(!current())return;s.availableImageTools=options.image_tools||{};revision(s,options.revision);
     s.inspector.querySelector('.cc-run-form')?.remove();
     const form=el('form',null,'cc-run-form'),operationSelect=input('生成操作','','select');
     const operations=(options.operations||[]).filter(op=>op.node_type===node.type&&op.consumer==='work_generation');
@@ -974,7 +989,7 @@ export function createCreativeCanvasPanel(ctx){
     operationSelect.addEventListener('change',async()=>{const selected=operations.find(op=>op.op_type===operationSelect.value);if(!selected||!current())return;change(s,()=>{node.params.vsc_operation=selected.op_type;delete node.params.vsc_image_tool;delete node.params.vsc_image_tool_settings;if(selected.image_tool){node.params.vsc_image_tool=selected.image_tool;node.params.vsc_image_tool_settings=JSON.stringify(options.image_tools[selected.image_tool]);}});if(current())await runForm(s,node,defaults);});
     const model=input(msg('video.digital_human_generation_model'),'','select'),shot=input(msg('ui.owning_shot_optional'),'','select');
     shot.append(localizedOption('',msg('ui.independent_canvas_media_request')));for(const n of options.nodes.filter(n=>n.kind==='shot'))shot.append(localizedOption(n.id,n.title||n.display_code));
-    for(const m of options.models.filter(m=>chosen.supported_models.includes(m.id)))model.append(localizedOption(m.id,joinMessages([m.model_key,' · ',m.model_version])));
+    for(const m of options.models.filter(m=>chosen.supported_models.includes(m.id)))model.append(localizedOption(m.id,m.name||joinMessages([m.model_key,' · ',m.model_version])));
     form.append(el('h3',msg('ui.generation_settings')),el('p',msg('ui.prompt_and_references_are_fixed_to_the_current_node')),operationSelect,model,shot);
     const settings=mountOperationFields(form,chosen.params_schema?.fields,{purpose:s.aiMv?'music':'sfx',...defaults});
     form.append(el('p',chosen.unavailable_reason||'参考端口：'+chosen.input_ports.map(p=>p.label+(p.required?'（必需）':'')).join('、')));
@@ -987,6 +1002,7 @@ export function createCreativeCanvasPanel(ctx){
   function showRouting(parent,routing){if(!routing)return;const list=el('ol');for(const candidate of routing.candidates||[])list.append(el('li',joinMessages(["",candidate.name," · ",candidate.model_id===routing.selected_model_id?msg("ui.current_selection_nested_99"):candidate.applicable?msg("ui.retain_as_successor"):msg("ui.skip")," · ",candidate.message,""])));parent.append(el('p',msg("ui.check_model_capabilities_in_the_original_selection_order")),list);}
   function executionSteps(s,node){for(const step of (s.steps||[]).filter(x=>x.node_key===node.id)){
     const row=el('section',null,'cc-execution-step');row.dataset.stepId=step.id;row.append(el('p',msg("ui.generation_task_value0",{value0:step.jobs.map(j=>j.status).join('、')||msg("ui.waiting_to_execute")})));
+    for(const job of step.jobs)if(job.error_message)row.append(el('p',job.error_message,'cc-error'));
     showRouting(row,step.routing);
     if(step.model_ids?.length>1&&step.jobs.length&&step.jobs.every(j=>j.status==='failed'))row.append(button(s,msg("ui.review_successor_model_quote"),async()=>{if(s.dirty||s.pending)throw new Error('先保存当前画布');const preview=await ctx.api(`${base(s)}/canvas-execution-steps/${step.id}/fallback-preview`);if(!live(s)||!row.isConnected)return;revision(s,preview.revision);row.querySelector('.cc-fallback-quote')?.remove();const quote=el('div',null,'cc-fallback-quote');showRouting(quote,preview.routing);row.append(quote);if(!preview.ready){quote.append(el('p',preview.gaps.map(g=>g.message||g.code).join('；')));return;}for(const item of preview.generation_quote?.jobs||[])quote.append(el('p',joinMessages(["",nativeUnitsText(item.native_units),""])));const credits=preview.commerce_quote?.commerce_charge?.max_credits_by_operation;if(credits)quote.append(el('p',msg("ui.allowance_cap_for_this_attempt_value0",{value0:Object.values(credits).reduce((a,b)=>a+b,0)})));quote.append(button(s,preview.needs_approval?msg("ui.save_successor_run_draft"):msg("ui.confirm_quote_and_generate_successor_candidates"),async()=>{if(s.dirty||s.pending)throw new Error('输入已变化，请重新核对');await auxiliaryWrite(s,'fallback:'+step.id+':'+preview.preview_sha256,`${base(s)}/canvas-execution-steps/${step.id}/fallback`,{preview_sha256:preview.preview_sha256});if(live(s)){await refreshCanvas(s);notice(s,msg("ui.successor_attempt_registered_original_failure_record_remains"));}}));}));
     row.append(button(s,msg("ui.execute_query_original_task"),async()=>{if(s.dirty||s.pending)throw new Error('先保存当前画布');const value=await ctx.api(url(s)+'/advance',{method:'POST',headers:headers(),body:JSON.stringify({payload:{canvas_revision:s.version,step_ids:[step.id]}})});if(!live(s))return;revision(s,value.revision);await refreshCanvas(s);const current=s.steps.find(x=>x.id===step.id);if(current?.jobs.some(j=>j.outputs?.length)){await auxiliaryWrite(s,'outputs:'+step.run_artifact_id,url(s)+'/generation-outputs',{canvas_revision:s.version,run_version_id:step.run_artifact_id});if(live(s))await refreshCanvas(s);}notice(s,value.runs.some(r=>r.status==='needs_approval')?msg("ui.historical_formal_run_still_awaits_approval"):msg("ui.original_task_status_loaded_unknown_submissions_continue_querying_the"));}));
@@ -1079,7 +1095,7 @@ export function createCreativeCanvasPanel(ctx){
   }
   function navigate(s,page,target=null,extra={}){const path=new URL(location.href);path.search='';path.searchParams.set('page',page);path.searchParams.set('project',s.project);if(s.episode)path.searchParams.set('episode',s.episode);if(target)path.searchParams.set('task_target',target);for(const [k,v]of Object.entries(extra))if(v)path.searchParams.set(k,v);location.assign(path.href);}
   async function domainForm(s,type,source=null,selectedTool=null){
-    if(!await save(s)||!live(s))return;const options=await ctx.api(`${base(s)}/creative-canvas-run-options`);if(!live(s))return;revision(s,options.revision);const box=sidePanel(s,'cc-elements',msg("ui.add_value0",{value0:TYPES[type].label})),episode=input(msg("ui.owning_episode"),'','select'),scene=input(msg("ui.owning_scene"),'','select');episode.append(localizedOption('',msg("ui.canvas_episode_standalone_previs")));for(const n of options.nodes.filter(n=>n.kind==='episode'))episode.append(localizedOption(n.id,n.title||n.display_code));episode.value=s.episode||'';for(const n of options.nodes.filter(n=>n.kind==='scene'))scene.append(localizedOption(n.id,n.title||n.display_code));box.append(episode);if(type==='director')box.append(scene);
+    if(!await save(s)||!live(s))return;const options=await loadRunOptions(s);if(!live(s))return;revision(s,options.revision);const box=sidePanel(s,'cc-elements',msg("ui.add_value0",{value0:TYPES[type].label})),episode=input(msg("ui.owning_episode"),'','select'),scene=input(msg("ui.owning_scene"),'','select');episode.append(localizedOption('',msg("ui.canvas_episode_standalone_previs")));for(const n of options.nodes.filter(n=>n.kind==='episode'))episode.append(localizedOption(n.id,n.title||n.display_code));episode.value=s.episode||'';for(const n of options.nodes.filter(n=>n.kind==='scene'))scene.append(localizedOption(n.id,n.title||n.display_code));box.append(episode);if(type==='director')box.append(scene);
     const video=input(msg("ui.source_video_node"),'','select');for(const n of s.document.nodes.filter(n=>n.type==='video'&&n.media_id))video.append(localizedOption(n.id,n.title));if(source?.type==='video')video.value=source.id;if(['processing','music_mix'].includes(type))box.append(video);
     const tool=input(msg("ui.processing_operation"),'','select');for(const [id,name]of [['extract_frame','提取当前帧'],['separate_audio','分离音视频']])tool.append(localizedOption(id,name));if(type==='processing')box.append(tool);
     if(selectedTool)tool.value=selectedTool;
