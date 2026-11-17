@@ -57,3 +57,6 @@ __pycache__/
 
 # Workspace coordination lock is local runtime state.
 /.vsc.lock
+
+# 会话临时分析与中间产物只留本机。
+/tmp/
