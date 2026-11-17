@@ -84,6 +84,16 @@ def manifest_for(root, urls):
 
 
 class FeaturedShowcaseCache(unittest.TestCase):
+    def test_reference_owner_does_not_override_the_actual_output_media_type(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);video='https://example.test/clip.mp4'
+            snapshot(root,'work-a',[
+                {'id':'image','type':'image','data':{'params':{'videoList':[{'url':video}]}}},
+                {'id':'video','type':'video','data':{'url':video}}])
+            item=build_manifest(root,['work-a'])['works']['work-a']['media'][0]
+            self.assertEqual(item['roles'],['reference','output'])
+            self.assertEqual(item['output_type'],'video')
+
     def test_multi_canvas_budget_prioritizes_visible_image_outputs_before_video(self):
         payload=b'synthetic-media-bytes'
         with tempfile.TemporaryDirectory() as temp, origin(payload) as (url, _):

@@ -212,6 +212,8 @@ def inventory_work(root, work, origins=None):
                 item = entries.setdefault(url, {"url": url, "digest": media_digest(url),
                                                "roles": [], "occurrences": [], "estimated_bytes": None,
                                                "suffix": suffix, "output_type": output_type})
+                if role == "output" and "output" not in item["roles"]:
+                    item["output_type"] = output_type
                 if role not in item["roles"]:
                     item["roles"].append(role)
                 occurrence = {"role": role, "nodeId": node_id, "nodeIndex": node_index,
