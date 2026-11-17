@@ -163,15 +163,6 @@ class PoseGalleryTests(unittest.TestCase):
         self.assertEqual(moved.name, "SUM-0125.webp")
         self.assertIsNone(g.media_file(self.repo, "img/costume/NO-SUCH.png"))
 
-    def test_legacy_costume_fallback_without_dataset(self):
-        (self.repo / "assets" / "pose-gallery" / "data" / "costume-zh.json").unlink()
-        spring = self.repo / "assets" / "服饰" / "春"
-        spring.mkdir(parents=True)
-        (spring / "SPR-0001.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-        page = g.costume_page(self.repo)
-        self.assertEqual(page["dataset_mode"], "legacy")
-        self.assertEqual(page["items"][0]["缩略图"], "/api/v1/asset-center/costumes/SPR-0001/content")
-
     def test_proxy_allow_list_includes_xai_and_gemini(self):
         self.assertTrue(proxy_target_allowed("https://api.openai.com/v1/images/edits"))
         self.assertTrue(proxy_target_allowed("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"))

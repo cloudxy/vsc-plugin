@@ -4,7 +4,6 @@ export const MEDIA_BASE='/api/v1/asset-center/pose-gallery/media/';
 let csrfProvider=()=>'';
 export function setCsrfProvider(fn){csrfProvider=typeof fn==='function'?fn:()=>'';}
 
-const LEGACY_COSTUME_MEDIA_PREFIX='/api/v1/asset-center/costumes/';
 const REMOTE_COSTUME_PREFIXES=[
  ['https://ai-costume-gallery.pages.dev/thumbs/costume/','thumbs/costume/'],
  ['https://ai-costume-gallery.pages.dev/img/costume/','img/costume/'],
@@ -18,7 +17,6 @@ const REMOTE_COSTUME_PREFIXES=[
 export function localizeCostumePath(src){
  const raw=String(src||'').trim();
  if(!raw)return '';
- if(raw.startsWith(LEGACY_COSTUME_MEDIA_PREFIX))return raw;
  if(raw.startsWith(MEDIA_BASE))return raw.slice(MEDIA_BASE.length);
  if(raw.startsWith('https://ai-costume-anime-gallery.pages.dev/png/')){
   const tail=raw.slice('https://ai-costume-anime-gallery.pages.dev/png/'.length);

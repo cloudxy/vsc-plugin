@@ -1,8 +1,6 @@
 """Authenticated discovery and cart commands; target writes use original revisions."""
 from fastapi import Request, HTTPException
 from fastapi.responses import FileResponse
-from vsc.assets.costume_gallery import PAGE_SIZE, cached_costumes, costume_file, costume_page
-from vsc.bootstrap import repository_root
 
 
 def install_asset_center_routes(app, router, catalog, etag, actor, read_actor):
@@ -10,42 +8,6 @@ def install_asset_center_routes(app, router, catalog, etag, actor, read_actor):
         if catalog.service is None:
             raise HTTPException(503, "素材中台需要已配置资源服务")
         return catalog.service
-
-    def costume_assets(*, files_only: bool = False):
-        return cached_costumes(repository_root() / "assets", files_only=files_only)
-
-    @app.get("/api/v1/asset-center/costumes")
-    def costumes(request: Request, category: str = "", q: str = "", offset: int = 0, limit: int = PAGE_SIZE):
-        read_actor(request)
-        try:
-            page = costume_page(costume_assets()[0], category, q, offset, limit)
-        except ValueError as error:
-            raise HTTPException(422, str(error)) from error
-        return etag(request, page)
-
-    @app.get("/api/v1/asset-center/costumes/{item_id}/content")
-    def costume_content(item_id: str):
-        # Image tags send the session cookie and cannot attach the CSRF header.
-        stem = item_id.replace("-", "").replace("_", "")
-        if not item_id.isascii() or not stem.isalnum():
-            raise HTTPException(404, "服饰不存在")
-        path = costume_file(costume_assets(files_only=True)[1], item_id)
-        if path is None:
-            path = costume_file(costume_assets(files_only=False)[1], item_id)
-        if path is None:
-            raise HTTPException(404, "服饰不存在")
-        mime = {
-            ".png": "image/png",
-            ".webp": "image/webp",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-        }.get(path.suffix.lower(), "application/octet-stream")
-        return FileResponse(
-            path,
-            media_type=mime,
-            content_disposition_type="inline",
-            headers={"Cache-Control": "private, max-age=3600"},
-        )
 
     @app.get("/api/v1/asset-center")
     def search(

@@ -104,7 +104,6 @@ def _page(rows, offset, limit):
 # --------------------------------------------------------------------------- costumes
 
 _LOCAL_MEDIA_URL_PREFIX = "/api/v1/asset-center/pose-gallery/media/"
-_LEGACY_COSTUME_URL_PREFIX = "/api/v1/asset-center/costumes/"
 _REMOTE_COSTUME_PREFIXES = (
     ("https://ai-costume-gallery.pages.dev/thumbs/costume/", "thumbs/costume/"),
     ("https://ai-costume-gallery.pages.dev/img/costume/", "img/costume/"),
@@ -122,8 +121,6 @@ def localize_costume_path(url: str) -> str:
     raw = str(url or "").strip().replace("\\", "/")
     if not raw or not raw.isprintable():
         return ""
-    if raw.startswith(_LEGACY_COSTUME_URL_PREFIX):
-        return raw
     if raw.startswith(_LOCAL_MEDIA_URL_PREFIX):
         raw = raw[len(_LOCAL_MEDIA_URL_PREFIX):]
     elif raw.startswith("https://ai-costume-anime-gallery.pages.dev/png/"):
@@ -152,24 +149,7 @@ def _local_costume_media(root: Path, url: str) -> str:
     norm = localize_costume_path(url)
     if not norm:
         return ""
-    if norm.startswith(_LEGACY_COSTUME_URL_PREFIX):
-        return norm
     return norm if (root / norm).is_file() else ""
-
-
-def _legacy_costumes(repository: Path):
-    from vsc.assets.costume_gallery import cached_costumes
-    items, _ = cached_costumes(Path(repository) / "assets")
-    rows = []
-    for item in items:
-        image = item.get("image") or ""
-        rows.append({
-            "id": item["id"], "source": "gia", "一级分类": "现实", "分类": item.get("category") or "其他",
-            "服装名称": item.get("label") or item.get("title") or item["id"], "标签": [],
-            "关键词": item.get("keywords") or "", "缩略图": image, "预览图": image, "原图": image,
-            "来源": "本地服饰", "来源地址": "", "检索": f"{item['id']} {item.get('keywords') or ''}",
-        })
-    return rows
 
 
 def load_costumes(repository: Path):
@@ -189,12 +169,11 @@ def load_costumes(repository: Path):
     def build():
         rows, seen = [], set()
         primary = _read(paths[0], None)
-        if not isinstance(primary, list):
-            source_rows = [(_legacy_costumes(repository), "gia")]
-            mode = "legacy"
-        else:
-            source_rows = [(primary, "gia")] + [(_read(p, []), None) for p in paths[1:]]
-            mode = "pose-gallery"
+        source_rows = (
+            [(primary, "gia")] + [(_read(p, []), None) for p in paths[1:]]
+            if isinstance(primary, list) else []
+        )
+        mode = "pose-gallery"
         meta = {s["id"]: s for s in COSTUME_SOURCES}
         for data, default_source in source_rows:
             if not isinstance(data, list):
@@ -250,8 +229,7 @@ def load_costumes(repository: Path):
                 rows.append(item)
         return {"items": rows, "by_id": {r["id"]: r for r in rows}, "mode": mode}
 
-    legacy_dir = Path(repository) / "assets" / "服饰"
-    return _cached(("costumes", str(root)), paths + media_dirs + [legacy_dir], build)
+    return _cached(("costumes", str(root)), paths + media_dirs, build)
 
 
 def costume_page(repository, *, top="", source="", category="", tag="", q="", safe=True,

@@ -2384,19 +2384,6 @@
         "src/vsc/interfaces/web/static/canvas-settings.js"
       ]
     },
-    "assets.unit.test_costume_gallery": {
-      "owner": "assets",
-      "layer": "unit",
-      "sources": [
-        "src/vsc/assets/costume_gallery.py",
-        "src/vsc/interfaces/web/asset_center.py",
-        "src/vsc/interfaces/web/static/asset-center.js",
-        "src/vsc/interfaces/web/static/asset-center.css",
-        "src/vsc/interfaces/web/static/character-studio-store.js",
-        "src/vsc/interfaces/web/static/character-studio-ai.js",
-        "tests/support/fixtures/frontend/costume_gallery.cjs"
-      ]
-    },
     "project.unit.test_classic_production_replica_frontend": {
       "owner": "project",
       "layer": "unit",
