@@ -109,7 +109,7 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
         self.assertEqual(len(set(next(op for op in options['operations'] if op['op_type']=='single_image_video')['supported_models']) & imported_ids),1)
         self.assertTrue(all(not m['auth_ref'] for m in options['models'] if m['id'] in imported_ids))
         model=next(m for m in options['models'] if m['model_key']=='image-generator')
-        created=self.command('/creative-canvases',dict(document=dict(nodes=[dict(id='image',type='image',text='A synthetic blue square')],edges=[]))).json()
+        created=self.command('/creative-canvases',dict(document=dict(nodes=[dict(id='image',type='image',text='A synthetic blue square',params={'vsc_operation':'image_generate'})],edges=[]))).json()
         canvas_path='/creative-canvases/'+created['id']
         fixed=self.command(canvas_path+'/work-input',dict(canvas_revision=1,node_id='image',model_id=model['id']))
         self.assertEqual(fixed.status_code,200,fixed.text)
@@ -154,10 +154,17 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
         self.rev=self.service.get_project(self.p)['revision']
         adopted=self.command(canvas_path+'/generation-outputs',dict(canvas_revision=1,run_version_id=generated.json()['run_version_id']))
         self.assertEqual(adopted.status_code,200,adopted.text)
-        node=self.client.get(self.base+canvas_path).json()['document']['nodes'][0]
+        saved=self.client.get(self.base+canvas_path).json()
+        node=saved['document']['nodes'][0]
         self.assertEqual(node['job_id'],completed['id'])
         self.assertTrue(node['media_id'])
+        self.assertFalse(saved['jobs']['image']['input_changed'])
         self.assertEqual(worker.run_once(self.p),None)
+        changed=dict(nodes=[dict(id='image',type='image',text='Changed synthetic prompt',media_id=node['media_id'],
+            job_id=node['job_id'],params={'vsc_operation':'image_generate'})],edges=[])
+        updated=self.command(canvas_path,dict(canvas_revision=saved['canvas_revision'],document=changed),'PUT')
+        self.assertEqual(updated.status_code,200,updated.text)
+        self.assertTrue(self.client.get(self.base+canvas_path).json()['jobs']['image']['input_changed'])
 
     def test_canvas_edit_transfers_real_segments_to_original_editor_without_fake_output(self):
         from support.fixtures.media import production_media

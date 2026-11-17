@@ -579,11 +579,12 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
                     request = job["request_payload"]
                     fixed = {item["media_id"] for item in request.get("input_media", [])}
                     tool = canvas_image_tool(node["type"], node["params"])
-                    params = node["params"]
+                    from vsc.production.canvas_capabilities import OPERATION_KEY
+                    params = {key:value for key,value in node['params'].items() if key != OPERATION_KEY}
                     if tool:
                         from vsc.production.image_tools import tool_instruction
                         prompt.append(tool_instruction(tool["tool"], tool["settings"]))
-                        params = {key: value for key, value in params.items() if key not in (CANVAS_IMAGE_TOOL, CANVAS_IMAGE_TOOL_SETTINGS)}
+                        params = {key: value for key, value in params.items() if key not in (CANVAS_IMAGE_TOOL, CANVAS_IMAGE_TOOL_SETTINGS, OPERATION_KEY)}
                     changed = "\n".join(prompt) != request.get("prompt", "") or params != request.get("params", {})
                     changed = changed or any(not media or media not in fixed for port, media in refs)
                     changed = changed or any([media for port, media in refs if port == name] !=
