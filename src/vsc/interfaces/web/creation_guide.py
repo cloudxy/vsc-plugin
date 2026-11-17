@@ -214,7 +214,7 @@ def _build_page(root: Path) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VSC 工作台创作指引</title>
-<style>{PAGE_CSS}</style>
+<link rel="stylesheet" href="/guide/creation.css">
 </head>
 <body>
 <header class="topbar">
@@ -262,6 +262,11 @@ def install_creation_guide_routes(app, etag, read_actor):
     @app.get("/guide/creation", response_class=HTMLResponse)
     def guide_page():
         return HTMLResponse(_build_page(root()))
+
+    @app.get("/guide/creation.css")
+    def guide_css():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse(PAGE_CSS, media_type="text/css; charset=utf-8")
 
     @app.get("/api/v1/creation-guide/md")
     def guide_md():
