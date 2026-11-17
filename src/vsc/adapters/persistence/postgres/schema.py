@@ -1124,6 +1124,7 @@ from .schema_classic_preferences import declare_classic_preferences, CLASSIC_PRE
 from .schema_professional_inputs import declare_professional_inputs, PROFESSIONAL_INPUT_IMMUTABLE, PROFESSIONAL_INPUT_GUARD_DDL
 from .schema_project_cover import declare_project_cover, PROJECT_COVER_GUARD_DDL
 from .schema_canvas_collaboration import declare_canvas_collaboration, CANVAS_COLLAB_IMMUTABLE
+from .schema_guide import install_guide_schema, GUIDE_TABLES
 globals().update(install_canvas_schema(metadata))
 globals().update(install_direct_copy_schema(metadata))
 globals().update(declare_editor(project_table, ref, uid, stamp))
@@ -1142,6 +1143,7 @@ globals().update(declare_management(project_table,ref,uid,stamp))
 globals().update(install_canvas_execution_schema(metadata))
 globals().update(declare_text_tool_copies(project_table,ref,stamp))
 globals().update(declare_creative_tool_imports(project_table,ref,stamp))
+globals().update(install_guide_schema(metadata))
 globals().update(declare_working_state(project_table,ref,uid,stamp))
 globals().update(declare_workspace_commerce(project_table,ref,uid,stamp))
 globals().update(declare_asset_cards(project_table,ref,uid,stamp))
