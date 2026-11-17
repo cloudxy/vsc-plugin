@@ -292,7 +292,7 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
 
     @app.get("/guide/creation", response_class=HTMLResponse)
     def guide_page():
-        data = store().get_document("creation-guide")
+        data = store().get_document("tiangong-guide") or store().get_document("creation-guide")
         if not data:
             raise HTTPException(404, "指引文档不在数据库中；请先运行种子导入")
         return HTMLResponse(_build_page(data))
