@@ -30,7 +30,7 @@ function setup({empty=false}={}){
   document.querySelector=selector=>{const [first,...children]=selector.split(/\s*>\s*/);let found=query(first);for(const child of children)found=found?.children.find(item=>item.matches(child));return found||null;};
   const actionsEnd=source.indexOf("$('team-review-open').addEventListener",end);
   assert.ok(actionsEnd>end);
-  vm.runInNewContext(source.slice(start,actionsEnd),{document,$:id=>document.getElementById(id),guard:callback=>callback,navigateModule:async(...args)=>actions.push(args)});
+  vm.runInNewContext(source.slice(start,actionsEnd),{document,$:id=>document.getElementById(id),guard:callback=>callback,navigateModule:async(...args)=>actions.push(args),window:{open:(url,target)=>actions.push(['guide-open',url,target])}});
   return {document,toggle,region,project,help,summary,feedback,heading,label,feedbackIcon,feedbackLabel,guide,network,actions};
 }
 
@@ -75,7 +75,7 @@ test('shell locale binding updates the caption without replacing the live disclo
 });
 
 for(const [item,expected] of [
-  ['guide',['guide']],
+  ['guide',['guide-open','/guide/creation','_blank']],
   ['feedback',['service-operations','feedback-records']],
   ['network',['service-operations','network-diagnostic']],
 ])test(`help ${item} survives pointer-induced focus loss until its action runs`,async()=>{

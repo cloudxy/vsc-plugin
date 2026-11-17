@@ -228,7 +228,7 @@ test('version decisions retain session, confirmation, fixed revision and stale-c
   await approve.click();assert.equal(app.writes.length,1);
   const write=app.writes[0];assert.equal(write.url,'/api/v1/projects/A/artifact-decisions');
   assert.deepEqual(write.body.payload,{artifact_id:'fixed',outcome:'approve',reason:'已阅读所见版本'});
-  assert.equal(write.body.expected_revision,37);assert.equal(write.headers['X-CSRF-Token'],'csrf');
+  assert.equal(write.body.expected_revision,37);assert.equal(write.headers['x-csrf-token'],'csrf');
   assert.equal(write.body.confirmed,true);assert.ok(write.body.idempotency_key);
   assert.ok(app.confirmations.length>=1);
   const reject=button(actions(app),'退回此版本');actions(app).querySelector('input').value='调整对白';

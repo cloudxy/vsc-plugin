@@ -130,7 +130,9 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
   }
   const fetch = async (url, options={}) => {
     requests.push(url);
-    if(options.method==='POST')writes.push({url,headers:options.headers,body:JSON.parse(options.body)});
+    // panel.js builds request headers with the Headers constructor; record a plain object.
+    const headers=typeof options.headers?.entries==='function'?Object.fromEntries(options.headers.entries()):options.headers;
+    if(options.method==='POST')writes.push({url,headers,body:JSON.parse(options.body)});
     const override=await fixtureOptions.handleRequest?.(url,options);
     if(override!==undefined)return {ok:true,status:200,json:async()=>override};
     if(options.method==='POST')return {ok:true,json:async()=>({revision:2,jobs:[]})};
@@ -155,7 +157,7 @@ function createPanel(root, projects, treeOverride = null, options = {}) {
   const fixtureOptions=options;
   const memory=new Map();
   const sessionMemory=new Map();
-  const context = vm.createContext({...options.window?{window:options.window}:{},document, fetch, URLSearchParams, URL, AbortController, console, Map, Set,setTimeout,clearTimeout,localStorage:{getItem:key=>memory.get(key),setItem:(key,value)=>memory.set(key,value),removeItem:key=>memory.delete(key)},sessionStorage:{getItem:key=>sessionMemory.get(key)??null,setItem:(key,value)=>sessionMemory.set(key,value),removeItem:key=>sessionMemory.delete(key)},crypto:require('node:crypto').webcrypto,confirm:message=>{confirmations.push(message);return fixtureOptions.confirm?.(message)??true;}});
+  const context = vm.createContext({...options.window?{window:options.window}:{},document, fetch, Headers, Request, Response, URLSearchParams, URL, AbortController, console, Map, Set,setTimeout,clearTimeout,localStorage:{getItem:key=>memory.get(key),setItem:(key,value)=>memory.set(key,value),removeItem:key=>memory.delete(key)},sessionStorage:{getItem:key=>sessionMemory.get(key)??null,setItem:(key,value)=>sessionMemory.set(key,value),removeItem:key=>sessionMemory.delete(key)},crypto:require('node:crypto').webcrypto,confirm:message=>{confirmations.push(message);return fixtureOptions.confirm?.(message)??true;}});
   const catalog=fs.readFileSync(path.join(folder,'static/i18n-messages.js'),'utf8').replaceAll('export const ','const ');
   vm.runInContext('(()=>{'+catalog+';globalThis.uiMessages={MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES};})()',context);
   const i18n=fs.readFileSync(path.join(folder,'static/i18n.js'),'utf8').replace("import {MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES} from './i18n-messages.js';",'const {MESSAGES,LOCALE_NAMES,FALLBACK_NOTICES}=globalThis.uiMessages;').replaceAll('export function ','function ').replaceAll('export const ','const ');

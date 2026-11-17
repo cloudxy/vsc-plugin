@@ -1169,7 +1169,7 @@ sidebarHelp?.addEventListener('keydown',event=>{if(event.key==='Escape'){event.p
 document.addEventListener('pointerdown',event=>{if(sidebarHelp&&!sidebarHelp.contains(event.target))sidebarHelp.removeAttribute('open');});
 // End sidebar disclosures.
 const closeHelp=()=>document.querySelector('.sidebar-help')?.removeAttribute('open');
-$('help-guide')?.addEventListener('click',()=>{window.open('/guide/creation','_blank');});
+$('help-guide')?.addEventListener('click',()=>{closeHelp();window.open('/guide/creation','_blank');});
 $('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','feedback-records');}));
 $('help-network')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','network-diagnostic');}));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));
