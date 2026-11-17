@@ -1,4 +1,4 @@
-"""Read-only 创作指引：从 assets/guides 提供操作文档与配图。"""
+"""Read-only 创作指引：从 assets/guides 提供操作文档与配图。复刻飞书文档阅读器样式。"""
 import html as html_mod
 import re
 from pathlib import Path
@@ -17,8 +17,7 @@ def guides_root(root=None):
     base = Path(get_config("VSC_MEDIA_ROOT")).parent / "guides" if get_config("VSC_MEDIA_ROOT") else None
     if base and base.is_dir():
         return base
-    workspace = Path(__file__).resolve().parents[4]
-    return workspace / "assets" / "guides"
+    return Path(__file__).resolve().parents[4] / "assets" / "guides"
 
 
 def _md_to_html(md: str) -> str:
@@ -39,7 +38,7 @@ def _md_to_html(md: str) -> str:
     while i < len(lines):
         line = lines[i]
         if line.startswith("# "):
-            out.append(f'<h1 id="top">{inline(line[2:])}</h1>')
+            out.append(f'<h1>{inline(line[2:])}</h1>')
         elif line.startswith("## "):
             if in_list: out.append(f"</{list_tag}>"); in_list = False
             if in_table: out.append("</table>"); in_table = False
@@ -72,7 +71,7 @@ def _md_to_html(md: str) -> str:
             else:
                 if in_list: out.append(f"</{list_tag}>"); in_list = False
                 if line.startswith(">"):
-                    out.append(f"<blockquote><p>{inline(line[1:])}</p></blockquote>")
+                    out.append(f'<div class="callout">{inline(line[1:])}</div>')
                 elif line.strip():
                     out.append(f"<p>{inline(line)}</p>")
         i += 1
@@ -83,85 +82,99 @@ def _md_to_html(md: str) -> str:
 
 PAGE_CSS = """
 :root{
-  --bg:#FAFAF7;--fg:#1A1A1A;--muted:#6B6B6B;--accent:#4A6FA5;
-  --accent-light:#EBF0F7;--border:#E5E2DD;--code-bg:#F0EDE8;
-  --sidebar-w:240px;--content-w:720px;
+  --bg:#FFFFFF;--fg:#1F2329;--muted:#8F959E;--hover:#F2F3F5;
+  --brand:#3370FF;--brand-bg:#EBF1FF;--border:#DEE0E3;
+  --callout-bg:#FFF7E6;--callout-border:#FFD591;
+  --code-bg:#F5F6F7;--code-fg:#3B5998;
+  --toc-w:280px;--doc-w:800px;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--fg);font:16px/1.8 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC",sans-serif}
+body{background:var(--bg);color:var(--fg);font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Helvetica Neue",sans-serif}
 
-/* 布局 */
-.layout{display:flex;max-width:calc(var(--sidebar-w) + var(--content-w) + 80px);margin:0 auto;padding:0 24px;gap:40px}
-.sidebar{width:var(--sidebar-w);flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;padding:48px 0 24px;border-right:1px solid var(--border)}
-.content{flex:1;min-width:0;padding:48px 0 120px;max-width:var(--content-w)}
+/* ── 布局 ── */
+.topbar{position:fixed;top:0;left:0;right:0;height:56px;background:#FFF;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px;z-index:10}
+.topbar .logo{font-size:16px;font-weight:600;color:var(--fg);text-decoration:none;display:flex;align-items:center;gap:8px}
+.topbar .logo svg{width:22px;height:22px}
+.topbar .breadcrumb{font-size:13px;color:var(--muted);flex:1}
+.topbar .breadcrumb a{color:var(--muted);text-decoration:none}
+.topbar .breadcrumb a:hover{color:var(--brand)}
 
-/* 封面 */
-.cover{margin:-48px -24px 32px;padding:0;border-radius:0 0 16px 16px;overflow:hidden}
+.main{display:flex;padding-top:56px;min-height:calc(100vh - 56px)}
+
+/* ── 目录栏 ── */
+.toc{width:var(--toc-w);flex-shrink:0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto;border-right:1px solid var(--border);padding:16px 0 24px;transition:width .2s}
+.toc.collapsed{width:0;padding:0;border:none;overflow:hidden}
+.toc-head{display:flex;align-items:center;justify-content:space-between;padding:0 16px 12px;font-size:13px;font-weight:500;color:var(--muted)}
+.toc-toggle{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:4px;border-radius:4px}
+.toc-toggle:hover{background:var(--hover)}
+.toc-list{list-style:none}
+.toc-list a{display:block;padding:7px 16px 7px 24px;font-size:14px;color:#646A73;text-decoration:none;line-height:22px;cursor:pointer;transition:background .12s,color .12s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toc-list a:hover{background:var(--hover);color:var(--fg)}
+.toc-list a.active{background:var(--brand-bg);color:var(--brand);font-weight:500;border-radius:6px;margin:0 8px;padding-left:16px}
+.toc-list .sub a{padding-left:40px;font-size:13px}
+
+/* ── 文档区 ── */
+.doc{flex:1;display:flex;justify-content:center;padding:0 40px 120px}
+.doc-inner{max-width:var(--doc-w);width:100%;min-width:0}
+
+/* ── 封面 ── */
+.cover{margin:0 -40px 24px;border-radius:0;overflow:hidden}
 .cover img{width:100%;display:block;max-height:280px;object-fit:cover}
 
-/* 标题 */
-h1{font-size:28px;font-weight:700;color:var(--fg);margin:0 0 8px;letter-spacing:-.5px}
-h2{font-size:22px;font-weight:600;color:var(--fg);margin:2.5em 0 .6em;padding-bottom:.4em;border-bottom:2px solid var(--accent);scroll-margin-top:24px}
-h3{font-size:18px;font-weight:600;color:var(--fg);margin:2em 0 .4em;scroll-margin-top:24px}
+/* ── 标题 ── */
+h1{font-size:28px;font-weight:700;color:var(--fg);letter-spacing:-.3px;margin:0 0 6px;line-height:1.35}
+h2{font-size:21px;font-weight:600;color:var(--fg);margin:2.2em 0 .5em;padding-bottom:8px;border-bottom:1px solid var(--border);scroll-margin-top:80px}
+h3{font-size:17px;font-weight:600;color:var(--fg);margin:1.8em 0 .4em;scroll-margin-top:80px}
+.meta{font-size:13px;color:var(--muted);margin-bottom:28px}
 
-/* 正文 */
-p{margin:.7em 0;color:#333}
-ul,ol{margin:.7em 0 .7em 1.4em;color:#333}
-li{margin:.35em 0}
+/* ── 正文 ── */
+p{margin:.65em 0;color:var(--fg);line-height:1.7}
+ul,ol{margin:.65em 0 .65em 20px;color:var(--fg)}
+li{margin:.3em 0;line-height:1.65}
 strong{color:var(--fg);font-weight:600}
-code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font:14px/1.5 "SF Mono",Menlo,monospace;color:#3B5998}
-a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s}
-a:hover{border-bottom-color:var(--accent)}
-blockquote{border-left:3px solid var(--accent);padding:8px 16px;margin:1em 0;background:var(--accent-light);border-radius:0 8px 8px 0}
-blockquote p{margin:.3em 0;color:#4A4A4A}
+code{background:var(--code-bg);padding:2px 6px;border-radius:4px;font:13px/1.5 "SF Mono",Menlo,Consolas,monospace;color:var(--code-fg)}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline}
 
-/* 表格 */
-table{border-collapse:collapse;width:100%;margin:1.2em 0;font-size:14px}
-th{background:var(--accent-light);color:var(--fg);font-weight:600;text-align:left;padding:10px 14px;border:1px solid var(--border)}
-td{padding:10px 14px;border:1px solid var(--border);color:#444}
-tbody tr:nth-child(even){background:#F5F3F0}
+/* ── Callout ── */
+.callout{background:var(--callout-bg);border:1px solid var(--callout-border);border-radius:8px;padding:12px 16px;margin:.8em 0;font-size:14px;color:#595959;line-height:1.6}
 
-/* 侧栏目录 */
-.toc-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:none;letter-spacing:.5px;margin-bottom:12px}
-.toc-nav{list-style:none;margin:0;padding:0}
-.toc-nav a{display:block;padding:6px 12px;font-size:14px;color:var(--muted);border-left:2px solid transparent;border-bottom:none;transition:color .15s,border-color .15s}
-.toc-nav a:hover{color:var(--accent)}
-.toc-nav a.active{color:var(--accent);border-left-color:var(--accent);font-weight:500}
+/* ── 表格 ── */
+table{border-collapse:collapse;width:100%;margin:1em 0;font-size:14px}
+th{background:var(--hover);color:var(--fg);font-weight:600;text-align:left;padding:10px 14px;border:1px solid var(--border);white-space:nowrap}
+td{padding:10px 14px;border:1px solid var(--border);color:#333}
+tbody tr:hover td{background:#FAFBFC}
 
-/* 画廊 */
-.gallery-toggle{appearance:none;border:1px solid var(--border);background:#fff;color:var(--fg);padding:10px 20px;border-radius:8px;font:15px inherit;cursor:pointer;margin:2em 0 1em;transition:border-color .15s}
-.gallery-toggle:hover{border-color:var(--accent)}
+/* ── 画廊 ── */
+.gal-toggle{appearance:none;border:1px solid var(--border);background:#FFF;color:var(--fg);padding:10px 20px;border-radius:8px;font:14px inherit;cursor:pointer;margin:2em 0 1em;transition:all .15s}
+.gal-toggle:hover{border-color:var(--brand);color:var(--brand)}
 .gallery{display:none;columns:3;column-gap:12px;margin:1em 0}
 .gallery.open{display:block}
-.gallery figure{break-inside:avoid;margin:0 0 12px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff}
-.gallery img{width:100%;display:block;cursor:zoom-in;transition:transform .15s}
-.gallery img:hover{transform:scale(1.02)}
+.gallery figure{break-inside:avoid;margin:0 0 12px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#FFF}
+.gallery img{width:100%;display:block;cursor:zoom-in}
 .gallery figcaption{padding:6px 10px;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}
 
-/* 灯箱 */
-.lightbox{position:fixed;inset:0;background:rgba(250,250,247,.96);display:none;align-items:center;justify-content:center;z-index:99;cursor:zoom-out}
+/* ── 灯箱 ── */
+.lightbox{position:fixed;inset:0;background:rgba(255,255,255,.97);display:none;align-items:center;justify-content:center;z-index:99;cursor:zoom-out}
 .lightbox.open{display:flex}
-.lightbox img{max-width:92vw;max-height:90vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.15)}
+.lightbox img{max-width:92vw;max-height:90vh;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.12)}
 
-/* 面包屑 */
-.crumb{font-size:13px;color:var(--muted);margin-bottom:16px}
-.crumb a{color:var(--muted);border-bottom:none}
-.crumb a:hover{color:var(--accent)}
-
-/* 响应式 */
-@media(max-width:900px){
-  .layout{flex-direction:column;gap:0;padding:0 16px}
-  .sidebar{position:static;width:100%;height:auto;border-right:none;border-bottom:1px solid var(--border);padding:20px 0}
-  .content{padding:24px 0 80px}
-  .cover{margin:-24px -16px 24px}
+/* ── 响应式 ── */
+@media(max-width:960px){
+  .toc{position:fixed;left:-280px;top:56px;height:calc(100vh - 56px);z-index:20;background:#FFF;box-shadow:2px 0 8px rgba(0,0,0,.08);transition:left .2s}
+  .toc.show{left:0}
+  .doc{padding:0 16px 80px}
+  .cover{margin:0 -16px 20px}
   .gallery{columns:2}
+  .topbar .menu-btn{display:block}
 }
 @media(max-width:500px){
   .gallery{columns:1}
   h1{font-size:24px}
-  h2{font-size:19px}
+  h2{font-size:18px}
 }
+.topbar .menu-btn{display:none;background:none;border:none;font-size:20px;color:var(--fg);cursor:pointer;padding:4px}
 """
 
 
@@ -180,17 +193,15 @@ def _build_page(root: Path) -> str:
             for name in images
         )
         gallery_html = (
-            f'<button class="gallery-toggle" onclick="document.getElementById(\'gal\').classList.toggle(\'open\');this.textContent=this.textContent.includes(\'展开\')?\'收起配图\':\'展开全部 {len(images)} 张配图\'">展开全部 {len(images)} 张配图</button>\n'
+            f'<button class="gal-toggle" onclick="g=document.getElementById(\'gal\');g.classList.toggle(\'open\');this.textContent=g.classList.contains(\'open\')?\'收起配图\':\'展开全部 {len(images)} 张配图\'">展开全部 {len(images)} 张配图</button>\n'
             f'<div class="gallery" id="gal">{figs}</div>'
         )
 
-    # 目录
     h2_titles = re.findall(r"<h2>(.+?)</h2>", body)
     toc_items = "".join(
         f'<li><a href="#sec-{i}" data-sec="{i}">{t}</a></li>'
         for i, t in enumerate(h2_titles)
     )
-    # 给每个 h2 加 id
     for i, _ in enumerate(h2_titles):
         body = re.sub(r"<h2>", f'<h2 id="sec-{i}">', body, count=1)
 
@@ -206,31 +217,38 @@ def _build_page(root: Path) -> str:
 <style>{PAGE_CSS}</style>
 </head>
 <body>
-<div class="layout">
-<nav class="sidebar">
-<div class="toc-title">章节</div>
-<ul class="toc-nav">{toc_items}</ul>
+<header class="topbar">
+<button class="menu-btn" onclick="document.querySelector('.toc').classList.toggle('show')">☰</button>
+<a class="logo" href="/">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V4h6l3 3h9v12H3V7h18M16 13h7M20 10v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+VSC 工作台</a>
+<span class="breadcrumb">› <a href="/">首页</a> › 创作指引</span>
+</header>
+<div class="main">
+<nav class="toc" id="toc">
+<div class="toc-head"><span>目录</span><button class="toc-toggle" onclick="document.getElementById('toc').classList.add('collapsed');document.querySelector('.menu-btn').style.display='block'">«</button></div>
+<ul class="toc-list">{toc_items}</ul>
 </nav>
-<main class="content">
+<main class="doc"><div class="doc-inner">
 {cover_html}
 {body}
 {gallery_html}
-</main>
+</div></main>
 </div>
 <div class="lightbox" id="lbx" onclick="this.classList.remove('open')"><img id="lbi" alt="预览"></div>
 <script>
-function lb(src){{document.getElementById('lbi').src=src;document.getElementById('lbx').classList.add('open')}}
+function lb(s){{document.getElementById('lbi').src=s;document.getElementById('lbx').classList.add('open')}}
 // 目录高亮
-const links=document.querySelectorAll('.toc-nav a');
+const links=document.querySelectorAll('.toc-list a');
 const obs=new IntersectionObserver(es=>{{
   es.forEach(e=>{{
     if(e.isIntersecting){{
       links.forEach(l=>l.classList.remove('active'));
-      const active=document.querySelector(`.toc-nav a[data-sec="${{e.target.id.replace('sec-','')}}"]`);
-      if(active)active.classList.add('active');
+      const a=document.querySelector('.toc-list a[data-sec="'+e.target.id.replace('sec-','')+'"]');
+      if(a)a.classList.add('active');
     }}
   }});
-}},{{rootMargin:'-20% 0px -60% 0px'}});
+}},{{rootMargin:'-30% 0px -60% 0px'}});
 document.querySelectorAll('h2[id^="sec-"]').forEach(h=>obs.observe(h));
 </script>
 </body>
