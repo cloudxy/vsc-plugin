@@ -20,7 +20,7 @@ def guides_root(root=None):
 
 def _inline(s):
     s = html_mod.escape(s, quote=False)
-    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img src="\2" alt="\1" class="inline-img" loading="lazy">', s)
+    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img src="\2" alt="\1" class="inline-img" onclick="lb(this.src)">', s)
     s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
     s = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', s)
@@ -169,8 +169,10 @@ border-radius:6px;padding:10px 14px;margin:.8em 0;font-size:13px;
 color:#595959;line-height:1.65}
 
 /* ── 内嵌图片 ── */
-.inline-img{max-width:100%;height:auto;border-radius:6px;
-border:1px solid var(--border);margin:6px 0;display:block;cursor:zoom-in}
+.inline-img{max-width:100%;min-width:200px;height:auto;border-radius:8px;
+border:1px solid var(--border);margin:12px auto;display:block;cursor:zoom-in;
+box-shadow:0 2px 8px rgba(0,0,0,.06);transition:box-shadow .15s}
+.inline-img:hover{box-shadow:0 4px 16px rgba(0,0,0,.12)}
 
 /* ── 表格 ── */
 .table-wrap{overflow-x:auto;margin:.8em 0;border-radius:6px;border:1px solid var(--border)}
@@ -257,7 +259,7 @@ def _build_page(data):
             f'展开全部 {len(images)} 张配图</button>\n<div class="gallery" id="gal">{figs}</div>')
 
     cover_path = Path(str(guides_root())) / "images" / "doc" / "cover.gif"
-    cover_html = f'<div class="cover"><img src="/creation-guide-media/cover.gif" alt="封面" loading="lazy"></div>' if cover_path.exists() else ""
+    cover_html = f'<div class="cover"><img src="/creation-guide-media/cover.gif" alt="封面"></div>' if cover_path.exists() else ""
 
     updated = doc.get("updated_at")
     date_str = f"{updated.month}月{updated.day}日" if hasattr(updated, "month") else str(updated or "")[:10] if updated else ""
