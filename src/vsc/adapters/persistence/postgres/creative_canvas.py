@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import datetime,timezone,timedelta
 import json
 import hashlib
+import math
 
 from sqlalchemy import func, insert, select, update
 
@@ -1104,6 +1105,57 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
             return dict(canvas_result,edit_version_id=saved['edit_version_id'],episode_id=episode,gaps=gaps)
         return self._mutate(project_id,'canvas_node_to_edit',payload,actor=actor,callback=work,**kw)
 
+    def prepare_canvas_edit_input(self, project_id, payload, actor, **kw):
+        """Compile saved canvas segment choices into the original edit authority."""
+        from vsc.post.edit_workspace import FORMAT
+        from .editor_workspace import EditorWorkspaceRepository
+        def work(conn, project):
+            p=project['id'];canvas,version,document=self._canvas_current(conn,project,payload)
+            self._require_canvas_edit(conn,p,canvas,modified_node_keys=(payload.get('node_id'),),actor=actor)
+            nodes={n['id']:n for n in document['nodes']};node=nodes.get(payload.get('node_id'))
+            if not node or node['type']!='edit':raise ResourceError('请选择剪辑节点')
+            bound=self._one(conn,S.edit_workspaces,p,node['domain_object_id']) if node.get('domain_object_id') else None
+            episode=canvas['episode_id'] or (bound['episode_id'] if bound else payload.get('episode_id'))
+            if not episode:raise ResourceError('请选择剪辑所属分集')
+            self._one(conn,S.episodes,p,episode)
+            current=conn.execute(select(S.edit_workspaces).where(S.edit_workspaces.c.project_id==p,S.edit_workspaces.c.episode_id==episode)).mappings().first()
+            if bound and (bound['id']!=current['id'] or node['domain_version_id']!=current['current_version_id']):raise Conflict('原剪辑稿已有新版本，请重新读取')
+            edit=deepcopy(self._one(conn,S.edit_revisions,p,current['current_version_id'])['document']) if current else dict(format=FORMAT,width=720,height=1280,fps=24,clips=[],audio=[],captions=[])
+            try:
+                segments=json.loads(node['params'].get('segments_json','[]'))
+                audio=json.loads(node['params'].get('audio_json','null'))
+            except (TypeError,ValueError):raise ResourceError('剪辑片段参数无效')
+            if not isinstance(segments,list) or not 1<=len(segments)<=200:raise ResourceError('剪辑需要已保存的实际片段')
+            prefix='cc-'+digest([canvas['id'],node['id']])[:24]+'-'
+            clips=[];sounds=[]
+            def source_for(item,kind,port):
+                if not isinstance(item,dict):raise ResourceError('剪辑片段格式无效')
+                source=nodes.get(item.get('source_node_key'))
+                if not source or source['type']!=kind or not source['media_id'] or source['media_id']!=item.get('source_media_id'):raise ResourceError('片段来源与当前画布不一致','canvas_edit_source_changed')
+                if not any(e['source']==source['id'] and e['target']==node['id'] and e['port']==port for e in document['edges']):raise ResourceError('剪辑只能使用已连接的固定素材','canvas_edit_source_changed')
+                media=self._media(conn,p,source['media_id'])
+                return source,media
+            for index,item in enumerate(segments):
+                source,media=source_for(item,'video','visual')
+                start,end=item.get('start_time'),item.get('end_time')
+                if any(type(v) not in (int,float) or not math.isfinite(v) for v in (start,end)) or not 0<=start<end or media.get('duration_ms') and end*1000>media['duration_ms']+1:raise ResourceError('剪辑入出点超出原视频范围')
+                if type(item.get('muted',False)) is not bool:raise ResourceError('静音须为开关')
+                origin=self._canvas_edit_origin(conn,p,source,media,episode,edit['fps'])
+                clips.append(dict(origin,id=prefix+str(index),media_id=media['id'],in_frame=round(start*edit['fps']),out_frame=round(end*edit['fps']),volume=1,muted=item.get('muted',False)))
+            if audio is not None:
+                source,media=source_for(audio,'audio','sound')
+                offset=audio.get('offset',0);volume=audio.get('volume',1)
+                if type(offset) not in (int,float) or not math.isfinite(offset) or offset<0 or type(volume) not in (int,float) or not math.isfinite(volume) or not 0<=volume<=4:raise ResourceError('音轨偏移或音量无效')
+                sounds.append(dict(id=prefix+'audio',media_id=media['id'],in_frame=0,out_frame=max(1,round((media.get('duration_ms') or 2000)*edit['fps']/1000)),at_frame=round(offset*edit['fps']),volume=volume,muted=False,purpose='music'))
+            # Replacing this node's previous contribution preserves other edits.
+            edit['clips']=[c for c in edit['clips'] if not c['id'].startswith(prefix)]+clips
+            edit['audio']=[c for c in edit.get('audio',[]) if not c['id'].startswith(prefix)]+sounds
+            saved=EditorWorkspaceRepository(self).save(p,dict(episode_id=episode,edit_revision=current['revision'] if current else 0,document=edit),actor=actor,_transaction=(conn,project),**{k:v for k,v in kw.items() if k!='_transaction'})
+            node.update(domain_object_id=saved['id'],domain_version_id=saved['edit_version_id'])
+            result=self._insert_canvas_version(conn,project,canvas,dict(title=version['title'],document=document),actor,version)
+            return dict(result,edit_version_id=saved['edit_version_id'],episode_id=episode,rendered=False)
+        return self._mutate(project_id,'prepare_canvas_edit_input',payload,actor=actor,callback=work,**kw)
+
     def canvas_node_candidates(self, project_id, payload, actor, **kw):
         def work(conn,project):
             canvas,version,document=self._canvas_current(conn,project,payload)
@@ -1154,6 +1206,8 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
             node=next((n for n in document['nodes'] if n['id']==payload.get('node_id')),None)
             if not node or node['type'] not in {'image','video','audio'}:raise ResourceError('选择图片、视频或音频节点')
             image_tool=canvas_image_tool(node['type'],node['params'])
+            from vsc.production.canvas_capabilities import validate_work_operation, OPERATION_KEY
+            operation=validate_work_operation(node,document['edges'],{n['id']:n for n in document['nodes']})
             shot=payload.get('shot_id')
             if shot:
                 self._one(conn,S.shots,p,shot)
@@ -1201,6 +1255,7 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
             roles={r['role'] for r in references}
             mode='image' if node['type']=='image' else 'audio' if node['type']=='audio' else 'omni' if roles & {'reference_video','reference_audio'} or 'reference_image' in roles and 'first_frame' not in roles else 'first_last' if 'last_frame' in roles else 'multi' if 'reference_image' in roles else 'single' if 'first_frame' in roles else 'text'
             if image_tool:mode='image_'+image_tool['tool']
+            if operation:mode=operation['mode']
             if image_tool and not prompts:
                 from vsc.production.image_tools import tool_instruction
                 from vsc.assets.classic_production import MODES as CLASSIC_MODES
@@ -1213,7 +1268,7 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
             if image_tool and payload.get('purpose') not in (None,'image_edit'):
                 raise ResourceError('图像工具必须使用图像编辑用途','canvas_image_tool_purpose')
             purpose='image_edit' if image_tool else payload.get('purpose') or (preferred if ordered or preferred in purposes else purposes[0] if purposes else preferred)
-            params={} if (image_tool and image_tool['tool'] in {'panorama','upscale'}) else {k:v for k,v in node['params'].items() if k not in {CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS}}
+            params={} if (image_tool and image_tool['tool'] in {'panorama','upscale'}) else {k:v for k,v in node['params'].items() if k not in {CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS,OPERATION_KEY}}
             document=normalize_draft(dict(shot_id=shot,mode=mode,model_id=model_id,purpose=purpose,prompt='\n'.join(prompts),
                 count=payload.get('count',1),width=payload.get('width',1080),height=payload.get('height',1920),duration_ms=payload.get('duration_ms',5000),params=params,references=references,
                 **({'tool_settings':image_tool['settings']} if image_tool else {})))

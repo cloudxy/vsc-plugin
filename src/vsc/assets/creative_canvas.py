@@ -135,6 +135,8 @@ def normalize_document(value):
                 isinstance(v, float) and not math.isfinite(v) for k, v in params.items()):
             _fail("节点参数必须是有界的简单键值")
         canvas_image_tool(kind, params)
+        from vsc.production.canvas_capabilities import operation_for_node
+        operation_for_node(dict(type=kind, params=params))
         if kind == "text" and (node.get("media_id") or node.get("job_id")):
             _fail("文本节点不能伪装媒体或生成任务")
         row = {"id": key, "type": kind, "title": title.strip(), "x": _number(node.get("x", 0), -100000, 100000),
@@ -272,6 +274,10 @@ class CreativeCanvasService:
     def prepare_canvas_work_input(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
         return self.store.prepare_canvas_work_input(project_id, payload, **kw)
+
+    def prepare_canvas_edit_input(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        return self.store.prepare_canvas_edit_input(project_id, payload, **kw)
 
     def generate_canvas_work(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)

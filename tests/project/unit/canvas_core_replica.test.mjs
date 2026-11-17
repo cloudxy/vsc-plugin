@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {catalogueFor} from '../../support/fixtures/frontend/canvas_capabilities.cjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {loadModule} from '../../support/fixtures/frontend/modules.cjs';
@@ -78,7 +79,7 @@ class Element {
   get selectedOptions() { return this.options.filter(node => node.selected || (node.value === this.value && !this.multiple)); }
 }
 
-async function createCanvasFixture({ nodes = [], edges = [], viewport = { x: 0, y: 0, zoom: 1 }, search = '', apiOverride = null, runOptions = null } = {}) {
+async function createCanvasFixture({ nodes = [], edges = [], viewport = { x: 0, y: 0, zoom: 1 }, jobs = {}, search = '', apiOverride = null, runOptions = null } = {}) {
   const store = new Map();
   const canvasCalls = [];
   const document = {
@@ -156,10 +157,10 @@ async function createCanvasFixture({ nodes = [], edges = [], viewport = { x: 0, 
           dbVersion += 1;
           return { revision: dbVersion, canvas_revision: dbVersion, title: body.payload.title };
         }
-        return { revision: dbVersion, canvas_revision: dbVersion, title: 'Canvas Core Test', episode_id: null, document: structuredClone(dbDoc), jobs: {}, runs: [], execution_steps: [] };
+        return { revision: dbVersion, canvas_revision: dbVersion, title: 'Canvas Core Test', episode_id: null, document: structuredClone(dbDoc), jobs, runs: [], execution_steps: [] };
       }
       if (path.endsWith('/creative-canvas-run-options')) {
-        return runOptions || {
+        const value=runOptions || {
           revision: dbVersion,
           nodes: [],
           models: [{ id: 'img-m1', enabled: true, modality: 'image', model_key: 'seedream', model_version: '4.0', capabilities: { purposes: ['image_edit'] } }],
@@ -178,6 +179,7 @@ async function createCanvasFixture({ nodes = [], edges = [], viewport = { x: 0, 
             matting: { subject: 'foreground' },
           },
         };
+        return {...catalogueFor(value.models),...value};
       }
       if (path.endsWith('/history')) {
         return { revision: dbVersion, items: [{ version: 1, title: '初始版本' }] };
@@ -461,18 +463,18 @@ test('09D, 09E & 11-MV: group_frame color/lock, video_story fan-out, edit multi-
   startIn.value = '1.256';
   await startIn.fire('input');
   assert.ok(f.timeouts.some(t => t.delay === 500));
-  await multiDlg.querySelectorAll('button').find(b => b.textContent === '导出成片至右侧节点').fire('click');
-  let doc = latestDraftDoc(f.store);
-  const exportedVideo = doc.nodes.find(n => n.title === '成片剪辑台 · 剪辑成片');
-  assert.ok(exportedVideo);
-  assert.equal(exportedVideo.x, 760);
-  assert.ok(doc.edges.some(e => e.source === 'edConnected' && e.target === exportedVideo.id && e.port === 'derived_from'));
+  await multiDlg.querySelectorAll('button').find(b => b.textContent === '保存并进入剪辑导出').fire('click');
+  assert.ok(f.canvasCalls.some(call=>call.path.endsWith('/edit-input')&&call.body.payload.node_id==='edConnected'));
+  assert.equal(f.getDoc().nodes.some(n=>n.title==='成片剪辑台 · 剪辑成片'),false);
+  let doc=f.getDoc();
 
   // Audio node renders waveform canvas and spawns MV storyboard video nodes from LRC timeline with singer first_frame
   let audCard = f.root.querySelectorAll('.cc-node').find(c => c.dataset.nodeId === 'aud1');
   assert.ok(audCard.querySelector('.cc-audio-waveform'));
   await audCard.querySelector('.cc-node-head').fire('click');
   audCard = f.root.querySelectorAll('.cc-node').find(c => c.dataset.nodeId === 'aud1');
+  const rate=audCard.querySelector('[aria-label="音频倍速"]');rate.value='2';await rate.fire('change');
+  audCard=f.root.querySelectorAll('.cc-node').find(c=>c.dataset.nodeId==='aud1');assert.equal(audCard.querySelector('audio').playbackRate,2);
   await audCard.querySelectorAll('button').find(b => b.textContent === 'LRC时间轴').fire('click');
   const lrcDlg = f.root.querySelector('.canvas-lyrics-timeline-dialog');
   assert.ok(lrcDlg);
@@ -604,4 +606,41 @@ test('canvas-persistence-worker fallback client stores, diffs and clears snapsho
   const cleared = await client.readSnapshot('c-snap');
   assert.equal(cleared.snapshot, null);
   client.dispose();
+});
+
+test('catalogue operation changes persist semantics and schema fields bound the original work input',async()=>{
+  const node={id:'v',type:'video',title:'视频生成',x:100,y:100,text:'合成提示',params:{},media_id:null,job_id:null,group:''};
+  const calls=[];
+  const f=await createCanvasFixture({nodes:[node],runOptions:{revision:1,nodes:[],models:[{id:'video-local',enabled:true,adapter_available:true,modality:'video',model_key:'local',model_version:'1',capabilities:{purposes:['text_to_video','image_to_video','reference_to_video'],first_frame:true,last_frame:true,reference_media:true}}],image_tools:{}},apiOverride:async(path,options)=>{
+    if(path.endsWith('/work-input')){calls.push(JSON.parse(options.body));return {revision:3,draft_version_id:'fixed-input'};}
+    if(path.endsWith('/work-quote'))return {revision:3,ready:false,gaps:[{message:'合成报价缺项'}]};
+  }});
+  await f.root.querySelector('.cc-node-head').fire('click');await f.root.querySelector('.cc-prepare-button').fire('click');
+  let form=f.root.querySelector('.cc-run-form'),op=form.querySelector('[aria-label="生成操作"]');
+  assert.equal(op.value,'text_video');op.value='head_tail_video';await op.fire('change');
+  assert.equal(latestDraftDoc(f.store).nodes[0].params.vsc_operation,'head_tail_video');
+  form=f.root.querySelector('.cc-run-form');assert.match(form.textContent,/首帧（必需）.*尾帧（必需）/);
+  const count=form.querySelector('[aria-label="候选数量"]');assert.equal(Number(count.max),8);count.value='99';await form.fire('submit');assert.equal(calls.length,0);
+  count.value='2';form.querySelectorAll('select')[1].value='video-local';await form.fire('submit');
+  assert.equal(calls.length,1);assert.equal(calls[0].payload.count,2);assert.equal(calls[0].payload.model_id,'video-local');assert.equal(calls[0].payload.duration_ms,5000);assert.match(form.textContent,/合成报价缺项/);
+  f.panel.suspend();
+});
+
+test('operation catalogue ignores an old response after selecting another node',async()=>{
+  let finish;
+  const waiting=new Promise(resolve=>{finish=resolve;});
+  const f=await createCanvasFixture({nodes:[{id:'a',type:'image',title:'旧图',x:0,y:0,text:'',params:{},media_id:null,job_id:null,group:''},{id:'b',type:'image',title:'新图',x:300,y:0,text:'',params:{},media_id:null,job_id:null,group:''}],apiOverride:async path=>path.endsWith('/creative-canvas-run-options')?waiting:undefined});
+  const first=f.root.querySelectorAll('.cc-node').find(n=>n.dataset.nodeId==='a');
+  const opening=first.querySelectorAll('button').find(b=>b.textContent==='操作').fire('click');
+  await f.root.querySelectorAll('.cc-node').find(n=>n.dataset.nodeId==='b').querySelector('.cc-node-head').fire('click');
+  finish({...catalogueFor([]),models:[],nodes:[],revision:1});await opening;
+  assert.equal(f.root.querySelector('.cc-elements'),null);f.panel.suspend();
+});
+
+
+test('node result paging preserves its original job and does not create another generation',async()=>{
+ const f=await createCanvasFixture({nodes:[{id:'img',type:'image',title:'原结果',x:0,y:0,text:'',params:{},media_id:'m1',job_id:'j1',group:''}],jobs:{img:{id:'j1',outputs:[{media_id:'m1'},{media_id:'m2'}]}}});
+ const next=f.root.querySelectorAll('button').find(b=>b.textContent==='下一结果');assert.ok(next);await next.fire('click');
+ const selected=latestDraftDoc(f.store).nodes[0];assert.equal(selected.media_id,'m2');assert.equal(selected.job_id,'j1');assert.equal(f.canvasCalls.some(c=>c.path.endsWith('/generate')),false);
+ await f.root.querySelectorAll('button').find(b=>b.textContent==='上一结果').fire('click');assert.equal(latestDraftDoc(f.store).nodes[0].media_id,'m1');f.panel.suspend();
 });

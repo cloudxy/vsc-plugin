@@ -920,7 +920,8 @@ export function openMultiVideoEditDialog(host, editNode, { upstreamVideos = [], 
   dlg.append(trackWrap);
 
   const foot = makeEl('footer', null, 'cc-editor-actions');
-  const exportBtn = makeEl('button', '导出成片至右侧节点', 'cc-primary-btn');
+  const exportStatus=makeEl('p');exportStatus.setAttribute('role','status');foot.append(exportStatus);
+  const exportBtn = makeEl('button', '保存并进入剪辑导出', 'cc-primary-btn');
   exportBtn.type = 'button';
   exportBtn.disabled = !segments.length || upstreamAudios.length > 1;
   exportBtn.onclick = async () => {
@@ -930,6 +931,8 @@ export function openMultiVideoEditDialog(host, editNode, { upstreamVideos = [], 
       await onAutoSave?.({ segments, audio: audioTrack });
       await onExport?.({ segments, audio: audioTrack });
       cleanup();
+    } catch(error) {
+      exportStatus.textContent=error.message;
     } finally {
       if (exportBtn.isConnected && segments.length && upstreamAudios.length <= 1) exportBtn.disabled = false;
     }

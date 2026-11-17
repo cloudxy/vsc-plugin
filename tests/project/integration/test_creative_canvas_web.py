@@ -1,12 +1,14 @@
 """HTTP/session → canvas service → migrated PostgreSQL → original media read."""
 import importlib.util
 import io
+import json
 import os
 import struct
 import tempfile
 import unittest
 import uuid
 import zlib
+from unittest.mock import patch
 
 from support.fixtures.resource_store import ResourceStoreFixture
 
@@ -39,6 +41,69 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
         if response.status_code == 200:
             self.rev = response.json()["revision"]
         return response
+
+    def test_catalogue_work_input_replay_and_operation_requirements_over_http(self):
+        provider='catalogue_'+uuid.uuid4().hex
+        self.service.register_provider(dict(id=provider,base_url='https://example.invalid',auth_ref='OFFLINE_TEST_KEY'),actor='test-admin')
+        model=self.service.register_model(dict(provider_id=provider,model_key='image',model_version='offline',modality='image',
+            capabilities=dict(purposes=['first_frame'],reference_media=True)),actor='test-admin')
+        with patch('vsc.production.resource_settings.ResourceSettings.list',return_value={'configurations':[dict(model,adapter_available=True)]}):
+            options=self.client.get(self.base+'/creative-canvas-run-options').json()
+        self.assertEqual(len(options['operations']),53)
+        self.assertIn('layout',options)
+        self.assertEqual(next(op for op in options['operations'] if op['op_type']=='image_generate')['supported_models'],[model['id']])
+        created=self.command('/creative-canvases',dict(title='Operation contract',document=dict(nodes=[dict(id='image',type='image',text='合成输入',params=dict(vsc_operation='image_generate',seed=42))],edges=[]))).json()
+        path='/creative-canvases/'+created['id']
+        payload=dict(canvas_revision=1,node_id='image',model_id=model['id'])
+        before=self.rev
+        fixed=self.command(path+'/work-input',payload,key='catalogue-input')
+        self.assertEqual(fixed.status_code,200,fixed.text)
+        self.assertEqual(fixed.json()['document']['params'],{'seed':42})
+        replay=self.command(path+'/work-input',payload,key='catalogue-input',expected=before)
+        self.assertEqual(replay.json(),fixed.json())
+        missing=self.command('/creative-canvases',dict(document=dict(nodes=[dict(id='v',type='video',params=dict(vsc_operation='head_tail_video'))],edges=[]))).json()
+        denied=self.command('/creative-canvases/'+missing['id']+'/work-input',dict(canvas_revision=1,node_id='v',model_id=model['id']))
+        self.assertEqual(denied.status_code,422,denied.text)
+        self.assertEqual(denied.json()['error'],'canvas_operation_port')
+        self.assertEqual(self.service.list_generation_jobs(self.p)['total'],0)
+
+    def test_canvas_edit_transfers_real_segments_to_original_editor_without_fake_output(self):
+        from support.fixtures.media import production_media
+        objects=self.hierarchy()
+        staged=self.service.storage.stage_upload(io.BytesIO(production_media()['mp4']),'segment.mp4')
+        media=self.write('register_media',dict(staged_upload=staged['staged_upload'],name='Real segment',rights='owned',
+            rights_scope={'purposes':['*']},source={'kind':'synthetic','content':'test-only generated video'}))['id']
+        segments=[dict(source_node_key='v',source_media_id=media,start_time=0.05,end_time=0.3,muted=True)]
+        document=dict(nodes=[dict(id='v',type='video',media_id=media),dict(id='edit',type='edit',params={'segments_json':json.dumps(segments)})],
+            edges=[dict(id='input',source='v',target='edit',port='visual')])
+        created=self.command('/creative-canvases',dict(episode_id=objects['episode'],document=document)).json()
+        path='/creative-canvases/'+created['id']
+        original_revision=self.rev;payload=dict(canvas_revision=1,node_id='edit')
+        saved=self.command(path+'/edit-input',payload,key='edit-replay')
+        self.assertEqual(saved.status_code,200,saved.text)
+        self.assertFalse(saved.json()['rendered'])
+        edit=self.client.get(self.base+'/edit-workspace?episode_id='+objects['episode']).json()
+        clip=edit['current']['document']['clips'][0]
+        self.assertEqual((clip['media_id'],clip['in_frame'],clip['out_frame'],clip['muted']),(media,1,7,True))
+        replay=self.command(path+'/edit-input',payload,key='edit-replay',expected=original_revision)
+        self.assertEqual(replay.json(),saved.json())
+        fixed=self.client.get(self.base+path).json()
+        self.assertEqual(len(fixed['document']['nodes']),2)
+        node=next(n for n in fixed['document']['nodes'] if n['id']=='edit')
+        self.assertEqual(node['domain_version_id'],saved.json()['edit_version_id'])
+        rendered=self.command('/edit-exports',dict(edit_version_id=saved.json()['edit_version_id']))
+        self.assertEqual(rendered.status_code,200,rendered.text)
+        from vsc.post.first_cut_worker import FirstCutWorker
+        self.assertEqual(FirstCutWorker(self.store,self.service.storage).run_once(self.p)['status'],'succeeded')
+        content=self.client.get(self.base+'/edit-exports/'+rendered.json()['id']+'/content')
+        self.assertEqual(content.status_code,200,content.text[:100] if content.status_code!=200 else '')
+        self.assertGreater(len(content.content),100)
+        self.rev=self.service.get_project(self.p)['revision']
+        # A changed editor must not be overwritten by the old canvas binding.
+        newer=self.command('/edit-workspace',dict(episode_id=objects['episode'],edit_revision=edit['workspace']['revision'],document=edit['current']['document']))
+        self.assertEqual(newer.status_code,200,newer.text)
+        conflict=self.command(path+'/edit-input',dict(canvas_revision=fixed['canvas_revision'],node_id='edit'))
+        self.assertEqual(conflict.status_code,409,conflict.text)
 
     def test_canvas_list_projects_current_version_title_time_and_creator_after_rename(self):
         created = self.command("/creative-canvases", {"title": "First title", "document": {"nodes": [], "edges": []}})

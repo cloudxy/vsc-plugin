@@ -239,18 +239,27 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         return await write(project_id, request, body, "add_canvas_project_media_node", canvas_id)
 
     @router.get("/{project_id}/creative-canvas-jobs")
-    def jobs(project_id: str, request: Request, offset: int = 0, limit: int = 50):
-        value = service(project_id).list_generation_jobs(project_id, offset=offset, limit=limit)
-        value["items"] = [{key: job[key] for key in ("id", "modality", "status", "purpose", "shot_id", "asset_id", "request_payload")}
-                          for job in value["items"]]
+    def jobs(project_id: str, request: Request, offset: int = 0, limit: int = 50, include_outputs: bool = False):
+        use = service(project_id)
+        value = use.list_generation_jobs(project_id, offset=offset, limit=limit)
+        items = []
+        for job in value['items']:
+            row = {key: job[key] for key in ('id', 'modality', 'status', 'purpose', 'shot_id', 'asset_id', 'request_payload')}
+            if include_outputs:
+                row['outputs'] = use.get_generation_job(project_id, job['id']).get('outputs', [])
+            items.append(row)
+        value['items'] = items
         return etag(request, value)
 
     @router.get("/{project_id}/creative-canvas-run-options")
     def run_options(project_id: str, request: Request):
         from vsc.assets.creative_canvas import canvas_image_tool_options
+        from vsc.production.canvas_capabilities import canvas_capabilities
+        from vsc.production.resource_settings import ResourceSettings
         use = service(project_id)
         tree = use.get_project_tree(project_id)
-        return etag(request, {"nodes": tree["nodes"], "models": use.list_models(), "revision": tree["revision"],
+        models = ResourceSettings(use.store).list()['configurations']
+        return etag(request, {**canvas_capabilities(models), "nodes": tree["nodes"], "models": models, "revision": tree["revision"],
                               "image_tools": canvas_image_tool_options()})
 
     @router.get("/{project_id}/creative-canvas-versions/{version_id}")
@@ -414,6 +423,12 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
     @router.post("/{project_id}/creative-canvases/{canvas_id}/work-input")
     async def work_input(project_id: str, canvas_id: str, request: Request, body: dict):
         return await write(project_id, request, body, "prepare_canvas_work_input", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/edit-input")
+    async def edit_input(project_id: str, canvas_id: str, request: Request, body: dict):
+        result = await write(project_id, request, body, 'prepare_canvas_edit_input', canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=actor(request))
+        return result
 
     @router.post("/{project_id}/creative-canvases/{canvas_id}/work-quote")
     def work_quote(project_id: str, canvas_id: str, request: Request, body: dict):

@@ -1,3 +1,4 @@
+import {catalogueFor} from '../../support/fixtures/frontend/canvas_capabilities.cjs';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
@@ -34,7 +35,7 @@ async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOv
   const timeouts=[];const module=await loadModule('creative-canvas.js',{document,window,location,sessionStorage,crypto,console,Image:FakeImage,requestAnimationFrame:()=>1,cancelAnimationFrame:()=>{},fetch:async()=>({ok:true,text:async()=> '[00:01.20]合成歌词\n'}),setTimeout:(fn,delay)=>{if(delay===0)return setTimeout(fn,0);timeouts.push({fn,delay});return timeouts.length;},clearTimeout:()=>{}});
   const root=document.createElement('main');
   const session={actor,csrf:'test',revision:1,writable:true};
-  const ctx={session:()=>session,setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?runOptions:path.endsWith('/creative-canvas-agent-options')?{revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[],nodes:[]}:{items:[],revision:1};}};
+  const ctx={session:()=>session,setRevision(){},opened(){},...(projects?{projects:()=>projects}:{}),api:async(path,options)=>{if(apiOverride){const value=await apiOverride(path,options);if(value!==undefined)return value;}return path.endsWith('/creative-canvases/c1')?{revision:1,canvas_revision:1,title:'Test',episode_id:null,document:{viewport,nodes,edges:[]},jobs:{},runs:[],execution_steps:[]}:path.endsWith('/creative-canvas-run-options')&&runOptions?{...catalogueFor(runOptions.models),...runOptions}:path.endsWith('/creative-canvas-agent-options')?{revision:1,host_available:true,skills:[{id:'image-generation',name:'Image',description:''}],models:[],nodes:[]}:{items:[],revision:1};}};
   if(openCanvasManagement)ctx.openCanvasManagement=openCanvasManagement;
   if(libraryPending)ctx.libraryPending=libraryPending;
   const canvas=module.createCreativeCanvasPanel(ctx);await canvas.load(root,'p1',null,'c1');

@@ -1628,7 +1628,8 @@
         "src/vsc/interfaces/web/static/creative-canvas.js",
         "src/vsc/interfaces/web/static/media-upload.js",
         "tests/project/unit/canvas_placement.test.mjs",
-        "tests/support/fixtures/frontend/modules.cjs"
+        "tests/support/fixtures/frontend/modules.cjs",
+        "tests/support/fixtures/frontend/canvas_capabilities.cjs"
       ]
     },
     "project.unit.test_classic_capabilities_frontend": {
@@ -2377,7 +2378,9 @@
         "src/vsc/interfaces/web/static/canvas-persistence-worker.js",
         "src/vsc/interfaces/web/static/image-controls.js",
         "src/vsc/interfaces/web/static/panel.js",
-        "tests/project/unit/canvas_core_replica.test.mjs"
+        "tests/project/unit/canvas_core_replica.test.mjs",
+        "src/vsc/interfaces/web/static/canvas-operation-controls.js",
+        "tests/support/fixtures/frontend/canvas_capabilities.cjs"
       ]
     },
     "assets.unit.test_costume_gallery": {
@@ -2574,6 +2577,13 @@
         "src/vsc/interfaces/web/templates/index.html",
         "tests/project/unit/capability_center.test.mjs",
         "tests/support/fixtures/frontend/panel_dom.cjs"
+      ]
+    },
+    "production.unit.test_canvas_capabilities": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/canvas_capabilities.py"
       ]
     }
   },

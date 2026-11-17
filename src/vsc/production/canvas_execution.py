@@ -103,13 +103,18 @@ def preview_canvas(service,p,payload):
     if canvas['canvas_revision']!=payload.get('canvas_revision'):raise Conflict('先保存并核对当前画布版本','canvas_revision_conflict')
     nodes={n['id']:n for n in canvas['document']['nodes']};node=nodes.get(payload.get('node_id'))
     if not node or node['type']=='text':raise ResourceError('文本节点只作为输入；请选择图像、音频或视频节点')
+    from vsc.production.canvas_capabilities import validate_work_operation, OPERATION_KEY
+    from vsc.assets.creative_canvas import canvas_image_tool
+    validate_work_operation(node,canvas['document']['edges'],nodes)
+    if canvas_image_tool(node['type'],node['params']):
+        raise ResourceError('图像工具请从节点工作生成入口固定输入与报价','canvas_image_tool_work_input_required')
     tree=service.get_project_tree(p);objects={x['id']:x for x in tree['nodes']};shot=objects.get(payload.get('shot_id'))
     if payload.get('shot_id'):
         if not shot or shot['kind']!='shot':raise ResourceError('请选择原镜头')
         ancestor=shot
         while ancestor and ancestor['kind']!='episode':ancestor=objects.get(ancestor.get('parent_id'))
         if not ancestor or canvas['episode_id'] and canvas['episode_id']!=ancestor['id']:raise ResourceError('镜头不属于当前画布集','canvas_job_scope')
-    prompt=[];logical={'params':node['params']};waiting=[]
+    prompt=[];logical={'params':{key:value for key,value in node['params'].items() if key!=OPERATION_KEY}};waiting=[]
     if node['type']=='image':logical.update(width=payload.get('width',1080),height=payload.get('height',1920))
     if node['type']=='video':logical['duration_ms']=payload.get('duration_ms',5000)
     if node['type']=='audio':logical.update(script_line_ids=payload.get('script_line_ids',[]),voice_media_id=payload.get('voice_media_id'))
