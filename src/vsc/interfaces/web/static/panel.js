@@ -1138,7 +1138,7 @@ document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListen
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
 $('role-memory-open')?.addEventListener('click',guard(openRoleMemory));
 $('session-open').addEventListener('click',guard(()=>openAccess({area:'account'})));
-$('help-open')?.addEventListener('click',guard(async()=>{const data=await api('/api/v1/discovery',{headers:{'X-CSRF-Token':state.csrf}}),dialog=el('dialog','workbench-help');const close=el('button','',msg('common.close'));close.addEventListener('click',()=>dialog.close());dialog.append(el('h2','',msg('ui.tutorials')),close);for(const row of data.tutorials){const read=el('button','',row.title);read.addEventListener('click',guard(async()=>{const value=await api('/api/v1/discovery/tutorials/'+encodeURIComponent(row.id),{headers:{'X-CSRF-Token':state.csrf}});if(dialog.open){const body=dialog.querySelector('pre')||el('pre');setText(body,value.content);dialog.append(body);}}));dialog.append(read);}document.body.append(dialog);dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}));
+$('help-open')?.addEventListener('click',()=>{window.open('/guide/creation','_blank');});
 for(const item of document.querySelectorAll('#account-menu button,#account-menu a'))item.addEventListener('click',()=>{$('account-menu').open=false;});
 $('access-open')?.addEventListener('click',guard(()=>openAccess({area:'account'})));
 $('team-settings-open')?.addEventListener('click',guard(()=>openAccess({area:'workspace'})));
@@ -1169,7 +1169,7 @@ sidebarHelp?.addEventListener('keydown',event=>{if(event.key==='Escape'){event.p
 document.addEventListener('pointerdown',event=>{if(sidebarHelp&&!sidebarHelp.contains(event.target))sidebarHelp.removeAttribute('open');});
 // End sidebar disclosures.
 const closeHelp=()=>document.querySelector('.sidebar-help')?.removeAttribute('open');
-$('help-guide')?.addEventListener('click',guard(async()=>{closeHelp();$('help-open')?.click();}));
+$('help-guide')?.addEventListener('click',()=>{window.open('/guide/creation','_blank');});
 $('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','feedback-records');}));
 $('help-network')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','network-diagnostic');}));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));

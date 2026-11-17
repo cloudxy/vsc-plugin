@@ -27,6 +27,8 @@ def guides_root(root=None):
 
 def _inline(s):
     s = html_mod.escape(s, quote=False)
+    # 内嵌图片 ![alt](url)
+    s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img src="\2" alt="\1" class="inline-img" loading="lazy">', s)
     s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
     s = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2">\1</a>', s)
@@ -132,6 +134,7 @@ a{color:var(--brand);text-decoration:none}
 a:hover{text-decoration:underline}
 .callout{background:var(--callout-bg);border:1px solid var(--callout-border);border-radius:8px;padding:14px 18px;margin:1em 0;font-size:14px;color:#595959;line-height:1.7;position:relative;overflow:hidden}
 .callout::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#FFD591;border-radius:8px 0 0 8px}
+.inline-img{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--border);margin:8px 0;display:block;cursor:zoom-in}
 .table-wrap{overflow-x:auto;margin:1em 0;border-radius:8px;border:1px solid var(--border)}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th{background:var(--hover);color:var(--fg);font-weight:600;text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
