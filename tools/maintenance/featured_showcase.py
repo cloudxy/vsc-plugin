@@ -549,7 +549,11 @@ class CacheSync:
         for work_index, work in enumerate(works):
             for item in manifest["works"][work]["media"]:
                 rank = min({"output": 0, "reference": 1, "poster": 2, "history": 3}[r] for r in item["roles"])
-                priority = (rank, work_index)
+                # Spread visible image outputs across canvases before large
+                # videos consume the shared cap. All current outputs still
+                # precede reference/history downloads.
+                visual_rank = {"image": 0, "audio": 1, "video": 2}.get(item.get("output_type"), 3) if rank == 0 else 0
+                priority = (rank, visual_rank, work_index)
                 if item["digest"] not in selected or priority < selected[item["digest"]][0]:
                     selected[item["digest"]] = (priority, item)
         ordered = [item for _, item in sorted(selected.values(), key=lambda pair: pair[0])]

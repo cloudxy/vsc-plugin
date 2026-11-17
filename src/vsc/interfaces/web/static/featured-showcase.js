@@ -463,9 +463,12 @@ export function createFeaturedShowcase(root, {api, notice}) {
     const coverage = el("div", "fs-coverage");
     const local = process.coverage?.localMediaNodes ?? nodes.filter(node => ["audio", "image", "video"].includes(node.type) && outputsFor(node).some(output => localURL(output.url))).length;
     const mediaCount = counts.audio + counts.image + counts.video;
+    const emptyCount = nodes.filter(node => ["audio", "image", "video"].includes(node.type) && node.mediaStatus === 'empty').length;
+    const outputMediaCount = mediaCount - emptyCount;
     coverage.append(el("strong", "fs-process-name", data.name || card.name || "制作过程"));
-    coverage.append(el("span", "", `${nodes.length} 个节点 · 音频 ${counts.audio} · 图片 ${counts.image} · 视频 ${counts.video} · 已缓存 ${local}/${mediaCount} 个媒体节点`));
-    if (process.coverage?.missingMediaNodes || local < mediaCount) coverage.append(el("span", "fs-coverage-warning", "部分媒体待缓存，结构仍可查看。"));
+    coverage.append(el("span", "", `${nodes.length} 个节点 · 音频 ${counts.audio} · 图片 ${counts.image} · 视频 ${counts.video} · 已缓存 ${local}/${outputMediaCount} 个有输出媒体节点`));
+    if (emptyCount) coverage.append(el('span', '', `${emptyCount} 个节点没有输出。`));
+    if (process.coverage?.missingMediaNodes || local < outputMediaCount) coverage.append(el("span", "fs-coverage-warning", "部分媒体待缓存，结构仍可查看。"));
     if (process.issues?.length) {
       const issues = el("details", "fs-issues");
       issues.append(el("summary", "", `${process.issues.length} 项结构提示`), el("pre", "", JSON.stringify(process.issues, null, 2)));
@@ -504,18 +507,30 @@ export function createFeaturedShowcase(root, {api, notice}) {
       return {x: Number(node.x) || 0, y: Number(node.y) || 0, width: Math.max(1, Number(node.width) || 240), height: Math.max(1, Number(node.height) || 160)};
     }
 
+    function startingNode() {
+      const targets = new Set((process.edges || []).map(edge => edge.target));
+      return nodes.find(node => node.type !== 'group' && !targets.has(node.id)) || nodes.find(node => node.type !== 'group') || nodes[0];
+    }
+
+    function centerNode(node, rect) {
+      const box = geometry(node);
+      scale = Math.max(0.75, scale);
+      originX = rect.width / 2 - (box.x + box.width / 2) * scale;
+      originY = rect.height / 2 - (box.y + box.height / 2) * scale;
+    }
+
     function focusNode(id) {
       const node = byId.get(id);
       if (!node) return;
       mode = "workflow";
-      const rect = body.querySelector(".fs-stage")?.getBoundingClientRect();
-      const box = geometry(node);
-      if (rect?.width) {
-        originX = rect.width / 2 - (box.x + box.width / 2) * scale;
-        originY = rect.height / 2 - (box.y + box.height / 2) * scale;
-      }
       fitPending = false;
       selectNode(id);
+      const stage = body.querySelector('.fs-stage');
+      if (stage) {
+        centerNode(node, stage.getBoundingClientRect());
+        stage.querySelector('.fs-world').style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;
+        stage.querySelector('.fs-zoom').textContent = `${Math.round(scale * 100)}%`;
+      }
     }
 
     function paint() {
@@ -633,6 +648,9 @@ export function createFeaturedShowcase(root, {api, notice}) {
       controls.append(button("适应画布", () => { fit(stage); zoomLabel.textContent = `${Math.round(scale * 100)}%`; }), button(showEdges ? "隐藏节点连线" : "显示节点连线", () => { showEdges = !showEdges; paint(); }), button("−", () => applyScale(scale / 1.25)), zoomLabel, button("+", () => applyScale(scale * 1.25)));
       controls.querySelectorAll("button")[2].setAttribute("aria-label", "缩小画布");
       controls.querySelectorAll("button")[3].setAttribute("aria-label", "放大画布");
+      const read = button('阅读节点', () => focusNode(selected || startingNode()?.id));
+      read.disabled = !nodes.length;
+      controls.append(read);
       stage.append(controls);
       stage.addEventListener("pointerdown", event => {
         if (event.target !== stage && event.target !== world) return;
@@ -656,14 +674,14 @@ export function createFeaturedShowcase(root, {api, notice}) {
       stage.addEventListener("wheel", event => { event.preventDefault(); applyScale(scale * (event.deltaY > 0 ? 0.9 : 1.1)); }, {passive: false});
       if (fitPending) requestAnimationFrame(() => {
         if (layerContext === context && layer?.contains(stage) && layer.dataset.view === "process" && body.querySelector(".fs-stage") === stage && fitPending) {
-          fit(stage);
+          fit(stage, true);
           zoomLabel.textContent = `${Math.round(scale * 100)}%`;
         }
       });
       return stage;
     }
 
-    function fit(stage) {
+    function fit(stage, readable = false) {
       if (!nodes.length) return;
       const boxes = nodes.map(geometry);
       const minX = Math.min(...boxes.map(box => box.x)), minY = Math.min(...boxes.map(box => box.y));
@@ -672,6 +690,7 @@ export function createFeaturedShowcase(root, {api, notice}) {
       scale = Math.min(1, Math.max(0.02, Math.min(Math.max(1, rect.width - 48) / Math.max(1, maxX - minX), Math.max(1, rect.height - 48) / Math.max(1, maxY - minY))));
       originX = (rect.width - (maxX - minX) * scale) / 2 - minX * scale;
       originY = (rect.height - (maxY - minY) * scale) / 2 - minY * scale;
+      if (readable && scale < 0.35) centerNode(startingNode(), rect);
       fitPending = false;
       const world = stage.querySelector(".fs-world");
       if (world) world.style.transform = `translate(${originX}px, ${originY}px) scale(${scale})`;

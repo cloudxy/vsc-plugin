@@ -84,6 +84,20 @@ def manifest_for(root, urls):
 
 
 class FeaturedShowcaseCache(unittest.TestCase):
+    def test_multi_canvas_budget_prioritizes_visible_image_outputs_before_video(self):
+        payload=b'synthetic-media-bytes'
+        with tempfile.TemporaryDirectory() as temp, origin(payload) as (url, _):
+            root=Path(temp)
+            video=url+'/first.mp4';image=url+'/second.png'
+            snapshot(root,'work-a',[{'id':'video','type':'video','data':{'url':video}}])
+            snapshot(root,'work-b',[{'id':'image','type':'image','data':{'url':image}}])
+            manifest=build_manifest(root,['work-a','work-b'])
+            result=CacheSync(root,len(payload),workers=2).run(manifest,['work-a','work-b'])
+            self.assertIsNotNone(find_media(root,image))
+            self.assertIsNone(find_media(root,video))
+            self.assertEqual(result['outcomes'][media_digest(video)]['status'],'budget_skip')
+            self.assertLessEqual(media_bytes(root),len(payload))
+
     def test_archive_identity_mismatch_preserves_manifest_and_sources_before_sync(self):
         for field, conflicting in (("templateUuid", "wrong-work"), ("snapshotId", 8)):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as temp:

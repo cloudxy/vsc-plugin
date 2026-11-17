@@ -365,6 +365,30 @@ test('unknown node types expose metadata and directory, zoom and Escape controls
   assert.equal(layerOf(f), null);
 });
 
+test('a large uncached workflow opens at a readable node and overview can return to readable details', async t => {
+  const nodes = [processNode('起始参考', 'image', {x: -2400, y: -1400, mediaStatus: 'missing'}),
+    processNode('后续镜头', 'video', {x: 18000, y: 16000, mediaStatus: 'missing'})];
+  const f = await setup(t, request => request.url.endsWith('/A') ? {process: {nodes,
+    edges: [{id: 'e', source: '起始参考', target: '后续镜头'}]}} : feed('A', {items: [processCard('A')]}));
+  await openProcess(f);
+  await flush();
+  assert.equal(layerOf(f).querySelector('.fs-zoom').textContent, '75%');
+  assert.equal(layerOf(f).querySelectorAll('.fs-node').length, 2);
+  assert.match(layerOf(f).querySelector('.fs-world').style.transform, /translate\(2210px, 1340px\) scale\(0.75\)/);
+  await control(f, '适应画布').click();
+  assert.equal(layerOf(f).querySelector('.fs-zoom').textContent, '4%');
+  await control(f, '阅读节点').click();
+  assert.equal(layerOf(f).querySelector('.fs-zoom').textContent, '75%');
+  assert.equal(layerOf(f).querySelector('.fs-inspector').querySelector('h3').textContent, '起始参考');
+  await control(f, '关闭详情').click();
+  await control(f, '故事板').click();
+  await layerOf(f).querySelector('.fs-media-tile').click();
+  await control(f, '定位到画布').click();
+  assert.ok(layerOf(f).querySelector('.fs-stage'));
+  assert.equal(layerOf(f).querySelector('.fs-zoom').textContent, '75%');
+  assert.equal(layerOf(f).querySelector('.fs-inspector').querySelector('h3').textContent, '后续镜头');
+});
+
 test('copy prompts includes every prompt and reports the actual clipboard result', async t => {
   const nodes = Array.from({length: 45}, (_, index) => processNode(`n${index}`, 'image', {prompt: `完整提示词${index}`}));
   const f = await setup(t, request => request.url.endsWith('/A') ? {name: '完整提示词作品', process: {nodes, edges: []}} : feed('A', {items: [processCard('A')]}));
@@ -378,6 +402,17 @@ test('copy prompts includes every prompt and reports the actual clipboard result
   await control(f, '复制提示词').click();
   assert.equal(f.clipboard.values.length, 1);
   assert.equal(f.notices.at(-1), '复制失败，请检查浏览器剪贴板权限后重试。');
+});
+
+test('empty source nodes do not report a cache gap after all real outputs are local', async t => {
+  const nodes=[processNode('已保存','image',{mediaStatus:'local',url:'/featured-showcase-media/saved.png'}),
+    processNode('原本无输出','image',{mediaStatus:'empty',outputs:[]})];
+  const f=await setup(t,request=>request.url.endsWith('/A')?{process:{nodes,edges:[],
+    coverage:{mediaNodes:2,localMediaNodes:1,missingMediaNodes:0,status:'complete'}}}:feed('A',{items:[processCard('A')]}));
+  await openProcess(f);
+  assert.equal(Boolean(layerOf(f).querySelector('.fs-coverage-warning')),false);
+  assert.match(layerOf(f).querySelector('.fs-coverage').textContent,/已缓存 1\/1 个有输出媒体节点/);
+  assert.match(layerOf(f).querySelector('.fs-coverage').textContent,/1 个节点没有输出/);
 });
 
 test('unpublished, missing and invalid snapshots keep a visible explanation without inventing a canvas', async t => {
