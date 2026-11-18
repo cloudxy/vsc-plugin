@@ -126,6 +126,9 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:4px;marg
 .toc-list a.active{background:var(--brand-bg);color:var(--brand);font-weight:500}
 .toc-list a.lvl-2{font-size:13px;padding-left:12px}
 .toc-list a.lvl-3{padding-left:28px;font-size:12px;color:#8F959E}
+.toc-list a.lvl-4{padding-left:44px;font-size:12px;color:#8F959E}
+.toc-list a.lvl-5{padding-left:58px;font-size:12px;color:#8F959E}
+.toc-list a.lvl-6{padding-left:72px;font-size:12px;color:#8F959E}
 
 /* ── 文档区 ── */
 .doc{flex:1;display:flex;justify-content:center;padding:0 48px 120px;min-width:0}
@@ -152,6 +155,9 @@ align-items:center;gap:8px}
 h2{font-size:20px;font-weight:600;color:var(--fg);margin:2em 0 .5em;
 padding-bottom:6px;border-bottom:1px solid var(--border)}
 h3{font-size:16px;font-weight:600;color:var(--fg);margin:1.6em 0 .3em}
+h4{font-size:15px;font-weight:600;color:var(--fg);margin:1.3em 0 .25em}
+h5{font-size:14px;font-weight:600;color:var(--fg);margin:1.1em 0 .2em}
+h6{font-size:13px;font-weight:600;color:var(--fg);margin:1em 0 .2em}
 
 /* ── 正文 ── */
 p{margin:.5em 0;color:var(--fg);line-height:1.75}
@@ -227,28 +233,23 @@ def _build_page(data):
 
     toc_items = []
     body_parts = []
-    h2_idx = 0
-    section_map = {}
+    heading = {2: "h2", 3: "h3", 4: "h4", 5: "h5", 6: "h6"}
     for sec in sections:
-        sid = sec["id"]
-        if sec["level"] == 2:
-            anchor = f"s2-{h2_idx}"
-            h2_idx += 1
-            toc_items.append(f'<li><a href="#{anchor}" data-target="{anchor}" class="lvl-2">{html_mod.escape(sec["title"])}</a></li>')
-            callout_html = f'<div class="callout">{_inline(sec["callout"])}</div>' if sec.get("callout") else ""
-            body_html = _render_body(sec.get("body", ""))
-            body_parts.append(f'<h2 id="{anchor}">{html_mod.escape(sec["title"])}</h2>{callout_html}{body_html}')
-            section_map[sid] = anchor
-        elif sec["level"] == 3:
-            parent_anchor = section_map.get(sec.get("parent_id"), "")
-            anchor = f"{parent_anchor}-{sec['sort_order']}" if parent_anchor else f"s3-{sec['sort_order']}"
-            toc_items.append(f'<li><a href="#{anchor}" data-target="{anchor}" class="lvl-3">{html_mod.escape(sec["title"])}</a></li>')
-            callout_html = f'<div class="callout">{_inline(sec["callout"])}</div>' if sec.get("callout") else ""
-            body_html = _render_body(sec.get("body", ""))
-            body_parts.append(f'<h3 id="{anchor}">{html_mod.escape(sec["title"])}</h3>{callout_html}{body_html}')
+        level = sec["level"]
+        tag = heading.get(level)
+        if not tag:
+            continue
+        anchor = f"s{level}-{sec['sort_order']}"
+        toc_items.append(
+            f'<li><a href="#{anchor}" data-target="{anchor}" class="lvl-{level}">{html_mod.escape(sec["title"])}</a></li>'
+        )
+        callout_html = f'<div class="callout">{_inline(sec["callout"])}</div>' if sec.get("callout") else ""
+        body_html = _render_body(sec.get("body", ""))
+        body_parts.append(f'<{tag} id="{anchor}">{html_mod.escape(sec["title"])}</{tag}>{callout_html}{body_html}')
 
+    inline_images = any("![" in (sec.get("body") or "") for sec in sections)
     gallery_html = ""
-    if images:
+    if images and not inline_images:
         figs = "".join(
             f'<figure><img src="{img["media_url"]}" loading="lazy" alt="{html_mod.escape(img.get("alt_text",""))}" onclick="lb(this.src)">'
             f"<figcaption>{html_mod.escape(img['filename'])}</figcaption></figure>"
@@ -313,7 +314,7 @@ var obs=new IntersectionObserver(function(es){{
     }}
   }});
 }},{{rootMargin:'-30% 0px -60% 0px'}});
-document.querySelectorAll('h2[id^="s"],h3[id^="s"]').forEach(function(h){{obs.observe(h)}});
+document.querySelectorAll('h2[id^="s"],h3[id^="s"],h4[id^="s"],h5[id^="s"],h6[id^="s"]').forEach(function(h){{obs.observe(h)}});
 </script>
 </body>
 </html>"""
