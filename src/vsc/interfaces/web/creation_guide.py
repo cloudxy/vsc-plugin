@@ -367,10 +367,10 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
             raise HTTPException(404, "文档不存在")
         return JSONResponse(_jsonable(data))
 
-    @app.get("/creation-guide-media/{name}")
-    def guide_media(name: str):
-        safe = Path(name).name
-        for sub in ("images/doc", "images"):
+    @app.get("/creation-guide-media/{path:path}")
+    def guide_media(path: str):
+        safe = Path(path)
+        for sub in ("images/full", "images/doc", "images"):
             candidate = root() / sub / safe
             if candidate.is_file() and candidate.suffix in MEDIA_TYPES:
                 return FileResponse(candidate, media_type=MEDIA_TYPES[candidate.suffix])
