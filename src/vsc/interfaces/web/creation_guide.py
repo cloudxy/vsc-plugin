@@ -291,7 +291,7 @@ def _build_page(data):
 </nav>
 <main class="doc"><div class="doc-inner">
 <div class="doc-header">
-<div class="breadcrumb"><a href="/">VSC 工作台</a><span class="sep">›</span><span>{title}</span></div>
+<div class="breadcrumb"><a href="/">vsc创作工作台</a><span class="sep">›</span><span>{title}</span></div>
 <h1>{title}</h1>
 <div class="meta"><span>最近修改：{date_str}</span><span class="dot">·</span><span>{len(sections)} 个章节</span></div>
 </div>
