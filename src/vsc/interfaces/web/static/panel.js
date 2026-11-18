@@ -1,5 +1,6 @@
 import {msg,joinMessages,setText,bindAttribute,isMessage,option as localizedOption,mountLocalePicker,getLocale,getLocaleRevision,setLocale} from './i18n.js';
 import {readCanvasLibraryPending} from './canvas-library.js';
+import {recentProjectCover} from './discovery.js';
 import {createTaskNotifications} from './task-notifications.js';
 import {createNotice} from './notice.js';
 import {artifactTitle, renderArtifactContent} from './artifact-reader.js';
@@ -350,7 +351,8 @@ function renderRecentProjects(rows){
     if(state.actor!==actor||ticket!==recentRequest)return;recent.replaceChildren();
     const visible=new Set(rows.map(row=>row.id));const recentRows=data.recent.filter(row=>visible.has(row.project_id));for(const row of recentRows.slice(0,8)){
       const a=el('a','recent-project');a.href=row.href;a.title=[row.project_name,row.episode_name,row.title].filter(Boolean).join(' · ');
-      if(row.cover?.modality==='image'){const image=el('img');image.src=row.cover.content_url;bindAttribute(image,"alt",'');image.loading='lazy';a.append(image);}
+      const cover=recentProjectCover(row,rows);
+      if(cover){const preview=el(cover.modality==='video'?'video':'img');preview.src=cover.content_url;if(cover.modality==='video'){preview.muted=true;preview.preload='metadata';}else{bindAttribute(preview,"alt",'');preview.loading='lazy';}preview.addEventListener('error',()=>preview.remove(),{once:true});a.append(preview);}
       const copy=el('span','recent-project-copy');copy.append(el('strong','',row.project_name||row.title||row.kind_label));
       const elapsed=Date.now()-new Date(row.created_at).getTime(),minutes=Number.isFinite(elapsed)?Math.max(0,Math.floor(elapsed/60000)):null;
       const time=minutes==null?'':minutes<1?'刚刚':minutes<60?minutes+' 分钟前':minutes<1440?Math.floor(minutes/60)+' 小时前':Math.floor(minutes/1440)+' 天前';

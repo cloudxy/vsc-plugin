@@ -19,7 +19,7 @@ function setup(extra={}){
  const storage=new Map();globalThis.sessionStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
  const session={actor:'me',ownerships:[{id:'team-space',name:'协作团队',kind:'studio',roles:['editor']}],csrf:'csrf',writeAvailable:true,writable:true};
  const routes=[],calls=[],notices=[];
- const ctx={session:()=>session,projects:()=>rows,notice:value=>notices.push(String(value)),navigate:async(...args)=>routes.push(args),refreshProjects:async()=>{},setRevision(){},api:async(path,options={})=>{calls.push({path,options});if(extra.api)return extra.api(path,options);throw new Error('Synthetic read stopped');}};
+ const ctx={session:()=>session,projects:()=>extra.projects||rows,notice:value=>notices.push(String(value)),navigate:async(...args)=>routes.push(args),refreshProjects:async()=>{},setRevision(){},api:async(path,options={})=>{calls.push({path,options});if(extra.api)return extra.api(path,options);throw new Error('Synthetic read stopped');}};
  return {root,session,routes,calls,notices,platform:createProductionPlatform(root,ctx)};
 }
 const ids=h=>h.root.querySelectorAll('.project-tile').filter(row=>row.dataset.projectId).map(row=>row.dataset.projectId);
@@ -150,4 +150,19 @@ test('a hand-typed project_scope=recent stays off the project list and off the w
  assert.equal(both.root.querySelectorAll('.recent-creation-card').length,1);
  assert.ok(both.calls.every(row=>row.path==='/api/v1/discovery'));
  assert.ok(noRecentScope(both));
+});
+
+
+test('recent creations use the same project cover as personal cards, including empty and video covers',async()=>{
+ for(const cover of [{modality:'image',content_url:'/project-cover.png'},{modality:'video',content_url:'/project-cover.mp4'},null]){
+  const projects=[{...rows[0],cover}];
+  const h=setup({projects,api:discoveryOf([{...workCard(),cover:{modality:'image',content_url:'/object-preview.png'}}])});
+  await h.platform.load({page:'projects'});
+  const personal=h.root.querySelector('.project-cover'),personalPreview=personal.querySelector(cover?.modality==='video'?'video':'img');
+  await h.platform.load({page:'projects',tab:'recent'});
+  const recent=h.root.querySelector('.recent-creation-card'),preview=recent.querySelector(cover?.modality==='video'?'video':'img');
+  if(cover){assert.equal(preview?.src,personalPreview.src);assert.equal(preview.src,cover.content_url);}
+  else{assert.equal(preview,null);assert.ok(recent.querySelector('.recent-creation-empty'));}
+  assert.equal(recent.href,workCard().href);
+ }
 });

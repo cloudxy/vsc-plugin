@@ -1,5 +1,10 @@
 import {msg,joinMessages,setText,bindAttribute} from './i18n.js';
 import {openTemplateCopy} from './community.js';
+// Recent links keep their object identity; covers identify the owning project.
+export function recentProjectCover(row,projects=[]){
+ const project=projects.find(project=>project.id===row.project_id);
+ return project&&Object.prototype.hasOwnProperty.call(project,'cover')?project.cover:row.cover;
+}
 // Catalog rows link back to the original object and fixed template.
 const el=(tag,text,cls)=>{const node=document.createElement(tag);if(text!=null)setText(node,text);if(cls)node.className=cls;return node;};
 export async function mountDiscovery(root,ctx,{isCurrent=()=>true,view='all'}={}){
@@ -8,7 +13,7 @@ export async function mountDiscovery(root,ctx,{isCurrent=()=>true,view='all'}={}
  if(view!=='templates'){
   if(view!=='recent'){const header=el('div',null,'home-section-heading');header.append(el('h2',msg("home.recent_creations")));section.append(header);}
   const grid=el('div',null,'discovery-grid');
-  for(const row of data.recent||[]){const card=el('a',null,'discovery-card recent-creation-card');card.href=row.href;card.dataset.creationKind=row.kind;if(row.cover){const preview=el(row.cover.modality==='video'?'video':'img');preview.src=row.cover.content_url;if(preview.tagName==='VIDEO'){preview.muted=true;preview.preload='metadata';}else{bindAttribute(preview,"alt",'');preview.loading='lazy';}preview.addEventListener('error',()=>preview.remove(),{once:true});card.append(preview);}else card.append(el('div',row.kind_label||msg("home.agent_create"),'recent-creation-empty'));const when=el('time');when.dateTime=row.created_at;when.title=new Date(row.created_at).toLocaleString();const minutes=Math.max(0,Math.floor((Date.now()-new Date(row.created_at))/60000));setText(when,minutes<1?msg("common.just_now"):minutes<60?msg("ui.value0_minutes_ago",{value0:minutes}):minutes<1440?msg("ui.value0_hours_ago",{value0:Math.floor(minutes/60)}):minutes<10080?msg("ui.value0_days_ago",{value0:Math.floor(minutes/1440)}):new Date(row.created_at).toLocaleDateString('zh-CN'));card.append(el('small',row.project_name+(row.episode_name?' · '+row.episode_name:'')),el('h3',row.title||row.kind_label),el('span',row.kind_label||msg("home.agent_create"),'recent-creation-kind'),when);grid.append(card);}
+  for(const row of data.recent||[]){const card=el('a',null,'discovery-card recent-creation-card');card.href=row.href;card.dataset.creationKind=row.kind;const cover=recentProjectCover(row,ctx.projects?.()||data.projects||[]);if(cover){const preview=el(cover.modality==='video'?'video':'img');preview.src=cover.content_url;if(preview.tagName==='VIDEO'){preview.muted=true;preview.preload='metadata';}else{bindAttribute(preview,"alt",'');preview.loading='lazy';}preview.addEventListener('error',()=>preview.remove(),{once:true});card.append(preview);}else card.append(el('div',row.kind_label||msg("home.agent_create"),'recent-creation-empty'));const when=el('time');when.dateTime=row.created_at;when.title=new Date(row.created_at).toLocaleString();const minutes=Math.max(0,Math.floor((Date.now()-new Date(row.created_at))/60000));setText(when,minutes<1?msg("common.just_now"):minutes<60?msg("ui.value0_minutes_ago",{value0:minutes}):minutes<1440?msg("ui.value0_hours_ago",{value0:Math.floor(minutes/60)}):minutes<10080?msg("ui.value0_days_ago",{value0:Math.floor(minutes/1440)}):new Date(row.created_at).toLocaleDateString('zh-CN'));card.append(el('small',row.project_name+(row.episode_name?' · '+row.episode_name:'')),el('h3',row.title||row.kind_label),el('span',row.kind_label||msg("home.agent_create"),'recent-creation-kind'),when);grid.append(card);}
   if(!(data.recent||[]).length)grid.append(el('p',msg(view==='recent'?"ui.recent_creations_empty":"ui.choose_a_creation_entry_above_your_work_will_appear")));
   section.append(grid);
  }
