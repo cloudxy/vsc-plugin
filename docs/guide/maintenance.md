@@ -69,3 +69,16 @@ python -m tools.maintenance.featured_showcase --work <作品ID> --budget-gib 30 
 ```
 
 清单、进度和分块台账保存在同一个资产根目录。重复指定作品可恢复原任务；来源变更、缺失、失败及预算跳过单独报告，不删除已有资源腾空间。需要原站完整响应时，按固定版本归档到 `sources/process-detail/<作品ID>-<snapshotId>.json`，保留原始地址，网页仍只使用本地媒体。
+
+已有全量依赖数据库的下载任务使用仓库中的持续下载器，入口不依赖系统临时目录：
+
+```bash
+python -m tools.maintenance.featured_showcase_bulk --root <资源目录> --sync
+python -m tools.maintenance.featured_showcase_metrics --root <资源目录> --sample
+```
+
+全量下载要求根目录已有 `storage-location.json`、`bulk-sync/inventory.sqlite3` 和明确的 `bulk-sync/storage-policy.json`；策略的 `allocation_mode` 为 `all_available_physical_space`，`minimum_free_bytes` 指定运行写入余量。记录中的根路径与挂载卷必须匹配实际目录。程序不会自动扩充授权或改用内部磁盘。
+
+下载器按有界窗口持续补入任务，逐文件校验入库，保留逐块 fsync 与 SQLite FULL 回执。`bulk-sync/state.json` 记录实际速率、活动连接任务、失败分类与剩余空间；SIGTERM/SIGINT 停止接收新任务并保存可恢复状态。重新运行相同命令复用有效分块，容量放不下的大文件延后，其它文件继续处理；429 会停止本轮请求。完整队列结束与空间不足分别报告，均不能证明来源未公开的内容已恢复。
+
+体积抽样的固定样本与逐条结果保存于 `bulk-sync/performance-audit/`，中断后重复命令继续。失败的探测保留为未知大小，不按零字节估算。体积区间和状态中的 ETA 均以样本及实测速率为条件，不能保证最终总量、速度或下载成功率；文件系统分配空间另计。

@@ -2583,6 +2583,14 @@
         "src/vsc/adapters/providers/studio_auth.py",
         "src/vsc/production/provider_errors.py"
       ]
+    },
+    "assets.unit.test_featured_showcase_bulk": {
+      "owner": "assets",
+      "layer": "unit",
+      "sources": [
+        "tools/maintenance/featured_showcase_bulk.py",
+        "tools/maintenance/featured_showcase_metrics.py"
+      ]
     }
   },
   "dependencies": {

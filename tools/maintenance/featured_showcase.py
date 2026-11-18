@@ -318,15 +318,20 @@ def check_version(response, record):
         raise OriginChanged("Origin Last-Modified changed or disappeared; preserved partial cannot be mixed")
 
 
+class TransferInterrupted(OSError):
+    """Keep verified blocks when the owning worker requests a graceful stop."""
+
+
 class CacheSync:
     """A lock-owning CLI calls run(); tests can use a temporary isolated cache."""
 
-    def __init__(self, root, budget_bytes, workers=12, block_size=BLOCK_SIZE, timeout=40):
+    def __init__(self, root, budget_bytes, workers=12, block_size=BLOCK_SIZE, timeout=40, stop_event=None):
         self.root = Path(root)
         self.budget = int(budget_bytes)
         self.workers = int(workers)
         self.block_size = block_size
         self.timeout = timeout
+        self.stop_event = stop_event
         self.guard = threading.RLock()
         self.records = {}
         self.outcomes = {}
@@ -418,6 +423,10 @@ class CacheSync:
             record["status"] = "downloading"
             self.save_record(record)
 
+    def check_stop(self):
+        if self.stop_event is not None and self.stop_event.is_set():
+            raise TransferInterrupted("Worker stop requested; verified blocks retained")
+
     def fetch_range(self, record, start, end):
         if record["failed"]:
             return
@@ -426,12 +435,14 @@ class CacheSync:
         request = urllib.request.Request(record["url"], headers=request_headers(**extra))
         checksum, count = hashlib.sha256(), 0
         try:
+            self.check_stop()
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 check_version(response, record)
                 expected = "bytes " + str(start) + "-" + str(end) + "/" + str(record["total"])
                 if response.status != 206 or response.headers.get("Content-Range", "").strip() != expected:
                     raise OSError("Origin did not return the exact requested HTTP 206 byte range")
                 while count < end - start + 1:
+                    self.check_stop()
                     chunk = response.read(min(READ_SIZE, end - start + 1 - count))
                     if not chunk:
                         raise OSError("Interrupted HTTP byte range")
@@ -455,7 +466,7 @@ class CacheSync:
     def fail(self, record, exc):
         with self.guard:
             version = isinstance(exc, OriginChanged) or isinstance(exc, urllib.error.HTTPError) and exc.code in (412, 416)
-            status = "version_changed" if version else "failed"
+            status = "version_changed" if version else "interrupted" if isinstance(exc, TransferInterrupted) else "failed"
             # A subsequent generic failure must not hide an origin-version conflict.
             if self.outcomes[record["digest"]]["status"] == "version_changed":
                 status = "version_changed"
@@ -470,6 +481,7 @@ class CacheSync:
         count = 0
         limit = record["total"] if record["total"] is not None else record["reserved"]
         try:
+            self.check_stop()
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 check_version(response, record)
                 if response.status != 200:
@@ -478,6 +490,7 @@ class CacheSync:
                 if length is not None and record["total"] is not None and int(length) != record["total"]:
                     raise OriginChanged("Origin length changed after probe")
                 while True:
+                    self.check_stop()
                     chunk = response.read(min(READ_SIZE, limit - count + 1))
                     if not chunk:
                         break
