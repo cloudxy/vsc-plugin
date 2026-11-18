@@ -58,24 +58,33 @@ test('database history resumes the original publication and opens its exact offi
  }finally{view.suspend();root.remove();Object.assign(store.getState(),saved);if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}
 });
 
-test('ComfyUI is completely removed and AGY/Grok auth + Grok/Gemini API + Video modality providers are registered',()=>{
+test('ComfyUI is completely removed and AGY/Grok auth + Grok/Gemini/Kling API + Video modality providers are registered',()=>{
  assert.equal(existsSync(new URL('../../../src/vsc/interfaces/web/static/character-studio-workflows.js',import.meta.url)),false);
- assert.deepEqual(ai.PROVIDER_ORDER,['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao']);
+ assert.deepEqual(ai.PROVIDER_ORDER,['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','kling']);
  assert.equal(ai.PROVIDER_META.comfyui,undefined);
- assert.deepEqual(ai.SETTINGS_GROUPS.map(g=>g.id),['google','xai','gpt','qwen','doubao']);
+ assert.deepEqual(ai.SETTINGS_GROUPS.map(g=>g.id),['google','xai','gpt','qwen','doubao','kling']);
  assert.deepEqual(ai.SETTINGS_GROUPS[0].modes,['agy_auth','gemini']);
  assert.deepEqual(ai.SETTINGS_GROUPS[1].modes,['grok_auth','grok']);
+ assert.deepEqual(ai.SETTINGS_GROUPS[5].modes,['kling']);
+ assert.equal(ai.PROVIDER_META.kling.supportsDualAuth,true);
+ assert.equal(ai.PROVIDER_META.kling.defaultBaseUrl,'https://api-beijing.klingai.com');
  assert.equal(ai.isAuthProvider('agy_auth'),true);
  assert.equal(ai.isAuthProvider('grok_auth'),true);
  assert.equal(ai.isAuthProvider('grok'),false);
  assert.equal(ai.isAuthProvider('gemini'),false);
+ assert.equal(ai.isAuthProvider('kling'),false);
 
  assert.deepEqual(ai.SETTINGS_MODALITIES.map(m=>[m.id,m.label]),[['image','图'],['video','视频']]);
- assert.deepEqual(ai.VIDEO_PROVIDER_ORDER,['grok_video_auth','grok_video','doubao_video','gemini_video','qwen_video','openai_video']);
- assert.deepEqual(ai.VIDEO_SETTINGS_GROUPS.map(g=>g.id),['xai_video','doubao_video','google_video','qwen_video','openai_video']);
+ assert.deepEqual(ai.VIDEO_PROVIDER_ORDER,['grok_video_auth','grok_video','doubao_video','gemini_video','qwen_video','openai_video','kling_video']);
+ assert.deepEqual(ai.VIDEO_SETTINGS_GROUPS.map(g=>g.id),['xai_video','doubao_video','google_video','qwen_video','openai_video','kling_video']);
  assert.deepEqual(ai.VIDEO_SETTINGS_GROUPS[0].modes,['grok_video_auth','grok_video']);
+ assert.deepEqual(ai.VIDEO_SETTINGS_GROUPS[5].modes,['kling_video']);
+ assert.equal(ai.VIDEO_PROVIDER_META.kling_video.supportsDualAuth,true);
+ assert.equal(ai.VIDEO_IMAGE_KEY_PEERS.kling_video,'kling');
+ assert.equal(ai.IMAGE_VIDEO_KEY_PEERS.kling,'kling_video');
  assert.equal(ai.isVideoAuthProvider('grok_video_auth'),true);
  assert.equal(ai.isVideoAuthProvider('grok_video'),false);
+ assert.equal(ai.isVideoAuthProvider('kling_video'),false);
 });
 
 test('Grok and Gemini API request builders follow official endpoint schemas',()=>{
@@ -192,13 +201,13 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
   }
   return {};
  };
- const studio=createCharacterStudio(root,{api:mockApi,notice:m=>notices.push(m),session:()=>({actor:'a',csrf:'c'}),navigate:(page,options)=>navigations.push([page,options])});
+ const studio=createCharacterStudio(root,{api:mockApi,notice:m=>notices.push(m),session:()=>({actor:'a',csrf:'c'}),returnContext:()=>({origin:'character-studio',projectId:null,search:'?page=character-studio'}),navigate:(page,options)=>navigations.push([page,options])});
  await studio.load({mode:'studio'});await flush();
  const headings=texts(root,'h2');
  for(const title of ['1. 参考图组合','2. 生图引擎与参数','3. 提示词 (Prompt)','本次生成结果'])assert.ok(headings.includes(title),title);
  assert.ok(texts(root,'button').includes('AI角色合成库 (0)'));
  const providerSelect=root.querySelectorAll('select').find(s=>s.options.some(o=>o.value==='agy_auth'));
- assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao']);
+ assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','kling']);
  assert.equal(providerSelect.options.some(o=>/comfy/i.test(o.value+o.textContent)),false);
  assert.ok(root.querySelector('.cs-conn'));
 
@@ -206,20 +215,29 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  providerSelect.value='grok';await providerSelect.onchange();await flush();
  assert.match(root.querySelector('.cs-warn').textContent,/xAI Grok \(API 接口\)/);
 
- // Switch to settings view -> renders two top-level modality tabs: 图 (selected) and 视频
+ // Switch to settings view -> renders unified Model Hub (Band 1 88px header + Band 2 订阅授权 | API 配置, zero .gov-settings-guide)
  await studio.load({mode:'settings'});await flush();
  assert.ok(texts(root,'h1').includes('API 接口配置'));
+ assert.equal(root.querySelector('.gov-settings-guide'),null);
+ assert.equal(root.querySelector('#cs-hub-tab-subscription').getAttribute('aria-selected'),'true');
+ assert.equal(root.querySelector('#cs-hub-tab-api').getAttribute('aria-selected'),'false');
+ assert.ok(root.querySelectorAll('h3').some(h=>h.textContent.includes('xAI Grok 订阅授权')));
+ await root.querySelector('#cs-hub-tab-api').onclick();await flush();
+ assert.equal(root.querySelector('#cs-hub-tab-api').getAttribute('aria-selected'),'true');
+
  const modTabs=root.querySelectorAll('.cs-modality-tab');
- assert.equal(modTabs.length,2);
+ assert.equal(modTabs.length,3);
  const imgModTab=root.querySelector('#cs-modality-tab-image');
  const vidModTab=root.querySelector('#cs-modality-tab-video');
+ const routesModTab=root.querySelector('#cs-modality-tab-routes');
  assert.match(imgModTab.textContent,/图/);
  assert.match(vidModTab.textContent,/视频/);
+ assert.match(routesModTab.textContent,/音频与生产模型路由/);
  assert.equal(imgModTab.getAttribute('aria-selected'),'true');
  assert.equal(vidModTab.getAttribute('aria-selected'),'false');
 
  const tabs=root.querySelectorAll('.cs-provider-tab');
- assert.equal(tabs.length,5);
+ assert.equal(tabs.length,6);
  assert.equal(tabs.some(t=>/ComfyUI/i.test(t.textContent)),false);
 
  // Currently on xAI · Grok group (`grok` API mode) -> save a Grok image key, then switch to `grok_auth` OAuth login mode
@@ -249,11 +267,11 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  assert.ok(root.querySelectorAll('input').find(i=>i.type==='password'));
 
  // Click 视频 tab -> shows Video configuration without disturbing 图 tab state
- await vidModTab.onclick();await flush();
+ await root.querySelector('#cs-modality-tab-video').onclick();await flush();
  assert.equal(root.querySelector('#cs-modality-tab-video').getAttribute('aria-selected'),'true');
  assert.equal(root.querySelector('#cs-modality-tab-image').getAttribute('aria-selected'),'false');
  const videoTabs=root.querySelectorAll('.cs-provider-tab');
- assert.deepEqual(videoTabs.map(t=>t.dataset.groupId),['xai_video','doubao_video','google_video','qwen_video','openai_video']);
+ assert.deepEqual(videoTabs.map(t=>t.dataset.groupId),['xai_video','doubao_video','google_video','qwen_video','openai_video','kling_video']);
  assert.ok(texts(root,'h2').some(t=>t.includes('xAI · Grok Video · 视频接入配置')));
  assert.ok(texts(root,'h2').includes('视频默认参数与请求选项'));
  assert.ok(root.querySelector('.cs-auth-card'));
@@ -287,12 +305,15 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  await studio.load({mode:'settings',tab:'video'});await flush();
  assert.equal(root.querySelector('#cs-modality-tab-video').getAttribute('aria-selected'),'true');
 
- const back=root.querySelectorAll('button').find(b=>b.textContent==='返回 AI 角色合成台');
- await back.onclick();assert.equal(navigations.at(-1)[0],'character-studio');
+ const back=root.querySelector('.gov-return-pill');
+ assert.equal(back.textContent,'← 返回 AI 角色合成台');
+ assert.equal(back.dataset.returnOrigin,'character-studio');
+ await back.click();assert.equal(navigations.at(-1)[0],'character-studio');
  store.updateProviderConfig('grok',{apiKey:''});
  store.updateVideoProviderConfig('grok_video',{apiKey:''});
  store.updateApiConfig({activeProvider:'agy_auth',activeVideoProvider:'grok_video_auth'});
  studio.suspend();
+ root.remove();
 });
 
 test('costume image helpers enforce local-only media paths and block external URLs',()=>{
@@ -383,7 +404,7 @@ test('OpenAI configuration light follows Codex authorization and API configurati
  const root=doc.createElement('section');doc.body.append(root);
  const previous=structuredClone(store.getState().apiConfig);let codex={ready:false,status:'idle'};
  const studio=createCharacterStudio(root,{api:async()=>({grok:{ready:false,status:'unauthorized'},agy:{ready:false,status:'unauthorized'},codex}),notice(){},session:()=>({csrf:'csrf'}),navigate(){}});
- for(const id of ai.PROVIDER_ORDER)store.updateProviderConfig(id,{apiKey:''});
+ for(const id of ai.PROVIDER_ORDER)store.updateProviderConfig(id,{apiKey:'',accessKey:'',secretKey:''});
  store.updateApiConfig({activeProvider:'codex_auth'});
  try{
   await studio.load({mode:'settings',tab:'image'});await flush();
@@ -401,7 +422,7 @@ test('OpenAI configuration light follows Codex authorization and API configurati
    const tab=root.querySelectorAll('.cs-provider-tab').find(node=>node.dataset.groupId==='gpt');
    assert.equal(tab.querySelector('.cs-dot').className,sample.tone?'cs-dot '+sample.tone:'cs-dot',sample.status);
    assert.match(root.querySelector('.cs-conn-badge').textContent,new RegExp(store.AUTH_STATUS_LABELS[sample.status]));
-   assert.match(root.querySelector('#cs-modality-tab-image').textContent,new RegExp(`${sample.count}/5`));
+   assert.match(root.querySelector('#cs-modality-tab-image').textContent,new RegExp(`${sample.count}/6`));
   }
  }finally{studio.suspend();store.updateApiConfig(previous);root.remove();}
 });
@@ -589,6 +610,509 @@ test('AI角色合成库 records and displays exact model and invocation method a
    assert.equal(prov.querySelector('.cs-history-model')?.textContent,'grok-imagine-image');
    assert.equal(prov.querySelector('.cs-history-method')?.textContent,'Grok 订阅直连 · /v1/images/edits（单图编辑）');
   }finally{studio.suspend();studioRoot.remove();}
+ }finally{
+  view.suspend();root.remove();Object.assign(store.getState(),saved);globalThis.fetch=originalFetch;
+  if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+ }
+});
+
+test('Unified Model Hub mounts persistent 2-tab subnav, inline production routes without modal/triage banner, and 3-state return pill',async()=>{
+ const root=doc.createElement('section');doc.body.append(root);
+ const previous=structuredClone(store.getState().apiConfig);
+ let currentSession={actor:'operator-1',csrf:'csrf-hub-1'};
+ let currentReturnContext={projectId:'cyber-changan',projectTitle:'赛博长安',episodeLabel:'第2集',search:'?page=project&project=cyber-changan&episode=ep02'};
+ const navCalls=[],auxEvents=[],postCalls=[];
+ const rsState={
+  available:true,
+  configurations:[],
+  defaults:{},
+  presets:[{
+   id:'kling-image',
+   name:'快手可灵 · 角色生图 (kling-v2-1)',
+   supplier:'kling',
+   product:'kling',
+   plan:'api',
+   region:'cn-beijing',
+   execution:'api',
+   modality:'image',
+   model_key:'kling-v2-1',
+   model_version:'v2-1',
+   base_url:'https://api-beijing.klingai.com',
+   auth_ref:'KLING_ACCESS_KEY',
+   capabilities:{purposes:['identity_ref','image_edit'],reference_media:true},
+   default_params:{resolution:'2k'},
+  }],
+  tools:[],
+ };
+ let nextUpdateConflict=false;
+ const api=async(url,options={})=>{
+  if(url==='/api/v1/character-studio/auth/status'){
+   return {
+    agy:{ready:true,status:'authorized',message:'AGY CLI ready'},
+    grok:{ready:false,status:'unauthorized',message:'Grok not logged in'},
+    codex:{ready:true,status:'authorized',message:'Codex CLI ready'},
+   };
+  }
+  if(url==='/api/v1/resource-settings'&&(!options.method||options.method==='GET')){
+   return structuredClone(rsState);
+  }
+  if(url.startsWith('/api/v1/resource-settings/')&&options.method==='POST'){
+   const body=options.body?JSON.parse(options.body):{};
+   postCalls.push({url,body,csrf:options.headers?.['X-CSRF-Token']});
+   if(url==='/api/v1/resource-settings/configurations'){
+    const id=body.payload.id||'cfg-kling-1';
+    const savedRow={...body.payload,id,adapter_available:true,connection_status:{status:'not_loaded',message:'当前进程未加载 ~/.zshenv 中的 KLING_ACCESS_KEY / KLING_SECRET_KEY'}};
+    const idx=rsState.configurations.findIndex(r=>r.id===id);
+    if(idx>=0)rsState.configurations[idx]=savedRow;else rsState.configurations.push(savedRow);
+    return {id,configuration:savedRow};
+   }
+   if(url==='/api/v1/resource-settings/configurations/cfg-kling-1/check'){
+    return {status:'not_loaded',message:'当前进程未加载 ~/.zshenv 中的 KLING_ACCESS_KEY / KLING_SECRET_KEY，请在 zsh 执行 source ~/.zshenv 后重启工具'};
+   }
+   if(url==='/api/v1/resource-settings/defaults'){
+    rsState.defaults[body.purpose]=body.configuration_id;
+    return {ok:true};
+   }
+   if(url==='/api/v1/resource-settings/updates/check'){
+    return {tools:[{id:'grok-cli',name:'Grok CLI',official:true,current_revision:'0.4.1',latest_revision:'0.4.2',can_update:true,status:'update_available'}]};
+   }
+   if(url==='/api/v1/resource-settings/updates/grok-cli'){
+    if(nextUpdateConflict){
+     const err=new Error('409 revision conflict');err.status=409;throw err;
+    }
+    return {message:'Grok CLI 已更新至 0.4.2'};
+   }
+  }
+  return {};
+ };
+ const studio=createCharacterStudio(root,{
+  api,
+  notice(){},
+  session:()=>currentSession,
+  returnContext:()=>currentReturnContext,
+  openMemory:()=>auxEvents.push('memory'),
+  openSession:()=>auxEvents.push('session'),
+  navigate:(...args)=>navCalls.push(args),
+ });
+ try{
+  // 1. Default hub = subscription: Band 1 (88px header + return pill), Band 2 (persistent 2-tab subnav), Band 3 (3 CLI cards)
+  await studio.load({mode:'settings'});await flush();
+  assert.equal(root.querySelector('h1')?.textContent,'API 接口配置');
+  assert.equal(root.querySelector('.gov-settings-guide'),null,'triage banner is completely retired');
+  assert.equal(doc.body.querySelectorAll('dialog').some(d=>d.open),false,'zero modal dialog opened');
+  const subTab=root.querySelector('#cs-hub-tab-subscription');
+  const apiTab=root.querySelector('#cs-hub-tab-api');
+  assert.ok(subTab&&apiTab);
+  assert.equal(subTab.getAttribute('aria-selected'),'true');
+  assert.equal(apiTab.getAttribute('aria-selected'),'false');
+  assert.equal(root.querySelectorAll('.cs-sub-card').length,3,'AGY + Grok + Codex subscription cards');
+  assert.match(root.querySelector('.cs-shell-stage').textContent,/2\/3 通道已就绪/);
+
+  // State 1 return pill: active project context
+  let pill=root.querySelector('.gov-return-pill');
+  assert.ok(pill);
+  assert.equal(pill.textContent,'← 返回《赛博长安》· 第2集');
+  assert.equal(pill.dataset.returnProject,'cyber-changan');
+  await pill.click();
+  assert.deepEqual(navCalls.at(-1),['project',{project:'cyber-changan',episode:'ep02'}]);
+
+  // 2. Keyboard ArrowRight switches Band 2 to API 配置 without unmounting Band 1 or Band 2
+  await subTab.pressKey('ArrowRight');await flush();
+  assert.equal(root.querySelector('#cs-hub-tab-api').getAttribute('aria-selected'),'true');
+  assert.ok(root.querySelector('#cs-modality-tab-image'));
+  assert.ok(root.querySelector('#cs-modality-tab-video'));
+  assert.ok(root.querySelector('#cs-modality-tab-routes'));
+
+  // Governance auxiliary entry buttons work cleanly
+  const auxBtns=root.querySelector('.cs-gov-aux-links').querySelectorAll('button');
+  assert.deepEqual(auxBtns.map(b=>b.textContent),['角色记忆','本机管理凭据','运行与连接诊断','素材回收站']);
+  await auxBtns[0].click();
+  await auxBtns[1].click();
+  await auxBtns[2].click();
+  await auxBtns[3].click();
+  assert.deepEqual(auxEvents,['memory','session']);
+  assert.deepEqual(navCalls.slice(-2),[['maintenance'],['trash']]);
+
+  // 3. Inline production routes (#cs-modality-tab-routes) mounts mountResourceSettingsPanel with 0 <dialog>
+  await root.querySelector('#cs-modality-tab-routes').click();await flush();
+  const routesPanel=root.querySelector('.resource-settings-panel');
+  assert.ok(routesPanel,'inline production routes panel mounted');
+  assert.equal(routesPanel.getAttribute('data-component'),'production-routes-panel');
+  assert.equal(doc.body.querySelectorAll('dialog').some(d=>d.open),false,'still zero modal dialogs opened');
+  assert.equal(root.querySelector('.gov-settings-guide'),null);
+
+  const supplierSelect=routesPanel.querySelectorAll('select').find(s=>s.name==='supplier');
+  assert.ok(supplierSelect.options.some(o=>o.value==='kling'&&o.textContent.includes('快手可灵')));
+  supplierSelect.value='kling';
+  await supplierSelect.dispatch('change');await flush();
+
+  const findInput=name=>routesPanel.querySelectorAll('input').find(i=>i.name===name);
+  const findTextarea=name=>routesPanel.querySelectorAll('textarea').find(t=>t.name===name);
+  assert.equal(findInput('auth_ref').value,'KLING_ACCESS_KEY');
+  assert.equal(findInput('base_url').value,'https://api-beijing.klingai.com');
+  assert.equal(findInput('model_key').value,'kling-v2-1');
+  assert.match(routesPanel.textContent,/KLING_SECRET_KEY/);
+
+  // GWT-03.2: Reject plaintext secret in auth_ref with 0 network POSTs and 100% draft retention
+  findInput('name').value='可灵生产角色路由';
+  findInput('auth_ref').value='sk-live-plaintext-secret-999';
+  await routesPanel.querySelector('.settings-form').dispatch('submit');await flush();
+  assert.equal(postCalls.length,0,'plaintext auth_ref blocked client-side before POST');
+  assert.match(routesPanel.querySelector('.settings-result').textContent,/KLING_ACCESS_KEY/);
+  assert.equal(findInput('name').value,'可灵生产角色路由','user draft preserved after validation error');
+
+  // GWT-03.2: Reject sensitive key inside default_params JSON with 0 network POSTs
+  findInput('auth_ref').value='KLING_ACCESS_KEY';
+  findTextarea('default_params').value='{"resolution":"2k","secret_key":"leak-me"}';
+  await routesPanel.querySelector('.settings-form').dispatch('submit');await flush();
+  assert.equal(postCalls.length,0,'sensitive JSON param key blocked client-side before POST');
+  assert.match(routesPanel.querySelector('.settings-result').textContent,/禁止包含 secret/);
+
+  // Valid Kling production route save
+  findTextarea('default_params').value='{"resolution":"2k"}';
+  findInput('enabled').checked=true;
+  const idRefCheck=routesPanel.querySelectorAll('input').find(i=>i.name==='purpose'&&i.value==='identity_ref');
+  idRefCheck.checked=true;
+  await routesPanel.querySelector('.settings-form').dispatch('submit');await flush();
+  assert.equal(postCalls.length,1);
+  assert.equal(postCalls[0].url,'/api/v1/resource-settings/configurations');
+  assert.equal(postCalls[0].csrf,'csrf-hub-1');
+  assert.equal(postCalls[0].body.payload.supplier,'kling');
+  assert.equal(postCalls[0].body.payload.auth_ref,'KLING_ACCESS_KEY');
+
+  // GWT-03.3 / GWT-05.2: Check configuration reports exact missing ~/.zshenv variable name & loading method
+  const checkBtn=routesPanel.querySelector('.settings-actions').querySelectorAll('button')[0];
+  await checkBtn.click();await flush();
+  assert.match(routesPanel.querySelector('.settings-result').textContent,/KLING_ACCESS_KEY \/ KLING_SECRET_KEY/);
+  assert.match(routesPanel.querySelector('.settings-result').textContent,/source ~\/\.zshenv/);
+
+  // GWT-03.1: Default purpose binding
+  const subTabs=routesPanel.querySelectorAll('.rs-subtab-btn');
+  await subTabs.find(b=>b.dataset.routeSection==='defaults').click();await flush();
+  const firstDefaultForm=routesPanel.querySelectorAll('.settings-default')[0];
+  const defaultSelect=firstDefaultForm.querySelector('select');
+  assert.ok(defaultSelect.options.some(o=>o.value==='cfg-kling-1'));
+  defaultSelect.value='cfg-kling-1';
+  await firstDefaultForm.dispatch('submit');await flush();
+  assert.equal(rsState.defaults.identity_ref,'cfg-kling-1');
+
+  // GWT-03.4: Official tool updates 409 revision conflict blocks silent overwrite
+  await routesPanel.querySelectorAll('.rs-subtab-btn').find(b=>b.dataset.routeSection==='updates').click();await flush();
+  await routesPanel.querySelector('.settings-content').querySelector('button').click();await flush();
+  nextUpdateConflict=true;
+  const updateBtn=routesPanel.querySelector('.settings-tool').querySelectorAll('button')[0];
+  await updateBtn.click();await flush();
+  assert.match(routesPanel.querySelector('.settings-result').textContent,/目标工具版本已发生变化/);
+
+  // GWT-03.5: Read-only guest session disables writes and renders lock guidance
+  currentSession={};
+  await studio.load({mode:'settings',hub:'api',tab:'routes',section:'models'});await flush();
+  assert.match(routesPanel.querySelector('.rs-callout-info').textContent,/只读浏览状态/);
+  assert.equal(routesPanel.querySelector('.settings-form').querySelectorAll('button').find(b=>b.type==='submit').disabled,true);
+
+  // GWT-10.2 & GWT-10.3 & [SEC-05]: Return pill State 2 (character-studio) and State 3 (recycled project + unsafe URL rejection)
+  currentSession={actor:'operator-1',csrf:'csrf-hub-1'};
+  currentReturnContext={origin:'character-studio',projectId:null,search:'?page=character-studio'};
+  await studio.load({mode:'settings',hub:'subscription'});await flush();
+  pill=root.querySelector('.gov-return-pill');
+  assert.equal(pill.textContent,'← 返回 AI 角色合成台');
+  assert.equal(pill.dataset.returnOrigin,'character-studio');
+  await pill.click();
+  assert.deepEqual(navCalls.at(-1),['character-studio']);
+
+  for(const unsafeCtx of [
+   {projectId:'deleted-proj',projectTitle:'已归档项目',unavailable:true,search:'?page=project&project=deleted-proj'},
+   {projectId:'xss-proj',projectTitle:'恶意跳转',search:'javascript:alert(1)'},
+   {projectId:'open-redir-1',projectTitle:'双斜杠跳转',search:'//evil.example/phish'},
+   {projectId:'open-redir-2',projectTitle:'参数外跳',search:'?page=project&next=https://evil.example'},
+   null,
+  ]){
+   currentReturnContext=unsafeCtx;
+   await studio.load({mode:'settings',hub:'subscription'});await flush();
+   pill=root.querySelector('.gov-return-pill');
+   assert.equal(pill.textContent,'← 返回工作台首页');
+   assert.equal(pill.dataset.returnFallback,'home');
+   await pill.click();
+   assert.deepEqual(navCalls.at(-1),['home']);
+  }
+ }finally{
+  studio.suspend();store.updateApiConfig(previous);root.remove();
+ }
+});
+
+test('Kling AI dual-auth (WebCrypto HS256 JWT + API Key), credential readiness across tabs & studio (F-003/F-005), and 1-click peer reuse',async()=>{
+ const {createHmac}=await import('node:crypto');
+ const root=doc.createElement('section');doc.body.append(root);
+ const previous=structuredClone(store.getState().apiConfig);
+ const notices=[];
+ const studio=createCharacterStudio(root,{
+  api:async()=>({agy:{ready:false,status:'unauthorized'},grok:{ready:false,status:'unauthorized'},codex:{ready:false,status:'unauthorized'}}),
+  notice:m=>notices.push(m),
+  session:()=>({actor:'u',csrf:'c'}),
+  navigate(){},
+ });
+ for(const id of ai.PROVIDER_ORDER)store.updateProviderConfig(id,{apiKey:'',accessKey:'',secretKey:''});
+ for(const id of ai.VIDEO_PROVIDER_ORDER)store.updateVideoProviderConfig(id,{apiKey:'',accessKey:'',secretKey:''});
+ try{
+  // 1. Independent HS256 JWT verification against Node crypto.createHmac (exp=now+1800, nbf=now-5, Base64URL no '=')
+  const ak='ak-live-kling-001',sk='sk-super-secret-hmac-key-2026',fixedNow=1700000000;
+  const jwt=await ai.signKlingJwt(ak,sk,fixedNow);
+  assert.equal(jwt.includes('='),false,'Base64URL must strip all = padding');
+  const expectedHeader=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+  const expectedPayload=Buffer.from(JSON.stringify({iss:ak,exp:fixedNow+1800,nbf:fixedNow-5})).toString('base64url');
+  const expectedSig=createHmac('sha256',sk).update(`${expectedHeader}.${expectedPayload}`).digest('base64url');
+  assert.equal(jwt,`${expectedHeader}.${expectedPayload}.${expectedSig}`);
+  await assert.rejects(ai.signKlingJwt('ak-only','',fixedNow),/Access Key.*Secret Key/);
+
+  // 2. store.isProviderCredentialReady enforces paired AK+SK in aksk mode and apiKey in apikey mode (GWT-04.3)
+  assert.equal(store.isProviderCredentialReady('kling',{authMode:'aksk',accessKey:'ak-1',secretKey:'',apiKey:'ignored'}),false);
+  assert.equal(store.isProviderCredentialReady('kling',{authMode:'aksk',accessKey:'',secretKey:'sk-1',apiKey:'ignored'}),false);
+  assert.equal(store.isProviderCredentialReady('kling',{authMode:'aksk',accessKey:'ak-1',secretKey:'sk-1',apiKey:''}),true);
+  assert.equal(store.isProviderCredentialReady('kling',{authMode:'apikey',accessKey:'ak-1',secretKey:'sk-1',apiKey:''}),false);
+  assert.equal(store.isProviderCredentialReady('kling',{authMode:'apikey',accessKey:'',secretKey:'',apiKey:'kl-single-key'}),true);
+
+  // 3. Settings UI: partial AK warns, full AK+SK turns Kling tab green-ready & increments ready count (F-003)
+  store.updateProviderConfig('kling',{authMode:'aksk',accessKey:'ak-partial',secretKey:'',apiKey:''});
+  await studio.load({mode:'settings',hub:'api',tab:'image',provider:'kling'});await flush();
+  assert.match(root.querySelector('.cs-field-error').textContent,/同时填写 Access Key 与 Secret Key/);
+  assert.match(root.querySelector('#cs-modality-tab-image').textContent,/0\/6 已配/);
+  const klingTabBefore=root.querySelectorAll('.cs-provider-tab').find(n=>n.dataset.groupId==='kling');
+  assert.match(klingTabBefore.textContent,/未配置 AK\/SK/);
+  assert.equal(klingTabBefore.querySelector('.cs-dot').classList.contains('is-set'),false);
+
+  const skInput=root.querySelectorAll('input').find(i=>i.dataset.focusKey==='set-sk');
+  skInput.value='sk-complete-secret';
+  skInput.onchange();await flush();
+  const klingTabAfter=root.querySelectorAll('.cs-provider-tab').find(n=>n.dataset.groupId==='kling');
+  assert.match(klingTabAfter.textContent,/已配置 AK\/SK/);
+  assert.equal(klingTabAfter.querySelector('.cs-dot').classList.contains('is-set'),true);
+  assert.match(root.querySelector('#cs-modality-tab-image').textContent,/已就绪 1\/6/);
+  assert.equal(store.getState().apiConfig.useProxy,true,'selecting Kling enables /api/proxy by default');
+
+  // 4. Studio view (F-005): AK+SK ready suppresses .cs-warn and renders klingParams controls
+  await studio.load({mode:'studio'});await flush();
+  assert.equal(root.querySelector('.cs-warn'),null,'studio recognizes AK+SK readiness without apiKey');
+  assert.match(root.querySelector('.cs-active-route').textContent,/Kling API · \/v1\/images\/generations/);
+  const klingAspect=root.querySelectorAll('select').find(s=>s.getAttribute('aria-label')==='画幅比例 (aspect_ratio)');
+  const klingRes=root.querySelectorAll('select').find(s=>s.getAttribute('aria-label')==='输出分辨率 (resolution)');
+  assert.ok(klingAspect&&klingRes,'providerParams renders klingParams controls');
+  klingAspect.value='9:16';klingAspect.onchange();
+  klingRes.value='1k';klingRes.onchange();
+  assert.equal(store.getState().apiConfig.klingParams.aspectRatio,'9:16');
+  assert.equal(store.getState().apiConfig.klingParams.resolution,'1k');
+
+  // 5. Bidirectional 1-click credential reuse between kling (image) and kling_video (video) (GWT-04.2)
+  await studio.load({mode:'settings',hub:'api',tab:'video',provider:'kling_video'});await flush();
+  const reuseFromImg=root.querySelector('#kling-reuse-btn');
+  assert.ok(reuseFromImg&&!reuseFromImg.disabled);
+  await reuseFromImg.click();await flush();
+  assert.equal(store.getState().apiConfig.videoProviders.kling_video.authMode,'aksk');
+  assert.equal(store.getState().apiConfig.videoProviders.kling_video.accessKey,'ak-partial');
+  assert.equal(store.getState().apiConfig.videoProviders.kling_video.secretKey,'sk-complete-secret');
+  assert.ok(notices.includes('已从生图配置复用可灵凭证'));
+
+  // Switch video to apikey mode and reuse back into image
+  store.updateVideoProviderConfig('kling_video',{authMode:'apikey',apiKey:'kl-video-single-token',accessKey:'',secretKey:''});
+  await studio.load({mode:'settings',hub:'api',tab:'image',provider:'kling'});await flush();
+  const reuseFromVid=root.querySelector('#kling-reuse-btn');
+  assert.ok(reuseFromVid&&!reuseFromVid.disabled);
+  await reuseFromVid.click();await flush();
+  assert.equal(store.getState().apiConfig.providers.kling.authMode,'apikey');
+  assert.equal(store.getState().apiConfig.providers.kling.apiKey,'kl-video-single-token');
+  assert.ok(notices.includes('已从视频配置复用可灵凭证'));
+ }finally{
+  studio.suspend();store.updateApiConfig(previous);root.remove();
+ }
+});
+
+test('Kling AI async image polling, pure Base64 stripping, AbortSignal cancellation, multi-secret redaction, video builder, and history provenance',async()=>{
+ const originalFetch=globalThis.fetch,previousWindow=globalThis.window,saved=structuredClone(store.getState());
+ globalThis.window={location:{protocol:'http:',hostname:'localhost'},addEventListener(){},removeEventListener(){}};
+ const root=doc.createElement('main');doc.body.append(root);
+ const recordsApi=createStudioRecordsServer();
+ const apiHandler=async(u,o)=>await recordsApi.handle(u,o)??{};
+ store.configureStudio({api:apiHandler,notice(){},session:()=>({actor:'u',csrf:'c'}),csrf:()=>'c'});
+ const view=createCharacterHistory(root,{api:apiHandler,notice(){},session:()=>({actor:'u',csrf:'c'}),navigate(){}});
+ try{
+  // 1. Pure Base64 stripping (stripDataUriPrefix)
+  assert.equal(ai.stripDataUriPrefix('data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='),'iVBORw0KGgoAAAANSUhEUg==');
+  assert.equal(ai.stripDataUriPrefix('data:image/jpeg;base64, /9j/4AAQSkZJRg== '),'/9j/4AAQSkZJRg==');
+  assert.equal(ai.stripDataUriPrefix('QUJDREVGRw=='),'QUJDREVGRw==');
+
+  // 2. Async polling via /api/proxy: POST submit -> GET processing -> GET succeed -> GET image download
+  const proxyCalls=[];
+  let pollStep=0;
+  globalThis.fetch=async(url,opts={})=>{
+   const headers=opts.headers instanceof Headers?Object.fromEntries(opts.headers.entries()):(opts.headers||{});
+   proxyCalls.push({url,method:opts.method,headers,body:opts.body});
+   const targetUrl=headers['x-target-url']||url;
+   const targetMethod=headers['x-target-method']||opts.method||'POST';
+   if(targetUrl==='https://api-beijing.klingai.com/v1/images/generations'&&targetMethod==='POST'){
+    return {ok:true,status:200,json:async()=>({code:0,data:{task_id:'kling-task-88',task_status:'submitted'}})};
+   }
+   if(targetUrl==='https://api-beijing.klingai.com/v1/images/generations/kling-task-88'&&targetMethod==='GET'){
+    pollStep++;
+    if(pollStep===1){
+     return {ok:true,status:200,json:async()=>({code:0,data:{task_id:'kling-task-88',task_status:'processing'}})};
+    }
+    return {ok:true,status:200,json:async()=>({code:0,modelVersion:'kling-v2-1-internal',data:{task_id:'kling-task-88',task_status:'succeed',task_result:{images:[{index:0,url:'https://cdn.klingai.com/gen/role-88.png'}]}}})};
+   }
+   if(targetUrl==='https://cdn.klingai.com/gen/role-88.png'&&targetMethod==='GET'){
+    return {ok:true,status:200,blob:async()=>new Blob([Uint8Array.from([137,80,78,71])],{type:'image/png'})};
+   }
+   throw new Error(`unexpected fetch: ${targetMethod} ${targetUrl}`);
+  };
+
+  const klingConfig=store.mergeStoredConfig({
+   activeProvider:'kling',
+   useProxy:true,
+   klingParams:{aspectRatio:'9:16',resolution:'2k',negativePrompt:'blurry, lowres'},
+   providers:{kling:{authMode:'aksk',accessKey:'ak-poll-77',secretKey:'sk-poll-secret-88',apiKey:'',model:'kling-v2-1',baseUrl:'https://api-beijing.klingai.com'}},
+  });
+  const progressEvents=[];
+  const genOut=await ai.generateCharacterImage({
+   recipe:{extraImages:[{id:'k1',name:'主角',url:'data:image/png;base64,QUJDRA=='}]},
+   prompt:'古风女侠立绘',
+   config:klingConfig,
+   onProgress:ev=>progressEvents.push(ev),
+   pollIntervalMs:5,
+  });
+  assert.equal(proxyCalls.length,4,'1 submit POST + 2 poll GETs + 1 proxy image download');
+  assert.equal(proxyCalls[0].url,'/api/proxy');
+  assert.match(proxyCalls[0].headers.authorization||proxyCalls[0].headers.Authorization,/Bearer eyJ/);
+  const submitBody=JSON.parse(proxyCalls[0].body);
+  assert.equal(submitBody.model_name,'kling-v2-1');
+  assert.equal(submitBody.image,'QUJDRA==','data:image prefix stripped to pure Base64');
+  assert.equal(submitBody.aspect_ratio,'9:16');
+  assert.equal(submitBody.resolution,'2k');
+  assert.equal(submitBody.negative_prompt,'blurry, lowres');
+  assert.equal(proxyCalls[1].headers['x-target-method'],'GET');
+  assert.equal(proxyCalls[1].body,undefined);
+  assert.ok(progressEvents.some(e=>e.stage==='polling'&&e.message.includes('kling-task-88')));
+  assert.ok(genOut.imageUrl.startsWith('data:image/png;base64,'));
+  assert.equal(genOut.providerUsed,'kling');
+  assert.equal(genOut.modelUsed,'kling-v2-1');
+  assert.equal(genOut.upstreamModel,'kling-v2-1-internal');
+  assert.equal(genOut.methodUsed,'kling_images_generations');
+  assert.equal(genOut.methodLabel,'Kling API · /v1/images/generations');
+  assert.equal(genOut.endpointUsed,'/v1/images/generations');
+  assert.equal(JSON.stringify(store.getState().apiConfig).includes('eyJ'),false,'signed JWT is never persisted to store');
+
+  // 3. AbortSignal cancels in-flight Kling polling immediately without orphan requests
+  const abortCtrl=new AbortController();
+  let abortPolls=0;
+  globalThis.fetch=async(_url,opts={})=>{
+   const headers=opts.headers instanceof Headers?Object.fromEntries(opts.headers.entries()):(opts.headers||{});
+   if((headers['x-target-method']||'POST')==='POST'){
+    setTimeout(()=>abortCtrl.abort(),8);
+    return {ok:true,status:200,json:async()=>({code:0,data:{task_id:'kling-abort-1',task_status:'submitted'}})};
+   }
+   abortPolls++;
+   return {ok:true,status:200,json:async()=>({code:0,data:{task_id:'kling-abort-1',task_status:'processing'}})};
+  };
+  await assert.rejects(
+   ai.generateCharacterImage({
+    recipe:{extraImages:[{id:'k1',name:'主角',url:'data:image/png;base64,QUJDRA=='}]},
+    prompt:'测试中断',
+    config:klingConfig,
+    signal:abortCtrl.signal,
+    pollIntervalMs:40,
+   }),
+   err=>err?.name==='AbortError',
+  );
+  assert.equal(abortPolls,0,'polling aborted cleanly before issuing orphan GETs');
+
+  // 4. Multi-secret redaction ([apiKey, accessKey, secretKey] + Bearer JWT) & snapshot secret exclusion ([SEC-01])
+  globalThis.fetch=async()=>({
+   ok:false,
+   status:401,
+   json:async()=>({message:'Auth failed for ak=ak-poll-77 sk=sk-poll-secret-88 token=Bearer eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJhayJ9.sig123'}),
+  });
+  await assert.rejects(
+   ai.generateCharacterImage({
+    recipe:{extraImages:[{id:'k1',name:'主角',url:'data:image/png;base64,QUJDRA=='}]},
+    prompt:'鉴权失败脱敏',
+    config:klingConfig,
+   }),
+   err=>{
+    assert.equal(err.message.includes('ak-poll-77'),false);
+    assert.equal(err.message.includes('sk-poll-secret-88'),false);
+    assert.equal(err.message.includes('eyJhbGciOiJIUzI1NiJ9'),false);
+    assert.match(err.message,/\[REDACTED\]/);
+    return true;
+   },
+  );
+  store.updateProviderConfig('kling',{authMode:'aksk',accessKey:'ak-snap-secret',secretKey:'sk-snap-secret',apiKey:'kl-snap-key'});
+  const snapJson=JSON.stringify(await store.snapshotGeneration({portrait:null,costume:null,pose:null,extraImages:[]},store.getState().apiConfig,'测试快照'));
+  assert.equal(snapJson.includes('ak-snap-secret'),false);
+  assert.equal(snapJson.includes('sk-snap-secret'),false);
+  assert.equal(snapJson.includes('kl-snap-key'),false);
+
+  // 5. Kling Video request builder: image2video + tail, multi-image2video (<=4 & >4 error), text2video + v2-6 sound, duration check
+  const vidI2V=ai.buildKlingVideoApiRequest({
+   baseUrl:'https://api-beijing.klingai.com',
+   bearerToken:'jwt-vid',
+   model:'kling-v2-6',
+   prompt:'转身拔剑',
+   firstFrame:'data:image/png;base64,RklSU1Q=',
+   lastFrame:'data:image/png;base64,TEFTVA==',
+   videoDefaults:{aspectRatio:'16:9',resolution:'1080p',durationSec:'10',generateAudio:true},
+  });
+  assert.equal(vidI2V.endpoint,'/v1/videos/image2video');
+  const vidI2VBody=JSON.parse(vidI2V.body);
+  assert.equal(vidI2VBody.image,'RklSU1Q=');
+  assert.equal(vidI2VBody.image_tail,'TEFTVA==');
+  assert.equal(vidI2VBody.mode,'pro');
+  assert.equal(vidI2VBody.sound,'on');
+
+  const vidMulti=ai.buildKlingVideoApiRequest({
+   baseUrl:'https://api-beijing.klingai.com',
+   bearerToken:'jwt-vid',
+   model:'kling-v1-6',
+   prompt:'四人同框',
+   references:['data:image/png;base64,MDE=','data:image/png;base64,MDI=','data:image/png;base64,MDM=','data:image/png;base64,MDQ='],
+   videoDefaults:{aspectRatio:'9:16',resolution:'720p',durationSec:'5',generateAudio:false},
+  });
+  assert.equal(vidMulti.endpoint,'/v1/videos/multi-image2video');
+  assert.deepEqual(JSON.parse(vidMulti.body).image_list,[{image:'MDE='},{image:'MDI='},{image:'MDM='},{image:'MDQ='}]);
+
+  assert.throws(()=>ai.buildKlingVideoApiRequest({
+   baseUrl:'https://api-beijing.klingai.com',
+   bearerToken:'jwt-vid',
+   model:'kling-v1-6',
+   prompt:'五张超限',
+   references:['a','b','c','d','e'],
+   videoDefaults:{durationSec:'5'},
+  }),/最多支持 4 张参考图/);
+  assert.throws(()=>ai.buildKlingVideoApiRequest({
+   baseUrl:'https://api-beijing.klingai.com',
+   bearerToken:'jwt-vid',
+   model:'kling-v2-6',
+   prompt:'非法时长',
+   videoDefaults:{durationSec:'8'},
+  }),/5 秒或 10 秒/);
+
+  // 6. History & provenance resolution for Kling records (canonical + alias + snapshot fallback)
+  assert.equal(ai.resolveRecordProvenance({provider:'kling',model:'kling-v2-1'}).methodLabel,'Kling API · /v1/images/generations');
+  assert.equal(ai.resolveRecordProvenance({provider:'kling',model:'kling-v2-1',method:'kling_api_images_generations'}).methodLabel,'Kling API · /v1/images/generations');
+  recordsApi.setRows([{
+   id:'kling-rec-1',
+   createdAt:9000,
+   imageUrl:'data:image/png;base64,AA==',
+   provider:'kling',
+   model:genOut.modelUsed,
+   upstreamModel:genOut.upstreamModel,
+   method:genOut.methodUsed,
+   methodLabel:genOut.methodLabel,
+   endpoint:genOut.endpointUsed,
+   prompt:'古风女侠立绘',
+   recipeSummary:'主角单图',
+  }]);
+  Object.assign(store.getState(),{hydrated:true,currentResult:null,previewUrl:'',isGenerating:false,publicationTask:null});
+  await view.load();await flush();
+  const card=root.querySelector('.cs-history-item');
+  assert.equal(card.querySelector('.cs-history-model').textContent,'kling-v2-1');
+  assert.equal(card.querySelector('.cs-history-method').textContent,'Kling API · /v1/images/generations');
  }finally{
   view.suspend();root.remove();Object.assign(store.getState(),saved);globalThis.fetch=originalFetch;
   if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;

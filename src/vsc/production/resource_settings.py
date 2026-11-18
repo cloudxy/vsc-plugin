@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from vsc.assets.resource_service import ResourceError
 from vsc.adapters.providers.credentials import KEY_ENV, PLAN_BASE, RELOAD
+from vsc.adapters.providers.kling import credentials as kling_credentials
 from vsc.adapters.providers.xai_grok import credentials as grok_credentials
 
 PURPOSES = [
@@ -32,7 +33,7 @@ PURPOSES = [
     {"id": "song", "label": "歌词演唱歌曲", "modality": "audio"},
     {"id": "ambience", "label": "环境声", "modality": "audio"},
 ]
-SUPPLIERS = {"volcengine", "alibaba", "xai", "openai", "mureka", "fal", "google"}
+SUPPLIERS = {"volcengine", "alibaba", "xai", "openai", "mureka", "fal", "google", "kling"}
 EXECUTIONS = {"api", "official_sdk", "official_cli", "official_skill", "host_tool"}
 SOURCES = {
     "volcengine": "https://docs.volcengine.com/docs/ark/agent-plan-personal-visual-models?lang=en",
@@ -41,6 +42,7 @@ SOURCES = {
     "openai": "https://platform.openai.com/docs/guides/image-generation",
     "mureka": "https://platform.mureka.ai/docs/api/operations/post-v1-song-generate.html",
     "fal": "https://fal.ai/docs/documentation/model-apis/inference/queue",
+    "kling": "https://app.klingai.com/cn/dev/document-api",
 }
 PRESETS = [dict(id="volcengine-agent-plan", label="火山 Agent Plan", name="火山 Agent Plan",
     supplier="volcengine", product="ark", plan="agent-plan", region="cn-beijing", execution="api",
@@ -111,6 +113,49 @@ PRESETS.extend([
         model_version='1.5',base_url='https://queue.fal.run',auth_ref='FAL_KEY',
         capabilities={'purposes':['digital_human'],'reference_media':True,'reference_audio':True,'subject_mask':True,'max_duration_ms':59999},
         default_params={},enabled=False),
+    dict(
+        id="kling-image",
+        label="快手可灵 图像生成（KLING_ACCESS_KEY + KLING_SECRET_KEY）",
+        name="快手可灵 图像生成",
+        supplier="kling",
+        product="kling",
+        plan="api",
+        region="cn-beijing",
+        execution="api",
+        modality="image",
+        model_key="kling-v2-1",
+        model_version="v2-1",
+        base_url=kling_credentials.DEFAULT_BASE,
+        auth_ref=kling_credentials.DEFAULT_AUTH_REF,
+        capabilities={"purposes": ["identity_ref", "image_edit", "first_frame", "last_frame"], "reference_media": True},
+        default_params={"ratio_map": {"1080x1920": "9:16", "1920x1080": "16:9", "1080x1080": "1:1"}, "resolution": "2k"},
+        enabled=False,
+    ),
+    dict(
+        id="kling-video",
+        label="快手可灵 图生视频（KLING_ACCESS_KEY + KLING_SECRET_KEY）",
+        name="快手可灵 图生视频",
+        supplier="kling",
+        product="kling",
+        plan="api",
+        region="cn-beijing",
+        execution="api",
+        modality="video",
+        model_key="kling-v2-6",
+        model_version="v2-6",
+        base_url=kling_credentials.DEFAULT_BASE,
+        auth_ref=kling_credentials.DEFAULT_AUTH_REF,
+        capabilities={
+            "purposes": ["text_to_video", "image_to_video", "reference_to_video"],
+            "reference_media": True,
+            "first_frame": True,
+            "last_frame": True,
+            "max_duration_ms": 10000,
+            "max_reference_images": 4,
+        },
+        default_params={"resolution": "720p", "ratio": "16:9", "generate_audio": True},
+        enabled=False,
+    ),
 ])
 
 
@@ -174,6 +219,23 @@ def adapter_available(row):
             and row.get("execution") == "api" and row.get("modality") in {"image", "video"}
             and row.get("base_url", "").rstrip("/") == grok_credentials.API_BASE
             and not row.get("auth_ref") and family_matches)
+    if row.get("supplier") == "kling":
+        from vsc.adapters.providers.kling import spec as kling_spec
+        model = row.get("model_key", "")
+        modality = row.get("modality")
+        family_matches = (
+            (modality == "image" and kling_spec.is_image_model(model))
+            or (modality == "video" and kling_spec.is_video_model(model))
+        )
+        return (
+            row.get("product") == "kling"
+            and row.get("plan") == "api"
+            and row.get("execution") == "api"
+            and modality in {"image", "video"}
+            and row.get("base_url", "").rstrip("/") in kling_credentials.ALLOWED_BASES
+            and bool(row.get("auth_ref"))
+            and family_matches
+        )
     model = row.get("model_key", "")
     family_matches = ((row.get("modality") == "image" and model.startswith("doubao-seedream-"))
         or (row.get("modality") == "video" and model.startswith("doubao-seedance-"))
@@ -264,6 +326,22 @@ def validate_configuration(payload):
         operations = value["capabilities"].get("video_operations", [])
         if operations and (not classic_video or not isinstance(operations, list) or set(operations) - {"edit", "extend"}):
             raise ResourceError("视频加工须声明经典Grok模型的edit/extend能力", "model_capability_mismatch")
+    if value["supplier"] == "kling" and not studio_auth:
+        from vsc.adapters.providers.kling import spec as kling_spec
+        if (
+            value["product"] != "kling"
+            or value["plan"] != "api"
+            or value["execution"] != "api"
+            or value["base_url"] not in kling_credentials.ALLOWED_BASES
+            or not value.get("auth_ref")
+        ):
+            raise ResourceError("快手可灵资源须使用 kling/api、官方 HTTPS 端点与环境变量凭证引用", "invalid_provider_config")
+        matches = (
+            (value["modality"] == "image" and kling_spec.is_image_model(value["model_key"]))
+            or (value["modality"] == "video" and kling_spec.is_video_model(value["model_key"]))
+        )
+        if not matches:
+            raise ResourceError("模型与多模态用途不匹配；快手可灵仅支持已登记图像或视频模型", "invalid_model_family")
     if value['capabilities'].get('video_draft'):
         from vsc.production.video_samples import SAMPLE_MODELS
         if value['capabilities']['video_draft'] is not True or value['model_key'] not in SAMPLE_MODELS or value['modality']!='video' or value['supplier']!='volcengine' or value['default_params'].get('resolution') not in {'480p','1080p'}:
@@ -309,14 +387,46 @@ def validate_configuration(payload):
                 raise ResourceError("reference_voice_ids 必须是最多 3 个平台预置 voice_id（平台资源 id）", "invalid_model_defaults")
             if defaults.get("generate_audio", True) is not None and not isinstance(defaults.get("generate_audio", True), bool):
                 raise ResourceError("generate_audio 必须是布尔", "invalid_model_defaults")
+    if value["enabled"] and value["supplier"] == "kling" and not studio_auth:
+        from vsc.adapters.providers.kling import spec as kling_spec
+        defaults = value["default_params"]
+        if value["modality"] == "image":
+            ratios = defaults.get("ratio_map")
+            if (
+                not isinstance(ratios, dict)
+                or not ratios
+                or any(
+                    not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", key)
+                    or ratio not in kling_spec.ASPECT_RATIOS
+                    for key, ratio in ratios.items()
+                )
+                or defaults.get("resolution") not in kling_spec.IMAGE_RESOLUTIONS
+            ):
+                raise ResourceError("可灵图像需要尺寸到支持画幅的 ratio_map 与 1k/2k resolution 映射", "invalid_model_defaults")
+        if value["modality"] == "video":
+            if (
+                defaults.get("resolution") not in kling_spec.VIDEO_RESOLUTIONS
+                or defaults.get("ratio", "16:9") not in kling_spec.ASPECT_RATIOS
+                or not isinstance(defaults.get("generate_audio", True), bool)
+            ):
+                raise ResourceError("可灵视频需要 720p/1080p resolution、有效 ratio 与布尔 generate_audio 映射", "invalid_model_defaults")
     return value
+
+
+def missing_credential_env_vars(row) -> list[str]:
+    auth = (row.get("auth_ref") or "").strip()
+    if not auth:
+        return []
+    if row.get("supplier") == "kling":
+        return kling_credentials.missing_env_vars(auth)
+    return [] if os.environ.get(auth, "").strip() else [auth]
 
 
 def credential_present(row):
     """Env reference first; the Grok subscription route reads the grok CLI login state instead."""
-    auth = row.get("auth_ref")
+    auth = (row.get("auth_ref") or "").strip()
     if auth:
-        return bool(os.environ.get(auth))
+        return len(missing_credential_env_vars(row)) == 0
     return grok_credentials.login_present()
 
 
@@ -428,13 +538,38 @@ class ResourceSettings:
             except ResourceError as exc:
                 row["connection_status"] = "runtime_unavailable"
                 runtime_message = str(exc) + "。"
-        return {"id": model_id, "status": row["connection_status"], "scope": "local_configuration_and_environment_presence",
-            "credential_loaded": credential_present(row),
-            "generation_verified": False, "quota": "unknown", "message":
-            runtime_message + ("仅检查配置与登录态文件是否存在；未调用模型，未验证生成权限。Grok 订阅路线凭证来自 grok CLI 登录态（"
-                               + str(grok_credentials.LOGIN_FILE) + "），缺失时在终端运行 grok 按提示登录。"
-                               if row.get("supplier") == "xai" and not row.get("auth_ref")
-                               else "仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。配置位置 ~/.zshenv；" + RELOAD)}
+        missing_vars = missing_credential_env_vars(row)
+        loaded = credential_present(row)
+        if row.get("supplier") == "xai" and not row.get("auth_ref"):
+            message = (
+                runtime_message
+                + "仅检查配置与登录态文件是否存在；未调用模型，未验证生成权限。Grok 订阅路线凭证来自 grok CLI 登录态（"
+                + str(grok_credentials.LOGIN_FILE)
+                + "），缺失时在终端运行 grok 按提示登录。"
+            )
+        elif row.get("auth_ref") and missing_vars:
+            paired_note = ""
+            if row.get("supplier") == "kling" and (paired_sk := kling_credentials.paired_secret_env(row["auth_ref"])):
+                paired_note = (
+                    f"快手可灵官方 AK/SK 模式需在 ~/.zshenv 同时配置 {row['auth_ref']} 与 {paired_sk}"
+                    f"（或改用单密钥 {kling_credentials.SINGLE_KEY_AUTH_REF}）。"
+                )
+            message = (
+                f"{runtime_message}未读取到环境变量 {' / '.join(missing_vars)}（配置位置 ~/.zshenv）。"
+                f"{paired_note}仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。{RELOAD}"
+            )
+        else:
+            message = runtime_message + "仅检查配置与当前进程环境变量是否加载；未调用模型，未验证生成权限。配置位置 ~/.zshenv；" + RELOAD
+        return {
+            "id": model_id,
+            "status": row["connection_status"],
+            "scope": "local_configuration_and_environment_presence",
+            "credential_loaded": loaded,
+            "missing_env_vars": missing_vars,
+            "generation_verified": False,
+            "quota": "unknown",
+            "message": message,
+        }
 
     def models(self, model_id):
         row = self._repository().get(model_id)

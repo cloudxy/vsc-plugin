@@ -10,13 +10,25 @@ export const NSFW_POSE_SYSTEMS=new Set(['全身单人・性感系','双人缠绵
 export const NSFW_COSTUME_CATEGORIES=new Set(['内衣・睡衣','性感穿搭']);
 export const isNsfwCostume=item=>Boolean(item?.敏感)||NSFW_COSTUME_CATEGORIES.has(item?.分类);
 export const isNsfwPose=item=>NSFW_POSE_SYSTEMS.has(item?.体系);
-const proxyDefault=provider=>provider==='grok'||provider==='qwen'||provider==='doubao';
-const videoProxyDefault=provider=>provider==='grok_video'||provider==='qwen_video'||provider==='doubao_video';
+const proxyDefault=provider=>provider==='grok'||provider==='qwen'||provider==='doubao'||provider==='kling';
+const videoProxyDefault=provider=>provider==='grok_video'||provider==='qwen_video'||provider==='doubao_video'||provider==='kling_video';
 const clone=v=>JSON.parse(JSON.stringify(v));
 
 function defaultConfig(){
- const provider=id=>({baseUrl:PROVIDER_META[id].defaultBaseUrl,apiKey:'',model:PROVIDER_META[id].models[0].value,customModel:''});
- const videoProvider=id=>({baseUrl:VIDEO_PROVIDER_META[id].defaultBaseUrl,apiKey:'',model:VIDEO_PROVIDER_META[id].models[0].value,customModel:''});
+ const provider=id=>({
+  baseUrl:PROVIDER_META[id].defaultBaseUrl,
+  ...(PROVIDER_META[id].supportsDualAuth?{authMode:'aksk',accessKey:'',secretKey:''}:{}),
+  apiKey:'',
+  model:PROVIDER_META[id].models[0].value,
+  customModel:'',
+ });
+ const videoProvider=id=>({
+  baseUrl:VIDEO_PROVIDER_META[id].defaultBaseUrl,
+  ...(VIDEO_PROVIDER_META[id].supportsDualAuth?{authMode:'aksk',accessKey:'',secretKey:''}:{}),
+  apiKey:'',
+  model:VIDEO_PROVIDER_META[id].models[0].value,
+  customModel:'',
+ });
  const providers={};for(const id of PROVIDER_ORDER)providers[id]=provider(id);
  const videoProviders={};for(const id of VIDEO_PROVIDER_ORDER)videoProviders[id]=videoProvider(id);
  return {
@@ -32,6 +44,7 @@ function defaultConfig(){
   geminiParams:{endpointMode:'native',aspectRatio:'3:4',imageSize:'2K'},
   qwenParams:{size:'1024*1536',promptExtend:true,watermark:false,negativePrompt:'',n:1},
   doubaoParams:{size:'2K',sequentialImageGeneration:'disabled',watermark:false,responseFormat:'b64_json'},
+  klingParams:{aspectRatio:'3:4',resolution:'2k',imageReference:'subject',imageFidelity:0.5,humanFidelity:0.45,negativePrompt:''},
  };
 }
 export const DEFAULT_API_CONFIG=defaultConfig();
@@ -47,12 +60,22 @@ export function mergeStoredConfig(raw){
  for(const id of PROVIDER_ORDER){
   const merged={...base.providers[id],...raw.providers?.[id]};
   if(!PROVIDER_META[id].models.some(m=>m.value===merged.model))merged.model=PROVIDER_META[id].models[0].value;
+  if(PROVIDER_META[id].supportsDualAuth){
+   merged.authMode=merged.authMode==='apikey'?'apikey':'aksk';
+   merged.accessKey=String(merged.accessKey||'');
+   merged.secretKey=String(merged.secretKey||'');
+  }
   providers[id]=merged;
  }
  const videoProviders={};
  for(const id of VIDEO_PROVIDER_ORDER){
   const merged={...base.videoProviders[id],...raw.videoProviders?.[id]};
   if(!VIDEO_PROVIDER_META[id].models.some(m=>m.value===merged.model))merged.model=VIDEO_PROVIDER_META[id].models[0].value;
+  if(VIDEO_PROVIDER_META[id].supportsDualAuth){
+   merged.authMode=merged.authMode==='apikey'?'apikey':'aksk';
+   merged.accessKey=String(merged.accessKey||'');
+   merged.secretKey=String(merged.secretKey||'');
+  }
   videoProviders[id]=merged;
  }
  return {
@@ -73,7 +96,19 @@ export function mergeStoredConfig(raw){
   geminiParams:{...base.geminiParams,...raw.geminiParams},
   qwenParams:{...base.qwenParams,...raw.qwenParams},
   doubaoParams:{...base.doubaoParams,...raw.doubaoParams},
+  klingParams:{...base.klingParams,...raw.klingParams},
  };
+}
+
+export function isProviderCredentialReady(id,pCfg){
+ const meta=PROVIDER_META[id]||VIDEO_PROVIDER_META[id];
+ const cfg=pCfg||(PROVIDER_META[id]?state.apiConfig.providers?.[id]:state.apiConfig.videoProviders?.[id])||{};
+ if(meta?.supportsDualAuth||id==='kling'||id==='kling_video'){
+  const mode=(cfg.authMode||'aksk')==='apikey'?'apikey':'aksk';
+  if(mode==='aksk')return Boolean(String(cfg.accessKey||'').trim()&&String(cfg.secretKey||'').trim());
+  return Boolean(String(cfg.apiKey||'').trim());
+ }
+ return Boolean(String(cfg.apiKey||'').trim());
 }
 
 // ------------------------------------------------------------------ storage helpers

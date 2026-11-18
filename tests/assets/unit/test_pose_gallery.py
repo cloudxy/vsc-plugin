@@ -169,12 +169,181 @@ class PoseGalleryTests(unittest.TestCase):
         self.assertTrue(proxy_target_allowed("https://api.x.ai/v1/images/edits"))
         self.assertTrue(proxy_target_allowed("https://imgen.x.ai/tmp/out.png"))
         self.assertTrue(proxy_target_allowed("https://ark.cn-beijing.volces.com/api/v3/images/generations"))
+        self.assertTrue(proxy_target_allowed("https://api-beijing.klingai.com/v1/images/generations"))
+        self.assertTrue(proxy_target_allowed("https://api.klingai.com/v1/videos/text2video"))
+        self.assertTrue(proxy_target_allowed("https://api-singapore.klingai.com/v1/images/generations"))
+        self.assertTrue(proxy_target_allowed("https://gateway.klingai.com/v1/images/generations"))
+        self.assertFalse(proxy_target_allowed("https://klingai.com/v1"))
+        self.assertFalse(proxy_target_allowed("https://p1.kwimgs.com/kling/out.png"))
         self.assertFalse(proxy_target_allowed("https://x.ai/v1"))
         self.assertFalse(proxy_target_allowed("http://api.x.ai/v1"))
         self.assertFalse(proxy_target_allowed("https://api.openai.com.evil.com/v1"))
         self.assertFalse(proxy_target_allowed("https://user:pw@api.openai.com/v1"))
         self.assertFalse(proxy_target_allowed("https://127.0.0.1/", "*"))
+        self.assertFalse(proxy_target_allowed("https://169.254.169.254/latest/meta-data", "*"))
         self.assertFalse(proxy_target_allowed("https://localhost/", "*"))
+
+    def test_proxy_dual_tier_media_cdn_enforces_get_strips_credentials_and_validates_mime(self):
+        import httpx
+        from fastapi import FastAPI, HTTPException
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web import character_studio as module
+
+        self.assertEqual(module.classify_proxy_target("https://api-beijing.klingai.com/v1/images/generations", "POST"), "api")
+        self.assertEqual(module.classify_proxy_target("https://api-beijing.klingai.com/v1/images/generations/t1", "GET"), "api")
+        for cdn_url in (
+            "https://p1.kwimgs.com/udata/pkg/out.png",
+            "https://v2.yximgs.com/upic/out.mp4",
+            "https://ali2.a.kwaicdn.com/bs2/out.mp4",
+            "https://ks3-cn-beijing.ksyun.com/kling/out.png",
+        ):
+            self.assertEqual(module.classify_proxy_target(cdn_url, "GET"), "media", cdn_url)
+            self.assertIsNone(module.classify_proxy_target(cdn_url, "POST"), cdn_url)
+            self.assertIsNone(module.classify_proxy_target(cdn_url, "DELETE"), cdn_url)
+        for blocked in (
+            "http://p1.kwimgs.com/out.png",
+            "https://127.0.0.1/out.png",
+            "https://169.254.169.254/latest/meta-data",
+        ):
+            self.assertIsNone(module.classify_proxy_target(blocked, "GET", "*"), blocked)
+        self.assertIsNone(module.classify_proxy_target("https://evil.example/out.png", "GET"))
+
+        app = FastAPI()
+
+        def actor(request):
+            if request.headers.get("x-test-actor") != "user":
+                raise HTTPException(403, "denied")
+
+        def origin(request):
+            if request.headers.get("origin") != "http://testserver":
+                raise HTTPException(403, "origin")
+
+        module.install_character_studio_routes(app, lambda request, data: data, actor, origin)
+        auth_headers = {
+            "x-test-actor": "user",
+            "origin": "http://testserver",
+            "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.secret.sig",
+            "x-goog-api-key": "AIzaSecretKey",
+            "x-dashscope-async": "enable",
+            "Cookie": "session=secret",
+        }
+        def _stream_ctx(resp: httpx.Response):
+            class _FakeStream:
+                def __init__(self, r: httpx.Response):
+                    self._r = r
+                    self.headers = r.headers
+                    self.status_code = r.status_code
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+                async def aiter_bytes(self):
+                    if self._r.content:
+                        yield self._r.content
+
+            return _FakeStream(resp)
+
+        with TestClient(app) as client:
+            # 1. Tier 1 Kling API allows POST and preserves Authorization.
+            api_resp = httpx.Response(200, json={"code": 0, "data": {"task_id": "t_1"}}, headers={"content-type": "application/json"})
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _stream_ctx(api_resp)) as post_mock:
+                res_api = client.post(
+                    "/api/proxy",
+                    content=b'{"model_name":"kling-v2-1","prompt":"hero"}',
+                    headers={**auth_headers, "Content-Type": "application/json", "x-target-url": "https://api-beijing.klingai.com/v1/images/generations"},
+                )
+            self.assertEqual(res_api.status_code, 200, res_api.text)
+            self.assertEqual(post_mock.call_args.args[0], "POST")
+            self.assertEqual(post_mock.call_args.kwargs["headers"].get("authorization"), "Bearer eyJhbGciOiJIUzI1NiJ9.secret.sig")
+
+            # 2. Tier 2 media CDN rejects POST and DELETE with 403 (zero upstream requests).
+            with patch("httpx.AsyncClient.stream") as stream_cdn:
+                for bad_method in ("POST", "PUT", "DELETE"):
+                    denied = client.post(
+                        "/api/proxy",
+                        content=b"{}",
+                        headers={**auth_headers, "x-target-url": "https://p1.kwimgs.com/out.png", "x-target-method": bad_method},
+                    )
+                    self.assertEqual(denied.status_code, 403, bad_method)
+                for ssrf_url in ("https://127.0.0.1:8080/x", "https://169.254.169.254/latest/meta-data", "https://evil.example/a.png"):
+                    ssrf_res = client.post(
+                        "/api/proxy",
+                        headers={**auth_headers, "x-target-url": ssrf_url, "x-target-method": "GET"},
+                    )
+                    self.assertEqual(ssrf_res.status_code, 403, ssrf_url)
+                stream_cdn.assert_not_called()
+
+            # 3. Tier 2 media CDN allows GET, strips ALL credential headers, and enforces media Content-Type.
+            cdn_png = httpx.Response(200, content=PNG_1X1, headers={"content-type": "image/png"})
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _stream_ctx(cdn_png)) as get_ok:
+                fetched = client.post(
+                    "/api/proxy",
+                    headers={**auth_headers, "Accept": "image/*", "x-target-url": "https://p1.kwimgs.com/out.png", "x-target-method": "GET"},
+                )
+            self.assertEqual(fetched.status_code, 200)
+            self.assertEqual(fetched.content, PNG_1X1)
+            sent_headers = {k.lower(): v for k, v in get_ok.call_args.kwargs["headers"].items()}
+            for forbidden_hdr in ("authorization", "x-goog-api-key", "x-dashscope-async", "cookie"):
+                self.assertNotIn(forbidden_hdr, sent_headers)
+            self.assertEqual(sent_headers.get("accept"), "image/*")
+
+            # 4. Tier 2 media CDN rejects text/html upstream responses with 502 without leaking body.
+            cdn_html = httpx.Response(200, content=b"<html>internal error</html>", headers={"content-type": "text/html; charset=utf-8"})
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _stream_ctx(cdn_html)):
+                bad_mime = client.post(
+                    "/api/proxy",
+                    headers={**auth_headers, "x-target-url": "https://p1.kwimgs.com/error", "x-target-method": "GET"},
+                )
+            self.assertEqual(bad_mime.status_code, 502)
+            self.assertNotIn("internal error", bad_mime.text)
+
+            # 5. Tier 2 allows application/octet-stream ONLY when image magic bytes match.
+            cdn_octet_png = httpx.Response(200, content=PNG_1X1, headers={"content-type": "application/octet-stream"})
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _stream_ctx(cdn_octet_png)):
+                ok_octet = client.post(
+                    "/api/proxy",
+                    headers={**auth_headers, "x-target-url": "https://p2.yximgs.com/raw.bin", "x-target-method": "GET"},
+                )
+            self.assertEqual(ok_octet.status_code, 200)
+            self.assertTrue(ok_octet.headers["content-type"].startswith("image/png"))
+
+            cdn_octet_bad = httpx.Response(200, content=b"not-an-image", headers={"content-type": "application/octet-stream"})
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _stream_ctx(cdn_octet_bad)):
+                bad_octet = client.post(
+                    "/api/proxy",
+                    headers={**auth_headers, "x-target-url": "https://p2.yximgs.com/raw.bin", "x-target-method": "GET"},
+                )
+            self.assertEqual(bad_octet.status_code, 502)
+
+            # 6. QA-1: Oversized chunked upstream stream (>15 MiB without Content-Length) aborts mid-stream with 413!
+            pulled_chunks = [0]
+
+            class _OversizedChunkStream:
+                headers = httpx.Headers({"content-type": "video/mp4"})
+                status_code = 200
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+                async def aiter_bytes(self):
+                    two_mib = b"x" * (2 * 1024 * 1024)
+                    for _ in range(12):  # 24 MiB total if unguarded
+                        pulled_chunks[0] += 1
+                        yield two_mib
+
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _OversizedChunkStream()):
+                oversized_res = client.post(
+                    "/api/proxy",
+                    headers={**auth_headers, "x-target-url": "https://v1.kwaicdn.com/huge.mp4", "x-target-method": "GET"},
+                )
+            self.assertEqual(oversized_res.status_code, 413)
+            self.assertEqual(pulled_chunks[0], 8, "stream must abort immediately on the 8th 2MiB chunk (16MiB > 15MiB)")
 
 
 class CharacterStudioHttpTests(unittest.TestCase):
@@ -224,23 +393,42 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     bearer = {**headers, "Authorization": "Bearer xai-test-key", "Content-Type": "application/json"}
                     self.assertEqual(client.post("/api/proxy", content=b"{}", headers={"Authorization": "Bearer xai-test-key"}).status_code, 403)
                     self.assertEqual(client.post("/api/proxy", content=b"{}", headers={**bearer, "x-target-url": "https://evil.example.com/x"}).status_code, 403)
+                    def _wrap_stream(r: httpx.Response):
+                        class _S:
+                            headers = r.headers
+                            status_code = r.status_code
+
+                            async def __aenter__(self):
+                                return self
+
+                            async def __aexit__(self, exc_type, exc, tb):
+                                return False
+
+                            async def aiter_bytes(self):
+                                if r.content:
+                                    yield r.content
+
+                        return _S()
+
                     upstream = httpx.Response(200, json={"data": [{"url": "https://imgen.x.ai/out.png"}]}, headers={"content-type": "application/json"})
-                    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=upstream)) as forwarded:
+                    with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _wrap_stream(upstream)) as forwarded:
                         relayed = client.post("/api/proxy", content=b'{"model":"grok-imagine-image-2.0"}',
                                               headers={**bearer, "x-target-url": "https://api.x.ai/v1/images/edits"})
                     self.assertEqual(relayed.status_code, 200, relayed.text)
                     sent = forwarded.call_args
-                    self.assertEqual(sent.args[0], "https://api.x.ai/v1/images/edits")
+                    self.assertEqual(sent.args[0], "POST")
+                    self.assertEqual(sent.args[1], "https://api.x.ai/v1/images/edits")
                     self.assertEqual(sent.kwargs["headers"]["authorization"], "Bearer xai-test-key")
                     self.assertEqual(sent.kwargs["headers"]["user-agent"], grok_credentials.USER_AGENT)
                     self.assertNotIn("x-csrf-token", {k.lower() for k in sent.kwargs["headers"]})
 
                     img_upstream = httpx.Response(200, content=PNG_1X1, headers={"content-type": "image/png"})
-                    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=img_upstream)) as get_mock:
+                    with patch("httpx.AsyncClient.stream", side_effect=lambda *a, **kw: _wrap_stream(img_upstream)) as get_mock:
                         fetched = client.post("/api/proxy", headers={**headers, "x-target-url": "https://imgen.x.ai/out.png", "x-target-method": "GET"})
                     self.assertEqual(fetched.status_code, 200)
                     self.assertEqual(fetched.content, PNG_1X1)
-                    self.assertEqual(get_mock.call_args.args[0], "https://imgen.x.ai/out.png")
+                    self.assertEqual(get_mock.call_args.args[0], "GET")
+                    self.assertEqual(get_mock.call_args.args[1], "https://imgen.x.ai/out.png")
 
                     # Auth status & online verification never leak secret tokens.
                     with patch("vsc.interfaces.web.character_studio._agy_state_file", return_value=fake_state), \

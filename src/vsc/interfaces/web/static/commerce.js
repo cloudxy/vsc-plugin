@@ -201,7 +201,8 @@ function validateCampaignDraftClient(doc){
 export function createCommerce(root,ctx){
   // Strictly zero implicit session workspace state (D-NO-CURRENT-SPACE) and zero in-memory localTitles.
   let ticket=0,scope=null,data=null,platformData=null,busy=false,subview='wallet',serverTitles=[],orderFilter='all',historyFilter='all';
-  let loadController=null,diffDialogState=null;
+  let loadController=null,diffDialogState=null,stageHost=null;
+  const resolveStage=parent=>(!parent||parent===root)&&stageHost?.parentElement===root?stageHost:(parent||root);
   const drafts=new Map(),pending=new Map(),scopeRevisions=new Map();
 
   const session=()=>ctx.session();
@@ -321,7 +322,7 @@ export function createCommerce(root,ctx){
     const n=el('section',null,cls);
     if(comp)setComp(n,comp);
     n.append(el('h2',title));
-    parent.append(n);
+    resolveStage(parent).append(n);
     return n;
   }
   function summaryGrid(parent,items){
@@ -332,7 +333,7 @@ export function createCommerce(root,ctx){
       if(sub)cell.append(el('small',sub));
       grid.append(cell);
     }
-    parent.append(grid);
+    resolveStage(parent).append(grid);
     return grid;
   }
   function table(parent,head,rows){
@@ -438,9 +439,9 @@ export function createCommerce(root,ctx){
       if(kind==='project'&&id)return load({subview,scopeKind:'project',workspaceId:'',project:id});
       return load({subview,scopeKind:'identity',workspaceId:'',project:''});
     });
-    controls.append(poolSelect);
+    controls.append(poolSelect,button(msg("ui.reload_ledger"),()=>load({...scope,subview})));
     bar.append(info,controls);
-    root.append(bar);
+    resolveStage(root).append(bar);
   }
 
   async function loadServerTitles(query='',signal=undefined){
@@ -462,7 +463,7 @@ export function createCommerce(root,ctx){
   async function loadPlatformCatalog(signal=undefined){
     const t=ticket,s=scope;
     if(s?.scopeKind==='project')return;
-    if(!(data?.capabilities?.platform_admin||data?.capabilities?.manage))return;
+    if(!data?.capabilities?.platform_admin)return;
     try{
       const res=await ctx.api('/api/v1/platform/commerce',{headers:{'X-CSRF-Token':session().csrf},...(signal?{signal}:{})});
       if(same(t,s)&&res&&typeof res==='object'){
@@ -596,43 +597,53 @@ export function createCommerce(root,ctx){
         ctx.notice(`已复制客服邮箱：${email}`);
       },!email)
     );
-    parent.append(banner);
+    resolveStage(parent).append(banner);
   }
 
-  function renderInvoiceSubnav(){
-    const nav=el('nav',null,'commerce-subnav');
-    bindAttribute(nav,'aria-label','电子发票导航');
-    for(const [id,label]of [
+  function renderInvoiceSegmentCard(){
+    const card=el('section',null,'commerce-card commerce-invoice-segment-card');
+    const head=el('div',null,'commerce-invoice-segment-head');
+    const copy=el('div');
+    const isPortal=subview==='invoice-overview';
+    copy.append(
+      el('span','我的钱包 / 电子发票','commerce-crumb-path'),
+      el('h2',isPortal?'电子发票中心 · 申请开票':'电子发票中心'),
+      el('p',isPortal?'请选择需要办理的开票服务，或切换下方五向分段办理具体事项。':'管理可开票订单、历史发票与常用发票抬头','hint')
+    );
+    const backBtn=button('← 返回我的钱包',()=>switchSubview('wallet'),false,'commerce-back-btn');
+    bindAttribute(backBtn,'aria-label','返回我的钱包');
+    head.append(copy,backBtn);
+    const seg=el('div',null,'commerce-invoice-segments');
+    seg.setAttribute('role','tablist');
+    bindAttribute(seg,'aria-label','电子发票导航');
+    const segItems=[
       ['invoice-overview','发票总览'],
       ['invoice-apply','申请开票'],
       ['invoice-orders','可开票订单'],
       ['invoice-history','开票历史'],
       ['invoice-titles','常用发票抬头']
-    ]){
+    ];
+    const segButtons=[];
+    for(const [id,label]of segItems){
+      const active=subview===id;
       const b=button(label,()=>switchSubview(id));
       b.dataset.subview=id;
-      b.setAttribute('aria-pressed',String(subview===id));
-      nav.append(b);
+      b.setAttribute('role','tab');
+      b.setAttribute('aria-selected',String(active));
+      b.setAttribute('aria-pressed',String(active));
+      segButtons.push(b);
+      seg.append(b);
     }
-    root.append(nav);
-  }
-
-  function renderInvoiceHeader({showSubnav=true}={}){
-    const hero=el('header',null,'commerce-invoice-hero');
-    const left=el('div');
-    const isPortal=subview==='invoice-overview';
-    left.append(
-      el('span','我的钱包 / 电子发票','commerce-crumb-path'),
-      el('h1',isPortal?'申请开票':'电子发票'),
-      el('p',isPortal?'请选择需要办理的开票服务。':'管理可开票订单、历史发票与常用发票抬头','hint')
-    );
-    const backBtn=button(isPortal?'返回':'← 返回我的钱包',()=>switchSubview('wallet'),false,'commerce-back-btn');
-    bindAttribute(backBtn,'aria-label','返回我的钱包');
-    hero.append(left,backBtn);
-    attachGovNav(hero);
-    root.append(hero);
-    renderFundingPoolBar();
-    if(showSubnav)renderInvoiceSubnav();
+    segButtons.forEach((btnNode,idx)=>btnNode.addEventListener('keydown',event=>{
+      if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
+        event.preventDefault?.();
+        const nextIdx=(idx+(event.key==='ArrowRight'?1:segButtons.length-1))%segButtons.length;
+        switchSubview(segItems[nextIdx][0]);
+        root.querySelector?.(`.commerce-invoice-segments [data-subview="${segItems[nextIdx][0]}"]`)?.focus?.();
+      }
+    }));
+    card.append(head,seg);
+    resolveStage(root).append(card);
   }
 
   async function downloadInvoicePdf(row,t,s){
@@ -651,7 +662,7 @@ export function createCommerce(root,ctx){
   }
 
   function renderInvoiceOverview(){
-    renderInvoiceHeader({showSubnav:false});
+    renderInvoiceSegmentCard();
     const ordersList=data.orders||[];
     const invoicesList=data.invoices||[];
     const paidOrders=ordersList.filter(o=>o.status==='paid');
@@ -707,9 +718,8 @@ export function createCommerce(root,ctx){
       card.append(head,el('h2',item.title),el('p',item.desc),button(item.cta,item.onClick,false,item.primary?'commerce-btn-primary':''));
       grid.append(card);
     }
-    root.append(grid);
+    resolveStage(root).append(grid);
     renderSupportBanner(root);
-    renderInvoiceSubnav();
     summaryGrid(root,[
       ['待开票订单',`${billableOrders.length} 笔`,'已支付且尚未提交有效开票申请'],
       ['历史开票申请',`${invoicesList.length} 条`,`已开具 ${issuedCount} 张`],
@@ -732,7 +742,7 @@ export function createCommerce(root,ctx){
   }
 
   function renderInvoiceApply(t,s){
-    renderInvoiceHeader();
+    renderInvoiceSegmentCard();
     const applyBox=box('申请开具电子发票',root,'commerce-card','commerce-invoice-center');
     applyBox.append(el('p',msg("ui.invoices_come_from_an_invoicing_service_and_are_separate"),'hint'));
     const paidOrders=(data.orders||[]).filter(o=>o.status==='paid');
@@ -841,7 +851,7 @@ export function createCommerce(root,ctx){
   }
 
   function renderInvoiceOrders(){
-    renderInvoiceHeader();
+    renderInvoiceSegmentCard();
     const ordersBox=box('可开票与已支付订单');
     const filterBar=el('div',null,'commerce-actions');
     for(const [code,label]of [['all','全部已付订单'],['billable','待开票'],['pending','开票处理中'],['issued','已开具']]){
@@ -869,7 +879,7 @@ export function createCommerce(root,ctx){
   }
 
   function renderInvoiceHistory(t,s){
-    renderInvoiceHeader();
+    renderInvoiceSegmentCard();
     const histBox=box('历史发票记录');
     const filterBar=el('div',null,'commerce-actions');
     for(const [code,label]of [['all','全部状态'],['issued','已开具'],['pending','待处理 / 待核对'],['unconfigured','服务未配置'],['failed','处理失败']]){
@@ -895,7 +905,7 @@ export function createCommerce(root,ctx){
   }
 
   function renderInvoiceTitles(){
-    renderInvoiceHeader();
+    renderInvoiceSegmentCard();
     const titleBox=box('常用发票抬头管理',root,'commerce-card','commerce-invoice-titles-card');
     const form=el('div',null,'commerce-title-form');
     const typeSelect=el('select');
@@ -1413,32 +1423,61 @@ export function createCommerce(root,ctx){
     root.replaceChildren();
     root.classList.add('commerce');
     root.dataset.subview=subview;
-    setComp(root,'section-commerce-billing');
+    setComp(root,'commercial-shell-container');
     const t=ticket,s=scope,caps=data.capabilities||{};
+
+    const topBar=el('header',null,'commerce-topbar');
+    setComp(topBar,'commercial-shell-header');
+    const titleWrap=el('div');
+    titleWrap.append(
+      el('h1','会员与钱包'),
+      el('p',msg("ui.commercial_credits_use_a_fixed_price_version_task_counts"),'hint')
+    );
+    topBar.append(titleWrap);
+    attachGovNav(topBar);
+    root.append(topBar);
+
+    const subnav=el('nav',null,'commerce-subnav');
+    setComp(subnav,'commercial-shell-subnav');
+    subnav.setAttribute('role','tablist');
+    bindAttribute(subnav,'aria-label','会员与钱包二级常驻导航');
+    const primaryTabs=[
+      ['wallet','我的钱包'],
+      ['invoice-overview','电子发票中心'],
+      ['studio-quota','工作室额度调配']
+    ];
+    const subnavButtons=[];
+    for(const [id,label]of primaryTabs){
+      const active=id==='invoice-overview'?subview.startsWith('invoice-'):subview===id;
+      const b=button(label,()=>switchSubview(id));
+      b.dataset.subview=id;
+      b.setAttribute('role','tab');
+      b.setAttribute('aria-selected',String(active));
+      b.setAttribute('aria-pressed',String(active));
+      subnavButtons.push(b);
+      subnav.append(b);
+    }
+    subnavButtons.forEach((tabBtn,idx)=>tabBtn.addEventListener('keydown',event=>{
+      if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
+        event.preventDefault?.();
+        const nextIdx=(idx+(event.key==='ArrowRight'?1:subnavButtons.length-1))%subnavButtons.length;
+        switchSubview(primaryTabs[nextIdx][0]);
+        root.querySelector?.(`.commerce-subnav [data-subview="${primaryTabs[nextIdx][0]}"]`)?.focus?.();
+      }
+    }));
+    root.append(subnav);
+
+    stageHost=el('div',null,'commerce-stage');
+    setComp(stageHost,'commercial-shell-stage');
+    root.append(stageHost);
+
+    renderFundingPoolBar();
 
     if(subview==='invoice-overview'){renderInvoiceOverview();return;}
     if(subview==='invoice-apply'){renderInvoiceApply(t,s);return;}
     if(subview==='invoice-orders'){renderInvoiceOrders();return;}
     if(subview==='invoice-history'){renderInvoiceHistory(t,s);return;}
     if(subview==='invoice-titles'){renderInvoiceTitles();return;}
-
-    const topBar=el('header',null,'commerce-topbar');
-    const titleWrap=el('div');
-    titleWrap.append(el('h1',msg("ui.credits_orders_and_invoices")),el('p',msg("ui.commercial_credits_use_a_fixed_price_version_task_counts"),'hint'));
-    const topActions=el('div',null,'commerce-actions');
-    const tabs=[['wallet','我的钱包'],['invoice-overview','电子发票中心'],...(caps.manage?[['studio-quota','工作室额度调配']]:[])];
-    for(const [id,label]of tabs){
-      const active=id==='invoice-overview'?subview.startsWith('invoice-'):subview===id;
-      const b=button(label,()=>switchSubview(id));
-      b.setAttribute('aria-pressed',String(active));
-      topActions.append(b);
-    }
-    topActions.append(button(msg("ui.reload_ledger"),()=>load({...scope,subview})));
-    topBar.append(titleWrap,topActions);
-    attachGovNav(topBar);
-    root.append(topBar);
-    renderFundingPoolBar();
-
     if(subview==='studio-quota'){renderOrganizationQuota(s);return;}
 
     const bucketsList=data.buckets||[];
@@ -1561,7 +1600,7 @@ export function createCommerce(root,ctx){
       labels[r.status]||r.status
     ]));
 
-    if(caps.manage||caps.platform_admin){
+    if(caps.platform_admin){
       renderAdminGovernanceSection();
     }
   }

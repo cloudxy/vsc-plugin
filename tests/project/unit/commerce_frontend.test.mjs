@@ -1,5 +1,7 @@
 import {loadModule} from '../../support/fixtures/frontend/modules.cjs';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
@@ -93,7 +95,7 @@ async function commerceFixture(options={}){
     revision:7,
     credit_balance:520,
     policy:null,
-    capabilities:{pricing:true,payment:true,invoice:true,manage:true,platform_admin:true},
+    capabilities:{pricing:true,payment:true,invoice:true,manage:true,platform_admin:Boolean(options.platformAdmin)},
     buckets:[{id:'b-self',kind:'credit',owner_actor:'member-1',available:520,expires_at:null,frozen:false,expired:false}],
     plans:structuredClone(state.plans),
     provider_models:structuredClone(state.provider_models),
@@ -496,5 +498,37 @@ test('structured 16-field plan editor, rate matrix, 9-field campaign editor, dry
   await f.button('确认封存发布营销活动').fire('click');
   assert.ok(f.requests.some(r=>r.path==='/api/v1/platform/commerce/campaigns'&&JSON.parse(r.init.body).payload.confirmed===true));
   assert.equal(f.view.querySelectorAll('textarea').length,0);
+  f.instance.suspend();
+});
+
+test('non-platform_admin users make 0 requests to /api/v1/platform/commerce, hide admin editors, and keep persistent 3-tab .commerce-subnav across all subviews',async()=>{
+  const staticDir=path.resolve(import.meta.dirname,'../../../src/vsc/interfaces/web/static');
+  const commerceCss=fs.readFileSync(path.join(staticDir,'commerce.css'),'utf8');
+  assert.equal(/#9eff00/i.test(commerceCss),false,'commerce.css must replace #9eff00 with #74ff53');
+  assert.match(commerceCss,/\.commerce-btn-primary\{[^}]*border-radius:8px/);
+
+  // Non-platform_admin (manage: true, platform_admin: false)
+  const f=await commerceFixture({platformAdmin:false});
+  await f.instance.load({});
+  assert.equal(f.requests.some(r=>r.path==='/api/v1/platform/commerce'),false,'non-platform_admin must make 0 requests to /api/v1/platform/commerce');
+  assert.equal(f.view.querySelector('[data-component="commerce-admin-plan-editor"]'),null);
+  assert.equal(f.view.querySelector('[data-component="commerce-admin-campaign-editor"]'),null);
+
+  await f.instance.load({project:'proj-1'});
+  assert.equal(f.requests.some(r=>r.path==='/api/v1/platform/commerce'),false);
+  assert.equal(f.view.querySelector('[data-component="commerce-admin-plan-editor"]'),null);
+
+  const expectedThreeTabs=['我的钱包','电子发票中心','工作室额度调配'];
+  for(const sub of ['wallet','studio-quota','invoice-overview','invoice-apply','invoice-orders','invoice-history','invoice-titles']){
+    await f.instance.load({project:'proj-1',subview:sub});
+    const topBar=f.view.querySelector('.commerce-topbar');
+    const subnav=f.view.querySelector('.commerce-subnav');
+    assert.ok(topBar,`commerce-topbar must stay mounted on ${sub}`);
+    assert.ok(topBar.textContent.includes('会员与钱包'));
+    assert.ok(subnav,`commerce-subnav must stay mounted on ${sub}`);
+    assert.deepEqual(subnav.children.map(b=>b.textContent),expectedThreeTabs);
+    const invoiceTab=subnav.children[1];
+    assert.equal(invoiceTab.getAttribute('aria-selected'),String(sub.startsWith('invoice-')));
+  }
   f.instance.suspend();
 });

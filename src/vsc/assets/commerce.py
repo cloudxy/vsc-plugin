@@ -285,7 +285,7 @@ class CommerceService:
     def platform_commerce_summary(self, *, actor):
         self._actor(actor)
         self._resolve_commerce_scope("platform", capability="manage")
-        result = self._commerce().platform_summary(actor)
+        result = self._commerce().platform_summary(is_admin=True)
         result["capabilities"] = self._commerce_capabilities(result, manage=True)
         return result
 

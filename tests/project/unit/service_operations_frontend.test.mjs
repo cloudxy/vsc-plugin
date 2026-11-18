@@ -56,7 +56,7 @@ const document={
   createTextNode:text=>{const n=new Element('#text',text);n.ownerDocument=document;return n;}
 };
 
-async function opsFixture({records=[],manage=true,apiHook,actor='studio-lead',closePreview=null,fetchMock=null,returnContext=null}={}){
+async function opsFixture({records=[],manage=true,capabilities=null,apiHook,actor='studio-lead',closePreview=null,fetchMock=null,returnContext=null}={}){
   const view=document.createElement('main'),requests=[],notices=[],navigations=[],govSwitches=[],settingsSwitches=[];
   let revision=4,clipboardText='',currentActor=actor,returnCalls=0;
   const state={
@@ -66,7 +66,7 @@ async function opsFixture({records=[],manage=true,apiHook,actor='studio-lead',cl
     identity_id:'id-1',
     actor:currentActor,
     manage,
-    capabilities:manage?['read','execute','manage']:['read'],
+    capabilities:capabilities||(manage?['read','execute','manage']:['read']),
     configuration:{id:'cfg-1',version:1,document:{support_text:'技术支持 7×12',terms_url:'https://example.com/terms',privacy_url:'https://example.com/privacy',api_documentation:'Bearer 鉴权文档'}},
     announcements:[{id:'ann-1',announcement_key:'v1',title:'vsc-engine升级公告',body:'开放接口速率边界上线',status:'published'}],
     requests:[
@@ -136,8 +136,9 @@ async function opsFixture({records=[],manage=true,apiHook,actor='studio-lead',cl
       const body=JSON.parse(init.body);
       revision++;state.revision=revision;
       if(path.endsWith('/api-keys')){
-        state.api_keys.unshift({id:'key-1',name:body.payload.name,prefix:body.payload.secret.slice(0,8),capabilities:body.payload.capabilities,expires_at:body.payload.expires_at,ip_allowlist:body.payload.ip_allowlist,requests_per_minute:body.payload.requests_per_minute,revoked:false});
-        return {id:'key-1',prefix:body.payload.secret.slice(0,8),revision};
+        const createdKey={id:`key-${state.api_keys.length+1}`,identity_id:state.identity_id,owner_actor:currentActor,name:body.payload.name,prefix:body.payload.secret.slice(0,8),capabilities:body.payload.capabilities,expires_at:body.payload.expires_at,ip_allowlist:body.payload.ip_allowlist,requests_per_minute:body.payload.requests_per_minute,revoked:false};
+        state.api_keys.unshift(createdKey);
+        return {id:createdKey.id,prefix:createdKey.prefix,revision};
       }
       if(path.endsWith('/requests')){
         const req={id:`req-${state.requests.length+1}`,...body.payload,status:['studio','production_service'].includes(body.payload.kind)?'awaiting_configuration':'received',mine:true,events:[{id:`ev-${revision}`,status:'received',reason:'已保存',created_at:'2026-11-11T10:00:00Z'}]};
@@ -309,37 +310,66 @@ test('light network diagnostics, personal export, and account close execute clea
   f.instance.suspend();
 });
 
-test('standalone subviews stay focused without multi-tab admin clutter, support task_id prefill, and guide empty feedback state',async()=>{
+test('persistent 9-tab .so-subnav and .so-topbar stay mounted across all subviews without .so-quick-switch or duplicate overview API key form',async()=>{
   const f=await opsFixture();
+  const expectedNineTabs=[
+    '服务总览与公告',
+    '外部调用 vsc-engine',
+    '数据与消耗记录',
+    'Seedance 视频验真',
+    '我的意见反馈',
+    '短剧承制合作',
+    '网络诊断',
+    '个人信息导出',
+    '账户注销'
+  ];
+
   await f.instance.load({project:'proj-ops',subview:'overview'});
-  assert.ok(f.view.querySelector('.so-subnav'));
+  assert.ok(f.view.querySelector('.so-topbar'));
+  assert.ok(f.view.querySelector('.so-topbar').textContent.includes('服务与开放接口'));
+  assert.deepEqual(f.view.querySelector('.so-subnav').children.map(b=>b.textContent),expectedNineTabs);
+  assert.equal(f.view.querySelector('.so-quick-switch'),null);
+  assert.equal(f.view.querySelector('.gov-settings-guide'),null);
+  // Overview eliminates duplicate API key creation form and links cleanly to subview='engine'
+  assert.equal(f.input('API 凭据名称'),undefined);
+  await f.button('管理外部调用 vsc-engine 凭据').fire('click');
+  assert.equal(f.view.dataset.subview,'engine');
+  assert.ok(f.input('API 凭据名称'));
 
   await f.instance.load({project:'proj-ops',subview:'seedance-verify',targetId:'8f3a19c04b2e7d11'});
-  assert.equal(f.view.querySelector('.so-subnav'),null);
+  assert.deepEqual(f.view.querySelector('.so-subnav').children.map(b=>b.textContent),expectedNineTabs);
+  assert.ok(f.view.querySelector('.so-topbar'));
+  assert.equal(f.view.querySelector('.so-quick-switch'),null);
   assert.equal(f.input('Seedance 任务编号').value,'8f3a19c04b2e7d11');
 
   await f.instance.load({project:'proj-ops',subview:'engine'});
-  assert.equal(f.view.querySelector('.so-subnav'),null);
+  assert.deepEqual(f.view.querySelector('.so-subnav').children.map(b=>b.textContent),expectedNineTabs);
+  assert.ok(f.view.querySelector('.so-topbar'));
   await f.button('充值').fire('click');
   assert.deepEqual(f.navigations.at(-1),['commerce','wallet','proj-ops']);
 
   await f.instance.load({project:'proj-ops',subview:'feedback-records'});
+  assert.equal(f.view.querySelector('.so-subnav').children.length,9);
   await f.button('处理中').fire('click');
   assert.ok(f.view.querySelector('.so-empty-state'));
   await f.button('⊕ 提交新反馈').fire('click');
   assert.ok(f.view.querySelector('.so-feedback-drawer'));
 
   await f.instance.load({project:'proj-ops',subview:'activity'});
+  assert.equal(f.view.querySelector('.so-subnav').children.length,9);
   assert.ok(f.view.textContent.includes('充值解锁 DramaWave 承制权益'));
   await f.instance.load({project:'proj-ops',subview:'pc-only-notice'});
+  assert.equal(f.view.querySelector('.so-subnav').children.length,9);
   assert.ok(f.view.textContent.includes('建议使用桌面端浏览器访问'));
   await f.instance.load({project:'proj-ops',subview:'icon'});
+  assert.equal(f.view.querySelector('.so-subnav').children.length,9);
   assert.ok(f.view.textContent.includes('canvas-infinite'));
   f.input('搜索图标名称或场景').value='seedance';await f.input('搜索图标名称或场景').fire('input');
   assert.ok(f.view.textContent.includes('seedance-shield'));
   assert.equal(f.view.textContent.includes('canvas-infinite'),false);
   await f.instance.load({project:'proj-ops',subview:'404'});
   assert.equal(f.view.dataset.subview,'not-found');
+  assert.equal(f.view.querySelector('.so-subnav').children.length,9);
   assert.ok(f.view.textContent.includes('404 · 页面不存在或已移动'));
   f.instance.suspend();
 });
@@ -637,9 +667,106 @@ test('0-project Seedance verify, dark network diagnostic, project-linked feedbac
   await f.button('提交申请').fire('click');
   assert.ok(f.requests.some(r=>r.path==='/api/v1/workspaces/ws-1/service-operations/requests'&&r.init.method==='POST'));
 
-  // vsc-engine in 0-project mode mounts settings triage banner & offers project selector for Bearer API key
+  // vsc-engine in 0-project mode omits retired .gov-settings-guide banner & offers project selector for Bearer API key
   await f.instance.load({subview:'engine'});
-  assert.ok(f.view.querySelector('.gov-settings-guide'));
+  assert.equal(f.view.querySelector('.gov-settings-guide'),null);
+  assert.ok(f.view.querySelector('.so-subnav'));
+  assert.ok(f.view.querySelector('[data-component="vsc-engine-credentials"]'));
   assert.ok(f.input('选择签发 API Key 的目标项目'));
   f.instance.suspend();
+});
+
+test('vsc-engine enforces 0..10000 integer RPM validation, draft preservation on 409/validation errors, per-holder revoke isolation, Project Viewer read-only cap, and token CSS alignment',async()=>{
+  const staticDir=path.resolve(import.meta.dirname,'../../../src/vsc/interfaces/web/static');
+  const opsCss=fs.readFileSync(path.join(staticDir,'service-operations.css'),'utf8');
+  assert.equal(/#9eff00/i.test(opsCss),false,'service-operations.css must replace #9eff00 with #74ff53');
+  assert.match(opsCss,/\.so-btn-primary\{[^}]*border-radius:8px/);
+  assert.equal(/\.so-records-split/.test(opsCss),false,'250px .so-records-split sidebar must be removed');
+  assert.equal(/\.so-verify-shell-wrap/.test(opsCss),false,'860px .so-verify-shell-wrap width cap must be removed');
+
+  let conflictOnce=false;
+  const f=await opsFixture({
+    apiHook:async(p,init)=>{
+      if(init.method==='POST'&&p.endsWith('/api-keys')&&conflictOnce){
+        conflictOnce=false;
+        throw Object.assign(new Error('并发版本冲突'),{status:409});
+      }
+      return undefined;
+    }
+  });
+  f.state.api_keys.push({
+    id:'key-foreign',
+    identity_id:'id-other-member',
+    owner_actor:'other-member',
+    name:'他人专属密钥',
+    prefix:'vsc_othr',
+    capabilities:['read'],
+    expires_at:'2026-12-31T00:00:00Z',
+    ip_allowlist:[],
+    requests_per_minute:120,
+    revoked:false
+  });
+
+  await f.instance.load({project:'proj-ops',subview:'engine'});
+  // Foreign holder key must never render revoke button for current identity
+  assert.equal(f.button('撤销 API 凭据 他人专属密钥'),undefined);
+
+  f.input('API 凭据名称').value='网关限速密钥';
+  await f.input('API 凭据名称').fire('input');
+  f.input('允许的IP或CIDR（每行一项，留空不限）').value='10.0.0.0/8\n192.168.1.0/24';
+  await f.input('允许的IP或CIDR（每行一项，留空不限）').fire('input');
+  const savedExpiry=f.input('API 到期时间（带时区）').value;
+  const usage=f.input('确认 vsc-engine API 凭据使用说明');
+  usage.checked=true;
+  await usage.fire('change');
+
+  // Out-of-bounds or fractional RPM (-5, 3.14, 10001) blocked client-side with 0 POSTs and 100% draft preservation
+  for(const invalidRpm of ['-5','3.14','10001']){
+    const rateInput=f.input('每分钟调用上限（0不限）');
+    rateInput.value=invalidRpm;
+    await rateInput.fire('input');
+    await f.button('生成并登记 API 凭据').fire('click');
+    assert.equal(f.requests.some(r=>r.path.endsWith('/api-keys')),false,`invalid RPM ${invalidRpm} must send 0 POSTs`);
+    assert.equal(rateInput.getAttribute('aria-invalid'),'true');
+    assert.equal(f.input('API 凭据名称').value,'网关限速密钥');
+    assert.equal(f.input('允许的IP或CIDR（每行一项，留空不限）').value,'10.0.0.0/8\n192.168.1.0/24');
+    assert.equal(f.input('API 到期时间（带时区）').value,savedExpiry);
+  }
+
+  // 409 conflict clears keyAttempts while preserving all drafts, then retry with boundary 10000 succeeds
+  conflictOnce=true;
+  const rateOk=f.input('每分钟调用上限（0不限）');
+  rateOk.value='10000';
+  await rateOk.fire('input');
+  await f.button('生成并登记 API 凭据').fire('click');
+  assert.equal(f.input('API 凭据名称').value,'网关限速密钥');
+  assert.equal(f.input('允许的IP或CIDR（每行一项，留空不限）').value,'10.0.0.0/8\n192.168.1.0/24');
+
+  await f.button('生成并登记 API 凭据').fire('click');
+  const post10000=f.requests.findLast(r=>r.init.method==='POST'&&r.path.endsWith('/api-keys'));
+  assert.equal(JSON.parse(post10000.init.body).payload.requests_per_minute,10000);
+  assert.ok(f.input('本次新 API 凭据（仅此页面可见）'));
+  assert.ok(f.button('撤销 API 凭据 网关限速密钥'));
+
+  // Switching away from engine wipes the one-time plaintext secret from memory
+  await f.button('服务总览与公告').fire('click');
+  assert.equal(f.view.dataset.subview,'overview');
+  await f.button('外部调用 vsc-engine').fire('click');
+  assert.equal(f.input('本次新 API 凭据（仅此页面可见）'),undefined);
+
+  // Boundary RPM = 0 (unlimited) also succeeds cleanly
+  f.input('每分钟调用上限（0不限）').value='0';
+  await f.input('每分钟调用上限（0不限）').fire('input');
+  await f.button('生成并登记 API 凭据').fire('click');
+  const postZero=f.requests.findLast(r=>r.init.method==='POST'&&r.path.endsWith('/api-keys'));
+  assert.equal(JSON.parse(postZero.init.body).payload.requests_per_minute,0);
+  f.instance.suspend();
+
+  // Project Viewer (read-only capability) cannot select or delegate execute capability
+  const viewer=await opsFixture({manage:false,capabilities:['read']});
+  await viewer.instance.load({project:'proj-ops',subview:'engine'});
+  const capSelect=viewer.input('API 能力');
+  assert.deepEqual(capSelect.options.map(o=>o.value),['read']);
+  assert.ok(viewer.view.textContent.includes('仅具备只读（read）权限'));
+  viewer.instance.suspend();
 });

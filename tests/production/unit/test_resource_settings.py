@@ -137,3 +137,95 @@ class ResourceSettingsTest(unittest.TestCase):
         self.assertEqual("volc_ark", fake.handle.provider)
         with self.assertRaises(ResourceError):
             adapter.poll(JobHandle("another-account", "model", "task"))
+
+    def test_kling_presets_paired_credentials_and_configuration_validation(self):
+        from vsc.production.resource_settings import credential_present
+
+        preset_by_id = {preset["id"]: preset for preset in PRESETS}
+        self.assertIn("kling-image", preset_by_id)
+        self.assertIn("kling-video", preset_by_id)
+        img_preset = preset_by_id["kling-image"]
+        vid_preset = preset_by_id["kling-video"]
+        self.assertFalse(img_preset["enabled"])
+        self.assertFalse(vid_preset["enabled"])
+        self.assertEqual(img_preset["auth_ref"], "KLING_ACCESS_KEY")
+        self.assertEqual(vid_preset["auth_ref"], "KLING_ACCESS_KEY")
+        self.assertEqual(img_preset["base_url"], "https://api-beijing.klingai.com")
+
+        img_payload = {k: v for k, v in img_preset.items() if k != "label"} | {"enabled": True}
+        vid_payload = {k: v for k, v in vid_preset.items() if k != "label"} | {"enabled": True}
+        validated_img = validate_configuration(img_payload)
+        validated_vid = validate_configuration(vid_payload)
+        self.assertTrue(public_configuration(validated_img)["adapter_available"])
+        self.assertTrue(public_configuration(validated_vid)["adapter_available"])
+
+        # Paired AK/SK requires BOTH KLING_ACCESS_KEY and KLING_SECRET_KEY in os.environ.
+        with patch.dict("os.environ", {"KLING_ACCESS_KEY": "ak-only-secret"}, clear=True):
+            self.assertFalse(credential_present(validated_img))
+            pub_half = public_configuration(validated_img)
+            self.assertEqual("not_loaded", pub_half["connection_status"])
+            self.assertNotIn("ak-only-secret", json.dumps(pub_half))
+
+        with patch.dict(
+            "os.environ",
+            {"KLING_ACCESS_KEY": "ak-secret-value-123", "KLING_SECRET_KEY": "sk-secret-value-456"},
+            clear=True,
+        ):
+            self.assertTrue(credential_present(validated_img))
+            pub_ok = public_configuration(validated_img)
+            self.assertEqual("loaded_unverified", pub_ok["connection_status"])
+            self.assertNotIn("ak-secret-value-123", json.dumps(pub_ok))
+            self.assertNotIn("sk-secret-value-456", json.dumps(pub_ok))
+
+        # Single-variable KLING_API_KEY mode also supported.
+        single_payload = dict(img_payload, auth_ref="KLING_API_KEY", base_url="https://api.klingai.com")
+        validated_single = validate_configuration(single_payload)
+        with patch.dict("os.environ", {"KLING_API_KEY": "kling-bearer-secret-789"}, clear=True):
+            self.assertTrue(credential_present(validated_single))
+            self.assertEqual("loaded_unverified", public_configuration(validated_single)["connection_status"])
+
+        # Reject invalid endpoints, missing auth_ref, literal keys, or cross-modality models.
+        for bad_override in (
+            {"base_url": "https://evil.example.com"},
+            {"auth_ref": ""},
+            {"auth_ref": "sk-literal-secret"},
+            {"modality": "video", "model_key": "kolors", "capabilities": {"purposes": ["image_to_video"]}, "default_params": {"resolution": "720p", "ratio": "16:9"}},
+            {"default_params": {"ratio_map": {"1080x1920": "9:16"}, "resolution": "4k"}},
+            {"default_params": {"secret_key": "forbidden"}},
+        ):
+            with self.assertRaises(ResourceError):
+                validate_configuration({**img_payload, **bad_override})
+
+    def test_check_reports_concrete_missing_env_var_names_without_exposing_values(self):
+        from unittest.mock import Mock
+
+        settings = ResourceSettings()
+        settings.repository = Mock()
+
+        # 1. Volcengine ARK_AGENT_PLAN_API_KEY missing (QA-04 / GWT-03.3).
+        volc_row = dict(configuration(), id="volc-1")
+        settings.repository.get.return_value = volc_row
+        with patch.dict("os.environ", {}, clear=True):
+            res_volc = settings.check("volc-1")
+            self.assertFalse(res_volc["credential_loaded"])
+            self.assertEqual(res_volc["status"], "not_loaded")
+            self.assertEqual(res_volc["missing_env_vars"], ["ARK_AGENT_PLAN_API_KEY"])
+            self.assertIn("ARK_AGENT_PLAN_API_KEY", res_volc["message"])
+            self.assertIn("~/.zshenv", res_volc["message"])
+            self.assertIn("source ~/.zshenv", res_volc["message"])
+
+        # 2. Kling paired KLING_ACCESS_KEY set while KLING_SECRET_KEY is missing (GWT-05.2).
+        kling_preset = next(p for p in PRESETS if p["id"] == "kling-image")
+        kling_payload = {k: v for k, v in kling_preset.items() if k != "label"} | {"enabled": True}
+        kling_row = dict(validate_configuration(kling_payload), id="kling-1")
+        settings.repository.get.return_value = kling_row
+        with patch.dict("os.environ", {"KLING_ACCESS_KEY": "NEVER-ECHO-AK-999"}, clear=True):
+            res_kling = settings.check("kling-1")
+            self.assertFalse(res_kling["credential_loaded"])
+            self.assertEqual(res_kling["status"], "not_loaded")
+            self.assertEqual(res_kling["missing_env_vars"], ["KLING_SECRET_KEY"])
+            self.assertIn("KLING_ACCESS_KEY", res_kling["message"])
+            self.assertIn("KLING_SECRET_KEY", res_kling["message"])
+            self.assertIn("KLING_API_KEY", res_kling["message"])
+            self.assertIn("~/.zshenv", res_kling["message"])
+            self.assertNotIn("NEVER-ECHO-AK-999", json.dumps(res_kling))

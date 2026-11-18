@@ -484,4 +484,58 @@ class CommerceTests(ResourceStoreFixture, unittest.TestCase):
                 self.assertEqual(items[0]['tax_id'],'91110105MA00123456')
                 self.assertEqual(items[0]['invoice_type'],'enterprise')
 
+    def test_platform_commerce_summary_returns_200_for_admin_and_403_for_member(self):
+        from fastapi.testclient import TestClient
+        from sqlalchemy import insert
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.assets.access_control import Principal, reset_principal, set_principal
+        from vsc.interfaces.web.app import create_app
+
+        member_id = str(uuid.uuid4())
+        with self.engine.begin() as conn:
+            conn.execute(
+                insert(S.access_identities).values(
+                    id=member_id,
+                    subject_key="member:" + member_id,
+                    actor="ordinary-member",
+                    display_name="普通成员",
+                    active=True,
+                    preferences={},
+                )
+            )
+        token = set_principal(Principal(actor="ordinary-member", identity_id=member_id, local=False))
+        try:
+            with self.assertRaises(ResourceError) as denied_err:
+                self.service.platform_commerce_summary(actor="ordinary-member")
+            self.assertEqual(denied_err.exception.code, "platform_admin_required")
+            self.assertEqual(denied_err.exception.status_code, 403)
+        finally:
+            reset_principal(token)
+
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app(
+                dict(
+                    projects_root=directory,
+                    allowed_hosts=["testserver"],
+                    allowed_origins=["http://testserver"],
+                    access_token="isolated-token",
+                    human_identity="test-human",
+                ),
+                service=self.service,
+            )
+            with TestClient(app) as client:
+                self.assertEqual(client.get("/api/v1/platform/commerce").status_code, 403)
+                login = client.post(
+                    "/api/v1/session",
+                    json={"token": "isolated-token"},
+                    headers={"Origin": "http://testserver"},
+                )
+                self.assertEqual(login.status_code, 200, login.text)
+                headers = {"X-CSRF-Token": login.json()["csrf_token"], "Origin": "http://testserver"}
+                resp = client.get("/api/v1/platform/commerce", headers=headers)
+                self.assertEqual(resp.status_code, 200, resp.text)
+                body = resp.json()
+                self.assertTrue(body["capabilities"]["platform_admin"])
+                self.assertIn(self.model, {row["id"] for row in body["provider_models"]})
+
 if __name__ == "__main__": unittest.main()

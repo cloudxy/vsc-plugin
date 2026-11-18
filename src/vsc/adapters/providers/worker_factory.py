@@ -34,4 +34,7 @@ def worker_adapter_factory(job, storage, *, studio_auth_generate=None):
     if job.get("provider_id") == "xai_grok" or identity.get("supplier") == "xai":
         from vsc.adapters.providers.xai_grok.resource_factory import xai_grok_factory
         return xai_grok_factory(job, storage)
+    if job.get("provider_id") == "kling" or identity.get("supplier") == "kling":
+        from vsc.adapters.providers.kling.resource_factory import kling_factory
+        return kling_factory(job, storage)
     raise ResourceError("此 Provider 尚未安装适配器", "adapter_unavailable")

@@ -8,7 +8,7 @@ const future=()=>new Date(Date.now()+7*86400000).toISOString();
 export function createAccessControl(root,ctx){
  const sharedCanvas=createCreativeCanvasPanel(ctx);
  let authenticationOptions=null;const authDrafts=new Map();const graphicUrls=new Set();
- let epoch=0,scope={},snapshot=null,accessRevision=0,resourceOffset=0,resourceQuery='',activeArea='workspace',memberScope=null;const drafts=new Map(),pending=new Map(),joinDrafts=new Map(),secretReceipts=new Map(),createdTeams=new Map();
+ let epoch=0,scope={},snapshot=null,accessRevision=0,resourceOffset=0,resourceQuery='',activeArea='workspace',memberScope=null,stageHost=null;const drafts=new Map(),pending=new Map(),joinDrafts=new Map(),secretReceipts=new Map(),createdTeams=new Map();
  const session=()=>ctx.session();
  const btn=(label,fn,disabled=false)=>{const b=el('button',label);b.type='button';b.disabled=disabled;b.onclick=async()=>{if(b.disabled)return;const n=epoch,actor=session().actor;b.disabled=true;try{await fn();}catch(e){if(n===epoch&&actor===session().actor)ctx.notice(e.message);}finally{if(n===epoch&&b.isConnected)b.disabled=disabled;}};return b;};
  function field(parent,title,value='',key=null,type='text'){const label=el('label',title),input=el(type==='textarea'?'textarea':'input');if(type!=='textarea')input.type=type;bindAttribute(input,'aria-label',title);key=key?(session().actor||'anonymous')+':'+key:null;input.value=key&&drafts.has(key)?drafts.get(key):value;if(key)input.oninput=()=>drafts.set(key,input.value);label.append(input);parent.append(label);return input;}
@@ -22,7 +22,7 @@ export function createAccessControl(root,ctx){
   catch(e){if(e.status>=400&&e.status<500)pending.delete(key);throw e;}
  }
  async function refresh(applyLanguage=true){const n=epoch,data=await ctx.api('/api/v1/access');if(n!==epoch)return false;snapshot=data;accessRevision=data.access_revision;if(applyLanguage&&data.identity?.preferences?.language)setLocale(data.identity.preferences.language);return true;}
- function section(title,area=activeArea){const box=el('section');box.dataset.area=area;box.append(el('h2',title));if(area===activeArea)root.append(box);return box;}
+ function section(title,area=activeArea){const box=el('section');box.dataset.area=area;box.append(el('h2',title));if(area===activeArea)(stageHost?.parentElement===root?stageHost:root).append(box);return box;}
  function copyValue(host,title,value){const input=field(host,title,value,null,'textarea');input.readOnly=true;host.append(btn(msg("ui.copy_value0",{value0:title}),async()=>{await navigator.clipboard.writeText(value);ctx.notice(msg("ui.copied_share_it_through_your_chosen_channel"));}));}
  async function applySession(value){await ctx.onSession(value);if(scope.page==='access-share')return;await load(scope);}
  function authenticationForm(host,purpose){
@@ -164,7 +164,9 @@ export function createAccessControl(root,ctx){
   if(!teams.length){const empty=el('div',null,'access-empty');empty.append(el('h3','你还没有创建或加入团队'),el('p','需要多人一起管理项目时，可以新建团队或接受邀请。个人项目请进入“项目协作”。'));content.append(empty);}
   const list=el('div',null,'access-team-grid');
   for(const team of teams){const card=el('article',null,'access-team-card');card.append(el('h3',team.name),el('p',team.parent_id?'上级团队：'+(team.parent_name||snapshot.workspaces.find(row=>row.id===team.parent_id)?.name||'当前账户不可见'):'独立团队','access-description'),el('p',`我的角色：${team.roles.map(value=>String(roles[value]||value)).join('/')} · 可访问的直属项目 ${team.project_count} 个`),btn('进入团队',()=>navigateAccess({page:'access',area:'workspace',team:team.id,project:null,canvas:null})));list.append(card);}content.append(list);
-  const actions=el('div',null,'access-row-actions');actions.append(btn('接受邀请',()=>navigateAccess({page:'access',area:'join',project:null,team:null,canvas:null})));content.append(actions);
+  const actions=el('div',null,'access-row-actions');
+  const createBtn=btn('新建团队',()=>createTeam(n));createBtn.className='primary';
+  actions.append(createBtn,btn('接受邀请',()=>navigateAccess({page:'access',area:'join',project:null,team:null,canvas:null})));content.append(actions);
   const created=createdTeams.get(session().actor);if(created)content.append(el('p','团队“'+created.name+'”已创建，详情尚未读回。'),btn('读取已创建团队',()=>showCreatedTeam(created,n)));
  }
  function renderResources(n){
@@ -238,25 +240,35 @@ export function createAccessControl(root,ctx){
  function render(){
   for(const url of graphicUrls)URL.revokeObjectURL(url);graphicUrls.clear();const n=++epoch;
   const titles={account:'账户设置',workspace:'团队管理',members:scope.project?'项目协作者':'团队成员',share:'画布分享',review:'项目审核设置',projects:'项目协作',resources:'团队素材',transfer:'项目归属转移',join:'接受邀请'};
-  root.replaceChildren();root.className='access-control';root.dataset.area=activeArea;
+  root.replaceChildren();root.className='access-control';root.dataset.area=activeArea;root.dataset.component='commercial-shell-container';root.setAttribute('data-component','commercial-shell-container');
   const selected=snapshot?.workspaces.find(row=>row.id===scope.team),target=snapshot?.projects.find(row=>row.id===scope.project);
   const header=el('header',null,'access-page-head'),heading=el('div');
+  header.dataset.component='commercial-shell-header';header.setAttribute('data-component','commercial-shell-header');
   heading.append(el('h1',scope.invite?'接受邀请':selected&&!scope.project&&['workspace','members','resources','projects'].includes(activeArea)?'团队 · '+selected.name:titles[activeArea]));
   heading.append(el('p',selected&&!scope.project?teamPath(selected):target?'项目：'+target.name+' · '+(snapshot.workspaces.find(row=>row.id===target.workspace_id)?ownershipLabel(snapshot.workspaces.find(row=>row.id===target.workspace_id)):target.workspace_name||'归属当前不可见'):activeArea==='workspace'?'先选择一个团队，再管理成员、项目和素材。个人项目请进入“项目协作”。':'操作只影响当前选定的对象。','access-description'));
   header.append(heading,createGovernanceNav({active:'access',returnContext:ctx.returnContext,onSwitch:id=>(ctx.onGovernanceNavigate||ctx.onSwitch)?.(id),onReturn:rc=>(ctx.onReturnContext||ctx.onReturn)?.(rc),doc:document}));
   root.append(header);
-  if(!snapshot||scope.invite){login();if(!snapshot||scope.invite)return;}
-  const nav=el('nav',null,'access-primary-nav');bindAttribute(nav,'aria-label',msg('ui.account_and_team_sections'));
-  for(const [key,label]of [['workspace','团队管理'],['projects','项目协作'],['account','账户设置']]){const tab=btn(label,()=>navigateAccess({page:'access',area:key,project:null,team:null,canvas:null}));tab.setAttribute('aria-pressed',String(key==='workspace'?Boolean(scope.team)||activeArea==='workspace':key==='projects'?!scope.team&&(Boolean(scope.project)||activeArea==='projects'):activeArea==='account'));nav.append(tab);}root.append(nav);
-  if(scope.team&&!selected){root.append(el('p','当前账户无法访问此团队，或团队已不存在。请返回团队列表重新选择。','access-empty'));return;}
-  if(scope.project&&!target){root.append(el('p','当前账户无法访问此项目，或项目已不存在。请返回项目协作重新选择。','access-empty'));return;}
-  if(scope.project&&['members','review','transfer','share'].includes(activeArea)&&!target.capabilities.includes(activeArea==='share'?'publish':'manage')){root.append(el('p','你没有此项目的'+(activeArea==='share'?'分享':'管理')+'权限，请联系项目所有者。','access-empty'));return;}
-  if(selected&&!scope.project&&selected.kind!=='personal'){
-   const nav=el('nav',null,'access-tabs');bindAttribute(nav,'aria-label','当前团队功能');
-   for(const [key,label]of [['workspace','团队项目'],['members','团队成员'],['resources','团队素材']]){const tab=btn(label,()=>navigateAccess({page:'access',area:key,team:selected.id,project:null,canvas:null}));tab.setAttribute('aria-pressed',String(activeArea===key||key==='workspace'&&activeArea==='projects'));nav.append(tab);}root.append(nav);
+  const nav=el('nav',null,'access-primary-nav');nav.dataset.component='commercial-shell-subnav';nav.setAttribute('data-component','commercial-shell-subnav');nav.setAttribute('role','tablist');bindAttribute(nav,'aria-label',msg('ui.account_and_team_sections'));
+  const navTabs=[];
+  for(const [key,label]of [['workspace','团队管理'],['projects','项目协作'],['account','账户设置']]){
+   const isSelected=key==='workspace'?Boolean(scope.team)||activeArea==='workspace':key==='projects'?!scope.team&&(Boolean(scope.project)||activeArea==='projects'):activeArea==='account';
+   const tab=btn(label,()=>navigateAccess({page:'access',area:key,project:null,team:null,canvas:null}));
+   tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(isSelected));tab.setAttribute('aria-pressed',String(isSelected));
+   navTabs.push(tab);nav.append(tab);
   }
-  if(target){const context=el('nav',null,'access-tabs');bindAttribute(context,'aria-label','当前项目协作功能');for(const [key,label,cap]of [['members','项目协作者','manage'],['share','画布分享','publish'],['review','审核设置','manage'],['transfer','项目归属转移','manage']]){if(!target.capabilities.includes(cap))continue;const tab=btn(label,()=>navigateAccess({page:'access',area:key,project:target.id,team:null,canvas:null}));tab.setAttribute('aria-pressed',String(activeArea===key));context.append(tab);}root.append(context);}
-  if(activeArea==='workspace'&&!scope.team){const actions=el('div',null,'access-page-actions');actions.append(btn('新建团队',()=>createTeam(n)));header.append(actions);}
+  navTabs.forEach((tab,idx)=>tab.addEventListener('keydown',event=>{if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault?.();const next=navTabs[(idx+(event.key==='ArrowRight'?1:navTabs.length-1))%navTabs.length];next.onclick?.();next.focus?.();}}));
+  root.append(nav);
+  stageHost=el('div',null,'access-stage');stageHost.dataset.component='commercial-shell-stage';stageHost.setAttribute('data-component','commercial-shell-stage');
+  root.append(stageHost);
+  if(!snapshot||scope.invite){login();if(!snapshot||scope.invite)return;}
+  if(scope.team&&!selected){stageHost.append(el('p','当前账户无法访问此团队，或团队已不存在。请返回团队列表重新选择。','access-empty'));return;}
+  if(scope.project&&!target){stageHost.append(el('p','当前账户无法访问此项目，或项目已不存在。请返回项目协作重新选择。','access-empty'));return;}
+  if(scope.project&&['members','review','transfer','share'].includes(activeArea)&&!target.capabilities.includes(activeArea==='share'?'publish':'manage')){stageHost.append(el('p','你没有此项目的'+(activeArea==='share'?'分享':'管理')+'权限，请联系项目所有者。','access-empty'));return;}
+  if(selected&&!scope.project&&selected.kind!=='personal'){
+   const sub=el('nav',null,'access-tabs');bindAttribute(sub,'aria-label','当前团队功能');
+   for(const [key,label]of [['workspace','团队项目'],['members','团队成员'],['resources','团队素材']]){const tab=btn(label,()=>navigateAccess({page:'access',area:key,team:selected.id,project:null,canvas:null}));tab.setAttribute('aria-pressed',String(activeArea===key||key==='workspace'&&activeArea==='projects'));sub.append(tab);}stageHost.append(sub);
+  }
+  if(target){const context=el('nav',null,'access-tabs');bindAttribute(context,'aria-label','当前项目协作功能');for(const [key,label,cap]of [['members','项目协作者','manage'],['share','画布分享','publish'],['review','审核设置','manage'],['transfer','项目归属转移','manage']]){if(!target.capabilities.includes(cap))continue;const tab=btn(label,()=>navigateAccess({page:'access',area:key,project:target.id,team:null,canvas:null}));tab.setAttribute('aria-pressed',String(activeArea===key));context.append(tab);}stageHost.append(context);}
   const utilities=el('div',null,'access-utilities');utilities.append(btn(msg("ui.refresh_permissions_and_members"),async()=>{if(await refresh())render();}),btn(msg("ui.recover_unconfirmed_request"),async()=>{
    const actor=session().actor;for(const op of [...pending.values()].filter(row=>row.actor===actor)){
     if(n!==epoch||session().actor!==actor)return;const value=await command(op.action,op.payload,op.localKey);if(n!==epoch||session().actor!==actor)return;
@@ -264,7 +276,7 @@ export function createAccessControl(root,ctx){
    }
    if(n!==epoch||!await refresh())return;render();ctx.notice(msg("ui.original_request_receipt_recovered_later_unsaved_inputs_remain"));
    for(const op of [...secretReceipts.values()].filter(row=>row.actor===actor)){const output=section(msg("ui.original_request_recovered"));copyValue(output,op.action==='credential'?'登录凭据':'链接',op.action==='credential'?op.payload.secret:location.origin+'/?page='+(op.action==='share'?'access-share#share=':'access#invite=')+op.payload.secret);}
-  }));const tools=el('details',null,'access-tools');tools.append(el('summary','刷新与请求恢复'),utilities);root.append(tools);
+  }));const tools=el('details',null,'access-tools');tools.append(el('summary','刷新与请求恢复'),utilities);stageHost.append(tools);
   ({account:renderAccount,workspace:renderWorkspace,members:renderMembers,share:renderShare,review:renderReview,projects:()=>renderProjects(selected?.kind!=='personal'?selected:null),resources:renderResources,transfer:renderTransfer,join:()=>invitationForm(section('接受团队或项目邀请'))}[activeArea]||renderWorkspace)(n);
  }
  async function saveLanguage(code){

@@ -1,33 +1,11 @@
-// Shared governance header navigation, return-context capsule, and 3-way settings cross-link banner.
+// Shared Personal Center governance header navigation and persistent 3-state return capsule.
 export const GOVERNANCE_ITEMS = Object.freeze([
   Object.freeze({id: 'access', label: '账户与团队', href: '?page=access'}),
   Object.freeze({id: 'commerce', label: '会员与钱包', href: '?page=commerce'}),
-  Object.freeze({id: 'service-operations', label: '开放接口与运维', href: '?page=service-operations'}),
+  Object.freeze({id: 'service-operations', label: '服务与开放接口', href: '?page=service-operations'}),
 ]);
 
-export const SETTINGS_SURFACES = Object.freeze([
-  Object.freeze({
-    id: 'api-settings',
-    badge: '①',
-    label: '图像／视频 API 与订阅登录',
-    hint: '角色合成台与画布共用已有 AGY / Grok / Codex 登录；API Key 留在当前浏览器',
-    href: '?page=api-settings',
-  }),
-  Object.freeze({
-    id: 'settings',
-    badge: '②',
-    label: '项目生产模型与环境变量注册表',
-    hint: 'PostgreSQL 权威路由（仅存 ARK_AGENT_PLAN_API_KEY 等变量引用名）',
-    href: '?page=settings',
-  }),
-  Object.freeze({
-    id: 'engine',
-    badge: '③',
-    label: '外部调用 vsc-engine OpenAPI Key',
-    hint: '第三方调用 VSC 工作台的受限 Bearer Key',
-    href: '?page=service-operations&subview=engine',
-  }),
-]);
+export const SETTINGS_SURFACES = Object.freeze([]);
 
 export function returnContextStorageKey(actor) {
   const key = String(actor || '').trim();
@@ -44,11 +22,90 @@ export function isSafeReturnSearch(search) {
 }
 
 export function formatReturnContextLabel(ctx) {
-  if (!ctx || typeof ctx !== 'object') return '';
+  if (!ctx || typeof ctx !== 'object') return '← 返回工作台首页';
+  if (ctx.origin === 'character-studio' && !ctx.projectId) {
+    return '← 返回 AI 角色合成台';
+  }
+  if (!ctx.projectId) return '← 返回工作台首页';
   const rawTitle = String(ctx.projectTitle || ctx.projectId || '原项目').trim() || '原项目';
   const epRaw = String(ctx.episodeLabel || '').trim()
     || (ctx.episodeId ? `第${String(ctx.episodeId).trim()}集` : '');
   return epRaw ? `← 返回《${rawTitle}》· ${epRaw}` : `← 返回《${rawTitle}》`;
+}
+
+export function resolveReturnPillState(returnContext) {
+  const ctx = typeof returnContext === 'function' ? returnContext() : returnContext;
+  if (ctx && typeof ctx === 'object') {
+    if (ctx.projectId && !ctx.unavailable && isSafeReturnSearch(ctx.search)) {
+      return {
+        state: 'project',
+        label: formatReturnContextLabel(ctx),
+        projectId: String(ctx.projectId),
+        href: ctx.search,
+        context: ctx,
+      };
+    }
+    if (ctx.origin === 'character-studio' && !ctx.projectId && (!ctx.search || isSafeReturnSearch(ctx.search))) {
+      const search = ctx.search && isSafeReturnSearch(ctx.search) ? ctx.search : '?page=character-studio';
+      return {
+        state: 'character-studio',
+        label: '← 返回 AI 角色合成台',
+        origin: 'character-studio',
+        href: search,
+        context: {...ctx, origin: 'character-studio', projectId: null, search},
+      };
+    }
+  }
+  return {
+    state: 'home',
+    label: '← 返回工作台首页',
+    fallback: 'home',
+    href: '?page=home',
+    context: null,
+  };
+}
+
+export function createReturnPill(returnContextOrOptions = null, onReturnArg = null, {doc = globalThis.document} = {}) {
+  let returnContext = returnContextOrOptions;
+  let onReturn = onReturnArg;
+  let d = doc || globalThis.document;
+  if (
+    returnContextOrOptions
+    && typeof returnContextOrOptions === 'object'
+    && ('returnContext' in returnContextOrOptions || 'onReturn' in returnContextOrOptions || 'doc' in returnContextOrOptions)
+    && onReturnArg === null
+  ) {
+    returnContext = returnContextOrOptions.returnContext ?? null;
+    onReturn = returnContextOrOptions.onReturn ?? null;
+    d = returnContextOrOptions.doc || d;
+  }
+
+  const resolved = resolveReturnPillState(returnContext);
+  const back = d.createElement('button');
+  back.type = 'button';
+  back.className = 'gov-return-pill';
+  back.dataset.component = 'context-return-pill';
+  back.setAttribute('data-component', 'context-return-pill');
+  if (resolved.state === 'project') {
+    back.dataset.returnProject = resolved.projectId;
+    back.setAttribute('data-return-project', resolved.projectId);
+  } else if (resolved.state === 'character-studio') {
+    back.dataset.returnOrigin = 'character-studio';
+    back.setAttribute('data-return-origin', 'character-studio');
+  } else {
+    back.dataset.returnFallback = 'home';
+    back.setAttribute('data-return-fallback', 'home');
+  }
+  back.textContent = resolved.label;
+  back.setAttribute('aria-label', resolved.label);
+  back.setAttribute('title', resolved.label);
+  back.addEventListener('click', () => {
+    if (onReturn) return onReturn(resolved.context, resolved);
+    if (typeof globalThis.location !== 'undefined' && globalThis.location) {
+      globalThis.location.search = resolved.href;
+    }
+  });
+  return back;
 }
 
 export function createGovernanceNav({active = '', returnContext = null, onSwitch = null, onReturn = null, doc = globalThis.document} = {}) {
@@ -56,23 +113,7 @@ export function createGovernanceNav({active = '', returnContext = null, onSwitch
   const wrap = d.createElement('div');
   wrap.className = 'gov-header-tools';
   wrap.setAttribute('role', 'region');
-  wrap.setAttribute('aria-label', '平台治理切换');
-
-  const resolvedCtx = typeof returnContext === 'function' ? returnContext() : returnContext;
-  if (resolvedCtx && resolvedCtx.projectId && isSafeReturnSearch(resolvedCtx.search)) {
-    const back = d.createElement('button');
-    back.type = 'button';
-    back.className = 'gov-return-pill';
-    back.dataset.returnProject = String(resolvedCtx.projectId);
-    const labelText = formatReturnContextLabel(resolvedCtx);
-    back.textContent = labelText;
-    back.setAttribute('aria-label', labelText);
-    back.setAttribute('title', labelText);
-    back.addEventListener('click', () => {
-      if (onReturn) return onReturn(resolvedCtx);
-    });
-    wrap.append(back);
-  }
+  wrap.setAttribute('aria-label', '个人中心模块切换');
 
   const tabs = d.createElement('div');
   tabs.className = 'gov-module-tabs';
@@ -94,50 +135,13 @@ export function createGovernanceNav({active = '', returnContext = null, onSwitch
     });
     tabs.append(link);
   }
-  wrap.append(tabs);
+  wrap.append(tabs, createReturnPill(returnContext, onReturn, {doc: d}));
   return wrap;
 }
 
-export function createSettingsCrossNav({active = '', onNavigate = null, doc = globalThis.document} = {}) {
-  const d = doc || globalThis.document;
-  const bar = d.createElement('div');
-  bar.className = 'gov-settings-guide';
-  bar.setAttribute('role', 'note');
-  bar.setAttribute('aria-label', '三套设置与接口职责边界导流');
-
-  const prefix = d.createElement('span');
-  prefix.className = 'gov-settings-guide-label';
-  prefix.textContent = '配置边界导流：';
-  bar.append(prefix);
-
-  for (const item of SETTINGS_SURFACES) {
-    const isCurrent = item.id === active;
-    if (isCurrent) {
-      const current = d.createElement('span');
-      current.className = 'gov-settings-chip active';
-      current.dataset.settingsSurface = item.id;
-      current.setAttribute('aria-current', 'true');
-      current.setAttribute('title', item.hint);
-      current.textContent = `${item.badge} ${item.label}（当前）`;
-      bar.append(current);
-    } else {
-      const link = d.createElement('a');
-      link.className = 'gov-settings-chip';
-      link.href = item.href;
-      link.dataset.settingsSurface = item.id;
-      link.setAttribute('title', item.hint);
-      link.textContent = `${item.badge} ${item.label} →`;
-      link.addEventListener('click', event => {
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        if (onNavigate) {
-          event.preventDefault?.();
-          return onNavigate(item.id, item.href);
-        }
-      });
-      bar.append(link);
-    }
-  }
-  return bar;
+// Retired 3-way settings triage banner (FR-01 / GWT-01.4); kept as safe null-returning exports for backward compatibility.
+export function createSettingsCrossNav() {
+  return null;
 }
 
 export const createSettingsTriageBanner = createSettingsCrossNav;

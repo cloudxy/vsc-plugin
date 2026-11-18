@@ -92,13 +92,14 @@ export function uploadedReferences(name,url,width=0,height=0,bytes=0){
  };
 }
 
-export const PROVIDER_ORDER=['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao'];
+export const PROVIDER_ORDER=['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','kling'];
 export const SETTINGS_GROUPS=[
  {id:'google',name:'Google · AGY / Gemini',modes:['agy_auth','gemini']},
  {id:'xai',name:'xAI · Grok',modes:['grok_auth','grok']},
  {id:'gpt',name:'OpenAI GPT Image',modes:['codex_auth','gpt']},
  {id:'qwen',name:'阿里云百炼 Qwen',modes:['qwen']},
  {id:'doubao',name:'字节火山方舟 Doubao',modes:['doubao']},
+ {id:'kling',name:'快手可灵 Kling',modes:['kling']},
 ];
 export const PROVIDER_META={
  agy_auth:{id:'agy_auth',name:'AGY 授权登录 (Google Antigravity)',shortName:'AGY 授权',modeLabel:'AGY 授权登录',modeHint:'本机 Antigravity OAuth · 免填 Key',
@@ -130,6 +131,10 @@ export const PROVIDER_META={
   authMode:'apikey',defaultBaseUrl:'https://ark.cn-beijing.volces.com',docUrl:'https://www.volcengine.com/docs/82379/1541523',
   keyPlaceholder:'输入火山方舟 API Key（仅保存在本地浏览器）',
   models:[['doubao-seedream-5-0'],['doubao-seedream-5-0-lite'],['doubao-seedream-4-5-251128'],['doubao-seedream-4-0-250828'],['doubao-seededit-3-0-i2i-250628'],['custom','自定义模型 ID / Endpoint']]},
+ kling:{id:'kling',name:'快手可灵 Kling',shortName:'可灵 Kling',modeLabel:'API 接口 (AK/SK 或单 Key)',modeHint:'可灵开放平台 AK/SK (HS256 JWT) 或兼容 API Key',
+  authMode:'apikey',supportsDualAuth:true,defaultBaseUrl:'https://api-beijing.klingai.com',docUrl:'https://app.klingai.com/cn/dev/document-api',
+  keyPlaceholder:'输入兼容平台单令牌 API Key（仅保存在本地浏览器）',
+  models:[['kling-v2-1','kling-v2-1（高清角色与光影一致性 · 推荐）'],['kling-v2','kling-v2（通用商业生图）'],['kling-v1-5','kling-v1-5（支持主体/人脸细粒度参考）'],['kolors','kolors（可图经典写实/插画）'],['custom','自定义模型 ID']]},
 };
 for(const meta of Object.values(PROVIDER_META))meta.models=meta.models.map(([value,label])=>({value,label:label||value}));
 export const isAuthProvider=id=>PROVIDER_META[id]?.authMode==='oauth';
@@ -139,13 +144,14 @@ export const SETTINGS_MODALITIES=[
  {id:'image',label:'图',subtitle:'生图接口与授权'},
  {id:'video',label:'视频',subtitle:'视频接口与授权'},
 ];
-export const VIDEO_PROVIDER_ORDER=['grok_video_auth','grok_video','doubao_video','gemini_video','qwen_video','openai_video'];
+export const VIDEO_PROVIDER_ORDER=['grok_video_auth','grok_video','doubao_video','gemini_video','qwen_video','openai_video','kling_video'];
 export const VIDEO_SETTINGS_GROUPS=[
  {id:'xai_video',name:'xAI · Grok Video',modes:['grok_video_auth','grok_video']},
  {id:'doubao_video',name:'字节火山方舟 Seedance',modes:['doubao_video']},
  {id:'google_video',name:'Google · Veo (Gemini)',modes:['gemini_video']},
  {id:'qwen_video',name:'阿里云百炼 通义万相 Wan',modes:['qwen_video']},
  {id:'openai_video',name:'OpenAI Sora / 兼容网关',modes:['openai_video']},
+ {id:'kling_video',name:'快手可灵 Kling Video',modes:['kling_video']},
 ];
 export const VIDEO_PROVIDER_META={
  grok_video_auth:{id:'grok_video_auth',name:'Grok 视频授权登录 (xAI 订阅)',shortName:'Grok 授权',modeLabel:'Grok 授权登录',modeHint:'本机 grok CLI 订阅登录 · ~/.grok/auth.json',
@@ -171,12 +177,16 @@ export const VIDEO_PROVIDER_META={
   authMode:'apikey',modality:'video',defaultBaseUrl:'https://api.openai.com/v1',docUrl:'https://platform.openai.com/docs/guides/video-generation',
   keyPlaceholder:'输入 sk-... API Key（仅保存在本地浏览器）',
   models:[['sora-2','sora-2（图生/文生有声视频 · 推荐）'],['sora-2-pro','sora-2-pro（高保真镜头与物理连续性）'],['custom','自定义模型 ID（支持可灵 / Vidu 等兼容网关）']]},
+ kling_video:{id:'kling_video',name:'快手可灵 Kling Video',shortName:'可灵 Video',modeLabel:'API 接口 (AK/SK 或单 Key)',modeHint:'可灵开放平台 AK/SK (HS256 JWT) 或兼容 API Key',
+  authMode:'apikey',supportsDualAuth:true,modality:'video',defaultBaseUrl:'https://api-beijing.klingai.com',docUrl:'https://app.klingai.com/cn/dev/document-api',
+  keyPlaceholder:'输入兼容视频网关 API Key（仅保存在本地浏览器）',
+  models:[['kling-v2-6','kling-v2-6（原生音画同步 · 首尾帧 · 推荐）'],['kling-v2-5-turbo','kling-v2-5-turbo（高动态极速样片/成片）'],['kling-v2-1-master','kling-v2-1-master（电影大师级 1080p）'],['kling-v1-6','kling-v1-6（首尾帧 / 多图角色参考 ≤4 张）'],['custom','自定义视频模型 ID']]},
 };
 for(const meta of Object.values(VIDEO_PROVIDER_META))meta.models=meta.models.map(([value,label])=>({value,label:label||value}));
 export const isVideoAuthProvider=id=>VIDEO_PROVIDER_META[id]?.authMode==='oauth';
 export const groupForVideoProvider=id=>VIDEO_SETTINGS_GROUPS.find(g=>g.modes.includes(id))||VIDEO_SETTINGS_GROUPS[0];
-export const VIDEO_IMAGE_KEY_PEERS={grok_video:'grok',doubao_video:'doubao',gemini_video:'gemini',qwen_video:'qwen',openai_video:'gpt'};
-export const IMAGE_VIDEO_KEY_PEERS={grok:'grok_video',doubao:'doubao_video',gemini:'gemini_video',qwen:'qwen_video',gpt:'openai_video'};
+export const VIDEO_IMAGE_KEY_PEERS={grok_video:'grok',doubao_video:'doubao',gemini_video:'gemini',qwen_video:'qwen',openai_video:'gpt',kling_video:'kling'};
+export const IMAGE_VIDEO_KEY_PEERS={grok:'grok_video',doubao:'doubao_video',gemini:'gemini_video',qwen:'qwen_video',gpt:'openai_video',kling:'kling_video'};
 
 export const STYLE_PRESETS={
  none:{label:'无预设（跟随参考图）',prompt:''},
@@ -300,6 +310,14 @@ function dataUrlToBlob(dataUrl){
  return new Blob([arr],{type:mime});
 }
 function blobToDataUrl(blob){
+ if(typeof FileReader!=='function'){
+  return blob.arrayBuffer().then(buf=>{
+   const bytes=new Uint8Array(buf);let bin='';
+   for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+   const b64=typeof btoa==='function'?btoa(bin):Buffer.from(bytes).toString('base64');
+   return `data:${blob.type||'image/png'};base64,${b64}`;
+  });
+ }
  return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('图片读取失败'));r.readAsDataURL(blob);});
 }
 async function fetchImageViaProxy(url,signal){
@@ -334,23 +352,67 @@ export async function durableRecipe(recipe){
  return next;
 }
 
-async function smartFetch(targetUrl,init,useProxy){
+async function smartFetch(targetUrl,init={},useProxy){
  if(!useProxy)return generationFetch(targetUrl,init);
  const headers=new Headers(init.headers);
  headers.set('x-target-url',targetUrl);
+ const method=String(init.method||'POST').toUpperCase();
+ if(method!=='POST')headers.set('x-target-method',method);
  const csrf=csrfProvider();if(csrf)headers.set('X-CSRF-Token',csrf);
- return generationFetch('/api/proxy',{method:'POST',headers,body:init.body,signal:init.signal,credentials:'same-origin'});
+ return generationFetch('/api/proxy',{method:'POST',headers,body:method==='GET'?undefined:init.body,signal:init.signal,credentials:'same-origin'});
 }
 
-function safeFailureText(value,secret=''){
+export function safeFailureText(value,secrets=''){
  let text=String(value||'');
- if(secret)text=text.split(secret).join('[REDACTED]');
+ const list=Array.isArray(secrets)?secrets:[secrets];
+ for(const item of list){
+  const s=String(item||'').trim();
+  if(s)text=text.split(s).join('[REDACTED]');
+ }
  return text.replace(/Bearer\s+[^\s"',;]+/gi,'Bearer [REDACTED]')
   .replace(/\b(?:sk-|xai-|AIza)[\w-]+/gi,'[REDACTED]')
-  .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password)["']?\s*[:=]\s*["']?)[^\s"',;}]+/gi,'$1[REDACTED]')
+  .replace(/((?:api[_-]?key|secret[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|password)["']?\s*[:=]\s*["']?)[^\s"',;}]+/gi,'$1[REDACTED]')
   .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g,'[REDACTED]')
   .replace(/data:image\/[^\s"']+/gi,'[图片数据]')
   .replace(/(?<![\w:/])\/(?:Users|home|private|tmp|var)\/[^\s"'<>]+/g,'[本机路径]').slice(0,3200);
+}
+
+export function stripDataUriPrefix(input){
+ const raw=String(input||'').trim();
+ const m=/^data:[^;,]+;base64,([\s\S]+)$/i.exec(raw);
+ return m?m[1].replace(/\s+/g,''):raw;
+}
+
+function toBase64Url(bytes){
+ let bin='';
+ const view=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);
+ for(let i=0;i<view.length;i++)bin+=String.fromCharCode(view[i]);
+ const b64=typeof btoa==='function'?btoa(bin):Buffer.from(view).toString('base64');
+ return b64.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+export async function signKlingJwt(accessKey,secretKey,nowSec=Math.floor(Date.now()/1000)){
+ const ak=String(accessKey||'').trim(),sk=String(secretKey||'').trim();
+ if(!ak||!sk)throw new Error('官方 AK/SK 鉴权需同时填写 Access Key 与 Secret Key 才能签发 HS256 JWT');
+ const subtle=globalThis.crypto?.subtle;
+ if(!subtle)throw new Error('当前运行环境不支持 WebCrypto HMAC-SHA256 签名');
+ const enc=new TextEncoder();
+ const headerB64=toBase64Url(enc.encode(JSON.stringify({alg:'HS256',typ:'JWT'})));
+ const payloadB64=toBase64Url(enc.encode(JSON.stringify({iss:ak,exp:Math.floor(nowSec)+1800,nbf:Math.floor(nowSec)-5})));
+ const signingInput=`${headerB64}.${payloadB64}`;
+ const cryptoKey=await subtle.importKey('raw',enc.encode(sk),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+ const sig=await subtle.sign('HMAC',cryptoKey,enc.encode(signingInput));
+ return `${signingInput}.${toBase64Url(sig)}`;
+}
+
+export async function resolveKlingBearer(pCfg,label='快手可灵 Kling'){
+ const mode=(pCfg?.authMode||'aksk')==='apikey'?'apikey':'aksk';
+ if(mode==='apikey'){
+  const key=String(pCfg?.apiKey||'').trim();
+  if(!key)throw new Error(`请先配置 ${label} 的 API Key`);
+  return key;
+ }
+ return signKlingJwt(pCfg?.accessKey,pCfg?.secretKey);
 }
 async function generationFetch(url,options){
  try{return await fetch(url,options);}
@@ -483,6 +545,7 @@ export function apiMethodSpec(provider,model,settings={},refCount=1){
  }
  if(provider==='qwen')return {method:'qwen_multimodal_generation',methodLabel:'百炼 API · multimodal-generation',endpoint:'/api/v1/services/aigc/multimodal-generation/generation'};
  if(provider==='doubao')return {method:'doubao_images_generations',methodLabel:'方舟 API · /api/v3/images/generations',endpoint:'/api/v3/images/generations'};
+ if(provider==='kling')return {method:'kling_images_generations',methodLabel:'Kling API · /v1/images/generations',endpoint:'/v1/images/generations'};
  return {method:'',methodLabel:'',endpoint:''};
 }
 function countRecipeSources(recipe,sendStitchedSheet=false){
@@ -522,13 +585,18 @@ export function resolveRecordProvenance(record){
      method='grok_sub_imagine_api';methodLabel='Grok 订阅直连 · Imagine API';endpoint='/v1/images/*';
     }else({method,methodLabel,endpoint}=authMethodSpec(provider,model,snapRefs));
    }
-  }else if(provider==='qwen'||provider==='doubao'){
+  }else if(provider==='qwen'||provider==='doubao'||provider==='kling'){
    ({method,methodLabel,endpoint}=apiMethodSpec(provider,model,{},snapRefs||1));
   }else if(record?.snapshot?.settings||(provider==='grok'&&model==='grok-2-image-1212')){
    ({method,methodLabel,endpoint}=apiMethodSpec(provider,model,record?.snapshot?.settings||{},hasSnapRecipe?snapRefs:1));
   }
  }else if(!methodLabel&&method){
-  methodLabel=method;
+  if(method==='kling_images_generations'||method==='kling_api_images_generations'){
+   methodLabel='Kling API · /v1/images/generations';
+   if(!endpoint)endpoint='/v1/images/generations';
+  }else{
+   methodLabel=method;
+  }
  }
  const filterKey=`${provider}|${model||'unrecorded'}|${method||'unrecorded'}`;
  return {provider,providerShort,providerName,model,upstreamModel,method,methodLabel,endpoint,filterKey};
@@ -628,6 +696,138 @@ export function buildGrokVideoApiRequest({baseUrl,apiKey,model,prompt,firstFrame
  };
 }
 
+export function buildKlingImageRequest({baseUrl,bearerToken,model,prompt,refs=[],klingParams}){
+ const kp=klingParams||{aspectRatio:'3:4',resolution:'2k',imageReference:'subject',imageFidelity:0.5,humanFidelity:0.45,negativePrompt:''};
+ const root=String(baseUrl||'https://api-beijing.klingai.com').trim().replace(/\/+$/,'').replace(/\/v1$/,'');
+ const url=`${root}/v1/images/generations`;
+ const payload={
+  model_name:model,
+  prompt:String(prompt||'').trim(),
+  n:1,
+  aspect_ratio:kp.aspectRatio||'3:4',
+  resolution:kp.resolution||'2k',
+ };
+ const cleanRefs=(refs||[]).filter(Boolean);
+ if(cleanRefs.length){
+  payload.image=stripDataUriPrefix(cleanRefs[0]);
+  if(model==='kling-v1-5'&&kp.imageReference){
+   payload.image_reference=kp.imageReference;
+   if(typeof kp.imageFidelity==='number')payload.image_fidelity=kp.imageFidelity;
+   if(kp.imageReference==='face'&&typeof kp.humanFidelity==='number')payload.human_fidelity=kp.humanFidelity;
+  }
+ }
+ if(String(kp.negativePrompt||'').trim()){
+  payload.negative_prompt=String(kp.negativePrompt).trim();
+ }
+ return {
+  url,
+  pollBaseUrl:`${root}/v1/images/generations`,
+  headers:{'Content-Type':'application/json',Authorization:`Bearer ${bearerToken}`},
+  body:JSON.stringify(payload),
+  method:'kling_images_generations',
+  methodLabel:'Kling API · /v1/images/generations',
+  endpoint:'/v1/images/generations',
+ };
+}
+
+function waitPoll(ms,signal){
+ return new Promise((resolve,reject)=>{
+  if(signal?.aborted){const e=new Error('已停止');e.name='AbortError';reject(e);return;}
+  const onAbort=()=>{clearTimeout(timer);const e=new Error('已停止');e.name='AbortError';reject(e);};
+  const timer=setTimeout(()=>{signal?.removeEventListener?.('abort',onAbort);resolve();},ms);
+  signal?.addEventListener?.('abort',onAbort,{once:true});
+ });
+}
+
+function extractKlingTaskImage(json){
+ const img=json?.data?.task_result?.images?.[0];
+ if(img?.url)return img.url;
+ if(img?.b64_json)return `data:image/png;base64,${img.b64_json}`;
+ return extractUniversalImage(json);
+}
+
+export async function runKlingImageGeneration({baseUrl,pCfg,model,prompt,refs=[],klingParams,useProxy=true,signal,onProgress,pollIntervalMs=2500,timeoutMs=120000}){
+ const bearerToken=await resolveKlingBearer(pCfg);
+ const req=buildKlingImageRequest({baseUrl,bearerToken,model,prompt,refs,klingParams});
+ const res=await smartFetch(req.url,{method:'POST',headers:req.headers,body:req.body,signal},useProxy);
+ const json=await generationJson(res);
+ if(!res.ok)throw generationFailure(json,res);
+ if(json?.code!==undefined&&json.code!==0)throw generationFailure(json,res);
+ const directImage=extractKlingTaskImage(json);
+ if(directImage){
+  return {imageUrl:directImage,rawJson:json,method:req.method,methodLabel:req.methodLabel,endpoint:req.endpoint};
+ }
+ if(String(json?.data?.task_status||'').toLowerCase()==='failed'){
+  throw generationFailure(json,res,json?.data?.task_status_msg||'快手可灵生图任务失败。');
+ }
+ const taskId=String(json?.data?.task_id||'').trim();
+ if(!taskId)throw generationFailure(json,res,'快手可灵未返回 task_id 或图片结果。');
+ const deadline=Date.now()+timeoutMs;
+ while(Date.now()<deadline){
+  await waitPoll(pollIntervalMs,signal);
+  onProgress?.({stage:'polling',message:`正在轮询快手可灵生图任务 (${taskId})…`});
+  const pollToken=await resolveKlingBearer(pCfg);
+  const pollRes=await smartFetch(`${req.pollBaseUrl}/${encodeURIComponent(taskId)}`,{
+   method:'GET',
+   headers:{Accept:'application/json',Authorization:`Bearer ${pollToken}`},
+   signal,
+  },useProxy);
+  const pollJson=await generationJson(pollRes);
+  if(!pollRes.ok)throw generationFailure(pollJson,pollRes);
+  if(pollJson?.code!==undefined&&pollJson.code!==0)throw generationFailure(pollJson,pollRes);
+  const taskStatus=String(pollJson?.data?.task_status||'').trim().toLowerCase();
+  if(taskStatus==='succeed'||taskStatus==='succeeded'){
+   const outImg=extractKlingTaskImage(pollJson);
+   if(!outImg)throw generationFailure(pollJson,pollRes,'快手可灵任务已完成，但未返回图片地址。');
+   return {imageUrl:outImg,rawJson:pollJson,method:req.method,methodLabel:req.methodLabel,endpoint:req.endpoint};
+  }
+  if(taskStatus==='failed'){
+   const reason=String(pollJson?.data?.task_status_msg||'').trim();
+   throw generationFailure(pollJson,pollRes,reason?`快手可灵生图失败：${reason}`:'快手可灵生图任务失败。');
+  }
+ }
+ throw new Error('快手可灵生图任务轮询超时（超过 120 秒），请稍后重试');
+}
+
+export function buildKlingVideoApiRequest({baseUrl,bearerToken,model,prompt,firstFrame='',lastFrame='',references=[],videoDefaults}){
+ const vd=videoDefaults||{aspectRatio:'16:9',resolution:'720p',durationSec:'5',generateAudio:true};
+ const dur=String(vd.durationSec||'5').trim();
+ if(dur!=='5'&&dur!=='10')throw new Error('[快手可灵 Video] 视频时长仅支持 5 秒或 10 秒');
+ const refs=(references||[]).filter(Boolean);
+ if((firstFrame||lastFrame)&&refs.length>0)throw new Error('[快手可灵 Video] 多图参考与首尾帧模式不可同时使用');
+ if(!firstFrame&&lastFrame)throw new Error('[快手可灵 Video] 指定尾帧时必须同时提供首帧');
+ if(refs.length>4)throw new Error(`快手可灵多图参考生视频最多支持 4 张参考图（当前已选 ${refs.length} 张），请删减至 4 张以内再生成`);
+ const root=String(baseUrl||'https://api-beijing.klingai.com').trim().replace(/\/+$/,'').replace(/\/v1$/,'');
+ const cleanPrompt=String(prompt||'').trim();
+ let endpoint='/v1/videos/text2video';
+ const payload={
+  model_name:model,
+  duration:dur,
+  aspect_ratio:vd.aspectRatio||'16:9',
+  mode:vd.resolution==='1080p'?'pro':'std',
+ };
+ if(cleanPrompt)payload.prompt=cleanPrompt;
+ if(String(model||'').startsWith('kling-v2-6')){
+  payload.sound=vd.generateAudio===false?'off':'on';
+ }
+ if(firstFrame){
+  endpoint='/v1/videos/image2video';
+  payload.image=stripDataUriPrefix(firstFrame);
+  if(lastFrame)payload.image_tail=stripDataUriPrefix(lastFrame);
+ }else if(refs.length>0){
+  endpoint='/v1/videos/multi-image2video';
+  payload.image_list=refs.map(r=>({image:stripDataUriPrefix(r)}));
+ }else if(!cleanPrompt){
+  throw new Error('[快手可灵 Video] 文生视频需要非空提示词');
+ }
+ return {
+  url:`${root}${endpoint}`,
+  endpoint,
+  headers:{'Content-Type':'application/json',Authorization:`Bearer ${bearerToken}`},
+  body:JSON.stringify(payload),
+ };
+}
+
 // ------------------------------------------------------------------ Generation entry
 export async function generateCharacterImage(options){
  const {config}=options,provider=config.activeProvider,pCfg=config.providers[provider]||{},meta=PROVIDER_META[provider];
@@ -635,10 +835,10 @@ export async function generateCharacterImage(options){
  try{return await runCharacterGeneration(options);}
  catch(error){
   if(error?.name==='AbortError')throw error;
-  throw new Error(`[${meta?.shortName||provider} · ${model}] ${safeFailureText(error?.message||'调用结束，未取得图片或错误详情。',pCfg.apiKey)}`);
+  throw new Error(`[${meta?.shortName||provider} · ${model}] ${safeFailureText(error?.message||'调用结束，未取得图片或错误详情。',[pCfg.apiKey,pCfg.accessKey,pCfg.secretKey])}`);
  }
 }
-async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',snapshot=null,onProgress,signal}){
+async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',snapshot=null,onProgress,signal,pollIntervalMs,timeoutMs}){
  const provider=config.activeProvider,meta=PROVIDER_META[provider],pCfg=config.providers[provider]||{};
  if(!meta)throw new Error('未知的生图接口通道');
  const rawSources=[
@@ -686,9 +886,53 @@ async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',sna
   };
  }
 
+ const baseUrl=(String(pCfg.baseUrl||'').trim()||meta.defaultBaseUrl).replace(/\/+$/,'');
+ if(provider==='kling'){
+  await resolveKlingBearer(pCfg,meta.name);
+  let klingRefs;
+  if(rawSources.length>1){
+   klingRefs=[await stitchRecipeCanvas(recipe)];
+  }else if(config.imagePassMode==='base64'||String(rawSources[0]||'').startsWith('data:')){
+   klingRefs=[await srcToPngDataUrl(rawSources[0])];
+  }else{
+   const pub=toPublicHttpsUrl(rawSources[0]);
+   klingRefs=[/^https:\/\//i.test(pub)?pub:await srcToPngDataUrl(rawSources[0])];
+  }
+  const methodInfo=apiMethodSpec('kling',model,config,klingRefs.length);
+  onProgress?.({stage:'running',message:`正在请求 ${meta.shortName} · ${model} (${methodInfo.endpoint})…`});
+  const klingOut=await runKlingImageGeneration({
+   baseUrl,
+   pCfg,
+   model,
+   prompt,
+   refs:klingRefs,
+   klingParams:config.klingParams,
+   useProxy:config.useProxy,
+   signal,
+   onProgress,
+   ...(pollIntervalMs!=null?{pollIntervalMs}:{}),
+   ...(timeoutMs!=null?{timeoutMs}:{}),
+  });
+  let imageUrl=klingOut.imageUrl;
+  if(/^https:\/\//i.test(imageUrl)&&config.useProxy){
+   onProgress?.({stage:'download',message:'正在转存临时生成图片…'});
+   imageUrl=await fetchImageViaProxy(imageUrl,signal).catch(()=>imageUrl);
+  }
+  const rawUpstream=String(klingOut.rawJson?.modelVersion||klingOut.rawJson?.model||'').trim();
+  return {
+   imageUrl,
+   modelUsed:model,
+   requestedModel:model,
+   upstreamModel:rawUpstream&&rawUpstream!==model?rawUpstream:'',
+   providerUsed:provider,
+   methodUsed:klingOut.method,
+   methodLabel:klingOut.methodLabel,
+   endpointUsed:klingOut.endpoint,
+  };
+ }
+
  const apiKey=String(pCfg.apiKey||'').trim();
  if(!apiKey)throw new Error(`请先配置 ${meta.name} 的 API Key`);
- const baseUrl=(String(pCfg.baseUrl||'').trim()||meta.defaultBaseUrl).replace(/\/+$/,'');
  const needBase64=config.imagePassMode==='base64'||config.sendStitchedSheet||(provider==='gemini'&&config.geminiParams.endpointMode==='native')||provider==='grok'||(provider==='gpt'&&config.gptParams.endpointMode==='images_edits');
  const imageRefs=needBase64?await Promise.all(rawSources.map(srcToPngDataUrl)):rawSources.map(toPublicHttpsUrl);
  const allRefs=config.sendStitchedSheet?[...imageRefs,await stitchRecipeCanvas(recipe)]:imageRefs;

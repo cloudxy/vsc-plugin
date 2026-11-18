@@ -50,7 +50,21 @@ DEFAULT_ALLOWED_ORIGINS = (
     "https://api.openai.com",
     "https://api.x.ai",
     "https://*.x.ai",
+    "https://api-beijing.klingai.com",
+    "https://api.klingai.com",
+    "https://api-singapore.klingai.com",
+    "https://*.klingai.com",
 )
+DEFAULT_ALLOWED_MEDIA_ORIGINS = (
+    "https://*.kwimgs.com",
+    "https://*.yximgs.com",
+    "https://*.kwaicdn.com",
+    "https://*.ksyun.com",
+)
+MEDIA_PROXY_STRIPPED_HEADERS = frozenset(
+    {"authorization", "x-goog-api-key", "x-dashscope-async", "cookie"}
+)
+ALLOWED_MEDIA_CONTENT_PREFIXES = ("image/", "video/", "audio/")
 MAX_PROXY_BYTES = 15 * 1024 * 1024
 MAX_GENERATE_BYTES = 20 * 1024 * 1024
 MAX_RECORD_SAVE_BYTES = 35 * 1024 * 1024
@@ -148,6 +162,26 @@ def proxy_target_allowed(url: str, extra: str = "") -> bool:
         return False
     rules = list(DEFAULT_ALLOWED_ORIGINS) + [r for r in re.split(r"[\s,;]+", extra or "") if r]
     return any(_rule_matches(target, rule) for rule in rules)
+
+
+def _media_origin_matched(url: str) -> bool:
+    target = _safe_https_target(url)
+    if target is None:
+        return False
+    return any(_rule_matches(target, rule) for rule in DEFAULT_ALLOWED_MEDIA_ORIGINS)
+
+
+def classify_proxy_target(url: str, method: str = "POST", extra: str = "") -> str | None:
+    target = _safe_https_target(url)
+    if target is None:
+        return None
+    normalized_method = (method or "POST").strip().upper()
+    api_rules = list(DEFAULT_ALLOWED_ORIGINS) + [r for r in re.split(r"[\s,;]+", extra or "") if r]
+    if any(_rule_matches(target, rule) for rule in api_rules):
+        return "api" if normalized_method in ("POST", "GET") else None
+    if any(_rule_matches(target, rule) for rule in DEFAULT_ALLOWED_MEDIA_ORIGINS):
+        return "media" if normalized_method == "GET" else None
+    return None
 
 
 def _detect_image_mime(data: bytes) -> str | None:
@@ -1882,9 +1916,13 @@ def install_character_studio_routes(
         if not target:
             return JSONResponse({"error": {"message": "Missing x-target-url header"}}, status_code=400)
         method = request.headers.get("x-target-method", "POST").strip().upper()
+        extra_origins = os.environ.get("PROXY_ALLOWED_ORIGINS", "")
+        if not proxy_target_allowed(target, extra_origins) and _media_origin_matched(target) and method != "GET":
+            return JSONResponse({"error": {"message": "Media CDN origin only allows GET"}}, status_code=403)
         if method not in ("POST", "GET"):
             return JSONResponse({"error": {"message": "Unsupported x-target-method"}}, status_code=400)
-        if not proxy_target_allowed(target, os.environ.get("PROXY_ALLOWED_ORIGINS", "")):
+        tier = classify_proxy_target(target, method=method, extra=extra_origins)
+        if tier is None:
             return JSONResponse({"error": {"message": "Target origin not allowed"}}, status_code=403)
         declared = request.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > MAX_PROXY_BYTES:
@@ -1894,21 +1932,66 @@ def install_character_studio_routes(
             body.extend(chunk)
             if len(body) > MAX_PROXY_BYTES:
                 return JSONResponse({"error": {"message": f"Request body exceeds {MAX_PROXY_BYTES} bytes"}}, status_code=413)
-        headers = {k: request.headers[k] for k in FORWARD_HEADERS if request.headers.get(k)}
-        headers.setdefault("user-agent", grok_credentials.USER_AGENT)
+        if tier == "media":
+            headers = {}
+            if request.headers.get("accept"):
+                headers["accept"] = request.headers["accept"]
+            for stripped in MEDIA_PROXY_STRIPPED_HEADERS:
+                headers.pop(stripped, None)
+            headers["user-agent"] = grok_credentials.USER_AGENT
+        else:
+            headers = {k: request.headers[k] for k in FORWARD_HEADERS if request.headers.get(k)}
+            headers.setdefault("user-agent", grok_credentials.USER_AGENT)
         import httpx
 
         try:
             async with httpx.AsyncClient(timeout=180.0, follow_redirects=False) as client:
-                if method == "GET":
-                    upstream = await client.get(target, headers=headers)
-                else:
-                    upstream = await client.post(target, content=bytes(body), headers=headers)
+                stream_kwargs: dict[str, Any] = {"headers": headers}
+                if method == "POST":
+                    stream_kwargs["content"] = bytes(body)
+                async with client.stream(method, target, **stream_kwargs) as upstream:
+                    upstream_declared = upstream.headers.get("content-length")
+                    if upstream_declared and upstream_declared.isdigit() and int(upstream_declared) > MAX_PROXY_BYTES:
+                        return JSONResponse(
+                            {"error": {"message": f"Upstream response exceeds {MAX_PROXY_BYTES} bytes"}},
+                            status_code=413,
+                        )
+                    upstream_buf = bytearray()
+                    async for chunk in upstream.aiter_bytes():
+                        upstream_buf.extend(chunk)
+                        if len(upstream_buf) > MAX_PROXY_BYTES:
+                            return JSONResponse(
+                                {"error": {"message": f"Upstream response exceeds {MAX_PROXY_BYTES} bytes"}},
+                                status_code=413,
+                            )
+                    upstream_content = bytes(upstream_buf)
+                    upstream_status = upstream.status_code
+                    upstream_headers = upstream.headers
         except httpx.HTTPError as error:
             return JSONResponse({"error": {"message": f"Upstream proxy error: {type(error).__name__}"}}, status_code=502)
+
+        media_type = upstream_headers.get("content-type") or "application/json; charset=utf-8"
+        if tier == "media":
+            bare_type = (upstream_headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+            if bare_type.startswith(ALLOWED_MEDIA_CONTENT_PREFIXES):
+                media_type = upstream_headers.get("content-type") or bare_type
+            elif bare_type in ("application/octet-stream", "binary/octet-stream"):
+                detected = _detect_image_mime(upstream_content)
+                if detected is None:
+                    return JSONResponse(
+                        {"error": {"message": "Upstream media response failed image signature check"}},
+                        status_code=502,
+                    )
+                media_type = detected
+            else:
+                return JSONResponse(
+                    {"error": {"message": f"Disallowed upstream media content-type: {bare_type or 'missing'}"}},
+                    status_code=502,
+                )
+
         return Response(
-            upstream.content,
-            status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type") or "application/json; charset=utf-8",
-            headers={name: upstream.headers[name] for name in ("x-request-id", "request-id", "retry-after") if name in upstream.headers},
+            upstream_content,
+            status_code=upstream_status,
+            media_type=media_type,
+            headers={name: upstream_headers[name] for name in ("x-request-id", "request-id", "retry-after") if name in upstream_headers},
         )

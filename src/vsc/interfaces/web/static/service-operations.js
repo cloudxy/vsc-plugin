@@ -1,5 +1,5 @@
 import {msg,joinMessages,setText,bindAttribute,option as localizedOption} from './i18n.js';
-import {createGovernanceNav,createSettingsTriageBanner} from './governance-header.js';
+import {createGovernanceNav} from './governance-header.js';
 // Local requests and scoped API consumers use the original operation session.
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)setText(n,text);if(cls)n.className=cls;return n;};
 const setComp=(el,name)=>{el.dataset.component=name;el.setAttribute('data-component',name);return el;};
@@ -105,10 +105,11 @@ function sanitizeDiagnosticObject(value){
 }
 
 export function createServiceOperations(root,ctx){
-  let scope=null,ticket=0,data=null,busy=false,subview='overview';
+  let scope=null,ticket=0,data=null,busy=false,subview='overview',stageHost=null;
   let engineTab='consumption',recordsMode='personal',recordsTab='jobs',feedbackDrawerOpen=false;
   let seedanceResult=null,diagnosticState={running:false,completed:0,items:[],lastReport:null};
   const drafts=new Map(),pending=new Map(),keyAttempts=new Map(),secrets=new Map(),scopeRevisions=new Map(),expiredExports=new Set();
+  const resolveStage=parent=>parent===root&&stageHost?stageHost:(parent||stageHost||root);
 
   const session=()=>ctx.session();
   const same=(t,s)=>t===ticket&&s===scope&&session().actor===s.actor;
@@ -208,18 +209,6 @@ export function createServiceOperations(root,ctx){
     }));
   }
 
-  function attachSettingsTriage(){
-    root.append(createSettingsTriageBanner({
-      active:'engine',
-      onNavigate:target=>{
-        if(ctx.onSettingsNavigate)return ctx.onSettingsNavigate(target);
-        if(target==='api-settings')return ctx.navigate?.('api-settings',null,scope?.project||null);
-        if(target==='settings')return ctx.navigate?.('settings',null,scope?.project||null);
-      },
-      doc:document
-    }));
-  }
-
   function button(label,fn,disabled=false,cls=''){
     const b=node('button',label,cls);b.type='button';b.disabled=disabled;
     b.addEventListener('click',async()=>{
@@ -232,7 +221,7 @@ export function createServiceOperations(root,ctx){
     const s=node('section',null,cls);
     if(comp)setComp(s,comp);
     s.append(node('h2',title));
-    parent.append(s);
+    resolveStage(parent).append(s);
     return s;
   }
   function field(parent,title,key,type='text',fallback=''){
@@ -261,7 +250,7 @@ export function createServiceOperations(root,ctx){
       if(sub)cell.append(node('small',sub));
       grid.append(cell);
     }
-    parent.append(grid);
+    resolveStage(parent).append(grid);
     return grid;
   }
   function table(parent,headers,rows){
@@ -309,7 +298,11 @@ export function createServiceOperations(root,ctx){
 
   function switchSubview(next){
     const previous=subview;
-    subview=normalizeOperationsSubview(next);
+    const nextNormalized=normalizeOperationsSubview(next);
+    if(scope&&previous==='engine'&&nextNormalized!=='engine'){
+      secrets.delete(identity(scope));
+    }
+    subview=nextNormalized;
     if(scope)scope.subview=subview;
     ctx.onSubviewChange?.(subview);
     if(scope&&[previous,subview].some(v=>['feedback-records','ai-drama-base'].includes(v)))return load({...scope,subview});
@@ -486,11 +479,25 @@ export function createServiceOperations(root,ctx){
     parent.append(node('p',msg("ui.for_the_dedicated_api_below_only_cannot_sign_in"),'hint'));
     const keyName=field(parent,msg("ui.api_credential_name"),'key-name');
     const caps=Array.isArray(data.capabilities)?data.capabilities:['read'];
-    const cap=select(parent,'API 能力',[['read','只读任务与用量'],...(caps.includes('execute')?[['execute','读取及执行已批准运行']]:[])],'key-cap');
+    const canExecute=caps.includes('execute');
+    const cap=select(parent,'API 能力',[['read','只读任务与用量'],...(canExecute?[['execute','读取及执行已批准运行']]:[])],'key-cap','read');
+    if(!canExecute){
+      cap.value='read';
+      parent.append(node('p','当前项目角色仅具备只读（read）权限，不可转授执行（execute）能力。','hint so-cap-readonly-hint'));
+    }
     const expiry=field(parent,msg("ui.api_expiry_time_with_timezone"),'key-expiry','text',new Date(Date.now()+30*86400000).toISOString());
     const networks=field(parent,msg("ui.allowed_ips_or_cidrs_one_per_line_empty_means"),'key-networks','textarea');
     const rate=field(parent,msg("ui.requests_per_minute_0_means_unrestricted"),'key-rate','number','60');
-    rate.min='0';rate.max='10000';
+    rate.min='0';rate.max='10000';rate.step='1';
+    const rateError=node('p',null,'so-drama-error so-rate-error');
+    rateError.hidden=true;
+    rateError.setAttribute('role','alert');
+    rate.addEventListener('input',()=>{
+      rate.removeAttribute('aria-invalid');
+      setText(rateError,'');
+      rateError.hidden=true;
+    });
+    parent.append(rateError);
     let usageCheck=null;
     if(requireCompliance){
       usageCheck=node('input');usageCheck.type='checkbox';
@@ -503,8 +510,20 @@ export function createServiceOperations(root,ctx){
     }
     const targetApiUrl=`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/api-keys`;
     parent.append(button(msg("ui.create_and_register_api_credential"),async()=>{
+      const rawRate=String(rate.value??'').trim();
+      const rpm=rawRate===''?NaN:Number(rawRate);
+      if(!/^\d+$/.test(rawRate)||!Number.isInteger(rpm)||rpm<0||rpm>10000){
+        const errMsg='每分钟请求上限（requests_per_minute）须为 0 至 10000 之间的整数（0 表示不限速）';
+        setText(rateError,errMsg);
+        rateError.hidden=false;
+        rate.setAttribute('aria-invalid','true');
+        throw new Error(errMsg);
+      }
+      rate.removeAttribute('aria-invalid');
+      setText(rateError,'');
+      rateError.hidden=true;
       if(requireCompliance&&!usageCheck?.checked)throw new Error('请先确认 vsc-engine API 凭据使用说明');
-      const selected={name:keyName.value,capabilities:cap.value==='execute'?['read','execute']:['read'],expires_at:expiry.value,ip_allowlist:networks.value.split(/[\n,]/).map(v=>v.trim()).filter(Boolean),requests_per_minute:Number(rate.value)};
+      const selected={name:keyName.value,capabilities:(canExecute&&cap.value==='execute')?['read','execute']:['read'],expires_at:expiry.value,ip_allowlist:networks.value.split(/[\n,]/).map(v=>v.trim()).filter(Boolean),requests_per_minute:rpm};
       const signature=JSON.stringify(selected);
       let attempt=keyAttempts.get(identity(s));
       if(!attempt||attempt.signature!==signature){
@@ -513,55 +532,38 @@ export function createServiceOperations(root,ctx){
         attempt={signature,payload:{...selected,secret}};
         keyAttempts.set(identity(s),attempt);
       }
-      await write('/api-keys',attempt.payload,()=>{secrets.set(identity(s),attempt.payload.secret);keyAttempts.delete(identity(s));},{targetUrl:targetApiUrl});
-    },!writable()));
+      try{
+        await write('/api-keys',attempt.payload,()=>{secrets.set(identity(s),attempt.payload.secret);keyAttempts.delete(identity(s));},{targetUrl:targetApiUrl});
+      }catch(err){
+        if(err?.status===409)keyAttempts.delete(identity(s));
+        throw err;
+      }
+    },!writable(),'so-btn-primary'));
     if(secrets.has(identity(s))){
       const secret=node('input');secret.readOnly=true;secret.value=secrets.get(identity(s));
       bindAttribute(secret,'aria-label',msg("ui.new_api_credential_visible_on_this_page_only"));
       parent.append(node('p',msg("ui.save_this_credential_yourself_the_server_stores_only_its")),secret,button('复制新凭据',async()=>{await clipWrite(secret.value);ctx.notice('已复制新生成的 API 凭据');}),button(msg("ui.hide_this_credential"),()=>{secrets.delete(identity(s));render();}));
     }
+    const currentIdentityId=data?.identity_id||session()?.identity_id||'';
+    const currentActor=s?.actor||session()?.actor||'';
     for(const key of data.api_keys||[]){
       const row=node('div',null,'service-operations-actions');
       row.append(node('span',msg("ui.value0_value1_value2_value3_ip_value4_value5_requests_minute",{value0:key.name,value1:key.prefix,value2:key.capabilities.join('/'),value3:key.revoked?msg("ui.revoked"):new Date(key.expires_at).toLocaleString(),value4:key.ip_allowlist?.join(', ')||msg("ui.unlimited"),value5:key.requests_per_minute||msg("ui.unlimited")})));
-      if(!key.revoked)row.append(button(msg("ui.revoke_api_credential_value0",{value0:key.name}),()=>write('/api-keys/revoke',{key_id:key.id},null,{targetUrl:`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/api-keys/revoke`}),!writable()));
+      const holderOwned=(!key.identity_id||!currentIdentityId||key.identity_id===currentIdentityId)&&(!key.owner_actor||!currentActor||key.owner_actor===currentActor);
+      if(!key.revoked&&holderOwned)row.append(button(msg("ui.revoke_api_credential_value0",{value0:key.name}),()=>write('/api-keys/revoke',{key_id:key.id},null,{targetUrl:`/api/v1/projects/${encodeURIComponent(s.project)}/service-operations/api-keys/revoke`}),!writable()));
       parent.append(row);
     }
   }
 
-  function renderQuickSwitch(s){
-    const menu=node('details',null,'so-quick-switch');
-    menu.append(node('summary','切换服务 ▾'));
-    const panel=node('div',null,'so-quick-switch-menu');
-    bindAttribute(panel,'aria-label','平台服务快速切换');
-    for(const [id,label]of [
-      ['overview','综合服务总览'],
-      ['engine','vsc-engine API'],
-      ['data-records','数据与消耗记录'],
-      ['seedance-verify','Seedance 视频验真'],
-      ['feedback-records','我的意见反馈'],
-      ['ai-drama-base','VSC短剧工作台'],
-      ['network-diagnostic','网络诊断'],
-      ['personal-info-export','个人信息导出'],
-      ['account-close','账户注销']
-    ]){
-      const b=button(label,()=>{menu.open=false;return switchSubview(id);});
-      b.dataset.subview=id;
-      b.setAttribute('aria-pressed',String(subview===id));
-      panel.append(b);
-    }
-    panel.append(button(msg("ui.reload_service_records"),()=>{menu.open=false;return load({...scope,subview});}));
-    menu.append(panel);
-    return menu;
-  }
-
   function renderEngine(s){
-    setComp(root,'section-open-api');
+    const stage=resolveStage(root);
     const overview=data.engine_overview||{credit_balance:0,total_consumed_credits:0,ledger_records:[],recharge_orders:[],reservations:[],recent_jobs:[],member_usage:[]};
     const apiKeys=data.api_keys||[];
     const apiCalls=data.api_calls||[];
-    const head=node('header',null,'so-hero-bar so-standalone-head');
+    const introCard=node('section',null,'service-operations-card so-engine-intro-card');
+    const head=node('div',null,'so-hero-bar');
     const titleWrap=node('div');
-    titleWrap.append(node('h1','vsc-engine'),node('p','vsc-engine 是 VSC 创作工作台（vsc-workflow）的项目开放接口，用于查询生成任务、查看原生用量，以及预览或执行已确认的制作运行方案。','hint'));
+    titleWrap.append(node('h2','外部调用 vsc-engine'),node('p','vsc-engine 是 VSC 创作工作台（vsc-workflow）的项目开放接口，用于查询生成任务、查看原生用量，以及预览或执行已确认的制作运行方案。','hint'));
     const actions=node('div',null,'service-operations-actions');
     let keysDrawer=null;
     actions.append(
@@ -586,13 +588,11 @@ export function createServiceOperations(root,ctx){
         field(body,'低余额提示参考值（商业信用）','engine-low-balance','number','500');
         field(body,'IP 限制备忘（不改变凭据授权）','engine-ip-note','textarea','');
         body.append(button('保留本页偏好',()=>{ctx.notice('偏好已保留在当前页面；凭据的 IP 与速率限制请在凭据管理中设置。');dlg.close();},false,'so-btn-primary'));
-      })),
-      renderQuickSwitch(s)
+      }))
     );
     head.append(titleWrap,actions);
-    attachGovNav(head);
-    root.append(head);
-    attachSettingsTriage();
+    introCard.append(head);
+    stage.append(introCard);
 
     const acctCard=node('section',null,'service-operations-card so-engine-overview-card');
     setComp(acctCard,'engine-unified-credit-card');
@@ -608,13 +608,14 @@ export function createServiceOperations(root,ctx){
       ['可用商业信用',`${overview.credit_balance||0} 信用`,`${s.project?'当前项目可用额度':'个人钱包可用额度'} · 已激活凭据 ${apiKeys.filter(k=>!k.revoked).length} 枚`],
       ['近期预留与结算',`${overview.total_consumed_credits||0} 信用`,`近期任务额度汇总，含在途预留 · 已记录接口调用 ${apiCalls.length} 次`]
     ]);
-    root.append(acctCard);
+    stage.append(acctCard);
 
     keysDrawer=node('details',null,'service-operations-card so-engine-keys');
+    setComp(keysDrawer,'vsc-engine-credentials');
     if(!s.project||secrets.has(identity(s))||keyAttempts.has(identity(s)))keysDrawer.open=true;
     keysDrawer.append(node('summary',`API Key 凭据签发与吊销（有效凭据 ${apiKeys.filter(k=>!k.revoked).length} 枚 · 点击展开管理）`));
     renderApiKeyBlock(keysDrawer,s,{requireCompliance:true});
-    root.append(keysDrawer);
+    stage.append(keysDrawer);
 
     const billBox=box('消费明细');
     const capsule=node('div',null,'so-segmented');
@@ -691,14 +692,14 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderDataRecords(s){
+    const stage=resolveStage(root);
     const overview=data.engine_overview||{credit_balance:0,total_consumed_credits:0,ledger_records:[],recharge_orders:[],reservations:[],recent_jobs:[],member_usage:[]};
-    const banner=node('section',null,'so-engine-banner'),bannerActions=node('div',null,'service-operations-actions');
+    const banner=node('section',null,'service-operations-card so-engine-banner'),bannerActions=node('div',null,'service-operations-actions');
     bannerActions.append(
       button('账户余额',()=>switchSubview('engine')),
       button('账单明细 →',()=>{engineTab='consumption';switchSubview('engine');}),
       button('密钥管理 →',()=>switchSubview('engine')),
-      button('电子发票 →',()=>ctx.navigate?.('commerce','invoice-overview',s.project||null)),
-      renderQuickSwitch(s)
+      button('电子发票 →',()=>ctx.navigate?.('commerce','invoice-overview',s.project||null))
     );
     const bannerInfo=node('div',null,'so-engine-banner-title');
     const bannerKicker=node('div',null,'so-engine-banner-kicker');
@@ -708,8 +709,7 @@ export function createServiceOperations(root,ctx){
       node('span',`查看额度、消费与充值记录，管理 API Key · 当前可用额度：${overview.credit_balance} 信用 · 近期预留与结算：${overview.total_consumed_credits} 信用`)
     );
     banner.append(bannerInfo,bannerActions);
-    attachGovNav(banner);
-    root.append(banner);
+    stage.append(banner);
 
     const modeBar=node('div',null,'so-segmented');
     const modes=[['personal','个人创作记录'],...(data.manage?[['studio','工作室团队成本核算']]:[])];
@@ -718,7 +718,7 @@ export function createServiceOperations(root,ctx){
       b.setAttribute('aria-pressed',String(recordsMode===id));
       modeBar.append(b);
     }
-    root.append(modeBar);
+    stage.append(modeBar);
 
     if(recordsMode==='studio'&&data.manage){
       const studioBox=box('团队成员消耗与项目单集成本核算表');
@@ -742,18 +742,22 @@ export function createServiceOperations(root,ctx){
       return;
     }
 
-    const split=node('div',null,'so-records-split');
-    const side=node('aside',null,'service-operations-card so-records-nav');
-    side.append(node('span','账户记录','so-records-kicker'),node('h2','个人用户'));
+    const contentBox=node('section',null,'service-operations-card so-records-main');
+    const recordsHead=node('div',null,'so-hero-bar');
+    const recordsMeta=node('div');
+    recordsMeta.append(node('span','账户记录','so-records-kicker'),node('h2',{jobs:'最近创作',requests:'我的收藏与服务记录',ledger:'账户流水'}[recordsTab]||'个人数据记录'));
+    const inlineTabs=node('div',null,'so-segmented so-records-tabs');
+    inlineTabs.setAttribute('role','tablist');
+    bindAttribute(inlineTabs,'aria-label','个人记录类型');
     for(const [id,label]of [['jobs','最近创作'],['requests','我的收藏与服务记录'],['ledger','账户流水']]){
       const b=button(label,()=>{recordsTab=id;render();},false,'so-records-tab');
-      b.prepend(node('span','● ','so-records-dot'));
+      b.setAttribute('role','tab');
+      b.setAttribute('aria-selected',String(recordsTab===id));
       b.setAttribute('aria-pressed',String(recordsTab===id));
-      side.append(b);
+      inlineTabs.append(b);
     }
-    const contentBox=node('section',null,'service-operations-card so-records-main');
-    const tabTitle={jobs:'最近创作',requests:'我的收藏与服务记录',ledger:'账户流水'}[recordsTab]||'个人数据记录';
-    contentBox.append(node('h2',tabTitle));
+    recordsHead.append(recordsMeta,inlineTabs);
+    contentBox.append(recordsHead);
     if(recordsTab==='jobs'){
       table(contentBox,['任务编号','模态','用途','模型版本','状态','更新时间'],(overview.recent_jobs||[]).map(j=>[
         j.id,j.modality,j.purpose,j.model_version,j.status,j.updated_at?new Date(j.updated_at).toLocaleString():'—'
@@ -767,35 +771,27 @@ export function createServiceOperations(root,ctx){
         r.created_at?new Date(r.created_at).toLocaleString():'—',r.kind,String(r.delta),r.reservation_id||'—'
       ]));
     }
-    split.append(side,contentBox);
-    root.append(split);
+    stage.append(contentBox);
   }
 
   function renderSeedanceVerify(t,s){
-    const topBar=node('header',null,'so-hero-bar so-standalone-head');
-    const brandBar=node('div',null,'service-operations-actions');
-    brandBar.append(
-      button('← VSC 创作工作台',()=>ctx.navigate?.('home'),'','so-cobrand-pill'),
-      node('span',s.project?'VSC 创作工作台 · 项目任务回执核对':'VSC 创作工作台 · 跨可读项目任务回执核对','so-cobrand-pill')
-    );
-    topBar.append(brandBar,renderQuickSwitch(s));
-    attachGovNav(topBar);
-    root.append(topBar);
-
+    const panel=node('div',null,'so-verify-panel');
+    setComp(panel,'seedance-verify-panel');
     const sourceBanner=node('section',null,'service-operations-card so-verify-source');
     sourceBanner.append(
       node('span','🛡','so-verify-shield'),
       node('strong','数据来源：火山方舟官方任务查询接口'),
-      node('span','官方数据 · 实时查询','so-verify-live-pill')
+      node('span','官方数据 · 实时查询','so-verify-live-pill'),
+      node('span',s.project?'VSC 创作工作台 · 项目任务回执核对':'VSC 创作工作台 · 跨可读项目任务回执核对','so-cobrand-pill')
     );
-    root.append(sourceBanner);
-
-    const shell=node('div',null,'so-verify-shell-wrap');
-    shell.append(node('h1','Seedance 任务核验','so-verify-heading'));
+    panel.append(sourceBanner);
 
     const card=node('section',null,'service-operations-card so-verify-shell');
     setComp(card,'operations-seedance-verify-card');
-    card.append(node('p','输入任务 ID，查看这次生成实际调用的是哪个模型','so-verify-subtitle'));
+    card.append(
+      node('h2','Seedance 任务核验','so-verify-heading'),
+      node('p','输入任务 ID，查看这次生成实际调用的是哪个模型','so-verify-subtitle')
+    );
 
     const queryTaskId=typeof location!=='undefined'&&location?.search?new URLSearchParams(location.search).get('task_id')||'':'';
     const inputRow=node('div',null,'so-verify-input-row');
@@ -844,7 +840,7 @@ export function createServiceOperations(root,ctx){
     tosInput.addEventListener('input',syncHints);
     syncHints();
     card.append(idHint,tosCollapse);
-    shell.append(card);
+    panel.append(card);
 
     const stageCard=node('section',null,'service-operations-card so-verify-stage');
     if(seedanceResult){
@@ -872,40 +868,41 @@ export function createServiceOperations(root,ctx){
       );
       stageCard.append(empty);
     }
-    shell.append(stageCard);
-    shell.append(node('footer','ⓘ 说明：本页任务数据由官方任务查询回执返回。其中「实际调用模型」为本次生成调用的模型版本。','so-verify-footnote'));
-    root.append(shell);
+    panel.append(stageCard);
+    panel.append(node('footer','ⓘ 说明：本页任务数据由官方任务查询回执返回。其中「实际调用模型」为本次生成调用的模型版本。','so-verify-footnote'));
+    resolveStage(root).append(panel);
   }
 
   function renderFeedbackRecords(t,s){
+    const stage=resolveStage(root);
     const filters=s.feedback||{scope:'mine',status:'all',query:'',category:'',offset:0,limit:24};
     const managing=filters.scope==='manage';
     root.dataset.feedbackScope=filters.scope;
     const categories={feature:'功能建议',quality:'生成效果与模型',billing:'账单与电子发票',ux:'界面与操作体验',bug:'异常报错'};
     const reload=changes=>load({...s,subview:'feedback-records',feedback:{...filters,...changes}});
-    const head=node('header',null,'so-hero-bar so-standalone-head');
+    const introCard=node('section',null,'service-operations-card so-stage-toolbar');
+    const head=node('div',null,'so-hero-bar');
     const titleWrap=node('div');
     titleWrap.append(
-      node('h1',managing?'反馈管理':'我的意见反馈'),
+      node('h2',managing?'反馈管理':'我的意见反馈'),
       node('p',managing?(s.project?'查看并处理当前项目成员提交的反馈。':'查看并处理平台范围内提交的意见反馈。'):(s.project?'查看本人在当前项目的反馈进度，或提交新的问题和建议。':'零项目直通：查看本人提交的全部反馈进度，或直接提交无项目/关联项目意见反馈。'),'hint')
     );
     const headActions=node('div',null,'service-operations-actions');
-    headActions.append(
-      button(feedbackDrawerOpen?'收起反馈表单':'⊕ 提交新反馈',()=>{feedbackDrawerOpen=!feedbackDrawerOpen;render();},!writable(),'so-btn-primary'),
-      renderQuickSwitch(s)
-    );
-    head.append(titleWrap,headActions);
-    attachGovNav(head);
-    root.append(head);
     if(data.manage){
-      const modes=node('nav',null,'service-operations-actions');
+      const modes=node('div',null,'so-segmented');
       bindAttribute(modes,'aria-label','反馈查看范围');
       for(const [mode,label]of [['mine','我的反馈'],['manage','反馈管理']]){
         const b=button(label,()=>reload({scope:mode,offset:0}));
         b.setAttribute('aria-pressed',String(filters.scope===mode));modes.append(b);
       }
-      root.append(modes);
+      headActions.append(modes);
     }
+    headActions.append(
+      button(feedbackDrawerOpen?'收起反馈表单':'⊕ 提交新反馈',()=>{feedbackDrawerOpen=!feedbackDrawerOpen;render();},!writable(),'so-btn-primary')
+    );
+    head.append(titleWrap,headActions);
+    introCard.append(head);
+    stage.append(introCard);
     if(feedbackDrawerOpen){
       const drawer=box('提交新意见反馈',root,'service-operations-card so-feedback-drawer');
       const defaultPage=typeof location!=='undefined'&&location?.pathname?location.pathname+location.search:'/feedback/records';
@@ -1092,15 +1089,17 @@ export function createServiceOperations(root,ctx){
       const id=node('details',null,'so-drama-extra');id.append(node('summary','申请编号'),node('p',row.id));body.append(id);
     });
 
-    const heading=node('header',null,'so-drama-heading');
-    const title=node('div'),headingTitle=node('h1','VSC短剧工作台');headingTitle.prepend(node('span','短剧承制','so-drama-eyebrow'));title.append(headingTitle,node('p','提交承制需求或团队合作申请，随时查看处理进度。','hint'));
-    const actions=node('div',null,'service-operations-actions');actions.append(button('刷新',()=>reload({})),renderQuickSwitch(s),button('新建申请',openApplication,!writable(),'so-btn-primary'));
+    const stage=resolveStage(root);
+    const introCard=node('section',null,'service-operations-card so-drama-intro');
+    const heading=node('div',null,'so-hero-bar');
+    const title=node('div'),headingTitle=node('h2','VSC短剧工作台');headingTitle.prepend(node('span','短剧承制','so-drama-eyebrow'));title.append(headingTitle,node('p','提交承制需求或团队合作申请，随时查看处理进度。','hint'));
+    const actions=node('div',null,'service-operations-actions');actions.append(button('刷新',()=>reload({})),button('新建申请',openApplication,!writable(),'so-btn-primary'));
     heading.append(title,actions);
-    attachGovNav(heading);
-    root.append(heading);
-    const notice=node('aside',null,'so-drama-notice');notice.append(node('strong','提交需求 → 内部处理 → 查看进展'),node('p','当前用于登记和内部处理申请，尚未接入外部承制或发行服务。内部审核通过后，仍需另行对接。'));root.append(notice);
+    introCard.append(heading);
+    stage.append(introCard);
+    const notice=node('aside',null,'so-drama-notice');notice.append(node('strong','提交需求 → 内部处理 → 查看进展'),node('p','当前用于登记和内部处理申请，尚未接入外部承制或发行服务。内部审核通过后，仍需另行对接。'));stage.append(notice);
     if(!session().actor){
-      const empty=node('section',null,'so-empty-state');empty.append(node('h2','登录后提交申请'),node('p','登录后即可在零项目、团队或项目维度提交和查看本人的承制与合作申请。'));root.append(empty);return;
+      const empty=node('section',null,'so-empty-state');empty.append(node('h2','登录后提交申请'),node('p','登录后即可在零项目、团队或项目维度提交和查看本人的承制与合作申请。'));stage.append(empty);return;
     }
 
     const wsList=availableWorkspaces(),projList=availableProjects();
@@ -1119,10 +1118,10 @@ export function createServiceOperations(root,ctx){
         return load({subview:'ai-drama-base',scopeKind:'identity',workspaceId:'',project:''});
       });
       scopeBar.append(node('span','显式申请归属范围（D-NO-CURRENT-SPACE）：','hint'),scopeSelect);
-      root.append(scopeBar);
+      stage.append(scopeBar);
     }
 
-    const section=node('section',null,'so-drama-records');
+    const section=node('section',null,'service-operations-card so-drama-records');
     setComp(section,'operations-drama-cooperation-card');
     const tabs=node('nav',null,'so-underline-tabs');tabs.setAttribute('aria-label','申请范围');
     const manageTabLabel=s.scopeKind==='workspace'?'团队申请管理':s.scopeKind==='project'?'项目申请管理':'平台申请管理';
@@ -1149,7 +1148,7 @@ export function createServiceOperations(root,ctx){
     if(!items.length){const empty=node('div',null,'so-empty-state');empty.append(node('h3',data.total?'这一页暂无申请':filters.query||filters.status!=='all'?'暂无匹配的申请':managing?'当前范围暂无申请':'还没有申请'),node('p',filters.query||filters.status!=='all'?'调整搜索内容或状态后再试。':'点击“新建申请”，填写需求即可开始。'));list.append(empty);}
     section.append(list);
     const pages=node('nav',null,'so-drama-pagination');pages.setAttribute('aria-label','申请分页');
-    pages.append(node('span',`共 ${data.total||0} 条 · 第 ${Math.floor(filters.offset/filters.limit)+1} / ${Math.max(1,Math.ceil((data.total||0)/filters.limit))} 页`),button('上一页',()=>reload({offset:Math.max(0,filters.offset-filters.limit)}),filters.offset===0),button('下一页',()=>reload({offset:data.next_offset}),data.next_offset==null));section.append(pages);root.append(section);
+    pages.append(node('span',`共 ${data.total||0} 条 · 第 ${Math.floor(filters.offset/filters.limit)+1} / ${Math.max(1,Math.ceil((data.total||0)/filters.limit))} 页`),button('上一页',()=>reload({offset:Math.max(0,filters.offset-filters.limit)}),filters.offset===0),button('下一页',()=>reload({offset:data.next_offset}),data.next_offset==null));section.append(pages);stage.append(section);
   }
 
   async function runNetworkDiagnostics(t,s){
@@ -1206,9 +1205,11 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderNetworkDiagnostic(t,s){
-    const wrap=node('section',null,'so-network-light');
+    const panel=node('div',null,'so-network-panel');
+    setComp(panel,'network-diagnostic-panel');
+    const wrap=node('section',null,'service-operations-card so-network-light');
     setComp(wrap,'operations-network-diagnostic-card');
-    const head=node('header',null,'so-hero-bar so-standalone-head'),headActions=node('div',null,'service-operations-actions');
+    const head=node('div',null,'so-hero-bar'),headActions=node('div',null,'service-operations-actions');
     const nav=typeof navigator!=='undefined'?navigator:globalThis.navigator;
     const connType=nav?.connection?.effectiveType||'4g';
     headActions.append(
@@ -1217,16 +1218,14 @@ export function createServiceOperations(root,ctx){
         await clipWrite(payload);
         ctx.notice('已复制脱敏 JSON 网络诊断报告');
       },!diagnosticState.items.length,'so-diag-copy'),
-      button(diagnosticState.items.length?'重新诊断':'开始 10 项全链路诊断',()=>runNetworkDiagnostics(t,s),diagnosticState.running,'so-diag-primary'),
-      renderQuickSwitch(s)
+      button(diagnosticState.items.length?'重新诊断':'开始 10 项全链路诊断',()=>runNetworkDiagnostics(t,s),diagnosticState.running,'so-btn-primary so-diag-primary')
     );
     const titleWrap=node('div');
     titleWrap.append(
-      node('h1','网络诊断'),
+      node('h2','网络诊断'),
       node('p',`接口、图片、视频、上传 · ${diagnosticState.running?'诊断中':diagnosticState.items.length?'诊断完成':'待诊断'}`,'hint')
     );
     head.append(titleWrap,headActions);
-    attachGovNav(head);
     wrap.append(head);
 
     const items=diagnosticState.items;
@@ -1267,22 +1266,13 @@ export function createServiceOperations(root,ctx){
       ];
     });
     table(wrap,['目标','状态','耗时','传输'],rows);
-    root.append(wrap);
+    panel.append(wrap);
+    resolveStage(root).append(panel);
   }
 
   function renderPersonalExport(t,s){
-    const head=node('header',null,'so-hero-bar so-standalone-head');
-    const titleWrap=node('div');
-    titleWrap.append(
-      node('h1','个人信息查询与本地打包导出'),
-      node('p',s.project?'导出本人在当前项目范围内的个人资料与记录快照（24 小时有效）。':'零项目直通：导出本人全站身份资料、团队/项目成员关系、服务记录与订单元数据快照（ZIP 压缩包，24 小时有效）。','hint')
-    );
-    head.append(titleWrap,renderQuickSwitch(s));
-    attachGovNav(head);
-    root.append(head);
-
     const exportBox=box('申请导出个人信息快照',root,'service-operations-card','account-export-card');
-    exportBox.append(node('p','仅导出本人身份资料、权限关系、服务申请记录与订单元数据快照（ZIP 压缩包，生成后 24 小时内有效）。','hint'));
+    exportBox.append(node('p',s.project?'导出本人在当前项目范围内的个人资料与记录快照（ZIP 压缩包，生成后 24 小时内有效）。':'零项目直通：仅导出本人身份资料、团队/项目权限关系、服务申请记录与订单元数据快照（ZIP 压缩包，生成后 24 小时内有效）。','hint'));
     const exportTitle=field(exportBox,'导出申请说明','pe-title','text','本人申请导出个人信息快照');
     const exportBody=field(exportBox,'用途备注','pe-body','textarea','合规存档与个人记录核对');
     const fieldsSet=node('fieldset');
@@ -1339,15 +1329,8 @@ export function createServiceOperations(root,ctx){
   }
 
   function renderAccountClose(s){
-    const head=node('header',null,'so-hero-bar so-standalone-head');
-    const titleWrap=node('div');
-    titleWrap.append(node('h1','账户停用与注销核验'),node('p','全站核验唯一所有者团队/项目、未结清订单与商业信用余额；阻断清零并二次确认后停用本地账户。','hint'));
-    head.append(titleWrap,renderQuickSwitch(s));
-    attachGovNav(head);
-    root.append(head);
-
     const closeBox=box('申请核验账户停用条件',root,'service-operations-card','account-close-card');
-    closeBox.append(node('p',msg("ui.deactivating_your_local_account_revokes_login_and_access_credentials"),'hint'));
+    closeBox.append(node('p','全站核验唯一所有者团队/项目、未结清订单与商业信用余额；'+msg("ui.deactivating_your_local_account_revokes_login_and_access_credentials"),'hint'));
     const closeTitle=field(closeBox,'注销申请标题','ac-title','text','申请停用本人本地操作账户');
     const closeBody=field(closeBox,'注销原因说明','ac-body','textarea','已完成当前工作区交接，申请核验停用条件');
     closeBox.append(button('1. 提交注销核验申请',()=>write('/requests',{
@@ -1378,11 +1361,17 @@ export function createServiceOperations(root,ctx){
   function renderOverview(t,s){
     const support=box('公告与支持');
     const diagnosis=node('p',null,'hint');
-    support.append(button(msg("ui.check_local_connection"),async()=>{
-      const started=perfNow();
-      await ctx.api(opsUrl(s),{headers:{'X-CSRF-Token':session().csrf}});
-      if(same(t,s))setText(diagnosis,msg("ui.local_request_succeeded_in_value0_ms_this_does_not",{value0:Math.round(perfNow()-started)}));
-    }),button('打开 10 项网络诊断 →',()=>switchSubview('network-diagnostic')),diagnosis);
+    const supportActions=node('div',null,'service-operations-actions');
+    supportActions.append(
+      button(msg("ui.reload_service_records"),()=>load({...scope,subview})),
+      button(msg("ui.check_local_connection"),async()=>{
+        const started=perfNow();
+        await ctx.api(opsUrl(s),{headers:{'X-CSRF-Token':session().csrf}});
+        if(same(t,s))setText(diagnosis,msg("ui.local_request_succeeded_in_value0_ms_this_does_not",{value0:Math.round(perfNow()-started)}));
+      }),
+      button('打开 10 项网络诊断 →',()=>switchSubview('network-diagnostic'))
+    );
+    support.append(supportActions,diagnosis);
     for(const row of (data.announcements||[]).filter(a=>a.status==='published')){
       const article=node('article');article.append(node('h3',row.title),node('p',row.body));support.append(article);
     }
@@ -1465,7 +1454,7 @@ export function createServiceOperations(root,ctx){
         media_id:pid?(media.value||null):null,
         requested_fields:kind.value==='personal_export'?checks.filter(c=>c.checked).map(c=>c.value):[]
       },null,{targetUrl:postUrl});
-    },!writable()));
+    },!writable(),'so-btn-primary'));
 
     const requests=box('申请与处理记录');
     for(const row of data.requests||[]){
@@ -1498,12 +1487,17 @@ export function createServiceOperations(root,ctx){
     }
     if(!(data.requests||[]).length)requests.append(node('p',msg("ui.no_requests_visible_to_you"),'hint'));
 
-    const api=box('固定项目 API 凭据');
-    renderApiKeyBlock(api,s,{requireCompliance:false});
+    const api=box('外部调用 vsc-engine 开放接口');
+    api.append(node('p','项目级 OpenAPI 凭据签发、IP 白名单、每分钟请求上限与吊销已集中至「外部调用 vsc-engine」专页管理，避免重复表单并隔离一次性密钥生命周期。','hint'));
+    const apiActions=node('div',null,'service-operations-actions');
     const projPlaceholder=s.project||'<project_id>';
     const examples=node('pre');
     setText(examples,msg("ui.get_api_v1_service_api_projects_value0_jobs_get",{value0:projPlaceholder,value1:projPlaceholder,value2:projPlaceholder,value3:projPlaceholder}));
-    api.append(examples,button(msg("ui.copy_api_example"),()=>clipWrite(examples.textContent)));
+    apiActions.append(
+      button('管理外部调用 vsc-engine 凭据',()=>switchSubview('engine'),false,'so-btn-primary'),
+      button(msg("ui.copy_api_example"),()=>clipWrite(examples.textContent))
+    );
+    api.append(apiActions,examples);
     if(data.api_catalog){
       const catalog=node('details');catalog.append(node('summary',msg("ui.view_available_api_capabilities")));
       for(const operation of data.api_catalog.operations)catalog.append(node('p',joinMessages([operation.method," ",operation.path," · ",operation.capability,operation.constraint?joinMessages([" · ",operation.constraint]):''])));
@@ -1541,9 +1535,57 @@ export function createServiceOperations(root,ctx){
     root.replaceChildren();
     root.classList.add('service-operations');
     root.dataset.subview=subview;
-    setComp(root,'section-service-operations');
+    setComp(root,'commercial-shell-container');
     const s=scope,t=ticket;
     try{
+      const top=node('header',null,'so-topbar');
+      setComp(top,'commercial-shell-header');
+      const titleWrap=node('div');
+      titleWrap.append(node('h1','服务与开放接口'),node('p',msg("ui.local_requests_retain_processing_records_partnerships_sms_and_distribution"),'hint'));
+      top.append(titleWrap);
+      attachGovNav(top);
+      root.append(top);
+
+      const nav=node('nav',null,'so-subnav');
+      setComp(nav,'commercial-shell-subnav');
+      nav.setAttribute('role','tablist');
+      bindAttribute(nav,'aria-label','平台服务与运营导航');
+      const primaryTabs=[
+        ['overview','服务总览与公告'],
+        ['engine','外部调用 vsc-engine'],
+        ['data-records','数据与消耗记录'],
+        ['seedance-verify','Seedance 视频验真'],
+        ['feedback-records','我的意见反馈'],
+        ['ai-drama-base','短剧承制合作'],
+        ['network-diagnostic','网络诊断'],
+        ['personal-info-export','个人信息导出'],
+        ['account-close','账户注销']
+      ];
+      const subnavButtons=[];
+      for(const [id,label]of primaryTabs){
+        const active=subview===id;
+        const b=button(label,()=>switchSubview(id));
+        b.dataset.subview=id;
+        b.setAttribute('role','tab');
+        b.setAttribute('aria-selected',String(active));
+        b.setAttribute('aria-pressed',String(active));
+        subnavButtons.push(b);
+        nav.append(b);
+      }
+      subnavButtons.forEach((tabBtn,idx)=>tabBtn.addEventListener('keydown',event=>{
+        if(event.key==='ArrowRight'||event.key==='ArrowLeft'){
+          event.preventDefault?.();
+          const nextIdx=(idx+(event.key==='ArrowRight'?1:subnavButtons.length-1))%subnavButtons.length;
+          switchSubview(primaryTabs[nextIdx][0]);
+          root.querySelector?.(`.so-subnav [data-subview="${primaryTabs[nextIdx][0]}"]`)?.focus?.();
+        }
+      }));
+      root.append(nav);
+
+      stageHost=node('div',null,'so-subview-stage');
+      setComp(stageHost,'commercial-shell-stage');
+      root.append(stageHost);
+
       if(subview==='engine'){renderEngine(s);return;}
       if(subview==='data-records'){renderDataRecords(s);return;}
       if(subview==='seedance-verify'){renderSeedanceVerify(t,s);return;}
@@ -1553,16 +1595,12 @@ export function createServiceOperations(root,ctx){
       if(subview==='personal-info-export'){renderPersonalExport(t,s);return;}
       if(subview==='account-close'){renderAccountClose(s);return;}
       if(subview==='activity'){
-        const head=node('header',null,'so-hero-bar so-standalone-head');
-        head.append(node('h1','VSC 创作工作台 · 运营专题活动'),renderQuickSwitch(s));
-        attachGovNav(head);
-        root.append(head);
-        summaryGrid(root,[
+        summaryGrid(stageHost,[
           ['充值解锁 DramaWave 承制权益','单部短剧保底出海分发','前往会员与钱包解锁承制合作名额'],
           ['投稿享 4x 流量分发加权','VSC短剧工作台联合扶持','支持多语种精校与海外渠道直发'],
           ['全模态创作算力活动','Seedance / 图像 / 剧本工具联动','所有消耗明细均记录在项目商业账本']
         ]);
-        const actCard=box('当期活动与项目公告');
+        const actCard=box('VSC 创作工作台 · 运营专题活动');
         const published=(data.announcements||[]).filter(a=>a.status==='published');
         if(published.length){
           for(const item of published){
@@ -1582,12 +1620,8 @@ export function createServiceOperations(root,ctx){
         return;
       }
       if(subview==='pc-only-notice'){
-        const head=node('header',null,'so-hero-bar so-standalone-head');
-        head.append(node('h1','建议使用桌面端浏览器访问'),renderQuickSwitch(s));
-        attachGovNav(head);
-        root.append(head);
-        const card=box('VSC 创作工作台核心画布与剪辑器面向桌面端大屏设计');
-        card.append(node('p','无限画布多节点编排、多分镜轨道审片及批量字幕质检需要桌面端键鼠交互。请复制当前工作台地址并在电脑端 Chrome / Edge 打开。','hint'));
+        const card=box('建议使用桌面端浏览器访问');
+        card.append(node('p','VSC 创作工作台核心画布与剪辑器面向桌面端大屏设计。无限画布多节点编排、多分镜轨道审片及批量字幕质检需要桌面端键鼠交互。请复制当前工作台地址并在电脑端 Chrome / Edge 打开。','hint'));
         const currentHref=globalThis.location?.href||'/';
         const actions=node('div',null,'service-operations-actions');
         actions.append(
@@ -1598,10 +1632,6 @@ export function createServiceOperations(root,ctx){
         return;
       }
       if(subview==='icon'){
-        const head=node('header',null,'so-hero-bar so-standalone-head');
-        head.append(node('h1','VSC 创作工作台 · 图标资产预览表'),renderQuickSwitch(s));
-        attachGovNav(head);
-        root.append(head);
         const iconCatalog=[
           ['canvas-infinite','◈','无限画布与节点编排'],['script-studio','▤','剧本工作室与多语精校'],
           ['marketing-agent','✧','营销工作室与爆款创意'],['asset-library','❖','角色/场景/道具资产中心'],
@@ -1628,11 +1658,7 @@ export function createServiceOperations(root,ctx){
         return;
       }
       if(subview==='terms'||subview==='privacy'||subview==='forbidden'||subview==='not-found'){
-        const head=node('header',null,'so-hero-bar so-standalone-head');
         const title=subview==='terms'?'用户服务协议':subview==='privacy'?'隐私保护政策':subview==='not-found'?'404 · 页面不存在或已移动':'403 · 当前账号无访问权限';
-        head.append(node('h1',title),renderQuickSwitch(s));
-        attachGovNav(head);
-        root.append(head);
         const card=box(title);
         const cfg=data.configuration?.document||{};
         if(subview==='forbidden'){
@@ -1648,32 +1674,6 @@ export function createServiceOperations(root,ctx){
         return;
       }
 
-      const top=node('header',null,'so-topbar');
-      const titleWrap=node('div');
-      titleWrap.append(node('h1',msg("ui.services_public_api_and_personal_information")),node('p',msg("ui.local_requests_retain_processing_records_partnerships_sms_and_distribution"),'hint'));
-      top.append(titleWrap,button(msg("ui.reload_service_records"),()=>load({...scope,subview})));
-      attachGovNav(top);
-      root.append(top);
-
-      const nav=node('nav',null,'so-subnav');
-      bindAttribute(nav,'aria-label','平台服务与运营导航');
-      for(const [id,label]of [
-        ['overview','综合服务总览'],
-        ['engine','vsc-engine API'],
-        ['data-records','数据与消耗记录'],
-        ['seedance-verify','Seedance 视频验真'],
-        ['feedback-records','我的意见反馈'],
-        ['ai-drama-base','VSC短剧工作台'],
-        ['network-diagnostic','网络诊断'],
-        ['personal-info-export','个人信息导出'],
-        ['account-close','账户注销']
-      ]){
-        const b=button(label,()=>switchSubview(id));
-        b.dataset.subview=id;
-        b.setAttribute('aria-pressed',String(subview===id));
-        nav.append(b);
-      }
-      root.append(nav);
       renderOverview(t,s);
     }finally{
       if(prevScroll>0)scrollHost.scrollTop=prevScroll;
@@ -1682,13 +1682,14 @@ export function createServiceOperations(root,ctx){
 
   async function load(value={}){
     const nextScope=normalizeScope(value||{});
-    if(scope&&(scopeToken(scope)!==scopeToken(nextScope)||scope.actor!==nextScope.actor)){
+    const nextSubview=normalizeOperationsSubview(value?.subview);
+    if(scope&&(scopeToken(scope)!==scopeToken(nextScope)||scope.actor!==nextScope.actor||(subview==='engine'&&nextSubview!=='engine'))){
       secrets.delete(identity(scope));
       if(scope.actor!==nextScope.actor)keyAttempts.clear();
     }
     const changed=!scope||scopeToken(scope)!==scopeToken(nextScope)||scope.actor!==nextScope.actor;
     scope=nextScope;
-    subview=normalizeOperationsSubview(value?.subview);
+    subview=nextSubview;
     if(subview==='ai-drama-base')scope.drama={scope:'mine',status:'all',query:'',offset:0,limit:12,...(!changed?value?.drama:{})};
     if(subview==='feedback-records')scope.feedback={scope:'mine',status:'all',query:'',category:'',offset:0,limit:24,...(!changed?value?.feedback:{})};
     const s=scope,t=++ticket;busy=false;

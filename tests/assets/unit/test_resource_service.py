@@ -53,6 +53,66 @@ class ResourceServiceBoundaryTest(unittest.TestCase):
             service.select_candidate("p", {"candidate_id": "c"}, expected_revision=1, idempotency_key="one", actor="human")
         store.select_candidate.assert_not_called()
 
+    def test_platform_commerce_summary_enforces_platform_admin_and_uses_keyword_is_admin(self):
+        from vsc.assets.access_control import Principal, reset_principal, set_principal
+
+        store, commerce_repo = Mock(), Mock()
+        conn_ctx = Mock()
+        conn_ctx.__enter__ = Mock(return_value=Mock())
+        conn_ctx.__exit__ = Mock(return_value=False)
+        store.engine.connect.return_value = conn_ctx
+
+        calls = []
+
+        def strict_platform_summary(*, is_admin=False):
+            calls.append(is_admin)
+            return {
+                "scope_kind": "platform",
+                "plans": [],
+                "campaigns": [],
+                "provider_models": [{"id": "m-kling"}] if is_admin else [],
+            }
+
+        commerce_repo.platform_summary.side_effect = strict_platform_summary
+        service = ResourceService(store)
+        service._commerce = Mock(return_value=commerce_repo)
+
+        # Non-admin ordinary member must be blocked with 403 before calling platform_summary.
+        member_principal = Principal(actor="member-user", identity_id="id-member", local=False)
+        store._access_principal.return_value = (
+            member_principal,
+            {"id": "id-member", "actor": "member-user", "subject_key": "acct:member", "preferences": {}},
+            None,
+        )
+        store._is_platform_admin.return_value = False
+        token = set_principal(member_principal)
+        try:
+            with self.assertRaises(ResourceError) as denied_err:
+                service.platform_commerce_summary(actor="member-user")
+            self.assertEqual(denied_err.exception.code, "platform_admin_required")
+            self.assertEqual(denied_err.exception.status_code, 403)
+            self.assertEqual(calls, [])
+        finally:
+            reset_principal(token)
+
+        # Platform admin calls platform_summary(is_admin=True) via keyword without TypeError.
+        admin_principal = Principal(actor="admin-user", identity_id="id-admin", local=True)
+        store._access_principal.return_value = (
+            admin_principal,
+            {"id": "id-admin", "actor": "admin-user", "subject_key": "local:admin-user", "preferences": {"platform_admin": True}},
+            None,
+        )
+        store._is_platform_admin.return_value = True
+        token = set_principal(admin_principal)
+        try:
+            summary = service.platform_commerce_summary(actor="admin-user")
+            self.assertEqual(calls, [True])
+            self.assertEqual(summary["provider_models"], [{"id": "m-kling"}])
+            self.assertTrue(summary["capabilities"]["platform_admin"])
+            self.assertTrue(summary["capabilities"]["manage"])
+        finally:
+            reset_principal(token)
+
 
 if __name__ == "__main__":
     unittest.main()

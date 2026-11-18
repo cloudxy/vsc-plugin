@@ -76,7 +76,7 @@ function resolvePathnameEntry(pathname='/',search=''){
   if(p==='/character/create')return apply({page:'assets',subview:'editor',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('type')?{asset_type:params.get('type')}:{}),...(params.get('id')||params.get('role_id')?{asset_id:params.get('id')||params.get('role_id')}:{})});
   if(p==='/asset-center')return apply({page:'asset-center',tab:'shared'});
   if(p==='/character-studio')return apply({page:'character-studio'});
-  if(p==='/api-settings')return apply({page:'api-settings',...(params.get('tab')?{tab:params.get('tab')}:{})});
+  if(p==='/api-settings')return apply({page:'api-settings',...(params.get('hub')?{hub:params.get('hub')}:{}),...(params.get('tab')?{tab:params.get('tab')}:{}),...(params.get('provider')?{provider:params.get('provider')}:{}),...(params.get('section')?{section:params.get('section')}:{})});
   if(p==='/recycle-bin')return apply({page:'project-management',tab:'recycle'});
   if(p==='/marketing-studio'||p==='/marketing')return apply({page:'marketing-studio',...(params.get('project_id')?{project:params.get('project_id')}:{}),...(params.get('episode_id')?{episode:params.get('episode_id')}:{})});
   if(p==='/capability-center'||p==='/capabilities')return apply({page:'capability-center'});
@@ -123,6 +123,7 @@ function el(tag, className, text) { const node = document.createElement(tag); if
 let applicationNotice=null;
 function notice(message,options) { applicationNotice??=createNotice($('notice'));applicationNotice.show(message,options); }
 const ADMIN_RETURN_KEY_PREFIX='vsc.admin.returnContext.';
+let guestReturnContext=null;
 function isSafeAdminReturnSearch(search){
   if(typeof search!=='string'||!search.startsWith('?')||search.length>2048)return false;
   if(/[\u0000-\u001f\u007f\\]/.test(search)||search.includes('//'))return false;
@@ -131,28 +132,64 @@ function isSafeAdminReturnSearch(search){
   return true;
 }
 function clearAdminReturnContext(actor=state.actor){
+  guestReturnContext=null;
   if(!actor)return;
   try{sessionStorage.removeItem(ADMIN_RETURN_KEY_PREFIX+actor);}catch{}
 }
 function readAdminReturnContext(){
-  if(!state.actor)return null;
   try{
-    const raw=sessionStorage.getItem(ADMIN_RETURN_KEY_PREFIX+state.actor);
-    if(!raw)return null;
-    const parsed=JSON.parse(raw);
-    if(!parsed||typeof parsed!=='object'||!parsed.projectId||!isSafeAdminReturnSearch(parsed.search))return null;
+    let parsed=null;
+    if(state.actor){
+      const raw=sessionStorage.getItem(ADMIN_RETURN_KEY_PREFIX+state.actor);
+      if(!raw)return null;
+      parsed=JSON.parse(raw);
+    }else{
+      parsed=guestReturnContext;
+    }
+    if(!parsed||typeof parsed!=='object')return null;
+    if(parsed.origin==='character-studio'&&!parsed.projectId){
+      if(parsed.search&&!isSafeAdminReturnSearch(parsed.search))return null;
+      return {...parsed,origin:'character-studio',projectId:null,search:parsed.search||'?page=character-studio'};
+    }
+    if(!parsed.projectId||!isSafeAdminReturnSearch(parsed.search))return null;
+    if(state.projectRows.size>0){
+      const projRow=state.projectRows.get(parsed.projectId);
+      if(!projRow||projRow.unavailable)return null;
+    }
     return parsed;
   }catch{return null;}
 }
+const getAdminReturnContext=readAdminReturnContext;
+function writeAdminReturnRecord(record){
+  if(state.actor){
+    try{sessionStorage.setItem(ADMIN_RETURN_KEY_PREFIX+state.actor,JSON.stringify(record));}catch{}
+  }else{
+    guestReturnContext=record;
+  }
+}
 async function captureAdminReturnContext(){
   if(!await beforeContextSwitch())return false;
-  if(state.actor&&state.project&&!['access','access-share','commerce','service-operations','api-settings'].includes(state.view)){
+  if(['access','access-share','commerce','service-operations','api-settings'].includes(state.view)){
+    return true;
+  }
+  if(state.view==='character-studio'){
+    writeAdminReturnRecord({
+      origin:'character-studio',
+      projectId:null,
+      page:'character-studio',
+      search:'?page=character-studio',
+      capturedAt:new Date().toISOString(),
+    });
+    return true;
+  }
+  if(state.project){
     const epId=episodeScope||null;
     const epRow=epId?((episodePage?.project===state.project&&(episodePage?.items||[]).find(r=>r.id===epId))||(state.treeNodes||[]).find(r=>r.id===epId)||null):null;
     const rawSearch=typeof window!=='undefined'&&window.location?.search&&isSafeAdminReturnSearch(window.location.search)&&new URLSearchParams(window.location.search).get('project')===state.project
       ?window.location.search
       :'?'+new URLSearchParams({page:state.view,project:state.project,...(state.object?{scope:state.object}:{}),...(epId?{episode:epId}:{}),...(currentEntry().get('kind')?{kind:currentEntry().get('kind')}:{})});
     const record={
+      origin:'project',
       projectId:state.project,
       projectTitle:state.projectRows.get(state.project)?.name||state.project,
       episodeId:epId,
@@ -162,15 +199,19 @@ async function captureAdminReturnContext(){
       search:rawSearch,
       capturedAt:new Date().toISOString(),
     };
-    try{sessionStorage.setItem(ADMIN_RETURN_KEY_PREFIX+state.actor,JSON.stringify(record));}catch{}
+    writeAdminReturnRecord(record);
   }
   return true;
 }
 async function restoreAdminReturnContext(){
   const record=readAdminReturnContext();
   clearAdminReturnContext(state.actor);
+  if(record?.origin==='character-studio'&&!record.projectId){
+    await navigateStandalone('character-studio');
+    return;
+  }
   const projRow=record?.projectId?state.projectRows.get(record.projectId):null;
-  if(!record||!isSafeAdminReturnSearch(record.search)||!projRow||projRow.unavailable){
+  if(!record||!record.projectId||!isSafeAdminReturnSearch(record.search)||!projRow||projRow.unavailable){
     state.project=null;state.object=null;episodeScope=null;
     setEntryOptions('home',null,null);
     await switchView('home');
@@ -186,6 +227,7 @@ async function restoreAdminReturnContext(){
 function applySession(session) {
   const previousActor=state.actor;
   const previousIdentity=state.identityId||state.actor;
+  if(previousActor!==session.actor)guestReturnContext=null;
   if(previousActor&&previousActor!==session.actor)clearAdminReturnContext(previousActor);
   if(!session.actor&&previousActor)clearAdminReturnContext(previousActor);
   if(previousIdentity!==(session.identity_id||session.actor)||state.shareId!==session.share_id){taskNotifications?.suspend();taskNotificationKey=null;$('task-notifications').hidden=true;}
@@ -265,7 +307,7 @@ async function navigateGovernanceModule(targetPage){
 async function navigateSettingsSurface(surfaceId){
   $('resource-settings-dialog')?.close?.();
   if(surfaceId==='api-settings')return navigateStandalone('api-settings');
-  if(surfaceId==='settings'){setEntryOptions('settings',state.project,null);state.view='settings';return switchView('settings');}
+  if(surfaceId==='settings')return navigateStandalone('api-settings',{hub:'api',tab:'routes'});
   if(surfaceId==='engine')return navigateModule('service-operations','engine',state.project);
 }
 async function ensureAccessControl(){if(accessControl)return accessControl;if(!accessControlLoading)accessControlLoading=(async()=>{const {createAccessControl}=await import('./access-control.js');accessControl=createAccessControl($('access-control-view'),{api,notice,navigateAccess:openAccess,returnContext:readAdminReturnContext,onReturnContext:restoreAdminReturnContext,onGovernanceNavigate:navigateGovernanceModule,session:()=>({actor:state.actor,csrf:state.csrf}),onSession:async value=>{applySession(value);if(value.share_id&&!value.identity_id){state.view='access-share';await switchView('access-share');}else await loadProjects();},navigate:async(page,id,p=state.project)=>{state.view=page;await selectProject(p,{scope:id});}}); return accessControl;})();try{return await accessControlLoading;}finally{accessControlLoading=null;}}
@@ -290,6 +332,7 @@ function setEntryOptions(page,project,scope,options={}){
 // Standalone modules (asset center, character studio, API settings) never carry a film project.
 async function navigateStandalone(page,options={}){
   if(page==='api-settings'){if(!await captureAdminReturnContext())return;}
+  else if(page==='character-studio'){clearAdminReturnContext(state.actor);}
   const query=new URLSearchParams({page,...Object.fromEntries(Object.entries(options||{}).filter(([,v])=>v!=null&&v!==''))});
   if(typeof window!=='undefined'){const link='?'+query;if(window.location.search!==link)window.history.pushState(null,'',link);}
   state.project=null;state.object=null;episodeScope=null;
@@ -450,8 +493,8 @@ async function loadCustomView(view){
     if(!assetCenter){const {createAssetCenter}=await import('./asset-center.js');assetCenter=createAssetCenter($('asset-center-view'),{api,notice,navigate:(page,options)=>navigateStandalone(page,options),session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,writable:state.writable}),projects:()=>[...state.projectRows.values()],projectId:()=>state.project,setRevision:(value,p)=>{if(!p||p===state.project)state.revision=value;},workspaces:async()=>(await api('/api/v1/access')).workspaces});}
     if(ticket===customViewRequest&&view===state.view)await assetCenter.load();
   }else if(view==='character-studio'||view==='api-settings'){
-    if(!characterStudio){const {createCharacterStudio}=await import('./character-studio.js');characterStudio=createCharacterStudio($('character-studio-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf}),onSettingsNavigate:navigateSettingsSurface,navigate:(page,options)=>navigateStandalone(page,options)});}
-    if(ticket===customViewRequest&&view===state.view)await characterStudio.load({mode:view==='api-settings'?'settings':'studio',tab:currentEntry().get('tab')});
+    if(!characterStudio){const {createCharacterStudio}=await import('./character-studio.js');characterStudio=createCharacterStudio($('character-studio-view'),{api,notice,session:()=>({actor:state.actor,csrf:state.csrf,writeAvailable:state.writeAvailable,writable:state.writable}),returnContext:getAdminReturnContext,onReturnContext:restoreAdminReturnContext,onReturn:restoreAdminReturnContext,openMemory:openRoleMemory,memory:openRoleMemory,openSession:()=>$('session-dialog')?.showModal(),account:()=>$('session-dialog')?.showModal(),onSettingsNavigate:navigateSettingsSurface,navigate:(page,options={})=>{if(page==='service-operations')return navigateModule('service-operations',options?.subview||'network-diagnostic',state.project);if(page==='access')return openAccess(options||{area:'workspace'});if(page==='commerce')return navigateModule('commerce',options?.subview||'wallet',state.project);if(['maintenance','trash','settings','tasks','home','projects'].includes(page)){setEntryOptions(page,state.project,null,options||{});state.view=page;return switchView(page);}return navigateStandalone(page,options);}});}
+    if(ticket===customViewRequest&&view===state.view)await characterStudio.load({mode:view==='api-settings'?'settings':'studio',hub:currentEntry().get('hub'),tab:currentEntry().get('tab'),provider:currentEntry().get('provider'),section:currentEntry().get('section')});
   }else if(['intelligent-creation','intelligent-storyboard'].includes(view)){
     if(!intelligentProduction){const {createIntelligentProductionPanel}=await import('./intelligent-production.js');intelligentProduction=createIntelligentProductionPanel({opened:openedCreativeTarget,api,notice,projects:()=>[...state.projectRows.values()],navigate:async(page,scope=state.object,p=state.project,options={})=>{setEntryOptions(page,p,scope,options);if(options.episode)episodeScope=options.episode;state.view=page;await selectProject(p,{scope});},session:()=>({actor:state.actor,csrf:state.csrf,revision:state.revision,projectId:state.project,writable:state.writable}),setRevision:(value,p)=>{if(p===state.project)state.revision=value;},projectId:()=>state.project,openArtifact:async id=>{await switchView('artifacts');await openArtifact(id);}});}
     if(ticket===customViewRequest&&view===state.view)await intelligentProduction.load($('intelligent-production-view'),project,episodeScope||(state.treeNodes.find(r=>r.id===object)?.kind==='episode'?object:null),view==='intelligent-storyboard'?'storyboard':'creation',currentEntry().get('task_target'));
@@ -716,15 +759,12 @@ function syncRoute(){
   if(window.location.pathname==='/404'&&state.view==='service-operations'&&currentEntry().get('subview')==='not-found'){deskRouteReady=true;return;}
   if(window.location.pathname?.startsWith('/fcp/')&&state.view==='fcp-portal'){deskRouteReady=true;return;}
   const previous=currentEntry(),route=new URLSearchParams({page:state.view});if(state.project)route.set('project',state.project);if(state.object)route.set('scope',state.object);if(episodeScope)route.set('episode',episodeScope);
-  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','entry','create','tab','mode','canvas_origin','task_id','task_kind','task_status','task_group','task_view','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key','asset_type','asset_id','shot_id','media_id','locale','area','canvas','team','project_scope','scope_kind','workspace_id','showcase_work'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
+  if(previous.get('page')===state.view&&(!previous.get('project')||previous.get('project')===(state.project||null))){for(const key of ['task_target','tool','subview','kind','entry','create','hub','tab','provider','section','mode','canvas_origin','task_id','task_kind','task_status','task_group','task_view','auth_result','auth_status','reuse_media','skill','marketing','agent_turn','ai_mv','focus_node_key','asset_type','asset_id','shot_id','media_id','locale','area','canvas','team','project_scope','scope_kind','workspace_id','showcase_work'])if(previous.get(key))route.set(key,previous.get(key));if((previous.get('scope')||null)===(state.object||null))for(const key of ['object','version','render','line'])if(previous.get(key))route.set(key,previous.get(key));}
   const link='?'+route;if(window.location.search!==link)window.history[deskRouteReady?'pushState':'replaceState'](null,'',link);deskRouteReady=true;
 }
 async function openResourceSettings() {
-  if (!resourceSettings) {
-    const {createResourceSettings} = await import('./resource-settings.js');
-    resourceSettings = createResourceSettings($('resource-settings-dialog'), {api, session:()=>({actor:state.actor,csrf:state.csrf}), onNotice:notice, onSettingsNavigate:navigateSettingsSurface});
-  }
-  await resourceSettings.open();
+  $('resource-settings-dialog')?.close?.();
+  await navigateStandalone('api-settings',{hub:'api',tab:'routes'});
 }
 async function openRoleMemory() {
   if (!roleMemory) {
@@ -1129,7 +1169,7 @@ $('filters').addEventListener('submit',guard(async event=>{event.preventDefault(
 $('previous').addEventListener('click',guard(async()=>{state.offset=Math.max(0,state.offset-state.limit);await loadResources();}));
 $('next').addEventListener('click',guard(async()=>{state.offset+=state.limit;await loadResources();}));
 $('refresh').addEventListener('click',guard(loadProjects));
-for(const key of navViews)$(`nav-${key}`)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)){state.project=null;state.object=null;episodeScope=null;}if(key==='asset-center'&&typeof window!=='undefined'){const route=currentEntry();route.set('page','asset-center');route.delete('kind');route.delete('tab');window.history.replaceState(null,'','?'+route);}await switchView(key);}));
+for(const key of navViews)$(`nav-${key}`)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();if(key==='character-studio'||key==='home')clearAdminReturnContext(state.actor);if(['home','projects','asset-center','character-studio','project-management','capability-center'].includes(key)){state.project=null;state.object=null;episodeScope=null;}if(key==='asset-center'&&typeof window!=='undefined'){const route=currentEntry();route.set('page','asset-center');route.delete('kind');route.delete('tab');window.history.replaceState(null,'','?'+route);}await switchView(key);}));
 for(const [id,kind] of [['nav-ref-costume','costume'],['nav-ref-pose','pose'],['nav-ref-portrait','portrait'],['nav-ref-composite','composite']])$(id)?.addEventListener('click',guard(async event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();await navigateStandalone('asset-center',{tab:'official',kind});}));
 $('api-settings-open')?.addEventListener('click',guard(async()=>{closeHelp();await navigateStandalone('api-settings');}));
 $('back-to-desk').addEventListener('click',guard(()=>switchView(episodeScope?'production':state.primary)));
@@ -1140,16 +1180,16 @@ document.querySelectorAll('.close-dialog').forEach(button=>button.addEventListen
 document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('close',()=>{dialog.querySelectorAll('video,audio').forEach(node=>node.pause());}));
 $('role-memory-open')?.addEventListener('click',guard(openRoleMemory));
 $('session-open').addEventListener('click',guard(()=>openAccess({area:'account'})));
-$('help-open')?.addEventListener('click',()=>{window.open('/guide/creation','_blank');});
+$('help-open')?.addEventListener('click',()=>{window.open('/guide','_blank');});
 for(const item of document.querySelectorAll('#account-menu button,#account-menu a'))item.addEventListener('click',()=>{$('account-menu').open=false;});
-$('access-open')?.addEventListener('click',guard(()=>openAccess({area:'account'})));
+$('access-open')?.addEventListener('click',guard(()=>openAccess({area:'workspace'})));
 $('team-settings-open')?.addEventListener('click',guard(()=>openAccess({area:'workspace'})));
 $('asset-center-open')?.addEventListener('click',guard(()=>switchView('asset-center')));
 $('commerce-open')?.addEventListener('click',guard(()=>navigateModule('commerce','wallet',null)));
 $('drama-base-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','ai-drama-base')));
 $('engine-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','engine',null)));
 $('data-records-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','data-records',null)));
-$('invoice-open')?.addEventListener('click',guard(()=>navigateModule('commerce','invoice-overview',null)));
+$('invoice-open')?.addEventListener('click',guard(()=>navigateModule('commerce','wallet',null)));
 $('studio-quota-open')?.addEventListener('click',guard(()=>navigateModule('commerce','studio-quota',null)));
 $('project-management-open')?.addEventListener('click',guard(()=>switchView('project-management')));
 $('service-operations-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','overview',null)));
@@ -1171,7 +1211,7 @@ sidebarHelp?.addEventListener('keydown',event=>{if(event.key==='Escape'){event.p
 document.addEventListener('pointerdown',event=>{if(sidebarHelp&&!sidebarHelp.contains(event.target))sidebarHelp.removeAttribute('open');});
 // End sidebar disclosures.
 const closeHelp=()=>document.querySelector('.sidebar-help')?.removeAttribute('open');
-$('help-guide')?.addEventListener('click',()=>{closeHelp();window.open('/guide/creation','_blank');});
+$('help-guide')?.addEventListener('click',()=>{closeHelp();window.open('/guide','_blank');});
 $('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','feedback-records');}));
 $('help-network')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','network-diagnostic');}));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));
@@ -1199,7 +1239,7 @@ if(typeof window!=='undefined'){
   window.addEventListener('popstate',guard(async()=>{const route=currentEntry();state.view=[...mainViews,...platformViews,...customViews,...specialistViews].includes(route.get('page'))?route.get('page'):'home';pendingDeskRef=route.get('object');pendingDeskVersion=route.get('version');pendingDeskBucket=route.get('bucket');episodeScope=route.get('episode');restoringDeskRoute=true;try{await selectProject(route.get('project')||(['access','commerce','service-operations','capability-center','api-settings','character-studio','asset-center','home','projects'].includes(state.view)?null:state.project),{scope:route.get('scope')});}finally{restoringDeskRoute=false;}}));
 }
 // Explicit shell labels only. Icons, controls and user text are never traversed for translation.
-for(const [selector,key] of [['.brand > span:last-child','shell.workbench'],['#nav-home > span','common.route_home'],['#nav-projects > span','nav.my_projects'],['#nav-asset-center > span','nav.asset_library'],['#nav-character-studio > span','nav.character_studio'],['#nav-capability-center > span','nav.capability_center'],['#api-settings-open > span','shell.api_settings'],['#nav-community > span','shell.community'],['#nav-project-management > span','nav.recycle_bin'],['#recent-projects-toggle > span','home.recent_creations'],['.project-context > summary','shell.project_context'],['#nav-intelligent-creation','nav.agent_workflow'],['#nav-intelligent-storyboard','shell.intelligent_storyboard'],['#nav-tasks','shell.tasks'],['#nav-assets','shell.project_assets'],['#nav-settings','shell.settings'],['#nav-desk','shell.review_queue'],['#nav-collection','shell.shared_library'],['#nav-trash','shell.media_recycle'],['.topbar-projects','nav.my_projects'],['#team-settings-open','workspace.settings'],['#access-open','workspace.account'],['#team-review-open','shell.project_review'],['#commerce-open','shell.billing'],['#project-management-open','shell.project_directory'],['#service-operations-open','shell.services'],['#asset-center-open','nav.asset_center'],['#role-memory-open','ui.role_memory'],['#resource-settings-open','ui.resource_configuration'],['#session-open','shell.account']]){const label=document.querySelector(selector);if(label)setText(label,msg(key));}
+for(const [selector,key] of [['.brand > span:last-child','shell.workbench'],['#nav-home > span','common.route_home'],['#nav-projects > span','nav.my_projects'],['#nav-asset-center > span','nav.asset_library'],['#nav-character-studio > span','nav.character_studio'],['#nav-capability-center > span','nav.capability_center'],['#api-settings-open > span','shell.api_settings'],['#nav-community > span','shell.community'],['#nav-project-management > span','nav.recycle_bin'],['#recent-projects-toggle > span','home.recent_creations'],['.project-context > summary','shell.project_context'],['#nav-intelligent-creation','nav.agent_workflow'],['#nav-intelligent-storyboard','shell.intelligent_storyboard'],['#nav-tasks','shell.tasks'],['#nav-assets','shell.project_assets'],['#nav-settings','shell.settings'],['#nav-desk','shell.review_queue'],['#nav-collection','shell.shared_library'],['#nav-trash','shell.media_recycle'],['.topbar-projects','nav.my_projects'],['#team-settings-open','workspace.settings'],['#team-review-open','shell.project_review'],['#commerce-open','shell.billing'],['#project-management-open','shell.project_directory'],['#service-operations-open','shell.services'],['#asset-center-open','nav.asset_center'],['#role-memory-open','ui.role_memory'],['#session-open','shell.account']]){const label=document.querySelector(selector);if(label)setText(label,msg(key));}
 if($('nav-capability-center'))bindAttribute($('nav-capability-center'),'title',msg('nav.capability_center'));
 if($('capability-center-view'))bindAttribute($('capability-center-view'),'aria-label',msg('capability.title'));
 for(const [selector,key]of [['#new-canvas-project','shell.new_canvas'],['.sidebar-footer a[href="?page=settings"]','shell.settings']]){const host=document.querySelector(selector);if(host){const original=[...host.childNodes].find(node=>node.nodeType===3&&node.nodeValue.trim());if(original){const label=document.createElement('span');host.replaceChild(label,original);setText(label,msg(key));}}}
