@@ -156,7 +156,12 @@ def media_digest(url):
 
 
 def media_suffix(url):
-    path = urlsplit(url).path.lower()
+    try:
+        path = urlsplit(url).path.lower()
+    except ValueError:
+        # Prompt text can contain unfinished links. They have no usable media
+        # suffix; an invalid actual output is reported by its own fetch.
+        return ""
     for ext in MEDIA_SUFFIXES:
         if path.endswith(ext):
             return ".jpg" if ext == ".jpeg" else ext

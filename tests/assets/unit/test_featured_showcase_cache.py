@@ -84,6 +84,25 @@ def manifest_for(root, urls):
 
 
 class FeaturedShowcaseCache(unittest.TestCase):
+    def test_malformed_links_do_not_block_other_canvas_outputs(self):
+        payload = b"valid-output-bytes"
+        malformed = "https://[unfinished"
+        with tempfile.TemporaryDirectory() as temp, origin(payload) as (url, _):
+            root = Path(temp)
+            snapshot(root, "work-a", [
+                {"id": "valid", "type": "video", "data": {
+                    "url": url, "params": {"prompt": "A guide mentions " + malformed}}},
+                {"id": "invalid", "type": "image", "data": {"url": malformed}},
+            ])
+            manifest = build_manifest(root, ["work-a"])
+            self.assertEqual({item["url"] for item in manifest["works"]["work-a"]["media"]},
+                             {url, malformed})
+            result = CacheSync(root, len(payload) * 2, workers=2).run(manifest, ["work-a"])
+            self.assertEqual(find_media(root, url).read_bytes(), payload)
+            self.assertEqual(result["outcomes"][media_digest(malformed)]["status"], "failed")
+            self.assertEqual(result["works"]["work-a"]["local"], 1)
+            self.assertEqual(result["works"]["work-a"]["remaining"], 1)
+
     def test_reference_owner_does_not_override_the_actual_output_media_type(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);video='https://example.test/clip.mp4'
