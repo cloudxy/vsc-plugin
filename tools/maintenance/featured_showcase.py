@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 
 from vsc.assets.featured_showcase import (
-    find_media, media_digest, media_paths, media_suffix, sniff_suffix,
+    find_media, media_digest, media_paths, media_suffix, normalize_snapshot, sniff_suffix,
 )
 
 BLOCK_SIZE = 4 * 1024 ** 2
@@ -163,6 +163,7 @@ def load_snapshot(root, work):
 
 def inventory_work(root, work, origins=None):
     snapshot, info = load_snapshot(root, work)
+    snapshot = normalize_snapshot(snapshot)
     if origins is None:
         origins = origin_urls(root)
     entries, unresolved = {}, []
@@ -231,6 +232,10 @@ def inventory_work(root, work, origins=None):
         output_type = str(node.get("type") or data.get("type") or "")
         base = "snapshot.nodes[" + str(index) + "]"
         for key, value in node.items():
+            if key == "legacySource" and snapshot.get("sourceSnapshotFormat") == "legacy-node-key":
+                # This audit copy duplicates the decoded fields above; it is
+                # not another creative reference or an output occurrence.
+                continue
             if key == "data" and isinstance(value, dict):
                 for field, child in value.items():
                     role = "output" if field == "url" else "reference"
@@ -328,12 +333,19 @@ class CacheSync:
         self.reserved = 0
         self.transferred = 0
         self.started = time.monotonic()
-        self.allocated = media_bytes(root)
+        self.allocated = self.measure_media_bytes()
         if self.budget <= 0 or self.workers < 1 or block_size < 1:
             raise ValueError("Budget, workers and block size must be positive")
 
     def state_path(self, digest):
         return self.root / STATE / (digest + ".json")
+
+    def measure_media_bytes(self):
+        return media_bytes(self.root)
+
+    def load_record(self, digest):
+        path = self.state_path(digest)
+        return read_json(path) if path.is_file() else None
 
     def save_record(self, record):
         save_json(self.state_path(record["digest"]), {key: value for key, value in record.items()
@@ -346,8 +358,7 @@ class CacheSync:
         digest, url = item["digest"], item["url"]
         # Call media_paths only after a remote probe: inventory mode never creates media.
         _, part = media_paths(self.root, url)
-        state_path = self.state_path(digest)
-        prior = read_json(state_path) if state_path.is_file() else None
+        prior = self.load_record(digest)
         size = part.stat().st_size if part.is_file() else 0
         if size and prior is None:
             self.outcome(item, "untracked_partial", error="Existing partial has no verified-block ledger; preserved")
@@ -566,7 +577,7 @@ class CacheSync:
                 checksum = file_sha256(local)
                 self.outcome(item, "local", bytes=local.stat().st_size, sha256=checksum,
                              local_path=str(local.relative_to(self.root)))
-                save_json(self.state_path(item["digest"]), {"schema": "vsc.canvas-media-part/v1",
+                self.save_record({"schema": "vsc.canvas-media-part/v1",
                           "digest": item["digest"], "url": item["url"], "status": "local",
                           "total": local.stat().st_size, "sha256": checksum,
                           "local_path": str(local.relative_to(self.root))})
@@ -634,7 +645,7 @@ class CacheSync:
                     os.close(record["fd"])
                     record["fd"] = None
             # Partial allocations survive interruption and continue counting against cap.
-            self.allocated = media_bytes(self.root)
+            self.allocated = self.measure_media_bytes()
             self.reserved = 0
             final = self.progress(manifest, works, "incomplete")
         if all(value["remaining"] == 0 for value in final["works"].values()):

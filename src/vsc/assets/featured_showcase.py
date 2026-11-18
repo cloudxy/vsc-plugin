@@ -317,7 +317,54 @@ def _issue(code, **fields):
     return {"code": code, **fields}
 
 
+def normalize_snapshot(snapshot):
+    """Project the published nodeKey format without changing its source facts."""
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("nodes"), list) or not isinstance(snapshot.get("edges"), list):
+        return snapshot
+    nodes, converted = [], False
+    for raw in snapshot["nodes"]:
+        if not isinstance(raw, dict) or isinstance(raw.get("id"), str) or not isinstance(raw.get("nodeKey"), str) or not isinstance(raw.get("data"), str):
+            nodes.append(raw)
+            continue
+        try:
+            data = json.loads(raw["data"])
+        except ValueError:
+            nodes.append(raw)
+            continue
+        if not isinstance(data, dict):
+            nodes.append(raw)
+            continue
+        data = dict(data)
+        if "resourceMeta" not in data and isinstance(data.get("_resourceMeta"), dict):
+            data["resourceMeta"] = data["_resourceMeta"]
+        position = raw.get("position") if isinstance(raw.get("position"), dict) else {}
+        coordinates = {}
+        for axis, field in (("x", "positionX"), ("y", "positionY")):
+            try:
+                coordinates[axis] = _number(float(position.get(field, 0)))
+            except (TypeError, ValueError, OverflowError):
+                coordinates[axis] = 0
+        node = dict(raw)
+        node.update(id=raw["nodeKey"], data=data, position=coordinates,
+                    type=data.get("type") if isinstance(data.get("type"), str) else "legacy-" + str(raw.get("type", "unknown")),
+                    parentId=raw.get("parentKey") or "", legacySource=raw)
+        nodes.append(node)
+        converted = True
+    if not converted:
+        return snapshot
+    edges = []
+    for raw in snapshot["edges"]:
+        if isinstance(raw, dict) and raw.get("id") is None and isinstance(raw.get("connectionId"), (str, int)) and not isinstance(raw.get("connectionId"), bool):
+            edge = dict(raw)
+            edge["id"] = str(raw["connectionId"])
+            edges.append(edge)
+        else:
+            edges.append(raw)
+    return {**snapshot, "nodes": nodes, "edges": edges, "sourceSnapshotFormat": "legacy-node-key"}
+
+
 def _validate_snapshot(snapshot):
+    snapshot = normalize_snapshot(snapshot)
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("nodes"), list) or not isinstance(snapshot.get("edges"), list):
         raise ProcessSnapshotError("invalid_snapshot", "创作过程结构无效：需要 nodes 和 edges 列表")
     nodes = snapshot["nodes"]
@@ -509,6 +556,7 @@ def _thumbnails(root):
 
 
 def project_snapshot(snapshot, root=None, issues=None, thumbnails=None):
+    snapshot = normalize_snapshot(snapshot)
     issues = list(_validate_snapshot(snapshot) if issues is None else issues)
     thumbnails = thumbnails or {}
     drafted = []

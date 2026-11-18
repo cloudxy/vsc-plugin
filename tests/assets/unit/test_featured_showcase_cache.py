@@ -84,6 +84,45 @@ def manifest_for(root, urls):
 
 
 class FeaturedShowcaseCache(unittest.TestCase):
+    def test_custom_receipt_store_resumes_verified_blocks_without_per_file_ledgers(self):
+        receipts = {}
+        class ReceiptCache(CacheSync):
+            def load_record(self, digest):
+                return receipts.get(digest)
+
+            def save_record(self, record):
+                receipts[record["digest"]] = json.loads(json.dumps({
+                    key: value for key, value in record.items()
+                    if key not in ("fd", "part", "reserved", "failed")}))
+
+        payload = b"abcdefghijkl"
+        with tempfile.TemporaryDirectory() as temp, origin(payload) as (url, remote):
+            root = Path(temp)
+            manifest = manifest_for(root, [url])
+            remote["interrupt"].add((4, 7))
+            first = ReceiptCache(root, 100, workers=1, block_size=4).run(manifest, ["work-a"])
+            self.assertEqual(first["outcomes"][media_digest(url)]["status"], "failed")
+            remote["interrupt"].clear()
+            remote["requests"].clear()
+            second = ReceiptCache(root, 100, workers=1, block_size=4).run(manifest, ["work-a"])
+            self.assertEqual(second["status"], "completed")
+            self.assertEqual(find_media(root, url).read_bytes(), payload)
+            self.assertEqual([r[1] for r in remote["requests"]], ["bytes=0-0", "bytes=4-7", "bytes=8-11"])
+            ReceiptCache(root, 100, workers=1, block_size=4).run(manifest, ["work-a"])
+            self.assertEqual(receipts[media_digest(url)]["status"], "local")
+            self.assertFalse((root / STATE).exists())
+
+    def test_legacy_serialized_outputs_are_outputs_in_inventory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            snapshot(root, "work-a", [{"nodeKey": "image-a", "type": 2,
+                "position": {"positionX": "0", "positionY": "20"},
+                "data": json.dumps({"type": "image", "url": ["https://example.test/a.png"]})}])
+            item = build_manifest(root, ["work-a"])["works"]["work-a"]["media"][0]
+            self.assertEqual(item["roles"], ["output"])
+            self.assertEqual(item["output_type"], "image")
+            self.assertEqual(item["occurrences"][0]["nodeId"], "image-a")
+
     def test_malformed_links_do_not_block_other_canvas_outputs(self):
         payload = b"valid-output-bytes"
         malformed = "https://[unfinished"

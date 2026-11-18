@@ -34,6 +34,41 @@ def write_source(root, identity, snapshot, snapshot_id=7):
 
 
 class FeaturedShowcaseTests(unittest.TestCase):
+    def test_legacy_node_keys_and_serialized_data_keep_graph_and_outputs(self):
+        snapshot = {"nodes": [
+            {"nodeKey": "group-a", "type": 5, "parentKey": "",
+             "position": {"positionX": "100", "positionY": "40"},
+             "data": json.dumps({"type": "group", "childNodeIds": ["image-a"]})},
+            {"nodeKey": "image-a", "type": 2, "parentKey": "group-a",
+             "position": {"positionX": "12.5", "positionY": "20"},
+             "data": json.dumps({"type": "image", "url": ["https://example.test/a.png"],
+                                 "params": {"prompt": "A complete image", "enabled": False},
+                                 "_resourceMeta": {"items": [{"width": 640, "height": 480}]}})},
+        ], "edges": [{"connectionId": "edge-a", "source": "group-a", "target": "image-a",
+                       "sourceHandle": "out", "targetHandle": "in"}]}
+        original = json.dumps(snapshot)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.catalog(root)
+            write_snapshot(root, "a" * 32, snapshot)
+            source = write_source(root, "a" * 32, snapshot)
+            source_bytes = source.read_bytes()
+            image = store_media(root, "https://example.test/a.png", b"\x89PNG\r\n\x1a\nimage")
+            view = read_process(root, "a" * 32)["process"]
+            self.assertEqual([n["id"] for n in view["nodes"]], ["group-a", "image-a"])
+            node = view["nodes"][1]
+            self.assertEqual((node["x"], node["y"]), (112.5, 60))
+            self.assertEqual(node["parentId"], "group-a")
+            self.assertEqual(node["params"]["enabled"], False)
+            self.assertEqual(node["resourceMeta"]["items"][0]["width"], 640)
+            self.assertEqual(node["url"], "/featured-showcase-media/" + image.name)
+            self.assertEqual(view["edges"][0]["id"], "edge-a")
+            self.assertEqual(view["edges"][0]["targetHandle"], "in")
+            self.assertEqual(view["issues"], [])
+            self.assertEqual(view["coverage"]["status"], "complete")
+            self.assertEqual(source.read_bytes(), source_bytes)
+        self.assertEqual(json.dumps(snapshot), original)
+
     @unittest.skipUnless(shutil.which("node"), "requires Node.js")
     def test_frontend_latest_intent_and_late_responses(self):
         result = subprocess.run(["node", "--test", str(Path(__file__).with_name("featured_showcase.test.mjs"))],
