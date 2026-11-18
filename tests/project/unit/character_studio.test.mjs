@@ -17,23 +17,31 @@ Element.prototype.matches=function(selector){
 };
 const ai=await import('../../../src/vsc/interfaces/web/static/character-studio-ai.js');
 const store=await import('../../../src/vsc/interfaces/web/static/character-studio-store.js');
+const {newPublication}=await import('../../../src/vsc/interfaces/web/static/character-studio-publication.js');
 const {createCharacterStudio}=await import('../../../src/vsc/interfaces/web/static/character-studio.js');
 const {createCharacterHistory}=await import('../../../src/vsc/interfaces/web/static/character-studio-history.js');
+const {createStudioRecordsServer}=await import('../../support/fixtures/frontend/studio_records_api.mjs');
 const flush=()=>new Promise(resolve=>setTimeout(resolve,15));
 const texts=(root,tag)=>root.querySelectorAll(tag).map(n=>n.textContent);
 
-test('local history resumes the original publication and opens its exact official asset',async()=>{
+test('database history resumes the original publication and opens its exact official asset',async()=>{
  const previousWindow=globalThis.window;globalThis.window={location:{protocol:'http:',hostname:'localhost'},addEventListener(){},removeEventListener(){}};
  const saved={...store.getState()},root=doc.createElement('main'),routes=[],requests=[];
  doc.body.append(root);
- const ctx={session:()=>({actor:'history-user',csrf:'history-csrf'}),notice(){},navigate:(...args)=>routes.push(args),api:async(url,options)=>{requests.push([url,options]);return {can_publish:true};}};
+ const record={id:'history-with-intent',createdAt:1,imageUrl:'data:image/png;base64,AA==',prompt:'submitted prompt',recipeSummary:'history result',publication:{actor:'history-user',title:'Frozen original name',phase:'imported'}};
+ const recordsApi=createStudioRecordsServer([record]);
+ const ctx={session:()=>({actor:'history-user',csrf:'history-csrf'}),notice(){},navigate:(...args)=>routes.push(args),api:async(url,options)=>{
+  const handled=await recordsApi.handle(url,options);
+  if(handled!==undefined)return handled;
+  requests.push([url,options]);
+  return {can_publish:true};
+ }};
  store.configureStudio({api:ctx.api,notice:ctx.notice,session:ctx.session,csrf:()=>ctx.session().csrf});
  await flush();
- const record={id:'history-with-intent',createdAt:1,imageUrl:'data:image/png;base64,AA==',prompt:'submitted prompt',recipeSummary:'history result',publication:{actor:'history-user',title:'Frozen original name',phase:'imported'}};
- Object.assign(store.getState(),{hydrated:true,history:[record],currentResult:null,previewUrl:'',isGenerating:false,publicationTask:null});
+ Object.assign(store.getState(),{hydrated:true,currentResult:null,previewUrl:'',isGenerating:false,publicationTask:null});
  const view=createCharacterHistory(root,ctx);
  try{
-  view.load();
+  await view.load();await flush();
   await root.querySelectorAll('button').find(b=>b.textContent==='继续入库').onclick();
   const dialog=doc.body.querySelector('.cs-publication');assert.ok(dialog);
   assert.equal(dialog.querySelector('input').value,'Frozen original name');assert.equal(dialog.querySelector('input').disabled,true);
@@ -42,8 +50,9 @@ test('local history resumes the original publication and opens its exact officia
   await dialog.querySelectorAll('button').find(b=>b.textContent==='取消').onclick();
   assert.equal(store.getState().currentResult,null,'resuming publication does not populate the current generation');
   const receipt={entry_id:'exact-entry',library_version_id:'exact-version',id:'published-id'};
-  store.getState().history=[{...record,publication:{...record.publication,officialReceipt:receipt}}];
-  view.load();await root.querySelectorAll('button').find(b=>b.textContent==='查看官方资产').onclick();
+  recordsApi.setRows([{...record,publication:{...record.publication,officialReceipt:receipt}}]);
+  await view.load();await flush();
+  await root.querySelectorAll('button').find(b=>b.textContent==='查看官方资产').onclick();
   assert.deepEqual(routes,[['asset-center',{tab:'official',kind:'character',entry:'exact-entry'}]]);
   assert.equal(requests.length,1,'opening a receipt does not repeat upload or publication');
  }finally{view.suspend();root.remove();Object.assign(store.getState(),saved);if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;}
@@ -423,4 +432,165 @@ test('standalone official-entry navigation retains the exact asset through shell
  runInNewContext(sync+';syncRoute();',context);
  assert.equal(new URLSearchParams(location.search).get('entry'),'exact-official-entry');
  assert.equal(new URLSearchParams(location.search).get('tab'),'official');
+});
+
+test('AI角色合成库 records and displays exact model and invocation method across Grok CLI, Grok Imagine 2.0/1.0, API endpoints, and legacy entries',async()=>{
+ const originalFetch=globalThis.fetch,previousWindow=globalThis.window,saved=structuredClone(store.getState());
+ globalThis.window={location:{protocol:'http:',hostname:'localhost'},addEventListener(){},removeEventListener(){}};
+ const twoRefs={extraImages:[{id:'r1',name:'人像',url:'data:image/png;base64,AA=='},{id:'r2',name:'服装',url:'data:image/png;base64,BB=='}]};
+ const root=doc.createElement('main');doc.body.append(root);
+ const recordsApi=createStudioRecordsServer();
+ const apiHandler=async(u,o)=>await recordsApi.handle(u,o)??{};
+ const view=createCharacterHistory(root,{api:apiHandler,notice(){},session:()=>({actor:'u',csrf:'c'}),navigate(){}});
+ try{
+  // 1. Grok auth modes: image_edit (CLI), grok-imagine-image-2.0 (sub edits), grok-imagine-image (sub edits)
+  globalThis.fetch=async(url,opts)=>{
+   const body=JSON.parse(opts.body);
+   if(url==='/api/v1/character-studio/generate'){
+    if(body.model==='image_edit')return {ok:true,json:async()=>({image_url:'data:image/png;base64,AA==',model:'image_edit',provider:'grok_auth',method:'grok_cli_image_edit',method_label:'Grok CLI · image_edit 工具',endpoint:'grok CLI (image_edit)'})};
+    return {ok:true,json:async()=>({image_url:'data:image/png;base64,AA==',model:body.model,provider:'grok_auth',method:'grok_sub_images_edits',method_label:'Grok 订阅直连 · /v1/images/edits（多图编辑）',endpoint:'/v1/images/edits'})};
+   }
+   // Cloud API responses: even if upstream returns an internal alias in `model`, requested model must stay exact
+   return {ok:true,json:async()=>({data:[{b64_json:'AA=='}],model:'upstream-internal-alias-v9'})};
+  };
+
+  const rCli=await ai.generateCharacterImage({recipe:twoRefs,prompt:'p1',config:store.mergeStoredConfig({activeProvider:'grok_auth',providers:{grok_auth:{model:'image_edit'}}})});
+  assert.equal(rCli.modelUsed,'image_edit');
+  assert.equal(rCli.methodUsed,'grok_cli_image_edit');
+  assert.equal(rCli.methodLabel,'Grok CLI · image_edit 工具');
+
+  const rSub2=await ai.generateCharacterImage({recipe:twoRefs,prompt:'p2',config:store.mergeStoredConfig({activeProvider:'grok_auth',providers:{grok_auth:{model:'grok-imagine-image-2.0'}}})});
+  assert.equal(rSub2.modelUsed,'grok-imagine-image-2.0');
+  assert.equal(rSub2.methodUsed,'grok_sub_images_edits');
+  assert.equal(rSub2.methodLabel,'Grok 订阅直连 · /v1/images/edits（多图编辑）');
+
+  const rSubClassic=await ai.generateCharacterImage({recipe:twoRefs,prompt:'p3',config:store.mergeStoredConfig({activeProvider:'grok_auth',providers:{grok_auth:{model:'grok-imagine-image'}}})});
+  assert.equal(rSubClassic.modelUsed,'grok-imagine-image');
+  assert.equal(rSubClassic.methodUsed,'grok_sub_images_edits');
+
+  // 2. Grok API modes: /v1/images/edits vs /v1/images/generations with exact model retention
+  const rApiEdits=await ai.generateCharacterImage({recipe:twoRefs,prompt:'p4',config:store.mergeStoredConfig({activeProvider:'grok',useProxy:false,grokParams:{endpointMode:'auto'},providers:{grok:{apiKey:'xai-k',model:'grok-imagine-image'}}})});
+  assert.equal(rApiEdits.modelUsed,'grok-imagine-image');
+  assert.equal(rApiEdits.upstreamModel,'upstream-internal-alias-v9');
+  assert.equal(rApiEdits.methodUsed,'grok_api_images_edits');
+  assert.equal(rApiEdits.methodLabel,'Grok API · /v1/images/edits（多图编辑）');
+  assert.equal(rApiEdits.endpointUsed,'/v1/images/edits');
+
+  const rApiGen=await ai.generateCharacterImage({recipe:twoRefs,prompt:'p5',config:store.mergeStoredConfig({activeProvider:'grok',useProxy:false,grokParams:{endpointMode:'generations'},providers:{grok:{apiKey:'xai-k',model:'grok-imagine-image-2.0'}}})});
+  assert.equal(rApiGen.modelUsed,'grok-imagine-image-2.0');
+  assert.equal(rApiGen.methodUsed,'grok_api_images_generations');
+  assert.equal(rApiGen.methodLabel,'Grok API · /v1/images/generations（文生图）');
+  assert.equal(rApiGen.endpointUsed,'/v1/images/generations');
+
+  // 3. Render AI角色合成库 cards via REST API, filter dropdown, hyphenated search, legacy fallback & detail dialog
+  const entries=[
+   {id:'g-cli',createdAt:5000,imageUrl:'data:image/png;base64,AA==',provider:'grok_auth',model:rCli.modelUsed,method:rCli.methodUsed,methodLabel:rCli.methodLabel,endpoint:rCli.endpointUsed,prompt:'雨夜街拍',recipeSummary:'配方A'},
+   {id:'g-sub-2',createdAt:4000,imageUrl:'data:image/png;base64,AA==',provider:'grok_auth',model:rSub2.modelUsed,method:rSub2.methodUsed,methodLabel:rSub2.methodLabel,endpoint:rSub2.endpointUsed,prompt:'雨夜街拍',recipeSummary:'配方B'},
+   {id:'g-sub-1',createdAt:3000,imageUrl:'data:image/png;base64,AA==',provider:'grok_auth',model:rSubClassic.modelUsed,method:rSubClassic.methodUsed,methodLabel:rSubClassic.methodLabel,endpoint:rSubClassic.endpointUsed,prompt:'雨夜街拍',recipeSummary:'配方C'},
+   {id:'g-api-gen',createdAt:2000,imageUrl:'data:image/png;base64,AA==',provider:'grok',model:rApiGen.modelUsed,upstreamModel:'upstream-internal-alias-v9',method:rApiGen.methodUsed,methodLabel:rApiGen.methodLabel,endpoint:rApiGen.endpointUsed,prompt:'雨夜街拍',recipeSummary:'配方D'},
+   {id:'legacy-unrecorded',createdAt:1000,imageUrl:'data:image/png;base64,AA==',provider:'grok',prompt:'旧记录无模型',recipeSummary:'旧记录'},
+  ];
+  recordsApi.setRows(entries);
+  Object.assign(store.getState(),{hydrated:true,currentResult:null,previewUrl:'',isGenerating:false,publicationTask:null});
+  await view.load();await flush();
+  const cards=root.querySelectorAll('.cs-history-item');
+  assert.equal(cards.length,5);
+  assert.ok(cards.every(c=>c.querySelector('img').src.startsWith('/api/v1/character-studio/media/')));
+  assert.deepEqual(cards.map(c=>c.querySelector('.cs-history-model').textContent),['image_edit','grok-imagine-image-2.0','grok-imagine-image','grok-imagine-image-2.0','未记录模型']);
+  assert.equal(cards[0].querySelector('.cs-history-method').textContent,'Grok CLI · image_edit 工具');
+  assert.equal(cards[1].querySelector('.cs-history-method').textContent,'Grok 订阅直连 · /v1/images/edits（多图编辑）');
+  assert.equal(cards[2].querySelector('.cs-history-method').textContent,'Grok 订阅直连 · /v1/images/edits（多图编辑）');
+  assert.equal(cards[3].querySelector('.cs-history-method').textContent,'Grok API · /v1/images/generations（文生图）');
+
+  // Filter dropdown separates same model under different methods (sub /images/edits vs API /images/generations)
+  const filterSelect=root.querySelectorAll('select').find(s=>s.getAttribute('aria-label')==='按模型与方式筛选');
+  assert.ok(filterSelect);
+  const classicOpt=filterSelect.options.find(o=>o.textContent.includes('grok-imagine-image · Grok 订阅直连'));
+  assert.ok(classicOpt);
+  filterSelect.value=classicOpt.value;filterSelect.onchange();await flush();
+  assert.deepEqual(root.querySelectorAll('.cs-history-item').map(c=>c.dataset.resultId),['g-sub-1']);
+  filterSelect.value='';filterSelect.onchange();await flush();
+
+  // Searching `image-edit` (hyphen) finds `image_edit` (underscore) without altering literal model text
+  const search=root.querySelector('input');
+  search.value='image-edit';search.oninput();
+  await new Promise(resolve=>setTimeout(resolve,140));
+  assert.deepEqual(root.querySelectorAll('.cs-history-item').map(c=>c.dataset.resultId),['g-cli']);
+  assert.equal(root.querySelector('.cs-history-model').textContent,'image_edit');
+  search.value='';search.oninput();await flush();
+
+  // Detail modal exposes exact channel, model, upstream model, method, endpoint and dated file paths
+  const apiCard=root.querySelectorAll('.cs-history-item').find(c=>c.dataset.resultId==='g-api-gen');
+  await apiCard.querySelectorAll('button').find(b=>b.textContent==='查看详情').onclick();
+  const detail=doc.body.querySelector('.cs-history-detail');
+  assert.ok(detail.textContent.includes('grok-imagine-image-2.0'));
+  assert.ok(detail.textContent.includes('upstream-internal-alias-v9'));
+  assert.ok(detail.textContent.includes('Grok API · /v1/images/generations（文生图）'));
+  assert.ok(detail.textContent.includes('/v1/images/generations'));
+  assert.ok(detail.textContent.includes('assets/ai-generate-image/'));
+  detail.close();
+
+  // Official publication freezes exact model, method and endpoint into specification and description
+  const pub=await newPublication(recordsApi.rows[3],'actor-1','测试入库');
+  assert.equal(pub.importPayload.specification.model,'grok-imagine-image-2.0');
+  assert.equal(pub.importPayload.specification.method,'grok_api_images_generations');
+  assert.equal(pub.importPayload.specification.method_label,'Grok API · /v1/images/generations（文生图）');
+  assert.equal(pub.importPayload.specification.endpoint,'/v1/images/generations');
+  assert.ok(pub.importPayload.description.includes('Grok API · /v1/images/generations（文生图）'));
+
+  // 4. Legacy snapshot-backed entries recover exact model and method without guessing missing fields
+  const legacyWithSnapshot={
+   id:'snap-legacy',createdAt:6000,imageUrl:'data:image/png;base64,AA==',provider:'grok_auth',
+   snapshot:{recipe:{portrait:{id:'p1'},costume:null,pose:null,extraImages:[]},models:{grok_auth:{model:'grok-imagine-image-2.0',customModel:''}},settings:{activeProvider:'grok_auth',sendStitchedSheet:true}},
+  };
+  const snapInfo=ai.resolveRecordProvenance(legacyWithSnapshot);
+  assert.equal(snapInfo.model,'grok-imagine-image-2.0');
+  assert.equal(snapInfo.methodLabel,'Grok 订阅直连 · /v1/images/edits（多图编辑）');
+
+  // 5. Gemini native vs OpenAI chat, GPT 4 endpoint modes, Qwen and Doubao methods stay distinct
+  assert.equal(ai.apiMethodSpec('gemini','gemini-3.1-flash-image-preview',{geminiParams:{endpointMode:'native'}},2).methodLabel,'Gemini API · 原生 generateContent');
+  assert.equal(ai.apiMethodSpec('gemini','gemini-3.1-flash-image-preview',{geminiParams:{endpointMode:'openai_chat'}},2).methodLabel,'Gemini API · Chat Completions 兼容');
+  assert.equal(ai.apiMethodSpec('gpt','gpt-image-2.5',{gptParams:{endpointMode:'images_edits_json'}},2).methodLabel,'GPT API · /v1/images/edits (JSON)');
+  assert.equal(ai.apiMethodSpec('gpt','gpt-image-2.5',{gptParams:{endpointMode:'images_edits'}},2).methodLabel,'GPT API · /v1/images/edits (Multipart)');
+  assert.equal(ai.apiMethodSpec('gpt','gpt-image-2.5',{gptParams:{endpointMode:'responses'}},2).methodLabel,'GPT API · /v1/responses (image_generation)');
+  assert.equal(ai.apiMethodSpec('gpt','gpt-image-2.5',{gptParams:{endpointMode:'chat'}},2).methodLabel,'GPT API · /v1/chat/completions');
+  assert.equal(ai.apiMethodSpec('qwen','qwen-image-3.0-pro',{},2).methodLabel,'百炼 API · multimodal-generation');
+  assert.equal(ai.apiMethodSpec('doubao','doubao-seedream-5-0',{},2).methodLabel,'方舟 API · /api/v3/images/generations');
+
+  // 6. Studio view previews active model + method and flushes unblurred custom model input before generating
+  const studioRoot=doc.createElement('section');doc.body.append(studioRoot);
+  const seenGenerateBodies=[];
+  globalThis.fetch=async(url,opts)=>{
+   if(url==='/api/v1/character-studio/generate'){
+    const b=JSON.parse(opts.body);seenGenerateBodies.push(b);
+    return {ok:true,json:async()=>({image_url:'data:image/png;base64,AA==',model:b.model,provider:b.provider,method:'grok_sub_images_edits',method_label:'Grok 订阅直连 · /v1/images/edits（单图编辑）',endpoint:'/v1/images/edits'})};
+   }
+   return {ok:true,json:async()=>({})};
+  };
+  store.updateApiConfig({activeProvider:'grok_auth'});
+  store.updateProviderConfig('grok_auth',{model:'custom',customModel:'old-model'});
+  Object.assign(store.getState(),{hydrated:true,recipe:{portrait:null,costume:null,pose:null,extraImages:[{id:'e1',name:'参考',url:'data:image/png;base64,AA=='}]}});
+  const studio=createCharacterStudio(studioRoot,{api:apiHandler,notice(){},session:()=>({actor:'u',csrf:'c'}),navigate(){}});
+  try{
+   await studio.load({mode:'studio'});await flush();
+   assert.match(studioRoot.querySelector('.cs-active-route').textContent,/old-model/);
+   const customInput=studioRoot.querySelectorAll('input').find(i=>i.dataset.focusKey==='custom-model');
+   assert.ok(customInput);
+   doc.activeElement=customInput;
+   customInput.value='grok-imagine-image';
+   const genBtn=studioRoot.querySelectorAll('button').find(b=>b.textContent.startsWith('生成角色图'));
+   await genBtn.onclick();await flush();
+   assert.equal(seenGenerateBodies.at(-1)?.model,'grok-imagine-image');
+   assert.equal(store.getState().currentResult?.model,'grok-imagine-image');
+   assert.equal(store.getState().currentResult?.method,'grok_sub_images_edits');
+   assert.ok(store.getState().currentResult?.imageUrl.startsWith('/api/v1/character-studio/media/'));
+   const prov=studioRoot.querySelector('.cs-result-provenance');
+   assert.ok(prov);
+   assert.equal(prov.querySelector('.cs-history-model')?.textContent,'grok-imagine-image');
+   assert.equal(prov.querySelector('.cs-history-method')?.textContent,'Grok 订阅直连 · /v1/images/edits（单图编辑）');
+  }finally{studio.suspend();studioRoot.remove();}
+ }finally{
+  view.suspend();root.remove();Object.assign(store.getState(),saved);globalThis.fetch=originalFetch;
+  if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;
+ }
 });

@@ -26,6 +26,7 @@ function database(){
    const tx={error:new Error('storage full'),objectStore(){return {
     get(key){const r={error:new Error('read failed')};queueMicrotask(()=>{if(control.failRead)r.onerror();else{r.result=structuredClone(values.get(key));r.onsuccess();}});return r;},
     put(value,key){queueMicrotask(()=>{if(control.failWrite)tx.onerror();else{values.set(key,structuredClone(value));tx.oncomplete();}});},
+    delete(key){queueMicrotask(()=>{if(control.failWrite)tx.onerror();else{values.delete(key);tx.oncomplete();}});},
    };}};
    return tx;
   }}};
@@ -35,6 +36,8 @@ function database(){
 const mainDb=database();globalThis.indexedDB=mainDb.api;
 const resizeObservers=[];
 globalThis.ResizeObserver=class{constructor(callback){this.callback=callback;resizeObservers.push(this);}observe(node){this.node=node;}disconnect(){this.disconnected=true;}};
+const {createStudioRecordsServer}=await import('../../support/fixtures/frontend/studio_records_api.mjs');
+const mainRecords=createStudioRecordsServer();
 const store=await import('../../../src/vsc/interfaces/web/static/character-studio-store.js');
 const {createAssetCenter}=await import('../../../src/vsc/interfaces/web/static/asset-center.js');
 const {createCharacterStudio}=await import('../../../src/vsc/interfaces/web/static/character-studio.js');
@@ -45,7 +48,9 @@ const pose=angle=>({id:`p-${angle}`,体系:'全身单人・标准系',姿势编�
 const poseItems=[pose('正面'),pose('侧面')];
 const costume={id:'c-1',source:'shisei',selectedView:'front',服装名称:'宽袖长衫',来源:'Shisei',来源地址:'https://github.com/wquguru/shisei',分类:'中国历代',标签:['长衫','宽袖'],关键词:'wide sleeves robe',缩略图:'thumbs/costumes/shisei/c.webp',原图:'img/costumes/shisei/c.png',views:[{id:'front',label:'正面',缩略图:'thumbs/costumes/shisei/c.webp',原图:'img/costumes/shisei/c.png'},{id:'back',label:'背面',缩略图:'thumbs/costumes/shisei/b.webp',原图:'img/costumes/shisei/b.png'}]};
 const portrait={id:'portrait-1',标题:'短发人像',分区:'正脸参考',发长:'短发',发型名称:'直发',宽:1600,高:2000,缩略图:'thumbs/portrait/1.webp',原图:'img/portrait/1.webp'};
-const ctx={session:()=>({actor:'audit',csrf:'csrf'}),notice:m=>notices.push(m),api:async url=>{
+const ctx={session:()=>({actor:'audit',csrf:'csrf'}),notice:m=>notices.push(m),api:async(url,options={})=>{
+ const handled=await mainRecords.handle(url,options);
+ if(handled!==undefined)return handled;
  if(url.includes('/auth/status'))return {};
  if(url.includes('/poses'))return {items:url.includes('view=single')?poseItems:[{key:'group',name:'自然站立',system:poseItems[0].体系,category:'站姿',items:poseItems}],total:1,next_offset:null,systems:[],categories:[],angles:['正面','侧面']};
  if(url.includes('/costumes'))return {items:[costume],total:1,next_offset:null,tops:[],sources:[],categories:[],tags:[]};
@@ -106,7 +111,7 @@ test('history menus close on a repeated trigger, outside mouse/touch click, Esca
  doc.removeEventListener=(type,fn)=>listeners.get(type)?.delete(fn);
  const dispatch=(type,target,extra={})=>{const e=event({target,...extra});for(const fn of [...(listeners.get(type)||[])])fn(e);return e;};
  try{
-  store.getState().history=[1,2].map(i=>({id:`menu-${i}`,createdAt:i,imageUrl:'data:image/png;base64,AA==',provider:'agy_auth',prompt:'menu fixture'}));
+  mainRecords.setRows([1,2].map(i=>({id:`menu-${i}`,createdAt:i,imageUrl:'data:image/png;base64,AA==',provider:'agy_auth',prompt:'menu fixture'})));
   ({root,center}=await gallery('composite'));
   const menus=root.querySelectorAll('.cs-history-menu'),toolbar=menus[0],summary=toolbar.querySelector('summary'),search=root.querySelector('input');
   const toggle=menu=>menu.querySelector('summary').onclick(event({target:menu.querySelector('summary')}));
@@ -124,54 +129,56 @@ test('history menus close on a repeated trigger, outside mouse/touch click, Esca
   await center.load();await flush();assert.ok([...listeners.values()].every(set=>set.size===1));
   center.suspend();assert.ok([...listeners.values()].every(set=>set.size===0));
  }finally{
-  center?.suspend();root?.remove();doc.addEventListener=add;doc.removeEventListener=remove;
+  mainRecords.setRows([]);center?.suspend();root?.remove();doc.addEventListener=add;doc.removeEventListener=remove;
   Object.assign(store.getState(),saved);store.setPreviewUrl(saved.previewUrl);
  }
 });
 
-test('AI composite library follows portraits and owns existing, live, filtered and recoverable generation history',async()=>{
+test('AI composite library follows portraits and owns API-backed existing, live, filtered and recoverable generation history',async()=>{
  const saved=structuredClone(store.getState()),oldConfirm=globalThis.confirm,oldFetch=globalThis.fetch,originalClick=Element.prototype.click;
  const routes=[],downloads=[];let center,root,studio,studioRoot;
  const old={id:'existing',createdAt:1,imageUrl:'data:image/png;base64,old-result',provider:'codex_auth',prompt:'雨夜人像',recipeSummary:'旧合成记录',snapshot:{recipe:{portrait,extraImages:[]}}};
  Element.prototype.click=function(...args){if(this.tagName==='A'&&this.download){downloads.push(this.href);return;}return originalClick.apply(this,args);};
  try{
-  store.getState().history=[old];
+  mainRecords.setRows([old]);
   ({root,center}=await gallery('composite',{navigate:(...args)=>routes.push(args)}));
+  const persistedOld=mainRecords.rows[0];
   assert.equal(root.querySelector('.center-official-kinds'),null);
   assert.equal(root.querySelector('.cs-history-heading').textContent,'AI角色合成库');
   assert.equal(root.querySelector('.center-official-filter-row').contains(root.querySelector('.cs-history-toolbar')), true);
-  assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,old.imageUrl);
-  assert.equal(store.getState().history[0],old);
-  await click(root,'查看详情');const detail=doc.body.querySelector('.cs-history-detail');assert.ok(detail.textContent.includes(old.recipeSummary));assert.ok(detail.textContent.includes(old.prompt));
+  assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,persistedOld.imageUrl);
+  assert.ok(persistedOld.imageUrl.startsWith('/api/v1/character-studio/media/'));
+  assert.equal(store.getState().history[0].id,old.id);
+  await click(root,'查看详情');const detail=doc.body.querySelector('.cs-history-detail');assert.ok(detail.textContent.includes(old.recipeSummary));assert.ok(detail.textContent.includes(old.prompt));assert.ok(detail.textContent.includes('assets/ai-generate-image/'));
   await click(detail,'复制提示词');assert.equal(copied.at(-1),old.prompt);await click(detail,'×');assert.equal(doc.body.querySelector('.cs-history-detail'),null);assert.equal(doc.activeElement.tagName,'SUMMARY');
   root.querySelector('.cs-history-item').querySelector('img').onerror();assert.match(root.textContent,/图片暂时无法显示/);
   const menu=root.querySelector('.cs-history-menu');menu.open=true;menu.onkeydown(event({key:'Escape'}));assert.equal(menu.open,false);
-  store.getState().hydrated=false;store.getState().generationError='';store.setPreviewUrl(old.imageUrl);await flush();assert.equal(root.querySelectorAll('.cs-history-skeleton').length,2);assert.equal(root.querySelector('.cs-history').getAttribute('aria-busy'),'true');
-  store.getState().generationError='storage unavailable';store.setPreviewUrl(old.imageUrl);await flush();assert.match(root.textContent,/暂时无法读取合成记录/);assert.ok(button(root,'重试读取'));assert.doesNotMatch(root.textContent,/还没有合成记录/);
-  store.getState().hydrated=true;store.getState().generationError='';store.setPreviewUrl(old.imageUrl);await flush();
-  await click(root,'下载图片');assert.equal(downloads.at(-1),old.imageUrl);
+  Object.assign(store.getState(),{historyLoaded:false,historyLoading:true,historyError:''});store.setPreviewUrl(persistedOld.imageUrl);await flush();assert.equal(root.querySelectorAll('.cs-history-skeleton').length,2);assert.equal(root.querySelector('.cs-history').getAttribute('aria-busy'),'true');
+  Object.assign(store.getState(),{historyLoaded:false,historyLoading:false,historyError:'数据库服务离线'});store.setPreviewUrl(persistedOld.imageUrl);await flush();assert.match(root.textContent,/暂时无法读取合成记录/);assert.ok(button(root,'重试读取'));assert.doesNotMatch(root.textContent,/还没有合成记录/);
+  await click(root,'重试读取');await flush();assert.equal(store.getState().historyLoaded,true);
+  await click(root,'下载图片');assert.equal(downloads.at(-1),persistedOld.imageUrl);
   await click(root,'复用提示词');assert.equal(store.getState().customPrompt,old.prompt);assert.deepEqual(routes.at(-1),['character-studio']);
-  const search=root.querySelector('input');search.value='不匹配';search.oninput();assert.equal(root.querySelectorAll('.cs-history-item').length,0);assert.match(root.textContent,/没有找到合成记录/);
-  search.value='CODEX';search.oninput();assert.equal(root.querySelectorAll('.cs-history-item').length,1);
-  search.value='';search.oninput();
+  const search=root.querySelector('input');search.value='不匹配';search.oninput();await new Promise(resolve=>setTimeout(resolve,140));assert.equal(root.querySelectorAll('.cs-history-item').length,0);assert.match(root.textContent,/没有找到合成记录/);
+  search.value='CODEX';search.oninput();await new Promise(resolve=>setTimeout(resolve,140));assert.equal(root.querySelectorAll('.cs-history-item').length,1);
+  search.value='';search.oninput();await flush();
   store.getState().recipe={portrait:{...portrait,source:'upload',原图:'data:image/png;base64,AA=='},costume:null,pose:null,extraImages:[]};
   globalThis.fetch=async()=>({ok:true,json:async()=>({image_url:'data:image/png;base64,bmV3',model:'synthetic'})});
   await store.startGeneration();await flush();
-  const added=store.getState().history[0];assert.notEqual(added.id,old.id);assert.equal(mainDb.values.get('pose_atlas_history_v3')[0].id,added.id);
+  const added=store.getState().history[0];assert.notEqual(added.id,old.id);assert.equal(mainRecords.rows[0].id,added.id);
   assert.equal(root.querySelectorAll('.cs-history-item').length,2);assert.equal(root.querySelector('.cs-history-item').querySelector('img').src,added.imageUrl);
-  globalThis.confirm=()=>true;mainDb.control.failWrite=true;await click(root.querySelector('.cs-history-item'),'删除记录');assert.equal(root.querySelectorAll('.cs-history-item').length,2);assert.match(notices.at(-1),/删除失败/);
-  mainDb.control.failWrite=false;await click(root.querySelector('.cs-history-item'),'删除记录');assert.equal(root.querySelectorAll('.cs-history-item').length,1);assert.equal(mainDb.values.get('pose_atlas_history_v3')[0].id,old.id);
+  globalThis.confirm=()=>true;mainRecords.control.failDelete=true;await click(root.querySelector('.cs-history-item'),'删除记录');assert.equal(root.querySelectorAll('.cs-history-item').length,2);assert.match(notices.at(-1),/删除记录失败/);
+  mainRecords.control.failDelete=false;await click(root.querySelector('.cs-history-item'),'删除记录');assert.equal(root.querySelectorAll('.cs-history-item').length,1);assert.equal(mainRecords.rows[0].id,old.id);
   globalThis.confirm=()=>false;await click(root,'清空全部记录');assert.equal(store.getState().history.length,1);
   studioRoot=doc.createElement('main');doc.body.append(studioRoot);studio=createCharacterStudio(studioRoot,{...ctx,navigate:(...args)=>routes.push(args)});await studio.load();await flush();
   assert.equal(studioRoot.querySelector('.cs-history'),null);
   await click(studioRoot,'AI角色合成库 (1)');assert.deepEqual(routes.at(-1),['asset-center',{tab:'official',kind:'composite'}]);
-  globalThis.confirm=()=>true;await click(root,'清空全部记录');assert.equal(mainDb.values.get('pose_atlas_history_v3').length,0);assert.match(root.textContent,/还没有合成记录/);assert.equal(button(root,'清空全部记录').disabled,true);
-  center.suspend();store.getState().history=[added];store.setPreviewUrl(added.imageUrl);await flush();assert.match(root.textContent,/还没有合成记录/);
+  globalThis.confirm=()=>true;await click(root,'清空全部记录');assert.equal(mainRecords.rows.length,0);assert.match(root.textContent,/还没有合成记录/);assert.equal(button(root,'清空全部记录').disabled,true);
+  center.suspend();mainRecords.setRows([added]);store.setPreviewUrl(added.imageUrl);await flush();assert.match(root.textContent,/还没有合成记录/);
   center.suspend();await center.load();await flush();assert.equal(root.querySelectorAll('.cs-history-item').length,1);
   assert.equal(button(root,'人像颜值库'),undefined);
   assert.equal(button(root,'服装穿搭库'),undefined);
  }finally{
-  mainDb.control.failWrite=false;center?.suspend();root?.remove();studio?.suspend();studioRoot?.remove();Object.assign(store.getState(),saved);
+  mainRecords.control.failDelete=false;mainRecords.setRows([]);center?.suspend();root?.remove();studio?.suspend();studioRoot?.remove();Object.assign(store.getState(),saved);
   globalThis.fetch=oldFetch;Element.prototype.click=originalClick;if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
  }
 });
@@ -187,7 +194,7 @@ test('browser-only composite records are not offered as server catalog assets in
 });
 
 async function comparison(result){
- store.getState().history=[result];
+ mainRecords.setRows([result]);
  const {root,center}=await gallery('composite');
  const compare=button(root,'对比参考'),trigger=compare.parentElement.parentElement.querySelector('summary');trigger.focus();await compare.onclick();
  return {root,studio:center,trigger,dialog:doc.body.querySelector('.cs-compare')};
@@ -235,61 +242,76 @@ test('comparison synchronizes wheel, keyboard, drag, pinch, slider and resize at
  for(const observer of resizeObservers.filter(o=>!o.disconnected)){observer.node._box={left:0,top:0,width:2000,height:100};observer.callback();}
  assert.ok(imgs.every(i=>i.style.transform.startsWith('translate(0%, 0%)')));
  dialog.close();assert.equal(doc.activeElement,trigger);assert.ok(resizeObservers.every(o=>o.disconnected));
- studio.suspend();root.remove();
+ studio.suspend();root.remove();mainRecords.setRows([]);
 });
 
 test('comparison preserves a result without a snapshot and reports individual image load failures',async()=>{
  let ui=await comparison({...history,id:'old',snapshot:undefined});
  assert.ok(ui.dialog.textContent.includes('仍可查看生成结果'));assert.equal(ui.dialog.querySelectorAll('img').length,1);
  const img=ui.dialog.querySelector('img');img.onerror();assert.ok(img.hidden);assert.ok(ui.dialog.textContent.includes('加载失败'));
- ui.dialog.close();ui.studio.suspend();ui.root.remove();
+ ui.dialog.close();ui.studio.suspend();ui.root.remove();mainRecords.setRows([]);
 });
 
 let sequence=0;
-async function isolatedStore(db){
+async function isolatedStore(db,recordsServer=createStudioRecordsServer()){
  globalThis.indexedDB=db.api;
  const s=await import(`../../../src/vsc/interfaces/web/static/character-studio-store.js?parity=${++sequence}`),notes=[];
- s.configureStudio({notice:m=>notes.push(m)});await flush();return {s,notes};
+ s.configureStudio({api:(u,o)=>recordsServer.handle(u,o),notice:m=>notes.push(m),csrf:()=>'csrf'});
+ await flush();
+ await s.fetchHistoryPage();
+ return {s,notes,recordsServer};
 }
 const image='data:image/png;base64,AA==';
-test('reloading starts with an empty result while keeping native and legacy history available',async()=>{
+test('reloading starts with an empty result while loading database history and draining legacy browser history into PostgreSQL API',async()=>{
  const key='pose_atlas_history_v3',entry={id:'retained-history',createdAt:1,imageUrl:image,prompt:'Retained prompt'};
  const db=database();db.values.set(key,[entry]);
- const native=await isolatedStore(db);assert.equal(native.s.getState().previewUrl,'');assert.deepEqual(native.s.getState().history,[entry]);
+ const native=await isolatedStore(db);
+ assert.equal(native.s.getState().previewUrl,'');
+ assert.equal(native.s.getState().history.length,1);
+ assert.equal(native.s.getState().history[0].id,'retained-history');
+ assert.ok(native.s.getState().history[0].imageUrl.startsWith('/api/v1/character-studio/media/'));
+ assert.equal(db.values.has(key),false,'legacy IndexedDB history drained and cleaned up');
  const previous=local.get(key);local.set(key,JSON.stringify([entry]));
  try{
-  const legacy=await isolatedStore(database());assert.equal(legacy.s.getState().previewUrl,'');assert.deepEqual(legacy.s.getState().history,[entry]);
+  const legacy=await isolatedStore(database());
+  assert.equal(legacy.s.getState().previewUrl,'');
+  assert.equal(legacy.s.getState().history[0].id,'retained-history');
+  assert.equal(local.has(key),false,'legacy localStorage history drained and cleaned up');
   legacy.s.setPreviewUrl(image);await flush();assert.equal(legacy.s.getState().previewUrl,image);
-  assert.deepEqual(legacy.s.getState().history,[entry]);
+  assert.equal(legacy.s.getState().history[0].id,'retained-history');
  }finally{if(previous===undefined)local.delete(key);else local.set(key,previous);}
 });
-test('history commits before success, restores on reload, and keeps old history on failed save/delete/clear',async()=>{
- const db=database(),{s,notes}=await isolatedStore(db);let requests=0;
+test('history commits to database API before success, restores on reload, and keeps old history on failed save/delete/clear',async()=>{
+ const db=database(),recordsServer=createStudioRecordsServer(),{s,notes}=await isolatedStore(db,recordsServer);let requests=0;
  s.setSlot('portrait',{...portrait,source:'upload',原图:image,缩略图:image});await flush();
  globalThis.fetch=async()=>{requests++;return {ok:true,json:async()=>({image_url:image,model:'synthetic'})};};
- await s.startGeneration();assert.equal(requests,1);assert.equal(db.values.get('pose_atlas_history_v3').length,1);assert.equal(notes.at(-1),'角色图已完成并保存');
- const reloaded=await isolatedStore(db);assert.equal(reloaded.s.getState().history.length,1);assert.equal(reloaded.s.getState().previewUrl,'');
- db.control.failWrite=true;await s.startGeneration();
- assert.equal(s.getState().history.length,1);assert.equal(db.values.get('pose_atlas_history_v3').length,1);
- assert.equal(s.getState().previewUrl,image);assert.match(notes.at(-1),/生成记录保存失败/);assert.equal(requests,2);
- await s.removeHistoryItem(s.getState().history[0].id);assert.match(notes.at(-1),/删除失败/);assert.equal(s.getState().history.length,1);
+ await s.startGeneration();assert.equal(requests,1);assert.equal(recordsServer.rows.length,1);assert.equal(notes.at(-1),'角色图已生成并存入数据库');
+ const reloaded=await isolatedStore(database(),recordsServer);assert.equal(reloaded.s.getState().history.length,1);assert.equal(reloaded.s.getState().previewUrl,'');
+ recordsServer.control.failWrite=true;await s.startGeneration();
+ assert.equal(s.getState().history.length,1);assert.equal(recordsServer.rows.length,1);
+ assert.equal(s.getState().previewUrl,image);assert.match(notes.at(-1),/生成记录写入数据库失败/);assert.equal(requests,2);
+ await s.removeHistoryItem(s.getState().history[0].id);assert.match(notes.at(-1),/删除记录失败/);assert.equal(s.getState().history.length,1);
  await s.clearHistory();assert.match(notes.at(-1),/清空记录失败/);assert.equal(s.getState().history.length,1);
- db.control.failWrite=false;await s.clearHistory();assert.equal(db.values.get('pose_atlas_history_v3').length,0);
+ recordsServer.control.failWrite=false;await s.clearHistory();assert.equal(recordsServer.rows.length,0);
 });
 
-test('unreadable storage blocks generation and media transfer failures never report saved output',async()=>{
+test('unhydrated state blocks generation while IndexedDB failure degrades gracefully and media transfer failures never report saved output',async()=>{
  for(const failure of ['failOpen','failRead']){
-  const db=database();db.control[failure]=true;const {s,notes}=await isolatedStore(db);let requests=0;
-  globalThis.fetch=async()=>{requests++;throw new Error('must not submit');};
-  assert.equal(s.getState().hydrated,false);await s.startGeneration();assert.equal(requests,0);assert.match(notes.at(-1),/无法读取浏览器存储/);
+  const db=database();db.control[failure]=true;const {s}=await isolatedStore(db);
+  assert.equal(s.getState().hydrated,true,'IndexedDB recipe read failure does not break PostgreSQL-backed studio');
  }
- const db=database(),{s,notes}=await isolatedStore(db);
+ const db=database(),{s,notes,recordsServer}=await isolatedStore(db);
+ s.getState().hydrated=false;
+ let blockedRequests=0;
+ globalThis.fetch=async()=>{blockedRequests++;throw new Error('must not submit');};
+ await s.startGeneration();assert.equal(blockedRequests,0);assert.match(notes.at(-1),/正在初始化合成台/);
+ s.getState().hydrated=true;
  s.setSlot('portrait',{...portrait,source:'upload',原图:image,缩略图:image});await flush();
  globalThis.fetch=async url=>{
   if(url==='/api/v1/character-studio/generate')return {ok:true,json:async()=>({image_url:'https://imgen.x.ai/temp.png',model:'synthetic'})};
   throw new Error('image download offline');
  };
- await s.startGeneration();assert.equal(s.getState().history.length,0);assert.match(notes.at(-1),/图片转存失败/);
+ await s.startGeneration();assert.equal(recordsServer.rows.length,0);assert.equal(s.getState().history.length,0);assert.match(notes.at(-1),/图片转存失败/);
  assert.equal(s.getState().previewUrl,'https://imgen.x.ai/temp.png');
 });
 
@@ -340,68 +362,77 @@ test('reference sheet preview opens separately and never replaces or downloads a
 });
 
 
-test('saving a new character keeps older library entries beyond the former 30-record cutoff',async()=>{
- const db=database(),older=Array.from({length:30},(_,i)=>({id:`old-${i}`,createdAt:i,imageUrl:image,prompt:'旧提示词',recipeSummary:'已保存角色'}));
- db.values.set('pose_atlas_history_v3',older);
- const {s}=await isolatedStore(db);
+test('saving a new character keeps older library entries beyond the former 30-record cutoff and paginates via API',async()=>{
+ const older=Array.from({length:30},(_,i)=>({id:`old-${i}`,createdAt:i,imageUrl:image,prompt:'旧提示词',recipeSummary:'已保存角色'}));
+ const recordsServer=createStudioRecordsServer(older);
+ const {s}=await isolatedStore(database(),recordsServer);
  s.setSlot('portrait',{...portrait,source:'upload',原图:image,缩略图:image});await flush();
  globalThis.fetch=async()=>({ok:true,json:async()=>({image_url:image,model:'synthetic'})});
- await s.startGeneration();assert.equal(s.getState().history.length,31);assert.ok(s.getState().history.some(h=>h.id==='old-0'));
- assert.equal((await isolatedStore(db)).s.getState().history.length,31);
+ await s.startGeneration();await flush();
+ assert.equal(recordsServer.rows.length,31);
+ assert.equal(s.getState().historyOverallTotal,31);
+ const secondPage=await s.fetchHistoryPage({offset:20,limit:20});
+ assert.equal(secondPage.items.length,11);
+ assert.ok(secondPage.items.some(h=>h.id==='old-0'));
+ assert.equal((await isolatedStore(database(),recordsServer)).s.getState().historyOverallTotal,31);
 });
 
 const entryId='10000000-0000-4000-8000-000000000001',versionId='20000000-0000-4000-8000-000000000001';
 const publicationRecord=(id='managed-result')=>({id,createdAt:1700000000000,imageUrl:'data:image/webp;base64,QUJD',provider:'codex_auth',model:'frozen-model',prompt:'frozen prompt',recipeSummary:'原始角色',snapshot:{recipe:{portrait:{id:'original-reference',标题:'原人像',source:'upload',原图:'data:image/png;base64,reference'}},settings:{stylePreset:'realistic',apiKey:'must-not-publish'},models:{gpt:{model:'frozen-model',apiKey:'also-secret'}}}});
 async function publicationHarness(options={}){
- const db=database(),record=publicationRecord(options.id);db.values.set('pose_atlas_history_v3',[record]);
- const {s,notes}=await isolatedStore(db),calls=[];let actor='publisher',failure=options.failure||'',allowed=options.allowed!==false;
+ const db=database(),record=publicationRecord(options.id),recordsServer=createStudioRecordsServer([record]);
+ const {s,notes}=await isolatedStore(db,recordsServer),calls=[];let actor='publisher',failure=options.failure||'',allowed=options.allowed!==false;
  const control={set actor(v){actor=v;},set failure(v){failure=v;},set allowed(v){allowed=v;},hold:null};
  const api=async(path,opts={})=>{
+  assert.equal(opts.headers?.['X-CSRF-Token'],'publication-csrf');
+  const handled=await recordsServer.handle(path,opts);
+  if(handled!==undefined)return handled;
   const body=opts.body instanceof Blob?opts.body:opts.body?JSON.parse(opts.body):null;
   calls.push({path,opts,body});
-  assert.equal(opts.headers?.['X-CSRF-Token'],'publication-csrf');
   if(path.endsWith('/capabilities')){if(failure==='capability')throw new Error('权限服务离线');return {can_publish:allowed};}
   if(control.hold&&path===control.hold.path)await control.hold.promise;
   if(path.endsWith('/uploads')){if(failure==='upload')throw new Error('上传离线');return {staged_upload:'controlled-upload'};}
   if(path.endsWith('/import')){if(failure==='import')throw new Error('共享库响应丢失');return {entry_id:entryId,version_id:versionId};}
-  if(path.endsWith('/publish')){if(failure==='publish')throw new Error('官方发布响应丢失');if(options.failReceiptWrite)db.control.failWrite=true;return {id:'official-receipt',entry_id:entryId,library_version_id:versionId};}
+  if(path.endsWith('/publish')){if(failure==='publish')throw new Error('官方发布响应丢失');if(options.failReceiptWrite)recordsServer.control.failPublicationWrite=true;return {id:'official-receipt',entry_id:entryId,library_version_id:versionId};}
   throw new Error('Unexpected '+path);
  };
  s.configureStudio({api,session:()=>({actor,csrf:'publication-csrf'}),csrf:()=> 'publication-csrf'});
- s.getState().currentResult=s.getState().history[0];s.getState().previewUrl=record.imageUrl;
- return {db,s,notes,calls,control,record:s.getState().currentResult,api};
+ s.getState().currentResult=s.getState().history[0];s.getState().previewUrl=s.getState().history[0].imageUrl;
+ return {db,recordsServer,mediaFetch:recordsServer.createFetch(nativeFetch),s,notes,calls,control,record:s.getState().currentResult,api};
 }
 const publish=h=>h.s.publishCurrentResult(h.record.id,{title:'确认的人设',allowWorkspaceReuse:true,actor:'publisher'});
 
-test('generation keeps an independent result ID and original snapshot even when writing its local history fails',async()=>{
- const db=database(),{s}=await isolatedStore(db),previousFetch=globalThis.fetch;
+test('generation keeps an independent result ID and original snapshot even when writing its database record fails',async()=>{
+ const db=database(),{s,recordsServer}=await isolatedStore(db),previousFetch=globalThis.fetch;
  s.setSlot('portrait',{...portrait,source:'upload',原图:image,缩略图:image});await flush();
  let release;const pending=new Promise(resolve=>release=resolve);
  globalThis.fetch=async()=>{await pending;return {ok:true,json:async()=>({image_url:image,model:'original-model',provider:'codex_auth'})};};
  const generation=s.startGeneration('original-prompt');await flush();
- s.clearRecipe();s.setCustomPrompt('new draft prompt');db.control.failWrite=true;release();await generation;
+ s.clearRecipe();s.setCustomPrompt('new draft prompt');recordsServer.control.failWrite=true;release();await generation;
  const result=s.getState().currentResult;
  assert.ok(result.id);assert.equal(result.imageUrl,image);assert.equal(result.prompt,'original-prompt');assert.equal(result.model,'original-model');assert.equal(result.snapshot.recipe.portrait.id,portrait.id);
- assert.equal(s.getState().history.length,0);assert.match(s.getState().generationError,/生成记录保存失败/);
- db.control.failWrite=false;assert.equal(await s.deleteCurrentResult(result.id),true);assert.equal(s.getState().currentResult,null);assert.equal(s.getState().previewUrl,'');
+ assert.equal(s.getState().history.length,0);assert.match(s.getState().generationError,/生成记录写入数据库失败/);
+ recordsServer.control.failWrite=false;assert.equal(await s.deleteCurrentResult(result.id),true);assert.equal(s.getState().currentResult,null);assert.equal(s.getState().previewUrl,'');
  globalThis.fetch=previousFetch;
 });
 
 test('deletion uses the result ID, preserves a different generation with the same bytes, and keeps failed deletes intact',async()=>{
- const h=await publicationHarness();const other={...h.record,id:'same-image-other-generation'};
- h.s.getState().history.push(other);h.db.values.set('pose_atlas_history_v3',structuredClone(h.s.getState().history));
- h.db.control.failWrite=true;
+ const h=await publicationHarness();
+ await h.recordsServer.handle('/api/v1/character-studio/records',{method:'POST',body:JSON.stringify({...publicationRecord('same-image-other-generation'),createdAt:1699999999000})});
+ await h.s.fetchHistoryPage();
+ const other=h.s.getState().history.find(x=>x.id==='same-image-other-generation');
+ h.recordsServer.control.failDelete=true;
  assert.equal(await h.s.deleteCurrentResult(h.record.id),false);assert.equal(h.s.getState().currentResult.id,h.record.id);assert.equal(h.s.getState().history.length,2);
  assert.match(h.s.getState().resultError,/删除失败/);
- h.db.control.failWrite=false;
- assert.equal(await h.s.deleteCurrentResult(h.record.id),true);assert.equal(h.s.getState().currentResult,null);assert.deepEqual(h.s.getState().history.map(x=>x.id),[other.id]);
+ h.recordsServer.control.failDelete=false;
+ assert.equal(await h.s.deleteCurrentResult(h.record.id),true);await flush();assert.equal(h.s.getState().currentResult,null);assert.deepEqual(h.s.getState().history.map(x=>x.id),[other.id]);
  // A late delete of an older ID must not clear a replacement result.
  h.s.getState().currentResult=other;h.s.getState().previewUrl=other.imageUrl;
  const pending=h.s.removeHistoryItem(other.id),newer={...other,id:'newer-result'};h.s.getState().currentResult=newer;h.s.getState().previewUrl=newer.imageUrl;
  await pending;assert.equal(h.s.getState().currentResult.id,newer.id);assert.equal(h.s.getState().previewUrl,newer.imageUrl);
 });
 
-test('clear local history clears only its linked current result and keeps a newer late result',async()=>{
+test('clear history clears only its linked current result and keeps a newer late result',async()=>{
  const h=await publicationHarness();await h.s.clearHistory();assert.equal(h.s.getState().currentResult,null);assert.equal(h.s.getState().previewUrl,'');
  const other=publicationRecord('old');h.s.getState().history=[other];h.s.getState().currentResult=other;
  const pending=h.s.clearHistory(),newer=publicationRecord('new');h.s.getState().currentResult=newer;h.s.getState().previewUrl=newer.imageUrl;
@@ -417,7 +448,7 @@ test('official publication checks permission before writes and distinguishes den
 });
 
 test('official publication uploads generated bytes and a frozen nonsecret specification before publishing the fixed character version',async()=>{
- const h=await publicationHarness(),previousFetch=globalThis.fetch;globalThis.fetch=nativeFetch;
+ const h=await publicationHarness(),previousFetch=globalThis.fetch;globalThis.fetch=h.mediaFetch;
  try{
   h.s.setCustomPrompt('later draft');h.s.updateApiConfig({stylePreset:'anime'});
   const receipt=await publish(h);assert.equal(receipt.entry_id,entryId);
@@ -427,15 +458,15 @@ test('official publication uploads generated bytes and a frozen nonsecret specif
   assert.equal(imported.payload.license.outcome,'licensed');assert.equal(imported.payload.license.allow_workspace_reuse,true);assert.match(imported.payload.license.evidence,/用户明确确认/);
   assert.equal(imported.payload.members[0].staged_upload,'controlled-upload');assert.equal(JSON.stringify(imported).includes('must-not-publish'),false);assert.equal(JSON.stringify(imported).includes('also-secret'),false);assert.equal(JSON.stringify(imported).includes('data:image'),false);
   const published=h.calls[3].body.payload;assert.equal(published.library_version_id,versionId);assert.equal(published.asset_kind,'character');assert.equal(published.gender,'unspecified');assert.equal(published.role_level,'unspecified');
-  const saved=h.db.values.get('pose_atlas_history_v3')[0];assert.equal(saved.publication.officialReceipt.id,'official-receipt');assert.equal(h.s.getState().currentResult.publication.officialReceipt.id,'official-receipt');
+  const saved=h.recordsServer.rows[0];assert.equal(saved.publication.officialReceipt.id,'official-receipt');assert.equal(h.s.getState().currentResult.publication.officialReceipt.id,'official-receipt');
   assert.equal((await publish(h)).id,'official-receipt');assert.equal(h.calls.length,4);
  }finally{globalThis.fetch=previousFetch;}
 });
 
 test('phase failures resume the original request without uploading or importing completed phases again',async()=>{
- const previousFetch=globalThis.fetch;globalThis.fetch=nativeFetch;
+ const previousFetch=globalThis.fetch;
  try{for(const phase of ['upload','import','publish']){
-  const h=await publicationHarness({failure:phase});assert.equal(await publish(h),false);
+  const h=await publicationHarness({failure:phase});globalThis.fetch=h.mediaFetch;assert.equal(await publish(h),false);
   const first=h.calls.filter(c=>c.path.endsWith('/'+phase)).at(-1),savedTitle=h.s.getState().currentResult.publication.title;
   h.control.failure='';const receipt=await h.s.publishCurrentResult(h.record.id,{title:'later changed title',allowWorkspaceReuse:true,actor:'publisher'});assert.equal(receipt.id,'official-receipt');
   assert.equal(h.s.getState().currentResult.publication.title,savedTitle);
@@ -447,7 +478,7 @@ test('phase failures resume the original request without uploading or importing 
 });
 
 test('pending publication blocks generation, deletion and duplicate submit while preserving its original receipt across replacement',async()=>{
- const h=await publicationHarness(),previousFetch=globalThis.fetch;globalThis.fetch=nativeFetch;
+ const h=await publicationHarness(),previousFetch=globalThis.fetch;globalThis.fetch=h.mediaFetch;
  let release;h.control.hold={path:'/api/v1/asset-center/official/publish',promise:new Promise(resolve=>release=resolve)};
  try{
   const pending=publish(h);while(!h.calls.some(x=>x.path.endsWith('/publish')))await flush();
@@ -459,7 +490,7 @@ test('pending publication blocks generation, deletion and duplicate submit while
 });
 
 test('identity changes stop remaining publication steps and never replay another actors receipt',async()=>{
- const h=await publicationHarness(),previousFetch=globalThis.fetch;globalThis.fetch=nativeFetch;
+ const h=await publicationHarness(),previousFetch=globalThis.fetch;globalThis.fetch=h.mediaFetch;
  let release;h.control.hold={path:'/api/v1/library/uploads',promise:new Promise(resolve=>release=resolve)};
  try{
   const pending=publish(h);while(!h.calls.some(x=>x.path.endsWith('/uploads')))await flush();
@@ -471,13 +502,15 @@ test('identity changes stop remaining publication steps and never replay another
  }finally{globalThis.fetch=previousFetch;}
 });
 
-test('official success survives local receipt-write failure and a reload resumes a previously saved publication intent',async()=>{
- const previousFetch=globalThis.fetch;globalThis.fetch=nativeFetch;
+test('official success survives database receipt-write failure and a reload resumes a previously saved publication intent',async()=>{
+ const previousFetch=globalThis.fetch;
  try{
-  const failedSave=await publicationHarness({failReceiptWrite:true});assert.equal((await publish(failedSave)).id,'official-receipt');
+  const failedSave=await publicationHarness({failReceiptWrite:true});globalThis.fetch=failedSave.mediaFetch;
+  assert.equal((await publish(failedSave)).id,'official-receipt');
   assert.equal(failedSave.s.getState().currentResult.publication.officialReceipt.id,'official-receipt');assert.match(failedSave.s.getState().currentResult.publication.recoveryError,/已成功入库/);assert.equal(failedSave.s.getState().resultError,'');
-  const h=await publicationHarness({failure:'publish'});assert.equal(await publish(h),false);
-  const {s}=await isolatedStore(h.db);assert.equal(s.getState().currentResult,null);assert.equal(s.getState().previewUrl,'');
+  const h=await publicationHarness({failure:'publish'});globalThis.fetch=h.mediaFetch;
+  assert.equal(await publish(h),false);
+  const {s}=await isolatedStore(h.db,h.recordsServer);assert.equal(s.getState().currentResult,null);assert.equal(s.getState().previewUrl,'');
   h.control.failure='';s.configureStudio({api:h.api,session:()=>({actor:'publisher'}),csrf:()=> 'publication-csrf'});
   assert.equal((await s.publishCurrentResult(h.record.id,{title:'ignored replacement',allowWorkspaceReuse:true,actor:'publisher'})).id,'official-receipt');
   assert.equal(h.calls.filter(c=>c.path.endsWith('/uploads')).length,1);assert.equal(h.calls.filter(c=>c.path.endsWith('/import')).length,1);assert.equal(h.calls.filter(c=>c.path.endsWith('/publish')).length,2);
@@ -487,10 +520,13 @@ test('official success survives local receipt-write failure and a reload resumes
 test('result actions keep the requested order, require explicit sharing, allow download while publishing and link the actual receipt',async()=>{
  const saved=structuredClone(store.getState()),previousFetch=globalThis.fetch,downloads=[],navigations=[];
  const clickOriginal=Element.prototype.click;Element.prototype.click=function(...args){if(this.tagName==='A'&&this.download){downloads.push({url:this.href,name:this.download});return;}return clickOriginal.apply(this,args);};
- globalThis.fetch=nativeFetch;const record=publicationRecord('ui-managed');
+ const rawRecord=publicationRecord('ui-managed'),recordsServer=createStudioRecordsServer([rawRecord]),record=recordsServer.rows[0];
+ globalThis.fetch=recordsServer.createFetch(nativeFetch);
  const root=doc.createElement('main');doc.body.append(root);let writes=0,release;
  const pending=new Promise(resolve=>release=resolve);
  const uiCtx={...ctx,navigate:(...args)=>navigations.push(args),session:()=>({actor:'publisher',csrf:'csrf'}),api:async(path,opts={})=>{
+  const handled=await recordsServer.handle(path,opts);
+  if(handled!==undefined)return handled;
   if(path.endsWith('/auth/status'))return {};
   if(path.endsWith('/capabilities'))return {can_publish:true};
   writes++;if(path.endsWith('/uploads')){await pending;return {staged_upload:'ui-upload'};}
@@ -500,7 +536,7 @@ test('result actions keep the requested order, require explicit sharing, allow d
  }};
  const studio=createCharacterStudio(root,uiCtx);
  try{
-  Object.assign(store.getState(),{currentResult:record,previewUrl:record.imageUrl,history:[record],resultError:'',isGenerating:false,publicationTask:null,hydrated:true});
+  Object.assign(store.getState(),{currentResult:record,previewUrl:record.imageUrl,history:[record],historyLoaded:true,historyTotal:1,historyOverallTotal:1,resultError:'',isGenerating:false,publicationTask:null,hydrated:true});
   await studio.load();await flush();
   assert.deepEqual(root.querySelector('.cs-result-actions').querySelectorAll('button').map(n=>n.textContent),['删除','放入官方资产库','下载']);
   await click(root,'放入官方资产库');const dialog=doc.body.querySelector('.cs-publication');assert.ok(dialog.open);assert.equal(writes,0);
@@ -517,11 +553,11 @@ test('result actions keep the requested order, require explicit sharing, allow d
 test('result delete cancellation and publication cancellation preserve bytes, while empty and generating states expose no usable actions',async()=>{
  const saved=structuredClone(store.getState()),previousConfirm=globalThis.confirm,record=publicationRecord('cancel-result'),requests=[];
  const root=doc.createElement('main');doc.body.append(root);
- const studio=createCharacterStudio(root,{...ctx,session:()=>({actor:'publisher',csrf:'csrf'}),api:async path=>{requests.push(path);return path.endsWith('/capabilities')?{can_publish:true}:{};}});
+ const studio=createCharacterStudio(root,{...ctx,session:()=>({actor:'publisher',csrf:'csrf'}),api:async path=>{requests.push(path);return path.endsWith('/capabilities')?{can_publish:true}:{items:[],total:0,overall_total:0,facets:[]};}});
  try{
-  Object.assign(store.getState(),{currentResult:record,previewUrl:record.imageUrl,history:[record],resultError:'',isGenerating:false,publicationTask:null,hydrated:true});
+  Object.assign(store.getState(),{currentResult:record,previewUrl:record.imageUrl,history:[record],historyLoaded:true,historyTotal:1,historyOverallTotal:1,resultError:'',isGenerating:false,publicationTask:null,hydrated:true});
   await studio.load();await flush();let confirmText='';globalThis.confirm=text=>{confirmText=text;return false;};
-  await click(root,'删除');assert.match(confirmText,/本地合成记录/);assert.match(confirmText,/不影响已发布的官方资产和项目引用/);assert.equal(store.getState().currentResult.id,record.id);
+  await click(root,'删除');assert.match(confirmText,/从数据库删除本次生成结果/);assert.match(confirmText,/不影响已发布的官方资产和项目引用/);assert.equal(store.getState().currentResult.id,record.id);
   button(root,'放入官方资产库').focus();await click(root,'放入官方资产库');const dialog=doc.body.querySelector('.cs-publication');assert.ok(dialog);await click(dialog,'取消');assert.equal(doc.body.querySelector('.cs-publication'),null);assert.equal(doc.activeElement,button(root,'放入官方资产库'));assert.equal(requests.some(path=>path.includes('/uploads')||path.includes('/import')||path.includes('/publish')),false);
   await click(root,'放入官方资产库');const escapeDialog=doc.body.querySelector('.cs-publication');let prevented=false;await escapeDialog.dispatch('cancel',{preventDefault(){prevented=true;}});assert.equal(prevented,false);escapeDialog.close();assert.equal(doc.activeElement,button(root,'放入官方资产库'));
   store.getState().isGenerating=true;store.setCustomPrompt('trigger render');await flush();assert.match(root.textContent,/上次生成结果/);assert.ok(root.querySelector('.cs-result-actions').querySelectorAll('button').every(n=>n.disabled));
@@ -530,7 +566,7 @@ test('result delete cancellation and publication cancellation preserve bytes, wh
 });
 
 test('late publication errors stay with their original result and never replace a newer result feedback',async()=>{
- const h=await publicationHarness({failure:'publish'}),previousFetch=globalThis.fetch;globalThis.fetch=nativeFetch;let release;
+ const h=await publicationHarness({failure:'publish'}),previousFetch=globalThis.fetch;globalThis.fetch=h.mediaFetch;let release;
  h.control.hold={path:'/api/v1/asset-center/official/publish',promise:new Promise(resolve=>release=resolve)};
  try{
   const pending=publish(h);while(!h.calls.some(c=>c.path.endsWith('/publish')))await flush();
@@ -544,11 +580,12 @@ test('a late permission response cannot open an entry dialog after the studio is
  doc.body.append(root);let release;
  const studio=createCharacterStudio(root,{...ctx,session:()=>({actor:'publisher',csrf:'csrf'}),api:async path=>{
   if(path.endsWith('/auth/status'))return {};
+  if(path.startsWith('/api/v1/character-studio/records'))return {items:[],total:0,overall_total:0,facets:[]};
   if(path.endsWith('/capabilities'))return new Promise(resolve=>{release=()=>resolve({can_publish:true});});
   throw Error('must not write '+path);
  }});
  try{
-  Object.assign(store.getState(),{currentResult:record,previewUrl:record.imageUrl,history:[record],isGenerating:false,publicationTask:null,hydrated:true});
+  Object.assign(store.getState(),{currentResult:record,previewUrl:record.imageUrl,history:[record],historyLoaded:true,historyTotal:1,historyOverallTotal:1,isGenerating:false,publicationTask:null,hydrated:true});
   await studio.load();await flush();
   const opening=button(root,'放入官方资产库').onclick();await flush();
   studio.suspend();await studio.load();

@@ -342,11 +342,38 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     self.assertEqual(refresh_mock.call_count, 1)
                     self.assertEqual(refresh_mock.call_args.args[0], ["/opt/homebrew/bin/grok", "models"])
                     self.assertTrue(gen_grok.json()["image_url"].startswith("data:image/png;base64,"))
+                    self.assertEqual(gen_grok.json()["model"], "grok-imagine-image-2.0")
+                    self.assertEqual(gen_grok.json()["method"], "grok_sub_images_edits")
+                    self.assertEqual(gen_grok.json()["method_label"], "Grok 订阅直连 · /v1/images/edits（单图编辑）")
+                    self.assertEqual(gen_grok.json()["endpoint"], "/v1/images/edits")
                     self.assertNotIn("secret-sub-token-999", gen_grok.text)
                     post_call = fake_client.post.call_args
                     self.assertEqual(post_call.args[0], "https://api.x.ai/v1/images/edits")
                     self.assertEqual(post_call.kwargs["headers"]["Authorization"], "Bearer secret-sub-token-999")
                     self.assertEqual(post_call.kwargs["headers"]["User-Agent"], grok_credentials.USER_AGENT)
+
+                    with patch("vsc.adapters.providers.xai_grok.credentials.read_key", return_value="secret-sub-token-999"), \
+                         patch("httpx.Client", return_value=fake_client):
+                        gen_grok_classic = client.post(
+                            "/api/v1/character-studio/generate",
+                            json={
+                                "provider": "grok_auth",
+                                "model": "grok-imagine-image",
+                                "prompt": "多参考合成",
+                                "references": [
+                                    "/api/v1/asset-center/pose-gallery/media/img/portrait/p0.png",
+                                    "/api/v1/asset-center/pose-gallery/media/img/portrait/p0.png",
+                                ],
+                                "aspect_ratio": "3:4",
+                                "resolution": "2k",
+                            },
+                            headers=headers,
+                        )
+                    self.assertEqual(gen_grok_classic.status_code, 200, gen_grok_classic.text)
+                    self.assertEqual(gen_grok_classic.json()["model"], "grok-imagine-image")
+                    self.assertEqual(gen_grok_classic.json()["method"], "grok_sub_images_edits")
+                    self.assertEqual(gen_grok_classic.json()["method_label"], "Grok 订阅直连 · /v1/images/edits（多图编辑）")
+                    self.assertEqual(gen_grok_classic.json()["endpoint"], "/v1/images/edits")
 
                     # Backend Grok CLI generation (`grok_auth` with `image_edit` / custom coordinator model) invokes terminal `grok` CLI,
                     # strips `XAI_API_KEY`, recovers session-relative `images/1.jpg`, and maps 402 errors cleanly in Chinese.
@@ -391,6 +418,9 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     self.assertEqual(gen_grok_cli.status_code, 200, gen_grok_cli.text)
                     self.assertTrue(gen_grok_cli.json()["image_url"].startswith("data:image/jpeg;base64,"))
                     self.assertEqual(gen_grok_cli.json()["model"], "image_edit")
+                    self.assertEqual(gen_grok_cli.json()["method"], "grok_cli_image_edit")
+                    self.assertEqual(gen_grok_cli.json()["method_label"], "Grok CLI · image_edit 工具")
+                    self.assertEqual(gen_grok_cli.json()["endpoint"], "grok CLI (image_edit)")
                     self.assertEqual(len(seen_grok_cmds), 1)
                     self.assertIn("--yolo", seen_grok_cmds[0])
                     self.assertIn("--no-auto-update", seen_grok_cmds[0])
@@ -494,6 +524,9 @@ class CharacterStudioHttpTests(unittest.TestCase):
                     self.assertEqual(gen_agy.status_code, 200, gen_agy.text)
                     self.assertTrue(gen_agy.json()["image_url"].startswith("data:image/jpeg;base64,"))
                     self.assertEqual(gen_agy.json()["provider"], "agy_auth")
+                    self.assertEqual(gen_agy.json()["model"], "gemini-4-carbon-pro")
+                    self.assertEqual(gen_agy.json()["method"], "agy_cli_image_generator")
+                    self.assertEqual(gen_agy.json()["method_label"], "AGY CLI · image-generator 智能体（协调: gemini-4-carbon-pro）")
                     self.assertEqual(len(seen_cmds), 1)
                     self.assertNotIn("--mode", seen_cmds[0])
                     self.assertNotIn("-m", seen_cmds[0])
@@ -704,6 +737,8 @@ class CodexGenerationTests(unittest.TestCase):
                  patch.object(module, "_run_bounded", side_effect=run) as runner:
                 result = module._generate_with_codex_auth(Path(tmp), body)
                 self.assertEqual((result["provider"], result["model"]), ("codex_auth", "gpt-image-2"))
+                self.assertEqual(result["method"], "codex_cli_image_gen")
+                self.assertEqual(result["method_label"], "Codex CLI · image_gen 工具（ChatGPT 订阅）")
                 self.assertEqual(base64.b64decode(result["image_url"].split(",", 1)[1]), PNG_1X1)
                 for kind, code in [("outside", 502), ("old", 502), ("invalid", 502), ("quota", 429), ("auth", 401), ("timeout", 504)]:
                     with self.subTest(kind=kind):

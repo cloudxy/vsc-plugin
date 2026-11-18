@@ -29,8 +29,15 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from vsc.adapters.providers.xai_grok import credentials as grok_credentials
 from vsc.adapters.providers.xai_grok import spec as grok_spec
 from vsc.assets import pose_gallery
+from vsc.assets.access_control import current_principal
+from vsc.assets.character_studio_store import (
+    CharacterStudioStore,
+    MEDIA_URL_PREFIX as STUDIO_MEDIA_URL_PREFIX,
+    ai_generate_image_root,
+    decode_data_image_uri,
+)
 from vsc.assets.script_ai import host_environment, _run_bounded
-from vsc.assets.resource_service import ResourceError
+from vsc.assets.resource_service import Conflict, NotFound, ResourceError
 from vsc.bootstrap import repository_root
 from vsc.production.provider_errors import safe_generation_detail as _safe_generation_detail
 
@@ -46,6 +53,7 @@ DEFAULT_ALLOWED_ORIGINS = (
 )
 MAX_PROXY_BYTES = 15 * 1024 * 1024
 MAX_GENERATE_BYTES = 20 * 1024 * 1024
+MAX_RECORD_SAVE_BYTES = 35 * 1024 * 1024
 MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024
 FORWARD_HEADERS = ("content-type", "authorization", "x-goog-api-key", "x-dashscope-async", "accept")
 MEDIA_URL_PREFIX = "/api/v1/asset-center/pose-gallery/media/"
@@ -562,6 +570,16 @@ def _resolve_reference_bytes(repo_root: Path, ref: str) -> tuple[bytes, str]:
         if not mime:
             raise HTTPException(422, "参考图不是受支持的图片格式")
         return raw, mime
+    if value.startswith(STUDIO_MEDIA_URL_PREFIX):
+        gen_sub = value[len(STUDIO_MEDIA_URL_PREFIX) :]
+        resolved_gen = CharacterStudioStore(None, root=ai_generate_image_root(repo_root)).media_file(gen_sub)
+        if resolved_gen is None:
+            raise HTTPException(422, "合成参考图文件不存在")
+        raw = resolved_gen[0].read_bytes()
+        if len(raw) > MAX_REFERENCE_IMAGE_BYTES:
+            raise HTTPException(413, "单张参考图超过大小限制")
+        mime = _detect_image_mime(raw) or resolved_gen[1]
+        return raw, mime
     subpath = None
     if value.startswith(MEDIA_URL_PREFIX):
         subpath = value[len(MEDIA_URL_PREFIX) :]
@@ -1013,10 +1031,14 @@ def _generate_with_grok_cli(
             raw = found.read_bytes()
             mime = _detect_image_mime(raw)
             if mime:
+                custom_cli = model not in ("image_edit", "image_gen", "grok-cli", "grok-cli-imagine")
                 return {
                     "image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
                     "model": model,
                     "provider": "grok_auth",
+                    "method": "grok_cli_image_edit",
+                    "method_label": f"Grok CLI · image_edit 工具（协调: {model}）" if custom_cli else "Grok CLI · image_edit 工具",
+                    "endpoint": "grok CLI (image_edit)",
                 }
         _raise_grok_generation_error(proc.returncode, error_detail, via_cli=True)
 
@@ -1077,18 +1099,41 @@ def _generate_with_grok_imagine_api(
             redact_secret=key,
         )
 
+    endpoint = f"/v1{path}"
+    if path == "/images/edits":
+        edit_scope = "多图编辑" if len(data_uris) > 1 else "单图编辑"
+        method = "grok_sub_images_edits"
+        method_label = f"Grok 订阅直连 · /v1/images/edits（{edit_scope}）"
+    else:
+        method = "grok_sub_images_generations"
+        method_label = "Grok 订阅直连 · /v1/images/generations（文生图）"
+    upstream_model = str(result.get("model") or "").strip() if isinstance(result, dict) else ""
+    extra_meta = {"upstream_model": upstream_model} if upstream_model and upstream_model != model else {}
+
     items = result.get("data") if isinstance(result, dict) else None
     first = items[0] if isinstance(items, list) and items and isinstance(items[0], dict) else {}
     if isinstance(first.get("b64_json"), str) and first["b64_json"]:
         raw = base64.b64decode(first["b64_json"])
         mime = _detect_image_mime(raw) or "image/png"
-        return {"image_url": f"data:{mime};base64,{first['b64_json']}", "model": model, "provider": "grok_auth"}
+        return {
+            "image_url": f"data:{mime};base64,{first['b64_json']}",
+            "model": model,
+            "provider": "grok_auth",
+            "method": method,
+            "method_label": method_label,
+            "endpoint": endpoint,
+            **extra_meta,
+        }
     if isinstance(first.get("url"), str) and first["url"]:
         raw, mime = _download_https_image(first["url"])
         return {
             "image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
             "model": model,
             "provider": "grok_auth",
+            "method": method,
+            "method_label": method_label,
+            "endpoint": endpoint,
+            **extra_meta,
         }
     _raise_studio_generation_error("Grok 授权", "平台已响应，但响应中没有图片或具体失败原因。", http_status=upstream.status_code)
 
@@ -1324,10 +1369,14 @@ def _generate_with_agy_auth(repo_root: Path, body: dict, *, allow_empty_referenc
             raw = found.read_bytes()
             mime = _detect_image_mime(raw)
             if mime:
+                custom_coord = bool(model and model != "image-generator")
                 return {
                     "image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
                     "model": model,
                     "provider": "agy_auth",
+                    "method": "agy_cli_image_generator",
+                    "method_label": f"AGY CLI · image-generator 智能体（协调: {model}）" if custom_coord else "AGY CLI · image-generator 智能体",
+                    "endpoint": "agy CLI (image-generator)",
                 }
         _raise_agy_generation_error(proc.returncode, error_detail)
 
@@ -1420,8 +1469,27 @@ def _generate_with_codex_auth(repo_root: Path, body: dict, *, allow_empty_refere
                         raw = path.read_bytes()
                         mime = _detect_image_mime(raw)
                         if mime:
-                            return {"image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
-                                "model": "gpt-image-2", "provider": "codex_auth"}
+                            actual_model = "gpt-image-2"
+                            for line in proc.stdout.splitlines():
+                                try:
+                                    evt = json.loads(line)
+                                except ValueError:
+                                    continue
+                                if not isinstance(evt, dict):
+                                    continue
+                                item = evt.get("item") if isinstance(evt.get("item"), dict) else evt
+                                if item.get("type") in ("image_generation_call", "image_generation"):
+                                    cand_model = str(item.get("model") or "").strip()
+                                    if cand_model:
+                                        actual_model = cand_model
+                            return {
+                                "image_url": f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}",
+                                "model": actual_model,
+                                "provider": "codex_auth",
+                                "method": "codex_cli_image_gen",
+                                "method_label": "Codex CLI · image_gen 工具（ChatGPT 订阅）",
+                                "endpoint": "codex exec (image_gen)",
+                            }
                         output_problem = "返回文件不是受支持的有效图片。"
             except (OSError, ValueError) as exc:
                 output_problem = f"读取生成图片文件失败：{type(exc).__name__}。"
@@ -1449,9 +1517,19 @@ def _generate_with_codex_auth(repo_root: Path, body: dict, *, allow_empty_refere
         _raise_studio_generation_error("Codex 授权", diagnostic, returncode=proc.returncode)
 
 
-def install_character_studio_routes(app, etag, read_actor, origin):
+def install_character_studio_routes(
+    app,
+    etag,
+    read_actor,
+    origin,
+    studio_store: CharacterStudioStore | None = None,
+    image_root: str | Path | None = None,
+):
     def repo():
         return repository_root()
+
+    def _resolved_image_root() -> Path:
+        return Path(image_root).expanduser().resolve() if image_root is not None else ai_generate_image_root(repo())
 
     # Compose the existing login executors into the original durable worker.
     service=getattr(getattr(app.state,'catalog',None),'service',None)
@@ -1464,6 +1542,41 @@ def install_character_studio_routes(app, etag, read_actor, origin):
             except HTTPException as exc:
                 return {'error':_safe_generation_detail(str(exc.detail)),'http_status':exc.status_code}
         service.studio_auth_generate=execute_subscription
+
+    _cached_store: list[CharacterStudioStore] = []
+
+    def _get_studio_store() -> CharacterStudioStore | None:
+        if studio_store is not None:
+            return studio_store
+        if _cached_store:
+            return _cached_store[0]
+        svc = getattr(getattr(app.state, "catalog", None), "service", None)
+        engine = getattr(getattr(svc, "store", None), "engine", None)
+        if engine is None:
+            return None
+        created = CharacterStudioStore(engine, root=_resolved_image_root())
+        _cached_store.append(created)
+        return created
+
+    def _require_studio_store() -> CharacterStudioStore:
+        st = _get_studio_store()
+        if st is None:
+            raise HTTPException(503, "AI角色合成库需要已配置的数据库服务")
+        return st
+
+    async def _read_json_body(request: Request, limit_bytes: int, label: str) -> dict:
+        raw_body = bytearray()
+        async for chunk in request.stream():
+            raw_body.extend(chunk)
+            if len(raw_body) > limit_bytes:
+                raise HTTPException(413, f"{label}超过大小限制")
+        try:
+            parsed = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise HTTPException(400, "请求 JSON 格式无效") from exc
+        if not isinstance(parsed, dict):
+            raise HTTPException(400, "请求体必须是 JSON 对象")
+        return parsed
 
     def page(request, build):
         read_actor(request)
@@ -1581,29 +1694,185 @@ def install_character_studio_routes(app, etag, read_actor, origin):
         provider = str(body.get("provider") or "").strip()
         return await asyncio.to_thread(_trigger_auth_login, provider)
 
+    @app.get("/api/v1/character-studio/media/{subpath:path}")
+    def studio_generated_media(subpath: str):
+        p = current_principal()
+        if service is not None and p is not None and not (p.identity_id or p.local or p.local_read):
+            raise HTTPException(403, "请先登录查看合成图片")
+        st = _get_studio_store()
+        target_store = st if st is not None else CharacterStudioStore(None, root=_resolved_image_root())
+        found = target_store.media_file(subpath)
+        if found is None:
+            raise HTTPException(404, "合成图片不存在")
+        file_path, mime = found
+        return FileResponse(
+            file_path,
+            media_type=mime,
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    @app.get("/api/v1/character-studio/records")
+    def studio_list_records(
+        request: Request,
+        q: str = "",
+        filter_key: str = "",
+        provider: str = "",
+        model: str = "",
+        method: str = "",
+        offset: int = 0,
+        limit: int = 20,
+    ):
+        read_actor(request)
+        st = _require_studio_store()
+        try:
+            data = st.list_generations(
+                q=q,
+                filter_key=filter_key,
+                provider=provider,
+                model=model,
+                method=method,
+                offset=offset,
+                limit=limit,
+            )
+        except ResourceError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        return etag(request, data)
+
+    @app.get("/api/v1/character-studio/records/{record_id}")
+    def studio_get_record(record_id: str, request: Request):
+        read_actor(request)
+        st = _require_studio_store()
+        found = st.get_generation(record_id)
+        if found is None:
+            raise HTTPException(404, "合成记录不存在")
+        return etag(request, found)
+
+    @app.post("/api/v1/character-studio/records")
+    async def studio_save_record(request: Request):
+        origin(request)
+        actor_id = read_actor(request)
+        st = _require_studio_store()
+        body = await _read_json_body(request, MAX_RECORD_SAVE_BYTES, "保存合成记录请求体")
+
+        def _persist():
+            raw_url = str(body.get("image_url") or body.get("imageUrl") or "").strip()
+            if not raw_url:
+                raise HTTPException(422, "缺少生成图片内容")
+            if raw_url.lower().startswith("data:image/"):
+                try:
+                    img_bytes, _ = decode_data_image_uri(raw_url)
+                except ResourceError as exc:
+                    raise HTTPException(exc.status_code, str(exc)) from exc
+            elif raw_url.startswith("https://"):
+                img_bytes, _ = _download_https_image(raw_url)
+            else:
+                raise HTTPException(422, "不支持的生成图片来源格式")
+            try:
+                return st.save_generation(
+                    image_bytes=img_bytes,
+                    provider=str(body.get("provider") or "").strip(),
+                    model=str(body.get("model") or "").strip(),
+                    upstream_model=str(body.get("upstream_model") or body.get("upstreamModel") or "").strip(),
+                    method=str(body.get("method") or "").strip(),
+                    method_label=str(body.get("method_label") or body.get("methodLabel") or "").strip(),
+                    endpoint=str(body.get("endpoint") or "").strip(),
+                    prompt=str(body.get("prompt") or ""),
+                    recipe_summary=str(body.get("recipe_summary") or body.get("recipeSummary") or ""),
+                    snapshot=body.get("snapshot") if isinstance(body.get("snapshot"), dict) else None,
+                    publication=body.get("publication") if isinstance(body.get("publication"), dict) else None,
+                    created_by=str(actor_id or ""),
+                    created_at=body.get("created_at") if body.get("created_at") is not None else body.get("createdAt"),
+                    record_id=str(body.get("id") or "").strip() or None,
+                )
+            except ResourceError as exc:
+                raise HTTPException(exc.status_code, str(exc)) from exc
+
+        saved = await asyncio.to_thread(_persist)
+        return {"record": saved}
+
+    @app.patch("/api/v1/character-studio/records/{record_id}/publication")
+    async def studio_update_publication(record_id: str, request: Request, body: dict):
+        origin(request)
+        actor_id = read_actor(request)
+        st = _require_studio_store()
+        pub = body.get("publication")
+        if not isinstance(pub, dict):
+            raise HTTPException(422, "publication 必须是对象")
+
+        def _apply():
+            try:
+                return st.update_publication(record_id, pub, actor=str(actor_id or ""))
+            except NotFound as exc:
+                raise HTTPException(404, str(exc)) from exc
+            except Conflict as exc:
+                raise HTTPException(409, str(exc)) from exc
+            except ResourceError as exc:
+                raise HTTPException(exc.status_code, str(exc)) from exc
+
+        updated = await asyncio.to_thread(_apply)
+        return {"record": updated}
+
+    @app.delete("/api/v1/character-studio/records/{record_id}")
+    async def studio_delete_record(record_id: str, request: Request):
+        origin(request)
+        read_actor(request)
+        st = _require_studio_store()
+
+        def _remove():
+            try:
+                st.delete_generation(record_id)
+            except NotFound as exc:
+                raise HTTPException(404, str(exc)) from exc
+
+        await asyncio.to_thread(_remove)
+        return {"deleted": True, "id": record_id}
+
+    @app.delete("/api/v1/character-studio/records")
+    async def studio_clear_records(request: Request):
+        origin(request)
+        read_actor(request)
+        st = _require_studio_store()
+        deleted = await asyncio.to_thread(st.clear_generations)
+        return {"deleted_count": deleted}
+
     @app.post("/api/v1/character-studio/generate")
     async def studio_generate(request: Request):
         origin(request)
-        read_actor(request)
-        raw_body = bytearray()
-        async for chunk in request.stream():
-            raw_body.extend(chunk)
-            if len(raw_body) > MAX_GENERATE_BYTES:
-                raise HTTPException(413, "生成请求体超过大小限制")
-        try:
-            body = json.loads(raw_body.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
-            raise HTTPException(400, "请求 JSON 格式无效") from exc
-        if not isinstance(body, dict):
-            raise HTTPException(400, "请求体必须是 JSON 对象")
+        actor_id = read_actor(request)
+        body = await _read_json_body(request, MAX_GENERATE_BYTES, "生成请求体")
         provider = str(body.get("provider") or "").strip()
         if provider == "grok_auth":
-            return await asyncio.to_thread(_generate_with_grok_auth, repo(), body)
-        if provider == "agy_auth":
-            return await asyncio.to_thread(_generate_with_agy_auth, repo(), body)
-        if provider == "codex_auth":
-            return await asyncio.to_thread(_generate_with_codex_auth, repo(), body)
-        raise HTTPException(422, "不支持的服务端授权生图通道")
+            raw_res = await asyncio.to_thread(_generate_with_grok_auth, repo(), body)
+        elif provider == "agy_auth":
+            raw_res = await asyncio.to_thread(_generate_with_agy_auth, repo(), body)
+        elif provider == "codex_auth":
+            raw_res = await asyncio.to_thread(_generate_with_codex_auth, repo(), body)
+        else:
+            raise HTTPException(422, "不支持的服务端授权生图通道")
+
+        st = _get_studio_store()
+        if st is None:
+            return raw_res
+
+        def _persist_generated():
+            img_bytes, _ = decode_data_image_uri(raw_res["image_url"])
+            return st.save_generation(
+                image_bytes=img_bytes,
+                provider=str(raw_res.get("provider") or provider),
+                model=str(raw_res.get("model") or body.get("model") or ""),
+                upstream_model=str(raw_res.get("upstream_model") or ""),
+                method=str(raw_res.get("method") or ""),
+                method_label=str(raw_res.get("method_label") or ""),
+                endpoint=str(raw_res.get("endpoint") or ""),
+                prompt=str(body.get("prompt") or ""),
+                recipe_summary=str(body.get("recipe_summary") or body.get("recipeSummary") or ""),
+                snapshot=body.get("snapshot") if isinstance(body.get("snapshot"), dict) else None,
+                created_by=str(actor_id or ""),
+            )
+
+        saved = await asyncio.to_thread(_persist_generated)
+        return {**raw_res, "image_url": saved["imageUrl"], "record": saved}
 
     @app.post("/api/proxy")
     async def provider_proxy(request: Request):

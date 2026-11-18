@@ -436,7 +436,104 @@ export const fetchAuthStatus=api=>callStudioApi('/api/v1/character-studio/auth/s
 export const verifyAuthProvider=(provider,api)=>callStudioApi('/api/v1/character-studio/auth/verify',{method:'POST',body:JSON.stringify({provider})},api);
 export const triggerAuthLogin=(provider,api)=>callStudioApi('/api/v1/character-studio/auth/login',{method:'POST',body:JSON.stringify({provider})},api);
 
-// ------------------------------------------------------------------ Request compilers
+// ------------------------------------------------------------------ Request compilers & provenance
+export function isGrokDirectImagineModel(model){
+ const norm=String(model||'').trim().toLowerCase();
+ return norm.startsWith('grok-imagine-')||norm.startsWith('grok-2-image');
+}
+export function authMethodSpec(provider,model,refCount=1){
+ const m=String(model||'').trim();
+ if(provider==='grok_auth'){
+  if(isGrokDirectImagineModel(m)){
+   if(refCount===0)return {method:'grok_sub_images_generations',methodLabel:'Grok 订阅直连 · /v1/images/generations（文生图）',endpoint:'/v1/images/generations'};
+   const scope=refCount>1?'多图编辑':'单图编辑';
+   return {method:'grok_sub_images_edits',methodLabel:`Grok 订阅直连 · /v1/images/edits（${scope}）`,endpoint:'/v1/images/edits'};
+  }
+  const custom=Boolean(m&&!['image_edit','image_gen','grok-cli','grok-cli-imagine'].includes(m.toLowerCase()));
+  return {method:'grok_cli_image_edit',methodLabel:custom?`Grok CLI · image_edit 工具（协调: ${m}）`:'Grok CLI · image_edit 工具',endpoint:'grok CLI (image_edit)'};
+ }
+ if(provider==='agy_auth'){
+  const custom=Boolean(m&&m!=='image-generator');
+  return {method:'agy_cli_image_generator',methodLabel:custom?`AGY CLI · image-generator 智能体（协调: ${m}）`:'AGY CLI · image-generator 智能体',endpoint:'agy CLI (image-generator)'};
+ }
+ if(provider==='codex_auth'){
+  return {method:'codex_cli_image_gen',methodLabel:'Codex CLI · image_gen 工具（ChatGPT 订阅）',endpoint:'codex exec (image_gen)'};
+ }
+ return {method:'',methodLabel:'',endpoint:''};
+}
+export function apiMethodSpec(provider,model,settings={},refCount=1){
+ if(provider==='grok'){
+  const gr=settings.grokParams||{};
+  const pure=gr.endpointMode==='generations'||model==='grok-2-image-1212'||!refCount;
+  if(pure)return {method:'grok_api_images_generations',methodLabel:'Grok API · /v1/images/generations（文生图）',endpoint:'/v1/images/generations'};
+  const scope=refCount>1?'多图编辑':'单图编辑';
+  return {method:'grok_api_images_edits',methodLabel:`Grok API · /v1/images/edits（${scope}）`,endpoint:'/v1/images/edits'};
+ }
+ if(provider==='gemini'){
+  const gm=settings.geminiParams||{};
+  if((gm.endpointMode||'native')==='native')return {method:'gemini_native_generate_content',methodLabel:'Gemini API · 原生 generateContent',endpoint:'/v1beta/models/:generateContent'};
+  return {method:'gemini_openai_chat',methodLabel:'Gemini API · Chat Completions 兼容',endpoint:'/v1/chat/completions'};
+ }
+ if(provider==='gpt'){
+  const mode=settings.gptParams?.endpointMode||'images_edits_json';
+  if(mode==='images_edits_json')return {method:'gpt_images_edits_json',methodLabel:'GPT API · /v1/images/edits (JSON)',endpoint:'/v1/images/edits'};
+  if(mode==='images_edits')return {method:'gpt_images_edits_multipart',methodLabel:'GPT API · /v1/images/edits (Multipart)',endpoint:'/v1/images/edits'};
+  if(mode==='responses')return {method:'gpt_responses_image_gen',methodLabel:'GPT API · /v1/responses (image_generation)',endpoint:'/v1/responses'};
+  return {method:'gpt_chat_completions',methodLabel:'GPT API · /v1/chat/completions',endpoint:'/v1/chat/completions'};
+ }
+ if(provider==='qwen')return {method:'qwen_multimodal_generation',methodLabel:'百炼 API · multimodal-generation',endpoint:'/api/v1/services/aigc/multimodal-generation/generation'};
+ if(provider==='doubao')return {method:'doubao_images_generations',methodLabel:'方舟 API · /api/v3/images/generations',endpoint:'/api/v3/images/generations'};
+ return {method:'',methodLabel:'',endpoint:''};
+}
+function countRecipeSources(recipe,sendStitchedSheet=false){
+ if(!recipe)return 0;
+ const base=[recipe.portrait,recipe.costume,recipe.pose].filter(Boolean).length+(recipe.extraImages?.length||0);
+ return base>0&&sendStitchedSheet?base+1:base;
+}
+export function describePlannedGeneration(config,recipe){
+ const provider=config?.activeProvider||'',meta=PROVIDER_META[provider],pCfg=config?.providers?.[provider]||{};
+ const rawModel=pCfg.model==='custom'?String(pCfg.customModel||'').trim():(pCfg.model||meta?.models?.[0]?.value||'');
+ const displayModel=provider==='codex_auth'&&rawModel==='image-generation'?'gpt-image-2':rawModel;
+ const refCount=Math.max(1,countRecipeSources(recipe,Boolean(config?.sendStitchedSheet)));
+ const spec=isAuthProvider(provider)?authMethodSpec(provider,rawModel,refCount):apiMethodSpec(provider,rawModel,config||{},refCount);
+ return {provider,providerShort:meta?.shortName||provider,providerName:meta?.name||provider,model:displayModel,rawModel,...spec};
+}
+export function resolveRecordProvenance(record){
+ const provider=String(record?.provider||record?.snapshot?.settings?.activeProvider||'').trim();
+ const meta=PROVIDER_META[provider];
+ const providerShort=meta?.shortName||provider||'未记录通道';
+ const providerName=meta?.name||providerShort;
+ let model=String(record?.model||'').trim();
+ if(!model&&provider&&record?.snapshot?.models?.[provider]){
+  const sm=record.snapshot.models[provider];
+  const raw=sm.model==='custom'?String(sm.customModel||'').trim():String(sm?.model||'').trim();
+  model=provider==='codex_auth'&&raw==='image-generation'?'gpt-image-2':raw;
+ }
+ const upstreamModel=String(record?.upstreamModel||'').trim();
+ let method=String(record?.method||'').trim(),methodLabel=String(record?.methodLabel||'').trim(),endpoint=String(record?.endpoint||'').trim();
+ if(!methodLabel&&!method){
+  const hasSnapRecipe=Boolean(record?.snapshot?.recipe);
+  const snapRefs=hasSnapRecipe?countRecipeSources(record.snapshot.recipe,Boolean(record.snapshot.settings?.sendStitchedSheet)):1;
+  if(isAuthProvider(provider)){
+   if(provider==='codex_auth'||provider==='agy_auth'){
+    ({method,methodLabel,endpoint}=authMethodSpec(provider,model,snapRefs));
+   }else if(provider==='grok_auth'&&model){
+    if(isGrokDirectImagineModel(model)&&!hasSnapRecipe){
+     method='grok_sub_imagine_api';methodLabel='Grok 订阅直连 · Imagine API';endpoint='/v1/images/*';
+    }else({method,methodLabel,endpoint}=authMethodSpec(provider,model,snapRefs));
+   }
+  }else if(provider==='qwen'||provider==='doubao'){
+   ({method,methodLabel,endpoint}=apiMethodSpec(provider,model,{},snapRefs||1));
+  }else if(record?.snapshot?.settings||(provider==='grok'&&model==='grok-2-image-1212')){
+   ({method,methodLabel,endpoint}=apiMethodSpec(provider,model,record?.snapshot?.settings||{},hasSnapRecipe?snapRefs:1));
+  }
+ }else if(!methodLabel&&method){
+  methodLabel=method;
+ }
+ const filterKey=`${provider}|${model||'unrecorded'}|${method||'unrecorded'}`;
+ return {provider,providerShort,providerName,model,upstreamModel,method,methodLabel,endpoint,filterKey};
+}
+
 export function buildGeminiApiRequest({baseUrl,apiKey,model,prompt,refs,geminiParams}){
  const gm=geminiParams||{endpointMode:'native',aspectRatio:'3:4',imageSize:'2K'};
  if(gm.endpointMode==='native'){
@@ -451,6 +548,9 @@ export function buildGeminiApiRequest({baseUrl,apiKey,model,prompt,refs,geminiPa
    url,
    headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},
    body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:{responseModalities:['TEXT','IMAGE'],imageConfig}}),
+   method:'gemini_native_generate_content',
+   methodLabel:'Gemini API · 原生 generateContent',
+   endpoint:'/v1beta/models/:generateContent',
   };
  }
  const v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`;
@@ -462,6 +562,9 @@ export function buildGeminiApiRequest({baseUrl,apiKey,model,prompt,refs,geminiPa
    messages:[{role:'user',content:[{type:'text',text:`${prompt}\n(Output aspect ratio: ${gm.aspectRatio||'3:4'}, resolution: ${gm.imageSize||'2K'})`},...refs.map(ref=>({type:'image_url',image_url:{url:ref}}))]}],
    modalities:['text','image'],
   }),
+  method:'gemini_openai_chat',
+  methodLabel:'Gemini API · Chat Completions 兼容',
+  endpoint:'/v1/chat/completions',
  };
 }
 
@@ -477,14 +580,25 @@ export function buildGrokApiRequest({baseUrl,apiKey,model,prompt,refs,grokParams
    payload.resolution=gr.resolution||'2k';
   }
   payload.response_format=gr.responseFormat==='b64_json'?'b64_json':'url';
-  return {url:`${v1}/images/generations`,headers,body:JSON.stringify(payload)};
+  return {
+   url:`${v1}/images/generations`,headers,body:JSON.stringify(payload),
+   method:'grok_api_images_generations',
+   methodLabel:'Grok API · /v1/images/generations（文生图）',
+   endpoint:'/v1/images/generations',
+  };
  }
  if(refs.length>5)throw new Error('[Grok API] Grok 图像编辑一次最多支持 5 张参考图（若开启附带合成拼图，请控制在 4 张以内）');
  const payload={model,prompt,aspect_ratio:gr.aspectRatio||'3:4',resolution:gr.resolution||'2k'};
  if(gr.responseFormat==='b64_json')payload.response_format='b64_json';
  if(refs.length===1)payload.image={url:refs[0],type:'image_url'};
  else payload.images=refs.map(url=>({url,type:'image_url'}));
- return {url:`${v1}/images/edits`,headers,body:JSON.stringify(payload)};
+ const editScope=refs.length>1?'多图编辑':'单图编辑';
+ return {
+  url:`${v1}/images/edits`,headers,body:JSON.stringify(payload),
+  method:'grok_api_images_edits',
+  methodLabel:`Grok API · /v1/images/edits（${editScope}）`,
+  endpoint:'/v1/images/edits',
+ };
 }
 
 export function buildGrokVideoApiRequest({baseUrl,apiKey,model,prompt,firstFrame='',lastFrame='',references=[],videoDefaults}){
@@ -524,7 +638,7 @@ export async function generateCharacterImage(options){
   throw new Error(`[${meta?.shortName||provider} · ${model}] ${safeFailureText(error?.message||'调用结束，未取得图片或错误详情。',pCfg.apiKey)}`);
  }
 }
-async function runCharacterGeneration({recipe,prompt,config,onProgress,signal}){
+async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',snapshot=null,onProgress,signal}){
  const provider=config.activeProvider,meta=PROVIDER_META[provider],pCfg=config.providers[provider]||{};
  if(!meta)throw new Error('未知的生图接口通道');
  const rawSources=[
@@ -542,19 +656,34 @@ async function runCharacterGeneration({recipe,prompt,config,onProgress,signal}){
   const allRefs=config.sendStitchedSheet?[...localRefs,await stitchRecipeCanvas(recipe)]:localRefs;
   if(provider==='grok_auth'&&allRefs.length>5)throw new Error('[Grok 授权] Grok 图像编辑一次最多支持 5 张参考图，请减少附加参考图或关闭附带合成拼图');
   if(provider==='codex_auth'&&allRefs.length>8)throw new Error('[Codex 授权] 单次最多支持 8 张参考图');
-  const isGrokCli=provider==='grok_auth'&&(model==='image_edit'||!model.startsWith('grok-imagine-'));
-  onProgress?.({stage:'running',message:provider==='codex_auth'?'正在通过本机 Codex 订阅生成角色图…':provider==='agy_auth'?'正在通过终端 AGY 内置 image-generator 生成角色图…':isGrokCli?'正在通过终端 grok CLI 内置 image_edit 生成角色图…':'正在通过 Grok 订阅授权通道生成角色图…'});
+  const isGrokCli=provider==='grok_auth'&&!isGrokDirectImagineModel(model);
+  const fallbackSpec=authMethodSpec(provider,model,allRefs.length);
+  onProgress?.({stage:'running',message:provider==='codex_auth'?'正在通过本机 Codex 订阅生成角色图…':provider==='agy_auth'?'正在通过终端 AGY 内置 image-generator 生成角色图…':isGrokCli?'正在通过终端 grok CLI 内置 image_edit 生成角色图…':`正在通过 Grok 订阅直连 (${model}) 生成角色图…`});
   const csrf=csrfProvider(),headers={'Content-Type':'application/json'};if(csrf)headers['X-CSRF-Token']=csrf;
   const payload={
    provider,model,prompt,references:allRefs,
    aspect_ratio:provider==='codex_auth'?(config.codexParams?.aspectRatio||'3:4'):provider==='grok_auth'?(config.grokParams?.aspectRatio||'3:4'):(config.agyParams?.aspectRatio||'3:4'),
    resolution:config.grokParams?.resolution||'2k',
+   recipe_summary:recipeSummary||'',
+   ...(snapshot?{snapshot}:{}),
   };
   const res=await generationFetch('/api/v1/character-studio/generate',{method:'POST',headers,body:JSON.stringify(payload),signal,credentials:'same-origin'});
   const json=await generationJson(res);
   if(!res.ok)throw generationFailure(json,res);
   if(!json?.image_url)throw generationFailure(json,res,'生成服务已响应，但未返回图像数据。');
-  return {imageUrl:json.image_url,modelUsed:json.model||model,providerUsed:provider};
+  const resolvedModel=String(json.model||'').trim()||(provider==='codex_auth'&&model==='image-generation'?'gpt-image-2':model);
+  const upstreamModel=String(json.upstream_model||'').trim();
+  return {
+   imageUrl:json.image_url,
+   modelUsed:resolvedModel,
+   requestedModel:model,
+   upstreamModel:upstreamModel&&upstreamModel!==resolvedModel?upstreamModel:'',
+   providerUsed:provider,
+   methodUsed:String(json.method||'').trim()||fallbackSpec.method,
+   methodLabel:String(json.method_label||'').trim()||fallbackSpec.methodLabel,
+   endpointUsed:String(json.endpoint||'').trim()||fallbackSpec.endpoint,
+   persistedRecord:json.record||null,
+  };
  }
 
  const apiKey=String(pCfg.apiKey||'').trim();
@@ -564,7 +693,8 @@ async function runCharacterGeneration({recipe,prompt,config,onProgress,signal}){
  const imageRefs=needBase64?await Promise.all(rawSources.map(srcToPngDataUrl)):rawSources.map(toPublicHttpsUrl);
  const allRefs=config.sendStitchedSheet?[...imageRefs,await stitchRecipeCanvas(recipe)]:imageRefs;
  const json_=headers=>({'Content-Type':'application/json',...headers});
- onProgress?.({stage:'running',message:`正在请求 ${meta.shortName} (${model})…`});
+ let methodInfo=apiMethodSpec(provider,model,config,allRefs.length);
+ onProgress?.({stage:'running',message:`正在请求 ${meta.shortName} · ${model} (${methodInfo.endpoint||meta.modeLabel})…`});
  let res;
  if(provider==='gpt'){
   const g=config.gptParams,v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`,auth={Authorization:`Bearer ${apiKey}`};
@@ -588,9 +718,11 @@ async function runCharacterGeneration({recipe,prompt,config,onProgress,signal}){
   }
  }else if(provider==='gemini'){
   const req=buildGeminiApiRequest({baseUrl,apiKey,model,prompt,refs:allRefs,geminiParams:config.geminiParams});
+  methodInfo={method:req.method,methodLabel:req.methodLabel,endpoint:req.endpoint};
   res=await smartFetch(req.url,{method:'POST',headers:req.headers,body:req.body,signal},config.useProxy);
  }else if(provider==='grok'){
   const req=buildGrokApiRequest({baseUrl,apiKey,model,prompt,refs:allRefs,grokParams:config.grokParams});
+  methodInfo={method:req.method,methodLabel:req.methodLabel,endpoint:req.endpoint};
   res=await smartFetch(req.url,{method:'POST',headers:req.headers,body:req.body,signal},config.useProxy);
  }else if(provider==='qwen'){
   const qw=config.qwenParams,endpoint=baseUrl.includes('/services/aigc/')?baseUrl:`${baseUrl.replace(/\/api\/v1$/,'')}/api/v1/services/aigc/multimodal-generation/generation`;
@@ -609,7 +741,17 @@ async function runCharacterGeneration({recipe,prompt,config,onProgress,signal}){
   onProgress?.({stage:'download',message:'正在转存临时生成图片…'});
   imageUrl=await fetchImageViaProxy(imageUrl,signal).catch(()=>imageUrl);
  }
- return {imageUrl,modelUsed:model,providerUsed:provider};
+ const rawUpstream=String(json?.modelVersion||json?.model||'').trim();
+ return {
+  imageUrl,
+  modelUsed:model,
+  requestedModel:model,
+  upstreamModel:rawUpstream&&rawUpstream!==model?rawUpstream:'',
+  providerUsed:provider,
+  methodUsed:methodInfo.method,
+  methodLabel:methodInfo.methodLabel,
+  endpointUsed:methodInfo.endpoint,
+ };
 }
 
 export function comparisonReferences(result){

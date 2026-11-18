@@ -1,5 +1,6 @@
 # Shared application defaults. Local connections belong in config/.env.
 MEDIA_ROOT = "assets/resource-media"
+AI_GENERATE_IMAGE_ROOT = "assets/ai-generate-image"
 PANEL_WRITABLE = false
 PANEL_HUMAN_IDENTITY = ""
 PANEL_REQUIRE_LOGIN = true

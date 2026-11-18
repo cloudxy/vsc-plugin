@@ -97,6 +97,11 @@ async function idbWrite(key,value){
  try{await new Promise((resolve,reject)=>{const tx=db.transaction(STORE_NAME,'readwrite');tx.objectStore(STORE_NAME).put(value,key);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
  finally{db.close();}
 }
+async function idbDelete(key){
+ const db=await openDb();
+ try{await new Promise((resolve,reject)=>{const tx=db.transaction(STORE_NAME,'readwrite');tx.objectStore(STORE_NAME).delete(key);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
+ finally{db.close();}
+}
 const readJson=(key,fallback)=>{try{const raw=ls.get(key);return raw?JSON.parse(raw):fallback;}catch{return fallback;}};
 const emptyRecipe=()=>({portrait:null,costume:null,pose:null,extraImages:[]});
 const recipeBackup=r=>({portrait:r.portrait?.source==='upload'?null:r.portrait,costume:r.costume?.source==='upload'?null:r.costume,pose:r.pose?.source==='upload'?null:r.pose,extraImages:[]});
@@ -114,16 +119,34 @@ const state={
  apiConfig:mergeStoredConfig(readJson(CFG_KEY,null)),
  authStatus:defaultAuthState(),
  authPolling:null,
- history:readJson(HISTORY_KEY,[]),
+ history:[],
+ historyTotal:0,
+ historyOverallTotal:0,
+ historyFacets:[],
+ historyQuery:{q:'',filterKey:'',offset:0,limit:20},
+ historyLoading:false,
+ historyLoaded:false,
+ historyError:'',
  safeMode:ls.get(SAFE_KEY)===null?true:ls.get(SAFE_KEY)!=='false',
  poseDepthMode:Boolean(storedRecipe?.pose?.useDepth),
  customPrompt:null,previewUrl:'',currentResult:null,publicationTask:null,resultError:'',resultErrorId:null,isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',
  hydrated:false,
 };
-// The result belongs to this page session. Saved history is opened explicitly.
+// The result belongs to this page session. Saved history lives in PostgreSQL + assets/ai-generate-image/.
 const listeners=new Set();
 let host={notice:()=>{},api:null,csrf:()=>'',session:()=>({})};
-let activeController=null,historyWrites=Promise.resolve(),hydration=null,authPollTimer=null,authEpoch=0;
+let activeController=null,hydration=null,legacyDrain=null,historyEpoch=0,authPollTimer=null,authEpoch=0;
+
+async function recordsRequest(path,options={}){
+ const headers={'Content-Type':'application/json',...(options.headers||{})};
+ const csrf=host.csrf?.()||'';
+ if(csrf&&!headers['X-CSRF-Token'])headers['X-CSRF-Token']=csrf;
+ if(typeof host.api==='function')return host.api(path,{...options,headers});
+ const res=await fetch(path,{...options,headers,credentials:'same-origin'});
+ const data=await res.json().catch(()=>({}));
+ if(!res.ok)throw new Error(data?.detail||data?.message||`请求失败 (HTTP ${res.status})`);
+ return data;
+}
 
 export function configureStudio(options={}){
  host={...host,...options};
@@ -151,19 +174,60 @@ function setRecipe(next){
 }
 function saveConfig(){ls.set(CFG_KEY,JSON.stringify(state.apiConfig));emit();}
 
+async function drainLegacyLocalHistory(legacyItems){
+ if(!Array.isArray(legacyItems)||!legacyItems.length)return;
+ if(legacyDrain)return legacyDrain;
+ legacyDrain=(async()=>{
+  try{
+   const ordered=[...legacyItems].sort((a,b)=>(a?.createdAt||0)-(b?.createdAt||0));
+   for(const item of ordered){
+    if(!item?.imageUrl)continue;
+    await recordsRequest('/api/v1/character-studio/records',{
+     method:'POST',
+     body:JSON.stringify({
+      id:item.id||'',
+      createdAt:item.createdAt||Date.now(),
+      image_url:item.imageUrl,
+      provider:item.provider||'',
+      model:item.model||'',
+      upstream_model:item.upstreamModel||'',
+      method:item.method||'',
+      method_label:item.methodLabel||'',
+      endpoint:item.endpoint||'',
+      prompt:item.prompt||'',
+      recipe_summary:item.recipeSummary||'',
+      snapshot:item.snapshot||null,
+      publication:item.publication||null,
+     }),
+    });
+   }
+   await idbDelete(HISTORY_KEY).catch(()=>{});
+   ls.remove(HISTORY_KEY);
+  }catch{
+   // Keep legacy browser copy intact if offline or backend not ready; retry next session.
+  }finally{legacyDrain=null;}
+ })();
+ return legacyDrain;
+}
+
 function hydrate(){
  if(hydration)return hydration;
- hydration=Promise.all([idbRead(RECIPE_KEY),idbRead(HISTORY_KEY)]).then(([recipe,history])=>{
-  if(recipe){
-   if(recipe.pose?.useDepth!==undefined)state.poseDepthMode=Boolean(recipe.pose.useDepth);
-   state.recipe={portrait:recipe.portrait??null,costume:sanitizeCostumeItem(recipe.costume)??null,pose:recipe.pose??null,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
+ hydration=(async()=>{
+  try{
+   const recipe=await idbRead(RECIPE_KEY);
+   if(recipe){
+    if(recipe.pose?.useDepth!==undefined)state.poseDepthMode=Boolean(recipe.pose.useDepth);
+    state.recipe={portrait:recipe.portrait??null,costume:sanitizeCostumeItem(recipe.costume)??null,pose:recipe.pose??null,extraImages:Array.isArray(recipe.extraImages)?recipe.extraImages:[]};
+   }
+  }catch{
+   // IndexedDB is optional for recipe drafts; generation history is backed by PostgreSQL API.
   }
-  if(Array.isArray(history))state.history=history;
   state.hydrated=true;emit();
- }).catch(()=>{
-  state.generationError='无法读取浏览器存储，已暂停生成；请恢复存储后刷新';
-  toast(state.generationError);emit();
- });
+  try{
+   const legacy=await idbRead(HISTORY_KEY).catch(()=>null)??readJson(HISTORY_KEY,null);
+   if(Array.isArray(legacy)&&legacy.length)await drainLegacyLocalHistory(legacy);
+  }catch{}
+ })();
  return hydration;
 }
 
@@ -323,27 +387,76 @@ export function updateParams(group,patch){state.apiConfig={...state.apiConfig,[g
 export function setCustomPrompt(value){state.customPrompt=value;emit();}
 export function currentPrompt(){return state.customPrompt??buildRecipePrompt(state.recipe,state.apiConfig.stylePreset);}
 
-// ------------------------------------------------------------------ history & generation
-function persistHistory(update){
- const write=historyWrites.catch(()=>{}).then(async()=>{const next=update(state.history);await idbWrite(HISTORY_KEY,next);ls.remove(HISTORY_KEY);state.history=next;emit();});
- historyWrites=write;return write;
+// ------------------------------------------------------------------ database history & generation
+export async function fetchHistoryPage({q='',filterKey='',offset=0,limit=20}={}){
+ const epoch=++historyEpoch;
+ const query={q:String(q||''),filterKey:String(filterKey||''),offset:Math.max(0,Number(offset)||0),limit:Math.max(1,Number(limit)||20)};
+ state.historyQuery=query;state.historyLoading=true;state.historyError='';emit();
+ const params=new URLSearchParams({offset:String(query.offset),limit:String(query.limit)});
+ if(query.q.trim())params.set('q',query.q.trim());
+ if(query.filterKey)params.set('filter_key',query.filterKey);
+ try{
+  if(legacyDrain)await legacyDrain;
+  const data=await recordsRequest(`/api/v1/character-studio/records?${params}`,{method:'GET'});
+  if(epoch!==historyEpoch)return data;
+  state.history=Array.isArray(data?.items)?data.items:[];
+  state.historyTotal=Number(data?.total??state.history.length);
+  state.historyOverallTotal=Number(data?.overall_total??state.historyTotal);
+  state.historyFacets=Array.isArray(data?.facets)?data.facets:[];
+  state.historyLoaded=true;state.historyLoading=false;state.historyError='';
+  emit();
+  return data;
+ }catch(error){
+  if(epoch===historyEpoch){
+   state.historyLoading=false;
+   state.historyError=error?.message||'无法从数据库读取合成记录';
+   emit();
+  }
+  return null;
+ }
 }
+export function refreshHistoryCount(){
+ if(!state.historyLoaded&&!state.historyLoading)return fetchHistoryPage(state.historyQuery);
+ return Promise.resolve(null);
+}
+
 function clearLinkedResult(id){if(id&&state.currentResult?.id===id){state.currentResult=null;state.previewUrl='';state.resultError='';emit();}}
 export async function removeHistoryItem(id){
  if(state.publicationTask?.resultId===id){toast('正在放入官方资产库，请完成后再删除');return false;}
- try{await persistHistory(c=>c.filter(x=>x.id!==id));clearLinkedResult(id);toast('已删除该条记录');return true;}
- catch{toast('删除失败，请检查浏览器存储空间');return false;}
+ try{
+  await recordsRequest(`/api/v1/character-studio/records/${encodeURIComponent(id)}`,{method:'DELETE'});
+  state.history=state.history.filter(x=>x.id!==id);
+  state.historyTotal=Math.max(0,state.historyTotal-1);
+  state.historyOverallTotal=Math.max(0,state.historyOverallTotal-1);
+  clearLinkedResult(id);
+  emit();
+  fetchHistoryPage(state.historyQuery);
+  toast('已删除该条记录及对应本地文件');
+  return true;
+ }catch(error){
+  toast(error?.message||'删除记录失败，请检查数据库服务状态');
+  return false;
+ }
 }
 export async function clearHistory(){
  if(state.publicationTask){toast('正在放入官方资产库，请完成后再清空');return false;}
- const ids=new Set(state.history.map(x=>x.id)),currentId=state.currentResult?.id;
- try{await persistHistory(c=>c.filter(x=>!ids.has(x.id)));if(ids.has(currentId))clearLinkedResult(currentId);toast('已清空记录');return true;}
- catch{toast('清空记录失败，请检查浏览器存储空间');return false;}
+ const currentId=state.currentResult?.id;
+ try{
+  await recordsRequest('/api/v1/character-studio/records',{method:'DELETE'});
+  state.history=[];state.historyTotal=0;state.historyOverallTotal=0;state.historyFacets=[];
+  if(currentId)clearLinkedResult(currentId);
+  emit();
+  toast('已清空全部合成记录');
+  return true;
+ }catch(error){
+  toast(error?.message||'清空记录失败，请检查数据库服务状态');
+  return false;
+ }
 }
 export async function deleteCurrentResult(id){
  if(state.isGenerating||state.publicationTask||state.currentResult?.id!==id)return false;
  const ok=await removeHistoryItem(id);
- if(!ok&&state.currentResult?.id===id){state.resultError='删除失败，当前图片与本地记录已保留，请恢复浏览器存储后重试';state.resultErrorId=id;emit();}
+ if(!ok&&state.currentResult?.id===id){state.resultError='删除失败，当前图片与数据库记录已保留，请重试';state.resultErrorId=id;emit();}
  return ok;
 }
 export function setPreviewUrl(url){state.previewUrl=url;state.currentResult=null;emit();}
@@ -355,7 +468,7 @@ async function officialCapability(actor){
  assertActor(actor);if(!host.api)throw new Error('合成台尚未连接资产服务');
  const receipt=await host.api('/api/v1/asset-center/official/capabilities',{headers:{'X-CSRF-Token':host.csrf?.()||''}});
  assertActor(actor);
- if(receipt?.can_publish===false)throw new Error('当前账号没有发布官方资产的权限；图片与本地记录保持原状，可继续下载');
+ if(receipt?.can_publish===false)throw new Error('当前账号没有发布官方资产的权限；图片与合成库记录保持原状，可继续下载');
  if(receipt?.can_publish!==true)throw new Error('无法读取官方资产发布权限，请重试');
 }
 export async function checkOfficialPublication(id){
@@ -366,10 +479,21 @@ export async function checkOfficialPublication(id){
  finally{if(state.publicationTask===task){state.publicationTask=null;emit();}}
 }
 async function checkpointResult(result,publication){
- // Keep an actual server receipt in memory even when browser persistence fails.
  result.publication=publication;
- if(state.currentResult?.id===result.id){state.currentResult={...state.currentResult,publication};emit();}
- await persistHistory(c=>[{...result,publication},...c.filter(x=>x.id!==result.id)]);
+ if(state.currentResult?.id===result.id)state.currentResult={...state.currentResult,publication};
+ state.history=state.history.map(x=>x.id===result.id?{...x,publication}:x);
+ emit();
+ const resp=await recordsRequest(`/api/v1/character-studio/records/${encodeURIComponent(result.id)}/publication`,{
+  method:'PATCH',
+  body:JSON.stringify({publication}),
+ });
+ const persisted=resp?.record;
+ if(persisted){
+  result.publication=persisted.publication||publication;
+  if(state.currentResult?.id===result.id)state.currentResult=persisted;
+  state.history=state.history.map(x=>x.id===result.id?persisted:x);
+  emit();
+ }
 }
 export async function publishCurrentResult(id,{title,allowWorkspaceReuse=false,actor:confirmedActor}={}){
  if(state.isGenerating||state.publicationTask)return false;
@@ -406,11 +530,17 @@ export async function publishCurrentResult(id,{title,allowWorkspaceReuse=false,a
   if(!receipt?.id||receipt.entry_id!==publication.publishPayload.entry_id||receipt.library_version_id!==publication.publishPayload.library_version_id)throw new Error('官方资产未返回有效发布回执，请重试以恢复结果');
   publication={...publication,phase:'published',officialReceipt:receipt};
   try{await checkpointResult(result,publication);toast('已放入官方资产库 · 人设');}
-  catch{publication.recoveryError='已成功入库，但浏览器未能保存回执；请查看官方资产，并保留当前页面中的回执';result.publication=publication;if(state.currentResult?.id===id){state.currentResult={...state.currentResult,publication};emit();}toast(publication.recoveryError);}
+  catch{publication.recoveryError='已成功入库，但数据库未能更新回执；请查看官方资产，并保留当前页面中的回执';result.publication=publication;if(state.currentResult?.id===id){state.currentResult={...state.currentResult,publication};emit();}toast(publication.recoveryError);}
   return receipt;
  }catch(error){
   const message=(error?.message||'入库失败，请重试')+'；本次图片已保留';
-  if(publication){publication.lastError=message;result.publication=publication;if(state.currentResult?.id===id)state.currentResult={...state.currentResult,publication};}
+  if(publication){
+   publication={...publication,lastError:message};
+   result.publication=publication;
+   if(state.currentResult?.id===id)state.currentResult={...state.currentResult,publication};
+   state.history=state.history.map(x=>x.id===id?{...x,publication}:x);
+   if(sessionActor()===actor)recordsRequest(`/api/v1/character-studio/records/${encodeURIComponent(id)}/publication`,{method:'PATCH',body:JSON.stringify({publication})}).catch(()=>{});
+  }
   if(sessionActor()===actor&&(!state.currentResult||state.currentResult.id===id)){state.resultError=message;state.resultErrorId=id;}
   emit();
   return false;
@@ -429,25 +559,76 @@ export async function snapshotGeneration(recipe,config,prompt){
 const throwIfAborted=signal=>{if(signal.aborted){const e=new Error('已停止');e.name='AbortError';throw e;}};
 async function completeGeneration(result,record,signal){
  throwIfAborted(signal);
- const id=crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
- const entry={id,createdAt:Date.now(),imageUrl:result.imageUrl,provider:result.providerUsed,model:result.modelUsed,prompt:record.prompt,recipeSummary:record.summary,snapshot:record.snapshot};
- state.currentResult=entry;state.previewUrl=entry.imageUrl;state.resultError='';emit();
- let imageUrl;
- try{imageUrl=await durableImage(result.imageUrl);}
- catch{state.previewUrl=result.imageUrl;throw new Error('图已生成，但图片转存失败，请先下载当前图片并检查网络与浏览器存储');}
+ if(result.persistedRecord?.id&&result.persistedRecord?.imageUrl){
+  const saved=result.persistedRecord;
+  state.currentResult=saved;state.previewUrl=saved.imageUrl;state.resultError='';
+  state.history=[saved,...state.history.filter(x=>x.id!==saved.id)];
+  state.historyOverallTotal+=1;state.historyTotal+=1;
+  emit();
+  if(state.historyLoaded)fetchHistoryPage(state.historyQuery);
+  toast('角色图已生成并存入数据库');
+  return;
+ }
+ const tempId=crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+ const previewEntry={
+  id:tempId,
+  createdAt:Date.now(),
+  imageUrl:result.imageUrl,
+  provider:result.providerUsed,
+  model:result.modelUsed,
+  method:result.methodUsed||'',
+  methodLabel:result.methodLabel||'',
+  endpoint:result.endpointUsed||'',
+  ...(result.upstreamModel?{upstreamModel:result.upstreamModel}:{}),
+  prompt:record.prompt,
+  recipeSummary:record.summary,
+  snapshot:record.snapshot,
+ };
+ state.currentResult=previewEntry;state.previewUrl=result.imageUrl;state.resultError='';emit();
+ let uploadImageUrl=result.imageUrl;
+ if(!String(uploadImageUrl||'').startsWith('data:image/')){
+  try{uploadImageUrl=await durableImage(result.imageUrl);}
+  catch{state.previewUrl=result.imageUrl;throw new Error('图已生成，但图片转存失败，请先下载当前图片并检查网络连接');}
+ }
  throwIfAborted(signal);
- entry.imageUrl=imageUrl;
- if(state.currentResult?.id===id){state.currentResult=entry;state.previewUrl=imageUrl;emit();}
- try{await persistHistory(c=>[entry,...c.filter(x=>x.id!==id)]);}
- catch{throw new Error('图已生成，但生成记录保存失败，请先下载当前图片并检查浏览器存储空间');}
- toast('角色图已完成并保存');
+ let saved;
+ try{
+  const resp=await recordsRequest('/api/v1/character-studio/records',{
+   method:'POST',
+   body:JSON.stringify({
+    id:tempId,
+    image_url:uploadImageUrl,
+    provider:result.providerUsed,
+    model:result.modelUsed,
+    upstream_model:result.upstreamModel||'',
+    method:result.methodUsed||'',
+    method_label:result.methodLabel||'',
+    endpoint:result.endpointUsed||'',
+    prompt:record.prompt,
+    recipe_summary:record.summary,
+    snapshot:record.snapshot,
+   }),
+  });
+  saved=resp?.record;
+  if(!saved?.id||!saved?.imageUrl)throw new Error('服务端未返回数据库记录');
+ }catch{
+  state.previewUrl=uploadImageUrl;
+  throw new Error('图已生成，但生成记录写入数据库失败，请先下载当前图片并检查数据库服务');
+ }
+ throwIfAborted(signal);
+ if(state.currentResult?.id===tempId){state.currentResult=saved;state.previewUrl=saved.imageUrl;}
+ state.history=[saved,...state.history.filter(x=>x.id!==saved.id)];
+ state.historyOverallTotal+=1;state.historyTotal+=1;
+ emit();
+ if(state.historyLoaded)fetchHistoryPage(state.historyQuery);
+ toast('角色图已生成并存入数据库');
 }
 export function cancelGeneration(){
  activeController?.abort();
 }
 export async function startGeneration(overridePrompt){
  if(state.isGenerating||state.publicationTask)return;
- if(!state.hydrated){toast(state.generationError||'正在读取浏览器存储，请稍后再生成');return;}
+ if(!state.hydrated){toast(state.generationError||'正在初始化合成台，请稍后再试');return;}
  const recipe=state.recipe,config=state.apiConfig,prompt=overridePrompt??currentPrompt();
  const record={prompt,summary:[recipe.portrait?.发型名称,recipe.costume?.服装名称,recipe.pose?.姿势名称].filter(Boolean).join(' + ')||'自定义合成'};
  state.isGenerating=true;state.generatingModel=config.activeProvider;state.generationError='';state.generationProgress=null;emit();
@@ -455,7 +636,7 @@ export async function startGeneration(overridePrompt){
  try{
   record.snapshot=await snapshotGeneration(recipe,config,prompt);
   throwIfAborted(controller.signal);
-  const result=await generateCharacterImage({recipe,prompt,config,signal:controller.signal,onProgress:p=>{state.generationProgress=p;emit();}});
+  const result=await generateCharacterImage({recipe,prompt,config,recipeSummary:record.summary,snapshot:record.snapshot,signal:controller.signal,onProgress:p=>{state.generationProgress=p;emit();}});
   throwIfAborted(controller.signal);
   await completeGeneration(result,record,controller.signal);
  }catch(error){

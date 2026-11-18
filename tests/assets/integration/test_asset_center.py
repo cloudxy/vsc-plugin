@@ -607,3 +607,189 @@ class AssetCenterTests(ResourceStoreFixture,unittest.TestCase):
             self.assertEqual(cleared.json()["cleared"], expected_total)
             self.assertEqual(client.get("/api/v1/asset-center/cart", headers=headers).json()["items"], [])
 
+    def test_character_studio_postgres_dated_storage_and_api_roundtrip(self):
+        import base64
+        from datetime import datetime, timezone
+        from pathlib import Path
+        from fastapi.testclient import TestClient
+        from sqlalchemy import insert, select
+        from sqlalchemy.exc import IntegrityError
+        from vsc.adapters.persistence.postgres import schema as S
+        from vsc.interfaces.web.app import create_app
+
+        img_root = Path(self.tmp.name) / "assets" / "ai-generate-image"
+        png_b64 = "data:image/png;base64," + base64.b64encode(png_bytes()).decode("ascii")
+        fixed_ts_ms = int(datetime(2026, 11, 18, 3, 15, 0, tzinfo=timezone.utc).timestamp() * 1000)
+
+        app = create_app(
+            {
+                "projects_root": self.tmp.name,
+                "ai_generate_image_root": str(img_root),
+                "allowed_hosts": ["testserver"],
+                "allowed_origins": ["http://testserver"],
+                "access_token": "official-local-test",
+                "human_identity": "test-human",
+                "background_enabled": False,
+            },
+            service=self.service,
+        )
+        with TestClient(app) as client:
+            # Unauthenticated media access is rejected when auth is configured
+            unauth = client.get("/api/v1/character-studio/media/2026-11-18/missing.png")
+            self.assertEqual(unauth.status_code, 403)
+
+            login = client.post("/api/v1/session", json={"token": "official-local-test"}, headers={"Origin": "http://testserver"})
+            headers = {"Origin": "http://testserver", "X-CSRF-Token": login.json()["csrf_token"]}
+
+            # 1. Save cloud-API generated record via POST /api/v1/character-studio/records
+            rec_id = str(uuid.uuid4())
+            save_res = client.post(
+                "/api/v1/character-studio/records",
+                headers=headers,
+                json={
+                    "id": rec_id,
+                    "createdAt": fixed_ts_ms,
+                    "image_url": png_b64,
+                    "provider": "grok_auth",
+                    "model": "grok-imagine-image-2.0",
+                    "upstream_model": "grok-2-image-internal",
+                    "method": "grok_sub_images_edits",
+                    "method_label": "Grok 订阅直连 · /v1/images/edits（多图编辑）",
+                    "endpoint": "/v1/images/edits",
+                    "prompt": "雨夜街头女性角色全身写真，保留服装与姿态细节",
+                    "recipe_summary": "波浪短发 + 风衣 + 自然站立",
+                    "snapshot": {
+                        "recipe": {
+                            "portrait": {"id": "u1", "source": "upload", "原图": png_b64},
+                            "extraImages": [{"id": "e1", "name": "耳环", "url": png_b64}],
+                        },
+                        "settings": {"activeProvider": "grok_auth", "apiKey": "xai-must-strip-secret"},
+                    },
+                },
+            )
+            self.assertEqual(save_res.status_code, 200, save_res.text)
+            rec = save_res.json()["record"]
+            self.assertEqual(rec["id"], rec_id)
+            self.assertTrue(rec["imagePath"].startswith("2026-11-18/"))
+            self.assertTrue(rec["promptPath"].startswith("2026-11-18/"))
+            self.assertEqual(rec["imageUrl"], f"/api/v1/character-studio/media/{rec['imagePath']}")
+            self.assertNotIn("data:image/", str(rec))
+            self.assertNotIn("xai-must-strip-secret", str(rec))
+
+            disk_img = img_root / rec["imagePath"]
+            disk_txt = img_root / rec["promptPath"]
+            self.assertTrue(disk_img.is_file())
+            self.assertEqual(disk_img.read_bytes(), png_bytes())
+            self.assertTrue(disk_txt.is_file())
+            sidecar_text = disk_txt.read_text("utf-8")
+            self.assertIn("雨夜街头女性角色全身写真", sidecar_text)
+            self.assertIn("grok-imagine-image-2.0", sidecar_text)
+            self.assertIn("Grok 订阅直连 · /v1/images/edits（多图编辑）", sidecar_text)
+            self.assertTrue(any((img_root / "2026-11-18" / "refs").iterdir()))
+
+            # 2. Server-side auth generation auto-persists to disk + PostgreSQL
+            with patch(
+                "vsc.interfaces.web.character_studio._generate_with_grok_auth",
+                return_value={
+                    "image_url": png_b64,
+                    "provider": "grok_auth",
+                    "model": "image_edit",
+                    "method": "grok_cli_image_edit",
+                    "method_label": "Grok CLI · image_edit 工具",
+                    "endpoint": "grok CLI (image_edit)",
+                },
+            ):
+                gen_res = client.post(
+                    "/api/v1/character-studio/generate",
+                    headers=headers,
+                    json={
+                        "provider": "grok_auth",
+                        "model": "image_edit",
+                        "prompt": "CLI 工具合成测试提示词",
+                        "recipe_summary": "CLI 配方",
+                        "references": [png_b64],
+                    },
+                )
+            self.assertEqual(gen_res.status_code, 200, gen_res.text)
+            gen_body = gen_res.json()
+            self.assertTrue(gen_body["image_url"].startswith("/api/v1/character-studio/media/"))
+            gen_rec = gen_body["record"]
+            self.assertEqual(gen_rec["model"], "image_edit")
+            self.assertEqual(gen_rec["method"], "grok_cli_image_edit")
+
+            # 3. Verify PostgreSQL stores paths only and enforces CHECK constraints against Base64 data URIs
+            with self.engine.connect() as conn:
+                db_row = conn.execute(
+                    select(S.character_studio_generations).where(S.character_studio_generations.c.id == uuid.UUID(rec_id))
+                ).mappings().one()
+                self.assertEqual(db_row["image_path"], rec["imagePath"])
+                self.assertEqual(db_row["prompt_path"], rec["promptPath"])
+                self.assertNotIn("data:image", str(dict(db_row)))
+
+            with self.assertRaises(IntegrityError):
+                with self.engine.begin() as conn:
+                    conn.execute(
+                        insert(S.character_studio_generations).values(
+                            id=uuid.uuid4(),
+                            image_path="data:image/png;base64,AAAA",
+                            prompt_path="2026-11-18/bad.txt",
+                            mime_type="image/png",
+                            size_bytes=10,
+                            sha256="0" * 64,
+                            provider="grok",
+                            model="grok-imagine-image",
+                            upstream_model="",
+                            method="grok_api_images_edits",
+                            method_label="Grok API",
+                            endpoint="/v1/images/edits",
+                            prompt="x",
+                            recipe_summary="x",
+                            snapshot={},
+                            created_by="test-human",
+                            created_at=datetime.now(timezone.utc),
+                        )
+                    )
+
+            # 4. List, hyphenated search, facet filter, and media streaming (session cookie without CSRF header)
+            listed = client.get("/api/v1/character-studio/records", headers=headers)
+            self.assertEqual(listed.status_code, 200, listed.text)
+            listed_json = listed.json()
+            self.assertGreaterEqual(listed_json["overall_total"], 2)
+            self.assertGreaterEqual(len(listed_json["facets"]), 2)
+
+            searched = client.get("/api/v1/character-studio/records?q=image-edit", headers=headers).json()
+            self.assertTrue(any(item["id"] == gen_rec["id"] for item in searched["items"]))
+
+            fk = next(f["key"] for f in listed_json["facets"] if f["model"] == "grok-imagine-image-2.0")
+            self.assertEqual(fk, "grok_auth|grok-imagine-image-2.0|grok_sub_images_edits")
+            filtered = client.get("/api/v1/character-studio/records", params={"filter_key": fk}, headers=headers).json()
+            self.assertEqual([item["id"] for item in filtered["items"]], [rec_id])
+
+            media_res = client.get(rec["imageUrl"])
+            self.assertEqual(media_res.status_code, 200)
+            self.assertEqual(media_res.content, png_bytes())
+            self.assertEqual(client.get("/api/v1/character-studio/media/../../etc/passwd").status_code, 404)
+
+            # 5. Publication checkpoint & actor isolation, then deletion cleans DB + disk files
+            pub_res = client.patch(
+                f"/api/v1/character-studio/records/{rec_id}/publication",
+                headers=headers,
+                json={"publication": {"actor": "test-human", "title": "测试人设", "phase": "prepared"}},
+            )
+            self.assertEqual(pub_res.status_code, 200, pub_res.text)
+            self.assertEqual(pub_res.json()["record"]["publication"]["title"], "测试人设")
+
+            conflict_res = client.patch(
+                f"/api/v1/character-studio/records/{rec_id}/publication",
+                headers=headers,
+                json={"publication": {"actor": "another-actor", "title": "篡改", "phase": "prepared"}},
+            )
+            self.assertEqual(conflict_res.status_code, 409)
+
+            del_res = client.delete(f"/api/v1/character-studio/records/{rec_id}", headers=headers)
+            self.assertEqual(del_res.status_code, 200, del_res.text)
+            self.assertFalse(disk_img.exists())
+            self.assertFalse(disk_txt.exists())
+            self.assertEqual(client.get(f"/api/v1/character-studio/records/{rec_id}", headers=headers).status_code, 404)
+
+

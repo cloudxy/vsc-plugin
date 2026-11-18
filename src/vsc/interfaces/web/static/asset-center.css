@@ -512,12 +512,14 @@ dialog.costume-note p{white-space:pre-line;line-height:1.7;font-size:13px;color:
    A width:100% search field shrinks it until “生成角色图” wraps inside the 34px button. */
 .asset-center.ref-library .ref-search-panel>.cs-history-toolbar{flex-wrap:nowrap;align-items:center;gap:12px;min-width:0}
 .asset-center.ref-library .ref-search-panel>.cs-history-toolbar>input{flex:1 1 180px;width:auto;max-width:none;min-width:140px}
+.asset-center.ref-library .ref-search-panel>.cs-history-toolbar>.cs-history-filter{flex:0 1 240px;width:auto;max-width:280px;min-width:140px;height:40px;margin:0}
 .asset-center.ref-library .ref-search-panel>.cs-history-toolbar .cs-history-count{flex:none}
 .asset-center.ref-library .ref-search-panel>.cs-history-toolbar .cs-history-toolbar-actions{flex:none;margin-left:auto}
 .asset-center.ref-library .ref-search-panel>.cs-history-toolbar .cs-history-toolbar-actions>button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:none;width:auto;height:40px;min-height:40px;margin:0;padding:0 16px;white-space:nowrap;letter-spacing:normal;font-size:14px;line-height:20px}
 @media(max-width:700px){
  .asset-center.ref-library .ref-search-panel>.cs-history-toolbar{flex-wrap:wrap}
- .asset-center.ref-library .ref-search-panel>.cs-history-toolbar>input{flex-basis:100%;min-width:0}
+ .asset-center.ref-library .ref-search-panel>.cs-history-toolbar>input,
+ .asset-center.ref-library .ref-search-panel>.cs-history-toolbar>.cs-history-filter{flex-basis:100%;min-width:0;max-width:none}
 }
 /* AI角色合成库：深色页面，生成按钮保持浅底深字，避免和搜索条融在一起。 */
 .workspace:has(#asset-center-view .ref-composite){background:#0b080b}

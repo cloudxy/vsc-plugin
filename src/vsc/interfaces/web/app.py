@@ -576,7 +576,7 @@ def create_app(config=None, catalog=None, service=None):
     install_commerce_notification_routes(app,catalog)
     install_service_operations_routes(app,router,catalog,etag,actor,read_actor)
     install_asset_center_routes(app,router,catalog,etag,actor,read_actor)
-    install_character_studio_routes(app,etag,read_actor,origin)
+    install_character_studio_routes(app,etag,read_actor,origin,image_root=config.get("ai_generate_image_root"))
     install_asset_card_routes(app,router,catalog,etag,actor,read_actor)
     install_task_notification_routes(app,router,catalog,etag,read_actor)
     install_community_routes(app,router,catalog,etag,actor,read_actor)

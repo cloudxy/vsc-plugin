@@ -2,6 +2,7 @@
 import {openAssetImageViewer} from './asset-center.js';
 import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,SETTINGS_MODALITIES,VIDEO_PROVIDER_META,VIDEO_SETTINGS_GROUPS,
  STYLE_PRESETS,isAuthProvider,groupForProvider,isVideoAuthProvider,groupForVideoProvider,VIDEO_IMAGE_KEY_PEERS,IMAGE_VIDEO_KEY_PEERS,
+ isGrokDirectImagineModel,describePlannedGeneration,resolveRecordProvenance,
  referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
 import {imageExtension,officialResultRoute,openCharacterPublication} from './character-studio-publication.js';
@@ -204,7 +205,8 @@ export function createCharacterStudio(root,ctx){
    return box;
   }
   if(p==='grok_auth'){
-   const gr=cfg.grokParams,usesImagineApi=String(cfg.providers.grok_auth?.model||'').startsWith('grok-imagine-');
+   const pc=cfg.providers.grok_auth||{},effectiveModel=pc.model==='custom'?pc.customModel:pc.model;
+   const gr=cfg.grokParams,usesImagineApi=isGrokDirectImagineModel(effectiveModel);
    box.append(field('画幅比例 (aspect_ratio)',select(['3:4','1:1','4:3','9:16','16:9','2:3','3:2','auto'].map(v=>[v,v]),gr.aspectRatio,up('grokParams','aspectRatio'))));
    if(usesImagineApi)box.append(field('输出分辨率 (resolution)',select([['2k','2k（高清推荐）'],['1.5k','1.5k'],['1k','1k']],gr.resolution,up('grokParams','resolution'))));
    box.append(field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')));
@@ -276,6 +278,10 @@ export function createCharacterStudio(root,ctx){
    grid.append(field('自定义模型 ID',input));
   }
   sec.body.append(grid);
+  const planned=describePlannedGeneration(cfg,state().recipe);
+  const routeNote=el('p','cs-active-route');
+  routeNote.append(el('span','','当前调用：'),el('code','cs-history-model',planned.model||'待填写自定义模型'),el('span','cs-history-method',planned.methodLabel||planned.providerShort));
+  sec.body.append(routeNote);
   if(isAuthProvider(p))sec.body.append(authInlineBanner(p));
   else if(!pc.apiKey.trim())sec.body.append(el('p','cs-warn',`尚未配置 ${meta.name} 的 API Key，请点击右上角「配置 Key」。`));
   const more=el('details','cs-more');more.append(el('summary','','更多参数'),providerParams());
@@ -291,15 +297,22 @@ export function createCharacterStudio(root,ctx){
   sec.body.append(area);
   if(s.customPrompt!=null)sec.body.append(el('small','cs-field-hint','已手动修改提示词；更换参考图后可点「重置」重新组装。'));
   const count=store.recipeCount(s.recipe);
-  const gen=action(s.isGenerating?'生成中…':`生成角色图${count?` (${count} 张参考)`:''}`,()=>store.startGeneration(),'cs-primary cs-generate');
+  const gen=action(s.isGenerating?'生成中…':`生成角色图${count?` (${count} 张参考)`:''}`,()=>{
+   const cur=state().apiConfig,pid=cur.activeProvider,customInput=root.querySelector?.('[data-focus-key="custom-model"]');
+   if(customInput&&cur.providers[pid]?.model==='custom'&&customInput.value!==cur.providers[pid]?.customModel){
+    store.updateProviderConfig(pid,{customModel:customInput.value});
+   }
+   return store.startGeneration();
+  },'cs-primary cs-generate');
   gen.disabled=s.isGenerating||Boolean(s.publicationTask)||!s.hydrated;
   sec.body.append(gen);
   return sec.node;
  }
 
  function resultSection(){
-  const s=state(),sec=section('本次生成结果',{actions:action(`AI角色合成库 (${s.history.length})`,()=>ctx.navigate?.('asset-center',{tab:'official',kind:'composite'}),'cs-ghost')});
-  sec.body.append(el('small','cs-field-hint','AI角色合成库为本机历史；入库位置：官方资产 · 人设。'));
+  const s=state(),totalCount=s.historyLoaded?s.historyOverallTotal:s.history.length;
+  const sec=section('本次生成结果',{actions:action(`AI角色合成库 (${totalCount})`,()=>ctx.navigate?.('asset-center',{tab:'official',kind:'composite'}),'cs-ghost')});
+  sec.body.append(el('small','cs-field-hint','生成图片与提示词按日期存于 assets/ai-generate-image/ 并写入数据库；入库位置：官方资产 · 人设。'));
   progressNode=el('div','cs-progress');updateProgress();
   sec.body.append(progressNode);
   errorNode=el('pre','cs-error-box');errorNode.hidden=!s.generationError;errorNode.textContent=s.generationError||'';sec.body.append(errorNode);
@@ -310,8 +323,13 @@ export function createCharacterStudio(root,ctx){
    const btn=el('button','cs-result-img');btn.type='button';btn.setAttribute('aria-label','放大生成结果');
    const img=el('img');img.src=s.previewUrl;img.alt='生成结果';btn.append(img);btn.onclick=()=>zoom(s.previewUrl,'生成结果');
    stage.append(btn);
+   if(result){
+    const info=resolveRecordProvenance(result),prov=el('div','cs-result-provenance');
+    prov.append(el('code','cs-history-model',info.model||'未记录模型'),el('span','cs-history-method',info.methodLabel||info.providerShort));
+    stage.append(prov);
+   }
    const acts=el('div','cs-row-actions cs-result-actions');acts.setAttribute('aria-label','生成结果操作');
-   const remove=action('删除',async()=>{if(result&&confirm('删除本次生成结果及对应的本地合成记录？此操作无法撤销，不影响已发布的官方资产和项目引用。'))await store.deleteCurrentResult(result.id);},'cs-danger','result-delete');
+   const remove=action('删除',async()=>{if(result&&confirm('从数据库删除本次生成结果及对应的本地图片与提示词文件？此操作无法撤销，不影响已发布的官方资产和项目引用。'))await store.deleteCurrentResult(result.id);},'cs-danger','result-delete');
    const phase=s.publicationTask&&s.publicationTask.resultId===result?.id?s.publicationTask.phase:'';
    const labels={checking:'检查权限中…',uploading:'上传图片中…',importing:'保存共享库中…',publishing:'发布官方资产中…'};
    const publish=action(receipt?'已入官方资产库':labels[phase]||'放入官方资产库',()=>{const epoch=viewEpoch;return result&&openCharacterPublication(result,ctx,store,{isActive:()=>!disposed&&mode==='studio'&&epoch===viewEpoch&&state().currentResult?.id===result.id,restoreFocus:()=>{if(!disposed&&epoch===viewEpoch)root.querySelector('[data-focus-key="result-publish"]')?.focus({preventScroll:true});}});},'cs-primary','result-publish');
@@ -665,7 +683,7 @@ export function createCharacterStudio(root,ctx){
  // ------------------------------------------------------------------ render loop
  function signature(){
   const s=state();
-  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.currentResult?.id,s.currentResult?.publication,s.publicationTask,s.resultError,s.isGenerating,s.generationError,s.hydrated]);
+  return JSON.stringify([mode,settingsModality,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.historyOverallTotal,s.historyLoaded,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.currentResult?.id,s.currentResult?.publication,s.publicationTask,s.resultError,s.isGenerating,s.generationError,s.hydrated]);
  }
  function render(force=false){
   if(disposed)return;
@@ -709,6 +727,7 @@ export function createCharacterStudio(root,ctx){
     document.addEventListener('paste',pasteHandler);
    }
    store.refreshAuthStatus();
+   if(mode==='studio')store.refreshHistoryCount();
    render(true);
   },
   suspend(){

@@ -10,7 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-SCHEMA_REVISION = "0061_guide_documents"
+SCHEMA_REVISION = "0062_character_studio_generations"
 
 metadata = MetaData(naming_convention={
     "ix": "ix_%(table_name)s_%(column_0_name)s",
@@ -1125,6 +1125,7 @@ from .schema_professional_inputs import declare_professional_inputs, PROFESSIONA
 from .schema_project_cover import declare_project_cover, PROJECT_COVER_GUARD_DDL
 from .schema_canvas_collaboration import declare_canvas_collaboration, CANVAS_COLLAB_IMMUTABLE
 from .schema_guide import install_guide_schema, GUIDE_TABLES
+from .schema_character_studio import install_character_studio_schema, CHARACTER_STUDIO_TABLES
 globals().update(install_canvas_schema(metadata))
 globals().update(install_direct_copy_schema(metadata))
 globals().update(declare_editor(project_table, ref, uid, stamp))
@@ -1144,6 +1145,7 @@ globals().update(install_canvas_execution_schema(metadata))
 globals().update(declare_text_tool_copies(project_table,ref,stamp))
 globals().update(declare_creative_tool_imports(project_table,ref,stamp))
 globals().update(install_guide_schema(metadata))
+globals().update(install_character_studio_schema(metadata))
 globals().update(declare_working_state(project_table,ref,uid,stamp))
 globals().update(declare_workspace_commerce(project_table,ref,uid,stamp))
 globals().update(declare_asset_cards(project_table,ref,uid,stamp))

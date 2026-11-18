@@ -1,6 +1,6 @@
-// Saved character generations: one browser history, consumed by the official-assets library.
+// Saved character generations: PostgreSQL + assets/ai-generate-image/ catalog loaded via API.
 import * as store from './character-studio-store.js';
-import {PROVIDER_META,comparisonReferences} from './character-studio-ai.js';
+import {PROVIDER_META,comparisonReferences,resolveRecordProvenance} from './character-studio-ai.js';
 import {openCharacterPublication,officialResultRoute,imageExtension} from './character-studio-publication.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n;};
@@ -12,7 +12,8 @@ function select(options,value,onChange,{label=''}={}){
 function download(url,name){const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();}
 
 export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,headingParent}={}){
- let disposed=false,unsub=null,grid=null,pager=null,count=null,clear=null,search=null,note=null,query='',pageIndex=0,lastQuery='',lastHistory=null,lastHydrated=null,lastError=null,lastPublicationTask=null;
+ store.configureStudio({notice:ctx.notice,api:ctx.api,csrf:()=>ctx.session?.()?.csrf||'',session:ctx.session});
+ let disposed=false,unsub=null,searchTimer=null,grid=null,pager=null,count=null,clear=null,search=null,filterSelect=null,filterSig='',note=null,query='',modelFilter='',pageIndex=0,lastSig='';
  const PAGE_SIZE=20;
  const notice=message=>ctx.notice?.(message),dialogs=new Set();
  let viewEpoch=0;
@@ -20,7 +21,7 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
   const d=new Date(h.createdAt),pad=v=>String(v).padStart(2,'0');
   return Number.isNaN(d.getTime())?'合成角色':`合成角色 · ${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
  };
- const engine=h=>PROVIDER_META[h.provider]?.shortName||h.provider||'AI生成';
+ const reloadFromApi=()=>store.fetchHistoryPage({q:query,filterKey:modelFilter,offset:pageIndex*PAGE_SIZE,limit:PAGE_SIZE});
  const historyMenus=()=>{
   const seen=new Set(),found=[];
   for(const scope of toolbarParent&&toolbarParent!==root?[toolbarParent,root]:[root]){
@@ -76,10 +77,25 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
   dialogs.add(dialog);dialog.addEventListener('close',()=>dialogs.delete(dialog));
  }
  function detail(h){
+  const info=resolveRecordProvenance(h);
   const returnFocus=document.activeElement,dialog=el('dialog','cs-dialog cs-history-detail');dialog.setAttribute('aria-label','合成记录详情');
   const head=el('header','cs-dialog-head'),close=action('×',()=>dialog.close(),'cs-icon-btn');close.setAttribute('aria-label','关闭合成记录详情');head.append(el('h2','',recordTitle(h)),close);
   const meta=el('dl','cs-history-detail-meta');
-  for(const [label,value]of [['生成引擎',engine(h)],['模型',h.model||'未记录'],['生成时间',new Date(h.createdAt).toLocaleString()],['参考快照',h.snapshot?`${store.recipeCount(h.snapshot.recipe||{})} 张参考图`:'旧记录未保存快照']])meta.append(el('dt','',label),el('dd','',value));
+  const snapSummary=h.snapshot&&Object.keys(h.snapshot).length?`${store.recipeCount(h.snapshot.recipe||{})} 张参考图${h.snapshot.settings?.sendStitchedSheet?'（附带合成拼图）':''}`:'旧记录未保存快照';
+  const imgLoc=h.storageDisplayPath||(h.imagePath?`assets/ai-generate-image/${h.imagePath}`:'');
+  const promptLoc=h.promptDisplayPath||(h.promptPath?`assets/ai-generate-image/${h.promptPath}`:'');
+  const rows=[
+   ['接入通道',info.providerName],
+   ['实际模型',info.model||'未记录'],
+   ...(info.upstreamModel&&info.upstreamModel!==info.model?[['平台返回模型',info.upstreamModel]]:[]),
+   ['调用方式',info.methodLabel||'未记录'],
+   ...(info.endpoint?[['调用入口',info.endpoint]]:[]),
+   ...(imgLoc?[['图片位置',imgLoc]]:[]),
+   ...(promptLoc?[['提示词文件',promptLoc]]:[]),
+   ['生成时间',new Date(h.createdAt).toLocaleString()],
+   ['参考快照',snapSummary],
+  ];
+  for(const [label,value]of rows)meta.append(el('dt','',label),el('dd','',value));
   const recipe=el('section','cs-history-detail-section');recipe.append(el('h3','','完整配方'),el('p','',h.recipeSummary||'自定义合成'));
   const prompt=el('section','cs-history-detail-section');prompt.append(el('h3','','提示词'),el('pre','',h.prompt||'该记录未保存提示词。'));
   const tools=el('div','cs-row-actions');tools.append(action('复制提示词',async()=>{if(!navigator.clipboard?.writeText)throw new Error('无法复制，请手动选中提示词复制');await navigator.clipboard.writeText(h.prompt||'');notice('已复制提示词');}),action('复用提示词',()=>{dialog.close();return reuse(h);}));
@@ -87,43 +103,86 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
   dialog.addEventListener('close',()=>{dialogs.delete(dialog);dialog.remove();if(returnFocus?.isConnected)returnFocus.focus?.();});
   document.body.append(dialog);dialog.showModal?.();
  }
- function updateNote(){if(note)note.textContent=(navigator.onLine===false?'当前离线，已保存的记录仍可查看。 ':'')+'记录仅保存在当前浏览器，含本次生成的参考快照。';}
- function clearSearch(){query='';search.value='';render(true);search.focus();}
+ function updateNote(){if(note)note.textContent='所有合成记录均存储在服务端数据库，生成的图片与提示词文件按日期存放在 assets/ai-generate-image/ 目录。';}
+ function clearSearch(){clearTimeout(searchTimer);query='';modelFilter='';pageIndex=0;if(search)search.value='';if(filterSelect)filterSelect.value='';reloadFromApi();search?.focus();}
+ function syncFilterOptions(facets,itemsWithInfo){
+  if(!filterSelect)return;
+  const entries=[];
+  if(Array.isArray(facets)&&facets.length){
+   for(const f of facets){
+    const pShort=PROVIDER_META[f.provider]?.shortName||f.provider||'通道';
+    entries.push([f.key,`${f.model||'未记录模型'} · ${f.methodLabel||pShort} (${f.count})`]);
+   }
+  }else{
+   const buckets=new Map();
+   for(const {info}of itemsWithInfo){
+    const cur=buckets.get(info.filterKey);
+    if(cur)cur.count+=1;
+    else buckets.set(info.filterKey,{label:`${info.model||'未记录模型'} · ${info.methodLabel||info.providerShort}`,count:1});
+   }
+   for(const [k,v]of buckets.entries())entries.push([k,`${v.label} (${v.count})`]);
+  }
+  if(modelFilter&&!entries.some(([k])=>k===modelFilter))modelFilter='';
+  const wanted=[['','全部模型与方式'],...entries];
+  const sig=JSON.stringify(wanted);
+  if(sig!==filterSig){
+   filterSig=sig;
+   filterSelect.replaceChildren();
+   for(const [v,l]of wanted){const o=el('option','',l);o.value=v;filterSelect.append(o);}
+  }
+  filterSelect.value=modelFilter;
+ }
  function status(title,text,control){
   const box=el('section','cs-history-state');box.setAttribute('role','status');box.append(el('h3','',title),el('p','',text));if(control)box.append(control);grid.append(box);
  }
  function render(force=false){
   if(disposed||!grid)return;
   const s=store.getState();
-  if(!force&&s.history===lastHistory&&s.hydrated===lastHydrated&&s.generationError===lastError&&s.publicationTask===lastPublicationTask)return;
-  lastHistory=s.history;lastHydrated=s.hydrated;lastError=s.generationError;lastPublicationTask=s.publicationTask;
+  const sig=JSON.stringify([s.history.map(x=>[x.id,x.publication?.phase,Boolean(x.publication?.officialReceipt)]),s.historyTotal,s.historyOverallTotal,s.historyFacets,s.historyLoading,s.historyLoaded,s.historyError,Boolean(s.publicationTask),pageIndex,query,modelFilter]);
+  if(!force&&sig===lastSig)return;
+  lastSig=sig;
   const focused=root.contains?.(document.activeElement)?document.activeElement:null;
-  const restoreFocus=()=>{if(focused&&!focused.isConnected)search.focus?.({preventScroll:true});};
-  const key=query.trim().toLocaleLowerCase();
-  if(key!==lastQuery){pageIndex=0;lastQuery=key;}
-  const items=[...s.history].sort((a,b)=>b.createdAt-a.createdAt).filter(h=>!key||[h.recipeSummary,h.prompt,h.model,engine(h),h.provider].some(v=>String(v||'').toLocaleLowerCase().includes(key)));
-  const pageCount=Math.max(1,Math.ceil(items.length/PAGE_SIZE));
-  if(pageIndex>pageCount-1)pageIndex=pageCount-1;
-  const visible=items.slice(pageIndex*PAGE_SIZE,pageIndex*PAGE_SIZE+PAGE_SIZE);
-  count.textContent=!s.hydrated?'正在读取…':key?`${items.length} / ${s.history.length} 条记录`:`${s.history.length} 条记录`;
-  clear.disabled=!s.history.length||!s.hydrated||Boolean(s.publicationTask);grid.setAttribute('aria-busy',String(!s.hydrated&&!s.generationError));grid.replaceChildren();updateNote();
-  if(!s.hydrated){
-   if(s.generationError)status('暂时无法读取合成记录','请确认当前浏览器允许本地存储，再重试。',action('重试读取',()=>window.location.reload()));
-   else{for(let i=0;i<2;i++){const skel=el('div','cs-history-skeleton');skel.setAttribute('aria-hidden','true');grid.append(skel);}status('正在读取合成记录…','');}
+  const restoreFocus=()=>{if(focused&&!focused.isConnected)search?.focus?.({preventScroll:true});};
+  const visible=s.history.map(h=>({h,info:resolveRecordProvenance(h)}));
+  syncFilterOptions(s.historyFacets,visible);
+  const filtered=Boolean(query.trim()||modelFilter);
+  const total=s.historyLoaded?s.historyTotal:visible.length;
+  const overall=s.historyLoaded?s.historyOverallTotal:visible.length;
+  const pageCount=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  count.textContent=s.historyLoading&&!s.historyLoaded?'正在读取…':filtered?`${total} / ${overall} 条记录`:`${overall} 条记录`;
+  clear.disabled=!overall||!s.historyLoaded||Boolean(s.publicationTask);
+  grid.setAttribute('aria-busy',String(Boolean(s.historyLoading)));
+  grid.replaceChildren();updateNote();
+  if(!s.historyLoaded){
+   if(s.historyError)status('暂时无法读取合成记录',s.historyError,action('重试读取',()=>reloadFromApi()));
+   else{for(let i=0;i<2;i++){const skel=el('div','cs-history-skeleton');skel.setAttribute('aria-hidden','true');grid.append(skel);}status('正在从数据库读取合成记录…','');}
    restoreFocus();return;
   }
-  if(!items.length){
-   if(key)status('没有找到合成记录','试试其他关键词，或清除搜索查看全部记录。',action('清除搜索',clearSearch));
-   else status('还没有合成记录','生成完成后，图片和本次参考快照会保存在这里。');
+  if(s.historyError&&!visible.length){
+   status('暂时无法读取合成记录',s.historyError,action('重试读取',()=>reloadFromApi()));
    restoreFocus();return;
   }
-  for(const h of visible){
+  if(!visible.length){
+   if(filtered)status('没有找到合成记录','试试其他关键词或模型筛选，或清除搜索查看全部记录。',action('清除搜索',clearSearch));
+   else status('还没有合成记录','生成完成后，原图与提示词将按日期存入 assets/ai-generate-image/ 并写入数据库。');
+   if(pager)pager.hidden=true;
+   restoreFocus();return;
+  }
+  for(const {h,info}of visible){
    const title=recordTitle(h),card=el('article','cs-history-item official-list-card'),preview=action('',()=>onZoom?.(h.imageUrl,h.recipeSummary||title),'cs-history-img official-list-media');
    card.dataset.resultId=h.id;
    preview.setAttribute('aria-label',`查看生成记录：${h.recipeSummary||title}`);
    const img=el('img');img.src=h.imageUrl;img.alt=h.recipeSummary||title;img.loading='lazy';img.decoding='async';
    img.onerror=()=>{img.hidden=true;if(!preview.querySelector('.cs-history-image-error'))preview.append(el('span','cs-history-image-error','图片暂时无法显示 · 仍可查看记录详情'));};preview.append(img);
-   const meta=el('div','cs-history-meta official-list-info'),heading=el('h3','official-list-title',title);heading.title=title;meta.append(heading,el('small','official-list-meta',`${engine(h)} · ${new Date(h.createdAt).toLocaleString()}`));
+   const meta=el('div','cs-history-meta official-list-info'),heading=el('h3','official-list-title',title);heading.title=title;
+   const specs=el('div','cs-history-specs');
+   const modelBadge=el('code','cs-history-model',info.model||'未记录模型');
+   modelBadge.title=info.model?`模型：${info.model}`:'旧记录未保存模型';
+   const methodText=info.methodLabel||'未记录方式';
+   const methodBadge=el('span','cs-history-method',methodText);
+   methodBadge.title=`调用方式：${methodText}`;
+   specs.append(modelBadge,methodBadge);
+   meta.append(heading,specs,el('small','official-list-meta',`${info.providerShort} · ${new Date(h.createdAt).toLocaleString()}`));
    const tools=el('div','cs-row-actions official-list-actions'),more=moreMenu(title+'的更多操作',[
     ['查看详情',()=>detail(h)],['对比参考',()=>compareDialog(h)],['下载图片',()=>download(h.imageUrl,`character-${h.createdAt}.${imageExtension(h.imageUrl)}`)],
     ...(h.publication?.officialReceipt?[
@@ -131,17 +190,17 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
     ]:[
      [h.publication?'继续入库':'放入官方资产库',()=>publish(h)],
     ]),
-    ['删除记录',()=>{if(confirm('删除这条本机合成记录及参考快照？此操作无法撤销，已入库的官方资产、项目引用和已下载图片不受影响。'))return store.removeHistoryItem(h.id);},'cs-history-delete'],
+    ['删除记录',()=>{if(confirm('从数据库删除这条合成记录及对应的本地图片与提示词文件？此操作无法撤销，已入库的官方资产、项目引用和已下载图片不受影响。'))return store.removeHistoryItem(h.id);},'cs-history-delete'],
    ]);
    if(s.publicationTask)for(const b of more.buttons)if(['删除记录','放入官方资产库','继续入库'].includes(b.textContent))b.disabled=true;
    tools.append(action('复用提示词',()=>reuse(h)),more.node);card.append(preview,meta,tools);grid.append(card);
   }
   if(pager){
    pager.replaceChildren();
-   if(items.length>PAGE_SIZE){
+   if(total>PAGE_SIZE){
     pager.hidden=false;
-    const prev=action('上一页',()=>{pageIndex-=1;render(true);}),next=action('下一页',()=>{pageIndex+=1;render(true);});
-    prev.disabled=pageIndex<=0;next.disabled=pageIndex>=pageCount-1;
+    const prev=action('上一页',()=>{pageIndex=Math.max(0,pageIndex-1);return reloadFromApi();}),next=action('下一页',()=>{pageIndex=Math.min(pageCount-1,pageIndex+1);return reloadFromApi();});
+    prev.disabled=pageIndex<=0||s.historyLoading;next.disabled=pageIndex>=pageCount-1||s.historyLoading;
     pager.append(prev,el('span','',`第 ${pageIndex+1} / ${pageCount} 页`),next);
    }else pager.hidden=true;
   }
@@ -250,20 +309,28 @@ export function createCharacterHistory(root,ctx,{onZoom,onCompose,toolbarParent,
  return {
   load(){
    viewEpoch++;
-   disposed=false;unsub?.();menuListeners(false);closeMenus();root.replaceChildren();root.className='character-studio cs-history-library';
+   disposed=false;filterSig='';lastSig='';clearTimeout(searchTimer);unsub?.();menuListeners(false);closeMenus();root.replaceChildren();root.className='character-studio cs-history-library';
    headingParent?.querySelector('.cs-history-heading')?.remove();
    (headingParent||root).append(el('h2','cs-history-heading','AI角色合成库'));
    const toolbar=el('div','cs-history-toolbar');
-   search=el('input');search.type='search';search.placeholder='搜索提示词、配方或生成引擎';search.setAttribute('aria-label','搜索合成记录');search.value=query;search.oninput=()=>{query=search.value;render(true);};
+   search=el('input');search.type='search';search.placeholder='搜索模型、调用方式、提示词或配方';search.setAttribute('aria-label','搜索合成记录');search.value=query;
+   search.oninput=()=>{
+    query=search.value;pageIndex=0;clearTimeout(searchTimer);
+    if(!query.trim())reloadFromApi();
+    else searchTimer=setTimeout(()=>reloadFromApi(),120);
+   };
+   filterSelect=select([['','全部模型与方式']],modelFilter,v=>{modelFilter=v;pageIndex=0;reloadFromApi();},{label:'按模型与方式筛选'});
+   filterSelect.className='cs-history-filter';
    count=el('span','cs-history-count');count.setAttribute('role','status');count.setAttribute('aria-live','polite');
    const actions=el('div','cs-row-actions cs-history-toolbar-actions'),more=moreMenu('合成库更多操作',[
-    ['清空全部记录',()=>{if(confirm('确定清空当前浏览器中的全部合成记录及参考快照？此操作无法撤销。'))return store.clearHistory();},'cs-history-delete'],
+    ['清空全部记录',()=>{if(confirm('确定从数据库清空全部合成记录及对应本地文件？此操作无法撤销，已入库的官方资产不受影响。'))return store.clearHistory();},'cs-history-delete'],
    ]);clear=more.buttons[0];
-   actions.append(action('生成角色图',()=>onCompose?.(),'cs-primary'),more.node);toolbar.append(search,count,actions);
+   actions.append(action('生成角色图',()=>onCompose?.(),'cs-primary'),more.node);toolbar.append(search,filterSelect,count,actions);
    grid=el('div','cs-history official-list-grid');pager=el('nav','cs-history-pager');pager.setAttribute('aria-label','合成记录分页');pager.hidden=true;note=el('p','cs-history-note');
    (toolbarParent||root).append(toolbar);root.append(grid,pager,note);
-   window.addEventListener?.('online',updateNote);window.addEventListener?.('offline',updateNote);menuListeners(true);unsub=store.subscribe(()=>render());render(true);
+   menuListeners(true);unsub=store.subscribe(()=>render());render(true);
+   return reloadFromApi();
   },
-  suspend(){viewEpoch++;disposed=true;unsub?.();unsub=null;menuListeners(false);closeMenus();window.removeEventListener?.('online',updateNote);window.removeEventListener?.('offline',updateNote);for(const dialog of dialogs)dialog.close?.();},
+  suspend(){viewEpoch++;disposed=true;clearTimeout(searchTimer);unsub?.();unsub=null;menuListeners(false);closeMenus();for(const dialog of dialogs)dialog.close?.();},
  };
 }

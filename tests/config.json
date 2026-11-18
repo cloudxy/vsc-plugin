@@ -1459,6 +1459,10 @@
         "migrations/postgres/versions/0056_library_media_lifecycle.py",
         "src/vsc/adapters/persistence/postgres/library_media.py",
         "src/vsc/interfaces/web/asset_center.py",
+        "src/vsc/interfaces/web/character_studio.py",
+        "src/vsc/assets/character_studio_store.py",
+        "src/vsc/adapters/persistence/postgres/schema_character_studio.py",
+        "migrations/postgres/versions/0062_character_studio_generations.py",
         "src/vsc/interfaces/web/static/asset-center.js",
         "src/vsc/assets/task_center.py",
         "src/vsc/adapters/persistence/postgres/task_center.py"
@@ -2431,6 +2435,8 @@
       "layer": "unit",
       "sources": [
         "src/vsc/assets/pose_gallery.py",
+        "src/vsc/assets/character_studio_store.py",
+        "src/vsc/adapters/persistence/postgres/schema_character_studio.py",
         "src/vsc/interfaces/web/character_studio.py",
         "src/vsc/interfaces/web/app.py",
         "src/vsc/interfaces/web/templates/index.html",
@@ -2456,7 +2462,8 @@
         "tests/project/unit/character_studio.test.mjs",
         "tests/project/unit/character_studio_parity.test.mjs",
         "tests/project/unit/character_studio_errors.test.mjs",
-        "tests/project/unit/character_studio_continuity.test.mjs"
+        "tests/project/unit/character_studio_continuity.test.mjs",
+        "tests/support/fixtures/frontend/studio_records_api.mjs"
       ]
     },
     "project.integration.test_project_workspace_catalog": {
@@ -2590,6 +2597,14 @@
       "sources": [
         "tools/maintenance/featured_showcase_bulk.py",
         "tools/maintenance/featured_showcase_metrics.py"
+      ]
+    },
+    "project.unit.test_creation_guide": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/creation_guide.py",
+        "tools/maintenance/guide_capture.py"
       ]
     }
   },

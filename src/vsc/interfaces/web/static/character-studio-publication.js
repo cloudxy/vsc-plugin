@@ -1,5 +1,6 @@
 // Official publication uses the generated image and frozen, nonsecret provenance.
 // The browser recipe history remains local; only a server receipt means published.
+import {resolveRecordProvenance} from './character-studio-ai.js';
 export function imageExtension(url='',mime=''){
  const type=(mime||/^data:([^;,]+)/i.exec(url)?.[1]||'').toLowerCase().split(';')[0];
  const known={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','image/avif':'avif'};
@@ -14,7 +15,7 @@ export async function generatedImageBlob(result){
   if(!bytes.length)throw new Error('生成结果不是可上传的图片');
   return new Blob([bytes],{type:inline[1].toLowerCase()});
  }
- const response=await fetch(result.imageUrl);
+ const response=await fetch(result.imageUrl,{credentials:'same-origin'});
  if(!response.ok)throw new Error('无法读取这次生成的图片，请检查网络后重试');
  const blob=await response.blob();
  if(!blob.size||!blob.type.startsWith('image/'))throw new Error('生成结果不是可上传的图片');
@@ -25,15 +26,22 @@ export async function newPublication(result,actor,title){
  const bytes=new TextEncoder().encode(JSON.stringify([actor,result.id]));
  const digest=await crypto.subtle.digest('SHA-256',bytes);
  const key='character-studio-'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
- const provider=String(result.provider||'未知供应商'),model=String(result.model||'未知模型');
- const description=`AI角色合成台生成；供应商：${provider}；模型：${model}；生成时间：${new Date(result.createdAt).toISOString()}；本地结果：${result.id}`;
+ const info=resolveRecordProvenance(result);
+ const provider=String(result.provider||info.provider||'未知供应商'),model=String(info.model||result.model||'未知模型');
+ const methodPart=info.methodLabel?`；方式：${info.methodLabel}`:'';
+ const description=`AI角色合成台生成；供应商：${provider}；模型：${model}${methodPart}；生成时间：${new Date(result.createdAt).toISOString()}；本地结果：${result.id}`;
  const references={};
  for(const slot of ['portrait','costume','pose']){
   const item=result.snapshot?.recipe?.[slot];
   if(item)references[slot]={id:item.id||'',source:item.source||'',name:item.标题||item.发型名称||item.服装名称||item.姿势名称||''};
  }
+ const specExtras={};
+ if(info.method)specExtras.method=info.method;
+ if(info.methodLabel)specExtras.method_label=info.methodLabel;
+ if(info.endpoint)specExtras.endpoint=info.endpoint;
+ if(info.upstreamModel)specExtras.upstream_model=info.upstreamModel;
  return {actor,title,phase:'prepared',importPayload:{library_key:key,title,category:'image',description,
-  specification:{source:'character-studio',result_id:result.id,provider,model,generated_at:result.createdAt,prompt:result.prompt||'',style_preset:result.snapshot?.settings?.stylePreset||'',references},
+  specification:{source:'character-studio',result_id:result.id,provider,model,...specExtras,generated_at:result.createdAt,prompt:result.prompt||'',style_preset:result.snapshot?.settings?.stylePreset||'',references},
   allowed_purposes:['identity_face'],license:{outcome:'licensed',allow_workspace_reuse:true,evidence:`用户明确确认有权将本次生成图片在工作区共享与复用；供应商：${provider}；模型：${model}；此确认不替代供应商条款或来源许可。`},
   import_key:key,members:[]},commandKey:key};
 }
@@ -56,7 +64,7 @@ export async function openCharacterPublication(record,ctx,store,{restoreFocus,is
  if(!isActive())return false;
  const dialog=document.createElement('dialog');dialog.className='cs-dialog cs-publication';dialog.setAttribute('aria-label','放入官方资产库');
  const node=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text)n.textContent=text;return n;};
- const title=node('h2','','放入官方资产库'),intro=node('p','cs-field-hint','目标：官方资产 · 人设。图片与生成说明将保存到服务端，供工作区复用。AI角色合成库仍是当前浏览器中的本地配方与生成记录。');
+ const title=node('h2','','放入官方资产库'),intro=node('p','cs-field-hint','目标：官方资产 · 人设。确认后将从 AI角色合成库 同步发布为工作区可复用的正式人设资产。');
  const preview=node('img','cs-publication-preview');preview.src=record.imageUrl;preview.alt='将入库的这次生成结果';
  const label=node('label','cs-field'),name=node('input');name.type='text';name.maxLength=200;name.value=record.publication?.title||defaultResultTitle(record);name.setAttribute('aria-label','资产名称');name.disabled=Boolean(record.publication);
  label.append(node('span','cs-field-label','资产名称'),name);
