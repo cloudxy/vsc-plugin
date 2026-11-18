@@ -75,7 +75,7 @@ test('shell locale binding updates the caption without replacing the live disclo
 });
 
 for(const [item,expected] of [
-  ['guide',['guide-open','/guide/creation','_blank']],
+  ['guide',['guide-open','/guide','_blank']],
   ['feedback',['service-operations','feedback-records']],
   ['network',['service-operations','network-diagnostic']],
 ])test(`help ${item} survives pointer-induced focus loss until its action runs`,async()=>{

@@ -2606,6 +2606,33 @@
         "src/vsc/interfaces/web/creation_guide.py",
         "tools/maintenance/guide_capture.py"
       ]
+    },
+    "project.unit.test_guide_import_liblib": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "tools/maintenance/guide_import_liblib.py"
+      ]
+    },
+    "project.integration.test_guide_seed": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/guide_store.py",
+        "src/vsc/adapters/persistence/postgres/schema_guide.py"
+      ]
+    },
+    "production.unit.test_kling_provider": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/adapters/providers/kling/__init__.py",
+        "src/vsc/adapters/providers/kling/credentials.py",
+        "src/vsc/adapters/providers/kling/spec.py",
+        "src/vsc/adapters/providers/kling/provider.py",
+        "src/vsc/adapters/providers/kling/resource_factory.py",
+        "src/vsc/adapters/providers/worker_factory.py"
+      ]
     }
   },
   "dependencies": {

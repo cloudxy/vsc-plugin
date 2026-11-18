@@ -364,8 +364,8 @@ export function createCreativeCanvasPanel(ctx){
     create.append(el('h3','添加资源'),button(s,'上传资源',()=>{create.hidden=true;return uploadResources(s);}),button(s,'从资产库导入',()=>{create.hidden=true;return assetsPanel(s);}),button(s,'从历史记录选择',()=>{create.hidden=true;return generationHistory(s);}));
     const toggleCreate=()=>{s.createPoint=null;create.style.removeProperty('left');create.style.removeProperty('top');create.hidden=!create.hidden;};
     rail.append(icon('新建节点','＋',toggleCreate),icon('画布元素','⌘',()=>elementsPanel(s,'elements')),icon('历史版本','◷',()=>history(s)),icon('项目资产','▱',()=>assetsPanel(s)),icon('浏览固定画布模板','▤',()=>templatePanel(s)),icon('鼠标模式','➤',()=>{mouseMenu.hidden=!mouseMenu.hidden;}));
-    const guideBtn=icon('创作指引','📖',()=>{window.open('/guide/creation','_blank');});
-    guideBtn.title='创作指引';guideBtn.style.marginTop='12px';rail.append(guideBtn);
+    const guideBtn=icon('操作说明文档','📖',()=>{window.open('/guide','_blank');});
+    guideBtn.title='操作说明文档';guideBtn.style.marginTop='12px';rail.append(guideBtn);
     const zoom=el('div',null,'cc-zoom');
     const range=actions.querySelector('input'),value=el('output',joinMessages([Math.round(s.document.viewport.zoom*100),"%"]));s.zoomOutput=value;
     const applyZoomValue=nextZoom=>{const clamped=Math.max(.1,Math.min(8,Math.round(Number(nextZoom)*10)/10));range.value=String(clamped);s.document.viewport.zoom=clamped;edited(s);drawWorld(s);setText(value,joinMessages([Math.round(clamped*100),"%"]));};

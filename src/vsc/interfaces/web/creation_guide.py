@@ -1,25 +1,34 @@
-"""Read-only creation guide: database-backed document reader with Feishu-style UI."""
+"""Creation plaza: database-backed boards, articles and a reply slot.
+
+The page uses the workbench dark surfaces. Articles stay readable; boards can
+receive later posts without turning the index into one flat document list.
+"""
 import html as html_mod
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
 MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp",
-               ".gif": "image/gif", ".svg": "image/svg+xml", ".avif": "image/avif"}
+               ".gif": "image/gif", ".svg": "image/svg+xml", ".avif": "image/avif",
+               ".mp4": "video/mp4", ".webm": "video/webm"}
 
 
 def guides_root(root=None):
     from vsc.configuration import get_config
-    base = Path(get_config("VSC_MEDIA_ROOT")).parent / "guides" if get_config("VSC_MEDIA_ROOT") else None
-    if base and base.is_dir():
-        return base
-    return Path(__file__).resolve().parents[4] / "assets" / "guides"
+    media = root if root is not None else get_config("VSC_MEDIA_ROOT")
+    if isinstance(media, (str, Path)) and str(media).strip():
+        base = Path(str(media)).expanduser().parent / "guides"
+        if base.is_dir():
+            return base
+    fallback = Path(__file__).resolve().parents[4] / "assets" / "guides"
+    return fallback
 
 
 def _inline(s):
-    s = html_mod.escape(s, quote=False)
+    s = html_mod.escape(s, quote=True)
     s = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img src="\2" alt="\1" class="inline-img" onclick="lb(this.src)">', s)
     s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
@@ -41,7 +50,11 @@ def _render_body(body_md):
         if in_ol: out.append("</ol>"); in_ol = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("> "):
+        video = re.fullmatch(r'\[video:([^\]]+)\]\((/creation-guide-media/[^)]+)\)', stripped)
+        if video:
+            close_lists()
+            out.append('<figure class="guide-video"><video controls preload="metadata" src="'+html_mod.escape(video[2], quote=True)+'"></video><figcaption>'+html_mod.escape(video[1])+'</figcaption></figure>')
+        elif stripped.startswith("> "):
             close_lists()
             out.append(f'<div class="callout">{_inline(stripped[2:])}</div>')
         elif stripped.startswith("| ") and stripped.count("|") >= 2:
@@ -69,6 +82,14 @@ def _render_body(body_md):
         elif stripped.startswith("!["):
             close_lists()
             out.append(_inline(stripped))
+        elif stripped.endswith(".mp4") or stripped.endswith(".webm"):
+            close_lists()
+            name = Path(stripped).name
+            src = "/creation-guide-media/" + quote(name)
+            out.append(
+                f'<figure class="guide-video"><video controls preload="metadata" src="{html_mod.escape(src)}"></video>'
+                f"<figcaption>{html_mod.escape(name)}</figcaption></figure>"
+            )
         elif stripped:
             close_lists()
             out.append(f"<p>{_inline(stripped)}</p>")
@@ -80,21 +101,27 @@ def _render_body(body_md):
 
 
 PAGE_CSS = """
-:root{--bg:#FFF;--fg:#1F2329;--muted:#8F959E;--hover:#F2F3F5;--brand:#3370FF;
---brand-bg:#EBF1FF;--border:#DEE0E3;--callout-bg:#FFF7E6;--callout-border:#FFD591;
---code-bg:#F5F6F7;--code-fg:#3B5998;--toc-w:260px;--doc-w:780px}
+:root{--bg:#0b080b;--fg:#fdfbfc;--muted:#a1a0a3;--hover:#292929;--brand:#74ff53;
+--brand-bg:#1d1d1d;--border:#343435;--callout-bg:#343029;--callout-border:#6b5424;
+--code-bg:#1d1d1d;--code-fg:#c5ff8b;--toc-w:260px;--doc-w:780px;--surface:#131313}
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
-body{background:var(--bg);color:var(--fg);font:14px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC","Helvetica Neue",sans-serif}
+body{background:var(--bg);color:var(--fg);font:14px/1.7 "PingFang SC",-apple-system,BlinkMacSystemFont,"Microsoft YaHei",Arial,sans-serif}
+a{color:var(--fg);text-decoration:none}a:hover{color:var(--brand)}
 
-/* ── 顶栏（飞书样式：白底+面包屑+浅色） ── */
-.topbar{position:fixed;top:0;left:0;right:0;height:48px;background:#FFF;
+.topbar{position:sticky;top:0;height:50px;background:var(--bg);
 border-bottom:1px solid var(--border);display:flex;align-items:center;
-padding:0 16px;gap:8px;z-index:20}
+padding:0 16px 0 0;gap:12px;z-index:20}
+.brand{width:218px;height:50px;flex:none;display:flex;align-items:center;gap:7px;
+padding:0 16px;background:var(--surface);border-right:1px solid var(--border);color:var(--fg)}
+.brand strong{font-size:16px;font-weight:600}.brand span{font-size:14px;font-weight:500}
+.brand-mark{width:24px;height:26px;display:grid;place-items:center;background:var(--brand);
+color:#101810;font-size:18px;font-weight:900}
+.shell-title{color:var(--muted);font-size:13px}
 .topbar .crumb{font-size:13px;color:var(--muted);flex:1;overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px}
 .topbar .crumb a{color:var(--muted);text-decoration:none}
-.topbar .crumb a:hover{color:var(--brand)}
+.topbar .crumb a:hover{color:var(--brand);text-decoration:none}
 .topbar .crumb .sep{color:#DEE0E3;font-size:11px}
 .topbar .crumb .current{color:var(--fg);font-weight:500}
 .topbar .btn{background:none;border:none;color:var(--muted);font-size:16px;
@@ -103,11 +130,11 @@ cursor:pointer;padding:4px 8px;border-radius:4px;flex-shrink:0;line-height:1}
 .topbar .menu-btn{display:none}
 
 /* ── 布局 ── */
-.main{display:flex;padding-top:48px;min-height:calc(100vh - 48px)}
+.main{display:flex;min-height:calc(100vh - 50px)}
 
 /* ── 目录（飞书样式：浅灰底+紧凑行距+折叠） ── */
-.toc{width:var(--toc-w);flex-shrink:0;position:sticky;top:48px;
-height:calc(100vh - 48px);overflow-y:auto;background:#FAFBFC;
+.toc{width:var(--toc-w);flex-shrink:0;position:sticky;top:50px;
+height:calc(100vh - 50px);overflow-y:auto;background:var(--surface);
 border-right:1px solid var(--border);padding:12px 0 32px;
 scrollbar-width:thin;scrollbar-color:#DEE0E3 transparent}
 .toc::-webkit-scrollbar{width:4px}
@@ -119,7 +146,7 @@ text-transform:uppercase;letter-spacing:.5px}
 cursor:pointer;padding:2px 6px;border-radius:4px}
 .toc-collapse:hover{background:var(--hover);color:var(--fg)}
 .toc-list{list-style:none}
-.toc-list a{display:block;padding:3px 12px;font-size:13px;color:#646A73;
+.toc-list a{display:block;padding:3px 12px;font-size:13px;color:var(--muted);
 text-decoration:none;line-height:20px;transition:background .08s,color .08s;
 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:4px;margin:0 4px}
 .toc-list a:hover{background:var(--hover);color:var(--fg)}
@@ -166,26 +193,53 @@ li{margin:.2em 0;line-height:1.7}
 strong{color:var(--fg);font-weight:600}
 code{background:var(--code-bg);padding:1px 5px;border-radius:3px;
 font:13px/1.5 "SF Mono",Menlo,monospace;color:var(--code-fg)}
-a{color:var(--brand);text-decoration:none}
-a:hover{text-decoration:underline}
+.doc a{color:var(--brand)}
+.doc a:hover{text-decoration:underline}
 
 /* ── Callout（飞书样式） ── */
 .callout{background:var(--callout-bg);border:1px solid var(--callout-border);
 border-radius:6px;padding:10px 14px;margin:.8em 0;font-size:13px;
-color:#595959;line-height:1.65}
+color:#f1dcb3;line-height:1.65}
 
 /* ── 内嵌图片 ── */
 .inline-img{max-width:100%;min-width:200px;height:auto;border-radius:8px;
 border:1px solid var(--border);margin:12px auto;display:block;cursor:zoom-in;
 box-shadow:0 2px 8px rgba(0,0,0,.06);transition:box-shadow .15s}
 .inline-img:hover{box-shadow:0 4px 16px rgba(0,0,0,.12)}
+.guide-video{margin:12px 0}
+.guide-video video{width:100%;border-radius:8px;background:#111}
+.guide-video figcaption{font-size:12px;color:var(--muted);margin-top:4px}
+.plaza{max-width:1180px;margin:0 auto;padding:8px 24px 48px}
+.plaza>h1{font-size:32px;line-height:1.4;font-weight:500;margin:4px 0 8px}
+.lede{color:var(--muted);margin:0 0 28px}
+.board{margin:0 0 36px}
+.board-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:0 0 8px}
+.board-head h2{margin:0;border:0;font-size:18px;font-weight:500;padding:0}
+.board-head span{color:var(--muted);font-size:12px}
+.board>.hint{color:var(--muted);margin:0 0 16px}
+.plaza-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px 8px}
+.plaza-card{display:block;min-width:0;color:var(--fg)}
+.plaza-card:hover{color:var(--fg);text-decoration:none}
+.plaza-cover{display:block;aspect-ratio:16/9;border-radius:8px;background:
+linear-gradient(160deg,#1d1d1d,#292929 60%,#1a2416);border:1px solid #303030;overflow:hidden}
+.plaza-cover img{width:100%;height:100%;object-fit:cover}
+.plaza-card strong{display:block;margin:10px 0 3px;font-size:14px;font-weight:400;
+white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plaza-card small{color:#777;font-size:12px}
+.plaza-empty{min-height:160px;display:grid;place-items:center;color:#777;
+border:1px dashed #343435;border-radius:12px}
+.replies{margin-top:48px;padding-top:20px;border-top:1px solid var(--border)}
+.replies h2{border:0;font-size:18px}
+.reply{padding:12px 0;border-bottom:1px solid var(--border)}
+.reply p{margin:4px 0 0}
+.reply small{color:var(--muted)}
 
 /* ── 表格 ── */
 .table-wrap{overflow-x:auto;margin:.8em 0;border-radius:6px;border:1px solid var(--border)}
 table{border-collapse:collapse;width:100%;font-size:13px}
 th{background:var(--hover);color:var(--fg);font-weight:600;text-align:left;
 padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-td{padding:8px 12px;border-bottom:1px solid var(--border);color:#333}
+td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--fg)}
 tbody tr:last-child td{border-bottom:none}
 
 /* ── 画廊 ── */
@@ -202,7 +256,7 @@ border-radius:6px;overflow:hidden;background:#FFF}
 border-top:1px solid var(--border)}
 
 /* ── 灯箱 ── */
-.lightbox{position:fixed;inset:0;background:rgba(255,255,255,.97);display:none;
+.lightbox{position:fixed;inset:0;background:rgba(11,8,11,.96);display:none;
 align-items:center;justify-content:center;z-index:99;cursor:zoom-out}
 .lightbox.open{display:flex}
 .lightbox img{max-width:92vw;max-height:90vh;border-radius:6px;
@@ -210,8 +264,10 @@ box-shadow:0 4px 24px rgba(0,0,0,.1)}
 
 /* ── 响应式 ── */
 @media(max-width:960px){
-  .toc{position:fixed;left:-260px;top:48px;height:calc(100vh - 48px);z-index:15;
-  background:#FFF;box-shadow:2px 0 10px rgba(0,0,0,.06);transition:left .2s}
+  .toc{position:fixed;left:-260px;top:50px;height:calc(100vh - 50px);z-index:15;
+  background:var(--surface);box-shadow:2px 0 10px rgba(0,0,0,.4);transition:left .2s}
+  .plaza-grid{grid-template-columns:1fr}
+  .brand{width:auto;border-right:0;background:transparent}
   .toc.show{left:0}
   .doc{padding:0 16px 80px}
   .gallery{columns:2}
@@ -229,13 +285,15 @@ box-shadow:0 4px 24px rgba(0,0,0,.1)}
 def _build_page(data):
     doc = data["document"]
     sections = data["sections"]
-    images = data.get("images", [])
 
     toc_items = []
     body_parts = []
     heading = {2: "h2", 3: "h3", 4: "h4", 5: "h5", 6: "h6"}
     for sec in sections:
         level = sec["level"]
+        if level == 0:
+            body_parts.append(_render_body(sec.get("body", "")))
+            continue
         tag = heading.get(level)
         if not tag:
             continue
@@ -247,20 +305,8 @@ def _build_page(data):
         body_html = _render_body(sec.get("body", ""))
         body_parts.append(f'<{tag} id="{anchor}">{html_mod.escape(sec["title"])}</{tag}>{callout_html}{body_html}')
 
-    inline_images = any("![" in (sec.get("body") or "") for sec in sections)
-    gallery_html = ""
-    if images and not inline_images:
-        figs = "".join(
-            f'<figure><img src="{img["media_url"]}" loading="lazy" alt="{html_mod.escape(img.get("alt_text",""))}" onclick="lb(this.src)">'
-            f"<figcaption>{html_mod.escape(img['filename'])}</figcaption></figure>"
-            for img in images)
-        gallery_html = (
-            f'<button class="gal-toggle" onclick="var g=document.getElementById(\'gal\');g.classList.toggle(\'open\');'
-            f'this.textContent=g.classList.contains(\'open\')?\'收起配图\':\'展开全部 {len(images)} 张配图\'">'
-            f'展开全部 {len(images)} 张配图</button>\n<div class="gallery" id="gal">{figs}</div>')
-
-    cover_path = Path(str(guides_root())) / "images" / "doc" / "cover.gif"
-    cover_html = f'<div class="cover"><img src="/creation-guide-media/cover.gif" alt="封面"></div>' if cover_path.exists() else ""
+    cover_url = doc.get('cover_media') or ''
+    cover_html = '<div class="cover"><img src="'+html_mod.escape(cover_url, quote=True)+'" alt="封面"></div>' if cover_url.startswith('/creation-guide-media/') else ''
 
     updated = doc.get("updated_at")
     date_str = f"{updated.month}月{updated.day}日" if hasattr(updated, "month") else str(updated or "")[:10] if updated else ""
@@ -268,6 +314,7 @@ def _build_page(data):
     title = html_mod.escape(doc["title"])
     toc_html = "".join(toc_items)
     body_html = "\n".join(body_parts)
+    replies_html = _replies_html(data.get("replies") or [])
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -279,9 +326,10 @@ def _build_page(data):
 </head>
 <body>
 <header class="topbar">
+<a class="brand" href="/"><span class="brand-mark">V</span><strong>VSC</strong><span>创作工作台</span></a>
 <button class="btn menu-btn" onclick="document.getElementById('toc').classList.toggle('show')" aria-label="目录">☰</button>
 <span class="crumb">
-<a href="/">首页</a><span class="sep">›</span><span class="current">{title}</span>
+<a href="/guide">学习广场</a><span class="sep">›</span><span class="current">{title}</span>
 </span>
 <button class="btn" onclick="window.scrollTo({{top:0,behavior:'smooth'}})" title="回到顶部">↑</button>
 </header>
@@ -292,13 +340,13 @@ def _build_page(data):
 </nav>
 <main class="doc"><div class="doc-inner">
 <div class="doc-header">
-<div class="breadcrumb"><a href="/">vsc创作工作台</a><span class="sep">›</span><span>{title}</span></div>
+<div class="breadcrumb"><a href="/guide">学习广场</a><span class="sep">›</span><span>{title}</span></div>
 <h1>{title}</h1>
-<div class="meta"><span>最近修改：{date_str}</span><span class="dot">·</span><span>{len(sections)} 个章节</span></div>
+<div class="meta"><span>最近修改：{date_str}</span><span class="dot">·</span><span>{len(toc_items)} 个章节</span></div>
 </div>
 {cover_html}
 {body_html}
-{gallery_html}
+{replies_html}
 </div></main>
 </div>
 <div class="lightbox" id="lbx" onclick="this.classList.remove('open')"><img id="lbi" alt=""></div>
@@ -334,6 +382,72 @@ def _jsonable(obj):
     return obj
 
 
+def _date_label(updated):
+    if hasattr(updated, "month"):
+        return f"{updated.month}月{updated.day}日"
+    return str(updated or "")[:10]
+
+
+def _replies_html(replies):
+    if not replies:
+        return '<section class="replies" aria-label="回复"><h2>回复</h2><p class="plaza-empty">还没有回复。讨论会接在这篇正文下面。</p></section>'
+    items = []
+    for reply in replies:
+        author = html_mod.escape(reply.get("author_label") or "成员")
+        when = html_mod.escape(_date_label(reply.get("created_at")))
+        body = _render_body(reply.get("body") or "")
+        items.append(f'<article class="reply"><small>{author} · {when}</small>{body}</article>')
+    return '<section class="replies" aria-label="回复"><h2>回复</h2>' + "\n".join(items) + "</section>"
+
+
+def _build_plaza(boards):
+    sections = []
+    for board in boards:
+        docs = board.get("documents") or []
+        title = html_mod.escape(board.get("title") or "")
+        summary = html_mod.escape(board.get("summary") or "")
+        if docs:
+            cards = []
+            for doc in docs:
+                slug = html_mod.escape(doc["slug"])
+                cover = doc.get("cover_media") or ""
+                cover_html = (f'<img src="{html_mod.escape(cover, quote=True)}" alt="" loading="lazy">'
+                              if cover.startswith("/creation-guide-media/") else "")
+                cards.append(
+                    f'<a class="plaza-card" href="/guide/{slug}">'
+                    f'<span class="plaza-cover">{cover_html}</span>'
+                    f'<strong>{html_mod.escape(doc["title"])}</strong>'
+                    f'<small>最近修改：{html_mod.escape(_date_label(doc.get("updated_at")))}</small></a>'
+                )
+            grid = f'<div class="plaza-grid">{"".join(cards)}</div>'
+        else:
+            grid = '<p class="plaza-empty">这个板块还没有内容。</p>'
+        sections.append(
+            f'<section class="board"><div class="board-head"><h2>{title}</h2>'
+            f'<span>{len(docs)} 篇</span></div><p class="hint">{summary}</p>{grid}</section>'
+        )
+    body = "\n".join(sections) or '<p class="plaza-empty">还没有板块。</p>'
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>学习广场</title>
+<link rel="stylesheet" href="/guide/creation.css">
+</head>
+<body>
+<header class="topbar">
+<a class="brand" href="/"><span class="brand-mark">V</span><strong>VSC</strong><span>创作工作台</span></a>
+<span class="shell-title">学习广场</span>
+</header>
+<main class="plaza">
+<h1>学习广场</h1>
+<p class="lede">按板块浏览说明和讨论。打开一篇后按章节阅读，回复接在正文下面。</p>
+{body}
+</main>
+</body></html>"""
+
+
 def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
     def root():
         return guides_root()
@@ -346,6 +460,26 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
         from vsc.assets.guide_store import GuideStore
         return GuideStore(create_engine(get_config("VSC_DATABASE_URL"), pool_pre_ping=True))
 
+    @app.get("/guide", response_class=HTMLResponse)
+    def guide_list():
+        docs = store().list_documents()
+        if any(doc['slug'] == 'tiangong-guide' for doc in docs):
+            docs = [doc for doc in docs if doc['slug'] != 'creation-guide']
+        boards = store().list_boards()
+        grouped = {board["slug"]: [] for board in boards}
+        unplaced = []
+        for doc in docs:
+            grouped.get(doc.get("board_slug"), unplaced).append(doc)
+        order = lambda doc: (doc["slug"] != "tiangong-guide", doc.get("title") or "")
+        for items in grouped.values():
+            items.sort(key=order)
+        unplaced.sort(key=order)
+        page = [{"title": board["title"], "summary": board["summary"], "documents": grouped[board["slug"]]}
+                for board in boards]
+        if unplaced:
+            page.append({"title": "未分板块", "summary": "还没有归入板块的文章。", "documents": unplaced})
+        return HTMLResponse(_build_plaza(page))
+
     @app.get("/guide/creation", response_class=HTMLResponse)
     def guide_page():
         data = store().get_document("tiangong-guide") or store().get_document("creation-guide")
@@ -356,6 +490,13 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
     @app.get("/guide/creation.css")
     def guide_css():
         return PlainTextResponse(PAGE_CSS, media_type="text/css; charset=utf-8")
+
+    @app.get("/guide/{slug}", response_class=HTMLResponse)
+    def guide_detail(slug: str):
+        data = store().get_document(slug)
+        if not data:
+            raise HTTPException(404, "文档不存在")
+        return HTMLResponse(_build_page(data))
 
     @app.get("/api/v1/guide/documents")
     def guide_documents():
@@ -371,8 +512,11 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
     @app.get("/creation-guide-media/{path:path}")
     def guide_media(path: str):
         safe = Path(path)
-        for sub in ("images/full", "images/doc", "images"):
-            candidate = root() / sub / safe
+        for sub in ("videos", "images/full", "images/doc", "images"):
+            base = root().resolve()
+            candidate = (base / sub / safe).resolve()
+            if not candidate.is_relative_to(base):
+                continue
             if candidate.is_file() and candidate.suffix in MEDIA_TYPES:
                 return FileResponse(candidate, media_type=MEDIA_TYPES[candidate.suffix])
         raise HTTPException(404, "配图不在本机")
