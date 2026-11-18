@@ -135,6 +135,7 @@
 | --- | --- |
 | `anthropic-frontend-design/skills/frontend-design/SKILL.md` | 新建或重塑界面的视觉方向、文字与版式。现有任务与设计系统优先，不把示例品牌风格或确认步骤变成额外授权流程。 |
 | `vercel-web-interface-guidelines/command.md` | 对本次界面做可访问性、焦点、内容、导航与响应式走查。直接使用锁定的原始规则；不执行 wrapper 中“每次抓取 main”路线，不静默更新规则。英文文案惯例只在本地语言与界面规范适用时采用。 |
+| `impeccable/.agents/skills/impeccable/SKILL.md` | 已有界面的打磨与审查。阅读和日常操作页保持克制，只读技能正文；不运行其脚本、安装器或引擎。 |
 | `agency-product-design/product/product-manager.md` | 用户问题、范围取舍与交接的方法参考。 |
 | `agency-product-design/design/design-ui-designer.md`、`design/design-ux-researcher.md` | 信息与组件层级、研究问题和可用性任务的方法参考。 |
 

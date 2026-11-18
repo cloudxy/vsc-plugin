@@ -45,13 +45,13 @@ class TestVendorSkills(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             for source, relative, _, _ in VENDOR_SKILLS.ROUTES["architecture"]:
-                if source not in {"anthropic-frontend-design", "vercel-web-interface-guidelines", "agency-product-design"}:
+                if source not in {"anthropic-frontend-design", "vercel-web-interface-guidelines", "impeccable", "agency-product-design"}:
                     continue
                 self.assertEqual(len(sources[source]["revision"]), 40)
                 self.assertTrue(any(relative == path or relative.startswith(path + "/") for path in sources[source]["sparse_paths"]))
                 self.write_skill(root, source, relative, "---\ndescription: original upstream fixture\n---\n")
             guides = [r for r in VENDOR_SKILLS.resolve("architecture", root) if r["source_id"] != "mattpocock-skills"]
-            self.assertEqual(len(guides), 5)
+            self.assertEqual(len(guides), 6)
             self.assertTrue(all(r["readiness"] == "guide" for r in guides))
             canonical = next(r for r in guides if r["source_id"] == "vercel-web-interface-guidelines")
             self.assertEqual(canonical["relative_path"], "vercel-web-interface-guidelines/command.md")

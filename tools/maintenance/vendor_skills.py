@@ -64,6 +64,7 @@ ROUTES = {
         ("mattpocock-skills", "skills/engineering/domain-modeling/SKILL.md", "guide", "维护 VSC 术语表和 ADR，使架构决定可追溯。"),
         ("anthropic-frontend-design", "skills/frontend-design/SKILL.md", "guide", "界面新建或重塑时，采用有意图的视觉、排版与文案方法；保留本次范围和已有设计约束。"),
         ("vercel-web-interface-guidelines", "command.md", "guide", "使用固定版本的 canonical 原始规则检查界面；不抓取 main 或执行 wrapper。"),
+        ("impeccable", ".agents/skills/impeccable/SKILL.md", "guide", "打磨已有界面的层级、文案和完成度；阅读页保持克制，不运行其安装器或引擎。"),
         ("agency-product-design", "product/product-manager.md", "guide", "参考用户问题、范围取舍与交接方法；VSC 角色身份、权限和记忆规则优先。"),
         ("agency-product-design", "design/design-ui-designer.md", "guide", "参考信息层级、组件状态和设计交接方法，不加载上游人格或固定指标。"),
         ("agency-product-design", "design/design-ux-researcher.md", "guide", "参考研究问题和可用性任务设计，未实测不得声称用户研究结论。"),

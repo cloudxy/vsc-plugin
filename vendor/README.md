@@ -13,6 +13,8 @@
 
 上游有新版本时不会自动采用，候选分析与采用流程见 [Vendor 候选更新](../docs/governance/vendor-updates.md)。
 
+界面设计来源同样只在本机使用。`anthropic-frontend-design`、`vercel-web-interface-guidelines`、`agency-product-design` 与 `impeccable` 的正文留在 `vendor/`，不进入 Git，也不随公开仓库发出。别人需要时，按 `sources.lock.json` 里的地址和固定提交自行 `--install`。`impeccable` 只检出技能正文、参考、LICENSE 与 NOTICE，不检出 `scripts`，不运行它的安装器或引擎。
+
 ## 锁定记录字段
 
 ```json

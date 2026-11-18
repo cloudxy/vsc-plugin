@@ -166,6 +166,38 @@
       }
     },
     {
+      "id": "impeccable",
+      "url": "https://github.com/pbakaus/impeccable.git",
+      "revision": "d41d9860b0094dcb68030657da63461212835aaa",
+      "license_spdx": "Apache-2.0",
+      "purpose": "本机只读 Impeccable 技能正文，打磨已有页面。不检出、不运行其下载器或引擎。公开仓库不含正文，需要的人按此锁定提交自行安装。",
+      "sparse_paths": [
+        "LICENSE",
+        "NOTICE.md",
+        ".agents/skills/impeccable/SKILL.md",
+        ".agents/skills/impeccable/reference",
+        ".agents/skills/impeccable/agents"
+      ],
+      "notice": "只检出技能正文、参考和 Apache-2.0 许可与 NOTICE。不检出 scripts，不运行其引擎二进制，不执行 npx 安装器，不附带模型权重或素材。",
+      "type": "git",
+      "license_evidence": "https://github.com/pbakaus/impeccable/blob/d41d9860b0094dcb68030657da63461212835aaa/LICENSE",
+      "owner": "VSC 用户本机",
+      "redistribution": "local_only",
+      "usage": {
+        "mode": "local_component",
+        "interface": "file",
+        "modified": false
+      },
+      "update": {
+        "mode": "candidate_review",
+        "track_ref": "HEAD",
+        "analysis_required": true,
+        "automatic_adoption": false,
+        "deleted_referenced_skill": "retain_last_approved_snapshot",
+        "new_skill": "unrouted_pending_review"
+      }
+    },
+    {
       "id": "agency-product-design",
       "url": "https://github.com/msitarzewski/agency-agents.git",
       "revision": "652b2692f8d8ec2b1f1a38e559073e287dfdc469",

@@ -13,6 +13,7 @@
 | [mattpocock-skills](https://github.com/mattpocock/skills) | 本地直接使用架构改进、代码库设计、澄清与领域建模 Skill，维护 VSC 及其业务扩展。 | MIT | `mattpocock-skills` |
 | [anthropic-frontend-design](https://github.com/anthropics/skills) | 本机读取 Anthropic 官方 frontend-design 原始 Skill，辅助 VSC 软件界面视觉、排版与文案设计。 | Apache-2.0 | `anthropic-frontend-design` |
 | [vercel-web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines) | 本机读取 Vercel 官方固定版 Web Interface Guidelines 原始 command.md，检查 VSC 软件可访问性、内容、导航与交互。 | MIT | `vercel-web-interface-guidelines` |
+| [impeccable](https://github.com/pbakaus/impeccable) | 本机只读 Impeccable 技能正文，打磨已有页面。不检出、不运行其下载器或引擎。公开仓库不含正文，需要的人按此锁定提交自行安装。 | Apache-2.0 | `impeccable` |
 | [agency-product-design](https://github.com/msitarzewski/agency-agents) | 本机只读取 Agency Agents 的 Product Manager、UI Designer 与 UX Researcher 三张原始角色卡，作为 VSC 产品与设计方法参考。 | MIT | `agency-product-design` |
 | [moneyprinterturbo](https://github.com/harry0703/MoneyPrinterTurbo) | 学习来源：src/vsc/post/subtitles.py 移植了其断句、逐词字幕聚合与换行逻辑；本地目录只供对照。 | MIT | `moneyprinterturbo` |
 | [moneyprinterturbo-assets](https://github.com/harry0703/MoneyPrinterTurbo) | MoneyPrinterTurbo 附带的字幕字体与背景音乐，供用户在本机评估效果；字幕烧录或混音时由用户显式指定文件路径使用。 | NOASSERTION | `moneyprinterturbo-assets`（需显式安装） |
