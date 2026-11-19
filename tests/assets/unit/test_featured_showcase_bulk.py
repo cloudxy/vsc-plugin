@@ -11,7 +11,9 @@ import urllib.error
 from unittest.mock import patch
 
 from tools.maintenance.featured_showcase import CacheSync
-from tools.maintenance.featured_showcase_bulk import BulkSync, Receipts, run_rolling
+from tools.maintenance.featured_showcase_bulk import (
+    BulkSync, Receipts, pending_for_canvas, run_rolling, video_canvases,
+)
 from tools.maintenance.featured_showcase_metrics import forecast, eta, sample_sizes, capacity_forecast
 from vsc.assets.featured_showcase import media_digest
 from vsc.assets.featured_showcase import find_media
@@ -101,6 +103,27 @@ class FeaturedShowcaseBulk(unittest.TestCase):
                 run_rolling(sync, [missing], lambda item, result: results.append(result), probe_workers=1, retry_delay=.001)
             self.assertEqual(request.call_count, 3)
             self.assertEqual(results[-1]["status"], "failed")
+
+    def test_video_canvas_admission_finishes_the_nearer_canvas_before_the_next(self):
+        with tempfile.TemporaryDirectory() as folder:
+            database = Path(folder)/"inventory.sqlite3"
+            with sqlite3.connect(database) as db:
+                db.execute("CREATE TABLE resources(digest TEXT PRIMARY KEY, url TEXT, priority INTEGER, sync_status TEXT)")
+                db.execute("CREATE TABLE dependencies(work TEXT, digest TEXT, roles TEXT, output_type TEXT, occurrences INTEGER, PRIMARY KEY(work,digest))")
+                rows = [
+                    ("canvas-a", "a-image", "image", "local", 0),
+                    ("canvas-a", "a-video", "video", "pending", 2),
+                    ("canvas-b", "b-image", "image", "pending", 0),
+                    ("canvas-b", "b-video", "video", "pending", 2),
+                    ("still-c", "c-image", "image", "pending", 0),
+                ]
+                for work, digest, output_type, status, priority in rows:
+                    db.execute("INSERT INTO resources VALUES(?,?,?,?)", (digest, "https://example.test/"+digest, priority, status))
+                    db.execute("INSERT INTO dependencies VALUES(?,?,?,?,1)", (work, digest, "[]", output_type))
+            with sqlite3.connect(database) as db:
+                self.assertEqual(video_canvases(db), ["canvas-a", "canvas-b"])
+                self.assertEqual([item["digest"] for item in pending_for_canvas(db, "canvas-a")], ["a-video"])
+                self.assertEqual([item["work"] for item in pending_for_canvas(db, "canvas-b")], ["canvas-b", "canvas-b"])
 
     def test_sampler_journal_resumes_without_reprobing_finished_cohort(self):
         with tempfile.TemporaryDirectory() as folder, range_origin() as (url, _, requests):

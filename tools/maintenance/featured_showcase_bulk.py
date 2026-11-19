@@ -277,18 +277,45 @@ def run_rolling(sync, items, on_result, on_tick=lambda active: None, window=96, 
                 close_record(entry["record"])
 
 
-def pending_items(db):
-    """Keyset pages keep memory bounded without holding a 600k-row read cursor."""
+def video_canvases(db):
+    """Video canvases that still have pending media, nearest to complete first.
+
+    A canvas is one work: its video outputs and the canvas media that belongs to
+    them. Global priority order would download every canvas's images before any
+    of those videos, so admission stays inside one canvas until it is finished.
+    """
+    rows = db.execute("""SELECT d.work FROM dependencies d
+        JOIN resources r ON r.digest=d.digest
+        GROUP BY d.work
+        HAVING SUM(r.sync_status='pending')>0 AND SUM(d.output_type LIKE 'video%')>0
+        ORDER BY SUM(r.sync_status='local')*1.0/COUNT(*) DESC,
+                 SUM(r.sync_status='pending') ASC, d.work""").fetchall()
+    return [row[0] for row in rows]
+
+
+def pending_for_canvas(db, work):
+    """Pending media for one canvas. Do not start the next canvas until this ends."""
     last_priority, last_digest = -1, ""
     while True:
-        rows = db.execute("""SELECT digest,url,priority FROM resources
-            WHERE sync_status='pending' AND (priority>? OR (priority=? AND digest>?))
-            ORDER BY priority,digest LIMIT 256""", (last_priority, last_priority, last_digest)).fetchall()
+        rows = db.execute("""SELECT r.digest,r.url,r.priority FROM dependencies d
+            JOIN resources r ON r.digest=d.digest
+            WHERE d.work=? AND r.sync_status='pending'
+              AND (r.priority>? OR (r.priority=? AND r.digest>?))
+            ORDER BY r.priority,r.digest LIMIT 256""",
+                          (work, last_priority, last_priority, last_digest)).fetchall()
         if not rows:
             return
         for digest, url, priority in rows:
             last_priority, last_digest = priority, digest
-            yield dict(digest=digest, url=url, priority=priority)
+            yield dict(digest=digest, url=url, priority=priority, work=work)
+
+
+def canvas_names(root):
+    path = Path(root)/"catalog.json"
+    if not path.is_file():
+        return {}
+    cards = json.loads(path.read_text()).get("cards") or {}
+    return {key: value.get("name") or "" for key, value in cards.items() if isinstance(value, dict)}
 
 
 def persist_outcome(db, item, outcome):
@@ -429,8 +456,19 @@ def run_worker(root, workers=32, window=96, timeout=30):
                         state["capacity_note"] = "Conditional sample estimate; continue within authorized physical space and preserve unfinished work."
                     save_json(task/"state.json", state)
 
+                names = canvas_names(root)
+                canvases = video_canvases(db)
+                state["admission"] = "one_video_canvas_at_a_time"
+                state["canvases_remaining"] = len(canvases)
                 tick(dict(files=0, probes=0, transfers=0), True)
-                run_rolling(sync, pending_items(db), result, tick, window=window)
+                for index, work in enumerate(canvases):
+                    if stop.is_set():
+                        break
+                    state.update(current_canvas=work, current_canvas_name=names.get(work) or "",
+                                 canvas_index=index+1, canvases_remaining=len(canvases)-index)
+                    tick(dict(files=0, probes=0, transfers=0), True)
+                    # run_rolling returns only after this canvas's admitted files finish.
+                    run_rolling(sync, pending_for_canvas(db, work), result, tick, window=window)
                 tick(dict(files=0, probes=0, transfers=0), True)
                 final_status = (sync.stop_reason or "interrupted") if stop.is_set() else (
                     "needs_more_storage" if counts["space_deferred"] else
