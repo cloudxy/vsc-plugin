@@ -56,6 +56,7 @@ class CreationGuideTests(unittest.TestCase):
                 listing=client.get('/guide');self.assertEqual(listing.status_code,200)
                 self.assertIn('/guide/second',listing.text)
                 self.assertIn('学习广场',listing.text)
+                self.assertIn('plaza-rail',listing.text)
                 self.assertIn('这个板块还没有内容',listing.text)
                 detail=client.get('/guide/creation');self.assertEqual(detail.status_code,200)
                 self.assertEqual(detail.text.count('class="lvl-'),5)
@@ -66,3 +67,49 @@ class CreationGuideTests(unittest.TestCase):
                 media=client.get('/creation-guide-media/讲解.mp4',headers={'Range':'bytes=2-5'})
                 self.assertEqual(media.status_code,206);self.assertEqual(media.content,b'2345')
                 self.assertEqual(client.get('/creation-guide-media/%2E%2E/%2E%2E/outside.mp4').status_code,404)
+
+    def test_plaza_renders_highlight_video_cards_and_hides_module_without_data(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        highlights=[dict(slug='liblib-feature-23',title='Seedance 2.5 Flash首发',
+                         description='生成速度提升一倍',video_media='/creation-guide-media/liblib/highlights/a.mp4',
+                         link_url='https://www.liblib.tv/canvas?selectNode=video',button_text='去体验',
+                         version_no='1.5.1',online_date='2026-11-13',sort_order=1),
+                    dict(slug='liblib-feature-22',title='无链接无视频的旧卡',
+                         video_media='',link_url='',button_text='',version_no='1.5.1',
+                         online_date=None,sort_order=2)]
+        class Store:
+            def list_documents(self):return []
+            def list_boards(self):return [dict(slug='plaza',title='学习广场',summary='教程')]
+            def get_document(self,slug):return None
+            def list_highlights(self):return list(highlights)
+        app=FastAPI();install_creation_guide_routes(app,None,None,guide_store=Store())
+        with TestClient(app) as client:
+            page=client.get('/guide');self.assertEqual(page.status_code,200)
+            self.assertIn('亮点功能',page.text)
+            self.assertIn('id="highlights"',page.text)
+            self.assertIn('href="#highlights"',page.text)  # rail entry
+            self.assertIn('2 条',page.text)
+            self.assertIn('<video controls preload="metadata" src="/creation-guide-media/liblib/highlights/a.mp4"',page.text)
+            self.assertIn('<span class="hl-badge">v1.5.1</span>',page.text)
+            self.assertIn('上线 11月13日',page.text)
+            self.assertIn('href="https://www.liblib.tv/canvas?selectNode=video" target="_blank" rel="noopener"',page.text)
+            self.assertIn('去体验 ↗',page.text)
+            self.assertIn('hl-video-missing',page.text)  # card without local video keeps a slot
+            api=client.get('/api/v1/guide/highlights');self.assertEqual(api.status_code,200)
+            self.assertEqual(api.json()[0]['slug'],'liblib-feature-23')
+
+        class EmptyStore(Store):
+            def list_highlights(self):return []
+        app2=FastAPI();install_creation_guide_routes(app2,None,None,guide_store=EmptyStore())
+        with TestClient(app2) as client2:
+            plain=client2.get('/guide');self.assertEqual(plain.status_code,200)
+            self.assertNotIn('id="highlights"',plain.text)
+            self.assertNotIn('href="#highlights"',plain.text)
+
+        class LegacyStore(Store):
+            def list_highlights(self):raise RuntimeError('guide_highlights relation missing')
+        app3=FastAPI();install_creation_guide_routes(app3,None,None,guide_store=LegacyStore())
+        with TestClient(app3) as client3:
+            legacy=client3.get('/guide');self.assertEqual(legacy.status_code,200)
+            self.assertNotIn('id="highlights"',legacy.text)  # migration not landed yet: page still renders

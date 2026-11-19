@@ -142,10 +142,64 @@ def import_article(data: dict, capture_dir: Path, store=None, dry_run: bool = Fa
     return stats
 
 
+FEATURE_NEWS = "feature_news.json"
+
+
+def import_highlights(capture_dir: Path, store=None, dry_run: bool = False) -> list:
+    """Project the captured feature-news list into 亮点功能 video cards.
+
+    Input is feature_news.json (the /api/feature-news/version/list response):
+    each version lists feature cards with a name, description, intro video and
+    an optional experience link. Media bytes must already sit in media/ under
+    the capture root; they are copied into the guides tree like article media.
+    """
+    data = json.loads((capture_dir / FEATURE_NEWS).read_text("utf-8"))
+    stats = []
+    for version in ((data.get("data") or {}).get("list") or []):
+        version_no = version.get("versionNo") or ""
+        for feature in version.get("features") or []:
+            feature_id = feature.get("id")
+            if feature_id is None:
+                continue
+            media_url = feature.get("mediaUrl") or ""
+            video_media = ""
+            if media_url:
+                src = capture_dir / "media" / local_name(media_url)
+                if not src.is_file():
+                    raise FileNotFoundError(f"missing captured media: {media_url} -> {src}")
+                video_media = place_media(src, "highlights", local_name(media_url))
+            link_url = feature.get("linkUrl") or ""
+            if not link_url.startswith(("http://", "https://")):
+                link_url = ""
+            record = {
+                "slug": f"liblib-feature-{feature_id}",
+                "title": feature.get("name") or f"亮点 {feature_id}",
+                "description": feature.get("description") or "",
+                "video": video_media,
+                "link": link_url,
+                "button": feature.get("buttonText") or "" if link_url else "",
+                "version": version_no,
+                "online": feature.get("onlineDate") or "",
+                "sort": feature.get("sortOrder") or 0,
+            }
+            stats.append(record)
+            if not dry_run:
+                store.upsert_highlight(
+                    slug=record["slug"], title=record["title"],
+                    description=record["description"], video_media=record["video"],
+                    link_url=record["link"], button_text=record["button"],
+                    version_no=record["version"],
+                    online_date=record["online"] or None,
+                    sort_order=record["sort"])
+    return stats
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture-dir", required=True, type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--highlights", action="store_true",
+                        help="also import 亮点功能 video cards from feature_news.json")
     args = parser.parse_args()
 
     capture_dir = args.capture_dir.resolve()
@@ -168,6 +222,14 @@ def main() -> None:
         print("ok" if not args.dry_run else "dry", stats["slug"], "|",
               stats["h2"], "h2 /", stats["h3"], "h3 /", stats["images"], "img /",
               stats["videos"], "video / cover:", stats["cover"], "|", stats["title"])
+
+    if args.highlights:
+        if not (capture_dir / FEATURE_NEWS).is_file():
+            raise SystemExit(f"missing {FEATURE_NEWS} in capture dir")
+        for record in import_highlights(capture_dir, store=store, dry_run=args.dry_run):
+            print("ok" if not args.dry_run else "dry", record["slug"], "|",
+                  "v" + record["version"], "|", record["online"], "|",
+                  "video:", bool(record["video"]), "|", record["title"])
 
 
 if __name__ == "__main__":

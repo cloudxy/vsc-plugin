@@ -1,10 +1,12 @@
 """LibTV academy article projection: HTML media tags to local guide markdown."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 import support.paths
-from tools.maintenance.guide_import_liblib import ARTICLES, convert_markdown, import_article, local_name
+from tools.maintenance.guide_import_liblib import (ARTICLES, convert_markdown,
+    import_article, import_highlights, local_name)
 
 
 def article(**extra):
@@ -80,6 +82,61 @@ class GuideImportLiblibTests(unittest.TestCase):
         self.assertEqual(len(ARTICLES), 14)
         self.assertIn("01a0d24709f37af79589c9dbaa5303f1", ARTICLES)
         self.assertTrue(all(slug.startswith("liblib-") for slug in ARTICLES.values()))
+
+    def test_import_highlights_projects_cards_and_copies_videos(self):
+        feature_news = {"code": 0, "data": {"list": [{
+            "id": 3, "versionNo": "1.5.1", "releaseDate": "2026-11-13",
+            "features": [
+                {"id": 23, "onlineDate": "2026-11-13", "name": "Seedance 2.5 Flash首发",
+                 "description": "生成速度提升一倍", "mediaType": 3,
+                 "mediaUrl": "https://libtv-res.liblib.art/upload-images/x/a9021e5c.mp4",
+                 "buttonText": "去体验",
+                 "linkUrl": "https://www.liblib.tv/canvas?selectNode=video", "sortOrder": 1},
+                {"id": 24, "onlineDate": "2026-11-13", "name": "元素替换-一键复刻爆款",
+                 "description": "沿用原视频的动作与镜头", "mediaType": 3,
+                 "mediaUrl": "https://libtv-res.liblib.art/upload-images/y/f3321c33.mp4",
+                 "buttonText": "去体验", "linkUrl": "javascript:alert(1)", "sortOrder": 2},
+            ]}]}}
+        with tempfile.TemporaryDirectory() as folder:
+            capture = Path(folder) / "out"
+            (capture / "media").mkdir(parents=True)
+            (capture / "media" / "a9021e5c.mp4").write_bytes(b"v1")
+            (capture / "media" / "f3321c33.mp4").write_bytes(b"v2")
+            (capture / "feature_news.json").write_text(
+                json.dumps(feature_news, ensure_ascii=False), "utf-8")
+            root = Path(folder) / "guides"
+            calls = []
+
+            class FakeStore:
+                def upsert_highlight(self, **kw):
+                    calls.append(kw)
+
+            with patch("tools.maintenance.guide_import_liblib.guides_root", return_value=root):
+                records = import_highlights(capture, store=FakeStore())
+            placed = root / "videos" / "liblib" / "highlights"
+            self.assertTrue((placed / "a9021e5c.mp4").exists())
+            self.assertTrue((placed / "f3321c33.mp4").exists())
+            self.assertEqual([r["slug"] for r in records],
+                             ["liblib-feature-23", "liblib-feature-24"])
+            self.assertEqual(records[0]["video"],
+                             "/creation-guide-media/liblib/highlights/a9021e5c.mp4")
+            self.assertEqual(records[0]["link"], "https://www.liblib.tv/canvas?selectNode=video")
+            self.assertEqual(records[1]["link"], "")  # non-http links dropped
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0]["online_date"], "2026-11-13")
+            self.assertEqual(calls[1]["button_text"], "")
+
+    def test_import_highlights_fails_closed_for_missing_media(self):
+        feature_news = {"data": {"list": [{"versionNo": "1.5.1", "features": [
+            {"id": 9, "name": "缺视频", "mediaUrl": "https://libtv-res.liblib.art/x/gone.mp4"}]}]}}
+        with tempfile.TemporaryDirectory() as folder:
+            capture = Path(folder)
+            (capture / "feature_news.json").write_text(
+                json.dumps(feature_news, ensure_ascii=False), "utf-8")
+            with patch("tools.maintenance.guide_import_liblib.guides_root",
+                       return_value=Path(folder)):
+                with self.assertRaises(FileNotFoundError):
+                    import_highlights(capture)
 
 
 if __name__ == "__main__":

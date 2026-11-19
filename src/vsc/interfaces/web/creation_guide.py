@@ -209,25 +209,37 @@ box-shadow:0 2px 8px rgba(0,0,0,.06);transition:box-shadow .15s}
 .guide-video{margin:12px 0}
 .guide-video video{width:100%;border-radius:8px;background:#111}
 .guide-video figcaption{font-size:12px;color:var(--muted);margin-top:4px}
-.plaza{max-width:1180px;margin:0 auto;padding:8px 24px 48px}
-.plaza>h1{font-size:32px;line-height:1.4;font-weight:500;margin:4px 0 8px}
-.lede{color:var(--muted);margin:0 0 28px}
-.board{margin:0 0 36px}
-.board-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:0 0 8px}
-.board-head h2{margin:0;border:0;font-size:18px;font-weight:500;padding:0}
-.board-head span{color:var(--muted);font-size:12px}
-.board>.hint{color:var(--muted);margin:0 0 16px}
-.plaza-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px 8px}
-.plaza-card{display:block;min-width:0;color:var(--fg)}
-.plaza-card:hover{color:var(--fg);text-decoration:none}
-.plaza-cover{display:block;aspect-ratio:16/9;border-radius:8px;background:
-linear-gradient(160deg,#1d1d1d,#292929 60%,#1a2416);border:1px solid #303030;overflow:hidden}
-.plaza-cover img{width:100%;height:100%;object-fit:cover}
-.plaza-card strong{display:block;margin:10px 0 3px;font-size:14px;font-weight:400;
-white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.plaza-card small{color:#777;font-size:12px}
-.plaza-empty{min-height:160px;display:grid;place-items:center;color:#777;
-border:1px dashed #343435;border-radius:12px}
+.plaza-shell{display:grid;grid-template-columns:218px minmax(0,1fr);min-height:calc(100vh - 50px)}
+.plaza-rail{background:var(--surface);border-right:1px solid var(--border);padding:12px}
+.plaza-rail a{display:flex;align-items:center;min-height:38px;padding:8px 10px;border-radius:8px;color:var(--muted);font-size:14px}
+.plaza-rail a[aria-current=page]{color:var(--fg);background:#292929;font-weight:500}
+.plaza-rail a:hover{background:#242424;color:var(--fg)}
+.plaza{max-width:66ch;margin:0;padding:24px 32px 64px}
+.plaza>h1{font-size:28px;line-height:1.35;font-weight:500;margin:0 0 8px}
+.lede{color:var(--muted);margin:0 0 20px}
+.board{margin:0 0 28px}
+.board-head h2{margin:0 0 4px;border:0;font-size:16px;font-weight:500;padding:0}
+.plaza-cats h3{margin:16px 0 0;border:0;padding:8px 0 0;font-size:13px;font-weight:500;color:var(--muted);scroll-margin-top:64px}
+.plaza-row{display:block;padding:11px 0;border-bottom:1px solid #2a2a2b;color:var(--fg)}
+.plaza-row:hover{text-decoration:none}
+.plaza-row:hover strong{color:var(--brand)}
+.plaza-row:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.plaza-row strong{display:block;margin:0;border:0;font-size:16px;font-weight:500;line-height:24px}
+.plaza-row p{margin:2px 0 0;color:var(--muted);font-size:15px;line-height:22px}
+.plaza-empty{min-height:96px;display:grid;place-items:center;color:#777;border:1px dashed #343435;border-radius:12px}
+.highlight-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 12px;margin:8px 0 4px}
+.highlight-card{min-width:0;border:1px solid #2a2a2b;border-radius:10px;overflow:hidden;background:var(--surface)}
+.highlight-card video{display:block;width:100%;aspect-ratio:16/9;background:#111}
+.hl-video-missing{width:100%;aspect-ratio:16/9;display:grid;place-items:center;color:#777;font-size:13px}
+.highlight-body{padding:10px 12px 12px}
+.highlight-body strong{display:block;font-size:15px;font-weight:500;line-height:21px}
+.highlight-body p{margin:4px 0 8px;color:var(--muted);font-size:13px;line-height:19px;
+display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.highlight-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:#777;font-size:12px}
+.hl-badge{padding:1px 8px;border-radius:10px;border:1px solid var(--border);color:var(--muted);line-height:1.6}
+.highlight-meta a{color:var(--brand)}
+.highlight-meta a:hover{text-decoration:underline}
+@media(max-width:600px){.highlight-grid{grid-template-columns:1fr}}
 .replies{margin-top:48px;padding-top:20px;border-top:1px solid var(--border)}
 .replies h2{border:0;font-size:18px}
 .reply{padding:12px 0;border-bottom:1px solid var(--border)}
@@ -268,6 +280,9 @@ box-shadow:0 4px 24px rgba(0,0,0,.1)}
   background:var(--surface);box-shadow:2px 0 10px rgba(0,0,0,.4);transition:left .2s}
   .plaza-grid{grid-template-columns:1fr}
   .brand{width:auto;border-right:0;background:transparent}
+  .plaza-shell{grid-template-columns:1fr}
+  .plaza-rail{display:flex;gap:4px;overflow:auto;border-right:0;border-bottom:1px solid var(--border)}
+  .plaza{max-width:none;padding:16px}
   .toc.show{left:0}
   .doc{padding:0 16px 80px}
   .gallery{columns:2}
@@ -385,7 +400,11 @@ def _jsonable(obj):
 def _date_label(updated):
     if hasattr(updated, "month"):
         return f"{updated.month}月{updated.day}日"
-    return str(updated or "")[:10]
+    text = str(updated or "")[:10]
+    match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if match:
+        return f"{int(match.group(2))}月{int(match.group(3))}日"
+    return text
 
 
 def _replies_html(replies):
@@ -400,51 +419,120 @@ def _replies_html(replies):
     return '<section class="replies" aria-label="回复"><h2>回复</h2>' + "\n".join(items) + "</section>"
 
 
-def _build_plaza(boards):
+def _short_title(title):
+    match = re.match(r"^「[^」]+」\s*(.+)$", title or "")
+    return match.group(1) if match else (title or "")
+
+
+def _blurb(doc):
+    text = re.sub(r"\s+", " ", (doc.get("description") or "").strip())
+    return re.sub(r"^涉及功能[:：]\s*", "", text)[:96]
+
+
+def _plaza_row(doc):
+    blurb = _blurb(doc)
+    summary = f"<p>{html_mod.escape(blurb)}</p>" if blurb else ""
+    return (f'<a class="plaza-row" href="/guide/{html_mod.escape(doc["slug"])}">'
+            f"<strong>{html_mod.escape(_short_title(doc.get('title') or ''))}</strong>{summary}</a>")
+
+
+def _tutorial_groups(docs):
+    groups, loose = {}, []
+    for doc in docs:
+        match = re.match(r"^「([^」]+)」", doc.get("title") or "")
+        (groups.setdefault(match.group(1), []) if match else loose).append(doc)
+    order = [name for name in ("基础功能", "实用工具", "热点速看", "进阶辅助") if name in groups]
+    order += [name for name in groups if name not in order]
+    return order, groups, loose
+
+
+def _highlights_section(rows):
+    """亮点功能 video cards: local intro video, version badge, experience link."""
+    cards = []
+    for row in rows:
+        src = row.get("video_media") or ""
+        if src.startswith("/creation-guide-media/"):
+            media = f'<video controls preload="metadata" src="{html_mod.escape(src, quote=True)}"></video>'
+        else:
+            media = '<div class="hl-video-missing">视频缺失</div>'
+        meta = []
+        version = (row.get("version_no") or "").strip()
+        if version:
+            meta.append(f'<span class="hl-badge">v{html_mod.escape(version, quote=True)}</span>')
+        when = _date_label(row.get("online_date"))
+        if when:
+            meta.append(f"<span>上线 {html_mod.escape(when)}</span>")
+        link_url = row.get("link_url") or ""
+        if link_url.startswith(("http://", "https://")):
+            label = html_mod.escape(row.get("button_text") or "去体验")
+            meta.append(f'<a href="{html_mod.escape(link_url, quote=True)}" target="_blank" rel="noopener">{label} ↗</a>')
+        description = row.get("description") or ""
+        cards.append(
+            '<article class="highlight-card">' + media
+            + '<div class="highlight-body"><strong>' + html_mod.escape(row.get("title") or "") + '</strong>'
+            + (f"<p>{html_mod.escape(description)}</p>" if description else "")
+            + '<small class="highlight-meta">' + "".join(meta) + '</small>'
+            + '</div></article>'
+        )
+    return ('<section class="board" id="highlights" aria-label="亮点功能">'
+            '<div class="board-head"><h2>亮点功能</h2>'
+            f'<span>{len(rows)} 条</span></div>'
+            '<div class="highlight-grid">' + "".join(cards) + '</div></section>')
+
+
+def _build_plaza(boards, highlights=None):
+    ordered = sorted(boards, key=lambda board: board.get("slug") == "plaza")
     sections = []
-    for board in boards:
+    if highlights:
+        sections.append(_highlights_section(highlights))
+    for board in ordered:
         docs = board.get("documents") or []
-        title = html_mod.escape(board.get("title") or "")
-        summary = html_mod.escape(board.get("summary") or "")
-        if docs:
-            cards = []
-            for doc in docs:
-                slug = html_mod.escape(doc["slug"])
-                cover = doc.get("cover_media") or ""
-                cover_html = (f'<img src="{html_mod.escape(cover, quote=True)}" alt="" loading="lazy">'
-                              if cover.startswith("/creation-guide-media/") else "")
-                cards.append(
-                    f'<a class="plaza-card" href="/guide/{slug}">'
-                    f'<span class="plaza-cover">{cover_html}</span>'
-                    f'<strong>{html_mod.escape(doc["title"])}</strong>'
-                    f'<small>最近修改：{html_mod.escape(_date_label(doc.get("updated_at")))}</small></a>'
-                )
-            grid = f'<div class="plaza-grid">{"".join(cards)}</div>'
+        title = "图文教程" if board.get("slug") == "plaza" else (board.get("title") or "")
+        if board.get("slug") == "plaza" and docs:
+            names, groups, loose = _tutorial_groups(docs)
+            blocks = []
+            for name in names:
+                rows = "".join(_plaza_row(doc) for doc in groups[name])
+                blocks.append(f'<h3 id="cat-{html_mod.escape(name)}">{html_mod.escape(name)}</h3><div class="plaza-list">{rows}</div>')
+            if loose:
+                blocks.append(f'<div class="plaza-list">{"".join(_plaza_row(doc) for doc in loose)}</div>')
+            grid = "".join(blocks)
+        elif docs:
+            grid = f'<div class="plaza-list">{"".join(_plaza_row(doc) for doc in docs)}</div>'
         else:
             grid = '<p class="plaza-empty">这个板块还没有内容。</p>'
         sections.append(
-            f'<section class="board"><div class="board-head"><h2>{title}</h2>'
-            f'<span>{len(docs)} 篇</span></div><p class="hint">{summary}</p>{grid}</section>'
-        )
+            f'<section class="board" id="board-{html_mod.escape(board.get("slug") or "loose")}">'
+            f'<div class="board-head"><h2>{html_mod.escape(title)}</h2></div>{grid}</section>')
     body = "\n".join(sections) or '<p class="plaza-empty">还没有板块。</p>'
+    highlights_rail = '<a href="#highlights">亮点功能</a>\n' if highlights else ""
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b080b">
 <title>学习广场</title>
 <link rel="stylesheet" href="/guide/creation.css">
 </head>
 <body>
+<a class="skip-link" href="#plaza-main">跳到内容</a>
 <header class="topbar">
 <a class="brand" href="/"><span class="brand-mark">V</span><strong>VSC</strong><span>创作工作台</span></a>
-<span class="shell-title">学习广场</span>
 </header>
-<main class="plaza">
+<div class="plaza-shell">
+<nav class="plaza-rail" aria-label="工作台">
+<a href="/">主页</a>
+<a href="/guide" aria-current="page">学习广场</a>
+{highlights_rail}<a href="#board-guides">操作说明</a>
+<a href="#board-plaza">图文教程</a>
+</nav>
+<main class="plaza" id="plaza-main">
 <h1>学习广场</h1>
-<p class="lede">按板块浏览说明和讨论。打开一篇后按章节阅读，回复接在正文下面。</p>
+<p class="lede">工作台操作说明，以及按功能整理的教程。</p>
 {body}
 </main>
+</div>
 </body></html>"""
 
 
@@ -474,11 +562,16 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
         for items in grouped.values():
             items.sort(key=order)
         unplaced.sort(key=order)
-        page = [{"title": board["title"], "summary": board["summary"], "documents": grouped[board["slug"]]}
-                for board in boards]
+        page = [{"slug": board["slug"], "title": board["title"], "summary": board["summary"],
+                 "documents": grouped[board["slug"]]} for board in boards]
         if unplaced:
             page.append({"title": "未分板块", "summary": "还没有归入板块的文章。", "documents": unplaced})
-        return HTMLResponse(_build_plaza(page))
+        try:
+            highlights = store().list_highlights()
+        except Exception as error:  # noqa: BLE001 - the module stays hidden until its migration lands
+            print(f"guide highlights skipped: {error!r}")
+            highlights = []
+        return HTMLResponse(_build_plaza(page, highlights))
 
     @app.get("/guide/creation", response_class=HTMLResponse)
     def guide_page():
@@ -501,6 +594,10 @@ def install_creation_guide_routes(app, etag, read_actor, guide_store=None):
     @app.get("/api/v1/guide/documents")
     def guide_documents():
         return JSONResponse(_jsonable(store().list_documents()))
+
+    @app.get("/api/v1/guide/highlights")
+    def guide_highlights():
+        return JSONResponse(_jsonable(store().list_highlights()))
 
     @app.get("/api/v1/guide/documents/{slug}")
     def guide_document(slug: str):

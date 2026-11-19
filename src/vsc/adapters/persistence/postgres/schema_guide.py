@@ -1,9 +1,10 @@
 """Guide document tables: workspace-level operation manuals with nested sections and image refs."""
-from sqlalchemy import (Column, DateTime, ForeignKey, Index, Integer,
+from sqlalchemy import (Column, Date, DateTime, ForeignKey, Index, Integer,
     PrimaryKeyConstraint, Table, Text, UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-GUIDE_TABLES = ("guide_boards", "guide_documents", "guide_sections", "guide_images", "guide_replies")
+GUIDE_TABLES = ("guide_boards", "guide_documents", "guide_sections", "guide_images",
+                "guide_replies", "guide_highlights")
 
 
 def install_guide_schema(metadata):
@@ -74,5 +75,23 @@ def install_guide_schema(metadata):
         PrimaryKeyConstraint("id"),
         Index("ix_guide_replies_doc", "document_id", "created_at"))
 
+    highlights = Table("guide_highlights", metadata,
+        Column("id", UUID(as_uuid=False), nullable=False),
+        Column("slug", Text, nullable=False),
+        Column("title", Text, nullable=False),
+        Column("description", Text, nullable=False, server_default=text("''")),
+        Column("video_media", Text, nullable=False, server_default=text("''")),
+        Column("link_url", Text, nullable=False, server_default=text("''")),
+        Column("button_text", Text, nullable=False, server_default=text("''")),
+        Column("version_no", Text, nullable=False, server_default=text("''")),
+        Column("online_date", Date, nullable=True),
+        Column("sort_order", Integer, nullable=False, server_default=text("0")),
+        Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+        Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
+        PrimaryKeyConstraint("id"),
+        UniqueConstraint("slug", name="uq_guide_highlights_slug"),
+        Index("ix_guide_highlights_order", "online_date", "sort_order"))
+
     return {"guide_boards": boards, "guide_documents": documents, "guide_sections": sections,
-            "guide_images": images, "guide_replies": replies}
+            "guide_images": images, "guide_replies": replies,
+            "guide_highlights": highlights}

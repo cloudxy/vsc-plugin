@@ -200,3 +200,48 @@ class GuideStore:
 
             s.commit()
         return doc_id
+
+    # ── Highlight features ──
+
+    HIGHLIGHT_FIELDS = ("title", "description", "video_media", "link_url", "button_text",
+                        "version_no", "online_date", "sort_order")
+
+    def list_highlights(self):
+        """Feature video cards for the plaza, newest online date first."""
+        with self._session() as s:
+            rows = s.execute(sql_text(
+                "SELECT id, slug, title, description, video_media, link_url, button_text, "
+                "version_no, online_date, sort_order, updated_at "
+                "FROM guide_highlights "
+                "ORDER BY online_date DESC NULLS LAST, sort_order, slug"
+            )).mappings().all()
+            return [dict(r) for r in rows]
+
+    def upsert_highlight(self, slug: str, title: str, **fields):
+        """Insert or update one highlight card keyed by slug; returns the row id."""
+        unknown = set(fields) - set(self.HIGHLIGHT_FIELDS)
+        if unknown:
+            raise ValueError(f"unknown highlight fields: {', '.join(sorted(unknown))}")
+        values = {"id": str(uuid.uuid4()), "slug": slug, "title": title}
+        for name in self.HIGHLIGHT_FIELDS:
+            if name in fields:
+                value = fields[name]
+                if name == "online_date":
+                    value = value if value else None
+                values[name] = value
+        with self._session() as s:
+            row = s.execute(sql_text(
+                "INSERT INTO guide_highlights (id, slug, title, description, video_media, "
+                "link_url, button_text, version_no, online_date, sort_order) VALUES "
+                "(:id, :slug, :title, :descr, :video, :link, :btn, :ver, CAST(:online AS date), :sort) "
+                "ON CONFLICT (slug) DO UPDATE SET title=:title, description=:descr, "
+                "video_media=:video, link_url=:link, button_text=:btn, version_no=:ver, "
+                "online_date=CAST(:online AS date), sort_order=:sort, updated_at=now() "
+                "RETURNING id"
+            ), {"id": values["id"], "slug": slug, "title": title,
+                "descr": values.get("description", ""), "video": values.get("video_media", ""),
+                "link": values.get("link_url", ""), "btn": values.get("button_text", ""),
+                "ver": values.get("version_no", ""), "online": values.get("online_date"),
+                "sort": values.get("sort_order", 0)}).first()
+            s.commit()
+            return row[0]

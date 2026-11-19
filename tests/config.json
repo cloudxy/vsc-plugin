@@ -2647,6 +2647,14 @@
         "tools/maintenance/guide_import_liblib.py"
       ]
     },
+    "project.integration.test_guide_highlights_db": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/guide_store.py",
+        "src/vsc/adapters/persistence/postgres/schema_guide.py"
+      ]
+    },
     "project.integration.test_guide_seed": {
       "owner": "project",
       "layer": "integration",
