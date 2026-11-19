@@ -14,7 +14,8 @@ class CharacterStudioFrontendTests(unittest.TestCase):
             ["node", "--test", str(Path(__file__).with_name("character_studio.test.mjs")),
              str(Path(__file__).with_name("character_studio_parity.test.mjs")),
              str(Path(__file__).with_name("character_studio_errors.test.mjs")),
-             str(Path(__file__).with_name("character_studio_continuity.test.mjs"))],
+             str(Path(__file__).with_name("character_studio_continuity.test.mjs")),
+             str(Path(__file__).with_name("character_studio_pixai.test.mjs"))],
             cwd=root, capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -2494,6 +2494,7 @@
         "tests/project/unit/character_studio_parity.test.mjs",
         "tests/project/unit/character_studio_errors.test.mjs",
         "tests/project/unit/character_studio_continuity.test.mjs",
+        "tests/project/unit/character_studio_pixai.test.mjs",
         "tests/support/fixtures/frontend/studio_records_api.mjs",
         "src/vsc/interfaces/web/static/resource-settings.js",
         "src/vsc/interfaces/web/static/resource-settings.css"
