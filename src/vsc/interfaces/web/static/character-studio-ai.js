@@ -92,13 +92,14 @@ export function uploadedReferences(name,url,width=0,height=0,bytes=0){
  };
 }
 
-export const PROVIDER_ORDER=['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','kling'];
+export const PROVIDER_ORDER=['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','pixai','kling'];
 export const SETTINGS_GROUPS=[
  {id:'google',name:'Google · AGY / Gemini',modes:['agy_auth','gemini']},
  {id:'xai',name:'xAI · Grok',modes:['grok_auth','grok']},
  {id:'gpt',name:'OpenAI GPT Image',modes:['codex_auth','gpt']},
  {id:'qwen',name:'阿里云百炼 Qwen',modes:['qwen']},
  {id:'doubao',name:'字节火山方舟 Doubao',modes:['doubao']},
+ {id:'pixai',name:'PixAI',modes:['pixai']},
  {id:'kling',name:'快手可灵 Kling',modes:['kling']},
 ];
 export const PROVIDER_META={
@@ -122,7 +123,7 @@ export const PROVIDER_META={
  gpt:{id:'gpt',name:'OpenAI GPT Image',shortName:'GPT',modeLabel:'GPT Image API 接口',modeHint:'使用 OpenAI API Key 生图',
   authMode:'apikey',defaultBaseUrl:'https://api.openai.com/v1',docUrl:'https://platform.openai.com/docs/guides/image-generation',
   keyPlaceholder:'输入 sk-... API Key（仅保存在本地浏览器）',
-  models:[['gpt-image-2.5'],['gpt-image-2.5-sunburst'],['gpt-image-2.5-flare'],['gpt-image-2'],['gpt-image-1.5'],['gpt-image-1'],['custom','自定义模型 ID']]},
+  models:[['gpt-image-2.6-sunburst'],['gpt-image-2.6-flare'],['gpt-image-2.5'],['gpt-image-2.5-sunburst'],['gpt-image-2.5-flare'],['gpt-image-2'],['gpt-image-1.5'],['gpt-image-1'],['custom','自定义模型 ID']]},
  qwen:{id:'qwen',name:'阿里云百炼 Qwen',shortName:'Qwen',modeLabel:'API 接口',modeHint:'DashScope API Key',
   authMode:'apikey',defaultBaseUrl:'https://dashscope.aliyuncs.com',docUrl:'https://help.aliyun.com/zh/model-studio/qwen-image-edit-api',
   keyPlaceholder:'输入 DashScope sk-... API Key（仅保存在本地浏览器）',
@@ -131,6 +132,10 @@ export const PROVIDER_META={
   authMode:'apikey',defaultBaseUrl:'https://ark.cn-beijing.volces.com',docUrl:'https://www.volcengine.com/docs/82379/1541523',
   keyPlaceholder:'输入火山方舟 API Key（仅保存在本地浏览器）',
   models:[['doubao-seedream-5-0'],['doubao-seedream-5-0-lite'],['doubao-seedream-4-5-251128'],['doubao-seedream-4-0-250828'],['doubao-seededit-3-0-i2i-250628'],['custom','自定义模型 ID / Endpoint']]},
+ pixai:{id:'pixai',name:'PixAI',shortName:'PixAI',modeLabel:'API 接口',modeHint:'PixAI API Key · 人像、服装、姿势三图',
+  authMode:'apikey',defaultBaseUrl:'https://api.pixai.art',docUrl:'https://platform.pixai.art/en/docs/api-v2/image/createImage',
+  keyPlaceholder:'输入 PixAI API Key（仅保存在本地浏览器）',lockBaseUrl:true,
+  models:[['2024383379556065549','Tsubaki.3'],['2050048243034896798','Tsubaki.3 Flash']]},
  kling:{id:'kling',name:'快手可灵 Kling',shortName:'可灵 Kling',modeLabel:'API 接口 (AK/SK 或单 Key)',modeHint:'可灵开放平台 AK/SK (HS256 JWT) 或兼容 API Key',
   authMode:'apikey',supportsDualAuth:true,defaultBaseUrl:'https://api-beijing.klingai.com',docUrl:'https://app.klingai.com/cn/dev/document-api',
   keyPlaceholder:'输入兼容平台单令牌 API Key（仅保存在本地浏览器）',
@@ -499,6 +504,76 @@ export const verifyAuthProvider=(provider,api)=>callStudioApi('/api/v1/character
 export const triggerAuthLogin=(provider,api)=>callStudioApi('/api/v1/character-studio/auth/login',{method:'POST',body:JSON.stringify({provider})},api);
 
 // ------------------------------------------------------------------ Request compilers & provenance
+/** GPT Image 2 and newer reject an explicit input_fidelity field. */
+export function getGptInputFidelity(model,requested){
+ const name=String(model||'').trim();
+ const want=requested==='low'?'low':'high';
+ if(/^gpt-image-1(?:\.5)?(?:-\d{4}-\d{2}-\d{2})?$/.test(name))return want;
+ if(/^gpt-image-1-mini(?:-\d{4}-\d{2}-\d{2})?$/.test(name)&&want==='low')return 'low';
+ return undefined;
+}
+export const PIXAI_MODEL='2024383379556065549';
+export const PIXAI_FLASH_MODEL='2050048243034896798';
+export const PIXAI_BASE_URL='https://api.pixai.art';
+export const PIXAI_ASPECT_RATIOS=['1:1','2:3','3:2','3:4','4:3','3:5','5:3','9:16','16:9','1:3','3:1'];
+const PIXAI_MAX_IMAGE_BYTES=10*1024*1024;
+
+export function pixAiBaseUrl(value){
+ const base=String(value||'').trim().replace(/\/+$/,'')||PIXAI_BASE_URL;
+ if(base!==PIXAI_BASE_URL)throw new Error('[PixAI] 仅支持官方地址 https://api.pixai.art');
+ return base;
+}
+export function pixAiSources(recipe){
+ if(!recipe?.portrait||!recipe?.costume||!recipe?.pose)throw new Error('[PixAI] 请补齐人像、服装、姿势三张参考图');
+ if(recipe.extraImages?.length)throw new Error('[PixAI] 最多支持三图，请先移除附加参考图');
+ return [
+  recipe.portrait.原图||recipe.portrait.缩略图,
+  recipe.costume.预览图||recipe.costume.原图||recipe.costume.缩略图,
+  poseImagePath(recipe.pose),
+ ];
+}
+export function pixAiPayload(prompt,params,mediaIds,model=PIXAI_MODEL){
+ const text=String(prompt||'');
+ const allowed=[PIXAI_MODEL,PIXAI_FLASH_MODEL];
+ if(!allowed.includes(model))throw new Error('[PixAI] 请选择 Tsubaki.3 或 Tsubaki.3 Flash');
+ if(!text.trim()||text.length>10000)throw new Error('[PixAI] 提示词须为 1–10000 字符');
+ if(!Array.isArray(mediaIds)||mediaIds.length!==3||mediaIds.some(id=>!id))throw new Error('[PixAI] 必须按人像、服装、姿势上传三图');
+ const mode=params?.mode||'default';
+ if(model===PIXAI_FLASH_MODEL&&mode!=='default')throw new Error('[PixAI] Flash 请使用模型默认模式');
+ if(!['default','pro','ultra'].includes(mode))throw new Error('[PixAI] 生成模式无效');
+ const negative=String(params?.negativePrompt||'');
+ if(negative.length>4096)throw new Error('[PixAI] 负向提示词不能超过 4096 字符');
+ const aspect=PIXAI_ASPECT_RATIOS.includes(params?.aspectRatio)?params.aspectRatio:'3:4';
+ const size=['1k','1.5k'].includes(params?.size)?params.size:'1k';
+ let seed;
+ if(params?.seed!==undefined&&params?.seed!==null&&params?.seed!==''){
+  seed=Number(params.seed);
+  if(!Number.isSafeInteger(seed))throw new Error('[PixAI] Seed 必须为安全整数');
+ }
+ return {
+  modelVersionId:model,prompt:text,contextImages:mediaIds,aspectRatio:aspect,size,
+  ...(mode==='default'?{}:{mode}),
+  ...(model===PIXAI_FLASH_MODEL?{}:{negativePrompt:negative}),
+  batchSize:1,promptHelper:'disable',
+  ...(seed===undefined?{}:{seed}),
+ };
+}
+export async function pixAiImageMime(blob){
+ const bytes=new Uint8Array(await blob.slice(0,64).arrayBuffer());
+ const ascii=(start,end)=>String.fromCharCode(...bytes.slice(start,end));
+ if([137,80,78,71,13,10,26,10].every((value,i)=>bytes[i]===value))return 'image/png';
+ if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';
+ if(['GIF87a','GIF89a'].includes(ascii(0,6)))return 'image/gif';
+ if(ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP')return 'image/webp';
+ if(ascii(4,8)==='ftyp'&&/avif|avis/.test(ascii(8,64)))return 'image/avif';
+ return null;
+}
+function pixaiMarked(message,outcome){
+ const error=new Error(message);
+ error.pixaiOutcome=outcome;
+ return error;
+}
+
 export function isGrokDirectImagineModel(model){
  const norm=String(model||'').trim().toLowerCase();
  return norm.startsWith('grok-imagine-')||norm.startsWith('grok-2-image');
@@ -545,6 +620,7 @@ export function apiMethodSpec(provider,model,settings={},refCount=1){
  }
  if(provider==='qwen')return {method:'qwen_multimodal_generation',methodLabel:'百炼 API · multimodal-generation',endpoint:'/api/v1/services/aigc/multimodal-generation/generation'};
  if(provider==='doubao')return {method:'doubao_images_generations',methodLabel:'方舟 API · /api/v3/images/generations',endpoint:'/api/v3/images/generations'};
+ if(provider==='pixai')return {method:'pixai_image_create',methodLabel:'PixAI API · /v2/image/create',endpoint:'/v2/image/create'};
  if(provider==='kling')return {method:'kling_images_generations',methodLabel:'Kling API · /v1/images/generations',endpoint:'/v1/images/generations'};
  return {method:'',methodLabel:'',endpoint:''};
 }
@@ -585,7 +661,7 @@ export function resolveRecordProvenance(record){
      method='grok_sub_imagine_api';methodLabel='Grok 订阅直连 · Imagine API';endpoint='/v1/images/*';
     }else({method,methodLabel,endpoint}=authMethodSpec(provider,model,snapRefs));
    }
-  }else if(provider==='qwen'||provider==='doubao'||provider==='kling'){
+  }else if(provider==='qwen'||provider==='doubao'||provider==='kling'||provider==='pixai'){
    ({method,methodLabel,endpoint}=apiMethodSpec(provider,model,{},snapRefs||1));
   }else if(record?.snapshot?.settings||(provider==='grok'&&model==='grok-2-image-1212')){
    ({method,methodLabel,endpoint}=apiMethodSpec(provider,model,record?.snapshot?.settings||{},hasSnapRecipe?snapRefs:1));
@@ -828,6 +904,173 @@ export function buildKlingVideoApiRequest({baseUrl,bearerToken,model,prompt,firs
  };
 }
 
+function pixaiRequestSignal(signal,ms=60000){
+ if(typeof AbortSignal?.timeout!=='function'||typeof AbortSignal?.any!=='function')return signal;
+ return AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(ms)]);
+}
+async function preparePixAiImage(src,label,signal){
+ try{
+  let response;
+  try{response=await fetch(referenceImageUrl(src),{signal});}
+  catch(error){
+   if(error?.name==='AbortError')throw error;
+   throw new Error('无法读取素材；远程图片可能不允许跨域读取，可下载后上传到该槽位');
+  }
+  if(response.status===404)throw new Error('素材文件不存在，请重新选择或上传图片');
+  if(!response.ok)throw new Error(`素材请求失败 HTTP ${response.status}`);
+  if(String(response.headers.get('content-type')||'').toLowerCase().includes('text/html'))throw new Error('素材地址返回了网页而非图片，请检查素材文件是否缺失或地址是否正确');
+  const blob=await response.blob();
+  const mime=await pixAiImageMime(blob);
+  if(!mime)throw new Error('未识别到有效的 PNG、JPEG、WebP、GIF 或 AVIF 图片数据');
+  const typed=blob.type===mime?blob:blob.slice(0,blob.size,mime);
+  if(typeof createImageBitmap!=='function'){
+   if(mime==='image/avif'||typed.size>PIXAI_MAX_IMAGE_BYTES)throw new Error('当前环境无法转换这张图片');
+   signal?.throwIfAborted?.();
+   return typed;
+  }
+  const bitmap=await createImageBitmap(typed);
+  let output=typed;
+  try{
+   if(!bitmap.width||!bitmap.height)throw new Error('图片尺寸无效');
+   if(Math.max(bitmap.width,bitmap.height)>=4000||mime==='image/avif'){
+    const scale=Math.min(1,3999/Math.max(bitmap.width,bitmap.height));
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.floor(bitmap.width*scale));
+    canvas.height=Math.max(1,Math.floor(bitmap.height*scale));
+    const ctx=canvas.getContext('2d');
+    if(!ctx)throw new Error('无法处理图片');
+    ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+    output=await new Promise((resolve,reject)=>canvas.toBlob(value=>value?resolve(value):reject(new Error('图片转换失败')),'image/png'));
+   }
+  }finally{bitmap.close?.();}
+  if(!output.size||output.size>PIXAI_MAX_IMAGE_BYTES)throw new Error('图片须小于等于 10 MiB，请压缩后重试');
+  signal?.throwIfAborted?.();
+  return output;
+ }catch(error){
+  if(error?.name==='AbortError')throw error;
+  throw new Error(`[PixAI] ${label}读取失败：${error instanceof Error?error.message:'无法读取图片'}`);
+ }
+}
+async function pixAiHttp(baseUrl,path,apiKey,useProxy,init={}){
+ pixAiBaseUrl(baseUrl);
+ if(!String(apiKey||'').trim())throw new Error('[PixAI] 请配置 API Key');
+ const headers=new Headers(init.headers||{});
+ headers.set('Authorization',`Bearer ${String(apiKey).trim()}`);
+ const target=`${baseUrl}${path}`;
+ const response=await smartFetch(target,{...init,headers,signal:pixaiRequestSignal(init.signal)},useProxy);
+ if(!response.ok){
+  const detail=(await response.text()).slice(0,1500);
+  const retry=response.headers.get('retry-after');
+  const retryAfter=retry?(Number.isFinite(Number(retry))?Number(retry)*1000:Date.parse(retry)-Date.now()):0;
+  const error=new Error(`[PixAI] HTTP ${response.status}：${detail}`);
+  error.status=response.status;
+  error.retryAfter=Math.max(0,retryAfter||0);
+  error.pixaiHttp=true;
+  throw error;
+ }
+ return response.json();
+}
+export async function resumePixAiTask({task,apiKey,signal,onProgress,timeoutMs=600000}){
+ const baseUrl=pixAiBaseUrl(task?.baseUrl);
+ if(!task?.taskId)throw new Error('[PixAI] 没有可恢复的任务编号');
+ const deadline=Date.now()+timeoutMs;
+ let backoff=2000;
+ while(Date.now()<deadline){
+  signal?.throwIfAborted?.();
+  let data;
+  try{
+   data=await pixAiHttp(baseUrl,`/v1/task/${encodeURIComponent(task.taskId)}`,apiKey,task.useProxy,{signal});
+   backoff=2000;
+  }catch(error){
+   if(error?.name==='AbortError')throw error;
+   const recent404=error?.status===404&&Date.now()-Number(task.submittedAt||0)<60000;
+   if(error?.pixaiHttp&&error.status!==429&&error.status<500&&!recent404)throw error;
+   onProgress?.({stage:'queue',message:'PixAI 查询中断，正在退避重试；任务记录已保留'});
+   await waitPoll(Math.min(Math.max(backoff,error?.retryAfter||0),Math.max(0,deadline-Date.now())),signal);
+   backoff=Math.min(backoff*2,30000);
+   continue;
+  }
+  if(data.status==='failed'||data.status==='cancelled')throw pixaiMarked(`[PixAI] 任务 ${task.taskId} ${data.status}：${JSON.stringify(data.error||data.outputs||{}).slice(0,1000)}`,'terminal');
+  if(data.status==='completed'){
+   onProgress?.({stage:'download',message:'PixAI 生成完成，正在下载并保存图片…'});
+   let url=data.outputs?.mediaUrls?.[0];
+   if(!url&&data.outputs?.mediaIds?.[0]){
+    const media=await pixAiHttp(baseUrl,`/v1/media/${encodeURIComponent(data.outputs.mediaIds[0])}`,apiKey,task.useProxy,{signal});
+    url=media.urls?.find(entry=>entry.variant==='PUBLIC')?.url;
+   }
+   if(typeof url!=='string'||!url.startsWith('https:'))throw new Error(`[PixAI] 任务 ${task.taskId} 完成但没有有效图片`);
+   let response;
+   try{response=await fetch(url,{signal:pixaiRequestSignal(signal)});}
+   catch(error){
+    if(error?.name==='AbortError')throw error;
+    throw new Error(`[PixAI] 结果下载中断；任务 ${task.taskId} 已保留，可恢复重试`);
+   }
+   if(!response.ok)throw new Error(`[PixAI] 图片下载失败 HTTP ${response.status}；可恢复任务 ${task.taskId}`);
+   const blob=await response.blob();
+   if(!String(blob.type||'').startsWith('image/')||!blob.size)throw new Error('[PixAI] 下载结果不是有效图片；请恢复任务重试');
+   return {
+    imageUrl:await blobToDataUrl(blob),
+    modelUsed:task.model,
+    providerUsed:'pixai',
+    methodUsed:'pixai_image_create',
+    methodLabel:'PixAI API · /v2/image/create',
+    endpointUsed:'/v2/image/create',
+   };
+  }
+  if(data.status!=='waiting'&&data.status!=='running')throw new Error(`[PixAI] 未知任务状态 ${String(data.status)}，任务 ${task.taskId} 已保留`);
+  onProgress?.({stage:data.status==='waiting'?'queue':'running',message:data.status==='waiting'?'PixAI 排队中…':'PixAI 生成中…'});
+  await waitPoll(2000,signal);
+ }
+ throw new Error(`[PixAI] 查询超时；任务 ${task.taskId} 已保留，可稍后恢复`);
+}
+async function runPixAiGeneration({recipe,prompt,config,onProgress,signal,onSubmitting,onSubmitted}){
+ const pCfg=config.providers?.pixai||{};
+ const baseUrl=pixAiBaseUrl(pCfg.baseUrl);
+ const model=pCfg.model===PIXAI_FLASH_MODEL?PIXAI_FLASH_MODEL:PIXAI_MODEL;
+ const sources=pixAiSources(recipe);
+ pixAiPayload(prompt,config.pixaiParams,['check','check','check'],model);
+ if(!String(pCfg.apiKey||'').trim())throw new Error('[PixAI] 请配置 API Key');
+ const mediaIds=[];
+ for(const [index,source] of sources.entries()){
+  const label=['人像','服装','姿势'][index];
+  onProgress?.({stage:'upload',message:`正在上传第 ${index+1}/3 张：${label}…`});
+  const blob=await preparePixAiImage(source,label,signal);
+  const media=await pixAiHttp(baseUrl,'/v1/media/upload',pCfg.apiKey,config.useProxy,{
+   method:'POST',headers:{'Content-Type':blob.type||'application/octet-stream'},body:blob,signal,
+  });
+  if(typeof media.id!=='string'||!media.id)throw new Error(`[PixAI] ${label}上传没有返回 media ID`);
+  mediaIds.push(media.id);
+ }
+ const payload=pixAiPayload(prompt,config.pixaiParams,mediaIds,model);
+ try{await onSubmitting?.({provider:'pixai',baseUrl,payload});}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  throw pixaiMarked('[PixAI] 提交前记录保存失败，未创建任务。','rejected');
+ }
+ signal?.throwIfAborted?.();
+ onProgress?.({stage:'queue',message:'正在提交 PixAI 任务…'});
+ const submittedAt=Date.now();
+ let data;
+ try{
+  data=await pixAiHttp(baseUrl,'/v2/image/create',pCfg.apiKey,config.useProxy,{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal,
+  });
+ }catch(error){
+  if(error?.name==='AbortError')throw error;
+  if(error?.pixaiHttp&&[400,401,403,404,413,422,429].includes(error.status))throw pixaiMarked(error.message,'rejected');
+  throw pixaiMarked('[PixAI] 提交结果未知：可能已创建任务并扣除额度。请在 PixAI 核对任务，勿重复提交。','unknown');
+ }
+ if(typeof data.id!=='string'||!data.id)throw pixaiMarked('[PixAI] 提交结果未知：可能已创建任务并扣除额度。请在 PixAI 核对任务，勿重复提交。','unknown');
+ const task={provider:'pixai',taskId:data.id,baseUrl,model:payload.modelVersionId,submittedAt,useProxy:Boolean(config.useProxy)};
+ try{await onSubmitted?.(task);}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  throw new Error(`[PixAI] 任务已创建但记录保存失败。任务编号：${task.taskId}；请保留编号并恢复，勿重复提交。`);
+ }
+ await waitPoll(2000,signal);
+ return resumePixAiTask({task,apiKey:pCfg.apiKey,signal,onProgress});
+}
+
 // ------------------------------------------------------------------ Generation entry
 export async function generateCharacterImage(options){
  const {config}=options,provider=config.activeProvider,pCfg=config.providers[provider]||{},meta=PROVIDER_META[provider];
@@ -835,12 +1078,15 @@ export async function generateCharacterImage(options){
  try{return await runCharacterGeneration(options);}
  catch(error){
   if(error?.name==='AbortError')throw error;
-  throw new Error(`[${meta?.shortName||provider} · ${model}] ${safeFailureText(error?.message||'调用结束，未取得图片或错误详情。',[pCfg.apiKey,pCfg.accessKey,pCfg.secretKey])}`);
+  const wrapped=new Error(`[${meta?.shortName||provider} · ${model}] ${safeFailureText(error?.message||'调用结束，未取得图片或错误详情。',[pCfg.apiKey,pCfg.accessKey,pCfg.secretKey])}`);
+  if(error?.pixaiOutcome)wrapped.pixaiOutcome=error.pixaiOutcome;
+  throw wrapped;
  }
 }
-async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',snapshot=null,onProgress,signal,pollIntervalMs,timeoutMs}){
+async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',snapshot=null,onProgress,signal,pollIntervalMs,timeoutMs,onSubmitting,onSubmitted}){
  const provider=config.activeProvider,meta=PROVIDER_META[provider],pCfg=config.providers[provider]||{};
  if(!meta)throw new Error('未知的生图接口通道');
+ if(provider==='pixai')return runPixAiGeneration({recipe,prompt,config,onProgress,signal,onSubmitting,onSubmitted});
  const rawSources=[
   recipe.portrait&&(recipe.portrait.原图||recipe.portrait.缩略图),
   recipe.costume&&(recipe.costume.预览图||recipe.costume.原图||recipe.costume.缩略图),
@@ -942,20 +1188,21 @@ async function runCharacterGeneration({recipe,prompt,config,recipeSummary='',sna
  let res;
  if(provider==='gpt'){
   const g=config.gptParams,v1=baseUrl.endsWith('/v1')?baseUrl:`${baseUrl}/v1`,auth={Authorization:`Bearer ${apiKey}`};
+  const inputFidelity=getGptInputFidelity(model,g.inputFidelity);
   if(g.endpointMode==='images_edits_json'){
    const payload={model,prompt,images:allRefs.map(ref=>({image_url:ref}))};
-   if(g.size!=='auto')payload.size=g.size;if(g.quality!=='auto')payload.quality=g.quality;if(g.inputFidelity)payload.input_fidelity=g.inputFidelity;
+   if(g.size!=='auto')payload.size=g.size;if(g.quality!=='auto')payload.quality=g.quality;if(inputFidelity)payload.input_fidelity=inputFidelity;
    if(g.background!=='auto')payload.background=g.background;if(g.outputFormat)payload.output_format=g.outputFormat;if(g.moderation!=='auto')payload.moderation=g.moderation;
    res=await smartFetch(`${v1}/images/edits`,{method:'POST',headers:json_(auth),body:JSON.stringify(payload),signal},config.useProxy);
   }else if(g.endpointMode==='images_edits'){
    const fd=new FormData();fd.append('model',model);fd.append('prompt',prompt);
    allRefs.forEach((du,i)=>fd.append('image[]',dataUrlToBlob(du),`ref_${i+1}.png`));
-   if(g.size!=='auto')fd.append('size',g.size);if(g.quality!=='auto')fd.append('quality',g.quality);if(g.inputFidelity)fd.append('input_fidelity',g.inputFidelity);
+   if(g.size!=='auto')fd.append('size',g.size);if(g.quality!=='auto')fd.append('quality',g.quality);if(inputFidelity)fd.append('input_fidelity',inputFidelity);
    if(g.background!=='auto')fd.append('background',g.background);if(g.outputFormat)fd.append('output_format',g.outputFormat);if(g.moderation!=='auto')fd.append('moderation',g.moderation);
    res=await smartFetch(`${v1}/images/edits`,{method:'POST',headers:auth,body:fd,signal},config.useProxy);
   }else if(g.endpointMode==='responses'){
    const tool={type:'image_generation'};
-   if(g.size!=='auto')tool.size=g.size;if(g.quality!=='auto')tool.quality=g.quality;if(g.background!=='auto')tool.background=g.background;if(g.inputFidelity)tool.input_fidelity=g.inputFidelity;if(g.outputFormat)tool.output_format=g.outputFormat;
+   if(g.size!=='auto')tool.size=g.size;if(g.quality!=='auto')tool.quality=g.quality;if(g.background!=='auto')tool.background=g.background;if(inputFidelity)tool.input_fidelity=inputFidelity;if(g.outputFormat)tool.output_format=g.outputFormat;
    res=await smartFetch(`${v1}/responses`,{method:'POST',headers:json_(auth),body:JSON.stringify({model,input:[{role:'user',content:[...allRefs.map(ref=>({type:'input_image',image_url:ref})),{type:'input_text',text:prompt}]}],tools:[tool]}),signal},config.useProxy);
   }else{
    res=await smartFetch(`${v1}/chat/completions`,{method:'POST',headers:json_(auth),body:JSON.stringify({model,messages:[{role:'user',content:[{type:'text',text:prompt},...allRefs.map(ref=>({type:'image_url',image_url:{url:ref}}))]}],modalities:['text','image']}),signal},config.useProxy);

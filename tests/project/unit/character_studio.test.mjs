@@ -60,12 +60,14 @@ test('database history resumes the original publication and opens its exact offi
 
 test('ComfyUI is completely removed and AGY/Grok auth + Grok/Gemini/Kling API + Video modality providers are registered',()=>{
  assert.equal(existsSync(new URL('../../../src/vsc/interfaces/web/static/character-studio-workflows.js',import.meta.url)),false);
- assert.deepEqual(ai.PROVIDER_ORDER,['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','kling']);
+ assert.deepEqual(ai.PROVIDER_ORDER,['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','pixai','kling']);
  assert.equal(ai.PROVIDER_META.comfyui,undefined);
- assert.deepEqual(ai.SETTINGS_GROUPS.map(g=>g.id),['google','xai','gpt','qwen','doubao','kling']);
+ assert.equal(ai.PROVIDER_META.pixai.defaultBaseUrl,'https://api.pixai.art');
+ assert.deepEqual(ai.SETTINGS_GROUPS.map(g=>g.id),['google','xai','gpt','qwen','doubao','pixai','kling']);
  assert.deepEqual(ai.SETTINGS_GROUPS[0].modes,['agy_auth','gemini']);
  assert.deepEqual(ai.SETTINGS_GROUPS[1].modes,['grok_auth','grok']);
- assert.deepEqual(ai.SETTINGS_GROUPS[5].modes,['kling']);
+ assert.deepEqual(ai.SETTINGS_GROUPS[5].modes,['pixai']);
+ assert.deepEqual(ai.SETTINGS_GROUPS[6].modes,['kling']);
  assert.equal(ai.PROVIDER_META.kling.supportsDualAuth,true);
  assert.equal(ai.PROVIDER_META.kling.defaultBaseUrl,'https://api-beijing.klingai.com');
  assert.equal(ai.isAuthProvider('agy_auth'),true);
@@ -207,7 +209,7 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  for(const title of ['1. 参考图组合','2. 生图引擎与参数','3. 提示词 (Prompt)','本次生成结果'])assert.ok(headings.includes(title),title);
  assert.ok(texts(root,'button').includes('AI角色合成库 (0)'));
  const providerSelect=root.querySelectorAll('select').find(s=>s.options.some(o=>o.value==='agy_auth'));
- assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','kling']);
+ assert.deepEqual(providerSelect.options.map(o=>o.value),['agy_auth','grok_auth','codex_auth','gemini','grok','gpt','qwen','doubao','pixai','kling']);
  assert.equal(providerSelect.options.some(o=>/comfy/i.test(o.value+o.textContent)),false);
  assert.ok(root.querySelector('.cs-conn'));
 
@@ -237,7 +239,7 @@ test('studio and API settings views split into 图 and 视频 tabs with independ
  assert.equal(vidModTab.getAttribute('aria-selected'),'false');
 
  const tabs=root.querySelectorAll('.cs-provider-tab');
- assert.equal(tabs.length,6);
+ assert.deepEqual(tabs.map(t=>t.dataset.groupId),['google','xai','gpt','qwen','doubao','pixai','kling']);
  assert.equal(tabs.some(t=>/ComfyUI/i.test(t.textContent)),false);
 
  // Currently on xAI · Grok group (`grok` API mode) -> save a Grok image key, then switch to `grok_auth` OAuth login mode
@@ -422,7 +424,7 @@ test('OpenAI configuration light follows Codex authorization and API configurati
    const tab=root.querySelectorAll('.cs-provider-tab').find(node=>node.dataset.groupId==='gpt');
    assert.equal(tab.querySelector('.cs-dot').className,sample.tone?'cs-dot '+sample.tone:'cs-dot',sample.status);
    assert.match(root.querySelector('.cs-conn-badge').textContent,new RegExp(store.AUTH_STATUS_LABELS[sample.status]));
-   assert.match(root.querySelector('#cs-modality-tab-image').textContent,new RegExp(`${sample.count}/6`));
+   assert.match(root.querySelector('#cs-modality-tab-image').textContent,new RegExp(`${sample.count}/7`));
   }
  }finally{studio.suspend();store.updateApiConfig(previous);root.remove();}
 });
@@ -875,7 +877,7 @@ test('Kling AI dual-auth (WebCrypto HS256 JWT + API Key), credential readiness a
   store.updateProviderConfig('kling',{authMode:'aksk',accessKey:'ak-partial',secretKey:'',apiKey:''});
   await studio.load({mode:'settings',hub:'api',tab:'image',provider:'kling'});await flush();
   assert.match(root.querySelector('.cs-field-error').textContent,/同时填写 Access Key 与 Secret Key/);
-  assert.match(root.querySelector('#cs-modality-tab-image').textContent,/0\/6 已配/);
+  assert.match(root.querySelector('#cs-modality-tab-image').textContent,/0\/7 已配/);
   const klingTabBefore=root.querySelectorAll('.cs-provider-tab').find(n=>n.dataset.groupId==='kling');
   assert.match(klingTabBefore.textContent,/未配置 AK\/SK/);
   assert.equal(klingTabBefore.querySelector('.cs-dot').classList.contains('is-set'),false);
@@ -886,7 +888,7 @@ test('Kling AI dual-auth (WebCrypto HS256 JWT + API Key), credential readiness a
   const klingTabAfter=root.querySelectorAll('.cs-provider-tab').find(n=>n.dataset.groupId==='kling');
   assert.match(klingTabAfter.textContent,/已配置 AK\/SK/);
   assert.equal(klingTabAfter.querySelector('.cs-dot').classList.contains('is-set'),true);
-  assert.match(root.querySelector('#cs-modality-tab-image').textContent,/已就绪 1\/6/);
+  assert.match(root.querySelector('#cs-modality-tab-image').textContent,/已就绪 1\/7/);
   assert.equal(store.getState().apiConfig.useProxy,true,'selecting Kling enables /api/proxy by default');
 
   // 4. Studio view (F-005): AK+SK ready suppresses .cs-warn and renders klingParams controls

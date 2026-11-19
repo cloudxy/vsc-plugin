@@ -48,6 +48,7 @@ DEFAULT_ALLOWED_ORIGINS = (
     "https://*.volces.com",
     "https://generativelanguage.googleapis.com",
     "https://api.openai.com",
+    "https://api.pixai.art",
     "https://api.x.ai",
     "https://*.x.ai",
     "https://api-beijing.klingai.com",
@@ -1970,6 +1971,10 @@ def install_character_studio_routes(
         except httpx.HTTPError as error:
             return JSONResponse({"error": {"message": f"Upstream proxy error: {type(error).__name__}"}}, status_code=502)
 
+        pixai_host = (urlsplit(target).hostname or "").lower() == "api.pixai.art"
+        if pixai_host and 300 <= upstream_status < 400:
+            return JSONResponse({"error": {"message": "Upstream redirect blocked"}}, status_code=502)
+
         media_type = upstream_headers.get("content-type") or "application/json; charset=utf-8"
         if tier == "media":
             bare_type = (upstream_headers.get("content-type") or "").split(";", 1)[0].strip().lower()
@@ -1989,9 +1994,12 @@ def install_character_studio_routes(
                     status_code=502,
                 )
 
+        response_headers = {name: upstream_headers[name] for name in ("x-request-id", "request-id", "retry-after") if name in upstream_headers}
+        if pixai_host:
+            response_headers["cache-control"] = "no-store"
         return Response(
             upstream_content,
             status_code=upstream_status,
             media_type=media_type,
-            headers={name: upstream_headers[name] for name in ("x-request-id", "request-id", "retry-after") if name in upstream_headers},
+            headers=response_headers,
         )

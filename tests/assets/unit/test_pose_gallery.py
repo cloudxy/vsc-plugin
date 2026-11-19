@@ -165,6 +165,8 @@ class PoseGalleryTests(unittest.TestCase):
 
     def test_proxy_allow_list_includes_xai_and_gemini(self):
         self.assertTrue(proxy_target_allowed("https://api.openai.com/v1/images/edits"))
+        self.assertTrue(proxy_target_allowed("https://api.pixai.art/v2/image/create"))
+        self.assertFalse(proxy_target_allowed("https://api.pixai.art.evil.com/v2/image/create"))
         self.assertTrue(proxy_target_allowed("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"))
         self.assertTrue(proxy_target_allowed("https://api.x.ai/v1/images/edits"))
         self.assertTrue(proxy_target_allowed("https://imgen.x.ai/tmp/out.png"))
@@ -182,6 +184,80 @@ class PoseGalleryTests(unittest.TestCase):
         self.assertFalse(proxy_target_allowed("https://127.0.0.1/", "*"))
         self.assertFalse(proxy_target_allowed("https://169.254.169.254/latest/meta-data", "*"))
         self.assertFalse(proxy_target_allowed("https://localhost/", "*"))
+
+    def test_proxy_blocks_pixai_redirects_and_marks_pixai_responses_unstored(self):
+        import httpx
+        from fastapi import FastAPI, HTTPException
+        from fastapi.testclient import TestClient
+        from vsc.interfaces.web import character_studio as module
+
+        app = FastAPI()
+
+        def actor(request):
+            if request.headers.get("x-test-actor") != "user":
+                raise HTTPException(403, "denied")
+
+        def origin(request):
+            if request.headers.get("origin") != "http://testserver":
+                raise HTTPException(403, "origin")
+
+        module.install_character_studio_routes(app, lambda request, data: data, actor, origin)
+        headers = {"x-test-actor": "user", "origin": "http://testserver", "Authorization": "Bearer pixai-test-key"}
+
+        def _stream_ctx(resp: httpx.Response):
+            class _FakeStream:
+                def __init__(self, response: httpx.Response):
+                    self.headers = response.headers
+                    self.status_code = response.status_code
+                    self._content = response.content
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+                async def aiter_bytes(self):
+                    if self._content:
+                        yield self._content
+
+            return _FakeStream(resp)
+
+        def post(target, response):
+            with patch("httpx.AsyncClient.stream", side_effect=lambda *args, **kwargs: _stream_ctx(response)) as forwarded:
+                result = client.post("/api/proxy", content=b"{}", headers={**headers, "x-target-url": target})
+            self.assertTrue(forwarded.called)
+            return result
+
+        with TestClient(app, follow_redirects=False) as client:
+            redirected = post(
+                "https://api.pixai.art/v2/image/create",
+                httpx.Response(302, content=b"", headers={"location": "https://evil.example/steal", "content-type": "text/html"}),
+            )
+            self.assertEqual(redirected.status_code, 502, redirected.text)
+            self.assertIn("Upstream redirect blocked", redirected.text)
+            self.assertNotIn("location", {name.lower() for name in redirected.headers})
+
+            other = post(
+                "https://api.openai.com/v1/images/edits",
+                httpx.Response(302, content=b"go", headers={"location": "https://api.openai.com/elsewhere", "content-type": "text/plain"}),
+            )
+            self.assertEqual(other.status_code, 302, other.text)
+            self.assertNotIn("cache-control", {name.lower() for name in other.headers})
+
+            kept = post(
+                "https://api.pixai.art/v1/task/task-1",
+                httpx.Response(200, json={"id": "task-1", "status": "waiting"}, headers={"content-type": "application/json"}),
+            )
+            self.assertEqual(kept.status_code, 200, kept.text)
+            self.assertEqual(kept.headers.get("cache-control"), "no-store")
+
+            plain = post(
+                "https://api.openai.com/v1/images/edits",
+                httpx.Response(200, json={"ok": True}, headers={"content-type": "application/json"}),
+            )
+            self.assertEqual(plain.status_code, 200, plain.text)
+            self.assertNotIn("cache-control", {name.lower() for name in plain.headers})
 
     def test_proxy_dual_tier_media_cdn_enforces_get_strips_credentials_and_validates_mime(self):
         import httpx

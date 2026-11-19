@@ -1,16 +1,17 @@
 // Shared character-studio state: recipe, provider configuration, CLI/OAuth auth status,
 // history and active generation. Lives at module scope so switching pages keeps progress.
 import {buildRecipePrompt,durableImage,durableRecipe,generateCharacterImage,PROVIDER_META,PROVIDER_ORDER,VIDEO_PROVIDER_META,VIDEO_PROVIDER_ORDER,
- stitchRecipeCanvas,referenceImageUrl,localCostumeImageUrl,poseThumbPath,sanitizeCostumeItem,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin} from './character-studio-ai.js';
+ stitchRecipeCanvas,referenceImageUrl,localCostumeImageUrl,poseThumbPath,sanitizeCostumeItem,setCsrfProvider,fetchAuthStatus,verifyAuthProvider,triggerAuthLogin,
+ PIXAI_BASE_URL,PIXAI_FLASH_MODEL,PIXAI_ASPECT_RATIOS,resumePixAiTask} from './character-studio-ai.js';
 import {generatedImageBlob,imageExtension,newPublication,publicationPayload} from './character-studio-publication.js';
 
-const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',SAFE_KEY='pose_atlas_safe_mode_v1';
+const CFG_KEY='pose_atlas_api_config_v3',RECIPE_KEY='pose_atlas_recipe_v3',HISTORY_KEY='pose_atlas_history_v3',SAFE_KEY='pose_atlas_safe_mode_v1',PIXAI_TASK_KEY='pose_atlas_pixai_task_v1';
 const DB_NAME='pose_atlas_studio_db',STORE_NAME='kv_store';
 export const NSFW_POSE_SYSTEMS=new Set(['全身单人・性感系','双人缠绵']);
 export const NSFW_COSTUME_CATEGORIES=new Set(['内衣・睡衣','性感穿搭']);
 export const isNsfwCostume=item=>Boolean(item?.敏感)||NSFW_COSTUME_CATEGORIES.has(item?.分类);
 export const isNsfwPose=item=>NSFW_POSE_SYSTEMS.has(item?.体系);
-const proxyDefault=provider=>provider==='grok'||provider==='qwen'||provider==='doubao'||provider==='kling';
+const proxyDefault=provider=>provider==='grok'||provider==='qwen'||provider==='doubao'||provider==='kling'||provider==='pixai';
 const videoProxyDefault=provider=>provider==='grok_video'||provider==='qwen_video'||provider==='doubao_video'||provider==='kling_video';
 const clone=v=>JSON.parse(JSON.stringify(v));
 
@@ -44,8 +45,21 @@ function defaultConfig(){
   geminiParams:{endpointMode:'native',aspectRatio:'3:4',imageSize:'2K'},
   qwenParams:{size:'1024*1536',promptExtend:true,watermark:false,negativePrompt:'',n:1},
   doubaoParams:{size:'2K',sequentialImageGeneration:'disabled',watermark:false,responseFormat:'b64_json'},
+  pixaiParams:{aspectRatio:'3:4',size:'1k',mode:'default',negativePrompt:''},
   klingParams:{aspectRatio:'3:4',resolution:'2k',imageReference:'subject',imageFidelity:0.5,humanFidelity:0.45,negativePrompt:''},
  };
+}
+function mergePixAiParams(raw,model){
+ const base=defaultConfig().pixaiParams;
+ const next={...base,...(raw&&typeof raw==='object'?raw:{})};
+ if(!PIXAI_ASPECT_RATIOS.includes(next.aspectRatio))next.aspectRatio=base.aspectRatio;
+ if(!['1k','1.5k'].includes(next.size))next.size=base.size;
+ next.negativePrompt=String(next.negativePrompt||'').slice(0,4096);
+ next.mode=model!==PIXAI_FLASH_MODEL&&['default','pro','ultra'].includes(next.mode)?next.mode:'default';
+ if(next.seed===undefined||next.seed===null||next.seed==='')delete next.seed;
+ else if(!Number.isSafeInteger(Number(next.seed)))delete next.seed;
+ else next.seed=Number(next.seed);
+ return next;
 }
 export const DEFAULT_API_CONFIG=defaultConfig();
 
@@ -60,6 +74,7 @@ export function mergeStoredConfig(raw){
  for(const id of PROVIDER_ORDER){
   const merged={...base.providers[id],...raw.providers?.[id]};
   if(!PROVIDER_META[id].models.some(m=>m.value===merged.model))merged.model=PROVIDER_META[id].models[0].value;
+  if(id==='pixai'){merged.baseUrl=PIXAI_BASE_URL;merged.customModel='';}
   if(PROVIDER_META[id].supportsDualAuth){
    merged.authMode=merged.authMode==='apikey'?'apikey':'aksk';
    merged.accessKey=String(merged.accessKey||'');
@@ -96,6 +111,7 @@ export function mergeStoredConfig(raw){
   geminiParams:{...base.geminiParams,...raw.geminiParams},
   qwenParams:{...base.qwenParams,...raw.qwenParams},
   doubaoParams:{...base.doubaoParams,...raw.doubaoParams},
+  pixaiParams:mergePixAiParams(raw.pixaiParams,providers.pixai?.model),
   klingParams:{...base.klingParams,...raw.klingParams},
  };
 }
@@ -164,7 +180,7 @@ const state={
  historyError:'',
  safeMode:ls.get(SAFE_KEY)===null?true:ls.get(SAFE_KEY)!=='false',
  poseDepthMode:Boolean(storedRecipe?.pose?.useDepth),
- customPrompt:null,previewUrl:'',currentResult:null,publicationTask:null,resultError:'',resultErrorId:null,isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',
+ customPrompt:null,previewUrl:'',currentResult:null,publicationTask:null,resultError:'',resultErrorId:null,isGenerating:false,generatingModel:'',generationProgress:null,generationError:'',pixaiTask:null,
  hydrated:false,
 };
 // The result belongs to this page session. Saved history lives in PostgreSQL + assets/ai-generate-image/.
@@ -257,6 +273,10 @@ function hydrate(){
   }catch{
    // IndexedDB is optional for recipe drafts; generation history is backed by PostgreSQL API.
   }
+  try{
+   const task=await idbRead(PIXAI_TASK_KEY).catch(()=>null)??readJson(PIXAI_TASK_KEY,null);
+   if(task?.provider==='pixai')state.pixaiTask=task;
+  }catch{}
   state.hydrated=true;emit();
   try{
    const legacy=await idbRead(HISTORY_KEY).catch(()=>null)??readJson(HISTORY_KEY,null);
@@ -415,12 +435,24 @@ export function updateApiConfig(patch){
  if(patch.activeVideoProvider&&patch.videoUseProxy===undefined)next.videoUseProxy=videoProxyDefault(patch.activeVideoProvider);
  state.apiConfig=next;saveConfig();
 }
-export function updateProviderConfig(provider,patch){state.apiConfig={...state.apiConfig,providers:{...state.apiConfig.providers,[provider]:{...state.apiConfig.providers[provider],...patch}}};saveConfig();}
+export function updateProviderConfig(provider,patch){
+ const nextProvider={...state.apiConfig.providers[provider],...patch};
+ const next={...state.apiConfig,providers:{...state.apiConfig.providers,[provider]:nextProvider}};
+ if(provider==='pixai'){
+  nextProvider.baseUrl=PIXAI_BASE_URL;
+  nextProvider.customModel='';
+  if(nextProvider.model===PIXAI_FLASH_MODEL)next.pixaiParams={...next.pixaiParams,mode:'default'};
+ }
+ state.apiConfig=next;saveConfig();
+}
 export function updateVideoProviderConfig(provider,patch){state.apiConfig={...state.apiConfig,videoProviders:{...state.apiConfig.videoProviders,[provider]:{...state.apiConfig.videoProviders[provider],...patch}}};saveConfig();}
 export function updateVideoDefaults(patch){state.apiConfig={...state.apiConfig,videoDefaults:{...state.apiConfig.videoDefaults,...patch}};saveConfig();}
 export function updateParams(group,patch){state.apiConfig={...state.apiConfig,[group]:{...state.apiConfig[group],...patch}};saveConfig();}
 export function setCustomPrompt(value){state.customPrompt=value;emit();}
-export function currentPrompt(){return state.customPrompt??buildRecipePrompt(state.recipe,state.apiConfig.stylePreset);}
+export function currentPrompt(){
+ const recipe=state.apiConfig.activeProvider==='pixai'?{...state.recipe,extraImages:[]}:state.recipe;
+ return state.customPrompt??buildRecipePrompt(recipe,state.apiConfig.stylePreset);
+}
 
 // ------------------------------------------------------------------ database history & generation
 export async function fetchHistoryPage({q='',filterKey='',offset=0,limit=20}={}){
@@ -658,12 +690,78 @@ async function completeGeneration(result,record,signal){
  if(state.historyLoaded)fetchHistoryPage(state.historyQuery);
  toast('角色图已生成并存入数据库');
 }
+async function writePixAiTask(task){
+ state.pixaiTask=task;emit();
+ try{await idbWrite(PIXAI_TASK_KEY,task);return;}catch{}
+ let persisted=false;
+ try{
+  const box=storage();
+  if(!box)throw new Error('localStorage unavailable');
+  box.setItem(PIXAI_TASK_KEY,JSON.stringify(task));
+  persisted=true;
+ }catch{}
+ if(persisted)return;
+ const id=task?.task?.taskId;
+ if(id)throw new Error(`[PixAI] 任务已创建但记录保存失败。任务编号：${id}；请保留编号并恢复，勿重复提交。`);
+ throw new Error('[PixAI] 提交前记录保存失败，未创建任务。');
+}
+async function clearPixAiTask(){
+ state.pixaiTask=null;emit();
+ try{await idbDelete(PIXAI_TASK_KEY);}catch{}
+ ls.remove(PIXAI_TASK_KEY);
+}
 export function cancelGeneration(){
  activeController?.abort();
+}
+export async function pausePixAiTracking(){
+ activeController?.abort();
+ if(state.pixaiTask){try{await writePixAiTask({...state.pixaiTask,paused:true});}catch{}}
+ toast('已暂停本地跟踪，任务记录已保留；服务器任务继续执行');
+}
+export async function abandonPixAiTask(){
+ if(state.isGenerating)return;
+ await clearPixAiTask();
+ toast('已放弃本地记录；服务器任务可能仍在执行');
+}
+export async function resumePixAiTracking(){
+ const record=state.pixaiTask;
+ if(!record?.task?.taskId||state.isGenerating||state.publicationTask)return;
+ if(!state.hydrated){toast('正在初始化合成台，请稍后再试');return;}
+ state.isGenerating=true;state.generatingModel='pixai';state.generationError='';state.generationProgress=null;emit();
+ const controller=new AbortController();activeController=controller;
+ const kept={prompt:record.prompt||'',summary:record.summary||'',snapshot:record.snapshot||null};
+ try{
+  await writePixAiTask({...record,paused:false});
+  const result=await resumePixAiTask({
+   task:record.task,apiKey:state.apiConfig.providers.pixai?.apiKey,signal:controller.signal,
+   onProgress:p=>{state.generationProgress=p;emit();},
+  });
+  controller.signal.throwIfAborted();
+  await completeGeneration(result,kept,controller.signal);
+  await clearPixAiTask();
+ }catch(error){
+  if(!controller.signal.aborted){
+   if(error?.pixaiOutcome==='rejected'||error?.pixaiOutcome==='terminal')await clearPixAiTask();
+   const message=error?.message||'无法确认任务状态，记录已保留';
+   state.generationError=message;toast(message.split('\n')[0]);
+  }else if(state.pixaiTask){await writePixAiTask({...state.pixaiTask,paused:true}).catch(()=>{});}
+ }finally{if(activeController===controller)activeController=null;state.isGenerating=false;emit();}
+}
+export async function recoverPixAiTask(taskId){
+ const id=String(taskId||'').trim();
+ if(!/^[a-zA-Z0-9_-]+$/.test(id)){toast('任务编号格式无效');return;}
+ const record=state.pixaiTask;
+ if(!record||record.task||state.isGenerating)return;
+ await writePixAiTask({
+  ...record,unknown:false,
+  task:{provider:'pixai',taskId:id,baseUrl:PIXAI_BASE_URL,model:state.apiConfig.providers.pixai?.model,submittedAt:Date.now(),useProxy:Boolean(state.apiConfig.useProxy)},
+ });
+ await resumePixAiTracking();
 }
 export async function startGeneration(overridePrompt){
  if(state.isGenerating||state.publicationTask)return;
  if(!state.hydrated){toast(state.generationError||'正在初始化合成台，请稍后再试');return;}
+ if(state.apiConfig.activeProvider==='pixai'&&state.pixaiTask){toast('存在待确认的 PixAI 任务，请先恢复跟踪或放弃记录');return;}
  const recipe=state.recipe,config=state.apiConfig,prompt=overridePrompt??currentPrompt();
  const record={prompt,summary:[recipe.portrait?.发型名称,recipe.costume?.服装名称,recipe.pose?.姿势名称].filter(Boolean).join(' + ')||'自定义合成'};
  state.isGenerating=true;state.generatingModel=config.activeProvider;state.generationError='';state.generationProgress=null;emit();
@@ -671,15 +769,30 @@ export async function startGeneration(overridePrompt){
  try{
   record.snapshot=await snapshotGeneration(recipe,config,prompt);
   throwIfAborted(controller.signal);
-  const result=await generateCharacterImage({recipe,prompt,config,recipeSummary:record.summary,snapshot:record.snapshot,signal:controller.signal,onProgress:p=>{state.generationProgress=p;emit();}});
+  const pixai=config.activeProvider==='pixai';
+  const result=await generateCharacterImage({
+   recipe,prompt,config,recipeSummary:record.summary,snapshot:record.snapshot,signal:controller.signal,
+   onProgress:p=>{state.generationProgress=p;emit();},
+   onSubmitting:pixai?async()=>{
+    throwIfAborted(controller.signal);
+    await writePixAiTask({provider:'pixai',unknown:true,paused:false,prompt:record.prompt,summary:record.summary,snapshot:record.snapshot,baseUrl:PIXAI_BASE_URL,task:null});
+   }:undefined,
+   onSubmitted:pixai?async task=>{
+    await writePixAiTask({provider:'pixai',unknown:false,paused:controller.signal.aborted,prompt:record.prompt,summary:record.summary,snapshot:record.snapshot,baseUrl:task.baseUrl,task});
+   }:undefined,
+  });
   throwIfAborted(controller.signal);
   await completeGeneration(result,record,controller.signal);
+  if(pixai)await clearPixAiTask();
  }catch(error){
-  if(!controller.signal.aborted){
-   const message=error?.message||'调用失败';
-   state.generationError=message;toast(message.split('\n')[0]);
+  if(controller.signal.aborted){
+   if(state.pixaiTask)await writePixAiTask({...state.pixaiTask,paused:true}).catch(()=>{});
+   return;
   }
- }finally{activeController=null;state.isGenerating=false;emit();}
+  if(error?.pixaiOutcome==='rejected'||error?.pixaiOutcome==='terminal')await clearPixAiTask();
+  const message=error?.message||'调用失败';
+  state.generationError=message;toast(message.split('\n')[0]);
+ }finally{if(activeController===controller)activeController=null;state.isGenerating=false;emit();}
 }
 
 // ------------------------------------------------------------------ recipe dock

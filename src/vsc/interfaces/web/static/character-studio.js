@@ -2,7 +2,7 @@
 import {openAssetImageViewer} from './asset-center.js';
 import {PROVIDER_META,PROVIDER_ORDER,SETTINGS_GROUPS,SETTINGS_MODALITIES,VIDEO_PROVIDER_META,VIDEO_SETTINGS_GROUPS,
  STYLE_PRESETS,isAuthProvider,groupForProvider,isVideoAuthProvider,groupForVideoProvider,VIDEO_IMAGE_KEY_PEERS,IMAGE_VIDEO_KEY_PEERS,
- isGrokDirectImagineModel,describePlannedGeneration,resolveRecordProvenance,
+ isGrokDirectImagineModel,describePlannedGeneration,resolveRecordProvenance,getGptInputFidelity,PIXAI_FLASH_MODEL,PIXAI_ASPECT_RATIOS,
  referenceImageUrl,localCostumeImageUrl,poseThumbPath,poseImagePath,selectCostumeView,uploadedReferences,fileToDataUrl,recipeImageList} from './character-studio-ai.js';
 import * as store from './character-studio-store.js';
 import {imageExtension,officialResultRoute,openCharacterPublication} from './character-studio-publication.js';
@@ -20,10 +20,10 @@ const API_SUBVIEWS=[
 
 function el(tag,cls='',text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!=null)n.textContent=String(text);return n;}
 function option(value,label,selected){const o=el('option','',label);o.value=value;if(selected)o.selected=true;return o;}
-function select(options,value,onChange,{label='',key=''}={}){
+function select(options,value,onChange,{label='',key='',disabled=false}={}){
  const s=el('select');if(label)s.setAttribute('aria-label',label);if(key)s.dataset.focusKey=key;
  for(const [v,l]of options)s.append(option(v,l,String(v)===String(value)));
- s.value=String(value??'');s.onchange=()=>onChange(s.value);return s;
+ s.value=String(value??'');s.disabled=Boolean(disabled);s.onchange=()=>onChange(s.value);return s;
 }
 function field(label,control,hint){
  if(['SELECT','INPUT','TEXTAREA'].includes(control.tagName)){if(!control.dataset.focusKey)control.dataset.focusKey=label;if(!control.getAttribute('aria-label'))control.setAttribute('aria-label',label);}
@@ -217,7 +217,21 @@ export function createCharacterStudio(root,ctx){
 
  function extraImages(){
   const s=state(),list=s.recipe.extraImages||[],wrap=el('div','cs-extra');
-  wrap.append(el('h3','',`附加参考图 (${list.length})`));
+  if(s.apiConfig.activeProvider==='pixai'){
+   wrap.append(el('h3','','PixAI 三图'));
+   wrap.append(el('p','cs-field-hint',list.length?'PixAI 只使用人像、服装、姿势各一张。请先移除附加参考图后再生成。':'PixAI 需要人像、服装、姿势各一张，按此顺序上传，不发送拼图和附加图。'));
+   if(!list.length)return wrap;
+  }else wrap.append(el('h3','',`附加参考图 (${list.length})`));
+  if(s.apiConfig.activeProvider==='pixai'){
+   const grid=el('div','cs-extra-grid');
+   for(const image of list){
+    const item=el('div','cs-extra-item'),img=el('img');img.src=referenceImageUrl(image.url);img.alt=image.name;
+    const remove=action('×',()=>store.removeExtraImage(image.id),'cs-icon-btn');remove.setAttribute('aria-label','移除附加参考图');
+    item.append(img,remove);grid.append(item);
+   }
+   wrap.append(grid);
+   return wrap;
+  }
   const drop=el('div','cs-dropzone');drop.tabIndex=0;drop.setAttribute('role','button');
   drop.textContent='点击上传、拖入图片，或在此页面按 ⌘/Ctrl + V 粘贴图片';
   const file=el('input');file.type='file';file.accept='image/*';file.multiple=true;file.hidden=true;
@@ -281,13 +295,28 @@ export function createCharacterStudio(root,ctx){
     field('画幅比例',select(['3:4','1:1','4:3','9:16','16:9'].map(v=>[v,v]),g.aspectRatio,up('geminiParams','aspectRatio'))),
     field('分辨率 (Gemini 3)',select(['1K','2K','4K'].map(v=>[v,v]),g.imageSize,up('geminiParams','imageSize'))));
   }else if(p==='gpt'){
-   const g=cfg.gptParams;
+   const g=cfg.gptParams,pc=cfg.providers.gpt||{};
+   const gptModel=pc.model==='custom'?String(pc.customModel||'').trim():pc.model;
+   const supportsFidelity=Boolean(getGptInputFidelity(gptModel,'high')||getGptInputFidelity(gptModel,'low'));
    box.append(field('接口模式',select([['images_edits_json','/v1/images/edits JSON（URL 直传）'],['images_edits','/v1/images/edits multipart'],['responses','/v1/responses'],['chat','Chat Completions 中转']],g.endpointMode,up('gptParams','endpointMode'))),
     field('输出尺寸 (size)',select([['1024x1536','1024x1536'],['1024x1024','1024x1024'],['1536x1024','1536x1024'],['auto','auto']],g.size,up('gptParams','size'))),
     field('渲染质量 (quality)',select(['high','xhigh','max','medium','low','auto'].map(v=>[v,v]),g.quality,up('gptParams','quality'))),
-    field('参考还原度 (input_fidelity)',select([['high','high'],['low','low']],g.inputFidelity,up('gptParams','inputFidelity'))),
+    field('参考还原度 (input_fidelity)',select([['high','high'],['low','low']],g.inputFidelity,up('gptParams','inputFidelity'),{disabled:!supportsFidelity}),supportsFidelity?'':'当前模型使用默认参考还原度，无需设置此参数。'),
     field('背景模式 (background)',select(['auto','transparent','opaque'].map(v=>[v,v]),g.background,up('gptParams','background'))),
     field('图片格式 (output_format)',select(['png','webp','jpeg'].map(v=>[v,v]),g.outputFormat,up('gptParams','outputFormat'))));
+  }else if(p==='pixai'){
+   const px=cfg.pixaiParams||{},flash=(cfg.providers.pixai||{}).model===PIXAI_FLASH_MODEL;
+   const neg=el('textarea');neg.value=px.negativePrompt||'';neg.placeholder='低分辨率，畸形手指';neg.disabled=flash;
+   neg.dataset.focusKey='pixai-negative';neg.onchange=()=>store.updateParams('pixaiParams',{negativePrompt:neg.value});
+   const seed=el('input');seed.type='number';seed.step='1';seed.value=px.seed??'';seed.placeholder='留空为随机';seed.dataset.focusKey='pixai-seed';
+   seed.onchange=()=>store.updateParams('pixaiParams',{seed:seed.value===''?null:Number(seed.value)});
+   box.append(
+    field('输出比例',select(PIXAI_ASPECT_RATIOS.map(v=>[v,v]),px.aspectRatio||'3:4',up('pixaiParams','aspectRatio'))),
+    field('分辨率',select([['1k','1k'],['1.5k','1.5k']],px.size||'1k',up('pixaiParams','size'))),
+    field('生成模式',select((flash?['default']:['default','pro','ultra']).map(v=>[v,v==='default'?'模型默认':v]),flash?'default':(px.mode||'default'),up('pixaiParams','mode')),'可用模式取决于模型和账号'),
+    field('负向提示词',neg,flash?'Flash 不使用负向提示词。':''),
+    field('Seed',seed),
+   );
   }else if(p==='qwen'){
    const q=cfg.qwenParams,neg=el('textarea');neg.value=q.negativePrompt;neg.placeholder='低分辨率，多余手指，扭曲';neg.dataset.focusKey='qwen-negative';neg.onchange=()=>store.updateParams('qwenParams',{negativePrompt:neg.value});
    box.append(field('输出尺寸 (size)',select(['1024*1536','928*1664','1328*1328','1664*928'].map(v=>[v,v]),q.size,up('qwenParams','size'))),
@@ -313,9 +342,9 @@ export function createCharacterStudio(root,ctx){
    }
    box.append(field('反向提示词 (negative_prompt)',neg));
   }
-  box.append(field('图片传参方式',select([['url','URL'],['base64','Base64']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
-   field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')),
-   field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用':'浏览器直连')));
+  if(p!=='pixai')box.append(field('图片传参方式',select([['url','URL'],['base64','Base64']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
+   field('附带合成拼图',toggle(cfg.sendStitchedSheet,v=>store.updateApiConfig({sendStitchedSheet:v}),cfg.sendStitchedSheet?'附带':'不附带')));
+  box.append(field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用':'浏览器直连')));
   return box;
  }
 
@@ -427,6 +456,30 @@ export function createCharacterStudio(root,ctx){
   sec.body.append(stage);
   return sec.node;
  }
+ let pixaiRecoveryId='';
+ function pixaiTaskSection(){
+  const task=state().pixaiTask;
+  if(!task)return null;
+  const sec=section('待确认 PixAI 任务');
+  const id=task.task?.taskId;
+  sec.body.append(el('p','cs-field-hint',id?`任务 ${id}：刷新后只查询原任务，不重复提交。`:'提交结果未知或提交前被中断。请核对 PixAI 任务后再按编号恢复，不会自动重试提交。'));
+  if(!id){
+   const row=el('div','cs-url-row'),input=el('input');
+   input.value=pixaiRecoveryId;input.placeholder='已确认的 PixAI 任务编号';input.setAttribute('aria-label','PixAI 任务编号');
+   input.oninput=()=>{pixaiRecoveryId=input.value;};
+   row.append(input,action('按编号恢复',()=>store.recoverPixAiTask(pixaiRecoveryId),'', 'pixai-recover'));
+   sec.body.append(row);
+  }
+  const acts=el('div','cs-row-actions');
+  const resume=action('恢复跟踪',()=>store.resumePixAiTracking(),'cs-primary','pixai-resume');
+  const pause=action('暂停跟踪',()=>store.pausePixAiTracking(),'','pixai-pause');
+  const drop=action('放弃记录',()=>{if(confirm('放弃本地恢复记录？这不会取消服务器任务，重新生成可能再次扣除额度。'))return store.abandonPixAiTask();},'','pixai-abandon');
+  resume.disabled=state().isGenerating||!id;
+  pause.disabled=!state().isGenerating;
+  drop.disabled=state().isGenerating;
+  acts.append(resume,pause,drop);sec.body.append(acts);
+  return sec.node;
+ }
  function updateProgress(){
   if(!progressNode)return;
   const s=state(),p=s.generationProgress;
@@ -448,10 +501,13 @@ export function createCharacterStudio(root,ctx){
    action('API 接口配置',()=>{recordStudioOriginIfLocal();ctx.navigate?.('api-settings');},'cs-ghost'));
   head.append(title,acts);page.append(head);
   const cols=el('div','cs-columns'),left=el('div','cs-col'),right=el('div','cs-col');
-  const refs=section('1. 参考图组合',{actions:action('查看拼图',async()=>{const url=await store.refreshStitchPreview();if(url)stitchDialog(url);},'','stitch')});
+  const stitch=action('查看拼图',async()=>{const url=await store.refreshStitchPreview();if(url)stitchDialog(url);},'','stitch');
+  if(s.apiConfig.activeProvider==='pixai')stitch.hidden=true;
+  const refs=section('1. 参考图组合',{actions:stitch});
   const slots=el('div','cs-slots');for(const slot of ['portrait','costume','pose'])slots.append(slotCard(slot));
   refs.body.append(slots,extraImages());
   left.append(refs.node,engineSection(),promptSection());
+  const pending=pixaiTaskSection();if(pending)right.append(pending);
   right.append(resultSection());
   cols.append(left,right);page.append(cols);
   return page;
@@ -652,9 +708,12 @@ export function createCharacterStudio(root,ctx){
   const updateFn=isVideo?store.updateVideoProviderConfig:store.updateProviderConfig;
   const visible=isVideo?showVideoKey:showKey;
   const wrap=el('div','cs-apikey-panel');
-  const base=el('input');base.type='url';base.value=pc.baseUrl;base.placeholder=meta.defaultBaseUrl;base.dataset.focusKey=isVideo?'set-video-base':'set-base';
-  base.onchange=()=>updateFn(pid,{baseUrl:base.value});
-  const baseHint=(pid==='grok'||pid==='grok_video')
+  const base=el('input');base.type='url';base.value=pid==='pixai'?meta.defaultBaseUrl:pc.baseUrl;base.placeholder=meta.defaultBaseUrl;base.dataset.focusKey=isVideo?'set-video-base':'set-base';
+  base.disabled=pid==='pixai';
+  base.onchange=()=>{if(pid!=='pixai')updateFn(pid,{baseUrl:base.value});};
+  const baseHint=pid==='pixai'
+   ?'首版只使用官方地址 https://api.pixai.art。Key 会经本站代理发往 PixAI，请在可信部署上使用。'
+   :(pid==='grok'||pid==='grok_video')
    ?'xAI 官方端点默认 https://api.x.ai/v1；建议开启下方服务端 CORS 代理避免跨域拦截。'
    :(pid==='gemini'||pid==='gemini_video')
    ?'Google AI Studio 官方端点默认 https://generativelanguage.googleapis.com。'
@@ -752,9 +811,10 @@ export function createCharacterStudio(root,ctx){
 
   if(!isAuthProvider(pid)){
    const g=section('生图全局请求选项');
+   if(pid==='pixai')g.body.append(el('p','cs-field-hint','PixAI 按人像、服装、姿势的原始图片上传，不使用 URL / Base64 传参，也不发送拼图。'));
+   else g.body.append(field('参考图传参方式',select([['url','传递图片 URL（免上传文件，Gemini 原生、Grok 编辑与快手可灵自动净化 Base64）'],['base64','统一转 Base64 编码传输']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))));
    g.body.append(
-    field('参考图传参方式',select([['url','传递图片 URL（免上传文件，Gemini 原生、Grok 编辑与快手可灵自动净化 Base64）'],['base64','统一转 Base64 编码传输']],cfg.imagePassMode,v=>store.updateApiConfig({imagePassMode:v}))),
-    field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用（解决跨域限制）':'已关闭（浏览器直连）'),'切换到 Grok API、阿里云百炼 (Qwen)、火山方舟 (Doubao) 或快手可灵 (Kling) 时会自动启用；仅转发白名单 HTTPS 官方域名。'),
+    field('服务端 CORS 代理 (/api/proxy)',toggle(cfg.useProxy,v=>store.updateApiConfig({useProxy:v}),cfg.useProxy?'已启用（解决跨域限制）':'已关闭（浏览器直连）'),'切换到 Grok API、阿里云百炼 (Qwen)、火山方舟 (Doubao)、PixAI 或快手可灵 (Kling) 时会自动启用；仅转发白名单 HTTPS 官方域名。'),
    );
    panel.append(g.node);
   }
@@ -1117,7 +1177,8 @@ export function createCharacterStudio(root,ctx){
  // ------------------------------------------------------------------ render loop
  function signature(){
   const s=state();
-  return JSON.stringify([mode,settingsHub,settingsModality,settingsRoutesSection,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.historyOverallTotal,s.historyLoaded,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.currentResult?.id,s.currentResult?.publication,s.publicationTask,s.resultError,s.isGenerating,s.generationError,s.hydrated]);
+  const pixaiTask=s.pixaiTask?`${s.pixaiTask.unknown?'1':'0'}|${s.pixaiTask.paused?'1':'0'}|${s.pixaiTask.task?.taskId||''}`:'';
+  return JSON.stringify([mode,settingsHub,settingsModality,settingsRoutesSection,settingsProvider,settingsVideoProvider,showKey,showVideoKey,[...busy],s.recipe,s.apiConfig,s.authStatus,s.authPolling,s.historyOverallTotal,s.historyLoaded,s.history.map(h=>h.id),s.safeMode,s.poseDepthMode,s.customPrompt,s.previewUrl,s.currentResult?.id,s.currentResult?.publication,s.publicationTask,s.resultError,s.isGenerating,s.generationError,s.hydrated,pixaiTask]);
  }
  function render(force=false){
   if(disposed)return;
@@ -1184,6 +1245,7 @@ export function createCharacterStudio(root,ctx){
      const target=event.target;if(target&&(target.tagName==='TEXTAREA'||target.tagName==='INPUT'))return;
      const files=[...(event.clipboardData?.files||[])].filter(f=>f.type.startsWith('image/'));
      if(!files.length)return;event.preventDefault();
+     if(state().apiConfig.activeProvider==='pixai'){notice('PixAI 仅支持三张独立参考图，请使用各槽位的上传按钮');return;}
      for(const f of files){try{const {url}=await fileToDataUrl(f);store.addExtraImage({name:'粘贴图片',url});}catch(error){notice(error.message);}}
     };
     document.addEventListener('paste',pasteHandler);
