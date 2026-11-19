@@ -111,8 +111,9 @@ class FeaturedShowcaseBulk(unittest.TestCase):
                 db.execute("CREATE TABLE resources(digest TEXT PRIMARY KEY, url TEXT, priority INTEGER, sync_status TEXT)")
                 db.execute("CREATE TABLE dependencies(work TEXT, digest TEXT, roles TEXT, output_type TEXT, occurrences INTEGER, PRIMARY KEY(work,digest))")
                 rows = [
-                    ("canvas-a", "a-image", "image", "local", 0),
-                    ("canvas-a", "a-video", "video", "pending", 2),
+                    ("canvas-a", "a-image", "image", "pending", 0),
+                    ("canvas-a", "a-video", "video", "local", 2),
+                    ("canvas-a", "a-clip", "video-clip", "pending", 2),
                     ("canvas-b", "b-image", "image", "pending", 0),
                     ("canvas-b", "b-video", "video", "pending", 2),
                     ("still-c", "c-image", "image", "pending", 0),
@@ -121,9 +122,8 @@ class FeaturedShowcaseBulk(unittest.TestCase):
                     db.execute("INSERT INTO resources VALUES(?,?,?,?)", (digest, "https://example.test/"+digest, priority, status))
                     db.execute("INSERT INTO dependencies VALUES(?,?,?,?,1)", (work, digest, "[]", output_type))
             with sqlite3.connect(database) as db:
-                self.assertEqual(video_canvases(db), ["canvas-a", "canvas-b"])
-                self.assertEqual([item["digest"] for item in pending_for_canvas(db, "canvas-a")], ["a-video"])
-                self.assertEqual([item["work"] for item in pending_for_canvas(db, "canvas-b")], ["canvas-b", "canvas-b"])
+                self.assertEqual(video_canvases(db), ["canvas-a"])
+                self.assertEqual([item["digest"] for item in pending_for_canvas(db, "canvas-a")], ["a-image"])
 
     def test_sampler_journal_resumes_without_reprobing_finished_cohort(self):
         with tempfile.TemporaryDirectory() as folder, range_origin() as (url, _, requests):

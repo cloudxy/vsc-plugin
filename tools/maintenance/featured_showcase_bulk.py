@@ -278,28 +278,30 @@ def run_rolling(sync, items, on_result, on_tick=lambda active: None, window=96, 
 
 
 def video_canvases(db):
-    """Video canvases that still have pending media, nearest to complete first.
+    """Canvases whose video is already local and whose other media is still pending.
 
-    A canvas is one work: its video outputs and the canvas media that belongs to
-    them. Global priority order would download every canvas's images before any
-    of those videos, so admission stays inside one canvas until it is finished.
+    Videos that are not on disk, and the canvases that belong only to those
+    videos, stay pending until a later decision. Nearest-to-complete canvases
+    come first, and one canvas finishes before the next starts.
     """
     rows = db.execute("""SELECT d.work FROM dependencies d
         JOIN resources r ON r.digest=d.digest
         GROUP BY d.work
-        HAVING SUM(r.sync_status='pending')>0 AND SUM(d.output_type LIKE 'video%')>0
+        HAVING SUM(d.output_type LIKE 'video%' AND r.sync_status='local')>0
+           AND SUM(r.sync_status='pending' AND d.output_type NOT LIKE 'video%')>0
         ORDER BY SUM(r.sync_status='local')*1.0/COUNT(*) DESC,
-                 SUM(r.sync_status='pending') ASC, d.work""").fetchall()
+                 SUM(r.sync_status='pending' AND d.output_type NOT LIKE 'video%') ASC,
+                 d.work""").fetchall()
     return [row[0] for row in rows]
 
 
 def pending_for_canvas(db, work):
-    """Pending media for one canvas. Do not start the next canvas until this ends."""
+    """Pending non-video media for one canvas. Do not pull another canvas until this ends."""
     last_priority, last_digest = -1, ""
     while True:
         rows = db.execute("""SELECT r.digest,r.url,r.priority FROM dependencies d
             JOIN resources r ON r.digest=d.digest
-            WHERE d.work=? AND r.sync_status='pending'
+            WHERE d.work=? AND r.sync_status='pending' AND d.output_type NOT LIKE 'video%'
               AND (r.priority>? OR (r.priority=? AND r.digest>?))
             ORDER BY r.priority,r.digest LIMIT 256""",
                           (work, last_priority, last_priority, last_digest)).fetchall()
@@ -458,7 +460,8 @@ def run_worker(root, workers=32, window=96, timeout=30):
 
                 names = canvas_names(root)
                 canvases = video_canvases(db)
-                state["admission"] = "one_video_canvas_at_a_time"
+                state["admission"] = "existing_video_canvases_only"
+                state["held_back"] = "videos_not_yet_local_and_their_canvases"
                 state["canvases_remaining"] = len(canvases)
                 tick(dict(files=0, probes=0, transfers=0), True)
                 for index, work in enumerate(canvases):
@@ -471,8 +474,7 @@ def run_worker(root, workers=32, window=96, timeout=30):
                     run_rolling(sync, pending_for_canvas(db, work), result, tick, window=window)
                 tick(dict(files=0, probes=0, transfers=0), True)
                 final_status = (sync.stop_reason or "interrupted") if stop.is_set() else (
-                    "needs_more_storage" if counts["space_deferred"] else
-                    "finished_with_missing_sources" if any(v for k, v in counts.items() if k!="local") else "download_queue_complete")
+                    "needs_more_storage" if counts.get("space_deferred") else "existing_video_canvases_complete")
                 state.update(status=final_status, stop_signal=reason.get("signal"))
             except BaseException as exc:
                 state.update(status="interrupted", error=type(exc).__name__+": "+str(exc))
