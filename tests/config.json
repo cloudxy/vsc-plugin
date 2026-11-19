@@ -1633,7 +1633,18 @@
         "src/vsc/interfaces/web/static/media-upload.js",
         "tests/project/unit/canvas_placement.test.mjs",
         "tests/support/fixtures/frontend/modules.cjs",
-        "tests/support/fixtures/frontend/canvas_capabilities.cjs"
+        "tests/support/fixtures/frontend/canvas_capabilities.cjs",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.css",
+        "src/vsc/interfaces/web/static/canvas-node-cards.js",
+        "src/vsc/interfaces/web/static/canvas-node-cards.css",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.js",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.css",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.js",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.css",
+        "src/vsc/interfaces/web/static/canvas-shortcuts.js",
+        "src/vsc/interfaces/web/static/canvas-image-tools-parity.js",
+        "src/vsc/interfaces/web/static/canvas-image-tools-parity.css"
       ]
     },
     "project.unit.test_classic_capabilities_frontend": {
@@ -2350,7 +2361,16 @@
         "src/vsc/interfaces/web/static/canvas-library.css",
         "src/vsc/interfaces/web/static/panel.js",
         "src/vsc/interfaces/web/static/i18n-messages.js",
-        "tests/project/unit/canvas_collaboration.test.mjs"
+        "tests/project/unit/canvas_collaboration.test.mjs",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.css",
+        "src/vsc/interfaces/web/static/canvas-node-cards.js",
+        "src/vsc/interfaces/web/static/canvas-node-cards.css",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.js",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.css",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.js",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.css",
+        "src/vsc/interfaces/web/static/canvas-shortcuts.js"
       ]
     },
     "project.integration.test_canvas_core_replica": {
@@ -2385,7 +2405,18 @@
         "tests/project/unit/canvas_core_replica.test.mjs",
         "src/vsc/interfaces/web/static/canvas-operation-controls.js",
         "tests/support/fixtures/frontend/canvas_capabilities.cjs",
-        "src/vsc/interfaces/web/static/canvas-settings.js"
+        "src/vsc/interfaces/web/static/canvas-settings.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.css",
+        "src/vsc/interfaces/web/static/canvas-node-cards.js",
+        "src/vsc/interfaces/web/static/canvas-node-cards.css",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.js",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.css",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.js",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.css",
+        "src/vsc/interfaces/web/static/canvas-shortcuts.js",
+        "src/vsc/interfaces/web/static/canvas-image-tools-parity.js",
+        "src/vsc/interfaces/web/static/canvas-image-tools-parity.css"
       ]
     },
     "project.unit.test_classic_production_replica_frontend": {
@@ -2634,6 +2665,297 @@
         "src/vsc/adapters/providers/kling/provider.py",
         "src/vsc/adapters/providers/kling/resource_factory.py",
         "src/vsc/adapters/providers/worker_factory.py"
+      ]
+    },
+    "project.unit.test_canvas_node_cards_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-node-cards.js",
+        "src/vsc/interfaces/web/static/canvas-node-cards.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_node_cards.test.mjs",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_canvas_generator_composer_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-generator-composer.js",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.css",
+        "src/vsc/interfaces/web/static/canvas-settings.js",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_generator_composer.test.mjs",
+        "tests/support/fixtures/frontend/canvas_capabilities.cjs",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_canvas_shell_chrome_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-shortcuts.js",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.js",
+        "src/vsc/interfaces/web/static/canvas-shell-chrome.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/canvas-collab-recovery.js",
+        "src/vsc/interfaces/web/static/i18n-messages.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_shell_chrome.test.mjs"
+      ]
+    },
+    "project.unit.test_canvas_left_drawer_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-left-drawer.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_left_drawer.test.mjs",
+        "tests/project/unit/test_canvas_left_drawer_frontend.py",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_canvas_av_modes_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-av-modes.js",
+        "src/vsc/interfaces/web/static/canvas-av-modes.css",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.js",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_av_modes.test.mjs",
+        "tests/project/unit/test_canvas_av_modes_frontend.py"
+      ]
+    },
+    "project.unit.test_canvas_av_modes": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/canvas_av_process.py",
+        "src/vsc/production/canvas_capabilities.py",
+        "tests/project/unit/test_canvas_av_modes.py"
+      ]
+    },
+    "project.integration.test_canvas_av_modes": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/canvas_av_process.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/canvas_core_ops.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/production/canvas_capabilities.py",
+        "tests/project/integration/test_canvas_av_modes.py"
+      ]
+    },
+    "project.unit.test_canvas_preferences_import": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-preferences-import.js",
+        "src/vsc/interfaces/web/static/canvas-preferences-import.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/canvas-collab-recovery.js",
+        "src/vsc/interfaces/web/static/panel.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "src/vsc/adapters/persistence/postgres/access_control.py",
+        "tests/project/unit/canvas_preferences_import.test.mjs",
+        "tests/project/unit/test_canvas_preferences_import.py"
+      ]
+    },
+    "project.unit.test_canvas_reference_style_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-reference-style.js",
+        "src/vsc/interfaces/web/static/canvas-reference-style.css",
+        "src/vsc/interfaces/web/static/canvas-generator-composer.js",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_reference_style.test.mjs",
+        "tests/project/unit/test_canvas_reference_style_frontend.py",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "production.unit.test_canvas_reference_rules": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/production/canvas_capabilities.py",
+        "src/vsc/production/text_tool_host.py",
+        "tests/production/unit/test_canvas_reference_rules.py"
+      ]
+    },
+    "production.unit.test_canvas_image_tools_parity": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/canvas_image_ops.py",
+        "src/vsc/production/image_tools.py",
+        "src/vsc/assets/creative_canvas.py",
+        "tests/production/unit/test_canvas_image_tools_parity.py"
+      ]
+    },
+    "project.unit.test_canvas_image_tools_parity_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-image-tools-parity.js",
+        "src/vsc/interfaces/web/static/canvas-image-tools-parity.css",
+        "tests/project/unit/canvas_image_tools_parity.test.mjs",
+        "tests/project/unit/test_canvas_image_tools_parity_frontend.py",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.unit.test_canvas_agent_stream": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/canvas_agent_stream.py"
+      ]
+    },
+    "project.unit.test_canvas_agent_stream_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-agent-stream.js",
+        "src/vsc/interfaces/web/static/canvas-agent-stream.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_agent_stream.test.mjs",
+        "tests/project/unit/test_canvas_agent_stream_frontend.py",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.integration.test_canvas_agent_stream": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/canvas_agent_stream.py",
+        "src/vsc/adapters/persistence/postgres/canvas_agent_stream.py",
+        "src/vsc/adapters/persistence/postgres/schema_canvas_agent.py",
+        "src/vsc/adapters/persistence/postgres/schema.py",
+        "src/vsc/adapters/persistence/postgres/creative_canvas.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "migrations/postgres/versions/0064_canvas_agent_stream.py"
+      ]
+    },
+    "project.unit.test_canvas_director_stage_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-director-stage.js",
+        "src/vsc/interfaces/web/static/canvas-director-stage.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.js",
+        "src/vsc/interfaces/web/static/canvas-node-cards.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_director_stage.test.mjs",
+        "tests/project/unit/test_canvas_director_stage_frontend.py"
+      ]
+    },
+    "project.unit.test_canvas_director_stage": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/canvas_director_stage.py",
+        "src/vsc/assets/creative_canvas.py",
+        "tests/project/unit/test_canvas_director_stage.py"
+      ]
+    },
+    "project.integration.test_canvas_director_stage": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/canvas_director_stage.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/canvas_director_stage_ops.py",
+        "src/vsc/adapters/persistence/postgres/schema_canvas.py",
+        "src/vsc/interfaces/web/canvas_director_stage.py",
+        "migrations/postgres/versions/0065_canvas_director_stage.py",
+        "tests/project/integration/test_canvas_director_stage.py"
+      ]
+    },
+    "project.unit.test_canvas_video_script_tools": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/assets/canvas_video_ops.py",
+        "src/vsc/production/canvas_capabilities.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/canvas_core_ops.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "tests/project/unit/test_canvas_video_script_tools.py"
+      ]
+    },
+    "project.unit.test_canvas_video_script_tools_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-video-script-tools.js",
+        "src/vsc/interfaces/web/static/canvas-video-script-tools.css",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_video_script_tools.test.mjs",
+        "tests/project/unit/test_canvas_video_script_tools_frontend.py",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.integration.test_canvas_video_script_tools": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/assets/canvas_video_ops.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/canvas_core_ops.py",
+        "src/vsc/interfaces/web/creative_canvas.py",
+        "src/vsc/production/canvas_capabilities.py",
+        "tests/project/integration/test_canvas_video_script_tools.py"
+      ]
+    },
+    "production.unit.test_canvas_port_layer_group": {
+      "owner": "production",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/canvas_image_ops.py",
+        "src/vsc/production/canvas_capabilities.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/canvas_core_ops.py"
+      ]
+    },
+    "project.unit.test_canvas_port_layer_group_frontend": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/interfaces/web/static/canvas-port-layer-group.js",
+        "src/vsc/interfaces/web/static/canvas-port-layer-group.css",
+        "src/vsc/interfaces/web/static/canvas-node-cards.js",
+        "src/vsc/interfaces/web/static/canvas-left-drawer.js",
+        "src/vsc/interfaces/web/static/creative-canvas.js",
+        "src/vsc/interfaces/web/static/media-upload.js",
+        "src/vsc/interfaces/web/templates/index.html",
+        "tests/project/unit/canvas_port_layer_group.test.mjs",
+        "tests/project/unit/test_canvas_port_layer_group_frontend.py",
+        "tests/support/fixtures/frontend/modules.cjs"
+      ]
+    },
+    "project.integration.test_canvas_port_layer_group": {
+      "owner": "project",
+      "layer": "integration",
+      "sources": [
+        "src/vsc/production/canvas_image_ops.py",
+        "src/vsc/assets/creative_canvas.py",
+        "src/vsc/adapters/persistence/postgres/canvas_core_ops.py",
+        "src/vsc/interfaces/web/creative_canvas.py"
       ]
     }
   },

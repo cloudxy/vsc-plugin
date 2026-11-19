@@ -22,6 +22,8 @@ NODE_TYPES = {
     "edit": {"label": "剪辑", "inputs": {"visual": ["image", "video"], "sound": "audio"}, "output": "video"},
     "music_mix": {"label": "视频配乐", "inputs": {"source_video": "video", "sound": "audio", "prompt": "text"}, "output": "video"},
     "processing": {"label": "视频加工", "inputs": {"source_video": "video", "prompt": "text"}, "output": "media"},
+    "director-stage": {"label": "导演台", "inputs": {"panorama_image": "image"}, "output": None},
+    "3d-preview": {"label": "3D预演", "inputs": {}, "output": None},
 }
 DOMAIN_TYPES = {"spatial", "director", "edit", "music_mix", "processing"}
 CANVAS_IMAGE_TOOL = "vsc_image_tool"
@@ -89,6 +91,8 @@ def canvas_image_tool(kind, params):
 def accepts_port(target_type, port, source_type):
     if port == "derived_from":
         return target_type in {"text", "image", "video", "audio"} and source_type in NODE_TYPES
+    if port == "directorStageCapture":
+        return target_type == "image" and source_type in {"director-stage", "director"}
     expected = NODE_TYPES[target_type]["inputs"].get(port)
     return source_type in expected if isinstance(expected, list) else source_type == expected
 
@@ -106,6 +110,12 @@ def _key(value):
 def _number(value, low, high):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high or not math.isfinite(value):
         _fail("画布坐标或缩放超出范围")
+    return float(value)
+
+
+def _bounded_number(value, low, high, message, code):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+        _fail(message, code)
     return float(value)
 
 
@@ -151,6 +161,8 @@ def normalize_document(value):
             row.update(domain_object_id=object_id or None, domain_version_id=version_id or None)
         elif node.get("domain_object_id") or node.get("domain_version_id"):
             _fail("媒体节点不接受工具对象引用")
+        if kind in {"director-stage", "3d-preview"} and (row["media_id"] or row["job_id"]):
+            _fail("导演台和 3D 预演节点不保存媒体或任务", "invalid_director_stage")
         result.append(row)
         by_id[key] = row
     links, ids, signatures, single_ports = [], set(), set(), set()
@@ -167,9 +179,9 @@ def normalize_document(value):
         signature = (source, target, port)
         if key in ids or signature in signatures:
             _fail("连线重复")
-        if port in {"first_frame", "last_frame"}:
+        if port in {"first_frame", "last_frame", "panorama_image"}:
             if (target, port) in single_ports:
-                _fail("首尾帧端口分别只能接一张图片", "canvas_port_cardinality")
+                _fail("全景图端口只能连接一张图片" if port == "panorama_image" else "首尾帧端口分别只能接一张图片", "canvas_port_cardinality")
             single_ports.add((target, port))
         ids.add(key)
         signatures.add(signature)
@@ -188,6 +200,8 @@ def normalize_document(value):
         done.add(key)
     for key in by_id:
         visit(key)
+    from vsc.assets.canvas_director_stage import finalize_canvas_director_nodes
+    finalize_canvas_director_nodes(result, links)
     viewport = value.get("viewport", {})
     if not isinstance(viewport, dict) or set(viewport) - {"x", "y", "zoom"}:
         _fail("视口需要 x、y、zoom")
@@ -262,6 +276,8 @@ class CreativeCanvasService:
 
     def preview_canvas_work_generation(self, project_id, payload):
         from vsc.production.quotes import fingerprint
+        if isinstance(payload, dict) and 'draft_version_id' not in payload:
+            return self._preview_canvas_parameter_quote(project_id, payload)
         preview = self.preview_workbench_generation(project_id, payload)
         routing = self.store.canvas_work_routing(project_id, payload.get('draft_version_id'))
         if routing:
@@ -270,6 +286,190 @@ class CreativeCanvasService:
                 preview['artifact']['document']['canvas_model_routing'] = routing
                 preview['preview_sha256'] = fingerprint(preview['artifact'])
         return preview
+
+    def _preview_canvas_parameter_quote(self, project_id, payload):
+        from decimal import Decimal
+        from vsc.assets.access_control import current_principal
+        from vsc.adapters.persistence.postgres.budget_store import native_units
+        from vsc.production.canvas_capabilities import RATIO_DIMENSIONS, _operations
+        from vsc.production.quotes import fingerprint, quote_request
+        from vsc.production.resource_settings import ResourceSettings
+        from vsc.assets.canvas_av_process import QUOTE_EXTRA_KEYS, canvas_quote_extras, lyrics_quote_prompt
+        allowed = {'op_type', 'model_id', 'resolution', 'quality', 'duration', 'count',
+                   'ratio', 'generate_audio', 'commerce_account_actor', 'node_id', 'background', 'output_format'} | set(QUOTE_EXTRA_KEYS)
+        if not isinstance(payload, dict) or set(payload) - allowed:
+            _fail('实时报价参数无效', 'invalid_canvas_quote')
+        quote_extras = canvas_quote_extras(payload)
+        count = payload.get('count', 1)
+        if type(count) is not int or not 1 <= count <= 8:
+            _fail('生成数量须为 1–8 的整数', 'invalid_canvas_quote')
+        project = self.get_project(project_id)
+        model_id = str(payload.get('model_id') or '').strip()
+        models = ResourceSettings(self.store).list()['configurations']
+        model = next((row for row in models if row['id'] == model_id), None)
+        if not model or not model.get('enabled') or model.get('adapter_available') is False:
+            return {
+                'project_id': project_id,
+                'revision': project['revision'],
+                'ready': False,
+                'read_only': True,
+                'total_price': 0,
+                'price_basis': 'unavailable',
+                'gaps': [{'code': 'classic_model_unavailable', 'message': '请选择已启用且已接通的实际模型。'}],
+            }
+        op_type = str(payload.get('op_type') or '').strip()
+        operation = next((row for row in _operations() if row['op_type'] == op_type), None) if op_type else None
+        if op_type and (operation is None or operation['consumer'] != 'work_generation'):
+            _fail('当前操作不支持生成报价', 'invalid_canvas_quote')
+        modality = operation['node_type'] if operation else model.get('modality', 'image')
+        ratio = str(payload.get('ratio') or '9:16')
+        width, height = RATIO_DIMENSIONS.get(ratio, (1080, 1920))
+        resolution = str(payload.get('resolution') or ('720P' if modality == 'video' else '2K'))
+        quality = str(payload.get('quality') or 'medium')
+        dur_raw = payload.get('duration')
+        dur_sec = 5 if dur_raw is None else dur_raw
+        if modality == 'video' and (type(dur_sec) is not int or not 1 <= dur_sec <= 60):
+            _fail('视频时长须为 1–60 秒整数', 'invalid_canvas_quote')
+        if modality == 'audio' and 'duration' in payload and (type(dur_sec) is not int or not 1 <= dur_sec <= 60):
+            _fail('音频时长须为 1–60 秒整数', 'invalid_canvas_quote')
+        purpose = ('image_edit' if (operation and operation.get('image_tool')) else 'first_frame') if modality == 'image' else ('video_clip' if modality == 'video' else 'sfx')
+        logical = {'modality': modality, 'purpose': purpose, 'prompt': 'quote', 'params': {}}
+        if quote_extras:
+            logical['params'] = dict(quote_extras)
+        if modality == 'audio' and 'duration' in payload and type(dur_sec) is int:
+            logical['params'] = dict(logical['params'], duration_seconds=dur_sec)
+        if modality == 'audio' and quote_extras.get('audio_mode') == 'lyrics':
+            logical['prompt'] = lyrics_quote_prompt(quote_extras.get('lyrics_chars', 0))
+        if modality == 'image':
+            logical.update(width=width, height=height, resolution=resolution, quality=quality)
+        elif modality == 'video':
+            logical.update(duration_ms=int(dur_sec) * 1000, resolution=resolution, generate_audio=bool(payload.get('generate_audio', False)))
+        units = native_units(logical)
+        jobs, totals, native_totals, commerce_ops = [], {}, {}, []
+        for idx in range(count):
+            op_key = f'canvas_calc:{op_type or modality}:{idx}'
+            q = dict(quote_request(dict(model), dict(logical, candidate_no=idx), units), operation=op_key)
+            jobs.append(q)
+            commerce_ops.append({'operation': op_key, 'model_id': model['id'], 'native_units': units})
+            for u, amt in units.items():
+                native_totals[u] = native_totals.get(u, 0) + amt
+            if q['status'] == 'estimate':
+                totals[q['currency']] = totals.get(q['currency'], Decimal(0)) + Decimal(q['amount'])
+        gen_quote = {
+            'format': 'vsc.generation-quote/v1',
+            'jobs': jobs,
+            'native_units': native_totals,
+            'all_prices_known': all(r['status'] == 'estimate' for r in jobs),
+            'known_subtotals': {k: str(v) for k, v in totals.items()},
+            'unknown_jobs': sum(r['status'] == 'unknown' for r in jobs),
+        }
+        gen_quote['quote_sha256'] = fingerprint(gen_quote)
+        principal = current_principal()
+        commerce = self._commerce().preview_charge(
+            project_id,
+            {
+                'billing_scope': {'scope_kind': 'project'},
+                'account_actor': payload.get('commerce_account_actor'),
+                'operations': commerce_ops,
+            },
+            actor=principal.actor if principal else None,
+        )
+        gaps = []
+        if not commerce.get('sufficient', True):
+            gaps.append({'code': 'commerce_credits_insufficient', 'message': '当前项目可用额度不足。'})
+        if not commerce.get('native_budget_sufficient', True):
+            gaps.append({'code': 'native_budget_exhausted', 'message': '当前项目原生配额已达上限。'})
+        if commerce.get('enabled'):
+            total_price = int(commerce.get('bound_credits') or 0)
+            price_basis = 'commerce_credits'
+        elif gen_quote['all_prices_known'] and gen_quote['known_subtotals']:
+            raw_amt = Decimal(next(iter(gen_quote['known_subtotals'].values())))
+            total_price = int(raw_amt) if raw_amt == int(raw_amt) else float(raw_amt)
+            price_basis = 'cost_rule'
+        else:
+            total_price = int(
+                native_totals.get('images')
+                or native_totals.get('video_seconds')
+                or native_totals.get('audio_jobs')
+                or native_totals.get('remote_jobs', count)
+            )
+            price_basis = 'native_units'
+            if modality == 'audio' and quote_extras.get('audio_mode') == 'lyrics' and type(native_totals.get('speech_chars')) is int:
+                total_price = int(native_totals['speech_chars'])
+        return {
+            'project_id': project_id,
+            'revision': commerce['revision'],
+            'ready': not gaps,
+            'read_only': True,
+            'total_price': total_price,
+            'price_basis': price_basis,
+            'gaps': gaps,
+            'generation_quote': gen_quote,
+            'commerce_quote': commerce,
+        }
+
+    def canvas_prompt_assist_status(self):
+        from vsc.production.text_tool_host import GrokBuildTextTools
+        host = getattr(self, 'text_tool_host', None) or GrokBuildTextTools()
+        ok = bool(host.available())
+        return {
+            'available': ok,
+            'host_name': getattr(host, 'name', 'grok-build-text-tools/v1'),
+            'unavailable_reason': '' if ok else '本机未安装或未接通文本翻译宿主（grok CLI），翻译不可用',
+            'optimize_available': ok,
+            'optimize_unavailable_reason': '' if ok else '本机未安装或未接通文本工具宿主（grok CLI），提示词优化不可用',
+        }
+
+    def translate_canvas_prompt(self, project_id, payload, *, actor=None):
+        from vsc.production.text_tool_host import GrokBuildTextTools
+        if not isinstance(payload, dict) or set(payload) - {'canvas_id', 'node_id', 'text', 'target_language'}:
+            _fail('翻译请求字段无效', 'invalid_canvas_translate')
+        if payload.get('canvas_id'):
+            self.get_creative_canvas(project_id, payload['canvas_id'])
+        else:
+            self.get_project(project_id)
+        text = payload.get('text')
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 10000 or '\x00' in text:
+            _fail('请输入 1–10000 字的待翻译提示词', 'invalid_canvas_translate')
+        target_raw = str(payload.get('target_language') or 'auto').strip().lower()
+        lang_map = {'zh': ('zh-cn', '简体中文'), 'zh-cn': ('zh-cn', '简体中文'), 'en': ('en', 'English'), 'ja': ('ja', '日本語'), 'ko': ('ko', '한국어')}
+        if target_raw == 'auto':
+            target_code, target_label = ('en', 'English') if re.search(r'[\u4e00-\u9fff]', text) else ('zh-cn', '简体中文')
+        elif target_raw in lang_map:
+            target_code, target_label = lang_map[target_raw]
+        else:
+            _fail('不支持的目标语言', 'invalid_canvas_translate')
+        host = getattr(self, 'text_tool_host', None) or GrokBuildTextTools()
+        if not host.available():
+            raise ResourceError('本机未安装或未接通文本翻译宿主（grok CLI）', 'text_host_unavailable', 503)
+        result = host.generate('translate', 'translate', {'source_text': text.strip(), 'target_language': target_label}, [])
+        translated = result.get('body') if isinstance(result, dict) else None
+        if not isinstance(translated, str) or not translated.strip():
+            raise ResourceError('文本宿主没有返回有效译文', 'invalid_tool_result', 502)
+        return {'text': translated.strip(), 'target_language': target_code, 'host': getattr(host, 'name', 'grok-build-text-tools/v1')}
+
+    def optimize_canvas_prompt(self, project_id, payload, *, actor=None):
+        from vsc.production.text_tool_host import GrokBuildTextTools
+        if not isinstance(payload, dict) or set(payload) - {'canvas_id', 'node_id', 'text'}:
+            _fail('优化请求字段无效', 'invalid_canvas_optimize')
+        if payload.get('canvas_id'):
+            self.get_creative_canvas(project_id, payload['canvas_id'])
+        else:
+            self.get_project(project_id)
+        text = payload.get('text')
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 10000 or '\x00' in text:
+            _fail('请输入 1–10000 字的待优化提示词', 'invalid_canvas_optimize')
+        host = getattr(self, 'text_tool_host', None) or GrokBuildTextTools()
+        if not host.available():
+            raise ResourceError('本机未安装或未接通文本工具宿主（grok CLI），提示词优化不可用', 'text_host_unavailable', 503)
+        result = host.generate('canvas', 'optimize', {
+            'source_text': text.strip(),
+            'instruction': '改善可拍摄描述，不编造事实，保留已有专名。',
+        }, [])
+        optimized = result.get('body') if isinstance(result, dict) else None
+        if not isinstance(optimized, str) or not optimized.strip():
+            raise ResourceError('文本宿主没有返回有效优化结果', 'invalid_tool_result', 502)
+        return {'text': optimized.strip(), 'host': getattr(host, 'name', 'grok-build-text-tools/v1')}
 
     def prepare_canvas_work_input(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
@@ -343,6 +543,20 @@ class CreativeCanvasService:
         if payload["action"] == "mark_dispatched":
             checked_id(payload.get("turn_id"))
         return self.store.mutate_canvas_agent_queue(project_id, payload, **kw)
+
+    def read_canvas_agent_stream(self, project_id, canvas_id, session_id=None, before_id=None, limit=30):
+        return self.store.read_canvas_agent_stream(project_id, canvas_id, session_id=session_id, before_id=before_id, limit=limit)
+
+    def list_canvas_agent_events(self, project_id, canvas_id, after=0):
+        return self.store.list_canvas_agent_events(project_id, canvas_id, after=after)
+
+    def mutate_canvas_agent_stream(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        from vsc.adapters.persistence.postgres.values import checked_id
+        if not isinstance(payload, dict) or not isinstance(payload.get("action"), str):
+            _fail("Agent 流操作无效", "invalid_agent_stream")
+        checked_id(payload.get("canvas_id"))
+        return self.store.mutate_canvas_agent_stream(project_id, payload, **kw)
 
     def list_camera_motion_templates(self, project_id):
         return self.store.list_camera_motion_templates(project_id)
@@ -566,12 +780,14 @@ class CreativeCanvasService:
         self._validate_write(payload, **kw)
         required_fields = {"canvas_id", "canvas_revision", "node_id", "rows", "columns", "cells"}
         if (not isinstance(payload, dict) or not required_fields.issubset(payload)
-                or set(payload) - (required_fields | {"group_name"})
+                or set(payload) - (required_fields | {"group_name", "storyboard_group"})
                 or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
             _fail("切分需要固定画布版本、节点和所选宫格", "invalid_canvas_grid")
         group_name = payload.get("group_name", "")
         if not isinstance(group_name, str) or len(group_name) > 100 or "\x00" in group_name:
             _fail("分组名称最长 100 字", "invalid_canvas_grid")
+        if "storyboard_group" in payload and type(payload["storyboard_group"]) is not bool:
+            _fail("宫格分镜组标志须为布尔值", "invalid_canvas_grid")
         rows, columns, cells = payload["rows"], payload["columns"], payload["cells"]
         if type(rows) is not int or type(columns) is not int or not 1 <= rows <= 8 or not 1 <= columns <= 8 or not isinstance(cells, list) or not 1 <= len(cells) <= rows * columns:
             _fail("宫格行列需为1至8，且必须选择至少一格", "invalid_canvas_grid")
@@ -605,8 +821,8 @@ class CreativeCanvasService:
         _key(payload.get("node_id"))
         op = payload.get("operation")
         settings = payload.get("settings")
-        if op not in {"crop", "rotate", "color_adjust", "doodle"} or not isinstance(settings, dict):
-            _fail("图片本地编辑仅支持裁剪、旋转、调色和涂鸦", "invalid_canvas_transform")
+        if op not in {"crop", "rotate", "color_adjust", "doodle", "mask"} or not isinstance(settings, dict):
+            _fail("图片本地编辑仅支持裁剪、旋转、调色、涂鸦和重绘蒙版", "invalid_canvas_transform")
         if "in_place" in payload and type(payload["in_place"]) is not bool:
             _fail("就地替换标志须为布尔值", "invalid_canvas_transform")
         group_name = payload.get("group_name")
@@ -617,6 +833,7 @@ class CreativeCanvasService:
             import io
             from vsc.production.canvas_image_ops import (
                 crop_image_bytes, rotate_flip_image_bytes, color_adjust_image_bytes, doodle_overlay_image_bytes,
+                mask_image_bytes, resolve_filter_id,
             )
             content = self._read_verified_local_media_bytes(media)
             if op == "crop":
@@ -653,7 +870,7 @@ class CreativeCanvasService:
                 suffix = "旋转翻转"
             elif op == "color_adjust":
                 raw_filter = str(settings.get("filter_id", settings.get("filterId", "original")) or "original")
-                filter_id = "original" if raw_filter == "none" else raw_filter
+                filter_id = resolve_filter_id(raw_filter)
                 strength = settings.get("strength", settings.get("filter_intensity", 100))
                 brightness = settings.get("brightness", settings.get("lightness", 0))
                 out_bytes = color_adjust_image_bytes(
@@ -674,11 +891,16 @@ class CreativeCanvasService:
                     "contrast": int(settings.get("contrast", 0)),
                 }
                 suffix = "调色滤镜"
-            else:
+            elif op == "doodle":
                 strokes = settings.get("strokes", [])
                 out_bytes = doodle_overlay_image_bytes(content, strokes)
                 norm = {"stroke_count": len(strokes) if isinstance(strokes, list) else 0}
                 suffix = "涂鸦"
+            else:
+                strokes = settings.get("strokes", [])
+                out_bytes = mask_image_bytes(content, strokes)
+                norm = {"stroke_count": len(strokes) if isinstance(strokes, list) else 0}
+                suffix = "重绘蒙版"
             staged = self.storage.stage_upload(io.BytesIO(out_bytes), f"canvas-{op}.png")
             return self.storage.commit_upload(staged["staged_upload"]), norm, suffix
 
@@ -716,6 +938,242 @@ class CreativeCanvasService:
 
         return self.store.capture_canvas_panorama(project_id, normalized_payload, build=build, **kw)
 
+    def separate_canvas_layers(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "selections"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"group_name"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("图层分离需要固定画布版本、节点和框选区域", "invalid_canvas_layer_separation")
+        _key(payload.get("node_id"))
+        group_name = payload.get("group_name")
+        if group_name is not None and (not isinstance(group_name, str) or len(group_name) > 100 or "\x00" in group_name):
+            _fail("分组名称最长 100 字", "invalid_canvas_layer_separation")
+        from vsc.production.canvas_image_ops import normalize_layer_selections
+        selections = normalize_layer_selections(payload.get("selections"))
+
+        def build(media):
+            import io
+            from vsc.production.canvas_image_ops import separate_image_layers
+            produced = separate_image_layers(self._read_verified_local_media_bytes(media), selections)
+            snapshot = json.dumps(produced["snapshot"], ensure_ascii=False, separators=(",", ":"))
+            if len(snapshot) > 2000:
+                slim = dict(produced["snapshot"])
+                slim["selections"] = [{"id": row["id"], "bbox": row["bbox"]} for row in slim["selections"]]
+                snapshot = json.dumps(slim, ensure_ascii=False, separators=(",", ":"))
+
+            def stage(blob, name):
+                staged = self.storage.stage_upload(io.BytesIO(blob), name)
+                return self.storage.commit_upload(staged["staged_upload"])
+
+            foregrounds = []
+            for item in produced["foregrounds"]:
+                label = item["description"] or item["id"]
+                foregrounds.append({"staged": stage(item["bytes"], "layer-%s.png" % item["id"]), "id": item["id"], "label": label[:80], "title": ("前景 · " + label)[:200]})
+            background = {"staged": stage(produced["background"]["bytes"], "layer-background.png"), "title": "背景修补"}
+            return {"foregrounds": foregrounds, "background": background, "snapshot": snapshot}
+
+        return self.store.separate_canvas_layers(project_id, dict(payload, selections=selections), build=build, **kw)
+
+    def compose_canvas_layers(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "layers"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"group_name", "width", "height"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1
+                or not isinstance(payload.get("layers"), list) or not 1 <= len(payload["layers"]) <= 32):
+            _fail("免费合成需要固定画布版本和图层", "invalid_canvas_layer_composition")
+        layers = []
+        for item in payload["layers"]:
+            if not isinstance(item, dict) or "node_id" not in item or set(item) - {"node_id", "x", "y", "scale", "z", "visible"}:
+                _fail("图层需要节点以及位置、缩放、顺序和显隐", "invalid_canvas_layer_composition")
+            _key(item.get("node_id"))
+            visible = item.get("visible", True)
+            if type(visible) is not bool:
+                _fail("图层显隐须为布尔值", "invalid_canvas_layer_composition")
+            layers.append({
+                "node_id": item["node_id"],
+                "x": _number(item.get("x", 0), -8000, 8000),
+                "y": _number(item.get("y", 0), -8000, 8000),
+                "scale": _number(item.get("scale", 1), 0.05, 8),
+                "z": int(_number(item.get("z", 0), -100, 100)),
+                "visible": visible,
+            })
+
+        def build(sources):
+            import io
+            from vsc.production.canvas_image_ops import compose_image_layers
+            packed = []
+            for source, media, spec in sources:
+                packed.append({**spec, "bytes": self._read_verified_local_media_bytes(media)})
+            out = compose_image_layers(packed, width=payload.get("width"), height=payload.get("height"))
+            staged = self.storage.stage_upload(io.BytesIO(out), "layer-compose.png")
+            return self.storage.commit_upload(staged["staged_upload"]), "免费合成"
+
+        return self.store.compose_canvas_layers(project_id, dict(payload, layers=layers), build=build, **kw)
+
+    def stitch_canvas_images(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "node_ids", "mode"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"group_name"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("拼合需要固定画布版本、图片节点和模式", "invalid_canvas_stitch")
+        if payload.get("mode") not in {"long", "grid"} or not isinstance(payload.get("node_ids"), list) or not 2 <= len(payload["node_ids"]) <= 16:
+            _fail("请选择 2 至 16 张图片，并指定长图或宫格", "invalid_canvas_stitch")
+        if len(set(payload["node_ids"])) != len(payload["node_ids"]):
+            _fail("拼合节点不能重复", "invalid_canvas_stitch")
+        for node_id in payload["node_ids"]:
+            _key(node_id)
+
+        def build(medias):
+            import io
+            from vsc.production.canvas_image_ops import stitch_images
+            out = stitch_images([self._read_verified_local_media_bytes(media) for media in medias], mode=payload["mode"])
+            staged = self.storage.stage_upload(io.BytesIO(out), "stitch-%s.png" % payload["mode"])
+            return self.storage.commit_upload(staged["staged_upload"])
+
+        return self.store.stitch_canvas_images(project_id, payload, build=build, **kw)
+
+    def set_canvas_history_visibility(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        if not isinstance(payload, dict) or set(payload) - {"job_ids", "hidden"} or not {"job_ids", "hidden"} <= set(payload):
+            _fail("历史显隐需要任务列表和隐藏标记", "invalid_canvas_history_visibility")
+        return self.store.set_canvas_history_visibility(project_id, payload, **kw)
+
+    def cancel_canvas_workflow(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        if (not isinstance(payload, dict) or not {"canvas_id", "step_id"} <= set(payload)
+                or set(payload) - {"canvas_id", "step_id", "job_id"}):
+            _fail("取消后台工作流需要画布和步骤", "invalid_canvas_workflow_cancel")
+        if not isinstance(payload.get("step_id"), str) or not payload["step_id"].strip() or len(payload["step_id"]) > 100:
+            _fail("后台工作流步骤无效", "invalid_canvas_workflow_cancel")
+        self.get_creative_canvas(project_id, payload["canvas_id"])
+        if payload.get("job_id"):
+            return self.store.record_canvas_workflow_cancel(project_id, payload, **kw)
+        return {"status": "canceled", "persisted": False, "step_id": payload["step_id"]}
+
+    def process_canvas_audio(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "operation"}
+        operation = payload.get("operation") if isinstance(payload, dict) else None
+        allowed = set(required_fields)
+        if operation == "clip":
+            allowed |= {"start_seconds", "end_seconds"}
+        elif operation == "speed":
+            allowed |= {"speed"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload) or set(payload) - allowed
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("音频处理需要固定画布版本、节点和截取或变速参数", "invalid_canvas_audio_process")
+        _key(payload.get("node_id"))
+        if operation == "clip":
+            start = _bounded_number(payload.get("start_seconds"), 0, 24 * 3600, "截取开始时间无效", "invalid_canvas_audio_process")
+            end = _bounded_number(payload.get("end_seconds"), 0, 24 * 3600, "截取结束时间无效", "invalid_canvas_audio_process")
+            if end <= start or end - start < 0.05:
+                _fail("截取结束时间须大于开始时间", "invalid_canvas_audio_process")
+            normalized = dict(payload, start_seconds=start, end_seconds=end)
+        elif operation == "speed":
+            speed = _bounded_number(payload.get("speed"), 0.1, 4.0, "变速倍率须在 0.1 至 4.0 之间", "invalid_canvas_audio_process")
+            normalized = dict(payload, speed=speed)
+        else:
+            _fail("音频处理仅支持截取和变速", "invalid_canvas_audio_process")
+
+        def build(media):
+            import io
+            from vsc.assets.canvas_av_process import process_audio_bytes
+            content = self._read_verified_local_media_bytes(media)
+            if operation == "clip":
+                out_bytes, meta = process_audio_bytes(content, operation="clip", start_seconds=normalized["start_seconds"], end_seconds=normalized["end_seconds"])
+                filename = "canvas-audio-clip.wav"
+            else:
+                out_bytes, meta = process_audio_bytes(content, operation="speed", speed=normalized["speed"])
+                filename = "canvas-audio-speed.wav"
+            staged = self.storage.stage_upload(io.BytesIO(out_bytes), filename)
+            return self.storage.commit_upload(staged["staged_upload"]), meta
+
+        return self.store.process_canvas_audio(project_id, normalized, build=build, **kw)
+
+    def capture_canvas_video_frame(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        required_fields = {"canvas_id", "canvas_revision", "node_id", "frame"}
+        if (not isinstance(payload, dict) or not required_fields.issubset(payload)
+                or set(payload) - (required_fields | {"time_seconds"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("视频截帧需要固定画布版本、节点和帧位置", "invalid_canvas_frame")
+        _key(payload.get("node_id"))
+        frame = payload.get("frame")
+        if frame not in {"first", "current", "last"}:
+            _fail("截帧模式须为首帧、当前帧或尾帧", "invalid_canvas_frame")
+        time_seconds = None
+        if frame == "current":
+            if "time_seconds" not in payload:
+                _fail("截取当前帧需要时间点", "invalid_canvas_frame")
+            time_seconds = _bounded_number(payload.get("time_seconds"), 0, 24 * 3600, "当前帧时间无效", "invalid_canvas_frame")
+        normalized = dict(payload, time_seconds=time_seconds)
+
+        def build(media):
+            import io
+            from vsc.assets.canvas_av_process import extract_frame_bytes
+            content = self._read_verified_local_media_bytes(media)
+            out_bytes, meta = extract_frame_bytes(content, frame=frame, time_seconds=time_seconds)
+            staged = self.storage.stage_upload(io.BytesIO(out_bytes), "canvas-frame.png")
+            return self.storage.commit_upload(staged["staged_upload"]), meta
+
+        return self.store.capture_canvas_video_frame(project_id, normalized, build=build, **kw)
+
+    def quote_canvas_video_script(self, project_id, canvas_id, payload):
+        from vsc.production.resource_settings import ResourceSettings
+        from vsc.assets.canvas_video_ops import quote_operation
+        self.get_creative_canvas(project_id, canvas_id)
+        if not isinstance(payload, dict) or set(payload) - {"operation", "settings"}:
+            _fail("实时报价参数无效", "invalid_canvas_video_script")
+        models = ResourceSettings(self.store).list().get("configurations") or []
+        return quote_operation(payload.get("operation"), payload.get("settings") or {}, models=models)
+
+    def apply_canvas_video_script(self, project_id, payload, **kw):
+        self._validate_write(payload, **kw)
+        from vsc.assets.canvas_video_ops import OPERATIONS, execute_operation
+        required = {"canvas_id", "canvas_revision", "operation", "settings"}
+        if (not isinstance(payload, dict) or not required.issubset(payload) or set(payload) - (required | {"node_id"})
+                or type(payload.get("canvas_revision")) is not int or payload["canvas_revision"] < 1):
+            _fail("视频脚本处理需要固定画布版本和操作", "invalid_canvas_video_script")
+        if payload["operation"] not in OPERATIONS or not isinstance(payload.get("settings"), dict):
+            _fail("不支持的视频脚本操作", "invalid_canvas_video_script")
+        if payload.get("node_id") is not None:
+            _key(payload["node_id"])
+        if payload["settings"].get("write_script") is True:
+            _fail("画布上的文字编辑不会改写剧本资料", "canvas_script_authority")
+
+        def build(entries):
+            import io
+            sources = []
+            for entry in entries:
+                media = entry.get("media")
+                node = entry["node"]
+                sources.append({
+                    "node_id": node["id"],
+                    "type": node["type"],
+                    "content": self._read_verified_local_media_bytes(media) if media else None,
+                    "width": None if media is None else media.get("width"),
+                    "height": None if media is None else media.get("height"),
+                    "duration_seconds": None if media is None or not media.get("duration_ms") else media["duration_ms"] / 1000,
+                })
+            draft = None
+            if payload["operation"] == "script_document_bind":
+                scope = payload["settings"].get("scope_key") or ""
+                draft = self.get_script_draft(project_id, scope if isinstance(scope, str) else "")
+            produced = execute_operation(payload["operation"], payload["settings"], sources, draft=draft)
+            staged = []
+            for item in produced:
+                content = item.pop("content", None)
+                if content:
+                    staged_upload = self.storage.stage_upload(io.BytesIO(content), item.get("filename") or "canvas-video-script.bin")
+                    item["committed"] = self.storage.commit_upload(staged_upload["staged_upload"])
+                staged.append(item)
+            return staged
+
+        return self.store.apply_canvas_video_script(project_id, payload, build=build, **kw)
+
     def replace_canvas_node_media(self, project_id, payload, **kw):
         self._validate_write(payload, **kw)
         from vsc.adapters.persistence.postgres.values import checked_id
@@ -742,3 +1200,7 @@ class CreativeCanvasService:
             if node.get("media_id"):
                 self._verify_media(project_id, node["media_id"])
         return self.store.prepare_creative_canvas(project_id, payload, **kw)
+
+
+from vsc.assets.canvas_director_stage import bind_canvas_director_stage_service
+bind_canvas_director_stage_service(CreativeCanvasService)

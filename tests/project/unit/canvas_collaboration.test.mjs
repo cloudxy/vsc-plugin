@@ -407,6 +407,23 @@ test('creative-canvas collaboration bar, WS sync_protocol=2, locks, live downgra
   // Studio workspace shows permission button and collaboration bar
   const bar = root.querySelector('.canvas-collaboration-bar');
   assert.ok(bar);
+  assert.equal(bar.dataset.testid, 'canvas-collaboration-bar');
+  const overlay = root.querySelector('.cc-shell-overlay');
+  assert.equal(bar.parentElement, overlay);
+  assert.equal(overlay.parentElement.classList.contains('cc-toolbar'), true);
+  assert.equal(root.querySelector('.cc-collab-sync-pill').parentElement, overlay);
+  assert.deepEqual([...overlay.children].map(node => {
+    if (node.classList.contains('cc-collab-bar')) return 'bar';
+    if (node.classList.contains('cc-collab-sync-pill')) return 'sync';
+    if (node.classList.contains('cc-shell-share')) return 'share';
+    if (node.classList.contains('cc-agent-toggle')) return 'agent';
+    if (node.classList.contains('cc-more')) return 'more';
+    return node.className;
+  }), ['bar', 'sync', 'share', 'agent', 'more']);
+  assert.equal(bar.querySelector('.cc-collab-conflict-pill') != null, true);
+  assert.equal(bar.querySelector('.cc-collab-presence-wrap') != null, true);
+  assert.equal(bar.querySelector('.cc-collab-perm-wrap') != null, true);
+  assert.equal(overlay.querySelector('.cc-shell-share').getAttribute('aria-label'), '分享');
   const permWrap = root.querySelector('.cc-collab-perm-wrap');
   assert.equal(permWrap.hidden, false);
 

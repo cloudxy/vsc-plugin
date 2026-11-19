@@ -49,7 +49,7 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
             capabilities=dict(purposes=['first_frame'],reference_media=True)),actor='test-admin')
         with patch('vsc.production.resource_settings.ResourceSettings.list',return_value={'configurations':[dict(model,adapter_available=True)]}):
             options=self.client.get(self.base+'/creative-canvas-run-options').json()
-        self.assertEqual(len(options['operations']),53)
+        self.assertEqual(len(options['operations']),55)
         self.assertIn('layout',options)
         self.assertEqual(next(op for op in options['operations'] if op['op_type']=='image_generate')['supported_models'],[model['id']])
         created=self.command('/creative-canvases',dict(title='Operation contract',document=dict(nodes=[dict(id='image',type='image',text='合成输入',params=dict(vsc_operation='image_generate',seed=42))],edges=[]))).json()
@@ -300,3 +300,110 @@ class CreativeCanvasWebTests(ResourceStoreFixture, unittest.TestCase):
         copied=self.command("/creative-canvas-template-copies",{"template_id":template})
         self.assertEqual(copied.status_code,200,copied.text)
         self.assertEqual(len(self.client.get(self.base+"/creative-canvases/"+copied.json()["id"]).json()["document"]["nodes"]),2)
+
+    def test_inline_composer_realtime_quote_settings_switch_translate_and_camera_params(self):
+        self.assertEqual(self.client.get("/static/canvas-generator-composer.js").status_code, 200)
+        self.assertEqual(self.client.get("/static/canvas-generator-composer.css").status_code, 200)
+        self.service.studio_auth_status = lambda: {k: {"ready": True} for k in ("agy", "grok", "codex")}
+        sync_path = self.base + "/creative-canvas-settings-models"
+        first_sync = self.client.post(sync_path, headers=self.headers, json={"providers": [
+            {"provider": "grok_auth", "model": "image_edit"},
+            {"provider": "grok_video_auth", "model": "grok-imagine-video"},
+        ]})
+        self.assertEqual(first_sync.status_code, 200, first_sync.text)
+        first_id = next(m["id"] for m in first_sync.json()["models"] if m["model_key"] == "image_edit")
+
+        switched = self.client.post(sync_path, headers=self.headers, json={"providers": [
+            {"provider": "grok_auth", "model": "grok-imagine-image-2.0"},
+            {"provider": "grok_video_auth", "model": "grok-imagine-video-1.5"},
+        ]})
+        self.assertEqual(switched.status_code, 200, switched.text)
+        opts = self.client.get(self.base + "/creative-canvas-run-options").json()
+        by_id = {m["id"]: m for m in opts["models"]}
+        self.assertFalse(by_id[first_id]["enabled"])
+        active_img = next(m for m in opts["models"] if m["model_key"] == "grok-imagine-image-2.0" and m["enabled"])
+        self.assertEqual(opts["model_params"][active_img["id"]]["resolutions"], ["1K", "1.5K", "2K"])
+
+        created = self.command("/creative-canvases", {"document": {"nodes": [{
+            "id": "img1",
+            "type": "image",
+            "text": "雨夜霓虹街道",
+            "params": {
+                "vsc_operation": "image_generate",
+                "vsc_gen_model_id": active_img["id"],
+                "vsc_gen_resolution": "1.5K",
+                "vsc_gen_ratio": "16:9",
+                "vsc_gen_count": 2,
+                "vsc_gen_quality": "high",
+                "photography_enabled": True,
+                "camera_model": "arri_alexa_35",
+                "lens_model": "cooke_s4",
+                "focal_length_mm": 35,
+                "aperture": "f/1.4",
+                "seed": 42,
+            },
+        }], "edges": []}}).json()
+        canvas_path = "/creative-canvases/" + created["id"]
+
+        q1 = self.client.post(self.base + canvas_path + "/work-quote", headers=self.headers, json={"payload": {
+            "op_type": "image_generate",
+            "model_id": active_img["id"],
+            "resolution": "1.5K",
+            "quality": "high",
+            "count": 1,
+            "ratio": "16:9",
+        }})
+        self.assertEqual(q1.status_code, 200, q1.text)
+        self.assertTrue(q1.json()["read_only"])
+        self.assertEqual(q1.json()["total_price"], 1)
+
+        q4 = self.client.post(self.base + canvas_path + "/work-quote", headers=self.headers, json={"payload": {
+            "op_type": "image_generate",
+            "model_id": active_img["id"],
+            "resolution": "1.5K",
+            "quality": "high",
+            "count": 4,
+            "ratio": "16:9",
+        }})
+        self.assertEqual(q4.status_code, 200, q4.text)
+        self.assertEqual(q4.json()["total_price"], 4)
+
+        fixed = self.command(canvas_path + "/work-input", {"canvas_revision": 1, "node_id": "img1", "model_id": active_img["id"]})
+        self.assertEqual(fixed.status_code, 200, fixed.text)
+        doc = fixed.json()["document"]
+        self.assertEqual(doc["count"], 2)
+        self.assertEqual((doc["width"], doc["height"]), (1920, 1080))
+        self.assertIn("ARRI Alexa 35", doc["prompt"])
+        self.assertIn("Cooke S4", doc["prompt"])
+        self.assertEqual(doc["params"]["seed"], 42)
+        self.assertEqual(doc["params"]["resolution"], "1.5k")
+        self.assertEqual(doc["params"]["aspect_ratio"], "16:9")
+        self.assertTrue(all(not k.startswith("vsc_gen_") for k in doc["params"]))
+        self.assertNotIn("photography_enabled", doc["params"])
+
+        class UnavailableTextHost:
+            name = "test-unavailable-host"
+            def available(self): return False
+
+        self.service.text_tool_host = UnavailableTextHost()
+        opts_unavail = self.client.get(self.base + "/creative-canvas-run-options").json()
+        self.assertFalse(opts_unavail["prompt_assist"]["available"])
+        self.assertTrue(opts_unavail["prompt_assist"]["unavailable_reason"])
+        blocked_tr = self.client.post(self.base + canvas_path + "/prompt-translate", headers=self.headers,
+                                      json={"payload": {"node_id": "img1", "text": "雨夜霓虹街道"}})
+        self.assertEqual(blocked_tr.status_code, 503)
+
+        class WorkingTextHost:
+            name = "test-working-host"
+            def available(self): return True
+            def generate(self, tool, action, document, references, **kw):
+                return {"body": f"Neon rainy street ({document['target_language']})"}
+
+        self.service.text_tool_host = WorkingTextHost()
+        opts_avail = self.client.get(self.base + "/creative-canvas-run-options").json()
+        self.assertTrue(opts_avail["prompt_assist"]["available"])
+        ok_tr = self.client.post(self.base + canvas_path + "/prompt-translate", headers=self.headers,
+                                 json={"payload": {"node_id": "img1", "text": "雨夜霓虹街道"}})
+        self.assertEqual(ok_tr.status_code, 200, ok_tr.text)
+        self.assertEqual(ok_tr.json()["text"], "Neon rainy street (English)")
+

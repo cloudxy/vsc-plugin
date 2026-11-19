@@ -43,11 +43,11 @@ async function fixture({nodes=[],viewport={x:0,y:0,zoom:1},runOptions=null,apiOv
 }
 const browserKey=(prefix,{actor='test',project='p1',canvas='c1',shared=false,episode=null,slot=null}={})=>prefix+':v2:'+JSON.stringify([actor,shared,project,canvas,canvas?null:episode,slot]);
 const canvasDraftKey=(scope={})=>browserKey('vsc-creative-canvas',scope);
-function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.textContent==='添加图片');assert.ok(action);return action.fire('click');}
+function addImage(menu){const action=menu.querySelectorAll('button').find(b=>b.textContent==='图片');assert.ok(action);return action.fire('click');}
 function savedNode(store){return JSON.parse(store.get(canvasDraftKey())).document.nodes.at(-1);}
 async function selectGrid(a,cells=[[1,1],[1,2],[2,1],[2,2]]){await a.root.querySelectorAll('button').find(b=>b.textContent==='4宫格（2×2）').fire('click');for(const [r,c]of cells)await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']===`宫格 ${r}行${c}列`).fire('click');}
 function generateGrid(a){return a.root.querySelectorAll('button').find(b=>b.textContent==='生成图片').fire('click');}
-async function openCrossProject(a){await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');const pick=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='资产项目');pick.value='p2';await pick.fire('change');}
+async function openCrossProject(a){await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='资产库').fire('click');const pick=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='资产项目');pick.value='p2';await pick.fire('change');}
 const crossProjects=[{id:'p1',name:'当前项目'},{id:'p2',name:'来源项目'}];
 const crossRow={id:'asset1',record_kind:'asset',asset_kind:'character',name:'角色',forms:[{form_key:'master',name:'默认',version_id:'form1',media_id:'source1'}]};
 const fixedCrossNode={id:'cross1',type:'image',title:'角色',x:100,y:100,text:'',params:{},media_id:'target1',job_id:null,group:''};
@@ -60,7 +60,7 @@ test('cross-project click preserves the original request and recovers after lost
   if(path.endsWith('/creative-canvases/c1?version=2'))return fixedCross;
  }});
  await openCrossProject(a);await a.root.querySelector('.cc-asset-send').fire('click');assert.equal(requests.length,1);assert.equal(requests[0].payload.source.form_version_id,'form1');assert.equal(requests[0].payload.source_project_id,'p2');
- await a.canvas.load(a.root,'p1',null,'c1');await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原项目素材引用').fire('click');
+ await a.canvas.load(a.root,'p1',null,'c1');await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='资产库').fire('click');await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原项目素材引用').fire('click');
  await new Promise(resolve=>setImmediate(resolve));const pending=JSON.parse(a.store.get('vsc-canvas-project-node:test:p1:c1'));assert.equal(pending.uncertain,true);assert.notEqual(pending.rejected,true);assert.equal(a.root.querySelectorAll('button').some(b=>b.textContent==='结束已拒绝的项目素材请求'),false);
  await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原项目素材引用').fire('click');assert.deepEqual(requests[1],requests[0]);assert.deepEqual(requests[2],requests[0]);assert.equal(a.root.querySelectorAll('.cc-node').length,1);assert.match(a.root.querySelector('.cc-status').textContent,/生成前需完成媒体检查/);assert.equal(a.store.has('vsc-canvas-project-node:test:p1:c1'),false);a.canvas.suspend();
 });
@@ -118,7 +118,7 @@ test('late cross-project receipt stays with its original canvas after switching'
 
 test('canvas imports only an available fixed blocking media from its project',async()=>{
  let lastQuery;const a=await fixture({apiOverride:async path=>{if(path.includes('/asset-cards?')){lastQuery=new URL(path,'http://test').searchParams;return {revision:1,items:[{id:'projection-1',record_kind:'blocking',asset_kind:'blocking',name:'站位一',forms:[],preview:{media_id:'fixed-media'}},{id:'projection-2',record_kind:'blocking',asset_kind:'blocking',name:'站位二',forms:[],preview:null}],next_offset:null};}}});
- await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='项目资产').fire('click');
+ await a.root.querySelectorAll('button').find(b=>b.attrs['aria-label']==='资产库').fire('click');
  assert.equal(lastQuery.get('include_blocking'),'true');const kind=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='资产类型');kind.value='blocking';await kind.fire('change');assert.equal(lastQuery.get('asset_kind'),'blocking');const items=a.root.querySelectorAll('.cc-asset-item');assert.equal(items.length,2);
  const send=items.map(item=>item.querySelector('.cc-asset-send'));assert.equal(send[1].disabled,true);await send[0].fire('click');
  assert.equal(savedNode(a.store).media_id,'fixed-media');assert.equal(savedNode(a.store).type,'image');a.canvas.suspend();
@@ -573,7 +573,7 @@ const a=await fixture({apiOverride:async(path,options)=>{
  }
 }});
 await selectorRename(a,'Renamed');if(laterTitle){const field=a.root.querySelectorAll('input').find(n=>n.attrs['aria-label']==='画布名称');field.value=laterTitle;await field.fire('change');}assert.equal(db.version,2);assert.ok([...a.store.keys()].find(k=>k.startsWith('vsc-canvas-selector:')));
-await a.stage.fire('dblclick',{clientX:510,clientY:280});await a.menu.querySelectorAll('button').find(b=>b.textContent==='添加图片').fire('click');
+await a.stage.fire('dblclick',{clientX:510,clientY:280});await a.menu.querySelectorAll('button').find(b=>b.textContent==='图片').fire('click');
 await a.root.querySelector('.cc-save').fire('click');
 const draftKey=[...a.store.keys()].find(k=>k.startsWith('vsc-creative-canvas:'));let draft=JSON.parse(a.store.get(draftKey));assert.equal(draft.pending,null);assert.equal(draft.document.nodes.length,1);
 await a.root.querySelectorAll('button').find(b=>b.textContent==='恢复原画布操作').fire('click');

@@ -11,12 +11,12 @@ TOOLS={
  'three_view':('角色三视图',{'layout':'front_side_back'}),
  'face_views':('脸部三视图',{'layout':'front_three_quarter_side'}),
  'headshot':('大头照',{'framing':'head_and_shoulders'}),
- 'texture':('人像质感',{'strength':0.5,'scene_blend':'natural','light_match':'natural','skin_polish':'natural','grain':'natural','sharpness':'standard'}),
- 'expression':('表情与情绪',{'expression':'自然','strength':0.5,'valence':0,'arousal':0,'brow':0,'eye':0,'mouth':0,'head_tilt':0}),
- 'angle':('多角度',{'preset':'custom','yaw':0,'pitch':0,'roll':0,'zoom':1,'include_instructions':True}),
- 'lighting':('打光与轮廓光',{'view':'front','direction':'front','intensity':1,'color':'#ffffff','cone':45,'rim':False}),
- 'inpaint':('局部重绘',{'mask_media_id':'','mask_sha256':'','mask_export_id':''}),
- 'outpaint':('扩图',{'ratio':'16:9','padding':0.25}),
+ 'texture':('人像质感',{'strength':0.5,'scene_blend':'natural','light_match':'natural','skin_polish':'natural','grain':'natural','sharpness':'standard','prompt':'','quality':'medium'}),
+ 'expression':('表情与情绪',{'expression':'自然','strength':0.5,'valence':0,'arousal':0,'brow':0,'eye':0,'mouth':0,'head_tilt':0,'emotion':'','emotion_x':50,'emotion_y':50,'quality':'standard','face_rect':''}),
+ 'angle':('多角度',{'preset':'custom','yaw':0,'pitch':0,'roll':0,'zoom':1,'include_instructions':True,'scale':'medium','description':''}),
+ 'lighting':('打光与轮廓光',{'view':'front','direction':'front','intensity':1,'color':'#ffffff','cone':45,'rim':False,'brightness':1,'direction_x':0,'direction_y':0,'direction_z':1,'description':''}),
+ 'inpaint':('局部重绘',{'mask_media_id':'','mask_sha256':'','mask_export_id':'','prompt':''}),
+ 'outpaint':('扩图',{'ratio':'16:9','padding':0.25,'source_width':0,'source_height':0,'rect_x':0,'rect_y':0,'rect_w':1,'rect_h':1}),
  'matting':('智能抠图',{'subject':'foreground'}),
  'panorama':('720°全景',{'projection':'equirectangular'}),
  'upscale':('4K/8K超分',{'target':'4k','creativity':0.35,'resemblance':0.6}),
@@ -60,16 +60,27 @@ def normalize_tool(tool,settings):
  for k,v in value.items():
   if type(defaults[k]) is bool and type(v)is not bool:raise ResourceError('图像工具开关无效')
   if isinstance(defaults[k],str) and (not isinstance(v,str) or len(v)>200):raise ResourceError('图像工具文本参数无效')
- for key,lo,hi in [('strength',0,1),('creativity',0,1),('resemblance',0,1),('padding',0.05,2),('valence',-1,1),('arousal',-1,1),('brow',-100,100),('eye',-100,100),('mouth',-100,100),('head_tilt',-100,100),('delta_seconds',-30,30),('yaw',-180,180),('pitch',-90,90),('roll',-180,180),('zoom',0.25,4),('intensity',0,5),('cone',1,180)]:
+ for key,lo,hi in [('strength',0,1),('creativity',0,1),('resemblance',0,1),('padding',0.05,2),('valence',-1,1),('arousal',-1,1),('brow',-100,100),('eye',-100,100),('mouth',-100,100),('head_tilt',-100,100),('delta_seconds',-30,30),('yaw',-180,180),('pitch',-90,90),('roll',-180,180),('zoom',0.25,4),('intensity',0,5),('cone',1,180),('brightness',0,5),('direction_x',-1,1),('direction_y',-1,1),('direction_z',-1,1),('emotion_x',0,100),('emotion_y',0,100),('rect_x',-4,4),('rect_y',-4,4),('rect_w',0.05,8),('rect_h',0.05,8)]:
   if key in value:finite(value[key],lo,hi)
+ for key in ('source_width','source_height'):
+  if key in value and value[key]!=0:finite(value[key],1,16384)
  if 'color'in value and not re.fullmatch('#[0-9a-fA-F]{6}',value['color']):raise ResourceError('光源颜色无效')
- if tool=='angle' and value['preset'] not in {'custom','fisheye','tilt','front_high','front_low','top','back'}:raise ResourceError('角度预设无效')
- if tool=='lighting' and (value['direction'] not in {'front','back','left','right','top','bottom'} or value['view'] not in {'front','perspective'}):raise ResourceError('光源方向无效')
+ if tool=='angle' and (value['preset'] not in {'custom','fisheye','tilt','front_high','front_low','top','back','frontBottom','frontTop','wideTop'} or value['scale'] not in {'close','medium','wide'}):raise ResourceError('角度预设无效')
+ _light_directions={'front','back','left','right','top','bottom'}
+ for horizontal in ('left','center','right'):
+  for vertical in ('bottom','middle','top'):
+   for depth in ('back','center','front'):_light_directions.add('%s_%s_%s'%(horizontal,vertical,depth))
+ if tool=='lighting' and (value['direction'] not in _light_directions or value['view'] not in {'front','perspective'}):raise ResourceError('光源方向无效')
  if tool=='upscale' and value['target'] not in {'4k','8k'}:raise ResourceError('超分规格无效')
  if tool=='panorama' and value['projection']!='equirectangular':raise ResourceError('全景预览使用VSC 2:1等距柱状合同')
  if tool=='texture':
-  if value['scene_blend'] not in {'light','natural','deep'} or value['light_match'] not in {'soft','natural','dramatic'} or value['skin_polish'] not in {'clean','natural','micro'} or value['grain'] not in {'soft','natural','film_grain'} or value['sharpness'] not in {'soft_focus','standard','hd_sharp'}:
+  labels={'轻度对齐':'light','自然融合':'natural','深度融合':'deep','柔和补光':'soft','自然匹配':'natural','氛围强化':'dramatic','清透修饰':'clean','自然肤质':'natural','真实肌理':'micro','柔和纹理':'soft','自然纹理':'natural','颗粒质感':'film_grain','柔焦':'soft_focus','标准清晰':'standard','高清锐化':'hd_sharp','低画质':'standard','标准画质':'medium','高画质':'high'}
+  for key in ('scene_blend','light_match','skin_polish','grain','sharpness','quality'):value[key]=labels.get(value[key],value[key])
+  if value['scene_blend'] not in {'light','natural','deep'} or value['light_match'] not in {'soft','natural','dramatic'} or value['skin_polish'] not in {'clean','natural','micro'} or value['grain'] not in {'soft','natural','film_grain'} or value['sharpness'] not in {'soft_focus','standard','hd_sharp'} or value['quality'] not in {'standard','medium','high'}:
    raise ResourceError('人像质感五维选项无效')
+ if tool=='expression':
+  value['quality']={'低画质':'standard','标准画质':'medium','高画质':'high'}.get(value['quality'],value['quality'])
+  if not re.fullmatch(r'(|e0[1-5]_0[1-5])',value['emotion']) or value['quality'] not in {'standard','medium','high'}:raise ResourceError('情绪预设无效')
  return value
 
 def tool_instruction(tool,value):
@@ -80,17 +91,17 @@ def tool_instruction(tool,value):
   'three_view':'同一人物正面、侧面、背面三视图，保持身份、服装和比例；布局 '+str(value.get('layout')),
   'face_views':'同一面孔正面、四分之三侧面和侧面，保持身份；布局 '+str(value.get('layout')),
   'headshot':'保持人物身份的大头照；取景 '+str(value.get('framing')),
-  'texture':'保留人物身份，人景 '+str(value.get('scene_blend'))+'，光影 '+str(value.get('light_match'))+'，肤质 '+str(value.get('skin_polish'))+'，纹理 '+str(value.get('grain'))+'，锐度 '+str(value.get('sharpness'))+'，强度 '+str(value.get('strength')),
-  'expression':'保持人物身份，表情 '+str(value.get('expression'))+'，情绪坐标('+str(value.get('valence'))+','+str(value.get('arousal'))+')，五官微调('+str(value.get('brow'))+','+str(value.get('eye'))+','+str(value.get('mouth'))+','+str(value.get('head_tilt'))+')，程度 '+str(value.get('strength')),
-  'angle':'保持主体身份；相机预设 '+str(value.get('preset'))+'，水平 '+str(value.get('yaw'))+'°，俯仰 '+str(value.get('pitch'))+'°，倾斜 '+str(value.get('roll'))+'°，景别倍率 '+str(value.get('zoom')),
-  'lighting':'保持主体身份；视图 '+str(value.get('view'))+'，主光 '+str(value.get('direction'))+'，强度 '+str(value.get('intensity'))+'，颜色 '+str(value.get('color'))+'，光锥 '+str(value.get('cone'))+'°，轮廓光 '+str(value.get('rim')),
+  'texture':'保留人物身份，人景 '+str(value.get('scene_blend'))+'，光影 '+str(value.get('light_match'))+'，肤质 '+str(value.get('skin_polish'))+'，纹理 '+str(value.get('grain'))+'，锐度 '+str(value.get('sharpness'))+'，强度 '+str(value.get('strength'))+'，画质 '+str(value.get('quality'))+'，提示 '+str(value.get('prompt','')),
+  'expression':'保持人物身份，表情 '+str(value.get('expression'))+'，情绪坐标('+str(value.get('valence'))+','+str(value.get('arousal'))+')，五官微调('+str(value.get('brow'))+','+str(value.get('eye'))+','+str(value.get('mouth'))+','+str(value.get('head_tilt'))+')，程度 '+str(value.get('strength'))+'，预设 '+str(value.get('emotion'))+'，定位('+str(value.get('emotion_x'))+','+str(value.get('emotion_y'))+')，画质 '+str(value.get('quality'))+'，人脸框 '+str(value.get('face_rect','')),
+  'angle':'保持主体身份；相机预设 '+str(value.get('preset'))+'，水平 '+str(value.get('yaw'))+'°，俯仰 '+str(value.get('pitch'))+'°，倾斜 '+str(value.get('roll'))+'°，景别 '+str(value.get('scale'))+'，倍率 '+str(value.get('zoom'))+'，补充 '+str(value.get('description','')),
+  'lighting':'保持主体身份；视图 '+str(value.get('view'))+'，主光 '+str(value.get('direction'))+'，方向('+str(value.get('direction_x'))+','+str(value.get('direction_y'))+','+str(value.get('direction_z'))+')，亮度 '+str(value.get('brightness',value.get('intensity')))+'，强度 '+str(value.get('intensity'))+'，颜色 '+str(value.get('color'))+'，光锥 '+str(value.get('cone'))+'°，轮廓光 '+str(value.get('rim'))+'，说明 '+str(value.get('description','')),
   'multi_camera_grid_2k':'保持主体与场景连续性，生成 3×3 多机位九宫格分镜（2K 规格）',
   'multi_camera_grid_4k':'保持主体与场景连续性，生成 3×3 多机位九宫格分镜（4K 规格）',
   'story_four_grid':'保持人物与环境一致，生成 2×2 剧情推进四格关键帧',
   'cinematic_lighting':'保持人物与构图不变，执行电影级光影与影调校正（'+str(value.get('grade'))+'）',
   'frame_predict_3s_after':'推演当前画面 3 秒后的动作与镜头延续帧',
   'frame_predict_5s_before':'反推当前画面 5 秒前的前置动作与起因帧',
-  'outpaint':'向外自然延展画面边界，目标比例 '+str(value.get('ratio'))+'，延展幅度 '+str(value.get('padding')),
+  'outpaint':'向外自然延展画面边界，目标比例 '+str(value.get('ratio'))+'，延展幅度 '+str(value.get('padding'))+'，外框('+str(value.get('rect_x'))+','+str(value.get('rect_y'))+','+str(value.get('rect_w'))+','+str(value.get('rect_h'))+')，源尺寸 '+str(value.get('source_width'))+'×'+str(value.get('source_height')),
   'matting':'提取前景主体并保持边缘发丝干净'}
  return label+'：'+description.get(tool,'按保存的工具规格处理。')+'。模型按文字指令解释，不保证精确几何。'
 

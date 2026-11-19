@@ -1183,6 +1183,7 @@ $('session-open').addEventListener('click',guard(()=>openAccess({area:'account'}
 $('help-open')?.addEventListener('click',()=>{window.open('/guide','_blank');});
 for(const item of document.querySelectorAll('#account-menu button,#account-menu a'))item.addEventListener('click',()=>{$('account-menu').open=false;});
 $('access-open')?.addEventListener('click',guard(()=>openAccess({area:'workspace'})));
+$('canvas-preferences-open')?.addEventListener('click',guard(async()=>{const mod=await import('./canvas-preferences-import.js');await mod.openPreferencesDialog({api,root:document.body,onSaved:mod.applyUserAppearance});}));
 $('team-settings-open')?.addEventListener('click',guard(()=>openAccess({area:'workspace'})));
 $('asset-center-open')?.addEventListener('click',guard(()=>switchView('asset-center')));
 $('commerce-open')?.addEventListener('click',guard(()=>navigateModule('commerce','wallet',null)));
@@ -1193,7 +1194,7 @@ $('invoice-open')?.addEventListener('click',guard(()=>navigateModule('commerce',
 $('studio-quota-open')?.addEventListener('click',guard(()=>navigateModule('commerce','studio-quota',null)));
 $('project-management-open')?.addEventListener('click',guard(()=>switchView('project-management')));
 $('service-operations-open')?.addEventListener('click',guard(()=>navigateModule('service-operations','overview',null)));
-$('creation-record')?.addEventListener('click',guard(()=>switchView('tasks')));
+$('creation-record')?.addEventListener('click',guard(async event=>{if(state.view==='creative-canvas'){const {openCreationRecordPopover}=await import('./canvas-preferences-import.js');await openCreationRecordPopover({anchor:event?.currentTarget||$('creation-record'),projectId:state.project,api,root:document.body,onOpenCenter:()=>switchView('tasks'),onView:task=>{if(task?.href)window.location.assign(task.href);else return switchView('tasks');}});return;}await switchView('tasks');}));
 // Sidebar disclosures only affect visibility; recent data keeps its original owner.
 const recentProjectsToggle=$('recent-projects-toggle');
 recentProjectsToggle?.addEventListener('click',()=>{

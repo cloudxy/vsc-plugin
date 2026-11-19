@@ -511,7 +511,7 @@ class AccessControlRepository:
 
     @staticmethod
     def _validate_preferences(raw, base=None):
-        if not isinstance(raw, dict) or set(raw) - {'language', 'compact', 'collaboration'}:
+        if not isinstance(raw, dict) or set(raw) - {'language', 'compact', 'collaboration', 'ui', 'ai_watermark'}:
             raise ResourceError('偏好格式无效', 'invalid_access_input')
         merged = dict(base or {})
         if 'language' in raw:
@@ -530,7 +530,39 @@ class AccessControlRepository:
             prior_collab = dict(merged.get('collaboration') or {})
             prior_collab.update(collab)
             merged['collaboration'] = {'enabled_on_new_canvas': bool(prior_collab.get('enabled_on_new_canvas', False))}
+        if 'ui' in raw:
+            ui = raw['ui']
+            size = ui.get('font_size') if isinstance(ui, dict) else None
+            if not isinstance(ui, dict) or set(ui) - {'font_size'} or type(size) is not int or not 10 <= size <= 24:
+                raise ResourceError('偏好格式无效', 'invalid_access_input')
+            merged['ui'] = {'font_size': size}
+        if 'ai_watermark' in raw:
+            mark = raw['ai_watermark']
+            visible = mark.get('visible') if isinstance(mark, dict) else None
+            if not isinstance(mark, dict) or set(mark) - {'visible'} or type(visible) is not bool:
+                raise ResourceError('偏好格式无效', 'invalid_access_input')
+            merged['ai_watermark'] = {'visible': visible}
         return merged
+
+    @staticmethod
+    def _present_preferences(stored):
+        # Response always exposes the three canvas preferences. Stored extras
+        # such as platform_admin stay, and absent font/watermark are defaults
+        # only in this copy so a collaboration-only write does not invent them.
+        presented = dict(stored or {})
+        collab = dict(presented.get('collaboration') or {})
+        presented['collaboration'] = {'enabled_on_new_canvas': bool(collab.get('enabled_on_new_canvas', False))}
+        ui = presented.get('ui') if isinstance(presented.get('ui'), dict) else {}
+        size = ui.get('font_size', 14)
+        if type(size) is not int or not 10 <= size <= 24:
+            size = 14
+        presented['ui'] = {'font_size': size}
+        mark = presented.get('ai_watermark') if isinstance(presented.get('ai_watermark'), dict) else {}
+        visible = mark.get('visible', True)
+        if type(visible) is not bool:
+            visible = True
+        presented['ai_watermark'] = {'visible': visible}
+        return presented
 
     def get_user_preferences(self):
         with self.engine.connect() as conn:
@@ -538,9 +570,7 @@ class AccessControlRepository:
             if not principal or not person:
                 denied('偏好设置需要成员身份')
             stored = dict(person.get('preferences') or {})
-            collab = dict(stored.get('collaboration') or {})
-            stored['collaboration'] = {'enabled_on_new_canvas': bool(collab.get('enabled_on_new_canvas', False))}
-            return clean({'preferences': stored})
+            return clean({'preferences': self._present_preferences(stored)})
 
     def update_user_preferences(self, payload, *, actor=None):
         if not isinstance(payload, dict):
@@ -555,9 +585,7 @@ class AccessControlRepository:
             merged = self._validate_preferences(raw, base=person.get('preferences') or {})
             conn.execute(update(S.access_identities).where(S.access_identities.c.id == person['id']).values(preferences=merged))
             conn.execute(update(S.access_state).where(S.access_state.c.id == 1).values(revision=revision + 1))
-            collab = dict(merged.get('collaboration') or {})
-            merged['collaboration'] = {'enabled_on_new_canvas': bool(collab.get('enabled_on_new_canvas', False))}
-            return clean({'preferences': merged, 'access_revision': revision + 1})
+            return clean({'preferences': self._present_preferences(merged), 'access_revision': revision + 1})
 
     def _access_apply(self,conn,person,action,p):
         def exact(keys):

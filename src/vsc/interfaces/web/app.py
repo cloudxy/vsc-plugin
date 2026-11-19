@@ -42,6 +42,7 @@ from vsc.interfaces.web.project_management import install_project_management_rou
 from vsc.interfaces.web.classic_production import install_classic_production_routes
 from vsc.interfaces.web.intelligent_production import install_intelligent_routes
 from vsc.interfaces.web.spatial_scene import install_spatial_scene_routes
+from vsc.interfaces.web.canvas_director_stage import install_canvas_director_stage_routes
 from vsc.interfaces.web.creative_tools import install_creative_tools_routes,install_standalone_creative_tool_routes
 from vsc.interfaces.web.media_imports import install_media_import_routes
 from vsc.interfaces.web.text_tools import install_text_tools_routes, install_standalone_text_tool_routes
@@ -563,6 +564,7 @@ def create_app(config=None, catalog=None, service=None):
     install_project_management_routes(app, router, catalog, etag, actor, read_actor)
     install_intelligent_routes(router,catalog,etag,actor)
     install_spatial_scene_routes(router, catalog, etag, actor)
+    install_canvas_director_stage_routes(router, catalog, etag, actor, hub=collab_hub)
     install_creative_tools_routes(router, catalog, etag, actor)
     install_standalone_creative_tool_routes(app,catalog,actor)
     install_media_import_routes(router, catalog, etag, actor)

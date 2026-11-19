@@ -104,11 +104,30 @@ class ResourceSettingsRepository:
         except IntegrityError as exc:
             raise Conflict("配置版本已改变或关联无效，请刷新后重试", "configuration_version_conflict") from exc
 
+    def _disable_other_tool_models(self, conn, tool_id, keep_model_id=None):
+        rows = conn.execute(select(S.provider_models.c.id, S.provider_models.c.provider_id).join(
+            S.provider_configurations, S.provider_configurations.c.provider_id == S.provider_models.c.provider_id
+        ).where(S.provider_configurations.c.tool_id == tool_id)).all()
+        stale = [str(mid) for mid, _ in rows if str(mid) != str(keep_model_id or '')]
+        stale_providers = [str(pid) for mid, pid in rows if str(mid) != str(keep_model_id or '')]
+        if stale:
+            conn.execute(update(S.providers).where(S.providers.c.id.in_(stale_providers)).values(enabled=False))
+            conn.execute(update(S.provider_models).where(S.provider_models.c.id.in_(stale)).values(enabled=False))
+            conn.execute(update(S.provider_routes).where(S.provider_routes.c.preferred_model_id.in_(stale)).values(enabled=False))
+
+    def disable_settings_tool(self, tool_id):
+        import hashlib
+        lock_key = int(hashlib.sha256(str(tool_id).encode()).hexdigest()[:15], 16)
+        with self.engine.begin() as conn:
+            conn.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': lock_key})
+            self._disable_other_tool_models(conn, tool_id, keep_model_id=None)
+
     def ensure_settings_model(self,payload,actor):
         """Repeated canvas/settings visits reuse one frozen model configuration."""
         import hashlib,json
         identity={key:value for key,value in payload.items() if key not in {'id','name','enabled'}}
-        digest=hashlib.sha256(json.dumps(identity,sort_keys=True).encode()).hexdigest()
+        lock_seed=str(payload.get('tool_id') or json.dumps(identity,sort_keys=True))
+        digest=hashlib.sha256(lock_seed.encode()).hexdigest()
         with self.engine.begin() as conn:
             conn.execute(text('SELECT pg_advisory_xact_lock(:key)'),{'key':int(digest[:15],16)})
             candidates=conn.execute(select(S.provider_models.c.id).join(S.provider_configurations,
@@ -116,8 +135,19 @@ class ResourceSettingsRepository:
                 S.provider_configurations.c.tool_id==payload['tool_id'],S.provider_models.c.model_key==payload['model_key'])).scalars().all()
             for model_id in candidates:
                 row=self._row(conn,str(model_id))
-                if all(row.get(key)==value for key,value in identity.items()):return row
-            return self.save(payload,actor,_connection=conn)
+                if all(row.get(key)==value for key,value in identity.items()):
+                    if not row.get('enabled'):
+                        provider_enabled=conn.execute(select(S.providers.c.enabled).where(S.providers.c.id==row['provider_id'])).scalar_one()
+                        if not provider_enabled:
+                            conn.execute(update(S.providers).where(S.providers.c.id==row['provider_id']).values(enabled=True))
+                            conn.execute(update(S.provider_models).where(S.provider_models.c.id==str(model_id)).values(enabled=True))
+                            row=self._row(conn,str(model_id))
+                    if row.get('enabled'):
+                        self._disable_other_tool_models(conn, payload['tool_id'], keep_model_id=str(model_id))
+                    return row
+            created=self.save(payload,actor,_connection=conn)
+            self._disable_other_tool_models(conn, payload['tool_id'], keep_model_id=created['id'])
+            return created
 
     def enabled(self, model_id, enabled):
         with self.engine.begin() as conn:

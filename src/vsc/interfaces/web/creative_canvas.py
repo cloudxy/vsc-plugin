@@ -3,6 +3,7 @@ import asyncio
 import json
 import time
 from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from vsc.assets.resource_service import ResourceError
 
@@ -239,9 +240,9 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         return await write(project_id, request, body, "add_canvas_project_media_node", canvas_id)
 
     @router.get("/{project_id}/creative-canvas-jobs")
-    def jobs(project_id: str, request: Request, offset: int = 0, limit: int = 50, include_outputs: bool = False):
+    def jobs(project_id: str, request: Request, offset: int = 0, limit: int = 50, include_outputs: bool = False, exclude_hidden: bool = False):
         use = service(project_id)
-        value = use.list_generation_jobs(project_id, offset=offset, limit=limit)
+        value = use.list_generation_jobs(project_id, offset=offset, limit=limit, exclude_hidden=exclude_hidden)
         items = []
         for job in value['items']:
             row = {key: job[key] for key in ('id', 'modality', 'status', 'purpose', 'shot_id', 'asset_id', 'request_payload')}
@@ -260,7 +261,7 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         tree = use.get_project_tree(project_id)
         models = ResourceSettings(use.store).list()['configurations']
         return etag(request, {**canvas_capabilities(models), "nodes": tree["nodes"], "models": models, "revision": tree["revision"],
-                              "image_tools": canvas_image_tool_options()})
+                              "image_tools": canvas_image_tool_options(), "prompt_assist": use.canvas_prompt_assist_status()})
 
     @router.post('/{project_id}/creative-canvas-settings-models')
     def settings_models(project_id:str,request:Request,body:dict):
@@ -282,6 +283,36 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
     @router.get("/{project_id}/creative-canvases/{canvas_id}/agent-sessions")
     def agent_sessions(project_id:str,canvas_id:str,request:Request,include_archived:bool=False):
         return etag(request,service(project_id).list_canvas_agent_sessions(project_id,canvas_id,include_archived=include_archived))
+
+    @router.get("/{project_id}/creative-canvases/{canvas_id}/agent/stream")
+    def agent_stream_snapshot(project_id:str,canvas_id:str,request:Request,session_id:str|None=None,before_id:str|None=None,limit:int=30):
+        return etag(request,service(project_id).read_canvas_agent_stream(project_id,canvas_id,session_id=session_id,before_id=before_id,limit=limit))
+
+    @router.get("/{project_id}/creative-canvases/{canvas_id}/agent/events")
+    def agent_stream_events(project_id:str,canvas_id:str,request:Request,after:str|None=None,hold_ms:int=0):
+        from vsc.production.canvas_agent_stream import format_sse_frame, format_sse_heartbeat, parse_event_cursor
+        actor(request)
+        cursor = parse_event_cursor(request.headers.get("last-event-id"), after)
+        accept = request.headers.get("accept") or ""
+        listed = service(project_id).list_canvas_agent_events(project_id, canvas_id, after=cursor)
+        if "application/json" in accept and "text/event-stream" not in accept:
+            return etag(request, listed)
+        delay = 0 if not isinstance(hold_ms, int) or hold_ms < 0 else min(hold_ms, 20000)
+        def frames():
+            for event in listed["events"]:
+                yield format_sse_frame(event)
+            if delay:
+                time.sleep(delay / 1000)
+                last = listed["cursor"]
+                more = service(project_id).list_canvas_agent_events(project_id, canvas_id, after=last)
+                for event in more["events"]:
+                    yield format_sse_frame(event)
+            yield format_sse_heartbeat()
+        return StreamingResponse(frames(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/agent/stream")
+    async def agent_stream_command(project_id:str,canvas_id:str,request:Request,body:dict):
+        return await write(project_id, request, body, "mutate_canvas_agent_stream", canvas_id)
 
     @router.get("/{project_id}/camera-motion-templates")
     def camera_motion_list(project_id:str,request:Request):
@@ -393,6 +424,63 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
         await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
         return result
 
+    @router.post("/{project_id}/creative-canvas-jobs/visibility")
+    async def jobs_visibility(project_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "set_canvas_history_visibility")
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/separate-layers")
+    async def separate_layers(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "separate_canvas_layers", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/compose-layers")
+    async def compose_layers(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "compose_canvas_layers", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/stitch-images")
+    async def stitch_images(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "stitch_canvas_images", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/workflow-cancel")
+    async def workflow_cancel(project_id: str, canvas_id: str, request: Request, body: dict):
+        return await write(project_id, request, body, "cancel_canvas_workflow", canvas_id)
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/process-audio")
+    async def process_audio(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "process_canvas_audio", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/capture-frame")
+    async def capture_frame(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "capture_canvas_video_frame", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/video-script-quote")
+    def video_script_quote(project_id: str, canvas_id: str, request: Request, body: dict):
+        payload = body.get("payload") if isinstance(body, dict) else None
+        if not isinstance(payload, dict) or "actor" in body:
+            raise HTTPException(422, "需要视频脚本报价参数")
+        return etag(request, service(project_id).quote_canvas_video_script(project_id, canvas_id, payload))
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/video-script-tools")
+    async def video_script_tools(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        result = await write(project_id, request, body, "apply_canvas_video_script", canvas_id)
+        await hub.notify_canvas_saved(service(project_id), project_id, canvas_id, result, actor=identity)
+        return result
+
     @router.post("/{project_id}/creative-canvases/{canvas_id}/replace-media")
     async def replace_media(project_id: str, canvas_id: str, request: Request, body: dict):
         identity = actor(request)
@@ -443,6 +531,36 @@ def install_creative_canvas_routes(router, catalog, etag, actor, *, hub=None):
     def work_quote(project_id: str, canvas_id: str, request: Request, body: dict):
         use=service(project_id);use.get_creative_canvas(project_id,canvas_id)
         return etag(request,use.preview_canvas_work_generation(project_id,body.get('payload',{})))
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/prompt-translate")
+    async def prompt_translate(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        payload = body.get("payload")
+        if not isinstance(payload, dict) or "actor" in body:
+            raise HTTPException(422, "需要待翻译的画布提示词输入")
+        if "canvas_id" in payload and payload["canvas_id"] != canvas_id:
+            raise HTTPException(422, "画布路径与输入身份不同")
+        return await run_in_threadpool(
+            service(project_id).translate_canvas_prompt,
+            project_id,
+            dict(payload, canvas_id=canvas_id),
+            actor=identity,
+        )
+
+    @router.post("/{project_id}/creative-canvases/{canvas_id}/prompt-optimize")
+    async def prompt_optimize(project_id: str, canvas_id: str, request: Request, body: dict):
+        identity = actor(request)
+        payload = body.get("payload")
+        if not isinstance(payload, dict) or "actor" in body:
+            raise HTTPException(422, "需要待优化的画布提示词输入")
+        if "canvas_id" in payload and payload["canvas_id"] != canvas_id:
+            raise HTTPException(422, "画布路径与输入身份不同")
+        return await run_in_threadpool(
+            service(project_id).optimize_canvas_prompt,
+            project_id,
+            dict(payload, canvas_id=canvas_id),
+            actor=identity,
+        )
 
     @router.post("/{project_id}/creative-canvases/{canvas_id}/generate")
     async def generate(project_id: str, canvas_id: str, request: Request, body: dict):

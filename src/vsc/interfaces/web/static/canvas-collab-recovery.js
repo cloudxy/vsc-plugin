@@ -1,4 +1,5 @@
 import {msg, setText, bindAttribute, translate} from './i18n.js';
+import {augmentConflictDialog, paintReadonlyBanner} from './canvas-preferences-import.js';
 
 const ckey = name => 'canvas.collab.' + name;
 const clabel = (name, values) => msg(ckey(name), values);
@@ -438,6 +439,7 @@ export function createCanvasCollabController({
   let previewTimer = null;
   let lastHiddenAt = 0;
   let kicked = false;
+  let kickedReason = '';
   let syncState = 'synced';
   let localSeq = Number(state.canvasSeq || 1);
   let permissionRaw = state.permission || null;
@@ -616,9 +618,8 @@ export function createCanvasCollabController({
       : '● ';
     setText(syncPill, '');
     syncPill.append(makeEl('span', prefix, 'cc-collab-dot'), makeEl('span', syncLabelFor(effectiveSync)));
-    if (effectiveSync === 'offline') bindAttribute(syncPill, 'title', clabel('offline_hint'));
-    else if (effectiveSync === 'failed') bindAttribute(syncPill, 'title', clabel('retry_hint'));
-    else syncPill.removeAttribute('title');
+    const syncTitles = {offline: 'sync_tooltip_offline', failed: 'sync_tooltip_failed', readonly: 'sync_tooltip_readonly', reconnecting: 'sync_tooltip_reconnecting', syncing: 'sync_tooltip_syncing', synced: 'sync_tooltip_synced'};
+    bindAttribute(syncPill, 'title', clabel(syncTitles[effectiveSync] || 'sync_tooltip_synced'));
 
     conflictPill.hidden = conflicts.length === 0;
     if (conflicts.length > 0) {
@@ -695,6 +696,25 @@ export function createCanvasCollabController({
         permList.append(row);
       }
     }
+    paintReadonlyBanner(state.root, {
+      kicked,
+      kickedReason,
+      syncState,
+      canEdit: perm.canEdit,
+      collaborationEnabled: collabEnabled,
+      permissionReason: permissionRaw?.readonly_reason || permissionRaw?.reason || '',
+    }, () => {
+      kicked = false;
+      kickedReason = '';
+      reconnectAttempt = 0;
+      if (kickedDialog) {
+        const dialog = kickedDialog;
+        kickedDialog = null;
+        if (dialog.open) dialog.close();
+        dialog.remove();
+      }
+      connectWs();
+    });
   }
 
   function confirmDisableCollaboration(onConfirm) {
@@ -1253,6 +1273,28 @@ export function createCanvasCollabController({
 
     foot.append(refreshBtn, discardBtn, overwriteBtn);
     d.append(head, list, foot);
+    augmentConflictDialog(d, {
+      conflicts,
+      localDocument: state.document,
+      remoteDocument: meta?.document || meta?.remote_document || null,
+      root: state.root,
+      notice,
+      isLocked: item => {
+        const nodeKey = item?.node_id ?? item?.node_key;
+        const lockCandidate = item?.locked_by || isNodeLockedByOther(nodeKey);
+        return Boolean(lockCandidate && !isLockOwnedBySelf(lockCandidate));
+      },
+      loadRemote: async () => {
+        const latest = await ctx.api(url());
+        return latest?.document ? {document: latest.document, title: latest.title} : null;
+      },
+      applyMerged: async merged => {
+        if (merged?.document) state.document = merged.document;
+        if (typeof merged?.title === 'string' && merged.title) state.title = merged.title;
+        await ensureDraftQueued(state.version, state.title, state.document);
+        return flushRecoveryQueue({forceOverwrite: true});
+      },
+    });
     conflictDialog = d;
     state.root.append(d);
     d.showModal();
@@ -1260,8 +1302,9 @@ export function createCanvasCollabController({
     return d;
   }
 
-  function openKickedDialog() {
+  function openKickedDialog(reason) {
     kicked = true;
+    kickedReason = reason || kickedReason || 'same_user_takeover';
     clearTimeout(reconnectTimer);
     if (kickedDialog?.isConnected) return kickedDialog;
     const d = makeEl('dialog', null, 'canvas-session-kicked-dialog cc-kicked-dialog');
@@ -1294,6 +1337,7 @@ export function createCanvasCollabController({
     kickedDialog = d;
     state.root.append(d);
     d.showModal();
+    paintBar();
     return d;
   }
 
@@ -1523,7 +1567,7 @@ export function createCanvasCollabController({
       return;
     }
     if (type === 'session.kicked') {
-      openKickedDialog();
+      openKickedDialog(payload.reason || payload.kicked_reason || 'same_user_takeover');
       return;
     }
     if (type === 'node.run.updated') {
@@ -1585,7 +1629,7 @@ export function createCanvasCollabController({
         if (ws !== socket || disposed) return;
         ws = null;
         if (event?.code === 4009) {
-          openKickedDialog();
+          openKickedDialog('same_user_takeover');
           return;
         }
         scheduleReconnect();

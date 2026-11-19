@@ -163,15 +163,57 @@ class ProductionRepository:
         job["revision"] = project["revision"]
         return job
 
-    def list_generation_jobs(self, project_id, status=None, offset=0, limit=50):
+    def list_generation_jobs(self, project_id, status=None, offset=0, limit=50, exclude_hidden=False):
         with self.engine.connect() as conn:
             project = self._project(conn, project_id)
             query = select(S.generation_jobs).where(S.generation_jobs.c.project_id == project["id"])
             if status:
                 query = query.where(S.generation_jobs.c.status == status)
+            if exclude_hidden:
+                hidden = self._canvas_hidden_job_ids(conn, project["id"])
+                if hidden:
+                    query = query.where(S.generation_jobs.c.id.notin_(list(hidden)))
             total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
             rows = [dict(r) for r in conn.execute(query.order_by(S.generation_jobs.c.created_at, S.generation_jobs.c.id).offset(offset).limit(limit)).mappings()]
             return clean({"items": rows, "total": total, "offset": offset, "limit": limit, "revision": project["revision"]})
+
+    def _canvas_hidden_job_ids(self, conn, project_id):
+        from vsc.production.canvas_image_ops import hidden_job_ids
+        rows = [dict(row) for row in conn.execute(select(S.job_events.c.job_id, S.job_events.c.evidence).where(
+            S.job_events.c.project_id == project_id,
+            S.job_events.c.event_type == "canvas_history_visibility",
+        ).order_by(S.job_events.c.created_at, S.job_events.c.id)).mappings()]
+        return hidden_job_ids(rows)
+
+    def set_canvas_history_visibility(self, project_id, payload, **kw):
+        def work(conn, project):
+            job_ids = payload.get("job_ids")
+            hidden = payload.get("hidden")
+            if (not isinstance(job_ids, list) or not 1 <= len(job_ids) <= 100 or type(hidden) is not bool
+                    or len(set(job_ids)) != len(job_ids)):
+                raise ResourceError("请选择 1 至 100 个不重复的历史任务", "invalid_canvas_history_visibility")
+            ids = []
+            for job_id in job_ids:
+                checked = checked_id(job_id)
+                self._one(conn, S.generation_jobs, project["id"], checked)
+                ids.append(checked)
+            for job_id in ids:
+                conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job_id,
+                    event_type="canvas_history_visibility", evidence={"hidden": hidden}))
+            return {"job_ids": ids, "hidden": hidden}
+        return self._mutate(project_id, "set_canvas_history_visibility", payload, callback=work, **kw)
+
+    def record_canvas_workflow_cancel(self, project_id, payload, **kw):
+        def work(conn, project):
+            job_id = checked_id(payload.get("job_id"))
+            self._one(conn, S.generation_jobs, project["id"], job_id)
+            step_id = payload.get("step_id")
+            if not isinstance(step_id, str) or not step_id.strip() or len(step_id) > 100:
+                raise ResourceError("后台工作流步骤无效", "invalid_canvas_workflow_cancel")
+            conn.execute(insert(S.job_events).values(project_id=project["id"], id=new_id(), job_id=job_id,
+                event_type="canvas_workflow_cancel", evidence={"step_id": step_id, "status": "canceled"}))
+            return {"status": "canceled", "persisted": True, "step_id": step_id, "job_id": job_id}
+        return self._mutate(project_id, "record_canvas_workflow_cancel", payload, callback=work, **kw)
 
     def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",),
                              job_id=None, recovery=False, serialize=False, managed_only=False, resume_storage=False,

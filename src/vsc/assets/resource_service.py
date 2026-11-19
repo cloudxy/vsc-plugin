@@ -723,10 +723,10 @@ class ResourceService(RoleMemoryService, SourceResourceService, ResourceModelSer
                 self._verify_media(project_id, reference['media_id'], reference['sha256'])
         return context
 
-    def list_generation_jobs(self, project_id, status=None, offset=0, limit=50):
+    def list_generation_jobs(self, project_id, status=None, offset=0, limit=50, exclude_hidden=False):
         if offset < 0 or not 1 <= limit <= 200:
             raise ResourceError("任务分页范围不正确")
-        return self.store.list_generation_jobs(project_id, status=status, offset=offset, limit=limit)
+        return self.store.list_generation_jobs(project_id, status=status, offset=offset, limit=limit, exclude_hidden=bool(exclude_hidden))
 
     def claim_generation_job(self, worker_id, project_id=None, lease_seconds=300, statuses=("created",),
                              job_id=None, recovery=False, serialize=False, managed_only=False,

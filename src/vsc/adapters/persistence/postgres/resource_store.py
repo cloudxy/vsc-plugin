@@ -1129,6 +1129,9 @@ class PostgresResourceStore(ProductionRepository, PreviewRepository, BudgetRepos
             ('image-grid-split', 'canvas-grid/v1', 'vsc-local-image-grid'): ('split_canvas_image', 'tile'),
             ('image-canvas-transform', 'canvas-transform/v1', 'vsc-local-image-transform'): ('transform_canvas_image', 'transformed'),
             ('image-panorama-capture', 'canvas-panorama/v1', 'vsc-local-panorama-capture'): ('capture_canvas_panorama', 'view'),
+            ('image-layer-separation', 'image-layer-separation/v1', 'vsc-local-layer-separation'): ('separate_canvas_layers', 'derived'),
+            ('image-layer-composition', 'image-layer-composition/v1', 'vsc-local-layer-composition'): ('compose_canvas_layers', 'derived'),
+            ('image-stitch', 'image-stitch/v1', 'vsc-local-stitch'): ('stitch_canvas_images', 'derived'),
         }
         spec = specs.get((operation['operation_type'], operation['recipe_version'], operation['tool']))
         if operation['status'] != 'succeeded' or operation['tool_version'] != '1' or spec is None:

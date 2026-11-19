@@ -1,0 +1,26 @@
+/* D1 agent stream panel. Legacy controls stay in the document for existing callers. */
+.cc-agent.cc-agent-stream-on{display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden}
+.cc-agent.cc-agent-stream-on>:not(.cc-agent-stream){display:none!important}
+.cc-agent-stream{position:relative;display:flex;flex:1;min-height:0;flex-direction:column;gap:8px;padding:12px 14px 14px;color:#fdfbfc;background:#131313}
+.cc-agent-stream-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cc-agent-stream-title{margin:0 auto 0 0;font-size:16px;font-weight:600}
+.cc-agent-stream-sessions,.cc-agent-stream-head button,.cc-agent-stream-composer select{font-size:12px;border:1px solid #343435;border-radius:8px;background:#1d1d1d;color:#fdfbfc;padding:4px 8px}
+.cc-agent-stream-tier{margin-left:auto}
+.cc-agent-stream-log{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px}
+.cc-agent-stream-message{padding:8px 10px;border-radius:10px;background:#1d1d1d;font-size:13px}
+.cc-agent-stream-user{align-self:flex-end;background:#243026}
+.cc-agent-stream-like[aria-pressed=true],.cc-agent-stream-dislike[aria-pressed=true]{border-color:#74ff53}
+.cc-agent-stream-tool{border:1px solid #343435;border-radius:8px;padding:6px 8px;background:#1d1d1d}
+.cc-agent-stream-tool summary{cursor:pointer}
+.cc-agent-stream-question,.cc-agent-stream-ticket,.cc-agent-stream-dialog,.cc-agent-stream-batch{border:1px solid #343435;border-radius:10px;padding:10px;background:#1d1d1d}
+.cc-agent-stream-question fieldset{border:1px solid #343435;border-radius:8px;margin:8px 0}
+.cc-agent-stream-ticket-lock,.cc-agent-stream-status{color:#ffb4a8;font-size:12px;margin:0}
+.cc-agent-stream-batch{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.cc-agent-stream-batch p{margin:0;color:#a1a0a3;font-size:12px}
+.cc-agent-stream-composer{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;border:1px solid #343435;border-radius:14px;padding:10px;background:#1d1d1d}
+.cc-agent-stream input[type="checkbox"],.cc-agent-stream input[type="radio"]{width:auto;margin:0 6px 0 0;flex:0 0 auto}
+.cc-agent-stream label{display:inline-flex;align-items:center;font-size:12px;margin-right:10px}
+.cc-agent-stream-input{width:100%;min-height:72px;border:0;background:transparent;color:#fdfbfc;resize:vertical}
+.cc-agent-stream-send,.cc-agent-stream-batch-go,.cc-agent-stream-approve{background:#fdfbfc;color:#0b080b}
+.cc-agent-stream-hint{width:100%;margin:0;color:#a1a0a3;font-size:11px}
+.cc-agent-stream-dialog{position:absolute;left:12px;right:12px;bottom:88px;z-index:2;box-shadow:0 12px 30px #0008}

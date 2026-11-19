@@ -1,0 +1,50 @@
+/* A1 node cards: empty placeholders, try capsules, ports and the add-node menu.
+   Class prefix a1- keeps this sheet from colliding with the generator package. */
+.creative-canvas .cc-node.a1-card{border-radius:16px;background:#2b2b2b}
+.creative-canvas .cc-node.a1-card.selected{border-color:#3ddc97;outline:1px solid #3ddc97;box-shadow:0 0 0 1px #3ddc9744}
+.creative-canvas .cc-node.a1-card:before,.creative-canvas .cc-node.a1-card:after{content:none}
+.creative-canvas .cc-node.a1-card.a1-portrait{width:220px;min-height:300px;border-radius:16px}
+.creative-canvas .cc-node.a1-card.a1-portrait>.cc-node-content,
+.creative-canvas .cc-node.a1-card.a1-portrait>.cc-audio-wave-wrap,
+.creative-canvas .cc-node.a1-card.a1-portrait>audio{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.creative-canvas .cc-node.a1-card.a1-portrait .cc-node-head{opacity:0}
+.creative-canvas .cc-node.a1-card.a1-portrait:hover .cc-node-head,
+.creative-canvas .cc-node.a1-card.a1-portrait:focus-within .cc-node-head,
+.creative-canvas .cc-node.a1-card.a1-portrait.a1-renaming .cc-node-head,
+.creative-canvas .cc-node.a1-card.a1-portrait .a1-rename{opacity:1}
+.creative-canvas .cc-node.a1-card.a1-collapsed{min-height:36px;height:36px}
+.creative-canvas .cc-node.a1-card.a1-collapsed>:not(.cc-node-head):not(.a1-more):not(.a1-port):not(.a1-rename){display:none}
+.creative-canvas .cc-node.a1-card.a1-collapsed .cc-node-head{position:relative;bottom:auto;opacity:1;padding:6px 28px 6px 8px}
+.creative-canvas .a1-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:#8d8d8d;pointer-events:none;z-index:1}
+.creative-canvas .a1-placeholder svg{width:42px;height:42px}
+.creative-canvas .a1-placeholder-hit{pointer-events:auto;display:grid;place-items:center;width:64px;height:64px;margin:0;padding:0;border:0;border-radius:12px;background:transparent;color:inherit;cursor:pointer}
+.creative-canvas .a1-placeholder-hit:hover{background:#ffffff14}
+.creative-canvas .a1-try{position:absolute;left:10px;bottom:12px;z-index:4;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.creative-canvas .a1-type-text .a1-try{position:static;padding:8px 10px 0}
+.creative-canvas .a1-try-label{font-size:12px;line-height:1.2;color:#d0d0d0}
+.creative-canvas .a1-try-chip{display:inline-flex;align-items:center;gap:4px;border:1px solid #4a4a4a;border-radius:999px;background:#3a3a3a;padding:4px 10px;font-size:12px}
+.creative-canvas .a1-try-icon{width:12px;height:12px;flex:none}
+.creative-canvas .a1-port{position:absolute;top:50%;z-index:5;width:22px;height:22px;margin:0;padding:0;border:1px solid #6d6d6d;border-radius:50%;background:#2a2a2a;color:#fff;font-size:14px;line-height:20px;transform:translateY(-50%)}
+.creative-canvas .a1-port-left{left:-11px}
+.creative-canvas .a1-port-right{right:-11px}
+.creative-canvas .a1-more{position:absolute;top:6px;right:6px;z-index:6}
+.creative-canvas .a1-more>summary{width:22px;height:22px;padding:0;border-radius:6px;background:#1d1d1dcc;text-align:center;line-height:22px;color:#eee}
+.creative-canvas .a1-more-menu{position:absolute;right:0;top:26px;min-width:148px;display:grid;gap:2px;padding:6px;border:1px solid #3a3a3e;border-radius:8px;background:#1c1c1e;box-shadow:0 10px 28px #000a}
+.creative-canvas .a1-more-menu>button{width:100%;padding:6px 8px;border:0;background:transparent;text-align:left;font-size:12px}
+.creative-canvas .a1-more-menu>button:hover{background:#2c2c2e}
+.creative-canvas .a1-pager{position:absolute;left:50%;bottom:8px;z-index:4;display:flex;gap:4px;align-items:center;padding:2px 4px;border-radius:8px;background:#111c;transform:translateX(-50%)}
+.creative-canvas .a1-pager button{padding:2px 6px;font-size:10px}
+.creative-canvas .a1-count,.creative-canvas .a1-pager span{font-size:10px;color:#ddd}
+.creative-canvas .a1-resize{position:absolute;right:0;bottom:0;z-index:5;width:16px;height:16px;padding:0;border:0;background:transparent;cursor:nwse-resize}
+.creative-canvas .a1-resize:before{content:"";position:absolute;right:3px;bottom:3px;width:8px;height:8px;border-right:2px solid #9a9a9a;border-bottom:2px solid #9a9a9a}
+.creative-canvas .a1-rename{position:absolute;bottom:100%;left:0;z-index:7;width:100%;height:28px;padding:2px 6px}
+.creative-canvas .a1-menu{position:fixed;z-index:40;width:190px;padding:8px;border:1px solid #343436;border-radius:10px;background:#1c1c1e;box-shadow:0 12px 40px #000a}
+.creative-canvas .a1-menu h3{margin:4px 8px 8px;color:#a1a0a3;font-size:12px;font-weight:500}
+.creative-canvas .a1-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:0;border-radius:6px;background:transparent;text-align:left}
+.creative-canvas .a1-menu button:hover:not(:disabled){background:#2c2c2e}
+.creative-canvas .a1-badge{margin-left:auto;padding:1px 5px;border-radius:4px;background:#193c26;color:#3ddc97;font-size:10px;font-weight:600}
+.creative-canvas .a1-batch-connect,.creative-canvas .a1-zip{position:absolute;z-index:6;transform:translateY(-50%)}
+.creative-canvas .a1-batch-connect{width:28px;height:28px;padding:0;border:1px solid #3ddc97;border-radius:50%;background:#1d1d1d;color:#3ddc97}
+.creative-canvas .a1-zip{padding:4px 8px;border-radius:8px;background:#1d1d1d;font-size:12px}
+.creative-canvas .cc-connections path[data-edge-id]{pointer-events:stroke;cursor:pointer}
+.creative-canvas .cc-connections .a1-preview{pointer-events:none;stroke:#3ddc97}

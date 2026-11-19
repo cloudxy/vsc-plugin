@@ -1,6 +1,7 @@
 """Canvas core local image operations, agent session state/queue, and camera motion templates."""
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -181,6 +182,8 @@ class CanvasCoreOpsMixin:
             if len(prepared) != expected_count:
                 raise ResourceError("全景截图输出数量与所选模式不符", "canvas_panorama_output_mismatch")
             group_name = payload.get("group_name") if payload.get("group_name") is not None else source.get("group", "")
+            if payload["mode"] in {"four", "twelve"} and not str(group_name or "").strip():
+                group_name = "全景截图"
             node_ids, media_ids = [], []
             for index, item in enumerate(prepared):
                 result, view_meta = item["staged"], item["view"]
@@ -224,6 +227,19 @@ class CanvasCoreOpsMixin:
                 key = "pano-" + new_id()
                 node_ids.append(key)
                 media_ids.append(registered["id"])
+                capture_meta = {
+                    "baseYaw": payload["yaw"],
+                    "basePitch": payload["pitch"],
+                    "offsetYaw": view_meta.get("offset", 0),
+                    "yaw": view_meta["yaw"],
+                    "pitch": view_meta["pitch"],
+                    "fov": view_meta["fov"],
+                    "mode": payload["mode"],
+                    "index": index,
+                    "width": view_meta.get("width"),
+                    "height": view_meta.get("height"),
+                    "label": view_meta["label"],
+                }
                 document["nodes"].append({
                     "id": key,
                     "type": "image",
@@ -231,7 +247,7 @@ class CanvasCoreOpsMixin:
                     "x": min(100000, source["x"] + 320 + (index % 4) * 280),
                     "y": min(100000, source["y"] + (index // 4) * 230),
                     "text": "",
-                    "params": {},
+                    "params": {"panoramaCapture": json.dumps(capture_meta, ensure_ascii=False, separators=(",", ":"))},
                     "group": group_name or "",
                     "media_id": registered["id"],
                     "job_id": None,
@@ -271,6 +287,339 @@ class CanvasCoreOpsMixin:
             return dict(saved, node_ids=node_ids, media_ids=media_ids, operation_id=operation["id"])
 
         return self._mutate(project_id, "capture_canvas_panorama", payload, actor=actor, callback=work, **kw)
+
+    def _place_derived_images(self, conn, project, canvas, version, document, source, media, prepared, *, actor, kw, group_name, operation_type, tool, parameters, error_code):
+        p = project["id"]
+        if len(document["nodes"]) + len(prepared) > 200 or len(document["edges"]) + len(prepared) > 800:
+            raise ResourceError("派生图片超过画布节点或连线数量上限", error_code)
+        node_ids, media_ids = [], []
+        for index, item in enumerate(prepared):
+            result = item["staged"]
+            probe = self._assert_complete_image_probe(result, error_code)
+            registered = self._register_media(
+                conn, project,
+                {**result, "rights": "unknown", "source": {"kind": operation_type, "content": {
+                    "canvas_version_id": version["id"], "source_media_id": media["id"] if media else None,
+                    "source_sha256": media["sha256"] if media else None, "role": item.get("role"), "label": item.get("label"),
+                }}},
+                actor,
+            )
+            self.record_media_check(p, {
+                "media_id": registered["id"], "blob_sha256": registered["sha256"],
+                "checker": operation_type, "criteria_version": "1", "outcome": "pass",
+                "report": {"source": "local-storage-complete-decode", "probe": probe},
+            }, actor=actor, _transaction=(conn, project), **kw)
+            key = item.get("key_prefix", "layer") + "-" + new_id()
+            node_ids.append(key)
+            media_ids.append(registered["id"])
+            document["nodes"].append({
+                "id": key, "type": "image",
+                "title": str(item.get("title") or "派生图片")[:200],
+                "x": min(100000, (source["x"] if source else 80) + 300 + (index % 4) * 280),
+                "y": min(100000, (source["y"] if source else 80) + (index // 4) * 230),
+                "text": "", "params": item.get("params") or {}, "group": group_name or "",
+                "media_id": registered["id"], "job_id": None,
+            })
+            if source:
+                document["edges"].append({"id": "derive-" + new_id(), "source": source["id"], "target": key, "port": "derived_from"})
+        op_params = dict(parameters or {})
+        if media:
+            op_params.setdefault("source_sha256", media["sha256"])
+        op_params.setdefault("output_count", len(media_ids))
+        operation = self.create_media_operation(p, {
+            "operation_type": operation_type, "recipe_version": operation_type + "/v1",
+            "tool": tool, "tool_version": "1", "parameters": op_params,
+            "inputs": [{"media_id": media["id"], "role": "source"}] if media else [],
+            "outputs": [{"media_id": mid, "role": "derived"} for mid in media_ids],
+        }, actor=actor, _transaction=(conn, project), **kw)
+        saved = self._insert_canvas_version(conn, project, canvas, {"title": version["title"], "document": document}, actor, version)
+        return dict(saved, node_ids=node_ids, media_ids=media_ids, operation_id=operation["id"], credits=0, charged=False)
+
+    def separate_canvas_layers(self, project_id, payload, *, build, actor, **kw):
+        def work(conn, project):
+            p = project["id"]
+            canvas, version, document = self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=(payload.get("node_id"),), actor=actor)
+            source, media = self._verified_canvas_image_source(conn, p, document, payload["node_id"], "图层分离")
+            prepared = build(media)
+            snapshot = prepared["snapshot"]
+            rows = []
+            for item in prepared["foregrounds"]:
+                rows.append({"staged": item["staged"], "role": "foreground", "label": item["label"], "title": item["title"], "key_prefix": "layer", "params": {"layer_separation": snapshot, "layer_role": "foreground", "layer_id": item["id"]}})
+            rows.append({"staged": prepared["background"]["staged"], "role": "background", "label": "背景修补", "title": prepared["background"]["title"], "key_prefix": "layer", "params": {"layer_separation": snapshot, "layer_role": "background"}})
+            return self._place_derived_images(
+                conn, project, canvas, version, document, source, media, rows, actor=actor, kw=kw,
+                group_name=payload.get("group_name") or source.get("group") or "图层分离",
+                operation_type="image-layer-separation", tool="vsc-local-layer-separation",
+                parameters={"canvas_version_id": version["id"], "source_sha256": media["sha256"], "selection_count": len(prepared["foregrounds"]), "credits": 0},
+                error_code="canvas_layer_output_unverified",
+            )
+        return self._mutate(project_id, "separate_canvas_layers", payload, actor=actor, callback=work, **kw)
+
+    def compose_canvas_layers(self, project_id, payload, *, build, actor, **kw):
+        def work(conn, project):
+            p = project["id"]
+            canvas, version, document = self._canvas_current(conn, project, payload)
+            node_ids = tuple(item["node_id"] for item in payload["layers"])
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=node_ids, actor=actor)
+            sources = []
+            for item in payload["layers"]:
+                source, media = self._verified_canvas_image_source(conn, p, document, item["node_id"], "图层合成")
+                sources.append((source, media, item))
+            staged, label = build(sources)
+            anchor = sources[0][0]
+            placed = self._place_derived_images(
+                conn, project, canvas, version, document, anchor, sources[0][1],
+                [{"staged": staged, "role": "composition", "label": label, "title": f"{anchor['title']} · 免费合成"[:200], "key_prefix": "compose", "params": {"layer_composition": "free", "credits": 0}}],
+                actor=actor, kw=kw, group_name=payload.get("group_name") or anchor.get("group") or "",
+                operation_type="image-layer-composition", tool="vsc-local-layer-composition",
+                parameters={"canvas_version_id": version["id"], "layer_count": len(sources), "credits": 0, "charged": False},
+                error_code="canvas_layer_output_unverified",
+            )
+            return placed
+        return self._mutate(project_id, "compose_canvas_layers", payload, actor=actor, callback=work, **kw)
+
+    def stitch_canvas_images(self, project_id, payload, *, build, actor, **kw):
+        def work(conn, project):
+            p = project["id"]
+            canvas, version, document = self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=tuple(payload["node_ids"]), actor=actor)
+            sources = []
+            for node_id in payload["node_ids"]:
+                sources.append(self._verified_canvas_image_source(conn, p, document, node_id, "拼合"))
+            staged = build([media for _source, media in sources])
+            anchor = sources[0][0]
+            title = "长图拼合" if payload["mode"] == "long" else "宫格拼合"
+            return self._place_derived_images(
+                conn, project, canvas, version, document, anchor, sources[0][1],
+                [{"staged": staged, "role": "stitch", "label": title, "title": f"{anchor['title']} · {title}"[:200], "key_prefix": "stitch", "params": {"stitch_mode": payload["mode"]}}],
+                actor=actor, kw=kw, group_name=payload.get("group_name") if payload.get("group_name") is not None else (anchor.get("group") or ""),
+                operation_type="image-stitch", tool="vsc-local-image-stitch",
+                parameters={"canvas_version_id": version["id"], "mode": payload["mode"], "source_count": len(sources), "credits": 0},
+                error_code="canvas_stitch_output_unverified",
+            )
+        return self._mutate(project_id, "stitch_canvas_images", payload, actor=actor, callback=work, **kw)
+
+    def _verified_canvas_typed_source(self, conn, p, document, node_id, node_type, action_label):
+        source = next((node for node in document["nodes"] if node["id"] == node_id), None)
+        label = "音频" if node_type == "audio" else "视频"
+        if not source or source["type"] != node_type or not source.get("media_id"):
+            raise ResourceError(f"请选择已固定{label}的画布节点", "canvas_av_source_required")
+        media, gaps = self._usable(conn, p, source["media_id"], node_type)
+        gaps = [gap for gap in gaps if gap != "technical_check_missing"]
+        if gaps:
+            raise ResourceError(f"原素材当前不可{action_label}", "canvas_av_source_unusable")
+        if media["modality"] != node_type:
+            raise ResourceError(f"{action_label}只接受{label}", "canvas_av_source_required")
+        return source, media
+
+    def process_canvas_audio(self, project_id, payload, *, build, actor, **kw):
+        def work(conn, project):
+            p = project["id"]
+            canvas, version, document = self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=(payload.get("node_id"),), actor=actor)
+            source, media = self._verified_canvas_typed_source(conn, p, document, payload["node_id"], "audio", "处理")
+            if len(document["nodes"]) + 1 > 200 or len(document["edges"]) + 1 > 800:
+                raise ResourceError("音频处理输出超过画布节点或连线数量上限", "canvas_audio_process_capacity")
+            result, meta = build(media)
+            if result.get("modality") != "audio" or type(result.get("duration_ms")) is not int or result["duration_ms"] <= 0:
+                raise ResourceError("派生音频缺少实测时长", "canvas_audio_output_unverified")
+            operation_name = payload["operation"]
+            registered = self._register_media(
+                conn, project,
+                {**result, "rights": "unknown", "source": {"kind": "canvas-audio-process", "content": {
+                    "canvas_version_id": version["id"], "source_media_id": media["id"], "source_sha256": media["sha256"],
+                    "operation": operation_name, "start_seconds": meta.get("start_seconds"), "end_seconds": meta.get("end_seconds"),
+                    "speed": meta.get("speed"), "filter": meta.get("filter"),
+                }}},
+                actor,
+            )
+            self.record_media_check(p, {
+                "media_id": registered["id"], "blob_sha256": registered["sha256"],
+                "checker": "canvas-audio-output-probe", "criteria_version": "1", "outcome": "pass",
+                "report": {"source": "local-ffmpeg", "duration_ms": result["duration_ms"], "meta": meta},
+            }, actor=actor, _transaction=(conn, project), **kw)
+            key = "audio-" + new_id()
+            if operation_name == "clip":
+                title = f"{source['title']} · 裁剪音频"
+                params = {"vsc_operation": "audio_clip", "leftClipTime": meta.get("start_seconds"), "rightClipTime": meta.get("end_seconds")}
+            else:
+                speed = meta.get("speed")
+                speed_text = str(int(speed)) if isinstance(speed, (int, float)) and abs(float(speed) - round(float(speed))) < 1e-9 else f"{float(speed):.2f}".rstrip("0").rstrip(".")
+                title = f"{source['title']} · 变速音频 {speed_text}x"
+                params = {"vsc_operation": "audio_speed", "playback_rate": float(speed)}
+            document["nodes"].append({
+                "id": key, "type": "audio", "title": title[:200],
+                "x": min(100000, source["x"] + 300), "y": source["y"], "text": "",
+                "params": params, "group": source.get("group") or "", "media_id": registered["id"], "job_id": None,
+            })
+            document["edges"].append({"id": "derive-" + new_id(), "source": source["id"], "target": key, "port": "derived_from"})
+            operation = self.create_media_operation(p, {
+                "operation_type": "audio-canvas-process", "recipe_version": "canvas-audio-process/v1",
+                "tool": "vsc-local-ffmpeg", "tool_version": "1",
+                "parameters": {"canvas_version_id": version["id"], "source_sha256": media["sha256"], **{k: meta.get(k) for k in ("operation", "start_seconds", "end_seconds", "speed", "filter", "source_duration_ms", "output_duration_ms")}},
+                "inputs": [{"media_id": media["id"], "role": "source"}],
+                "outputs": [{"media_id": registered["id"], "role": "processed"}],
+            }, actor=actor, _transaction=(conn, project), **kw)
+            saved = self._insert_canvas_version(conn, project, canvas, {"title": version["title"], "document": document}, actor, version)
+            return dict(saved, node_ids=[key], media_ids=[registered["id"]], operation_id=operation["id"],
+                        output_duration_ms=result["duration_ms"], source_duration_ms=meta.get("source_duration_ms"))
+
+        return self._mutate(project_id, "process_canvas_audio", payload, actor=actor, callback=work, **kw)
+
+    def capture_canvas_video_frame(self, project_id, payload, *, build, actor, **kw):
+        def work(conn, project):
+            p = project["id"]
+            canvas, version, document = self._canvas_current(conn, project, payload)
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=(payload.get("node_id"),), actor=actor)
+            source, media = self._verified_canvas_typed_source(conn, p, document, payload["node_id"], "video", "截帧")
+            if len(document["nodes"]) + 1 > 200 or len(document["edges"]) + 1 > 800:
+                raise ResourceError("视频截帧输出超过画布节点或连线数量上限", "canvas_frame_capacity")
+            result, meta = build(media)
+            probe = self._assert_complete_image_probe(result, "canvas_frame_output_unverified")
+            labels = {"first": "截取首帧", "current": "截取当前帧", "last": "截取尾帧"}
+            registered = self._register_media(
+                conn, project,
+                {**result, "rights": "unknown", "source": {"kind": "canvas-video-frame", "content": {
+                    "canvas_version_id": version["id"], "source_media_id": media["id"], "source_sha256": media["sha256"],
+                    "frame": meta["frame"], "time_seconds": meta.get("time_seconds"),
+                }}},
+                actor,
+            )
+            self.record_media_check(p, {
+                "media_id": registered["id"], "blob_sha256": registered["sha256"],
+                "checker": "canvas-frame-output-decode", "criteria_version": "1", "outcome": "pass",
+                "report": {"source": "local-storage-complete-decode", "probe": probe, "frame": meta["frame"]},
+            }, actor=actor, _transaction=(conn, project), **kw)
+            key = "frame-" + new_id()
+            params = {"vsc_frame_mode": meta["frame"]}
+            if meta["frame"] == "current" and meta.get("time_seconds") is not None:
+                params["vsc_frame_time"] = round(float(meta["time_seconds"]), 3)
+            document["nodes"].append({
+                "id": key, "type": "image", "title": f"{source['title']} · {labels[meta['frame']]}"[:200],
+                "x": min(100000, source["x"] + 300), "y": source["y"], "text": "",
+                "params": params, "group": source.get("group") or "", "media_id": registered["id"], "job_id": None,
+            })
+            document["edges"].append({"id": "derive-" + new_id(), "source": source["id"], "target": key, "port": "derived_from"})
+            operation = self.create_media_operation(p, {
+                "operation_type": "image-canvas-frame", "recipe_version": "canvas-video-frame/v1",
+                "tool": "vsc-local-ffmpeg", "tool_version": "1",
+                "parameters": {"canvas_version_id": version["id"], "source_sha256": media["sha256"], "frame": meta["frame"], "time_seconds": meta.get("time_seconds")},
+                "inputs": [{"media_id": media["id"], "role": "source"}],
+                "outputs": [{"media_id": registered["id"], "role": "frame"}],
+            }, actor=actor, _transaction=(conn, project), **kw)
+            saved = self._insert_canvas_version(conn, project, canvas, {"title": version["title"], "document": document}, actor, version)
+            return dict(saved, node_ids=[key], media_ids=[registered["id"]], operation_id=operation["id"], source_duration_ms=meta.get("source_duration_ms"))
+
+        return self._mutate(project_id, "capture_canvas_video_frame", payload, actor=actor, callback=work, **kw)
+
+    def apply_canvas_video_script(self, project_id, payload, *, build, actor, **kw):
+        def plain_params(value):
+            import math
+            if not isinstance(value, dict):
+                return {}
+            out = {}
+            for key, item in value.items():
+                if len(out) >= 40 or not isinstance(key, str) or not key or len(key) > 100:
+                    continue
+                if isinstance(item, bool) or item is None:
+                    out[key] = item
+                elif isinstance(item, int):
+                    out[key] = item
+                elif isinstance(item, float) and math.isfinite(item):
+                    out[key] = item
+                elif isinstance(item, str) and len(item) <= 2000:
+                    out[key] = item
+            return out
+
+        def work(conn, project):
+            from vsc.assets.canvas_video_ops import source_ids_for
+            p = project["id"]
+            operation_name = payload.get("operation")
+            if operation_name == "multi_video_edit":
+                canvas, version = self._canvas_version(conn, project, payload.get("canvas_id"))
+                if version["version"] != payload.get("canvas_revision"):
+                    raise Conflict("画布版本已变化，请返回画布刷新后重试", "canvas_media_edit_version_changed")
+            canvas, version, document = self._canvas_current(conn, project, payload)
+            anchor_id = payload.get("node_id")
+            self._require_canvas_edit(conn, p, canvas, modified_node_keys=(anchor_id,), actor=actor)
+            entries = []
+            for node_id in source_ids_for(operation_name, payload.get("settings") or {}, anchor_id):
+                node = next((item for item in document["nodes"] if item["id"] == node_id), None)
+                if node is None:
+                    raise ResourceError("画布节点不存在", "canvas_video_script_node")
+                media = None
+                if node.get("media_id") and node["type"] in {"image", "video", "audio"}:
+                    media, gaps = self._usable(conn, p, node["media_id"], node["type"])
+                    gaps = [gap for gap in gaps if gap != "technical_check_missing"]
+                    if gaps:
+                        raise ResourceError("原素材当前不可处理", "canvas_av_source_unusable")
+                    if media["modality"] != node["type"]:
+                        raise ResourceError("素材类型与节点不一致", "canvas_av_source_required")
+                entries.append({"node": node, "media": media})
+            outputs = build(entries)
+            if not isinstance(outputs, list) or not outputs:
+                raise ResourceError("视频脚本操作没有可写入的结果", "canvas_video_script_empty")
+            extra_edges = sum(len(item.get("source_ids") or []) for item in outputs)
+            if len(document["nodes"]) + len(outputs) > 200 or len(document["edges"]) + extra_edges > 800:
+                raise ResourceError("视频脚本输出超过画布节点或连线数量上限", "canvas_video_script_capacity")
+            anchor = next((item for item in document["nodes"] if item["id"] == anchor_id), None)
+            origin_x = anchor["x"] if anchor else 80
+            origin_y = anchor["y"] if anchor else 80
+            group = (anchor or {}).get("group") or ""
+            node_ids, media_ids, media_outputs = [], [], []
+            for index, item in enumerate(outputs):
+                kind = item.get("kind")
+                if kind not in {"text", "image", "video", "audio"}:
+                    raise ResourceError("视频脚本结果类型无效", "canvas_video_script_empty")
+                key = "vst-" + new_id()
+                committed = item.get("committed")
+                media_id = None
+                if committed:
+                    if kind == "image":
+                        self._assert_complete_image_probe(committed, "canvas_video_script_output_unverified")
+                    elif kind == "video" and (committed.get("modality") != "video" or type(committed.get("duration_ms")) is not int or committed["duration_ms"] <= 0):
+                        raise ResourceError("派生视频缺少实测时长", "canvas_video_script_output_unverified")
+                    registered = self._register_media(conn, project, {
+                        **committed, "rights": "unknown",
+                        "source": {"kind": "canvas-video-script", "content": {
+                            "canvas_version_id": version["id"], "operation": operation_name, "meta": item.get("meta") or {},
+                        }},
+                    }, actor)
+                    self.record_media_check(p, {
+                        "media_id": registered["id"], "blob_sha256": registered["sha256"],
+                        "checker": "canvas-video-script-output", "criteria_version": "1", "outcome": "pass",
+                        "report": {"source": "local-ffmpeg", "operation": operation_name},
+                    }, actor=actor, _transaction=(conn, project), **kw)
+                    media_id = registered["id"]
+                    media_ids.append(media_id)
+                    media_outputs.append({"media_id": media_id, "role": "derived"})
+                text = item.get("text") or ""
+                if not isinstance(text, str):
+                    text = ""
+                document["nodes"].append({
+                    "id": key, "type": kind, "title": str(item.get("title") or "视频脚本结果")[:200] or "视频脚本结果",
+                    "x": min(100000, origin_x + 320), "y": min(100000, origin_y + index * 210),
+                    "text": text[:50000], "params": plain_params(item.get("params")), "group": group,
+                    "media_id": media_id, "job_id": None,
+                })
+                for source_id in item.get("source_ids") or []:
+                    if any(node["id"] == source_id for node in document["nodes"]):
+                        document["edges"].append({"id": "derive-" + new_id(), "source": source_id, "target": key, "port": item.get("port") or "derived_from"})
+                node_ids.append(key)
+            operation = None
+            if media_outputs:
+                operation = self.create_media_operation(p, {
+                    "operation_type": "canvas-video-script", "recipe_version": "canvas-video-script/v1",
+                    "tool": "vsc-local-ffmpeg", "tool_version": "1",
+                    "parameters": {"canvas_version_id": version["id"], "operation": operation_name},
+                    "inputs": [{"media_id": entry["media"]["id"], "role": "source"} for entry in entries if entry.get("media")],
+                    "outputs": media_outputs,
+                }, actor=actor, _transaction=(conn, project), **kw)
+            saved = self._insert_canvas_version(conn, project, canvas, {"title": version["title"], "document": document}, actor, version)
+            return dict(saved, node_ids=node_ids, media_ids=media_ids, operation_id=None if operation is None else operation["id"])
+
+        return self._mutate(project_id, "apply_canvas_video_script", payload, actor=actor, callback=work, **kw)
 
     def replace_canvas_node_media(self, project_id, payload, actor, **kw):
         from .copy_lineage import assert_copy_source

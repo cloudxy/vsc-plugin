@@ -1,0 +1,151 @@
+/* Canvas audio/video generator modes (work package B2). */
+.cgc-controls-left:has(.cav-root) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.cav-root {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: #e4e4e7;
+}
+
+.cav-mode-switch,
+.cav-style-row,
+.cav-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cav-mode-btn,
+.cav-style-tag,
+.cav-tab,
+.cav-bar-btn,
+.cav-text-btn,
+.cav-frame-btn,
+.cav-camera-item {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e4e4e7;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.cgc-audio-toggle {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.cav-mode-btn.is-selected,
+.cav-style-tag.is-selected,
+.cav-tab.is-selected,
+.cav-bar-btn.is-open,
+.cav-camera-item.is-selected {
+  color: #eff6ff;
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(96, 165, 250, 0.7);
+}
+
+.cav-mode-btn:disabled,
+.cav-select:disabled,
+.cav-number:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cav-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.cav-field-label {
+  color: #a1a1aa;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cav-select,
+.cav-number,
+.cav-search,
+.cav-lyric {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.28);
+  color: #f4f4f5;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.cav-number { width: 76px; }
+.cav-search { width: 100%; box-sizing: border-box; }
+
+.cav-hint,
+.cav-empty {
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cav-popover-anchor { position: relative; display: inline-flex; }
+
+.cav-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: min(320px, 70vw);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.cav-popover-title { font-size: 13px; font-weight: 600; }
+.cav-camera-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.cav-camera-item { text-align: left; border-radius: 8px; }
+
+.cav-audio-board {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.cav-lyrics-board {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cav-lyric-field { display: flex; flex-direction: column; gap: 4px; }
+.cav-lyric { min-height: 76px; resize: vertical; width: 100%; box-sizing: border-box; }
+
+.cav-audio-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cc-video-node-tools .cav-frame-btn { border-radius: 8px; }

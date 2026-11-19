@@ -235,13 +235,13 @@ test('09A shell: 800% zoom, fit view ⌘0, snap toggle, NEW badges, 431px 2-tab 
   const copiedImg = draft.nodes.find(n => n.id !== 'txt1' && n.id !== 'img1');
   assert.ok(draft.edges.some(e => e.source === 'txt1' && e.target === copiedImg.id && e.port === 'prompt'));
 
-  // 431px 2-tab drawer switches between 画布元素 and 历史版本
+  // 431px 2-tab drawer switches between 画布元素 and 生成历史
   await f.root.querySelectorAll('button').find(b => b.getAttribute('aria-label') === '画布元素').fire('click');
   const drawer = f.root.querySelector('.cc-elements');
   assert.equal(drawer.style.width, '431px');
   assert.equal(drawer.querySelectorAll('.cc-element-card').length, 3);
   await drawer.querySelector('.cc-drawer-tabs').querySelectorAll('button')[1].fire('click');
-  assert.match(drawer.textContent, /初始版本/);
+  assert.match(drawer.textContent, /暂无生成记录/);
 
   // Share mode floating home link and focus_node_key selection + scroll centering
   await f.panel.loadShared(f.root, {
@@ -368,7 +368,9 @@ test('09B & 09C image ops: portrait texture, emotion XY pad, color filter identi
   const exprNode = latestDraftDoc(f.store).nodes.find(n => n.params?.vsc_image_tool === 'expression');
   assert.ok(exprNode);
   const exprSettings = JSON.parse(exprNode.params.vsc_image_tool_settings);
-  assert.deepEqual(Object.keys(exprSettings).sort(), ['arousal', 'brow', 'eye', 'head_tilt', 'mouth', 'valence']);
+  assert.deepEqual(Object.keys(exprSettings).sort(), ['arousal', 'brow', 'emotion', 'emotion_x', 'emotion_y', 'expression', 'eye', 'face_rect', 'head_tilt', 'mouth', 'quality', 'strength', 'valence']);
+  assert.equal(exprSettings.quality, 'standard');
+  assert.match(exprSettings.emotion, /^e0[1-5]_0[1-5]$/);
   const runForm = f.root.querySelector('.cc-run-form');
   assert.ok(runForm);
   const photoToggle = runForm.querySelectorAll('input').find(i => i.getAttribute('aria-label') === '启用摄影机参数');

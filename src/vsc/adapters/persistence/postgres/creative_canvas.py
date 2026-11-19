@@ -12,6 +12,7 @@ from vsc.assets.creative_canvas import (normalize_document, DOMAIN_TYPES, NODE_T
 from vsc.assets.resource_service import Conflict, ResourceError, required
 from . import schema as S
 from .canvas_collaboration import _diff_node_keys
+from .canvas_agent_stream import CanvasAgentStreamMixin
 from .canvas_core_ops import CanvasCoreOpsMixin
 from .values import checked_id, clean, digest, new_id
 
@@ -23,7 +24,7 @@ def _title(payload):
     return value.strip()
 
 
-class CreativeCanvasRepository(CanvasCoreOpsMixin):
+class CreativeCanvasRepository(CanvasAgentStreamMixin, CanvasCoreOpsMixin):
     def get_creative_canvas_version(self,project_id,version_id):
         with self.engine.connect() as conn:
             project=self._project(conn,project_id);p=project["id"];row=self._one(conn,S.creative_canvas_versions,p,version_id)
@@ -941,6 +942,8 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
             if media['modality'] != 'image':
                 raise ResourceError('宫格切分只接受图片', 'canvas_grid_source_required')
             prepared = build(media)
+            from vsc.production.canvas_image_ops import build_grid_storyboard_node_fields
+            storyboard = payload.get('storyboard_group') is True
             if len(prepared) != len(payload['cells']):
                 raise ResourceError('切片数量与所选宫格不符', 'canvas_grid_output_mismatch')
             node_ids, media_ids = [], []
@@ -959,9 +962,13 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
                     actor=actor, _transaction=(conn, project), **kw)
                 key = 'grid-' + new_id();node_ids.append(key);media_ids.append(registered['id'])
                 group_name = (payload.get('group_name') or source.get('group') or '').strip()
-                document['nodes'].append(dict(id=key, type='image', title='切片 %s-%s' % (cell['row'], cell['column']),
+                node = dict(id=key, type='image', title='切片 %s-%s' % (cell['row'], cell['column']),
                     x=min(100000, source['x']+300+(index % 4)*280), y=min(100000, source['y']+(index // 4)*230),
-                    group=group_name, media_id=registered['id']))
+                    group=group_name, media_id=registered['id'])
+                if storyboard:
+                    fields = build_grid_storyboard_node_fields(cell, index + 1, payload['rows'], payload['columns'], group_name or '宫格分镜组')
+                    node.update(title=fields['title'], group=fields['group'], text=fields['text'], params=fields['params'])
+                document['nodes'].append(node)
                 document['edges'].append(dict(id='derive-'+new_id(), source=source['id'], target=key, port='derived_from'))
             operation = self.create_media_operation(p, {'operation_type': 'image-grid-split', 'recipe_version': 'canvas-grid/v1',
                 'tool': 'vsc-local-image-grid', 'tool_version': '1', 'parameters': {'canvas_version_id': version['id'],
@@ -1268,14 +1275,43 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
                 prompts.append(default_prompt or CLASSIC_MODES.get(mode,{}).get('label','图像工具处理'))
             ordered=payload.get('model_ids');model_id=ordered[0] if isinstance(ordered,list) and ordered else payload.get('model_id')
             model=conn.execute(select(S.provider_models).where(S.provider_models.c.id==checked_id(model_id))).mappings().first()
+            provider_cfg=conn.execute(select(S.provider_configurations).where(S.provider_configurations.c.provider_id==model['provider_id'])).mappings().first() if model else None
             preferred={'image':'image_edit' if image_tool else 'first_frame','video':'reference_to_video' if mode in {'omni','multi'} else 'image_to_video' if references else 'text_to_video','audio':'sfx'}[node['type']]
             purposes=model['capabilities'].get('purposes',[]) if model else []
             if image_tool and payload.get('purpose') not in (None,'image_edit'):
                 raise ResourceError('图像工具必须使用图像编辑用途','canvas_image_tool_purpose')
             purpose='image_edit' if image_tool else payload.get('purpose') or (preferred if ordered or preferred in purposes else purposes[0] if purposes else preferred)
-            params={} if (image_tool and image_tool['tool'] in {'panorama','upscale'}) else {k:v for k,v in node['params'].items() if k not in {CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS,OPERATION_KEY}}
+            node_params=node.get('params') or {}
+            photo_keys={'photography_enabled','camera_model','lens_model','focal_length_mm','aperture'}
+            if node['type']=='image' and node_params.get('photography_enabled') is True and not image_tool:
+                from vsc.production.canvas_capabilities import CAMERA_OPTIONS
+                cam_lbl={c['id']:c['label'] for c in CAMERA_OPTIONS['cameras']}.get(node_params.get('camera_model'),node_params.get('camera_model') or 'Sony Venice')
+                lens_lbl={l['id']:l['label'] for l in CAMERA_OPTIONS['lenses']}.get(node_params.get('lens_model'),node_params.get('lens_model') or 'Zeiss Ultra Prime')
+                focal_raw=node_params.get('focal_length_mm',8)
+                focal_lbl=f'{focal_raw}mm' if isinstance(focal_raw,(int,float)) else (str(focal_raw) if str(focal_raw).endswith('mm') else f'{focal_raw}mm')
+                ap_lbl=str(node_params.get('aperture') or 'f/1.4')
+                prompts.append(f'摄影机参数：Shot on {cam_lbl}, {lens_lbl} lens, {focal_lbl} focal length, {ap_lbl} aperture.')
+            params={} if (image_tool and image_tool['tool'] in {'panorama','upscale'}) else {
+                k:v for k,v in node_params.items()
+                if k not in ({CANVAS_IMAGE_TOOL,CANVAS_IMAGE_TOOL_SETTINGS,OPERATION_KEY}|photo_keys) and not str(k).startswith('vsc_gen_')
+            }
+            if provider_cfg and provider_cfg.get('supplier')=='xai' and provider_cfg.get('product')=='grok-imagine' and provider_cfg.get('execution')=='api':
+                gen_res=str(node_params.get('vsc_gen_resolution') or '').strip().lower()
+                if node['type']=='image' and gen_res in {'1k','1.5k','2k'}:
+                    params.setdefault('resolution', gen_res)
+                elif node['type']=='video' and gen_res in {'480p','720p','1080p'}:
+                    params.setdefault('resolution', gen_res)
+                gen_ratio=str(node_params.get('vsc_gen_ratio') or '').strip()
+                if gen_ratio and gen_ratio!='adaptive':
+                    params.setdefault('aspect_ratio', gen_ratio)
+                if node['type']=='video' and isinstance(node_params.get('vsc_gen_generate_audio'), bool):
+                    params.setdefault('generate_audio', node_params['vsc_gen_generate_audio'])
+            from vsc.production.canvas_capabilities import RATIO_DIMENSIONS
+            default_w, default_h = RATIO_DIMENSIONS.get(str(node_params.get('vsc_gen_ratio') or '9:16'), (1080, 1920))
+            default_count = node_params.get('vsc_gen_count') if type(node_params.get('vsc_gen_count')) is int and 1 <= node_params.get('vsc_gen_count') <= 8 else 1
+            default_dur = node_params.get('vsc_gen_duration') * 1000 if type(node_params.get('vsc_gen_duration')) is int and 1 <= node_params.get('vsc_gen_duration') <= 60 else 5000
             document=normalize_draft(dict(shot_id=shot,mode=mode,model_id=model_id,purpose=purpose,prompt='\n'.join(prompts),
-                count=payload.get('count',1),width=payload.get('width',1080),height=payload.get('height',1920),duration_ms=payload.get('duration_ms',5000),params=params,references=references,
+                count=payload.get('count',default_count),width=payload.get('width',default_w),height=payload.get('height',default_h),duration_ms=payload.get('duration_ms',default_dur),params=params,references=references,
                 **({'tool_settings':image_tool['settings']} if image_tool else {})))
             routing=None;dependencies=list(extra_dependencies)
             if ordered is not None:
@@ -1416,3 +1452,7 @@ class CreativeCanvasRepository(CanvasCoreOpsMixin):
         policy=settings.get('execution_policy')
         if not policy:raise ResourceError('先明确本轮次数和停止时间')
         return dict(draft_version_id=binding['draft_version_id'],execution_policy=deepcopy(policy),**({'commerce_account_actor':settings['commerce_account_actor']} if 'commerce_account_actor' in settings else {}))
+
+
+from .canvas_director_stage_ops import bind_canvas_director_stage_repository
+bind_canvas_director_stage_repository(CreativeCanvasRepository)

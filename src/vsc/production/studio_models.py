@@ -58,7 +58,8 @@ def sync_settings_models(service, providers, actor):
     status = getattr(service,'studio_auth_status',lambda:{})()
     from vsc.production.resource_settings import ResourceSettings, validate_configuration
     settings = ResourceSettings(service.store)
-    models=[];seen=set()
+    repo = settings._repository()
+    models=[];seen=set();active_providers=set()
     for item in providers:
         if not isinstance(item,dict) or set(item)!={'provider','model'} or not isinstance(item['provider'],str) or item['provider'] not in AUTH_MODELS or item['provider'] in seen:
             raise ResourceError('同步仅接受公开通道与模型名称，不接受凭证','invalid_studio_model')
@@ -67,5 +68,10 @@ def sync_settings_models(service, providers, actor):
         if not status.get(vendor,{}).get('ready'):
             continue
         payload=validate_configuration(auth_configuration(item['provider'],item['model']))
-        models.append(settings._repository().ensure_settings_model(payload,actor))
+        models.append(repo.ensure_settings_model(payload,actor))
+        active_providers.add(item['provider'])
+    if hasattr(repo, 'disable_settings_tool'):
+        for provider_id in AUTH_MODELS:
+            if provider_id not in active_providers:
+                repo.disable_settings_tool('api-settings-' + provider_id)
     return dict(models=models)

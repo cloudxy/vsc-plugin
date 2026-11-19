@@ -1,5 +1,5 @@
 """Fixed canvas planning inputs and template versions; no parallel ACL."""
-from sqlalchemy import Table,Column,Text,String,Integer,Boolean,DateTime,ForeignKeyConstraint,PrimaryKeyConstraint,UniqueConstraint,CheckConstraint,Index,text
+from sqlalchemy import Table,Column,Text,String,Integer,BigInteger,Boolean,DateTime,ForeignKeyConstraint,PrimaryKeyConstraint,UniqueConstraint,CheckConstraint,Index,text
 from sqlalchemy.dialects.postgresql import UUID,JSONB
 
 CANVAS_AGENT_TABLES=(
@@ -7,8 +7,10 @@ CANVAS_AGENT_TABLES=(
     "canvas_agent_turns","canvas_agent_queue_items","canvas_agent_refs",
     "canvas_agent_models","canvas_agent_decisions","canvas_templates",
     "canvas_template_favorites","canvas_template_copies","canvas_camera_motion_templates",
+    "canvas_agent_events","canvas_agent_stream_records","canvas_agent_session_prefs",
+    "canvas_agent_current_sessions",
 )
-CANVAS_AGENT_IMMUTABLE=("canvas_agent_attachments","canvas_agent_sessions","canvas_agent_refs","canvas_agent_models","canvas_agent_decisions","canvas_templates","canvas_template_copies")
+CANVAS_AGENT_IMMUTABLE=("canvas_agent_attachments","canvas_agent_sessions","canvas_agent_refs","canvas_agent_models","canvas_agent_decisions","canvas_templates","canvas_template_copies","canvas_agent_events")
 
 
 def install_canvas_agent_schema(metadata):
@@ -97,7 +99,43 @@ def install_canvas_agent_schema(metadata):
         PrimaryKeyConstraint("project_id","id"),
         CheckConstraint("btrim(name) <> '' AND char_length(name) <= 100 AND char_length(prompt_fragment) <= 1000 AND horizontal_pan BETWEEN -100 AND 100 AND vertical_tilt BETWEEN -100 AND 100 AND zoom_delta BETWEEN -100 AND 100 AND roll_deg BETWEEN -45 AND 45 AND speed_preset IN ('slow','normal','fast') AND btrim(created_by) <> ''",name="camera_motion_bounds"))
     Index("ix_canvas_camera_motion_templates_active",camera_motions.c.project_id,camera_motions.c.archived,camera_motions.c.favorite)
-    all_relations=(sessions,session_states,turns,queue_items,refs,attachments,models,decisions,templates,favorites,copies,camera_motions)
+    events=table("canvas_agent_events",uid("id",nullable=False),uid("canvas_id",nullable=False),uid("session_id"),
+        Column("seq",BigInteger,nullable=False),Column("kind",Text,nullable=False),Column("payload",JSONB,nullable=False),stamp(),
+        PrimaryKeyConstraint("project_id","id"),
+        UniqueConstraint("project_id","canvas_id","seq"),
+        ForeignKeyConstraint(["project_id","canvas_id"],["creative_canvases.project_id","creative_canvases.id"]),
+        ForeignKeyConstraint(["project_id","session_id"],["canvas_agent_sessions.project_id","canvas_agent_sessions.id"]),
+        CheckConstraint("seq > 0 AND btrim(kind) <> '' AND char_length(kind) <= 80",name="event_bounds"))
+    stream_records=table("canvas_agent_stream_records",uid("id",nullable=False),uid("canvas_id",nullable=False),uid("session_id"),uid("turn_id"),
+        Column("record_kind",Text,nullable=False),Column("status",Text,nullable=False),Column("payload",JSONB,nullable=False),
+        Column("version",Integer,nullable=False,server_default=text("1")),
+        Column("updated_by",Text,nullable=False),
+        Column("updated_at",DateTime(timezone=True),nullable=False,server_default=text("now()")),
+        stamp(),
+        PrimaryKeyConstraint("project_id","id"),
+        ForeignKeyConstraint(["project_id","canvas_id"],["creative_canvases.project_id","creative_canvases.id"]),
+        ForeignKeyConstraint(["project_id","session_id"],["canvas_agent_sessions.project_id","canvas_agent_sessions.id"]),
+        ForeignKeyConstraint(["project_id","turn_id"],["canvas_agent_turns.project_id","canvas_agent_turns.id"]),
+        CheckConstraint("record_kind IN ('question_batch','authorization','feedback','queue_context','action_receipt') AND btrim(status) <> '' AND char_length(status) <= 40 AND version >= 1 AND btrim(updated_by) <> ''",name="record_bounds"))
+    session_prefs=table("canvas_agent_session_prefs",uid("session_id",nullable=False),
+        Column("chat_model",Text,nullable=False,server_default=text("'grok'")),
+        Column("reasoning_effort",Text,nullable=False,server_default=text("'medium'")),
+        Column("selected_skill",Text,nullable=False,server_default=text("'vsc-script'")),
+        Column("preferred_model_ids",JSONB,nullable=False,server_default=text("'[]'::jsonb")),
+        Column("tier_seen",Boolean,nullable=False,server_default=text("false")),
+        Column("updated_by",Text,nullable=False),
+        Column("updated_at",DateTime(timezone=True),nullable=False,server_default=text("now()")),
+        PrimaryKeyConstraint("project_id","session_id"),
+        ForeignKeyConstraint(["project_id","session_id"],["canvas_agent_sessions.project_id","canvas_agent_sessions.id"]),
+        CheckConstraint("chat_model IN ('grok','grok-fast') AND reasoning_effort IN ('low','medium','high') AND btrim(selected_skill) <> '' AND char_length(selected_skill) <= 80 AND btrim(updated_by) <> ''",name="pref_bounds"))
+    current_sessions=table("canvas_agent_current_sessions",uid("canvas_id",nullable=False),uid("session_id",nullable=False),
+        Column("updated_by",Text,nullable=False),
+        Column("updated_at",DateTime(timezone=True),nullable=False,server_default=text("now()")),
+        PrimaryKeyConstraint("project_id","canvas_id"),
+        ForeignKeyConstraint(["project_id","canvas_id"],["creative_canvases.project_id","creative_canvases.id"]),
+        ForeignKeyConstraint(["project_id","session_id"],["canvas_agent_sessions.project_id","canvas_agent_sessions.id"]),
+        CheckConstraint("btrim(updated_by) <> ''",name="current_bounds"))
+    all_relations=(sessions,session_states,turns,queue_items,refs,attachments,models,decisions,templates,favorites,copies,camera_motions,events,stream_records,session_prefs,current_sessions)
     for relation in all_relations:
         pk_cols={col.name for col in relation.primary_key.columns}
         for column in relation.c:

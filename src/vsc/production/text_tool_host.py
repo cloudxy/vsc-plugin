@@ -10,7 +10,7 @@ from vsc.assets.script_ai import _run_bounded, host_environment
 from vsc.production.role_materials import TASKS, compile_role_materials, validate_role_materials
 
 OUTPUT_FIELDS={"synopsis":["synopsis"],"characters":["characters"],"outline":["outline"],"scenes":["scenes"],
-               "body":["body"],"qa_notes":["qa_notes"],"translate":["body"],"score":["analysis","scores"],
+               "body":["body"],"qa_notes":["qa_notes"],"translate":["body"],"optimize":["body"],"score":["analysis","scores"],
                "observe":["observations"],"localize":["body"],"terms":["terms","translation_characters"],
                "analyze":["analysis","category","channel","card_start_line","card_end_line"]}
 
