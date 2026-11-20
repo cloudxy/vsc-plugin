@@ -70,7 +70,7 @@ for(const delayed of ['prepare','quote'])test(`changing model invalidates a dela
 test('save response keeps the stage selected while the request was in flight',async()=>{
  const {root,panel,pending,stage}=await fixture();
  try{
-  assert.ok(root.querySelector('.ip-word-count').textContent.includes('2/50000'));
+  assert.ok(root.querySelector('.ip-word-count').textContent.includes('剧本内容（2/10000）'));
   const save=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');assert.ok(save);
   const script=root.querySelector('.ip-script-stage').querySelector('textarea');script.value='修改后的剧本';await script.dispatch('input');
   await save.click();const saving=save.click();await waitFor(()=>pending.save.length===1);
