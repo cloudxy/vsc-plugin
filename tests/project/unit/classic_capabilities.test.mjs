@@ -127,6 +127,21 @@ test('empty image storyboard shows the sky composer actions without creating a s
   f.app.suspend();
 });
 
+test('empty video page shows the sky composer actions without creating a shot', async () => {
+  const f = await fixture({
+    intercept: url => url.includes('/workbench?') ? {scope:{id:'episode',kind:'episode'},ancestors:[],sections:{shots:{items:[]}}} : undefined,
+  });
+  await f.app.load({projectId:'p', episodeId:'episode', productionKind:'video'});
+  const text = f.root.textContent;
+  for (const label of ['视频剪辑','合成视频','下载','全能参考','首尾帧','多图','单图','文本','数字人','动作模仿','参考','最多上传 30 张图片、10 个视频、10 段音频','智能引用','翻译','优化','智能识别','声音','视频编辑','高级编辑','5s · 720P · 9:16 · 1','生成','全部','收藏','本地','上传视频','共 0 条结果']) assert.ok(text.includes(label), label);
+  const pressed = () => [...f.root.querySelector('.classic-modes').querySelectorAll('button')].find(node => node.getAttribute('aria-pressed') === 'true');
+  assert.equal(pressed().textContent, '全能参考');
+  await f.root.querySelector('.classic-modes').querySelectorAll('button').find(node => node.textContent === '首尾帧').click();
+  assert.equal(pressed().textContent, '首尾帧');
+  assert.equal(f.requests.some(request => request.init?.method && request.init.method !== 'GET'), false);
+  f.app.suspend();
+});
+
 test('storyboard and video selections remain separate within the episode and across reloads',async()=>{
  const f=await fixture();
  const current=()=>f.root.querySelector('.classic-shot-rail').querySelectorAll('button').find(node=>node.getAttribute('aria-current')==='true')?.dataset.shotId;
