@@ -115,6 +115,18 @@ test('mode choices use declared purpose and required capabilities without starti
   }
 });
 
+test('empty image storyboard shows the sky composer actions without creating a shot', async () => {
+  const f = await fixture({
+    intercept: url => url.includes('/workbench?') ? {scope:{id:'episode',kind:'episode'},ancestors:[],sections:{shots:{items:[]}}} : undefined,
+  });
+  await f.app.load({projectId:'p', episodeId:'episode', productionKind:'image'});
+  const text = f.root.textContent;
+  for (const label of ['批量上传分镜','参考图','智能引用','翻译','优化','智能识别','PNG','标准 · 2K · 自动 · 9:16 · 1','生成','全部','收藏','本地','共 0 条结果']) assert.ok(text.includes(label), label);
+  assert.ok([...f.root.querySelectorAll('button')].some(node => node.getAttribute('aria-label') === '输出格式'));
+  assert.equal(f.requests.some(request => request.init?.method && request.init.method !== 'GET'), false);
+  f.app.suspend();
+});
+
 test('storyboard and video selections remain separate within the episode and across reloads',async()=>{
  const f=await fixture();
  const current=()=>f.root.querySelector('.classic-shot-rail').querySelectorAll('button').find(node=>node.getAttribute('aria-current')==='true')?.dataset.shotId;
