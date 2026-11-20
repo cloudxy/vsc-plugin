@@ -162,7 +162,9 @@ class LocalStorage:
         else:
             os.replace(staged, target)
         # Keep the receipt for safe retry after a database failure. Orphan cleanup
-        # is an explicit maintenance operation with a grace period, never a UI delete.
+        # is an explicit maintenance operation, never a UI delete: remove a .json
+        # receipt only when it is older than 24 hours and the blob at
+        # blobs/<sha[:2]>/<sha> exists and matches that digest.
         return {**metadata, "sha256": sha, "size_bytes": record["size_bytes"],
                 "storage": "local", "object_key": key}
 

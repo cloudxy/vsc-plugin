@@ -193,6 +193,21 @@ VSC 供应商中立：同一份任务契约可路由到任一已接通供应商�
 
 全部文档按读者分组列在 [docs/README.md](docs/README.md)。工作流规范以 `workflow/` 为准，技能正文在 `skills/`，宿主发现入口按声明生成。
 
+## 本机数据
+
+这些目录不进 Git，各自有固定用途。整理时按下面的边界处理，保留正在使用的运行环境和已入库素材。
+
+| 保留 | 用途 |
+|---|---|
+| `.vsc-local/postgres/`、`.vsc-local/database-mcp/` | 本机资源库与各宿主共用的数据库启动器 |
+| 项目根 `.venv/` | 本仓库的运行环境 |
+| `vendor/narratoai/.venv`、`vendor/moneyprinterturbo/.venv` | 已安装的第三方工具环境，留着以免重新下载 |
+| `assets/resource-media/blobs/`、`assets/pose-gallery/`、`assets/marketing-studio/`、`assets/guides/`、`assets/ai-generate-image/`、`library/` | 已入库素材、参考库、营销与学习内容 |
+
+可以清掉的是过期验证和可再生缓存：`.vsc-local/` 里带日期的验证目录、`tmp/`、源码旁的 `__pycache__`、`.pytest_cache` 和 `vsc_workflow.egg-info`。验证目录删除后，若 Git 仍登记已经不存在的工作树，在仓库根执行 `git worktree prune`。仍在使用的工作树保持不动。
+
+`assets/resource-media/.staging` 里的 `.json` 是上传收据，供数据库写入失败后重试。清理是显式维护，并且带宽限期：只删除修改时间早于 24 小时、且 `blobs/<sha256 前两位>/<sha256>` 已存在并通过摘要校验的收据。宽限期内的收据，以及旁边仍有 `.bytes` 的收据，继续留在暂存目录。约定见 `src/vsc/adapters/storage/local/store.py`。
+
 ## 维护
 
 工作流改动直接提交并推送到 `main`。修改期间只跑受影响的测试；全部修改完成后，在最终推送阶段运行一次全量检查。启用仓库钩子时由 pre-push 执行；未启用时手动运行以下命令。作品、素材库、vendor 源码和本机配置保持在本机。
