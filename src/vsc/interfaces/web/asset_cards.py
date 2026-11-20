@@ -29,6 +29,7 @@ def install_asset_card_routes(app, router, catalog, etag, actor, read_actor):
         cursor: str = '',
         offset: int = 0,
         limit: int = 24,
+        order_by: str = 'updated_desc',
     ):
         caller = read_actor(request)
         effective_query = query if query else q
@@ -47,6 +48,7 @@ def install_asset_card_routes(app, router, catalog, etag, actor, read_actor):
                 offset=offset,
                 limit=limit,
                 actor=caller,
+                order_by=order_by,
             ),
         )
 

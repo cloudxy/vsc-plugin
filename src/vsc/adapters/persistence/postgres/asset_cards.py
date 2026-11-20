@@ -845,6 +845,7 @@ class AssetCardsRepository:
         offset=0,
         limit=24,
         actor=None,
+        order_by='updated_desc',
     ):
         import base64
         from vsc.assets.commerce import instant
@@ -852,6 +853,10 @@ class AssetCardsRepository:
         from .project_management import inactive_project_ids
         from .values import digest
 
+        if order_by not in {'updated_desc', 'name_asc', 'name_desc'}:
+            raise ResourceError('跨项目资产筛选或分页无效', 'invalid_input', 422, details={'field': 'order_by'})
+        if cursor and order_by != 'updated_desc':
+            raise ResourceError('跨项目名称排序不使用更新时间游标', 'invalid_input', 422, details={'field': 'cursor'})
         cur_ts, cur_pid, cur_aid = None, None, None
         if cursor:
             try:
@@ -1019,7 +1024,11 @@ class AssetCardsRepository:
                 )
                 .select_from(base_from)
                 .where(*page_conds)
-                .order_by(ai.c.updated_at.desc(), ai.c.project_id.asc(), ai.c.id.asc())
+                .order_by(
+                    *((co.c.title.desc(),) if order_by == 'name_desc' else (co.c.title.asc(),) if order_by == 'name_asc' else (ai.c.updated_at.desc(),)),
+                    ai.c.project_id.asc(),
+                    ai.c.id.asc(),
+                )
             )
             if cur_ts is None and offset > 0:
                 page_stmt = page_stmt.offset(offset)
@@ -1059,7 +1068,7 @@ class AssetCardsRepository:
                 items.append(card)
 
             next_cursor = None
-            if has_more and rows:
+            if order_by == 'updated_desc' and has_more and rows:
                 last = rows[-1]
                 ts_iso = last['updated_at'].isoformat() if hasattr(last['updated_at'], 'isoformat') else str(last['updated_at'])
                 raw_cur = json.dumps({'u': ts_iso, 't': ts_iso, 'p': last['project_id'], 'i': last['id']}, separators=(',', ':')).encode()

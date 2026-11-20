@@ -1898,7 +1898,7 @@ function createGlobalAssetLibrary(root,ctx){
   const value=params.get('tab')||params.get('source')||(typeof location!=='undefined'&&String(location.pathname||'').replace(/\/+$/,'')==='/asset-center'?'shared':'');
   return value==='shared'||value==='official'?value:'project';
  };
- let disposed=false,generation=0,actor=null,tab=routeTab(),project='',kind='',query='',child=null,controller=null,projectView=null,loadingTimer=null;
+ let disposed=false,generation=0,actor=null,tab=routeTab(),project='',kind='',query='',orderBy='updated_desc',child=null,controller=null,projectView=null,loadingTimer=null;
  const current=g=>!disposed&&g===generation&&actor===ctx.session().actor;
  const stopLoadingHint=()=>{clearTimeout(loadingTimer);loadingTimer=null;};
  const element=(tag,text,cls)=>{const n=el(tag,text);if(cls)n.className=cls;return n;};
@@ -2014,7 +2014,10 @@ function createGlobalAssetLibrary(root,ctx){
   const status=element('p','','global-asset-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');status.setAttribute('aria-atomic','true');
   const search=element('input');search.type='search';search.value=query;search.placeholder='搜索资产…';search.setAttribute('aria-label','搜索资产');
   search.onkeydown=e=>{if(e.key==='Enter'){query=search.value;load();}};search.onsearch=()=>{query=search.value;load();};
-  const batch=element('div',null,'global-asset-batch');tools.append(status,search,batch);btn(batch,'批量操作',()=>pickProject(null));btn(batch,'批量导入',()=>pickProject('import'));toolbar.append(tools);root.append(toolbar);
+  const sort=element('select',null);sort.setAttribute('aria-label','排序');
+  for(const [value,title] of [['updated_desc','最近更新'],['name_asc','名称正序'],['name_desc','名称倒序']])sort.append(localizedOption(value,title));
+  sort.value=orderBy;sort.onchange=()=>{orderBy=sort.value;query=search.value;return load();};
+  const batch=element('div',null,'global-asset-batch');tools.append(status,search,sort,batch);btn(batch,'批量操作',()=>pickProject(null));btn(batch,'批量导入',()=>pickProject('import'));toolbar.append(tools);root.append(toolbar);
   const grid=element('div',null,'global-asset-grid');root.append(grid);
   const create=btn(grid,'',()=>pickProject('create'));create.className='global-asset-create';create.append(element('span','＋'),element('strong','新建资产'),element('small','选择类型'));
   const controls=element('div',null,'global-asset-progress'),failureBox=element('div',null,'global-asset-failures');failureBox.setAttribute('role','alert');root.append(controls,failureBox);
@@ -2059,7 +2062,7 @@ function createGlobalAssetLibrary(root,ctx){
     if(!current(g)||loading)return;
     loading=true;failedError=null;delayHint();paintAll();
     const activeSignal=controller.signal,reqOffset=nextOffset,reqCursor=nextCursor;
-    const params=new URLSearchParams({limit:String(size),offset:String(reqCursor?0:reqOffset),cursor:reqCursor,owner_kind:ownerKind,workspace_id:workspaceId,asset_kind:readKind,...projectAssetCategoryParams(readKind),favorites,q:readQuery,query:readQuery});
+    const params=new URLSearchParams({limit:String(size),offset:String(reqCursor?0:reqOffset),cursor:orderBy==='updated_desc'?reqCursor:'',owner_kind:ownerKind,workspace_id:workspaceId,asset_kind:readKind,...projectAssetCategoryParams(readKind),favorites,q:readQuery,query:readQuery,order_by:orderBy});
     Promise.resolve().then(()=>ctx.api('/api/v1/account/project-asset-cards?'+params,{signal:activeSignal})).then(data=>{
      if(!current(g)||activeSignal.aborted)return;
      if(!Array.isArray(data.items)||data.items.length>size)throw new Error('分页返回无效');
@@ -2112,7 +2115,7 @@ function createGlobalAssetLibrary(root,ctx){
    if(!current(g))return;
    while(inFlight<concurrency&&queue.length&&shown+(inFlight+1)*size<=limit){
     const state=queue.shift(),offset=state.offset;state.status='loading';inFlight++;
-    Promise.resolve().then(()=>ctx.api(base(state.p.id)+'/asset-cards?'+new URLSearchParams({query:readQuery,asset_kind:readKind,...projectAssetCategoryParams(readKind),offset:String(offset),limit:String(size),favorites:'false'}),{signal})).then(data=>{
+    Promise.resolve().then(()=>ctx.api(base(state.p.id)+'/asset-cards?'+new URLSearchParams({query:readQuery,asset_kind:readKind,...projectAssetCategoryParams(readKind),offset:String(offset),limit:String(size),favorites:'false',order_by:orderBy}),{signal})).then(data=>{
      if(!current(g))return;
      if(!Array.isArray(data.items)||data.items.length>size)throw new Error('分页返回无效');
      if(state.revision!==null&&state.revision!==data.revision){state.changed=true;throw new Error('读取期间项目已变化，请从头重新读取');}

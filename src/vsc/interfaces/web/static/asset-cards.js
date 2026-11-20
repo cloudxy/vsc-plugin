@@ -1100,7 +1100,8 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
  }
  const actor=ctx.session().actor,uploads=new Set();
  const initParams=typeof location!=='undefined'?new URLSearchParams(location.search):new URLSearchParams();
- let active=true,serial=0,offset=0,options=null,episode=null,revision=ctx.session().revision,query='',kind=initParams.get('kind')||'',folderId='',orderBy='',favorite=false,mode='project',tab=initParams.get('tab')==='official'?'official':'project',batchMode=false,visibleCards=[],folders=[],currentFolder=null,officialCenter=null,editorHandle=null,searchDebounce=null;
+ let active=true,serial=0,offset=0,options=null,episode=null,revision=ctx.session().revision,query='',kind=initParams.get('kind')||'',folderId='',orderBy=initParams.get('order_by')||'updated_desc',favorite=false,mode='project',tab=initParams.get('tab')==='official'?'official':'project',batchMode=false,allProjects=false,visibleCards=[],folders=[],currentFolder=null,officialCenter=null,editorHandle=null,searchDebounce=null;
+ if(!['updated_desc','name_asc','name_desc'].includes(orderBy))orderBy='updated_desc';
  if(!projectAssetKinds.has(kind))kind='';
  function syncCardsUrl(extra=null){
   if(typeof window==='undefined'||!window.history?.replaceState||!window.location)return;
@@ -1146,10 +1147,10 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   }
  }
  function link(parent,label,page,extra={}){const a=el('a',label);a.href='/?'+new URLSearchParams({page,project:projectId,...(episode?{episode}:{}),...extra});parent.append(a);}
- function mediaVisual(parent,mediaId,type='image',name='形态主图'){
+ function mediaVisual(parent,mediaId,type='image',name='形态主图',owner=projectId){
   if(!mediaId)return;
   const n=el(type==='audio'?'audio':'img');
-  n.src=base()+'/media/'+mediaId+'/content';
+  n.src=base(owner)+'/media/'+mediaId+'/content';
   if(type==='audio'){n.controls=true;bindMutualExclusiveAudio(n);}
   else{bindAttribute(n,'alt',name);if(String(parent?.tagName||'').toUpperCase()!=='BUTTON')n.addEventListener('click',e=>{e.stopPropagation?.();openAssetImageViewer({title:name,src:n.src,host:document.body||root});});}
   n.addEventListener('error',()=>{if(!n.parentElement)return;n.hidden=true;if(!parent.querySelector('.asset-card-media-error'))parent.append(el('span',msg('gallery.preview_unavailable'),'asset-card-media-error'));},{once:true});
@@ -1310,19 +1311,20 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   });
  }
 
- function openMoveFolderDialog(cardsToMove){
+ function openMoveFolderDialog(cardsToMove, sourceProject=projectId, folderRows=null){
   if(!cardsToMove.length)return;
-  const d=modal(`移动 ${cardsToMove.length} 个资产到文件夹`,'asset-folder-dialog');
+  const owner=sourceProject||projectId, rows=folderRows||folders;
+  const d=modal(`移入文件夹 · ${cardsToMove.length} 个资产`,'asset-folder-dialog');
   const targetSelect=field(d,'目标位置','','select');
   targetSelect.append(localizedOption('','项目根目录（移出文件夹）'));
-  for(const f of folders)targetSelect.append(localizedOption(f.id,`📁 ${f.title} (${f.asset_count||0})`));
-  targetSelect.value=folderId||'';
+  for(const f of rows)targetSelect.append(localizedOption(f.id,`📁 ${f.title} (${f.asset_count||0})`));
+  targetSelect.value=owner===projectId?(folderId||''):'';
   const ok=button(d,'确认移动',async()=>{
    await write('/asset-cards/folders/move',{
     folder_id:targetSelect.value||null,
     asset_ids:cardsToMove.map(c=>c.id),
-    source_project_id:projectId,
-   },`folder-move:${Date.now()}`);
+    source_project_id:owner,
+   },`folder-move:${owner}:${Date.now()}`,owner);
    selected.clear();
    await refreshOptions();
    if(live()){d.close();await load();notice(`已移动 ${cardsToMove.length} 个资产`);}
@@ -1445,6 +1447,51 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   });
  }
 
+ function copyCards(cards){
+  const ready=(cards||[]).filter(c=>c.forms?.some(f=>f.version_id));
+  if(!ready.length)throw new Error('请先保存项目资产卡，将形态固定为可复制版本');
+  const dialog=modal(ready.length===1?msg('ui.copy_to_multiple_projects'):`复制 ${ready.length} 个资产到项目`);
+  const rows=[];
+  for(const p of ctx.projects().filter(p=>!p.read_only&&!p.unavailable)){
+   const label=el('label',p.name),check=el('input');check.type='checkbox';label.prepend(check);dialog.append(label);rows.push({project:p.id,check});
+  }
+  if(!rows.length)dialog.append(el('p','没有可复制到的其他项目'));
+  const report=el('p');dialog.append(report);
+  button(dialog,'复制到所选项目',async()=>{
+   const targets=rows.filter(r=>r.check.checked).map(r=>r.project);
+   if(!targets.length)throw new Error('请至少选择一个目标项目');
+   const lines=[];
+   for(const card of ready){
+    const source=card.project_id||projectId;
+    const versions=card.forms.filter(f=>f.version_id).map(f=>f.version_id);
+    for(const target of targets){
+     const targetName=ctx.projects().find(p=>p.id===target)?.name||'目标项目';
+     if(target===source){lines.push(card.name+'：已在'+targetName);continue;}
+     try{
+      await write('/asset-cards/copy',{source_project_id:source,source_asset_id:card.id,form_version_ids:versions},'copy:'+card.id+':'+target,target);
+      lines.push(card.name+' → '+targetName+'：已复制');
+     }catch(e){lines.push(card.name+'：'+e.message);}
+     if(!live())return;
+     setText(report,lines.join('\n'));
+    }
+   }
+   if(lines.length&&lines.every(line=>line.includes('已复制')||line.includes('已在')))notice(msg('ui.copies_to_selected_projects_completed_source_asset_remains_target'));
+  });
+ }
+
+ async function moveSelected(cardsToMove){
+  if(!cardsToMove.length)return;
+  const owners=new Set(cardsToMove.map(c=>c.project_id||projectId));
+  if(owners.size!==1)throw new Error('请选择同一项目中的资产后再移入文件夹');
+  const owner=[...owners][0];
+  let folderRows=folders;
+  if(allProjects||owner!==projectId){
+   const data=await ctx.api(base(owner)+'/asset-cards?'+new URLSearchParams({limit:'1',offset:'0',include_blocking:'true',order_by:'updated_desc'}));
+   folderRows=data.folders||[];
+  }
+  openMoveFolderDialog(cardsToMove, owner, folderRows);
+ }
+
  async function generateForm(card,form){
   const key=draftKey(card.id)+':generation:'+form.form_key,state=cache.get(key)||{prompt:form.description||card.name+' · '+form.name,count:1,width:1024,height:1024},dialog=modal(msg('ui.generate_missing_image_value0_value1',{value0:card.name,value1:form.name})),valid=()=>live()&&dialog.isConnected;
   const prompt=field(dialog,msg('ui.prompt_for_this_form_s_missing_image'),state.prompt,'textarea'),models=field(dialog,msg('ui.missing_image_model'),'','select'),count=field(dialog,msg('ui.missing_image_candidate_count'),String(state.count));
@@ -1515,7 +1562,7 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   button(parent,'进入生成工作台',()=>enterFullEditor({card}));
   button(parent,msg('common.edit'),()=>edit(card));
   button(parent,card.favorite?msg('common.unfavorite'):msg('common.favorite'),async()=>{await write('/asset-cards/favorite',{asset_id:card.id,active:!card.favorite},'favorite:'+card.id);if(live())await load();});
-  button(parent,'移动到文件夹',()=>openMoveFolderDialog([card]));
+  button(parent,'移入到文件夹',()=>moveSelected([card]));
   button(parent,msg('ui.reference_in_episodes'),()=>chooseEpisodes(card));
   button(parent,msg('asset.copy_to_project'),()=>copyTargets(card));
   button(parent,msg('ui.view_uses'),async()=>{const d=modal(msg('ui.uses_value0',{value0:card.name}));await impact(d,card);});
@@ -1529,22 +1576,31 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   for(const card of cards.slice(0,8)){d.append(el('h3',card.name));await impact(d,card);if(!live()||!d.isConnected)return;}
   if(cards.length>8)d.append(el('p',`其余 ${cards.length-8} 个资产将在同一批次移入项目回收站。`));
   button(d,msg('ui.confirm_recycling'),async()=>{
-   if(cards.length>1){
-    await write('/asset-cards/batch-recycle',{asset_ids:cards.map(c=>c.id),reason:'用户核对引用后批量移入回收站'},`batch-trash:${cards.map(c=>c.id).join(',')}`);
-    for(const c of cards)selected.delete(c.id);
-   }else{
-    const card=cards[0];
-    await write('/management',{operation:'trash',target_type:'object',target_id:card.id,reason:'用户核对实际引用后从资产卡移入回收'},'trash:'+card.id);
-    selected.delete(card.id);
+   const groups=new Map();
+   for(const card of cards){
+    const owner=card.project_id||projectId;
+    if(!groups.has(owner))groups.set(owner,[]);
+    groups.get(owner).push(card);
+   }
+   for(const [owner,group] of groups){
+    if(group.length>1){
+     const slot=owner===projectId?`batch-trash:${group.map(c=>c.id).join(',')}`:`batch-trash:${owner}:${group.map(c=>c.id).join(',')}`;
+     await write('/asset-cards/batch-recycle',{asset_ids:group.map(c=>c.id),reason:'用户核对引用后批量移入回收站'},slot,owner);
+    }else{
+     const card=group[0];
+     await write('/management',{operation:'trash',target_type:'object',target_id:card.id,reason:'用户核对实际引用后从资产卡移入回收'},'trash:'+card.id,owner);
+    }
+    for(const c of group)selected.delete(c.id);
    }
    if(live()){d.close();await refreshOptions();await load();}
   });
  }
 
  function preview(card){
+  const owner=card.project_id||projectId;
   const d=modal(card.name);d.classList.add('asset-card-preview-dialog');
   if(card.record_kind==='blocking'){
-   if(card.preview?.media_id)mediaVisual(d,card.preview.media_id,'image',card.name);
+   if(card.preview?.media_id)mediaVisual(d,card.preview.media_id,'image',card.name,owner);
    else d.append(el('p','素材当前不可预览'));
    return;
   }
@@ -1553,7 +1609,7 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   if(card.preview?.media_id&&!card.forms.some(f=>f.media_id)){
    const selectedSec=el('section',null,'asset-card-legacy-preview');
    selectedSec.append(el('h3','已选参考图'));
-   mediaVisual(selectedSec,card.preview.media_id,'image',card.name);
+   mediaVisual(selectedSec,card.preview.media_id,'image',card.name,owner);
    const form=legacyPreviewForm(card);
    selectedSec.append(el('p',form?'该图片来自已有选片，可填入形态主图后保存。':'该图片来自已有选片；请在编辑中选择对应形态的主图。'));
    if(form)button(selectedSec,'用此图编辑主图',()=>{d.close();edit(card,{form_key:form.form_key,media_id:card.preview.media_id});});
@@ -1562,16 +1618,16 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   const forms=el('div',null,'asset-card-form-list');
   for(const f of card.forms){
    const row=el('section');row.append(el('h3',f.name));
-   mediaVisual(row,f.media_id,card.asset_kind==='voice'?'audio':'image',f.name);
+   mediaVisual(row,f.media_id,card.asset_kind==='voice'?'audio':'image',f.name,owner);
    if(f.description)row.append(el('p',f.description));
    const actions=el('div',null,'asset-card-actions');
    if(card.asset_kind!=='voice')button(actions,msg('ui.generate_missing_image'),()=>generateForm(card,f));
    if(f.media_id){
-    if(card.asset_kind!=='voice')button(actions,'查看大图',()=>openAssetImageViewer({title:`${card.name} · ${f.name}`,src:base()+'/media/'+f.media_id+'/content',host:document.body||root}));
-    const a=el('a',msg('common.download'));a.href=base()+'/media/'+f.media_id+'/content';a.download=f.name;actions.append(a);
+    if(card.asset_kind!=='voice')button(actions,'查看大图',()=>openAssetImageViewer({title:`${card.name} · ${f.name}`,src:base(owner)+'/media/'+f.media_id+'/content',host:document.body||root}));
+    const a=el('a',msg('common.download'));a.href=base(owner)+'/media/'+f.media_id+'/content';a.download=f.name;actions.append(a);
     button(actions,msg('ui.send_to_canvas'),async()=>{
-     const canvas=await write('/creative-canvases',{episode_id:episode||null,title:card.name+' · '+f.name,document:{nodes:[{id:'asset-'+crypto.randomUUID().slice(0,8),type:card.asset_kind==='voice'?'audio':'image',title:f.name,x:120,y:120,media_id:f.media_id}],edges:[]}},'canvas:'+f.version_id);
-     if(live())await ctx.navigate('creative-canvas',null,projectId,{task_target:canvas.id,...(episode?{episode}:{})});
+     const canvas=await write('/creative-canvases',{episode_id:owner===projectId?episode||null:null,title:card.name+' · '+f.name,document:{nodes:[{id:'asset-'+crypto.randomUUID().slice(0,8),type:card.asset_kind==='voice'?'audio':'image',title:f.name,x:120,y:120,media_id:f.media_id}],edges:[]}},'canvas:'+f.version_id,owner);
+     if(live())await ctx.navigate('creative-canvas',null,owner,{task_target:canvas.id,...(owner===projectId&&episode?{episode}:{})});
     });
    }
    if(f.voice_spec_id||f.voice_reference_media_id)row.append(el('small',msg('ui.linked_voice')));
@@ -1641,21 +1697,22 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
  }
 
  function cardView(card,parent){
-  const box=el('article',null,'asset-card'),cover=el('div',null,'asset-card-cover'),first=card.forms.find(f=>f.media_id);
+  const box=el('article',null,'asset-card'),cover=el('div',null,'asset-card-cover'),first=(card.forms||[]).find(f=>f.media_id);
   if(card.record_kind!=='blocking'){
    box.draggable=true;
    box.addEventListener('dragstart',e=>{
     box.setAttribute('data-dragging','true');
     const ids=selected.has(card.id)?Array.from(selected):[card.id];
-    e.dataTransfer?.setData('application/x-vsc-asset-move',JSON.stringify({project_id:projectId,asset_ids:ids}));
+    e.dataTransfer?.setData('application/x-vsc-asset-move',JSON.stringify({project_id:card.project_id||projectId,asset_ids:ids}));
    });
    box.addEventListener('dragend',()=>box.removeAttribute('data-dragging'));
   }
-  if(first&&card.asset_kind==='voice')mediaVisual(cover,first.media_id,'audio',card.name);
+  const owner=card.project_id||projectId;
+  if(first&&card.asset_kind==='voice')mediaVisual(cover,first.media_id,'audio',card.name,owner);
   else{
    const open=button(cover,'',()=>preview(card));open.className='asset-card-preview';bindAttribute(open,'aria-label',msg('gallery.preview',{name:card.name}));
-   if(first)mediaVisual(open,first.media_id,'image',card.name);
-   else if(card.preview?.media_id)mediaVisual(open,card.preview.media_id,'image',card.name);
+   if(first)mediaVisual(open,first.media_id,'image',card.name,owner);
+   else if(card.preview?.media_id)mediaVisual(open,card.preview.media_id,'image',card.name,owner);
    else open.append(el('span',kinds[card.asset_kind==='object'?'prop':card.asset_kind]));
   }
   const badge=el('span',card.record_kind==='blocking'?msg('gallery.blocking'):kinds[card.asset_kind==='object'?'prop':card.asset_kind],'asset-card-kind');
@@ -1669,7 +1726,7 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   if(card.record_kind!=='blocking'&&!batchMode){
    const hoverBar=el('div',null,'asset-card-hover-bar');
    button(hoverBar,'编辑',()=>enterFullEditor({card}));
-   button(hoverBar,'移动',()=>openMoveFolderDialog([card]));
+   button(hoverBar,'移入到文件夹',()=>moveSelected([card]));
    button(hoverBar,'删除',()=>recycle([card]));
    cover.append(hoverBar);
   }
@@ -1756,17 +1813,24 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
  function drawBatchBar(){
   root.querySelector('.asset-card-batch-bar')?.remove();
   if(!batchMode||mode!=='project')return;
-  const editable=visibleCards.filter(c=>c.record_kind!=='blocking'),bar=el('div',null,'asset-card-batch-bar project-batch-bar'),label=el('label','全选本页'),all=el('input');
+  const editable=visibleCards.filter(c=>c.record_kind!=='blocking'),bar=el('div',null,'asset-card-batch-bar project-batch-bar'),label=el('label','全选（已选择 '+selected.size+' 项）'),all=el('input');
   all.type='checkbox';all.checked=editable.length>0&&editable.every(c=>selected.has(c.id));all.indeterminate=selected.size>0&&!all.checked;
   all.onchange=()=>{for(const c of editable)all.checked?selected.add(c.id):selected.delete(c.id);load();};
-  label.prepend(all);bar.append(label,el('span','已选 '+selected.size+' 项'));
+  label.prepend(all);bar.append(label);
+  const chosen=()=>visibleCards.filter(c=>selected.has(c.id)&&c.record_kind!=='blocking');
+  button(bar,'复制到项目',()=>copyCards(chosen()),!selected.size);
+  button(bar,'移入到文件夹',()=>moveSelected(chosen()),!selected.size);
+  button(bar,'删除',()=>recycle(chosen()),!selected.size);
+  button(bar,'关闭',()=>{batchMode=false;selected.clear();load();});
   button(bar,'全选所有页',async()=>{
    let cursor=0,baselineTotal=null;
    const collected=[];
    while(cursor!=null){
-    const pageParams={query,asset_kind:kind,...projectAssetCategoryParams(kind),offset:String(cursor),limit:'100',favorites:String(favorite)};
-    if(folderId)pageParams.folder_id=folderId;
-    const page=await ctx.api(base()+'/asset-cards?'+new URLSearchParams(pageParams));
+    const pageParams={query,asset_kind:kind,...projectAssetCategoryParams(kind),offset:String(cursor),limit:'100',favorites:String(favorite),order_by:orderBy};
+    let pageUrl=base()+'/asset-cards?'+new URLSearchParams(pageParams);
+    if(allProjects)pageUrl='/api/v1/account/project-asset-cards?'+new URLSearchParams(pageParams);
+    else if(folderId)pageParams.folder_id=folderId,pageUrl=base()+'/asset-cards?'+new URLSearchParams(pageParams);
+    const page=await ctx.api(pageUrl);
     if(baselineTotal===null)baselineTotal=page.total;
     else if(page.total!==baselineTotal)throw new Error('列表在扫描期间已变更，请重新全选');
     for(const item of page.items||[])if(item.record_kind!=='blocking')collected.push(item.id);
@@ -1775,10 +1839,7 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
    for(const id of collected)selected.add(id);
    await load();
   });
-  button(bar,'移动到文件夹',()=>openMoveFolderDialog(visibleCards.filter(c=>selected.has(c.id))),!selected.size);
-  button(bar,msg('common.favorite'),async()=>{for(const c of visibleCards.filter(c=>selected.has(c.id))){await write('/asset-cards/favorite',{asset_id:c.id,active:true},'favorite:'+c.id);if(!live())return;}await load();},!selected.size);
-  button(bar,msg('ui.move_to_recycle_bin_337'),()=>recycle(visibleCards.filter(c=>selected.has(c.id))),!selected.size);
-  button(bar,msg('common.cancel'),()=>{batchMode=false;selected.clear();load();});
+  button(bar,msg('common.favorite'),async()=>{for(const c of visibleCards.filter(c=>selected.has(c.id))){await write('/asset-cards/favorite',{asset_id:c.id,active:true},'favorite:'+c.id,c.project_id||projectId);if(!live())return;}await load();},!selected.size);
   root.append(bar);
  }
 
@@ -1805,8 +1866,15 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
   }
 
   const toolbar=el('div',null,'asset-card-toolbar'),project=field(toolbar,msg('common.project'),'','select');
+  project.append(localizedOption('__all__','所有项目'));
   for(const p of ctx.projects())if(!p.unavailable)project.append(localizedOption(p.id,p.name));
-  project.value=projectId;project.onchange=()=>ctx.navigate('assets',null,project.value);project.parentElement.className='asset-card-project';
+  project.value=allProjects?'__all__':projectId;
+  project.onchange=()=>{
+   if(project.value==='__all__'){allProjects=true;folderId='';offset=0;selected.clear();return load();}
+   allProjects=false;
+   return ctx.navigate('assets',null,project.value);
+  };
+  project.parentElement.className='asset-card-project';
 
   const categories=el('nav',null,'asset-card-categories');
   for(const [value,title]of [['',msg('common.all')],['character','人设'],['location',msg('asset.scene')],['prop',msg('asset.prop')],['blocking',msg('gallery.blocking')],['voice','音频']]){
@@ -1824,17 +1892,17 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
 
   const sortSelect=field(toolbar,'排序','','select');
   sortSelect.parentElement.className='asset-card-sort';
-  for(const [val,lbl]of [['','最新更新'],['name_asc','名称 A-Z'],['name_desc','名称 Z-A']]){
+  for(const [val,lbl]of [['updated_desc','最近更新'],['name_asc','名称正序'],['name_desc','名称倒序']]){
    sortSelect.append(localizedOption(val,lbl));
   }
   sortSelect.value=orderBy;
   sortSelect.onchange=()=>{orderBy=sortSelect.value;offset=0;load();};
 
   toolbar.append(count);
-  if(mode==='project'&&!folderId){
+  if(mode==='project'&&!folderId&&!allProjects){
    button(toolbar,'新建文件夹',()=>openFolderDialog());
   }
-  const batch=button(toolbar,'批量操作',()=>{batchMode=!batchMode;selected.clear();return load();},mode!=='project');
+  const batch=button(toolbar,batchMode?'退出批量操作':'批量操作',()=>{batchMode=!batchMode;selected.clear();return load();},mode!=='project');
   batch.setAttribute('aria-pressed',String(batchMode));
   button(toolbar,'批量导入',()=>batchImport());
 
@@ -1884,9 +1952,24 @@ export async function mountAssetCards(root,ctx,{projectId,objectId=null,isCurren
     if(!items.length)grid.append(el('p',msg('ui.choose_reference_in_episodes_from_a_project_asset_first'),'asset-card-empty'));
     return;
    }
-   const listParams={query,asset_kind:kind,...projectAssetCategoryParams(kind),offset:String(offset),limit:'24',favorites:String(favorite)};
+   const listParams={query,asset_kind:kind,...projectAssetCategoryParams(kind),offset:String(offset),limit:'24',favorites:String(favorite),order_by:orderBy};
+   if(allProjects){
+    const data=await ctx.api('/api/v1/account/project-asset-cards?'+new URLSearchParams(listParams));
+    if(!live()||read!==serial)return;
+    visibleCards=data.items||[];
+    setText(count,'共'+(data.total??visibleCards.length)+'个资产');
+    for(const c of visibleCards)cardView(c,grid);
+    drawBatchBar();
+    if((data.total??0)>24){
+     const paging=el('div',null,'asset-card-pagination');
+     button(paging,msg('common.previous_page'),()=>{offset=Math.max(0,offset-24);selected.clear();load();},offset===0);
+     paging.append(el('span',msg('ui.value0_items_in_total',{value0:data.total})));
+     button(paging,msg('common.next_page'),()=>{offset=data.next_offset;selected.clear();load();},data.next_offset==null);
+     root.append(paging);
+    }
+    return;
+   }
    if(folderId)listParams.folder_id=folderId;
-   if(orderBy)listParams.order_by=orderBy;
    const data=await ctx.api(base()+'/asset-cards?'+new URLSearchParams(listParams));
    if(!live()||read!==serial)return;
    update(data.revision);

@@ -75,6 +75,7 @@ class AssetCardsServiceMixin:
         offset=0,
         limit=24,
         actor=None,
+        order_by='updated_desc',
     ):
         if folder_id:
             raise ResourceError(
@@ -100,6 +101,7 @@ class AssetCardsServiceMixin:
             or offset < 0
             or type(limit) is not int
             or not 1 <= limit <= 100
+            or order_by not in ORDER_BY_VALUES
         ):
             raise ResourceError('跨项目资产筛选或分页无效', 'invalid_input', 422)
         return self._asset_cards().list_authorized_project_asset_cards(
@@ -114,6 +116,7 @@ class AssetCardsServiceMixin:
             offset=offset,
             limit=limit,
             actor=actor,
+            order_by=order_by,
         )
 
     def asset_card_options(self, p):

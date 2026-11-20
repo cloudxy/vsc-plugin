@@ -175,6 +175,7 @@ test('all-projects mode loads 30 authorized projects in a single request with cu
     assert.equal(q.get('workspace_id'),'ws-1');
     assert.equal(q.get('favorites'),'true');
     assert.equal(q.get('limit'),'24');
+    assert.equal(q.get('order_by'),'updated_desc');
     const cursor=q.get('cursor');
     if(!cursor){
       return {items:Array.from({length:24},(_,i)=>({...asset(i),project_id:`proj-${i}`,project_name:`短剧项目${i}`,project_revision:1})),
@@ -336,4 +337,46 @@ test('official and shared tabs query their own sources and restore from the URL'
   location.search='?page=asset-center&tab=official';await panel.load();assert.ok(root.querySelector('.center-workbench-official'));
   location.search='?page=asset-center';await panel.load();assert.ok(root.querySelector('.global-asset-grid'));
   panel.suspend();
+});
+
+test('project asset sort defaults to recent updates and the batch bar matches the asset page',async()=>{
+  location.search='?page=assets&project=p1';
+  const calls=[];
+  const api=async url=>{
+    calls.push(url);
+    if(url.endsWith('/asset-card-options'))return {nodes:[],media:[],folders:[],revision:1};
+    if(url.includes('/asset-cards?')||url.includes('/account/project-asset-cards?')){
+      return {items:[{id:'a1',name:'主角',record_kind:'asset',asset_kind:'character',project_id:'p1',forms:[{form_key:'master',name:'默认',version_id:'v1'}]}],folders:[],total:1,next_offset:null,revision:1,authorized_project_count:1};
+    }
+    throw new Error('unexpected '+url);
+  };
+  const root=new Element('main',document);
+  const panel=await mountAssetCards(root,{...context([{id:'p1',name:'短剧'},{id:'p2',name:'另一项目'}],api),setRevision(){},notice(){}},{projectId:'p1'});
+  const sort=root.walk().find(n=>n.getAttribute('aria-label')==='排序');
+  assert.deepEqual(sort.children.map(n=>n.textContent),['最近更新','名称正序','名称倒序']);
+  assert.equal(sort.value,'updated_desc');
+  const listed=calls.find(url=>url.includes('/asset-cards?'));
+  assert.equal(new URL(listed,'http://test').searchParams.get('order_by'),'updated_desc');
+  sort.value='name_asc';await sort.onchange();await settle();
+  assert.equal(new URL(calls.filter(url=>url.includes('/asset-cards?')).at(-1),'http://test').searchParams.get('order_by'),'name_asc');
+  await button(root,'批量操作').onclick();await settle();
+  assert.ok(button(root,'退出批量操作'));
+  assert.ok(button(root,'复制到项目'));
+  assert.ok(button(root,'移入到文件夹'));
+  assert.ok(button(root,'删除'));
+  assert.ok(button(root,'关闭'));
+  assert.match(root.textContent,/全选（已选择 0 项）/);
+  const projectSelect=root.walk().find(n=>n.tagName==='SELECT'&&n.children.some(child=>child.textContent==='所有项目'));
+  projectSelect.value='__all__';await projectSelect.onchange();await settle();
+  const across=calls.filter(url=>url.includes('/account/project-asset-cards?')).at(-1);
+  assert.equal(new URL(across,'http://test').searchParams.get('order_by'),'name_asc');
+  const library=new Element('main',document);
+  location.search='?page=asset-center';
+  const libraryCalls=[];
+  const libraryPanel=createAssetCenter(library,context([{id:'p1',name:'短剧'}],async url=>{libraryCalls.push(url);return {items:[],total:0,next_offset:null,next_cursor:null,authorized_project_count:1,revision:1};}));
+  await libraryPanel.load();await settle();
+  const librarySort=library.walk().find(n=>n.getAttribute('aria-label')==='排序');
+  assert.deepEqual(librarySort.children.map(n=>n.textContent),['最近更新','名称正序','名称倒序']);
+  assert.match(libraryCalls[0],/order_by=updated_desc/);
+  panel.suspend();libraryPanel.suspend();
 });
