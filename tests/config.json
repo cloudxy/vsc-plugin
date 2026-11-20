@@ -2177,6 +2177,13 @@
         "migrations/postgres/versions/0047_professional_inputs.py"
       ]
     },
+    "project.unit.test_intelligent_script_limit": {
+      "owner": "project",
+      "layer": "unit",
+      "sources": [
+        "src/vsc/production/intelligent_production.py"
+      ]
+    },
     "project.unit.test_intelligent_batch_progress": {
       "owner": "project",
       "layer": "unit",
