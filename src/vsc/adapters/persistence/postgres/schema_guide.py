@@ -89,8 +89,8 @@ def install_guide_schema(metadata):
         Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
         Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("now()")),
         PrimaryKeyConstraint("id"),
-        UniqueConstraint("slug", name="uq_guide_highlights_slug"),
-        Index("ix_guide_highlights_order", "online_date", "sort_order"))
+        UniqueConstraint("slug", name="uq_guide_highlights_slug"))
+    Index("ix_guide_highlights_order", highlights.c.online_date.desc(), highlights.c.sort_order)
 
     return {"guide_boards": boards, "guide_documents": documents, "guide_sections": sections,
             "guide_images": images, "guide_replies": replies,
