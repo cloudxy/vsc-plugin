@@ -82,7 +82,8 @@ export function createFeaturedShowcase(root, {api, notice}) {
       hasMore = !!data.hasMore;
       items = reset ? (data.items || []) : items.concat(data.items || []);
       offset = items.length;
-      render();
+      if (reset || !root.querySelector(".fs-grid")) render();
+      else appendCards();
     } catch (error) {
       if (current !== version) return;
       notice(error.message || "创作精选读取失败");
@@ -141,13 +142,36 @@ export function createFeaturedShowcase(root, {api, notice}) {
     root.append(grid);
     const more = el("div", "fs-more", hasMore ? "继续加载" : `共 ${total} 个作品`);
     root.append(more);
-    if (hasMore && typeof IntersectionObserver === "function") {
-      const current = version;
-      observer = new IntersectionObserver(entries => {
-        if (current === version && entries.some(entry => entry.isIntersecting)) fetchPage(false);
-      }, {rootMargin: "400px"});
-      observer.observe(more);
+    watchMore();
+  }
+
+  function scroller() {
+    return typeof root.closest === "function" ? root.closest(".workspace") : null;
+  }
+
+  function watchMore() {
+    observer?.disconnect();
+    observer = null;
+    const more = root.querySelector(".fs-more");
+    if (!more || !hasMore || typeof IntersectionObserver !== "function") return;
+    const current = version;
+    const scrollRoot = scroller();
+    observer = new IntersectionObserver(entries => {
+      if (current === version && entries.some(entry => entry.isIntersecting)) fetchPage(false);
+    }, scrollRoot ? {root: scrollRoot, rootMargin: "400px"} : {rootMargin: "400px"});
+    observer.observe(more);
+  }
+
+  function appendCards() {
+    const grid = root.querySelector(".fs-grid");
+    if (!grid) {
+      render();
+      return;
     }
+    for (const card of items.slice(grid.childElementCount)) grid.append(cardView(card));
+    const more = root.querySelector(".fs-more");
+    if (more) more.textContent = hasMore ? "继续加载" : `共 ${total} 个作品`;
+    watchMore();
   }
 
   function cardView(card) {
@@ -161,10 +185,14 @@ export function createFeaturedShowcase(root, {api, notice}) {
     play.setAttribute("aria-label", "播放 " + (card.name || "成片"));
     const image = el("img", "fs-still");
     image.alt = card.name || "作品封面";
-    image.src = card.coverUrl || "";
+    if (card.coverUrl) image.src = card.coverUrl;
+    else image.hidden = true;
     if (card.hoverCoverUrl) {
-      cover.addEventListener("pointerenter", () => { image.src = card.hoverCoverUrl; });
-      cover.addEventListener("pointerleave", () => { image.src = card.coverUrl || ""; });
+      cover.addEventListener("pointerenter", () => { image.hidden = false; image.src = card.hoverCoverUrl; });
+      cover.addEventListener("pointerleave", () => {
+        if (card.coverUrl) image.src = card.coverUrl;
+        else { image.removeAttribute("src"); image.hidden = true; }
+      });
     }
     play.append(image);
     const viral = viralLabel(card);

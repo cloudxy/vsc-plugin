@@ -391,6 +391,7 @@ class FeaturedShowcaseTests(unittest.TestCase):
         self.assertIn('id="community-view"', html)
         self.assertIn('id="nav-featured-showcase"', html)
         self.assertIn('id="featured-showcase-view"', html)
+        self.assertIn('href="/static/featured-showcase.css"', html)
         self.assertIn("'featured-showcase'", panel)
         self.assertIn("createFeaturedShowcase", panel)
         app = (ROOT / "src/vsc/interfaces/web/app.py").read_text(encoding="utf-8")
