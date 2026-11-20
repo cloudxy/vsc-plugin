@@ -1217,17 +1217,17 @@ $('help-feedback')?.addEventListener('click',guard(async()=>{closeHelp();await n
 $('help-network')?.addEventListener('click',guard(async()=>{closeHelp();await navigateModule('service-operations','network-diagnostic');}));
 $('team-review-open').addEventListener('click',guard(()=>switchView('team-review')));
 let emptyCanvasOpening=null;
-async function createEmptyCanvasProject({isCurrent=()=>true,aiMv=false}={}){
+async function createEmptyCanvasProject({isCurrent=()=>true,aiMv=false,homeExample=''}={}){
   const identity=state.identityId||state.actor,actor=state.actor,current=()=>isCurrent()&&identity===(state.identityId||state.actor)&&actor===state.actor;
   if(!actor||!state.writeAvailable)throw new Error('当前会话不能创建项目');
   if(emptyCanvasOpening?.identity===identity)return;
   const operation={identity};emptyCanvasOpening=operation;const button=$('new-canvas-project');button.disabled=true;
-  const storageKey='vsc-empty-canvas:'+actor+(aiMv?':ai-mv':'');let key='';try{key=sessionStorage.getItem(storageKey)||'';}catch{}
+  const storageKey='vsc-empty-canvas:'+actor+(aiMv?':ai-mv':'')+(homeExample?':'+homeExample:'');let key='';try{key=sessionStorage.getItem(storageKey)||'';}catch{}
   if(!key){key=crypto.randomUUID();try{sessionStorage.setItem(storageKey,key);}catch{}}
   try{
     const result=await api('/api/v1/projects/empty-canvas',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},body:JSON.stringify({payload:{mode:'empty_canvas'},idempotency_key:key,workspace_id:null})});
     if(!current())return;
-    setEntryOptions('creative-canvas',result.project_id,null,{episode:result.episode_id,task_target:result.canvas_id,...(aiMv?{ai_mv:'1'}:{})});episodeScope=result.episode_id;state.object=null;state.view='creative-canvas';state.project=result.project_id;await loadProjects();
+    setEntryOptions('creative-canvas',result.project_id,null,{episode:result.episode_id,task_target:result.canvas_id,...(aiMv?{ai_mv:'1'}:{}),...(homeExample?{home_example:homeExample}:{})});episodeScope=result.episode_id;state.object=null;state.view='creative-canvas';state.project=result.project_id;await loadProjects();
     if(identity===(state.identityId||state.actor)&&actor===state.actor){try{sessionStorage.removeItem(storageKey);}catch{}}
   }finally{if(emptyCanvasOpening===operation){emptyCanvasOpening=null;button.disabled=false;}}
 }
