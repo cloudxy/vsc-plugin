@@ -549,7 +549,7 @@ test('09G agent panel: session rename, auto-approve, archive filter, and queue e
     },
   });
 
-  await f.root.querySelectorAll('button').find(b => b.getAttribute('aria-label') === '画布 Agent').fire('click');
+  await f.root.querySelector('.cc-agent-toggle').fire('click');
   const agent = f.root.querySelector('.cc-agent');
   assert.ok(agent);
 

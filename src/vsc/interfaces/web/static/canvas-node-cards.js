@@ -714,7 +714,7 @@ function beginDrag(s, api, spec, event, dragged) {
   window.addEventListener('pointerup', up);
 }
 
-function beginRename(s, api, node) {
+export function beginRename(s, api, node) {
   if (s.readOnly) return;
   const card = [...(s.world?.querySelectorAll('.cc-node') || [])].find(item => item.dataset.nodeId === node.id);
   const head = card?.querySelector('.cc-node-head');

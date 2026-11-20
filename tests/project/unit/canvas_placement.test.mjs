@@ -447,7 +447,7 @@ test('AI MV music retains the original canvas save request after a lost response
 
 test('opening Agent on AI MV selects the installed MV skill and preserves a manual selection on reopening',async()=>{
  const writes=[];const a=await fixture({search:'?ai_mv=1',apiOverride:async(path,request)=>{if(request?.method)writes.push({path,request});if(path.endsWith('/creative-canvas-agent-options'))return {revision:1,host_available:true,nodes:[],models:[],skills:[{id:'image-generation',name:'Image',description:''},{id:'ai-mv-production',name:'AI MV Production',description:''}]};}});
- const agent=a.root.querySelectorAll('button').find(n=>n.attrs['aria-label']==='画布 Agent'||n.textContent==='画布 Agent');assert.ok(agent);await agent.fire('click');
+ const agent=a.root.querySelector('.cc-agent-toggle');assert.ok(agent);await agent.fire('click');
  let skill=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='画布技能');assert.equal(skill.value,'ai-mv-production');assert.equal(writes.length,0);
  skill.value='image-generation';await skill.fire('change');await a.root.querySelectorAll('button').find(n=>n.attrs['aria-label']==='关闭 Agent').fire('click');await agent.fire('click');skill=a.root.querySelectorAll('select').find(n=>n.attrs['aria-label']==='画布技能');assert.equal(skill.value,'image-generation');assert.equal(writes.length,0);
 });

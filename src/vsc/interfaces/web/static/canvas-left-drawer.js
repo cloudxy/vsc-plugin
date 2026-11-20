@@ -7,6 +7,7 @@ export const DRAWER_MAX_WIDTH=720;
 export const DRAWER_WIDTH_STEP=24;
 export const DRAWER_WIDTH_KEY='vsc-canvas-left-drawer-width';
 export const SIDEBAR_WIDTH_KEY='sidebarWidth';
+export const RAIL_COLLAPSED_KEY='vsc-canvas-rail-collapsed';
 export const HISTORY_SELECTION_LIMIT=100;
 export const HISTORY_PAGE_SIZE=24;
 
@@ -237,6 +238,8 @@ const RAIL_ICONS={
   shortcuts:'M4 7h16v10H4zM8 11h.01M12 11h.01M16 11h.01M8 15h8',
   guide:'M4 5.5h6.5A2.5 2.5 0 0 1 13 8v11a2.5 2.5 0 0 0-2.5-2.5H4zM20 5.5h-6.5A2.5 2.5 0 0 0 11 8v11a2.5 2.5 0 0 1 2.5-2.5H20z',
   pointer:'M5 3l6.5 16 1.8-6.2L20 11z',
+  collapse:'M15 6l-6 6 6 6',
+  expand:'M9 6l6 6-6 6',
 };
 const NODE_LABELS={text:'文本',image:'图片',video:'视频',edit:'视频剪辑','director-stage':'导演台','3d-preview':'3D预演',director:'站位导演台',spatial:'三维预演',audio:'音频'};
 const ASSET_KIND_NAMES={character:'人设',location:'场景',prop:'道具',blocking:'站位',voice:'音频',style:'风格',costume:'服装',object:'道具',creature:'生物',vehicle:'载具',plant:'植物'};
@@ -284,9 +287,18 @@ export function mountCanvasLeftChrome(s,deps){
     iconButton('assets','资产库',RAIL_ICONS.assets,()=>openAssets()),
     iconButton('shortcuts','快捷键',RAIL_ICONS.shortcuts,()=>openShortcuts()),
     iconButton('guide','创作指引',RAIL_ICONS.guide,()=>deps.openGuide()),
-    iconButton('pointer','指针/抓手',RAIL_ICONS.pointer,()=>deps.togglePointer()),
+    iconButton('pointer','鼠标点选模式',RAIL_ICONS.pointer,()=>deps.togglePointer()),
   );
   buttons.pointer.classList.add('cld-pointer');
+  const retract=panel=>{
+    const button=deps.button(s,'收起侧边栏',()=>{panel.remove();setPressed('');create.hidden=true;});
+    button.classList.add('cld-retract');
+    deps.bindAttribute(button,'aria-label','收起侧边栏');
+    button.title='收起侧边栏';
+    const label=doc.createElement('span');label.textContent='收起';
+    button.replaceChildren(svgIcon(doc,RAIL_ICONS.collapse),label);
+    return button;
+  };
 
   create.append(deps.el('h3','添加节点'));
   const extra=deps.el('details');extra.append(deps.el('summary','更多工具'));
@@ -306,7 +318,7 @@ export function mountCanvasLeftChrome(s,deps){
   const addSpecial=(titleText,subkind,extraParams={},groupName='')=>{
     const button=deps.button(s,'添加'+titleText,()=>{create.hidden=true;deps.change(()=>{
       const id=deps.newId();
-      const point=s.createPoint||{x:100+s.document.nodes.length%4*280,y:140+Math.floor(s.document.nodes.length/4)*230};
+      const point=s.createPoint||{x:100+s.document.nodes.length%4*300,y:140+Math.floor(s.document.nodes.length/4)*360};
       s.createPoint=null;
       s.document.nodes.push({id,type:'text',title:titleText,x:point.x,y:point.y,text:'',params:{canvas_subkind:subkind,...extraParams},media_id:null,job_id:null,group:groupName});
       s.selected=new Set([id]);
@@ -344,13 +356,22 @@ export function mountCanvasLeftChrome(s,deps){
     return resizer;
   }
   function openBrowser(tab){
-    create.hidden=true;deps.closeSurfaces();setPressed(tab==='history'?'history':'elements');
-    const panel=mountBrowserDrawer(s,deps,{initialTab:tab,attachResizer});
-    s.root.append(panel);return panel.refresh();
+    const active=tab==='history'?'history':'elements';
+    const existing=s.root.querySelector('.cld-elements');
+    if(existing&&existing.dataset.cldActive===active){existing.remove();setPressed('');return;}
+    create.hidden=true;deps.closeSurfaces();setPressed(active);
+    const panel=mountBrowserDrawer(s,deps,{initialTab:tab,attachResizer,retract});
+    s.root.append(panel);
+    const ready=panel.refresh();
+    const target=s.document.nodes.find(node=>s.selected.has(node.id))||s.document.nodes[0];
+    if(target)deps.revealNode?.(target);
+    return ready;
   }
   function openAssets(){
+    const existing=s.root.querySelector('.cld-assets');
+    if(existing){existing.remove();setPressed('');return;}
     create.hidden=true;deps.closeSurfaces();setPressed('assets');
-    const panel=mountAssetDrawer(s,deps,{attachResizer});
+    const panel=mountAssetDrawer(s,deps,{attachResizer,retract});
     s.root.append(panel);return panel.refresh();
   }
   function openShortcuts(){
@@ -389,7 +410,7 @@ function mountShortcutPanel(s,deps){
   return panel;
 }
 
-function mountBrowserDrawer(s,deps,{initialTab,attachResizer}){
+function mountBrowserDrawer(s,deps,{initialTab,attachResizer,retract}){
   const panel=deps.el('section',null,'cc-elements cc-side-panel cld-drawer cld-elements');
   panel.dataset.cldDrawer='elements';
   const tabs=deps.el('nav',null,'cc-drawer-tabs');
@@ -407,7 +428,7 @@ function mountBrowserDrawer(s,deps,{initialTab,attachResizer}){
   let hidden=readHiddenIds(storageGet(hiddenKey));
   const tabElements=deps.button(s,'画布元素',()=>{activeTab='elements';batch=false;selected=new Set();return render();});
   const tabHistory=deps.button(s,'历史记录',()=>{activeTab='history';offset=0;return render();});
-  tabs.append(tabElements,tabHistory);
+  tabs.append(tabElements,tabHistory,retract(panel));
   const search=deps.input('搜索节点名称','');
   search.type='search';
   deps.bindAttribute(search,'placeholder','搜索节点名称');
@@ -428,14 +449,32 @@ function mountBrowserDrawer(s,deps,{initialTab,attachResizer}){
       return typeOk&&(!q||String(node.title||'').includes(q)||String(node.text||'').includes(q));
     });
     for(const node of matches){
-      const card=deps.button(s,node.title||deps.types[node.type]?.label||'节点',()=>{
-        s.selected=new Set([node.id]);
-        if(s.stage){const z=s.document.viewport.zoom||1,ox=s.displayOffset?.x||80,oy=s.displayOffset?.y||48;s.stage.scrollLeft=Math.max(0,(node.x+ox)*z-180);s.stage.scrollTop=Math.max(0,(node.y+oy)*z-120);}
-        deps.draw();
+      const title=node.title||deps.types[node.type]?.label||'节点';
+      const card=deps.el('article',null,'cc-element-card');
+      card.dataset.nodeType=node.type;
+      const reveal=()=>{s.selected=new Set([node.id]);deps.revealNode?.(node);deps.draw();};
+      const locate=deps.button(s,'',reveal);
+      deps.bindAttribute(locate,'aria-label','定位'+title);
+      const open=deps.button(s,title,reveal);
+      const moreWrap=deps.el('span',null,'cld-more');
+      const more=deps.button(s,'',()=>{
+        const existing=moreWrap.querySelector('.cld-more-menu');
+        list.querySelectorAll('.cld-more-menu').forEach(menu=>menu.remove());
+        if(existing)return;
+        const menu=deps.el('div',null,'cld-more-menu');
+        menu.setAttribute('role','menu');
+        const rename=deps.button(s,'重命名',()=>{menu.remove();deps.renameNode?.(node);});
+        const copy=deps.button(s,'复制',()=>{menu.remove();deps.duplicateNode?.(node);return render();});
+        rename.setAttribute('role','menuitem');copy.setAttribute('role','menuitem');
+        menu.append(rename,copy);moreWrap.append(menu);
       });
-      card.className='cc-element-card';card.dataset.nodeType=node.type;
+      deps.bindAttribute(more,'aria-label','更多操作');
+      more.setAttribute('aria-haspopup','menu');
+      moreWrap.append(more);
       const thumb=deps.el('span',deps.types[node.type]?.label||node.type,'cc-element-thumb');
-      card.prepend(thumb);list.append(card);
+      const row=deps.el('div',null,'cld-element-row');
+      row.append(open,moreWrap);
+      card.append(thumb,locate,row);list.append(card);
     }
     if(!list.children.length)list.append(deps.el('p',matches.length||s.document.nodes.length?deps.msg('ui.no_nodes'):deps.msg('ui.no_nodes'),'cc-panel-empty'));
   }
@@ -581,7 +620,7 @@ function mountBrowserDrawer(s,deps,{initialTab,attachResizer}){
   return panel;
 }
 
-function mountAssetDrawer(s,deps,{attachResizer}){
+function mountAssetDrawer(s,deps,{attachResizer,retract}){
   const panel=deps.el('section',null,'cc-assets cc-side-panel cld-drawer cld-assets');
   panel.dataset.cldDrawer='assets';
   const head=deps.el('header');
@@ -595,7 +634,7 @@ function mountAssetDrawer(s,deps,{attachResizer}){
   const add=deps.el('a','＋','cc-assets-new');
   add.href='/?'+new URLSearchParams({page:'assets',project:s.project});
   deps.bindAttribute(add,'aria-label',deps.msg('asset.create_asset'));
-  head.append(projectTab,officialTab,storyTab,add);
+  head.append(projectTab,officialTab,storyTab,add,retract(panel));
   function recovery(){
     if(s.libraryPending){
       const box=deps.el('div',null,'cc-assets-recovery');

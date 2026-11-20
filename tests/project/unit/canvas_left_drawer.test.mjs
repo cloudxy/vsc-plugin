@@ -93,6 +93,7 @@ class Element {
   get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
   append(...nodes) { for (const node of nodes) { node.remove(); node.parentElement = this; this.children.push(node); } }
   prepend(...nodes) { for (const node of nodes.reverse()) { node.remove(); node.parentElement = this; this.children.unshift(node); } }
+  insertBefore(node, before) { node.remove(); node.parentElement = this; const index = this.children.indexOf(before); if (index < 0) this.children.push(node); else this.children.splice(index, 0, node); }
   remove() { if (this.parentElement) { this.parentElement.children = this.parentElement.children.filter(item => item !== this); this.parentElement = null; } }
   replaceChildren(...nodes) { for (const child of [...this.children]) child.remove(); this._text = ''; this.append(...nodes); }
   setAttribute(key, value) { this.attrs[key] = value; }
@@ -172,7 +173,7 @@ const buttonByLabel = (root, label) => root.querySelectorAll('button').find(butt
 test('left rail, add menu and shortcut panel follow the reference order', async () => {
   const view = await fixture();
   const labels = view.root.querySelector('.cc-rail').querySelectorAll('button').map(button => button.getAttribute('aria-label'));
-  assert.deepEqual(labels, ['添加节点', '画布元素', '历史记录', '资产库', '快捷键', '创作指引', '指针/抓手']);
+  assert.deepEqual(labels, ['添加节点', '画布元素', '历史记录', '资产库', '快捷键', '创作指引', '鼠标点选模式']);
   assert.equal(view.root.querySelector('.cc-rail').querySelectorAll('button').some(button => button.getAttribute('aria-label') === '浏览固定画布模板'), false);
   assert.match(view.root.querySelector('.cc-more-menu').textContent, /浏览固定画布模板/);
   const add = buttonByLabel(view.root, '添加节点');
@@ -192,6 +193,40 @@ test('left rail, add menu and shortcut panel follow the reference order', async 
   assert.match(panel.textContent, /合并分镜组/);
   assert.match(panel.textContent, /整理画布/);
   assert.ok(panel.textContent.includes('⌘'));
+  view.canvas.suspend();
+});
+
+test('locating a canvas element pans that node clear of the drawer', async () => {
+  const view = await fixture();
+  await buttonByLabel(view.root, '画布元素').fire('click');
+  const locate = buttonByLabel(view.root, '定位主画面');
+  assert.ok(locate);
+  await locate.fire('click');
+  assert.equal(view.root.querySelector('.cc-world').style.transform, 'translate(435px,0px) scale(1)');
+  await buttonByLabel(view.root, '画布元素').fire('click');
+  assert.equal(view.root.querySelector('.cld-elements'), null);
+  view.canvas.suspend();
+});
+
+test('element card more menu renames and copies the node', async () => {
+  const view = await fixture();
+  await buttonByLabel(view.root, '画布元素').fire('click');
+  await buttonByLabel(view.root, '更多操作').fire('click');
+  const menu = view.root.querySelector('.cld-more-menu');
+  assert.deepEqual([...menu.querySelectorAll('button')].map(button => button.textContent), ['重命名', '复制']);
+  await menu.querySelectorAll('button').find(button => button.textContent === '重命名').fire('click');
+  const field = view.root.querySelector('.a1-rename');
+  assert.equal(field.value, '主画面');
+  field.value = '主画面改名';
+  await field.fire('keydown', {key: 'Enter'});
+  assert.equal(JSON.parse([...view.store.values()].find(value => String(value).includes('主画面改名'))).document.nodes[0].title, '主画面改名');
+  await buttonByLabel(view.root, '更多操作').fire('click');
+  await view.root.querySelector('.cld-more-menu').querySelectorAll('button').find(button => button.textContent === '复制').fire('click');
+  const nodes = JSON.parse([...view.store.values()].find(value => String(value).includes('主画面改名'))).document.nodes;
+  assert.equal(nodes.length, 2);
+  assert.equal(nodes.filter(node => node.title === '主画面改名').length, 2);
+  await buttonByLabel(view.root, '鼠标点选模式').fire('click');
+  assert.deepEqual([...view.root.querySelector('.cc-mouse-menu').querySelectorAll('button')].map(button => button.textContent), ['鼠标点选', '移动画布']);
   view.canvas.suspend();
 });
 
