@@ -91,6 +91,29 @@ test('move controls reorder only matching unit types even when their data are in
 });
 
 
+test('a cached removed script stage opens on video and the next step continues',async()=>{
+ const {root,panel,requests}=await fixture({configure({memory}){memory.set('vsc-intelligent-draft:p:w:stage',JSON.stringify('script'));}});
+ try{
+  assert.equal(root.dataset.stage,'video');
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');
+  await next.click();
+  assert.equal(root.dataset.stage,'preview');
+  assert.equal(requests.some(row=>row.init?.method==='PUT'),false);
+ }finally{panel.suspend();}
+});
+
+test('next step from the hidden script stage moves to video',async()=>{
+ const {root,panel,stage,requests}=await fixture();
+ try{
+  await stage('script').click();
+  assert.equal(root.dataset.stage,'script');
+  const next=root.querySelectorAll('button').find(button=>button.getAttribute('aria-label')==='下一步');
+  await next.click();
+  assert.equal(root.dataset.stage,'video');
+  assert.equal(requests.some(row=>row.init?.method==='PUT'),false);
+ }finally{panel.suspend();}
+});
+
 test('next step without edits navigates once and does not create a new version',async()=>{
  const {root,panel,requests}=await fixture();
  try{

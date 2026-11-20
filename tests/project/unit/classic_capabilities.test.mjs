@@ -123,6 +123,16 @@ test('empty image storyboard shows the sky composer actions without creating a s
   const text = f.root.textContent;
   for (const label of ['批量上传分镜','参考图','智能引用','翻译','优化','智能识别','PNG','标准 · 2K · 自动 · 9:16 · 1','生成','全部','收藏','本地','共 0 条结果']) assert.ok(text.includes(label), label);
   assert.ok([...f.root.querySelectorAll('button')].some(node => node.getAttribute('aria-label') === '输出格式'));
+  const filters = f.root.querySelector('.classic-result-filters');
+  const tab = name => [...filters.querySelectorAll('button')].find(node => node.textContent === name);
+  assert.equal(tab('全部').getAttribute('aria-pressed'), 'true');
+  await tab('收藏').click();
+  assert.equal(tab('收藏').getAttribute('aria-pressed'), 'true');
+  assert.equal(tab('全部').getAttribute('aria-pressed'), 'false');
+  assert.ok(f.root.textContent.includes('暂无数据'));
+  await tab('本地').click();
+  assert.equal(tab('本地').getAttribute('aria-pressed'), 'true');
+  assert.ok(tab('本地').getAttribute('title').includes('原上传或导入记录'));
   assert.equal(f.requests.some(request => request.init?.method && request.init.method !== 'GET'), false);
   f.app.suspend();
 });

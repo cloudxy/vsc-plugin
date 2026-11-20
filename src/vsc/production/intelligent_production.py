@@ -63,7 +63,7 @@ def normalize_unit(value):
 
 def normalize_document(value):
     if not isinstance(value,dict) or set(value)-{'script_text','template_key','template_text','skip_blocking_reason','notes','unit_conditions','unit_assets'}:fail('流程正文包含未知字段')
-    r={k:text_value(value.get(k,''),50000 if k=='script_text' else 20000) for k in ('script_text','template_text','skip_blocking_reason','notes')}
+    r={k:text_value(value.get(k,''),10000 if k=='script_text' else 20000) for k in ('script_text','template_text','skip_blocking_reason','notes')}
     r['template_key']=value.get('template_key','cinematic')
     if r['template_key'] not in TEMPLATES:fail('模板未知')
     if 'template_text' not in value:r['template_text']=TEMPLATES[r['template_key']]['text']

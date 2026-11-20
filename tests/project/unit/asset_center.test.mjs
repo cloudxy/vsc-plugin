@@ -380,3 +380,59 @@ test('project asset sort defaults to recent updates and the batch bar matches th
   assert.match(libraryCalls[0],/order_by=updated_desc/);
   panel.suspend();libraryPanel.suspend();
 });
+
+test('all-projects edit and delete use the card project',async()=>{
+  location.search='?page=assets&project=p1';
+  const calls=[];
+  const foreign={id:'foreign',name:'外项目角色',record_kind:'asset',asset_kind:'character',project_id:'p2',revision:2,forms:[{form_key:'master',name:'默认',version_id:'v1'}]};
+  const api=async(url,init)=>{
+    calls.push({url,method:init?.method||'GET'});
+    if(url.includes('/asset-card-options'))return {nodes:[],media:[],voices:[],folders:[],revision:1};
+    if(url.includes('/production-platform'))return {revision:4};
+    if(url.includes('/resource-model/'))return {};
+    if(url.includes('/account/project-asset-cards'))return {items:[foreign],total:1,next_offset:null,revision:1,authorized_project_count:2};
+    if(url.includes('/asset-cards'))return {items:[],folders:[],total:0,next_offset:null,revision:1};
+    if(init?.method==='POST')return {revision:5,id:foreign.id};
+    throw new Error('unexpected '+url);
+  };
+  const root=new Element('main',document);
+  const panel=await mountAssetCards(root,{...context([{id:'p1',name:'当前'},{id:'p2',name:'另一项目'}],api),setRevision(){},notice(){},session:()=>({actor:'tester',csrf:'token',revision:1})},{projectId:'p1'});
+  const projectSelect=root.walk().find(n=>n.tagName==='SELECT'&&n.children.some(child=>child.textContent==='所有项目'));
+  projectSelect.value='__all__';await projectSelect.onchange();await settle();
+  const menu=root.querySelector('.asset-card-menu');
+  await menu.walk().find(n=>n.tagName==='BUTTON'&&n.textContent==='编辑').onclick();
+  await root.walk().find(n=>n.tagName==='BUTTON'&&n.textContent==='保存资产卡').onclick();
+  assert.ok(calls.some(call=>call.method==='POST'&&call.url==='/api/v1/projects/p2/asset-cards'));
+  await root.walk().find(n=>n.tagName==='BUTTON'&&n.textContent==='删除').onclick();
+  assert.ok(calls.some(call=>call.url==='/api/v1/projects/p2/resource-model/identities/foreign/usage'));
+  assert.equal(calls.some(call=>call.url.includes('/projects/p1/resource-model/')),false);
+  await root.walk().find(n=>n.tagName==='BUTTON'&&n.textContent==='确认移入回收').onclick();
+  assert.ok(calls.some(call=>call.method==='POST'&&call.url==='/api/v1/projects/p2/management'));
+  panel.suspend();
+});
+
+test('select all pages includes cards that are not on the current page',async()=>{
+  location.search='?page=assets&project=p1';
+  const calls=[];
+  const cards=[{id:'a1',name:'第一页',record_kind:'asset',asset_kind:'character',project_id:'p1',forms:[]},{id:'a2',name:'第二页',record_kind:'asset',asset_kind:'character',project_id:'p1',forms:[]}];
+  const api=async url=>{
+    calls.push(url);
+    if(url.endsWith('/asset-card-options'))return {nodes:[],media:[],folders:[],revision:1};
+    if(url.includes('/resource-model/'))return {};
+    if(url.includes('/asset-cards?')){
+      const params=new URL(url,'http://test').searchParams;
+      const items=params.get('limit')==='100'?cards:[cards[0]];
+      return {items,folders:[],total:2,next_offset:params.get('limit')==='100'?null:24,revision:1};
+    }
+    throw new Error('unexpected '+url);
+  };
+  const root=new Element('main',document);
+  const panel=await mountAssetCards(root,{...context([{id:'p1',name:'短剧'}],api),setRevision(){},notice(){}},{projectId:'p1'});
+  await button(root,'批量操作').onclick();await settle();
+  await button(root,'全选所有页').onclick();await settle();
+  assert.match(root.textContent,/全选（已选择 2 项）/);
+  await button(root,'删除').onclick();await settle();
+  const usage=calls.filter(url=>url.includes('/resource-model/identities/'));
+  assert.deepEqual(usage.map(url=>url.split('/identities/')[1].split('/')[0]).sort(),['a1','a2']);
+  panel.suspend();
+});
